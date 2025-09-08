@@ -91,7 +91,7 @@ impl Vector {
         unsafe { &mut *(self.elements.as_mut_ptr().cast::<T>().cast::<[T; N]>()) }
     }
 
-    pub fn as_view_mut(&mut self) -> ViewMut {
+    pub fn as_view_mut<'a>(&'a mut self) -> ViewMut<'a> {
         ViewMut {
             vtype: self.vtype,
             elements: self.elements.as_mut_ptr().cast(),

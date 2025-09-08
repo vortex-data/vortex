@@ -95,6 +95,8 @@ impl<T> Eq for AllOr<T> where T: Eq {}
 ///
 /// A [`Mask`] can be constructed from various representations, and converted to various
 /// others. Internally, these are cached.
+// TODO(joe): do we need hash or can we use something else in `Operator`s?
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Debug, Hash)]
 pub enum Mask {
     /// All values are included.

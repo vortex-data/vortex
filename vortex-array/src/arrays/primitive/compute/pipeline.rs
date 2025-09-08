@@ -190,6 +190,7 @@ impl<T: Element + NativePType> Kernel for NullablePrimitiveKernel<T> {
 mod tests {
     use itertools::Itertools;
     use vortex_buffer::BufferMut;
+    use vortex_dtype::Nullability;
     use vortex_mask::Mask;
 
     use super::*;
@@ -269,12 +270,13 @@ mod tests {
     fn test_nullable_primitive_kernel() {
         // Create a primitive array with values 0..16
         let size = 16;
+        let validity_mask = Mask::from_iter([
+            true, false, true, true, false, true, true, false, true, true, false, true, true,
+            false, true, false,
+        ]);
         let primitive_array = PrimitiveArray::new(
             (0..i32::try_from(size).unwrap()).collect::<Buffer<i32>>(),
-            Validity::from_iter([
-                true, false, true, true, false, true, true, false, true, true, false, true, true,
-                false, true, false,
-            ]),
+            Validity::from_mask(validity_mask.clone(), Nullability::Nullable)
         );
 
         // Create the kernel
@@ -284,24 +286,13 @@ mod tests {
             offset: 0,
         };
 
-        // Create a mask with alternating bits (every other element selected)
         let mask = Mask::AllTrue(size);
         let out = export_canonical_pipeline(primitive_array.dtype(), size, &mut kernel, &mask)
             .unwrap()
             .into_primitive();
 
         let output = out.as_slice::<i32>();
-        println!("out val {:?}", out.validity.to_mask(size).true_count());
-        println!("out {:?}", output);
-
-        // Verify that element 0 was selected (first bit in mask is 1)
-        // assert_eq!(output[0], 0, "First element should be 0 since bit 0 is set");
-
-        // The exact number of selected elements should match our true_count
-        // assert_eq!(
-        //     out.len(),
-        //     size / 2,
-        //     "Selected element count should match true_count"
-        // )
+        assert_eq!(output, (0..i32::try_from(size).unwrap()).collect_vec().as_slice());
+        assert_eq!(out.validity_mask(), validity_mask);
     }
 }
