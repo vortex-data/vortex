@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod compute;
+mod narrow;
 mod ops;
 mod patch;
 mod serde;
@@ -12,6 +13,7 @@ use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_scalar::{DecimalValueType, NativeDecimalType};
 
+pub use crate::arrays::decimal::narrow::narrowed_decimal;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;

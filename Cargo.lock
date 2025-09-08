@@ -7103,6 +7103,7 @@ dependencies = [
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",
+ "vortex-decimal-byte-parts",
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
