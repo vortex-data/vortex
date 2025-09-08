@@ -6,7 +6,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use wasm_bindgen_futures::spawn_local;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
+use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 
 /// A Vortex runtime that drives work in a WebAssembly environment.
 pub struct WasmRuntime;
@@ -28,6 +28,10 @@ impl Runtime<'static> for WasmRuntime {
         //  are aborted before we start running.
         spawn_local(async move { task() });
         Box::new(NoOpAbortHandle)
+    }
+
+    fn spawn_io(&self, task: IoTask<'static>) {
+        spawn_local(task.drive_local());
     }
 }
 

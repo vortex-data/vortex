@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 use smol::{LocalExecutor, block_on};
 use vortex_error::vortex_panic;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
+use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 
 /// A runtime that drives all work on the current thread.
 ///
@@ -20,6 +20,7 @@ use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
 pub struct SingleThreadRuntime<'rt> {
     scheduling: kanal::Sender<SpawnFuture<'rt>>,
     cpu: kanal::Sender<SpawnCpu>,
+    io: kanal::Sender<IoTask<'rt>>,
 }
 
 impl<'rt> SingleThreadRuntime<'rt> {
@@ -29,6 +30,7 @@ impl<'rt> SingleThreadRuntime<'rt> {
     {
         let (scheduling_send, scheduling_recv) = kanal::unbounded::<SpawnFuture<'rt>>();
         let (cpu_send, cpu_recv) = kanal::unbounded::<SpawnCpu>();
+        let (io_send, io_recv) = kanal::unbounded::<IoTask>();
 
         let local = Rc::new(LocalExecutor::new());
 
@@ -61,10 +63,23 @@ impl<'rt> SingleThreadRuntime<'rt> {
             })
             .detach();
 
+        // Drive I/O tasks.
+        let weak_local2 = weak_local;
+        local
+            .spawn(async move {
+                while let Ok(task) = io_recv.as_async().recv().await {
+                    if let Some(local) = weak_local2.upgrade() {
+                        local.spawn(task.drive_local()).detach();
+                    }
+                }
+            })
+            .detach();
+
         (
             Self {
                 scheduling: scheduling_send,
                 cpu: cpu_send,
+                io: io_send,
             },
             local,
         )
@@ -94,7 +109,7 @@ impl<'rt> SingleThreadRuntime<'rt> {
         let stream = f(Handle(Arc::new(rt)));
 
         // SAFETY: The stream contains references to `rt` with lifetime 'rt.
-        // We're transmuting this to 'static, which is sound because:
+        // We're transmuting this to static, which is sound because:
         // 1. Both `rt` and `stream` will be moved into BlockingStream
         // 2. BlockingStream will drop them in the correct order (stream first, then rt)
         // 3. The stream will never outlive the runtime it references
@@ -136,6 +151,12 @@ impl<'rt> Runtime<'rt> for SingleThreadRuntime<'rt> {
             vortex_panic!("Executor missing: {}", e);
         }
         Box::new(SmolAbortHandle { task })
+    }
+
+    fn spawn_io(&self, task: IoTask<'rt>) {
+        if let Err(e) = self.io.send(task) {
+            vortex_panic!("Executor missing: {}", e);
+        }
     }
 }
 

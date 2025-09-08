@@ -15,8 +15,8 @@ use vortex_scalar::{
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
-    BinaryView, BoolArray, ConstantVTable, DecimalArray, ExtensionArray, ListArray, NullArray,
-    StructArray, VarBinViewArray, smallest_storage_type,
+    BinaryView, BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray,
+    ListArray, NullArray, StructArray, VarBinViewArray, smallest_storage_type,
 };
 use crate::builders::builder_with_capacity;
 use crate::validity::Validity;
@@ -37,7 +37,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
 
         match array.dtype() {
             DType::Null => Canonical::Null(NullArray::new(array.len())),
-            DType::Bool(..) => Canonical::Bool(BoolArray::new(
+            DType::Bool(..) => Canonical::Bool(BoolArray::from_bool_buffer(
                 if BoolScalar::try_from(scalar)
                     .vortex_expect("must be bool")
                     .value()
@@ -70,13 +70,27 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 let decimal = scalar.as_decimal();
                 let Some(value) = decimal.decimal_value() else {
                     let all_null = match_each_decimal_value_type!(size, |D| {
-                        DecimalArray::new(Buffer::<D>::zeroed(array.len()), *decimal_type, validity)
+                        // SAFETY: All-null decimal arrays with zeroed buffers and matching validity.
+                        unsafe {
+                            DecimalArray::new_unchecked(
+                                Buffer::<D>::zeroed(array.len()),
+                                *decimal_type,
+                                validity,
+                            )
+                        }
                     });
                     return Canonical::Decimal(all_null);
                 };
 
                 let decimal_array = match_each_decimal_value!(value, |value| {
-                    DecimalArray::new(Buffer::full(value, array.len()), *decimal_type, validity)
+                    // SAFETY: Constant decimal values with correct type and validity.
+                    unsafe {
+                        DecimalArray::new_unchecked(
+                            Buffer::full(value, array.len()),
+                            *decimal_type,
+                            validity,
+                        )
+                    }
                 });
                 Canonical::Decimal(decimal_array)
             }
@@ -112,12 +126,11 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                             .collect()
                     }
                 };
-                Canonical::Struct(StructArray::new_unchecked(
-                    fields,
-                    struct_dtype.clone(),
-                    array.len(),
-                    validity,
-                ))
+                // SAFETY: Fields are constructed from the same struct scalar, all have same
+                // length, dtypes match by construction.
+                Canonical::Struct(unsafe {
+                    StructArray::new_unchecked(fields, struct_dtype.clone(), array.len(), validity)
+                })
             }
             DType::List(..) => {
                 let value = ListScalar::try_from(scalar).vortex_expect("must be list");
@@ -128,8 +141,16 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                     array.len(),
                 ))
             }
-            DType::FixedSizeList(..) => {
-                unimplemented!("TODO(connor)[FixedSizeList]")
+            DType::FixedSizeList(element_dtype, list_size, _) => {
+                let value = ListScalar::try_from(scalar).vortex_expect("must be list");
+
+                Canonical::FixedSizeList(canonical_fixed_size_list_array(
+                    value.elements(),
+                    element_dtype,
+                    *list_size,
+                    value.dtype().nullability(),
+                    array.len(),
+                ))
             }
             DType::Extension(ext_dtype) => {
                 let s = ExtScalar::try_from(scalar).vortex_expect("must be an extension scalar");
@@ -203,20 +224,22 @@ fn canonical_list_array(
                 Validity::AllInvalid,
             )
         },
-        Some(vs) => {
-            let mut elements_builder = builder_with_capacity(element_dtype, len * vs.len());
+        Some(values) => {
+            let mut elements_builder = builder_with_capacity(element_dtype, len * values.len());
             for _ in 0..len {
-                for v in &vs {
+                for v in &values {
                     elements_builder
                         .append_scalar(v)
                         .vortex_expect("must be a same dtype");
                 }
             }
-            let offsets = if vs.is_empty() {
+            let offsets = if values.is_empty() {
                 Buffer::zeroed(len + 1)
             } else {
                 Buffer::from_trusted_len_iter(
-                    (0..=len * vs.len()).step_by(vs.len()).map(|i| i as u64),
+                    (0..=len * values.len())
+                        .step_by(values.len())
+                        .map(|i| i as u64),
                 )
             };
 
@@ -227,6 +250,49 @@ fn canonical_list_array(
                     Validity::from(list_nullability),
                 )
             }
+        }
+    }
+}
+
+fn canonical_fixed_size_list_array(
+    values: Option<Vec<Scalar>>,
+    element_dtype: &DType,
+    list_size: u32,
+    list_nullability: Nullability,
+    len: usize,
+) -> FixedSizeListArray {
+    match values {
+        None => {
+            // Even though the scalar is null, we still have to allocate the correct amount of space
+            // for the given `DType`.
+            let elements_len = list_size as usize * len;
+            let mut element_builder = builder_with_capacity(element_dtype, elements_len);
+            element_builder.append_defaults(elements_len);
+            let elements = element_builder.finish();
+
+            // SAFETY: The elements array has a length that is a multiple of `list_size`, and the
+            // validity is `AllInvalid` so we don't care about the length.
+            unsafe {
+                FixedSizeListArray::new_unchecked(elements, list_size, Validity::AllInvalid, len)
+            }
+        }
+        Some(values) => {
+            let mut elements_builder = builder_with_capacity(element_dtype, len * values.len());
+
+            for _ in 0..len {
+                for v in &values {
+                    elements_builder
+                        .append_scalar(v)
+                        .vortex_expect("must be a same dtype");
+                }
+            }
+
+            let elements = elements_builder.finish();
+            let validity = Validity::from(list_nullability);
+
+            // SAFETY: The elements array has a length that is a multiple of `list_size`, and the
+            // validity is either `NonNullable` or `AllValid` so we don't care about the length.
+            unsafe { FixedSizeListArray::new_unchecked(elements, list_size, validity, len) }
         }
     }
 }
@@ -244,6 +310,8 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
     use crate::stats::{Stat, StatsProvider};
+    use crate::validity::Validity;
+    use crate::vtable::ValidityHelper;
     use crate::{Array, IntoArray};
 
     #[test]
@@ -379,5 +447,214 @@ mod tests {
             field.dtype(),
             &DType::Primitive(PType::I8, Nullability::NonNullable)
         );
+    }
+
+    #[test]
+    fn test_canonicalize_fixed_size_list_non_null() {
+        // Test with a non-null fixed-size list constant.
+        let fsl_scalar = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![
+                Scalar::primitive(10i32, Nullability::NonNullable),
+                Scalar::primitive(20i32, Nullability::NonNullable),
+                Scalar::primitive(30i32, Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let const_array = ConstantArray::new(fsl_scalar, 4).into_array();
+        let canonical = const_array.to_fixed_size_list();
+
+        assert_eq!(canonical.len(), 4);
+        assert_eq!(canonical.list_size(), 3);
+        assert_eq!(canonical.validity(), &Validity::NonNullable);
+
+        // Check that each list is [10, 20, 30].
+        for i in 0..4 {
+            let list = canonical.fixed_size_list_at(i);
+            let list_primitive = list.to_primitive();
+            assert_eq!(list_primitive.as_slice::<i32>(), [10, 20, 30]);
+        }
+    }
+
+    #[test]
+    fn test_canonicalize_fixed_size_list_nullable() {
+        // Test with a nullable but non-null fixed-size list constant.
+        let fsl_scalar = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::F64, Nullability::NonNullable)),
+            vec![
+                Scalar::primitive(1.5f64, Nullability::NonNullable),
+                Scalar::primitive(2.5f64, Nullability::NonNullable),
+            ],
+            Nullability::Nullable,
+        );
+
+        let const_array = ConstantArray::new(fsl_scalar, 3).into_array();
+        let canonical = const_array.to_fixed_size_list();
+
+        assert_eq!(canonical.len(), 3);
+        assert_eq!(canonical.list_size(), 2);
+        assert_eq!(canonical.validity(), &Validity::AllValid);
+
+        // Check elements.
+        let elements = canonical.elements().to_primitive();
+        assert_eq!(elements.as_slice::<f64>(), [1.5, 2.5, 1.5, 2.5, 1.5, 2.5]);
+    }
+
+    #[test]
+    fn test_canonicalize_fixed_size_list_null() {
+        // Test with a null fixed-size list constant.
+        let fsl_scalar = Scalar::null(DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
+            4,
+            Nullability::Nullable,
+        ));
+
+        let const_array = ConstantArray::new(fsl_scalar, 5).into_array();
+        let canonical = const_array.to_fixed_size_list();
+
+        assert_eq!(canonical.len(), 5);
+        assert_eq!(canonical.list_size(), 4);
+        assert_eq!(canonical.validity(), &Validity::AllInvalid);
+
+        // Elements should be defaults (zeros).
+        let elements = canonical.elements().to_primitive();
+        assert_eq!(elements.len(), 20); // 5 lists * 4 elements each
+        assert!(elements.as_slice::<u64>().iter().all(|&x| x == 0));
+    }
+
+    #[test]
+    fn test_canonicalize_fixed_size_list_empty() {
+        // Test with size-0 lists (edge case).
+        let fsl_scalar = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::I8, Nullability::NonNullable)),
+            vec![],
+            Nullability::NonNullable,
+        );
+
+        let const_array = ConstantArray::new(fsl_scalar, 10).into_array();
+        let canonical = const_array.to_fixed_size_list();
+
+        assert_eq!(canonical.len(), 10);
+        assert_eq!(canonical.list_size(), 0);
+        assert_eq!(canonical.validity(), &Validity::NonNullable);
+
+        // Elements array should be empty.
+        assert!(canonical.elements().is_empty());
+    }
+
+    #[test]
+    fn test_canonicalize_fixed_size_list_nested() {
+        // Test with nested data types (list of strings).
+        let fsl_scalar = Scalar::fixed_size_list(
+            Arc::new(DType::Utf8(Nullability::NonNullable)),
+            vec![Scalar::from("hello"), Scalar::from("world")],
+            Nullability::NonNullable,
+        );
+
+        let const_array = ConstantArray::new(fsl_scalar, 2).into_array();
+        let canonical = const_array.to_fixed_size_list();
+
+        assert_eq!(canonical.len(), 2);
+        assert_eq!(canonical.list_size(), 2);
+
+        // Check elements are repeated correctly.
+        let elements = canonical.elements().to_varbinview();
+        assert_eq!(elements.scalar_at(0), "hello".into());
+        assert_eq!(elements.scalar_at(1), "world".into());
+        assert_eq!(elements.scalar_at(2), "hello".into());
+        assert_eq!(elements.scalar_at(3), "world".into());
+    }
+
+    #[test]
+    fn test_canonicalize_fixed_size_list_single_element() {
+        // Test with a single-element list.
+        let fsl_scalar = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::I16, Nullability::NonNullable)),
+            vec![Scalar::primitive(42i16, Nullability::NonNullable)],
+            Nullability::NonNullable,
+        );
+
+        let const_array = ConstantArray::new(fsl_scalar, 1).into_array();
+        let canonical = const_array.to_fixed_size_list();
+
+        assert_eq!(canonical.len(), 1);
+        assert_eq!(canonical.list_size(), 1);
+
+        let elements = canonical.elements().to_primitive();
+        assert_eq!(elements.as_slice::<i16>(), [42]);
+    }
+
+    #[test]
+    fn test_canonicalize_fixed_size_list_with_null_elements() {
+        // Test FSL with nullable element type where some elements are null.
+        let fsl_scalar = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
+            vec![
+                Scalar::primitive(100i32, Nullability::Nullable),
+                Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+                Scalar::primitive(200i32, Nullability::Nullable),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let const_array = ConstantArray::new(fsl_scalar, 3).into_array();
+        let canonical = const_array.to_fixed_size_list();
+
+        assert_eq!(canonical.len(), 3);
+        assert_eq!(canonical.list_size(), 3);
+        assert_eq!(canonical.validity(), &Validity::NonNullable);
+
+        // Check elements including nulls.
+        let elements = canonical.elements().to_primitive();
+        assert_eq!(elements.as_slice::<i32>()[0], 100);
+        assert_eq!(elements.as_slice::<i32>()[1], 0); // null becomes 0
+        assert_eq!(elements.as_slice::<i32>()[2], 200);
+
+        // Check element validity.
+        let element_validity = elements.validity();
+        assert!(element_validity.is_valid(0));
+        assert!(!element_validity.is_valid(1));
+        assert!(element_validity.is_valid(2));
+
+        // Pattern should repeat.
+        assert!(element_validity.is_valid(3));
+        assert!(!element_validity.is_valid(4));
+        assert!(element_validity.is_valid(5));
+    }
+
+    #[test]
+    fn test_canonicalize_fixed_size_list_large() {
+        // Test with a large constant array.
+        let fsl_scalar = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
+            vec![
+                Scalar::primitive(1u8, Nullability::NonNullable),
+                Scalar::primitive(2u8, Nullability::NonNullable),
+                Scalar::primitive(3u8, Nullability::NonNullable),
+                Scalar::primitive(4u8, Nullability::NonNullable),
+                Scalar::primitive(5u8, Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let const_array = ConstantArray::new(fsl_scalar, 1000).into_array();
+        let canonical = const_array.to_fixed_size_list();
+
+        assert_eq!(canonical.len(), 1000);
+        assert_eq!(canonical.list_size(), 5);
+
+        let elements = canonical.elements().to_primitive();
+        assert_eq!(elements.len(), 5000);
+
+        // Check pattern repeats correctly.
+        for i in 0..1000 {
+            let base = i * 5;
+            assert_eq!(elements.as_slice::<u8>()[base], 1);
+            assert_eq!(elements.as_slice::<u8>()[base + 1], 2);
+            assert_eq!(elements.as_slice::<u8>()[base + 2], 3);
+            assert_eq!(elements.as_slice::<u8>()[base + 3], 4);
+            assert_eq!(elements.as_slice::<u8>()[base + 4], 5);
+        }
     }
 }

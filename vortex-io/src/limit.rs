@@ -8,20 +8,21 @@ use std::task::{Context, Poll, ready};
 
 use futures::Stream;
 use futures::stream::FuturesUnordered;
-use pin_project::pin_project;
+use pin_project_lite::pin_project;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use vortex_error::VortexUnwrap;
 
-/// [`Future`] that carries the amount of memory it will require to hold the completed value.
-///
-/// The `OwnedSemaphorePermit` ensures permits are automatically returned when this future
-/// is dropped, either after completion or if cancelled/aborted.
-#[pin_project]
-struct SizedFut<Fut> {
-    #[pin]
-    inner: Fut,
-    /// Owned permit that will be automatically dropped when the future completes or is dropped
-    _permits: OwnedSemaphorePermit,
+pin_project! {
+    /// [`Future`] that carries the amount of memory it will require to hold the completed value.
+    ///
+    /// The `OwnedSemaphorePermit` ensures permits are automatically returned when this future
+    /// is dropped, either after completion or if cancelled/aborted.
+    struct SizedFut<Fut> {
+        #[pin]
+        inner: Fut,
+        // Owned permit that will be automatically dropped when the future completes or is dropped
+        _permits: OwnedSemaphorePermit,
+    }
 }
 
 impl<Fut: Future> Future for SizedFut<Fut> {
@@ -34,20 +35,21 @@ impl<Fut: Future> Future for SizedFut<Fut> {
     }
 }
 
-/// A [`Stream`] that can work on several simultaneous requests, capping the amount of memory it
-/// uses at any given point.
-///
-/// It is meant to serve as a buffer between a producer and consumer of IO requests, with built-in
-/// backpressure that prevents the producer from materializing more than a specified maximum
-/// amount of memory.
-///
-/// This crate internally makes use of tokio's [Semaphore], and thus is only available with
-/// the `tokio` feature enabled.
-#[pin_project]
-pub struct SizeLimitedStream<Fut> {
-    #[pin]
-    inflight: FuturesUnordered<SizedFut<Fut>>,
-    bytes_available: Arc<Semaphore>,
+pin_project! {
+    /// A [`Stream`] that can work on several simultaneous requests, capping the amount of memory it
+    /// uses at any given point.
+    ///
+    /// It is meant to serve as a buffer between a producer and consumer of IO requests, with built-in
+    /// backpressure that prevents the producer from materializing more than a specified maximum
+    /// amount of memory.
+    ///
+    /// This crate internally makes use of tokio's [Semaphore], and thus is only available with
+    /// the `tokio` feature enabled.
+    pub struct SizeLimitedStream<Fut> {
+        #[pin]
+        inflight: FuturesUnordered<SizedFut<Fut>>,
+        bytes_available: Arc<Semaphore>,
+    }
 }
 
 impl<Fut> SizeLimitedStream<Fut> {

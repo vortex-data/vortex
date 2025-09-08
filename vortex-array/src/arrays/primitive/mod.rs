@@ -9,7 +9,7 @@ mod accessor;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -99,25 +99,75 @@ pub struct PrimitiveArray {
 #[derive(Clone, Debug)]
 pub struct PrimitiveEncoding;
 
+// TODO(connor): There are a lot of places where we could be using `new_unchecked` in the codebase.
 impl PrimitiveArray {
+    /// Creates a new [`PrimitiveArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided components do not satisfy the invariants documented
+    /// in [`PrimitiveArray::new_unchecked`].
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
-        if let Some(len) = validity.maybe_len()
-            && buffer.len() != len
-        {
-            vortex_panic!(
-                "Buffer and validity length mismatch: buffer={}, validity={}",
-                buffer.len(),
-                len
-            );
-        }
+        Self::try_new(buffer, validity).vortex_expect("PrimitiveArray construction failed")
+    }
 
+    /// Constructs a new `PrimitiveArray`.
+    ///
+    /// See [`PrimitiveArray::new_unchecked`] for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided components do not satisfy the invariants documented in
+    /// [`PrimitiveArray::new_unchecked`].
+    #[inline]
+    pub fn try_new<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> VortexResult<Self> {
+        Self::validate(&buffer, &validity)?;
+
+        // SAFETY: validate ensures all invariants are met.
+        Ok(unsafe { Self::new_unchecked(buffer, validity) })
+    }
+
+    /// Creates a new [`PrimitiveArray`] without validation from these components:
+    ///
+    /// * `buffer` is a typed buffer containing the primitive values.
+    /// * `validity` holds the null values.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure all of the following invariants are satisfied:
+    ///
+    /// ## Validity Requirements
+    ///
+    /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
+    #[inline]
+    pub unsafe fn new_unchecked<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
             buffer: buffer.into_byte_buffer(),
             validity,
             stats_set: Default::default(),
         }
+    }
+
+    /// Validates the components that would be used to create a [`PrimitiveArray`].
+    ///
+    /// This function checks all the invariants required by [`PrimitiveArray::new_unchecked`].
+    #[inline]
+    pub(crate) fn validate<T: NativePType>(
+        buffer: &Buffer<T>,
+        validity: &Validity,
+    ) -> VortexResult<()> {
+        if let Some(len) = validity.maybe_len()
+            && buffer.len() != len
+        {
+            return Err(vortex_err!(
+                "Buffer and validity length mismatch: buffer={}, validity={}",
+                buffer.len(),
+                len
+            ));
+        }
+        Ok(())
     }
 
     pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
@@ -349,7 +399,7 @@ impl ValidityHelper for PrimitiveArray {
 impl<T: NativePType> FromIterator<T> for PrimitiveArray {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let values = BufferMut::from_iter(iter);
-        PrimitiveArray::new(values.freeze(), Validity::NonNullable)
+        PrimitiveArray::new(values, Validity::NonNullable)
     }
 }
 

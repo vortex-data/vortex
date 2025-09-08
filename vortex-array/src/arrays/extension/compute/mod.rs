@@ -104,11 +104,11 @@ impl IsConstantKernel for ExtensionVTable {
 register_kernel!(IsConstantKernelAdapter(ExtensionVTable).lift());
 
 impl IsSortedKernel for ExtensionVTable {
-    fn is_sorted(&self, array: &ExtensionArray) -> VortexResult<bool> {
+    fn is_sorted(&self, array: &ExtensionArray) -> VortexResult<Option<bool>> {
         is_sorted(array.storage())
     }
 
-    fn is_strict_sorted(&self, array: &ExtensionArray) -> VortexResult<bool> {
+    fn is_strict_sorted(&self, array: &ExtensionArray) -> VortexResult<Option<bool>> {
         is_strict_sorted(array.storage())
     }
 }

@@ -34,7 +34,7 @@ impl FilterKernel for BoolVTable {
             ),
         };
 
-        Ok(BoolArray::new(buffer, validity).into_array())
+        Ok(BoolArray::from_bool_buffer(buffer, validity).into_array())
     }
 }
 

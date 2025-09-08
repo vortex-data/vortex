@@ -113,7 +113,7 @@ impl ZonedReader {
                 async move {
                     let zones_array = zones_eval.await?.to_struct();
                     // SAFETY: This is only fine to call because we perform validation above
-                    Ok(ZoneMap::new_unchecked(zones_array, present_stats))
+                    Ok(unsafe { ZoneMap::new_unchecked(zones_array, present_stats) })
                 }
                 .map_err(Arc::new)
                 .boxed()

@@ -383,7 +383,90 @@ pub struct VarBinViewArray {
 pub struct VarBinViewEncoding;
 
 impl VarBinViewArray {
-    fn validate(
+    /// Creates a new [`VarBinViewArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided components do not satisfy the invariants documented
+    /// in [`VarBinViewArray::new_unchecked`].
+    pub fn new(
+        views: Buffer<BinaryView>,
+        buffers: Arc<[ByteBuffer]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Self::try_new(views, buffers, dtype, validity)
+            .vortex_expect("VarBinViewArray construction failed")
+    }
+
+    /// Constructs a new `VarBinViewArray`.
+    ///
+    /// See [`VarBinViewArray::new_unchecked`] for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided components do not satisfy the invariants documented in
+    /// [`VarBinViewArray::new_unchecked`].
+    pub fn try_new(
+        views: Buffer<BinaryView>,
+        buffers: Arc<[ByteBuffer]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Self::validate(&views, &buffers, &dtype, &validity)?;
+
+        // SAFETY: validate ensures all invariants are met.
+        Ok(unsafe { Self::new_unchecked(views, buffers, dtype, validity) })
+    }
+
+    /// Creates a new [`VarBinViewArray`] without validation from these components:
+    ///
+    /// * `views` is a buffer of 16-byte view entries (one per logical element).
+    /// * `buffers` contains the backing storage for strings longer than 12 bytes.
+    /// * `dtype` specifies whether this contains UTF-8 strings or binary data.
+    /// * `validity` holds the null values.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure all of the following invariants are satisfied:
+    ///
+    /// ## View Requirements
+    ///
+    /// - Views must be properly formatted 16-byte [`BinaryView`] entries.
+    /// - Inlined views (length ≤ 12) must have valid data in the first `length` bytes.
+    /// - Reference views (length > 12) must:
+    ///   - Have a valid buffer index < `buffers.len()`.
+    ///   - Have valid offsets that don't exceed the referenced buffer's bounds.
+    ///   - Have a 4-byte prefix that matches the actual data at the referenced location.
+    ///
+    /// ## Type Requirements
+    ///
+    /// - `dtype` must be either [`DType::Utf8`] or [`DType::Binary`].
+    /// - For [`DType::Utf8`], all string data (both inlined and referenced) must be valid UTF-8.
+    ///
+    /// ## Validity Requirements
+    ///
+    /// - The validity must have the same nullability as the dtype.
+    /// - If validity is an array, its length must match `views.len()`.
+    pub unsafe fn new_unchecked(
+        views: Buffer<BinaryView>,
+        buffers: Arc<[ByteBuffer]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Self {
+            dtype,
+            buffers,
+            views,
+            validity,
+            stats_set: Default::default(),
+        }
+    }
+
+    /// Validates the components that would be used to create a [`VarBinViewArray`].
+    ///
+    /// This function checks all the invariants required by [`VarBinViewArray::new_unchecked`].
+    pub(crate) fn validate(
         views: &Buffer<BinaryView>,
         buffers: &Arc<[ByteBuffer]>,
         dtype: &DType,
@@ -467,56 +550,6 @@ impl VarBinViewArray {
         }
 
         Ok(())
-    }
-}
-
-impl VarBinViewArray {
-    /// Build a new `VarBinViewArray` from components with validation.
-    ///
-    /// # Safety
-    /// This should only be used when you know for certain that all components are already
-    /// validated, for example during array operations that preserve the invariants of the encoding.
-    ///
-    /// See [`VarBinViewArray::try_new`] for a safe constructor that does validation.
-    pub unsafe fn new_unchecked(
-        views: Buffer<BinaryView>,
-        buffers: Arc<[ByteBuffer]>,
-        dtype: DType,
-        validity: Validity,
-    ) -> Self {
-        Self {
-            dtype,
-            buffers,
-            views,
-            validity,
-            stats_set: Default::default(),
-        }
-    }
-
-    pub fn new(
-        views: Buffer<BinaryView>,
-        buffers: Arc<[ByteBuffer]>,
-        dtype: DType,
-        validity: Validity,
-    ) -> Self {
-        Self::try_new(views, buffers, dtype, validity).vortex_expect("VarBinViewArray new")
-    }
-
-    pub fn try_new(
-        views: Buffer<BinaryView>,
-        buffers: Arc<[ByteBuffer]>,
-        dtype: DType,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        Self::validate(&views, &buffers, &dtype, &validity)?;
-
-        Ok(Self {
-            dtype,
-            buffers,
-            views,
-            validity,
-            stats_set: Default::default(),
-        })
     }
 
     /// Number of raw string data buffers held by this array.

@@ -121,11 +121,15 @@ impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         // the correct buffer size
 
         match_each_signed_integer_ptype!(prim.ptype(), |P| {
-            Canonical::Decimal(DecimalArray::new(
-                prim.buffer::<P>(),
-                *array.decimal_dtype(),
-                prim.validity().clone(),
-            ))
+            // SAFETY: The primitive array's buffer is already validated with correct type.
+            // The decimal dtype matches the array's dtype, and validity is preserved.
+            Canonical::Decimal(unsafe {
+                DecimalArray::new_unchecked(
+                    prim.buffer::<P>(),
+                    *array.decimal_dtype(),
+                    prim.validity().clone(),
+                )
+            })
         })
     }
 }

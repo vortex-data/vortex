@@ -807,7 +807,7 @@ fn test_validity_length_mismatch() {
 }
 
 #[test]
-#[should_panic(expected = "Expected offsets to be an non-nullable integer type")]
+#[should_panic(expected = "offsets have invalid type")]
 fn test_nullable_offsets() {
     let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
     let offsets = PrimitiveArray::from_option_iter([Some(0u32), Some(2), None, Some(5)]);
@@ -827,9 +827,7 @@ fn test_empty_offsets_array() {
 }
 
 #[test]
-#[should_panic(
-    expected = "Expected offsets to be an non-nullable integer type, got Primitive(F32, NonNullable)"
-)]
+#[should_panic(expected = "offsets have invalid type")]
 fn test_non_integer_offsets() {
     let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
     let offsets = PrimitiveArray::from_iter([0.0f32, 2.0, 4.0, 5.0]);

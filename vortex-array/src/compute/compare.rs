@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_bool_basic_comparisons() {
-        let arr = BoolArray::new(
+        let arr = BoolArray::from_bool_buffer(
             BooleanBuffer::from_iter([true, true, false, true, false]),
             Validity::from_iter([false, true, true, true, true]),
         );
@@ -357,7 +357,7 @@ mod tests {
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches).unwrap(), empty);
 
-        let other = BoolArray::new(
+        let other = BoolArray::from_bool_buffer(
             BooleanBuffer::from_iter([false, false, false, true, true]),
             Validity::from_iter([false, true, true, true, true]),
         );

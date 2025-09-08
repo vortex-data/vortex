@@ -46,7 +46,9 @@ impl CompareKernel for SequenceVTable {
 
         if let Some(set_idx) = set_idx {
             let buffer = BooleanBuffer::from_iter((0..lhs.len()).map(|idx| idx == set_idx));
-            Ok(Some(BoolArray::new(buffer, validity).to_array()))
+            Ok(Some(
+                BoolArray::from_bool_buffer(buffer, validity).to_array(),
+            ))
         } else {
             Ok(Some(
                 ConstantArray::new(

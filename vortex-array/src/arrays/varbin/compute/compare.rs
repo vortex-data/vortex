@@ -53,7 +53,7 @@ impl CompareKernel for VarBinVTable {
                 };
 
                 return Ok(Some(
-                    BoolArray::new(
+                    BoolArray::from_bool_buffer(
                         buffer,
                         lhs.validity()
                             .clone()

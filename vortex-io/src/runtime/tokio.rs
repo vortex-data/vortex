@@ -6,7 +6,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use tokio::runtime::Handle as TokioHandle;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
+use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 
 /// A Vortex runtime that drives all work the currently scoped Tokio runtime.
 pub struct TokioRuntime(TokioHandle);
@@ -29,6 +29,10 @@ impl Runtime<'static> for TokioRuntime {
 
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'static> {
         Box::new(self.0.spawn(async move { cpu() }).abort_handle())
+    }
+
+    fn spawn_io(&self, task: IoTask<'static>) {
+        self.0.spawn(task.drive_send());
     }
 }
 

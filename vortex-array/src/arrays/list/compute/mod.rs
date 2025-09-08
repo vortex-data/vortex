@@ -24,14 +24,14 @@ impl MinMaxKernel for ListVTable {
 
 register_kernel!(MinMaxKernelAdapter(ListVTable).lift());
 
-// TODO(ngates): why do we report the wrong thing?
+// TODO(ngates): Implement is sorted
 impl IsSortedKernel for ListVTable {
-    fn is_sorted(&self, _array: &ListArray) -> VortexResult<bool> {
-        Ok(false)
+    fn is_sorted(&self, _array: &ListArray) -> VortexResult<Option<bool>> {
+        Ok(None)
     }
 
-    fn is_strict_sorted(&self, _array: &ListArray) -> VortexResult<bool> {
-        Ok(false)
+    fn is_strict_sorted(&self, _array: &ListArray) -> VortexResult<Option<bool>> {
+        Ok(None)
     }
 }
 

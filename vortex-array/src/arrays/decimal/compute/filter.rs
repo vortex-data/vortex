@@ -27,7 +27,12 @@ impl FilterKernel for DecimalVTable {
                     $array.buffer().as_slice(),
                     $indices.iter().copied(),
                 );
-                Ok(DecimalArray::new(filtered, $array.decimal_dtype(), $validity).into_array())
+                // SAFETY: Filter preserves the type and validity from the source array.
+                // The buffer is correctly typed and sized based on the filtered indices.
+                Ok(unsafe {
+                    DecimalArray::new_unchecked(filtered, $array.decimal_dtype(), $validity)
+                }
+                .into_array())
             }};
         }
 
@@ -38,7 +43,12 @@ impl FilterKernel for DecimalVTable {
                     $mask.true_count(),
                     $slices.iter().copied(),
                 );
-                Ok(DecimalArray::new(filtered, $array.decimal_dtype(), $validity).into_array())
+                // SAFETY: Filter preserves the type and validity from the source array.
+                // The buffer is correctly typed and sized based on the filtered slices.
+                Ok(unsafe {
+                    DecimalArray::new_unchecked(filtered, $array.decimal_dtype(), $validity)
+                }
+                .into_array())
             }};
         }
 

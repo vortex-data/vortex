@@ -4,7 +4,7 @@
 use futures::future::BoxFuture;
 use smol::Executor;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, Runtime};
+use crate::runtime::{AbortHandle, AbortHandleRef, IoTask, Runtime};
 
 impl<'rt> Runtime<'rt> for Executor<'rt> {
     fn spawn(&self, fut: BoxFuture<'rt, ()>) -> AbortHandleRef<'rt> {
@@ -14,6 +14,10 @@ impl<'rt> Runtime<'rt> for Executor<'rt> {
     fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'rt> {
         // For now, we spawn CPU work back onto the same executor.
         SmolAbortHandle::new_handle(self.spawn(async move { task() }))
+    }
+
+    fn spawn_io(&self, task: IoTask<'rt>) {
+        self.spawn(task.drive_send()).detach();
     }
 }
 

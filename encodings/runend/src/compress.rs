@@ -247,9 +247,11 @@ pub fn runend_decode_typed_bool(
             for (end, value) in run_ends.zip_eq(values.iter()) {
                 decoded.append_n(end - decoded.len(), value);
             }
-            BoolArray::new(decoded.finish(), values_nullability.into())
+            BoolArray::from_bool_buffer(decoded.finish(), values_nullability.into())
         }
-        Mask::AllFalse(_) => BoolArray::new(BooleanBuffer::new_unset(length), Validity::AllInvalid),
+        Mask::AllFalse(_) => {
+            BoolArray::from_bool_buffer(BooleanBuffer::new_unset(length), Validity::AllInvalid)
+        }
         Mask::Values(mask) => {
             let mut decoded = BooleanBufferBuilder::new(length);
             let mut decoded_validity = BooleanBufferBuilder::new(length);
@@ -270,7 +272,7 @@ pub fn runend_decode_typed_bool(
                     }
                 }
             }
-            BoolArray::new(decoded.finish(), Validity::from(decoded_validity.finish()))
+            BoolArray::from_bool_buffer(decoded.finish(), Validity::from(decoded_validity.finish()))
         }
     }
 }
