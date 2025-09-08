@@ -68,11 +68,11 @@ impl AbortHandle for tokio::task::AbortHandle {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use futures::executor::block_on;
     use futures::FutureExt;
+    use futures::executor::block_on;
     use tokio::runtime::Runtime as TokioRt;
 
     use super::*;

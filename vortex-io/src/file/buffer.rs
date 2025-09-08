@@ -7,7 +7,7 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource, IoSourceRef};
 use crate::runtime::Handle;
@@ -37,7 +37,7 @@ impl IoSource for ByteBuffer {
         self: Arc<Self>,
         mut requests: BoxStream<'static, IoRequest>,
     ) -> BoxFuture<'static, ()> {
-        let buffer = self.clone();
+        let buffer = self;
         async move {
             while let Some(req) = requests.next().await {
                 let offset = usize::try_from(req.offset())

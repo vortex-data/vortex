@@ -4,11 +4,11 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use futures::StreamExt;
 use futures::future::{BoxFuture, LocalBoxFuture};
 use futures::stream::LocalBoxStream;
-use futures::StreamExt;
 use parking_lot::Mutex;
-use smol::{block_on, LocalExecutor};
+use smol::{LocalExecutor, block_on};
 use vortex_error::vortex_panic;
 
 use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
@@ -189,10 +189,12 @@ impl<T> Iterator for BlockingStream<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::runtime::single::SingleThreadRuntime;
-    use futures::FutureExt;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use futures::FutureExt;
+
+    use crate::runtime::single::SingleThreadRuntime;
 
     #[test]
     fn test_drive_simple_future() {

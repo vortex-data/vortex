@@ -3,8 +3,8 @@
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures::future::BoxFuture;
     use futures::stream::BoxStream;
@@ -14,9 +14,9 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::file::{IntoIoSource, IoRequest, IoSource, IoSourceRef};
+    use crate::runtime::Handle;
     use crate::runtime::single::SingleThreadRuntime;
     use crate::runtime::tokio::TokioRuntime;
-    use crate::runtime::Handle;
 
     // Test data
     const TEST_DATA: &[u8] = b"Hello, World! This is test data for FileRead.";

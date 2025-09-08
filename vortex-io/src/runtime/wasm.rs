@@ -31,7 +31,7 @@ impl Runtime for WasmRuntime {
     }
 
     fn spawn_io(self: Arc<Self>, task: IoTask) {
-        spawn_local(task.drive_local(Handle::new(self)));
+        spawn_local(task.source.drive_local(task.stream));
     }
 }
 

@@ -17,9 +17,10 @@ pub mod tokio;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
-use crate::file::{IoRequest, IoSourceRef};
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
+
+use crate::file::{IoRequest, IoSourceRef};
 
 #[cfg(test)]
 mod tests;

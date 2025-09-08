@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
+use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::StreamExt;
-use smol::{block_on, Executor};
+use smol::{Executor, block_on};
 
 use crate::runtime::Handle;
 
@@ -88,10 +88,12 @@ impl<T> Iterator for BlockingStream<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use futures::FutureExt;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use futures::FutureExt;
+
+    use super::*;
 
     #[test]
     fn test_drive_simple_future() {

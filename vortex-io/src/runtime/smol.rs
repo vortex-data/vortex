@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::runtime::{AbortHandle, AbortHandleRef, IoTask, Runtime};
 use futures::future::BoxFuture;
 use smol::Executor;
+
+use crate::runtime::{AbortHandle, AbortHandleRef, IoTask, Runtime};
 
 impl Runtime for Executor<'static> {
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
