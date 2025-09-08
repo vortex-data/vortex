@@ -1,8 +1,9 @@
-use crate::arrays::DecimalArray;
-use crate::vtable::ValidityHelper;
 use itertools::{Itertools, MinMaxResult};
 use vortex_error::VortexExpect;
 use vortex_scalar::{BigCast, DecimalValueType, i256};
+
+use crate::arrays::DecimalArray;
+use crate::vtable::ValidityHelper;
 
 macro_rules! try_downcast {
     ($array:expr, from: $src:ty, to: $($dst:ty),*) => {{
