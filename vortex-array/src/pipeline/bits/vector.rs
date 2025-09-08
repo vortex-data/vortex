@@ -31,15 +31,6 @@ impl Debug for BitVector {
     }
 }
 
-// impl PartialEq for BitVector {
-//     fn eq(&self, other: &Self) -> bool {
-//         &self.bits, &other.bits)
-//             || (self.true_count == other.true_count && self.bits == other.bits)
-//     }
-// }
-
-// impl Eq for BitVector {}
-
 impl BitVector {
     pub fn empty() -> BitVector {
         BitVector {
@@ -91,8 +82,6 @@ impl BitVector {
 
     pub fn as_raw_mut(&mut self) -> &mut [usize; N_WORDS] {
         // SAFETY: We assume that the bits are mutable and that the view is valid.
-        // let raw = Aut(&mut self.bits).as_raw_mut_slice();
-        // unsafe { &mut *(raw.as_mut_ptr() as *mut [usize; N_WORDS]) }
         unsafe { &mut *(self.bits.as_raw_mut_slice().as_mut_ptr() as *mut [usize; N_WORDS]) }
     }
 
@@ -114,7 +103,6 @@ impl BitVector {
 
     pub fn as_view_mut(&mut self) -> BitViewMut<'_> {
         unsafe { BitViewMut::new_unchecked(&mut self.bits, self.true_count) }
-        // unsafe { BitViewMut::new_unchecked(Arc::get_mut(&mut self.bits).unwrap(), self.true_count) }
     }
 }
 

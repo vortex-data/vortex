@@ -5,7 +5,8 @@ use std::mem::align_of;
 use arrow_buffer::BooleanBuffer;
 use crate::pipeline::{N, N_WORDS};
 
-// Iterator that supports chunking for large data with any bit offset
+/// An iterator that returns chunks of N bits as usize words, zero-padded if needed
+/// this will zero copy if possible, otherwise it will copy the data into a buffer
 pub struct BitAlignedChunkedIterator<'a> {
     data: &'a [u8],
     bit_offset: usize,
@@ -93,6 +94,7 @@ impl<'a> BitAlignedChunkedIterator<'a> {
     }
 
     /// Returns next chunk (always exactly N bits as usize words, zero-padded if needed)
+    /// This cannot be an iterator since the chunk
     pub fn next_chunk(&mut self) -> Option<[usize; N_WORDS]> {
         const CHUNK_SIZE: usize = N / 8;
         if self.byte_offset * 8 >= self.len {
