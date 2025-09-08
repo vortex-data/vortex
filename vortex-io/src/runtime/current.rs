@@ -6,7 +6,7 @@ use std::sync::Arc;
 use futures::{Stream, StreamExt};
 use smol::{Executor, block_on};
 
-use crate::runtime::Handle;
+use crate::runtime::{Handle, Task};
 
 /// A current thread runtime allows users to explicitly drive Vortex futures from multiple worker
 /// threads that they manage. This is useful in environments where the user already has a thread
@@ -15,14 +15,14 @@ pub struct CurrentThreadRuntime;
 
 impl CurrentThreadRuntime {
     /// Drive the given Vortex future on the underlying current thread runtime.
-    pub fn block_on<'rt, F, Fut, R>(f: F) -> R
+    pub fn block_on<'scope, F, Fut, R>(f: F) -> R
     where
-        F: FnOnce(Handle<'rt>) -> Fut,
-        Fut: Future<Output = R> + 'rt,
-        R: Send + 'static,
+        F: FnOnce(Handle<'scope, 'static>) -> Fut,
+        Fut: Future<Output = R> + 'scope,
+        R: Send + 'scope,
     {
         let executor = Arc::new(Executor::new());
-        let fut = f(Handle(executor.clone()));
+        let fut = f(Handle::new(executor.clone()));
         block_on(executor.run(fut))
     }
 
@@ -30,37 +30,32 @@ impl CurrentThreadRuntime {
     ///
     /// Note the resulting [`Iterator`] supports [`Clone`] in order to drive the stream from
     /// multiple threads.
-    pub fn block_on_stream<'rt, F, S, R>(f: F) -> impl Iterator<Item = R> + Clone
+    pub fn block_on_stream<'scope, F, S, R>(f: F) -> impl Iterator<Item = R> + Clone + 'scope
     where
-        F: FnOnce(Handle<'rt>) -> S,
-        S: Stream<Item = R> + Send + Unpin + 'rt,
-        R: Send + 'rt,
+        F: FnOnce(Handle<'scope, 'static>) -> S,
+        S: Stream<Item = R> + Send + Unpin + 'scope,
+        R: Send + 'scope,
     {
         let executor = Arc::new(Executor::new());
-        let stream = f(Handle(executor.clone()));
+        let handle = Handle::new(executor.clone());
+        let stream = f(handle.clone());
 
         // We create an MPMC result channel and spawn a task to drive the stream and send results.
         // This allows multiple worker threads to drive the executor while all waiting for results
         // on the channel.
         let (result_tx, result_rx) = kanal::unbounded();
-        executor
-            .spawn(async move {
-                futures::pin_mut!(stream);
-                while let Some(item) = stream.next().await {
-                    // Ignore send errors, which happen if all receivers are dropped.
-                    let _ = result_tx.send(item);
-                }
-            })
-            .detach();
-
-        // SAFETY: the returned stream is self-referential and lives as long as the executor.
-        //  We therefore extend the lifetime of the executor to 'static.
-        let executor: Arc<Executor<'static>> =
-            unsafe { std::mem::transmute::<Arc<Executor<'_>>, Arc<Executor<'static>>>(executor) };
+        let task = handle.spawn(async move {
+            futures::pin_mut!(stream);
+            while let Some(item) = stream.next().await {
+                // Ignore send errors, which happen if all receivers are dropped.
+                let _ = result_tx.send(item);
+            }
+        });
 
         BlockingStream {
             executor,
             results: result_rx.to_async(),
+            _task : Arc::new(task),
         }
     }
 }
@@ -68,22 +63,25 @@ impl CurrentThreadRuntime {
 /// A stream that wraps up the stream with the executor that drives it.
 ///
 /// This allows the resulting stream to have a static lifetime.
-struct BlockingStream<T> {
+struct BlockingStream<'scope, T> {
     executor: Arc<Executor<'static>>,
     results: kanal::AsyncReceiver<T>,
+    // We hold onto the task to ensure it lives as long as the stream.
+    _task: Arc<Task<'scope, ()>>,
 }
 
 // Manually implement Clone since `T` doesn't need to be `Clone`.
-impl<T> Clone for BlockingStream<T> {
+impl<T> Clone for BlockingStream<'_, T> {
     fn clone(&self) -> Self {
         BlockingStream {
             executor: self.executor.clone(),
             results: self.results.clone(),
+            _task: self._task.clone(),
         }
     }
 }
 
-impl<T> Iterator for BlockingStream<T> {
+impl<T> Iterator for BlockingStream<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {

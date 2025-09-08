@@ -19,7 +19,7 @@ use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 /// capable of running `!Send` I/O futures.
 pub struct SingleThreadRuntime<'rt> {
     scheduling: kanal::Sender<SpawnFuture<'rt>>,
-    cpu: kanal::Sender<SpawnCpu>,
+    cpu: kanal::Sender<SpawnCpu<'rt>>,
     io: kanal::Sender<IoTask<'rt>>,
 }
 
@@ -28,7 +28,7 @@ impl<'rt> SingleThreadRuntime<'rt> {
     where
         'rt: 'ex,
     {
-        let (scheduling_send, scheduling_recv) = kanal::unbounded::<SpawnFuture<'rt>>();
+        let (scheduling_send, scheduling_recv) = kanal::unbounded::<SpawnFuture>();
         let (cpu_send, cpu_recv) = kanal::unbounded::<SpawnCpu>();
         let (io_send, io_recv) = kanal::unbounded::<IoTask>();
 
@@ -86,27 +86,27 @@ impl<'rt> SingleThreadRuntime<'rt> {
     }
 
     /// Drive the given Vortex future on the underlying single-threaded runtime.
-    pub fn block_on<'fut, F, Fut, R>(f: F) -> R
+    pub fn block_on<'scope, F, Fut, R>(f: F) -> R
     where
-        F: FnOnce(Handle<'rt>) -> Fut,
-        Fut: Future<Output = R> + 'fut,
-        R: Send + 'static,
+        F: FnOnce(Handle<'scope, 'rt>) -> Fut,
+        Fut: Future<Output = R> + 'scope,
+        'rt: 'scope,
     {
         let (rt, executor) = SingleThreadRuntime::new();
-        let fut = f(Handle(Arc::new(rt)));
+        let fut = f(Handle::new(Arc::new(rt)));
         block_on(executor.run(fut))
     }
 
     /// Drive the given Vortex stream on the underlying single-threaded runtime.
-    pub fn block_on_stream<F, S, R>(f: F) -> impl Iterator<Item = R>
+    pub fn block_on_stream<'scope, F, S, R>(f: F) -> impl Iterator<Item = R>
     where
-        F: FnOnce(Handle<'rt>) -> S,
-        S: Stream<Item = R> + Unpin,
-        R: Send + 'static,
+        F: FnOnce(Handle<'scope, 'rt>) -> S,
+        S: Stream<Item = R> + Unpin + 'scope,
+        'rt: 'scope,
     {
         // Create a new static executor.
         let (rt, executor) = SingleThreadRuntime::new();
-        let stream = f(Handle(Arc::new(rt)));
+        let stream = f(Handle::new(Arc::new(rt)));
 
         // SAFETY: The stream contains references to `rt` with lifetime 'rt.
         // We're transmuting this to static, which is sound because:
@@ -114,9 +114,10 @@ impl<'rt> SingleThreadRuntime<'rt> {
         // 2. BlockingStream will drop them in the correct order (stream first, then rt)
         // 3. The stream will never outlive the runtime it references
         let stream: LocalBoxStream<'static, R> = unsafe {
-            std::mem::transmute::<LocalBoxStream<'_, R>, LocalBoxStream<'static, R>>(
-                stream.boxed_local(),
-            )
+            std::mem::transmute::<
+                LocalBoxStream<'_, R>,
+                LocalBoxStream<'static, R>,
+            >(stream.boxed_local())
         };
         let executor: Rc<LocalExecutor<'static>> = unsafe {
             std::mem::transmute::<Rc<LocalExecutor<'_>>, Rc<LocalExecutor<'static>>>(executor)
@@ -142,7 +143,7 @@ impl<'rt> Runtime<'rt> for SingleThreadRuntime<'rt> {
         Box::new(SmolAbortHandle { task })
     }
 
-    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'rt> {
+    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'rt>) -> AbortHandleRef<'rt> {
         let task = Arc::new(Mutex::new(None));
         if let Err(e) = self.cpu.send(SpawnCpu {
             cpu,
@@ -167,8 +168,8 @@ struct SpawnFuture<'rt> {
 }
 
 // A spawn request for a CPU job.
-struct SpawnCpu {
-    cpu: Box<dyn FnOnce() + Send + 'static>,
+struct SpawnCpu<'rt> {
+    cpu: Box<dyn FnOnce() + Send + 'rt>,
     task: Arc<Mutex<Option<smol::Task<()>>>>,
 }
 
@@ -176,7 +177,7 @@ struct SmolAbortHandle {
     task: Arc<Mutex<Option<smol::Task<()>>>>,
 }
 
-impl<'rt> AbortHandle<'rt> for SmolAbortHandle {
+impl AbortHandle for SmolAbortHandle {
     fn abort(self: Box<Self>) {
         // Aborting a smol::Task is done by dropping it.
         if let Some(task) = self.task.lock().take() {
@@ -226,12 +227,11 @@ mod tests {
 
     #[test]
     fn test_spawn_cpu_task() {
-        let counter = Arc::new(AtomicUsize::new(0));
-        let c = counter.clone();
+        let counter = AtomicUsize::new(0);
 
-        let result = SingleThreadRuntime::block_on(|handle| async move {
+        let result = SingleThreadRuntime::block_on(|handle| async {
             handle
-                .spawn_cpu(move || c.fetch_add(1, Ordering::SeqCst))
+                .spawn_cpu(move || counter.fetch_add(1, Ordering::SeqCst))
                 .await
         });
 

@@ -49,38 +49,27 @@ impl<'rt> MultiThreadRuntime<'rt> {
     }
 
     /// Drive the given Vortex future on the underlying multithreaded runtime.
-    pub fn block_on<'fut, F, Fut, R>(&self, f: F) -> R
+    pub fn block_on<'scope, F, Fut, R>(&self, f: F) -> R
     where
-        F: FnOnce(Handle<'rt>) -> Fut,
-        Fut: Future<Output = R> + 'fut,
-        R: Send + 'static,
+        F: FnOnce(Handle<'scope, 'rt>) -> Fut,
+        Fut: Future<Output = R> + 'scope,
+        R: Send + 'scope,
+        'rt: 'scope,
     {
-        let fut = f(Handle(self.executor.clone()));
+        let fut = f(Handle::new(self.executor.clone()));
         block_on(self.executor.run(fut))
     }
 
     /// Drive the given Vortex stream on the underlying multithreaded runtime.
-    pub fn block_on_stream<F, S, R>(&self, f: F) -> impl Iterator<Item = R>
+    pub fn block_on_stream<'scope, F, S, R>(&self, f: F) -> impl Iterator<Item = R> + 'scope
     where
-        F: FnOnce(Handle<'rt>) -> S,
-        S: Stream<Item = R> + Send + Unpin,
-        R: Send + 'static,
+        F: FnOnce(Handle<'scope, 'rt>) -> S,
+        S: Stream<Item = R> + Send + Unpin + 'scope,
+        R: Send + 'scope,
+        'rt: 'scope,
     {
-        let stream = f(Handle(self.executor.clone()));
-
-        // SAFETY: The stream contains references to `rt` with lifetime 'rt.
-        // We're transmuting this to 'static, which is sound because:
-        // 1. Both `rt` and `stream` will be moved into BlockingStream
-        // 2. BlockingStream will drop them in the correct order (stream first, then rt)
-        // 3. The stream will never outlive the runtime it references
-        let stream: BoxStream<'static, R> = unsafe {
-            std::mem::transmute::<BoxStream<'_, R>, BoxStream<'static, R>>(stream.boxed())
-        };
-        let executor: Arc<Executor<'static>> = unsafe {
-            std::mem::transmute::<Arc<Executor<'_>>, Arc<Executor<'static>>>(self.executor.clone())
-        };
-
-        BlockingStream { executor, stream }
+        let stream = f(Handle::new(self.executor.clone()));
+        BlockingStream { executor: self.executor.clone(), stream: stream.boxed() }
     }
 }
 
@@ -93,12 +82,12 @@ impl Default for MultiThreadRuntime<'_> {
 /// A stream that wraps up the stream with the executor that drives it.
 ///
 /// This allows the resulting stream to have a static lifetime.
-struct BlockingStream<T> {
-    executor: Arc<Executor<'static>>,
-    stream: BoxStream<'static, T>,
+struct BlockingStream<'scope, 'rt, T> {
+    executor: Arc<Executor<'rt>>,
+    stream: BoxStream<'scope, T>,
 }
 
-impl<T> Iterator for BlockingStream<T> {
+impl<T> Iterator for BlockingStream<'_, '_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -12,13 +12,13 @@ use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 pub struct TokioRuntime(TokioHandle);
 
 impl TokioRuntime {
-    pub fn with(handle: TokioHandle) -> Handle<'static> {
-        Handle(Arc::new(Self(handle)))
+    pub fn with(handle: TokioHandle) -> Handle<'static, 'static> {
+        Handle::new(Arc::new(Self(handle)))
     }
 
     /// Return the current Tokio runtime handle wrapped in a Vortex handle.
-    pub fn handle() -> Handle<'static> {
-        Handle(Arc::new(TokioRuntime(TokioHandle::current())))
+    pub fn handle() -> Handle<'static, 'static> {
+        Handle::new(Arc::new(TokioRuntime(TokioHandle::current())))
     }
 }
 
@@ -36,7 +36,7 @@ impl Runtime<'static> for TokioRuntime {
     }
 }
 
-impl AbortHandle<'_> for tokio::task::AbortHandle {
+impl AbortHandle for tokio::task::AbortHandle {
     fn abort(self: Box<Self>) {
         tokio::task::AbortHandle::abort(&self)
     }

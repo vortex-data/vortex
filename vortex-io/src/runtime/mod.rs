@@ -6,13 +6,13 @@ mod handle;
 use std::sync::Arc;
 
 pub use handle::*;
-#[cfg(feature = "smol")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod current;
-#[cfg(feature = "smol")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod multi;
-#[cfg(feature = "smol")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod single;
-#[cfg(feature = "smol")]
+#[cfg(not(target_arch = "wasm32"))]
 mod smol;
 // TODO(ngates): feature-flag this by Tokio once we add I/O support for runtimes.
 #[cfg(not(target_arch = "wasm32"))]
@@ -50,7 +50,7 @@ pub(crate) trait Runtime<'rt>: Send + Sync {
     ///
     /// The returned `AbortHandle` may be used to optimistically cancel the task if it has not
     /// yet started executing.
-    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'rt>;
+    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'rt>) -> AbortHandleRef<'rt>;
 
     /// Spawns an I/O task for execution on the runtime.
     /// The runtime can choose to invoke the task's `Send` or `!Send` versions.
@@ -61,24 +61,24 @@ pub(crate) trait Runtime<'rt>: Send + Sync {
 ///
 /// If dropped, the task should continue to completion.
 /// If explicitly aborted, the task should be cancelled if it has not yet started executing.
-pub(crate) trait AbortHandle<'rt>: Send + Sync {
+pub(crate) trait AbortHandle: Send + Sync {
     fn abort(self: Box<Self>);
 }
 
-pub(crate) type AbortHandleRef<'rt> = Box<dyn AbortHandle<'rt> + 'rt>;
+pub(crate) type AbortHandleRef<'scope> = Box<dyn AbortHandle + 'scope>;
 
 /// A task for driving I/O requests against a source.
 pub(crate) struct IoTask<'rt> {
     source: Arc<dyn IoSource>,
     stream: BoxStream<'rt, IoRequest>,
-    handle: Handle<'rt>,
+    handle: Handle<'rt, 'rt>,
 }
 
 impl<'rt> IoTask<'rt> {
     pub(crate) fn new(
         source: Arc<dyn IoSource>,
         stream: BoxStream<'rt, IoRequest>,
-        handle: Handle<'rt>,
+        handle: Handle<'rt, 'rt>,
     ) -> Self {
         IoTask {
             source,

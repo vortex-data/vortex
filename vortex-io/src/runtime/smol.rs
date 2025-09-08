@@ -11,7 +11,7 @@ impl<'rt> Runtime<'rt> for Executor<'rt> {
         SmolAbortHandle::new_handle(self.spawn(fut))
     }
 
-    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'rt> {
+    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'rt>) -> AbortHandleRef<'rt> {
         // For now, we spawn CPU work back onto the same executor.
         SmolAbortHandle::new_handle(self.spawn(async move { task() }))
     }
@@ -26,13 +26,13 @@ pub(crate) struct SmolAbortHandle<T> {
     task: Option<smol::Task<T>>,
 }
 
-impl<'rt, T: 'rt + Send> SmolAbortHandle<T> {
-    pub(crate) fn new_handle(task: smol::Task<T>) -> AbortHandleRef<'rt> {
+impl<'scope, T: 'scope + Send> SmolAbortHandle<T> {
+    pub(crate) fn new_handle(task: smol::Task<T>) -> AbortHandleRef<'scope> {
         Box::new(Self { task: Some(task) })
     }
 }
 
-impl<T: Send> AbortHandle<'_> for SmolAbortHandle<T> {
+impl<T: Send> AbortHandle for SmolAbortHandle<T> {
     fn abort(mut self: Box<Self>) {
         // Aborting a smol::Task is done by dropping it.
         drop(self.task.take());
