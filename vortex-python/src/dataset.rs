@@ -187,12 +187,11 @@ impl PyVortexDataset {
         }
 
         // TODO(ngates): should we use multi-threaded read or not?
-        let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
         let n_rows: usize = scan
-            .into_record_batch_reader_multithread(schema)?
-            .map_ok(|rb| rb.num_rows())
+            .into_array_iter_multithread()?
+            .map_ok(|array| array.len())
             .process_results(|iter| iter.sum())
-            .map_err(|err| PyValueError::new_err(format!("arrow error: {}", err)))?;
+            .map_err(|err| PyValueError::new_err(format!("vortex error: {}", err)))?;
 
         Ok(n_rows)
     }
