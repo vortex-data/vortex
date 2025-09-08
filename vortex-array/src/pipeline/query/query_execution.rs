@@ -46,7 +46,10 @@ impl QueryExecution {
     /// Step the pipeline forward - executes all nodes in static topological order
     pub fn _step(&mut self, selected: BitView, out: &mut ViewMut) -> VortexResult<()> {
         // Resut the vector length between steps.
-        self.kernel_context.vectors.iter().for_each(|v| v.borrow_mut().set_len(N));
+        self.kernel_context
+            .vectors
+            .iter()
+            .for_each(|v| v.borrow_mut().set_len(N));
         for node_idx in self.execution_schedule.iter() {
             let node_idx = *node_idx;
             let operator = self.operators[node_idx].as_mut();

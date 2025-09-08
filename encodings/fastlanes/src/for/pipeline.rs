@@ -93,9 +93,6 @@ impl Operator for FoROperator {
 
     fn reduce_parent(&self, parent: OperatorRef) -> Option<OperatorRef> {
         let compare = parent.as_any().downcast_ref::<ScalarCompareOperator>()?;
-        // if compare.op != BinaryOperator::Eq && compare.op != BinaryOperator::NotEq {
-        //     return None;
-        // }
 
         let new_ref = match_each_integer_ptype!(self.reference.as_primitive().ptype(), |P| {
             let compare = compare

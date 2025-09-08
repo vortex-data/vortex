@@ -276,7 +276,7 @@ mod tests {
         ]);
         let primitive_array = PrimitiveArray::new(
             (0..i32::try_from(size).unwrap()).collect::<Buffer<i32>>(),
-            Validity::from_mask(validity_mask.clone(), Nullability::Nullable)
+            Validity::from_mask(validity_mask.clone(), Nullability::Nullable),
         );
 
         // Create the kernel
@@ -292,7 +292,10 @@ mod tests {
             .into_primitive();
 
         let output = out.as_slice::<i32>();
-        assert_eq!(output, (0..i32::try_from(size).unwrap()).collect_vec().as_slice());
+        assert_eq!(
+            output,
+            (0..i32::try_from(size).unwrap()).collect_vec().as_slice()
+        );
         assert_eq!(out.validity_mask(), validity_mask);
     }
 }

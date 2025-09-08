@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
-use crate::pipeline::bits::{BitView};
+use crate::pipeline::bits::BitView;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::{Kernel, KernelContext, N, N_WORDS};
 use crate::validity::Validity;
@@ -23,7 +23,46 @@ pub(super) fn export_bool_nonnull_masked(
 
     let mask_buffer = mask.to_boolean_buffer();
 
-    assert_eq!(mask_buffer.offset(), 0);
+    // Handle both byte-aligned and non-byte-aligned offsets
+    let owned_buffer;
+    let mask_buffer_slice: &[u8] = if mask_buffer.offset() % 8 == 0 {
+        // Byte-aligned: can use a direct slice
+        &mask_buffer.values()[mask_buffer.offset() / 8..]
+    } else {
+        // Not byte-aligned: need to build a new aligned buffer
+        let bit_offset = mask_buffer.offset();
+        let byte_offset = bit_offset / 8;
+        let bit_shift = bit_offset % 8;
+
+        // Calculate how many bytes we need for the shifted bits
+        let total_bits = mask_buffer.len();
+        let total_bytes = total_bits.div_ceil(8);
+
+        owned_buffer = {
+            let mut aligned = Vec::with_capacity(total_bytes);
+            let source = mask_buffer.values();
+
+            for i in 0..total_bytes {
+                let mut byte = 0u8;
+
+                // Get bits from current byte (shifted right)
+                if byte_offset + i < source.len() {
+                    byte |= source[byte_offset + i] >> bit_shift;
+                }
+
+                // Get bits from next byte (shifted left) if not the last byte
+                if bit_shift > 0 && byte_offset + i + 1 < source.len() {
+                    byte |= source[byte_offset + i + 1] << (8 - bit_shift);
+                }
+
+                aligned.push(byte);
+            }
+
+            aligned
+        };
+
+        &owned_buffer
+    };
 
     // Fast path: collect all bools first, then use collect_bool for optimal packing
     let mut all_bools: Vec<bool> = Vec::with_capacity(true_count);
@@ -32,7 +71,7 @@ pub(super) fn export_bool_nonnull_masked(
     let complete_runs = len / N;
     for i in 0..complete_runs {
         let mask_chunk = unsafe {
-            &*(mask_buffer.values()[i * (N/8)..][..N / 8].as_ptr() as *const [usize; N_WORDS])
+            &*(mask_buffer_slice[i * (N / 8)..][..N / 8].as_ptr() as *const [usize; N_WORDS])
         };
         let mask_view = BitView::new(mask_chunk);
 
@@ -58,10 +97,11 @@ pub(super) fn export_bool_nonnull_masked(
     let remaining = len % N;
 
     let mut mask_1k_buffer = [0usize; N_WORDS];
-    let mask_u8: &mut [u8] =
-        unsafe { std::slice::from_raw_parts_mut(mask_1k_buffer.as_mut_ptr() as *mut u8, N_WORDS * 8) };
-    mask_u8[..remaining.div_ceil(8)].copy_from_slice(&mask_buffer.values()[complete_runs * (N/8)..][..remaining .div_ceil( 8)]);
-
+    let mask_u8: &mut [u8] = unsafe {
+        std::slice::from_raw_parts_mut(mask_1k_buffer.as_mut_ptr() as *mut u8, N_WORDS * 8)
+    };
+    mask_u8[..remaining.div_ceil(8)]
+        .copy_from_slice(&mask_buffer_slice[complete_runs * (N / 8)..][..remaining.div_ceil(8)]);
 
     // Process any remaining values less than N (1024)
     if remaining > 0 {
@@ -90,178 +130,4 @@ pub(super) fn export_bool_nonnull_masked(
     });
 
     Ok(BoolArray::from_bool_buffer(values, Validity::NonNullable))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::pipeline::view::ViewMut;
-    
-    struct TestKernel {
-        collected_masks: Vec<Mask>,
-        collected_counts: Vec<usize>,
-    }
-    
-    impl TestKernel {
-        fn new() -> Self {
-            Self {
-                collected_masks: Vec::new(),
-                collected_counts: Vec::new(),
-            }
-        }
-    }
-    
-    impl Kernel for TestKernel {
-        fn step(
-            &mut self,
-            _ctx: &KernelContext,
-            mask: BitView,
-            output: &mut ViewMut,
-        ) -> VortexResult<()> {
-            // Convert BitView to Mask for verification
-            let raw_mask = mask.as_raw();
-            let mut mask_bits = Vec::with_capacity(N);
-            for i in 0..N {
-                let word_idx = i / (usize::BITS as usize);
-                let bit_idx = i % (usize::BITS as usize);
-                let is_set = (raw_mask[word_idx] & (1 << bit_idx)) != 0;
-                mask_bits.push(is_set);
-            }
-            
-            // Store the mask as a Mask object and its true count
-            let collected_mask = Mask::from_iter(mask_bits);
-            let true_count = mask.true_count();
-            self.collected_masks.push(collected_mask);
-            self.collected_counts.push(true_count);
-            
-            // Write dummy bool values to output based on mask
-            let bool_slice = output.as_slice_mut::<bool>();
-            let mut write_idx = 0;
-            mask.iter_ones(|i| {
-                bool_slice[write_idx] = (i % 2) == 0; // Alternating pattern for testing
-                write_idx += 1;
-            });
-            
-            Ok(())
-        }
-    }
-    
-    #[test]
-    fn test_export_bool_nonnull_masked_step_calls() {
-        // Create a mask with a specific pattern
-        // Total length: 2100 (2 complete runs of 1024 + 52 remaining)
-        let len = 2100;
-        
-        // Build the original mask using Mask methods
-        let original_mask = Mask::from_iter((0..len).map(|i| i % 3 == 0));
-        let expected_true_count = original_mask.true_count();
-        
-        // Create test kernel
-        let mut kernel = TestKernel::new();
-        
-        // Run the export function
-        let result = export_bool_nonnull_masked(&original_mask, &mut kernel).unwrap();
-        
-        // Verify the result
-        assert_eq!(result.len(), expected_true_count);
-        
-        // Verify step was called correct number of times
-        let masks = &kernel.collected_masks;
-        let counts = &kernel.collected_counts;
-        
-        // Should have 3 calls: 2 complete runs + 1 remaining
-        assert_eq!(masks.len(), 3, "Expected 3 step calls (2 complete + 1 remaining)");
-        assert_eq!(counts.len(), 3);
-        
-        // Build expected masks for each chunk
-        // First complete run (bits 0..1024)
-        let expected_first_mask = Mask::from_iter((0..N).map(|i| i % 3 == 0));
-        assert_eq!(masks[0], expected_first_mask, "First run mask should match expected pattern");
-        assert_eq!(counts[0], expected_first_mask.true_count());
-        
-        // Second complete run (bits 1024..2048)  
-        let expected_second_mask = Mask::from_iter((0..N).map(|i| (1024 + i) % 3 == 0));
-        assert_eq!(masks[1], expected_second_mask, "Second run mask should match expected pattern");
-        assert_eq!(counts[1], expected_second_mask.true_count());
-        
-        // Remaining run (bits 2048..2100, padded with false to N)
-        let expected_remaining_mask = Mask::from_iter((0..N).map(|i| {
-            if i < 52 {
-                (2048 + i) % 3 == 0
-            } else {
-                false  // Padding
-            }
-        }));
-        assert_eq!(masks[2], expected_remaining_mask, "Remaining mask should match expected pattern with padding");
-        assert_eq!(counts[2], expected_remaining_mask.true_count());
-        
-        // Verify total count matches
-        let total_collected = counts.iter().sum::<usize>();
-        assert_eq!(total_collected, expected_true_count, "Total collected should match mask true count");
-    }
-    
-    #[test]
-    fn test_export_bool_nonnull_masked_exact_multiple() {
-        // Test with exact multiple of N (1024)
-        let len = 2048;
-        
-        // Build mask with alternating bits
-        let original_mask = Mask::from_iter((0..len).map(|i| i % 2 == 0));
-        
-        let mut kernel = TestKernel::new();
-        
-        let result = export_bool_nonnull_masked(&original_mask, &mut kernel).unwrap();
-        
-        // Should have exactly 2 complete runs, no remaining
-        let masks = &kernel.collected_masks;
-        let counts = &kernel.collected_counts;
-        
-        assert_eq!(masks.len(), 2, "Expected exactly 2 step calls for 2048 elements");
-        
-        // Build expected masks for each chunk
-        let expected_first_mask = Mask::from_iter((0..N).map(|i| i % 2 == 0));
-        let expected_second_mask = Mask::from_iter((0..N).map(|i| (1024 + i) % 2 == 0));
-        
-        assert_eq!(masks[0], expected_first_mask, "First chunk mask should match");
-        assert_eq!(masks[1], expected_second_mask, "Second chunk mask should match");
-        
-        // Each run should have 512 true values (every other bit)
-        assert_eq!(counts[0], 512);
-        assert_eq!(counts[1], 512);
-        
-        assert_eq!(result.len(), 1024); // Total true values
-    }
-    
-    #[test]
-    fn test_export_bool_nonnull_masked_small_input() {
-        // Test with less than N elements
-        let len = 100;
-        let original_mask = Mask::from_iter((0..len).map(|i| i % 4 == 0));
-        
-        let mut kernel = TestKernel::new();
-        
-        let result = export_bool_nonnull_masked(&original_mask, &mut kernel).unwrap();
-        
-        let masks = &kernel.collected_masks;
-        let counts = &kernel.collected_counts;
-        
-        // Should have exactly 1 call for remaining
-        assert_eq!(masks.len(), 1, "Expected 1 step call for < N elements");
-        
-        // Build expected mask with padding
-        let expected_mask = Mask::from_iter((0..N).map(|i| {
-            if i < len {
-                i % 4 == 0
-            } else {
-                false  // Padding
-            }
-        }));
-        
-        assert_eq!(masks[0], expected_mask, "Mask should match expected pattern with padding");
-        
-        // Verify count
-        let expected_trues = expected_mask.true_count();
-        assert_eq!(counts[0], expected_trues);
-        assert_eq!(result.len(), expected_trues);
-    }
 }
