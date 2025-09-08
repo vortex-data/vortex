@@ -15,10 +15,6 @@ pub struct BitAlignedChunkedIterator<'a> {
 
 impl<'a> BitAlignedChunkedIterator<'a> {
     pub fn new(data: &'a [u8], bit_offset: usize) -> Self {
-        Self::with_max_bits(data, bit_offset, data.len() * 8)
-    }
-
-    pub fn with_max_bits(data: &'a [u8], bit_offset: usize, max_bits: usize) -> Self {
         Self {
             data,
             bit_offset: bit_offset % 8,
@@ -27,23 +23,18 @@ impl<'a> BitAlignedChunkedIterator<'a> {
         }
     }
 
+    pub fn with_max_bits(data: &'a [u8], bit_offset: usize, _max_bits: usize) -> Self {
+        // For now, with_max_bits is the same as new - bit limiting should be handled
+        // by the caller by providing appropriately sized data
+        Self::new(data, bit_offset)
+    }
+
     fn fill_buffer_from_bit_position(&mut self) -> usize {
-        if self.byte_offset >= self.data.len() {
-            return 0;
-        }
-
-        assert_ne!(self.bit_offset, 0);
-
-        // Calculate how many bits we can/should produce
-        let remaining_bits_in_data = (self.data.len() - self.byte_offset) * 8 - self.bit_offset;
-        let bits_to_produce = min(remaining_bits_in_data, N);
-        
-        if bits_to_produce == 0 {
-            return 0;
-        }
+        debug_assert!(self.byte_offset < self.data.len() );
+        debug_assert_ne!(self.bit_offset, 0);
 
         // Calculate how many bytes we need to produce
-        let bytes_to_produce = bits_to_produce.div_ceil(8);
+        let bytes_to_produce =self.data.len() - self.byte_offset;
 
         // Bit-shifted - work with bytes first, then convert to usize words
         let complement = 8 - self.bit_offset;
@@ -82,13 +73,11 @@ impl<'a> BitAlignedChunkedIterator<'a> {
 
     /// Returns next chunk (always exactly N bits as usize words, zero-padded if needed)
     pub fn next_chunk(&mut self) -> Option<[usize; N_WORDS]> {
+        if self.byte_offset >= self.data.len() {
+            return None;
+        }
 
         if self.bit_offset == 0 {
-            // Byte-aligned: zero-copy optimization for full chunks only
-            if self.byte_offset >= self.data.len() {
-                return None;
-            }
-
             let bytes_available = self.data.len() - self.byte_offset;
             let chunk_size = N / 8; // N/8 bytes
 
@@ -100,37 +89,36 @@ impl<'a> BitAlignedChunkedIterator<'a> {
                 let src_slice = &self.data[start..start + chunk_size];
                 let src_ptr = src_slice.as_ptr();
 
-                // Check if properly aligned for usize array operations
-                    // Zero-copy: directly transmute aligned slice to array
-                    let result = unsafe { *(src_ptr as *const [usize; N_WORDS]) };
-                    return Some(result);
-                    // } else {
-                    //     // Copy when not aligned
-                    //     let mut result = [0usize; N_WORDS];
-                    //     let result_u8: &mut [u8] = unsafe {
-                    //         std::slice::from_raw_parts_mut(result.as_mut_ptr() as *mut u8, N_WORDS * 8)
-                    //     };
-                    //     result_u8.copy_from_slice(src_slice);
-                    //     return Some(result);
-                    // }
+                assert!(src_slice.len() >= N/8);
+
+                // Zero-copy: directly transmute aligned slice to array
+                let result = unsafe { *(src_ptr as *const [usize; N_WORDS]) };
+                return Some(result);
+
             } else {
-                let start = self.byte_offset;
-                self.byte_offset += chunk_size;
+                // Byte-aligned but partial chunk
+                if self.byte_offset >= self.data.len() {
+                    return None;
+                }
 
-                let src_slice = &self.data[start..];
-                let src_ptr = src_slice.as_ptr();
+                let bytes_available = self.data.len() - self.byte_offset;
+                let bytes_to_copy = bytes_available.min(N / 8);
 
-                // Copy when not aligned
-                let result_u8: &mut [u8] = unsafe {
-                    std::slice::from_raw_parts_mut(self.buffer.as_mut_slice().as_mut_ptr() as *mut u8, N_WORDS * 8)
+                // Clear buffer and copy available data
+                let buffer_u8: &mut [u8] = unsafe {
+                    std::slice::from_raw_parts_mut(self.buffer.as_mut_ptr() as *mut u8, N / 8)
                 };
-                result_u8[..src_slice.len()].copy_from_slice(src_slice);
-                result_u8[src_slice.len()..].fill(0);
-                return Some(*self.buffer);
+
+                buffer_u8[..bytes_to_copy].copy_from_slice(&self.data[self.byte_offset..self.byte_offset + bytes_to_copy]);
+                buffer_u8[bytes_to_copy..].fill(0);
+
+                self.byte_offset += bytes_to_copy;
+                return Some(*self.buffer)
             }
         }
 
-        // Non-byte-aligned: always use buffer with bit shifting
+
+        // Non-byte-aligned: use bit shifting
         let filled = self.fill_buffer_from_bit_position();
         if filled == 0 {
             None
