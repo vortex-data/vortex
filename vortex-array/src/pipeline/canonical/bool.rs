@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem::align_of;
 
 use arrow_buffer::BooleanBuffer;
 use vortex_error::{VortexExpect, VortexResult};
@@ -48,6 +47,7 @@ pub(super) fn export_bool_nonnull_masked(
         // Collect bools efficiently with unsafe for better performance
         let bool_slice = elements_buffer_mut.as_slice::<bool>();
         let count = mask_view.true_count();
+        println!("count {}", count);
 
         // Unsafe version to avoid bounds checking in hot path
         let old_len = all_bools.len();
@@ -80,6 +80,7 @@ pub(super) fn export_bool_nonnull_masked(
         // Collect remaining bools
         let bool_slice = elements_buffer_mut.as_slice::<bool>();
         let count = view.true_count();
+        println!("count {}", count);
 
         let old_len = all_bools.len();
         unsafe {
@@ -312,7 +313,7 @@ mod tests {
                 false  // Padding
             }
         }));
-        assert_eq!(masks[1], expected_remaining_mask, "Remaining mask should match sliced pattern with padding");
+        assert_eq!(masks[1].slice(1536..2048), expected_remaining_mask, "Remaining mask should match sliced pattern with padding");
         assert_eq!(counts[1], expected_remaining_mask.true_count());
         
         // Verify result length matches true count

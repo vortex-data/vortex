@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::min;
 use std::mem::align_of;
 use crate::pipeline::{N, N_WORDS};
 
@@ -10,8 +11,6 @@ pub struct BitAlignedChunkedIterator<'a> {
     bit_offset: usize,
     byte_offset: usize,
     buffer: Box<[usize; N_WORDS]>,
-    max_bits: Option<usize>, // If set, limits output to this many bits total
-    bits_produced: usize,    // Track how many bits we've produced so far
 }
 
 impl<'a> BitAlignedChunkedIterator<'a> {
@@ -25,8 +24,6 @@ impl<'a> BitAlignedChunkedIterator<'a> {
             bit_offset: bit_offset % 8,
             byte_offset: bit_offset / 8,
             buffer: Box::new([0usize; N_WORDS]),
-            max_bits: Some(max_bits),
-            bits_produced: 0,
         }
     }
 
@@ -37,12 +34,23 @@ impl<'a> BitAlignedChunkedIterator<'a> {
 
         assert_ne!(self.bit_offset, 0);
 
+        // Calculate how many bits we can/should produce
+        let remaining_bits_in_data = (self.data.len() - self.byte_offset) * 8 - self.bit_offset;
+        let bits_to_produce = min(remaining_bits_in_data, N);
+        
+        if bits_to_produce == 0 {
+            return 0;
+        }
+
+        // Calculate how many bytes we need to produce
+        let bytes_to_produce = bits_to_produce.div_ceil(8);
+
         // Bit-shifted - work with bytes first, then convert to usize words
         let complement = 8 - self.bit_offset;
         let available_source = self.data.len() - self.byte_offset;
 
         let producible_bytes = if available_source > 1 {
-            (available_source - 1).min(N / 8)
+            (available_source - 1).min(bytes_to_produce).min(N / 8)
         } else {
             0
         };
@@ -68,60 +76,57 @@ impl<'a> BitAlignedChunkedIterator<'a> {
             buffer_as_bytes[producible_bytes..].fill(0);
         }
 
+
         producible_bytes
     }
 
     /// Returns next chunk (always exactly N bits as usize words, zero-padded if needed)
     pub fn next_chunk(&mut self) -> Option<[usize; N_WORDS]> {
-        // Check if we've reached the maximum bits limit
-        if let Some(max_bits) = self.max_bits {
-            if self.bits_produced >= max_bits {
-                return None;
-            }
-        }
+
         if self.bit_offset == 0 {
-            // Byte-aligned: zero-copy when possible
+            // Byte-aligned: zero-copy optimization for full chunks only
             if self.byte_offset >= self.data.len() {
                 return None;
             }
-            
+
             let bytes_available = self.data.len() - self.byte_offset;
             let chunk_size = N / 8; // N/8 bytes
-            
-            if bytes_available >= chunk_size {
-                // Full chunk available: check alignment for zero-copy
+
+            if bytes_available >= chunk_size && self.data[self.byte_offset..].as_ptr().align_offset(align_of::<usize>()) == 0 {
+                // Full chunk available and no bit limiting needed: zero-copy path
                 let start = self.byte_offset;
                 self.byte_offset += chunk_size;
-                
+
                 let src_slice = &self.data[start..start + chunk_size];
                 let src_ptr = src_slice.as_ptr();
-                
+
                 // Check if properly aligned for usize array operations
-                if src_ptr.align_offset(align_of::<usize>()) == 0 {
                     // Zero-copy: directly transmute aligned slice to array
-                    self.bits_produced += N;
                     let result = unsafe { *(src_ptr as *const [usize; N_WORDS]) };
-                    return Some(self.apply_bit_limit(result));
-                } else {
-                    // Copy when not aligned
-                    let mut result = [0usize; N_WORDS];
-                    let result_u8: &mut [u8] = unsafe {
-                        std::slice::from_raw_parts_mut(result.as_mut_ptr() as *mut u8, N_WORDS * 8)
-                    };
-                    result_u8.copy_from_slice(src_slice);
-                    self.bits_produced += N;
-                    return Some(self.apply_bit_limit(result));
-                }
+                    return Some(result);
+                    // } else {
+                    //     // Copy when not aligned
+                    //     let mut result = [0usize; N_WORDS];
+                    //     let result_u8: &mut [u8] = unsafe {
+                    //         std::slice::from_raw_parts_mut(result.as_mut_ptr() as *mut u8, N_WORDS * 8)
+                    //     };
+                    //     result_u8.copy_from_slice(src_slice);
+                    //     return Some(result);
+                    // }
             } else {
-                // Final partial chunk: copy to buffer and zero-pad only the unused portion
-                let buffer_u8: &mut [u8] = unsafe {
-                    std::slice::from_raw_parts_mut(self.buffer.as_mut_ptr() as *mut u8, N_WORDS * 8)
+                let start = self.byte_offset;
+                self.byte_offset += chunk_size;
+
+                let src_slice = &self.data[start..];
+                let src_ptr = src_slice.as_ptr();
+
+                // Copy when not aligned
+                let result_u8: &mut [u8] = unsafe {
+                    std::slice::from_raw_parts_mut(self.buffer.as_mut_slice().as_mut_ptr() as *mut u8, N_WORDS * 8)
                 };
-                buffer_u8[..bytes_available].copy_from_slice(&self.data[self.byte_offset..]);
-                buffer_u8[bytes_available..].fill(0); // Only zero the unused portion
-                self.byte_offset = self.data.len(); // Mark as exhausted
-                self.bits_produced += N;
-                return Some(self.apply_bit_limit(*self.buffer));
+                result_u8[..src_slice.len()].copy_from_slice(src_slice);
+                result_u8[src_slice.len()..].fill(0);
+                return Some(*self.buffer);
             }
         }
 
@@ -132,27 +137,10 @@ impl<'a> BitAlignedChunkedIterator<'a> {
         } else {
             // Advance by the number of bytes we actually filled
             self.byte_offset += filled;
-            self.bits_produced += N;
-            Some(self.apply_bit_limit(*self.buffer))
+            Some(*self.buffer)
         }
     }
 
-    fn apply_bit_limit(&self, mut result: [usize; N_WORDS]) -> [usize; N_WORDS] {
-        if let Some(max_bits) = self.max_bits {
-            let bits_in_this_chunk = (self.bits_produced - N)..self.bits_produced;
-            let limit_in_chunk = max_bits.saturating_sub(bits_in_this_chunk.start);
-            
-            if limit_in_chunk < N {
-                // Zero out bits beyond the limit within this chunk
-                for bit in limit_in_chunk..N {
-                    let word_idx = bit / (usize::BITS as usize);
-                    let bit_idx = bit % (usize::BITS as usize);
-                    result[word_idx] &= !(1 << bit_idx);
-                }
-            }
-        }
-        result
-    }
 }
 
 #[cfg(test)]
