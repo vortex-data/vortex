@@ -280,13 +280,13 @@ mod tests {
     /// Create a chunked layout with three chunks of primitive arrays.
     fn struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
+        let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         let layout = SingleThreadRuntime::block_on(|handle| {
             strategy.write_stream(
-                &ctx,
-                &segments,
+                ctx,
+                segments.clone(),
                 StructArray::from_fields(
                     [
                         ("a", buffer![7, 2, 3].into_array()),
@@ -305,7 +305,7 @@ mod tests {
         })
         .unwrap();
 
-        (Arc::new(segments), layout)
+        (segments, layout)
     }
 
     #[rstest]

@@ -290,13 +290,13 @@ mod test {
     /// Create a chunked layout with three chunks of primitive arrays.
     fn chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
+        let segments = Arc::new(TestSegments::default());
         let strategy = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
         let (mut sequence_id, eof) = SequenceId::root().split();
         let layout = SingleThreadRuntime::block_on(|handle| {
             strategy.write_stream(
-                &ctx,
-                &segments,
+                ctx,
+                segments.clone(),
                 SequentialStreamAdapter::new(
                     DType::Primitive(PType::I32, NonNullable),
                     stream::iter([
@@ -312,7 +312,7 @@ mod test {
         })
         .unwrap();
 
-        (Arc::new(segments), layout)
+        (segments, layout)
     }
 
     #[rstest]

@@ -5,8 +5,8 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::Array;
+use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 
 #[inline(never)]
 pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyhow::Result<u64> {

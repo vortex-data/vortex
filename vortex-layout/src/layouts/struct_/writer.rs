@@ -152,6 +152,8 @@ impl LayoutStrategy for StructStrategy {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_array::arrays::{BoolArray, ChunkedArray, StructArray};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, Canonical, IntoArray as _};
@@ -171,11 +173,11 @@ mod tests {
         let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
+        let segments = Arc::new(TestSegments::default());
         SingleThreadRuntime::block_on(|handle| {
             strategy.write_stream(
-                &ctx,
-                &segments,
+                ctx,
+                segments,
                 Canonical::empty(&DType::Struct(
                     [
                         ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
@@ -200,11 +202,11 @@ mod tests {
         let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
+        let segments = Arc::new(TestSegments::default());
         let res = SingleThreadRuntime::block_on(|handle| {
             strategy.write_stream(
-                &ctx,
-                &segments,
+                ctx,
+                segments,
                 StructArray::try_new(
                     ["a"].into(),
                     vec![buffer![1, 2, 3].into_array()],
@@ -230,11 +232,11 @@ mod tests {
         let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
+        let segments = Arc::new(TestSegments::default());
         let res = SingleThreadRuntime::block_on(|handle| {
             strategy.write_stream(
-                &ctx,
-                &segments,
+                ctx,
+                segments,
                 ChunkedArray::from_iter([
                     StructArray::try_new(FieldNames::default(), vec![], 3, Validity::NonNullable)
                         .unwrap()

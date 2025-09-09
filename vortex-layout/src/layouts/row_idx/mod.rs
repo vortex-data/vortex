@@ -260,7 +260,7 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
-    use crate::segments::{SegmentSource, TestSegments};
+    use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
     use crate::{LayoutReader, LayoutStrategy};
 
@@ -268,20 +268,19 @@ mod tests {
     fn flat_expr_no_row_id() {
         SingleThreadRuntime::block_on(|handle| async {
             let ctx = ArrayContext::empty();
-            let segments = TestSegments::default();
+            let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::from_iter(1..=5).to_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    &ctx,
-                    &segments,
+                    ctx,
+                    segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = eq(root(), lit(3i32));
             let result =
@@ -307,20 +306,19 @@ mod tests {
     fn flat_expr_row_id() {
         SingleThreadRuntime::block_on(|handle| async {
             let ctx = ArrayContext::empty();
-            let segments = TestSegments::default();
+            let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::from_iter(1..=5).to_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    &ctx,
-                    &segments,
+                    ctx,
+                    segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = gt(row_idx(), lit(3u64));
             let result =
@@ -346,20 +344,19 @@ mod tests {
     fn flat_expr_or() {
         SingleThreadRuntime::block_on(|handle| async {
             let ctx = ArrayContext::empty();
-            let segments = TestSegments::default();
+            let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::from_iter(1..=5).to_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    &ctx,
-                    &segments,
+                    ctx,
+                    segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = or(
                 eq(root(), lit(3i32)),

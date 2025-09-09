@@ -6,10 +6,10 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, stream};
 use log::info;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
@@ -22,13 +22,13 @@ use tpchgen::generators::{
     PartSuppGenerator, RegionGenerator, SupplierGenerator,
 };
 use tpchgen_arrow::RecordBatchIterator;
+use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexExpect;
 use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
-use vortex::ArrayRef;
 
 use crate::utils::file_utils::idempotent_async;
 use crate::{CompactionStrategy, Format, IdempotentPath};

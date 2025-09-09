@@ -72,7 +72,7 @@ mod test {
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_layout::LayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-    use vortex_layout::segments::{SegmentSource, TestSegments};
+    use vortex_layout::segments::TestSegments;
     use vortex_layout::sequence::{SequenceId, SequentialArrayStreamExt};
 
     use super::*;
@@ -80,13 +80,13 @@ mod test {
     #[test]
     fn test_layout_splits_flat() {
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
+        let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let layout = SingleThreadRuntime::block_on(|handle| async {
             FlatLayoutStrategy::default()
                 .write_stream(
-                    &ctx,
-                    &segments,
+                    ctx,
+                    segments.clone(),
                     buffer![1_i32; 10]
                         .into_array()
                         .to_array_stream()
@@ -98,7 +98,6 @@ mod test {
         })
         .unwrap();
 
-        let segments: Arc<dyn SegmentSource> = Arc::new(segments);
         let reader = layout.new_reader("".into(), segments).unwrap();
 
         let splits = SplitBy::Layout
@@ -110,13 +109,13 @@ mod test {
     #[test]
     fn test_row_count_splits() {
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
+        let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let layout = SingleThreadRuntime::block_on(|handle| async {
             FlatLayoutStrategy::default()
                 .write_stream(
-                    &ctx,
-                    &segments,
+                    ctx,
+                    segments.clone(),
                     buffer![1_i32; 10]
                         .into_array()
                         .to_array_stream()
@@ -128,7 +127,6 @@ mod test {
         })
         .unwrap();
 
-        let segments: Arc<dyn SegmentSource> = Arc::new(segments);
         let reader = layout.new_reader("".into(), segments).unwrap();
 
         let splits = SplitBy::RowCount(3)

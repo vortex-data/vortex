@@ -178,7 +178,7 @@ struct LazyAbortHandle {
 impl AbortHandle for LazyAbortHandle {
     fn abort(self: Box<Self>) {
         // Aborting a smol::Task is done by dropping it.
-        if let Some(task) = self.task.lock().try_recv().ok() {
+        if let Ok(task) = self.task.lock().try_recv() {
             task.abort()
         }
     }

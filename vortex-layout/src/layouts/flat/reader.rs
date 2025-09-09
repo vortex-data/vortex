@@ -284,27 +284,26 @@ mod test {
 
     use crate::LayoutStrategy as _;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, TestSegments};
+    use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
 
     #[test]
     fn flat_identity() {
         SingleThreadRuntime::block_on(|handle| async {
             let ctx = ArrayContext::empty();
-            let segments = TestSegments::default();
+            let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    &ctx,
-                    &segments,
+                    ctx,
+                    segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
                 .new_reader("".into(), segments)
@@ -330,20 +329,19 @@ mod test {
     fn flat_expr() {
         SingleThreadRuntime::block_on(|handle| async {
             let ctx = ArrayContext::empty();
-            let segments = TestSegments::default();
+            let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    &ctx,
-                    &segments,
+                    ctx,
+                    segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = gt(root(), lit(3i32));
             let result = layout
@@ -370,20 +368,19 @@ mod test {
     fn flat_unaligned_row_mask() {
         SingleThreadRuntime::block_on(|handle| async {
             let ctx = ArrayContext::empty();
-            let segments = TestSegments::default();
+            let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    &ctx,
-                    &segments,
+                    ctx,
+                    segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
                 .new_reader("".into(), segments)

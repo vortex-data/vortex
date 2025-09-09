@@ -155,7 +155,7 @@ mod tests {
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, TestSegments};
+    use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
 
     // Currently, flat layouts do not force compute stats during write, they only retain
@@ -165,20 +165,19 @@ mod tests {
     fn flat_stats() {
         SingleThreadRuntime::block_on(|handle| async {
             let ctx = ArrayContext::empty();
-            let segments = TestSegments::default();
+            let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    &ctx,
-                    &segments,
+                    ctx,
+                    segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
                 .new_reader("".into(), segments)
@@ -203,7 +202,7 @@ mod tests {
     fn truncates_variable_size_stats() {
         SingleThreadRuntime::block_on(|handle| async {
             let ctx = ArrayContext::empty();
-            let segments = TestSegments::default();
+            let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let mut builder =
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 2);
@@ -220,15 +219,14 @@ mod tests {
 
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    &ctx,
-                    &segments,
+                    ctx,
+                    segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
                 .new_reader("".into(), segments)
@@ -284,12 +282,12 @@ mod tests {
 
             // Write the array into a byte buffer.
             let (layout, segments) = {
-                let segments = TestSegments::default();
+                let segments = Arc::new(TestSegments::default());
                 let (ptr, eof) = SequenceId::root().split();
                 let layout = FlatLayoutStrategy::default()
                     .write_stream(
-                        &ctx,
-                        &segments,
+                        ctx,
+                        segments.clone(),
                         array.to_array_stream().sequenced(ptr),
                         eof,
                         handle,
@@ -297,7 +295,7 @@ mod tests {
                     .await
                     .unwrap();
 
-                (layout, Arc::new(segments) as Arc<dyn SegmentSource>)
+                (layout, segments)
             };
 
             // We should be able to read the array we just wrote.

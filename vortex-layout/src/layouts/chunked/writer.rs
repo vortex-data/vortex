@@ -2,17 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use async_stream::{stream};
+
+use async_stream::stream;
 use async_trait::async_trait;
-use futures::{stream,  StreamExt, TryStreamExt};
-use vortex_array::{ArrayContext};
+use futures::{StreamExt, TryStreamExt, stream};
+use vortex_array::ArrayContext;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_io::runtime::Handle;
 
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SegmentSinkRef;
-use crate::sequence::{SendableSequentialStream,  SequencePointer, SequentialStreamAdapter, SequentialStreamExt as _};
+use crate::sequence::{
+    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt as _,
+};
 use crate::{IntoLayout, LayoutRef, LayoutStrategy};
 
 #[derive(Clone)]
@@ -71,10 +74,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
             }
         };
 
-        let mut child_layouts: Vec<LayoutRef> = stream
-            .buffered(16)
-            .try_collect()
-            .await?;
+        let mut child_layouts: Vec<LayoutRef> = stream.buffered(16).try_collect().await?;
 
         if child_layouts.len() == 1 {
             Ok(child_layouts.pop().vortex_expect("must have one child"))

@@ -15,15 +15,15 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, stream};
 use glob::Pattern;
 use log::trace;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use reqwest::blocking::Response;
 use reqwest::IntoUrl;
+use reqwest::blocking::Response;
 use serde::Serialize;
-use tokio::fs::{create_dir_all, OpenOptions};
-use tracing::{info, warn, Instrument};
+use tokio::fs::{OpenOptions, create_dir_all};
+use tracing::{Instrument, info, warn};
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex::file::VortexWriteOptions;

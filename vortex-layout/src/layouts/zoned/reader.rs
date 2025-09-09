@@ -366,7 +366,7 @@ mod test {
     /// Create a stats layout with three chunks of primitive arrays.
     fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
+        let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy = ZonedStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
@@ -385,10 +385,10 @@ mod test {
         .to_array_stream()
         .sequenced(ptr);
         let layout = SingleThreadRuntime::block_on(|handle| {
-            strategy.write_stream(&ctx, &segments, array_stream, eof, handle)
+            strategy.write_stream(ctx, segments.clone(), array_stream, eof, handle)
         })
         .unwrap();
-        (Arc::new(segments), layout)
+        (segments, layout)
     }
 
     #[rstest]
