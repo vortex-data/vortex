@@ -6,13 +6,13 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
-use crate::pipeline::bits::{BitAlignedChunkedIterator, BitView};
+use crate::pipeline::bits::{BitAlignedChunkedIterator, BitView, MaskSliceIterator};
 use crate::pipeline::vec::Vector;
 use crate::pipeline::{Kernel, KernelContext, N};
 use crate::validity::Validity;
 
-pub(super) fn export_bool_nonnull_masked(
-    mask: &Mask,
+pub(super) fn export_bool_nonnull_masked<T: MaskSliceIterator>(
+    mask: MaskSliceIterator,
     pipeline: &mut dyn Kernel,
 ) -> VortexResult<BoolArray> {
     let len = mask.len();

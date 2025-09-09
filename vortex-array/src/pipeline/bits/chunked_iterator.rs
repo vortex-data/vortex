@@ -4,8 +4,9 @@
 use std::iter::{Chain, Once};
 use std::mem::align_of;
 use std::slice;
-use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
+
 use arrow_buffer::BooleanBuffer;
+use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
 
 use crate::pipeline::{N, N_WORDS};
 
@@ -15,17 +16,27 @@ pub trait MaskSliceIterator {
     fn len(&self) -> usize;
 }
 
-
 /// An iterator that returns chunks of N bits as usize words, zero-padded if needed
 /// this will zero copy if possible, otherwise it will copy the data into a buffer
 pub struct BitAlignedChunkedIterator<'a> {
     data: &'a [u8],
-    bit_offset: usize,
     byte_offset: usize,
     buffer: Box<[usize; N_WORDS]>,
     len: usize, // Total length in bits
     bit_chunk_iter: Option<Chain<BitChunkIterator<'a>, Once<u64>>>,
     done: bool,
+}
+
+impl MaskSliceIterator for BitAlignedChunkedIterator<'_> {
+    #[inline]
+    fn next_chunk(&mut self) -> Option<&[usize; N_WORDS]> {
+        self._next_chunk()
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.len
+    }
 }
 
 impl<'a> From<&'a BooleanBuffer> for BitAlignedChunkedIterator<'a> {
@@ -34,12 +45,12 @@ impl<'a> From<&'a BooleanBuffer> for BitAlignedChunkedIterator<'a> {
     }
 }
 
-impl<'a> BitAlignedChunkedIterator<'a>  {
+impl<'a> BitAlignedChunkedIterator<'a> {
     pub fn new(buffer: &'a BooleanBuffer) -> Self {
         // Check if data is aligned and we can use fast path
-        let is_aligned = buffer.offset() % usize::BITS as usize == 0 &&
-            buffer.values().as_ptr().align_offset(align_of::<usize>()) == 0;
-        
+        let is_aligned = buffer.offset() % usize::BITS as usize == 0
+            && buffer.values().as_ptr().align_offset(align_of::<usize>()) == 0;
+
         if is_aligned {
             // Use original fast path logic
             let bit_offset = buffer.offset();
@@ -49,12 +60,11 @@ impl<'a> BitAlignedChunkedIterator<'a>  {
             let end_byte = end_bit.div_ceil(8);
             let byte_len = end_byte - start_byte;
             let data = buffer.values();
-            
+
             let sliced_data = &data[start_byte..][..byte_len.min(data.len() - start_byte)];
-            
+
             Self {
                 data: sliced_data,
-                bit_offset: 0, // Already aligned
                 byte_offset: 0,
                 buffer: Box::new([0usize; N_WORDS]),
                 len,
@@ -66,15 +76,16 @@ impl<'a> BitAlignedChunkedIterator<'a>  {
             let bit_chunks = buffer.bit_chunks();
             let iter = if bit_chunks.remainder_len() > 0 {
                 // Only include remainder if there are actual remainder bits
-                bit_chunks.iter().chain(std::iter::once(bit_chunks.remainder_bits()))
+                bit_chunks
+                    .iter()
+                    .chain(std::iter::once(bit_chunks.remainder_bits()))
             } else {
                 // No remainder bits, just use the regular iterator
                 bit_chunks.iter().chain(std::iter::once(0u64))
             };
 
             Self {
-                data: &[], // Not used when we have the iterator
-                bit_offset: 0,
+                data: &[],
                 byte_offset: 0,
                 buffer: Box::new([0usize; N_WORDS]),
                 len: buffer.len(),
@@ -87,7 +98,7 @@ impl<'a> BitAlignedChunkedIterator<'a>  {
     /// Returns next chunk (always exactly N bits as usize words, zero-padded if needed)
     /// This cannot be an iterator since the chunk
     #[inline]
-    pub fn next_chunk(&mut self) -> Option<&[usize; N_WORDS]> {
+    pub fn _next_chunk(&mut self) -> Option<&[usize; N_WORDS]> {
         if self.done {
             return None;
         }
@@ -133,21 +144,18 @@ impl<'a> BitAlignedChunkedIterator<'a>  {
                 == 0
         {
             let result = unsafe {
-                &*(self.data[self.byte_offset..][..CHUNK_SIZE].as_ptr()
-                    as *const [usize; N_WORDS])
+                &*(self.data[self.byte_offset..][..CHUNK_SIZE].as_ptr() as *const [usize; N_WORDS])
             };
             self.byte_offset += CHUNK_SIZE;
             Some(result)
         } else {
             let bytes_to_copy = remaining_bits.div_ceil(8);
 
-            let buffer_u8: &mut [u8] = unsafe {
-                slice::from_raw_parts_mut(self.buffer.as_mut_ptr() as *mut u8, N / 8)
-            };
+            let buffer_u8: &mut [u8] =
+                unsafe { slice::from_raw_parts_mut(self.buffer.as_mut_ptr() as *mut u8, N / 8) };
 
-            buffer_u8[..bytes_to_copy].copy_from_slice(
-                &self.data[self.byte_offset..self.byte_offset + bytes_to_copy],
-            );
+            buffer_u8[..bytes_to_copy]
+                .copy_from_slice(&self.data[self.byte_offset..self.byte_offset + bytes_to_copy]);
             buffer_u8[bytes_to_copy..].fill(0);
 
             // If this is a partial chunk, we need to clear excess bits in the last byte
@@ -177,8 +185,7 @@ mod tests {
         let chunk = iter.next_chunk().unwrap();
 
         // Convert to bytes for verification
-        let chunk_u8: &[u8] =
-            unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
+        let chunk_u8: &[u8] = unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
 
         // Should match original data exactly
         assert_eq!(chunk_u8, &data[..]);
@@ -197,8 +204,7 @@ mod tests {
         let chunk = iter.next_chunk().unwrap();
 
         // Convert to bytes for verification
-        let chunk_u8: &[u8] =
-            unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
+        let chunk_u8: &[u8] = unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
 
         let mut expected = [0b10101010u8; 128];
         expected[127] = 0b00101010u8;
@@ -218,8 +224,7 @@ mod tests {
         let mut iter = BitAlignedChunkedIterator::new(&buffer);
 
         let chunk = iter.next_chunk().unwrap();
-        let chunk_u8: &[u8] =
-            unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
+        let chunk_u8: &[u8] = unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
 
         // First 64 bytes should match data
         assert_eq!(&chunk_u8[..64], &data[..]);
@@ -237,8 +242,7 @@ mod tests {
         let mut iter = BitAlignedChunkedIterator::new(&buffer);
 
         let chunk = iter.next_chunk().unwrap();
-        let chunk_u8: &[u8] =
-            unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
+        let chunk_u8: &[u8] = unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
 
         // With 3-bit offset, we should get shifted data
         // Original: 11100111 00011100 11100011 10001110
@@ -264,14 +268,12 @@ mod tests {
 
         // First chunk
         let chunk1 = iter.next_chunk().unwrap();
-        let chunk1_u8: &[u8] =
-            unsafe { slice::from_raw_parts(chunk1.as_ptr() as *const u8, 128) };
+        let chunk1_u8: &[u8] = unsafe { slice::from_raw_parts(chunk1.as_ptr() as *const u8, 128) };
         assert_eq!(chunk1_u8, &data[..128]);
 
         // Second chunk
         let chunk2 = iter.next_chunk().unwrap();
-        let chunk2_u8: &[u8] =
-            unsafe { slice::from_raw_parts(chunk2.as_ptr() as *const u8, 128) };
+        let chunk2_u8: &[u8] = unsafe { slice::from_raw_parts(chunk2.as_ptr() as *const u8, 128) };
         assert_eq!(chunk2_u8, &data[128..256]);
 
         // No more chunks
@@ -286,8 +288,7 @@ mod tests {
         let mut iter = BitAlignedChunkedIterator::new(&buffer);
 
         let chunk = iter.next_chunk().unwrap();
-        let chunk_u8: &[u8] =
-            unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
+        let chunk_u8: &[u8] = unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
 
         // With 4-bit offset and all 1s, calculate expected bytes produced
         // 20 source bytes with 4-bit offset should produce about 19 bytes of data
@@ -313,8 +314,7 @@ mod tests {
         let chunk = iter.next_chunk().unwrap();
 
         // Convert to bytes for verification
-        let chunk_u8: &[u8] =
-            unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
+        let chunk_u8: &[u8] = unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
 
         // With 1-bit offset, pattern shifts: 10101010 -> 01010101
         let expected = [0b01010101u8; 128];
