@@ -11,7 +11,7 @@ use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<BoolVTable> for BoolVTable {
     fn slice(array: &BoolArray, range: Range<usize>) -> ArrayRef {
-        BoolArray::new(
+        BoolArray::from_bool_buffer(
             array.boolean_buffer().slice(range.start, range.len()),
             array.validity().slice(range),
         )

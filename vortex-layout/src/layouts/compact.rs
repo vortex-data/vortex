@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{ExtensionArray, ListArray, StructArray};
+use vortex_array::arrays::{
+    ExtensionArray, FixedSizeListArray, ListArray, PrimitiveArray, StructArray, narrowed_decimal,
+};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
+use vortex_decimal_byte_parts::DecimalBytePartsArray;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_pco::PcoArray;
+use vortex_scalar::DecimalValueType;
 use vortex_zstd::ZstdArray;
 
 fn is_pco_number_type(ptype: PType) -> bool {
@@ -62,32 +66,54 @@ impl CompactCompressor {
 
     /// Compress a single array using the compact strategy
     pub fn compress_canonical(&self, canonical: Canonical) -> VortexResult<ArrayRef> {
-        match canonical {
+        let uncompressed_nbytes = canonical.as_ref().nbytes();
+        let compressed = match &canonical {
             // TODO compress BoolArrays
-            // TODO compress DecimalArrays
             Canonical::Primitive(primitive) => {
                 // pco for applicable numbers, zstd for everything else
                 let ptype = primitive.ptype();
 
                 if is_pco_number_type(ptype) {
                     let pco_array =
-                        PcoArray::from_primitive(&primitive, self.pco_level, self.values_per_page)?;
-                    Ok(pco_array.into_array())
+                        PcoArray::from_primitive(primitive, self.pco_level, self.values_per_page)?;
+                    pco_array.into_array()
                 } else {
                     let zstd_array = ZstdArray::from_primitive(
-                        &primitive,
+                        primitive,
                         self.zstd_level,
                         self.values_per_page,
                     )?;
-                    Ok(zstd_array.into_array())
+                    zstd_array.into_array()
                 }
+            }
+            Canonical::Decimal(decimal) => {
+                let decimal = narrowed_decimal(decimal.clone());
+                let validity = decimal.validity();
+                let int_values = match decimal.values_type() {
+                    DecimalValueType::I8 => {
+                        PrimitiveArray::new(decimal.buffer::<i8>(), validity.clone())
+                    }
+                    DecimalValueType::I16 => {
+                        PrimitiveArray::new(decimal.buffer::<i16>(), validity.clone())
+                    }
+                    DecimalValueType::I32 => {
+                        PrimitiveArray::new(decimal.buffer::<i32>(), validity.clone())
+                    }
+                    DecimalValueType::I64 => {
+                        PrimitiveArray::new(decimal.buffer::<i64>(), validity.clone())
+                    }
+                    _ => {
+                        // Vortex lacks support for i128 and i256.
+                        return Ok(canonical.into_array());
+                    }
+                };
+                let compressed = self.compress_canonical(Canonical::Primitive(int_values))?;
+                DecimalBytePartsArray::try_new(compressed, decimal.decimal_dtype())?.to_array()
             }
             Canonical::VarBinView(vbv) => {
                 // always zstd
-                Ok(
-                    ZstdArray::from_var_bin_view(&vbv, self.zstd_level, self.values_per_page)?
-                        .into_array(),
-                )
+                ZstdArray::from_var_bin_view(vbv, self.zstd_level, self.values_per_page)?
+                    .into_array()
             }
             Canonical::Struct(struct_array) => {
                 // recurse
@@ -97,37 +123,51 @@ impl CompactCompressor {
                     .map(|field| self.compress(field))
                     .collect::<VortexResult<Vec<_>>>()?;
 
-                Ok(StructArray::try_new(
+                StructArray::try_new(
                     struct_array.names().clone(),
                     fields,
                     struct_array.len(),
                     struct_array.validity().clone(),
                 )?
-                .into_array())
+                .into_array()
             }
             Canonical::List(list_array) => {
                 // recurse
                 let compressed_elems = self.compress(list_array.elements())?;
                 let compressed_offsets = self.compress(list_array.offsets())?;
 
-                Ok(ListArray::try_new(
+                ListArray::try_new(
                     compressed_elems,
                     compressed_offsets,
                     list_array.validity().clone(),
                 )?
-                .into_array())
+                .into_array()
+            }
+            Canonical::FixedSizeList(list_array) => {
+                // recurse
+                let compressed_elems = self.compress(list_array.elements())?;
+
+                FixedSizeListArray::try_new(
+                    compressed_elems,
+                    list_array.list_size(),
+                    list_array.validity().clone(),
+                    list_array.len(),
+                )?
+                .into_array()
             }
             Canonical::Extension(ext_array) => {
                 // recurse
                 let compressed_storage = self.compress(ext_array.storage())?;
 
-                Ok(
-                    ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
-                        .into_array(),
-                )
+                ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage).into_array()
             }
-            other => Ok(other.into_array()),
+            _ => return Ok(canonical.into_array()),
+        };
+
+        if compressed.nbytes() >= uncompressed_nbytes {
+            return Ok(canonical.into_array());
         }
+        Ok(compressed)
     }
 }
 
@@ -151,6 +191,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
+    use vortex_dtype::FieldName;
 
     use super::*;
 
@@ -169,7 +210,8 @@ mod tests {
         .iter()
         .map(|a| a.clone().into_array())
         .collect::<Vec<_>>();
-        let field_names = vec!["f64_field".into(), "i32_field".into(), "u8_field".into()];
+        let field_names: Vec<FieldName> =
+            vec!["f64_field".into(), "i32_field".into(), "u8_field".into()];
 
         let n_rows = columns[0].len();
         let struct_array = StructArray::try_new(
@@ -190,7 +232,7 @@ mod tests {
 
         // Verify each field can be accessed and has correct data
         for (i, name) in decompressed_struct.names().iter().enumerate() {
-            assert_eq!(name, &field_names[i]);
+            assert_eq!(name, field_names[i]);
             let decompressed_array = decompressed_struct
                 .field_by_name(name)
                 .unwrap()

@@ -90,6 +90,262 @@ fn test_simple_list_filter() {
 }
 
 #[test]
+fn test_list_filter_dense_mask() {
+    // Test filtering with a dense mask (high density of true values).
+    let elements = PrimitiveArray::from_iter(0..100);
+    let offsets = PrimitiveArray::from_iter([0, 10, 25, 40, 60, 85, 100]);
+    let validity = Validity::AllValid;
+
+    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+        .unwrap()
+        .into_array();
+
+    // Dense mask: keep most elements (indices 1, 2, 3, 4, 5).
+    let mask = Mask::from(BooleanBuffer::from(vec![
+        false, true, true, true, true, true,
+    ]));
+
+    let filtered = filter(&list, &mask).unwrap();
+    let filtered_list = filtered.as_::<ListVTable>();
+
+    // Should have 5 lists remaining.
+    assert_eq!(filtered_list.len(), 5);
+
+    // Verify first remaining list (originally index 1) has correct elements.
+    let first_list = filtered_list.elements_at(0);
+    assert_eq!(first_list.len(), 15); // 25 - 10
+    assert_eq!(first_list.scalar_at(0), 10.into());
+    assert_eq!(first_list.scalar_at(14), 24.into());
+}
+
+#[test]
+fn test_list_filter_sparse_mask() {
+    // Test filtering with a sparse mask (low density of true values).
+    let elements = PrimitiveArray::from_iter(0..100);
+    let offsets = PrimitiveArray::from_iter([0, 10, 25, 40, 60, 85, 100]);
+    let validity = Validity::AllValid;
+
+    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+        .unwrap()
+        .into_array();
+
+    // Sparse mask: keep only a few elements (indices 0 and 5).
+    let mask = Mask::from(BooleanBuffer::from(vec![
+        true, false, false, false, false, true,
+    ]));
+
+    let filtered = filter(&list, &mask).unwrap();
+    let filtered_list = filtered.as_::<ListVTable>();
+
+    // Should have 2 lists remaining.
+    assert_eq!(filtered_list.len(), 2);
+
+    // Verify first list (originally index 0).
+    let first_list = filtered_list.elements_at(0);
+    assert_eq!(first_list.len(), 10);
+    assert_eq!(first_list.scalar_at(0), 0.into());
+    assert_eq!(first_list.scalar_at(9), 9.into());
+
+    // Verify second list (originally index 5).
+    let second_list = filtered_list.elements_at(1);
+    assert_eq!(second_list.len(), 15); // 100 - 85
+    assert_eq!(second_list.scalar_at(0), 85.into());
+    assert_eq!(second_list.scalar_at(14), 99.into());
+}
+
+#[test]
+fn test_list_filter_empty_lists() {
+    // Test filtering arrays that contain empty lists.
+    let elements = PrimitiveArray::from_iter(0..10);
+    let offsets = PrimitiveArray::from_iter([0, 0, 3, 3, 7, 10, 10]); // Lists at indices 0, 2, 5 are empty.
+    let validity = Validity::AllValid;
+
+    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+        .unwrap()
+        .into_array();
+
+    let mask = Mask::from(BooleanBuffer::from(vec![
+        true, true, true, false, false, true,
+    ]));
+
+    let filtered = filter(&list, &mask).unwrap();
+    let filtered_list = filtered.as_::<ListVTable>();
+
+    assert_eq!(filtered_list.len(), 4);
+
+    // First list is empty.
+    assert_eq!(filtered_list.elements_at(0).len(), 0);
+
+    // Second list has 3 elements.
+    let second_list = filtered_list.elements_at(1);
+    assert_eq!(second_list.len(), 3);
+    assert_eq!(second_list.scalar_at(0), 0.into());
+
+    // Third list is empty.
+    assert_eq!(filtered_list.elements_at(2).len(), 0);
+
+    // Fourth list is empty.
+    assert_eq!(filtered_list.elements_at(3).len(), 0);
+}
+
+#[test]
+fn test_list_filter_with_nulls() {
+    // Test filtering lists with null validity.
+    let elements = PrimitiveArray::from_iter(0..15);
+    let offsets = PrimitiveArray::from_iter([0, 3, 7, 10, 12, 15]);
+    let validity = Validity::from_mask(
+        Mask::from(BooleanBuffer::from(vec![true, false, true, false, true])),
+        Nullability::Nullable,
+    );
+
+    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+        .unwrap()
+        .into_array();
+
+    let mask = Mask::from(BooleanBuffer::from(vec![true, true, false, true, true]));
+
+    let filtered = filter(&list, &mask).unwrap();
+    let filtered_list = filtered.as_::<ListVTable>();
+
+    assert_eq!(filtered_list.len(), 4);
+
+    // Check validity of filtered array.
+    assert!(filtered_list.scalar_at(0).is_valid());
+    assert!(!filtered_list.scalar_at(1).is_valid()); // Was null.
+    assert!(!filtered_list.scalar_at(2).is_valid()); // Was null.
+    assert!(filtered_list.scalar_at(3).is_valid());
+}
+
+#[test]
+fn test_list_filter_all_true() {
+    // Test filtering with an all-true mask.
+    let elements = PrimitiveArray::from_iter(0..20);
+    let offsets = PrimitiveArray::from_iter([0, 5, 10, 15, 20]);
+    let validity = Validity::AllValid;
+
+    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+        .unwrap()
+        .into_array();
+
+    let mask = Mask::AllTrue(4);
+
+    let filtered = filter(&list, &mask).unwrap();
+    let filtered_list = filtered.as_::<ListVTable>();
+
+    // All lists should be preserved.
+    assert_eq!(filtered_list.len(), 4);
+
+    // Verify all lists are intact.
+    for i in 0..4i32 {
+        let list_at_i = filtered_list.elements_at(i as usize);
+        assert_eq!(list_at_i.len(), 5);
+        assert_eq!(list_at_i.scalar_at(0), (i * 5).into());
+    }
+}
+
+#[test]
+fn test_list_filter_all_false() {
+    // Test filtering with an all-false mask.
+    let elements = PrimitiveArray::from_iter(0..20);
+    let offsets = PrimitiveArray::from_iter([0, 5, 10, 15, 20]);
+    let validity = Validity::AllValid;
+
+    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+        .unwrap()
+        .into_array();
+
+    let mask = Mask::AllFalse(4);
+
+    let filtered = filter(&list, &mask).unwrap();
+    let filtered_list = filtered.as_::<ListVTable>();
+
+    // No lists should remain.
+    assert_eq!(filtered_list.len(), 0);
+}
+
+#[test]
+fn test_list_filter_single_element() {
+    // Test filtering to keep only one element.
+    let elements = PrimitiveArray::from_iter(0..50);
+    let offsets = PrimitiveArray::from_iter([0, 10, 20, 30, 40, 50]);
+    let validity = Validity::AllValid;
+
+    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+        .unwrap()
+        .into_array();
+
+    let mask = Mask::from(BooleanBuffer::from(vec![false, false, true, false, false]));
+
+    let filtered = filter(&list, &mask).unwrap();
+    let filtered_list = filtered.as_::<ListVTable>();
+
+    assert_eq!(filtered_list.len(), 1);
+
+    let single_list = filtered_list.elements_at(0);
+    assert_eq!(single_list.len(), 10);
+    assert_eq!(single_list.scalar_at(0), 20.into());
+    assert_eq!(single_list.scalar_at(9), 29.into());
+}
+
+#[test]
+fn test_list_filter_alternating_pattern() {
+    // Test filtering with an alternating pattern.
+    let elements = PrimitiveArray::from_iter(0..60);
+    let offsets = PrimitiveArray::from_iter([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]);
+    let validity = Validity::AllValid;
+
+    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+        .unwrap()
+        .into_array();
+
+    // Keep every other list.
+    let mask = Mask::from(BooleanBuffer::from(vec![
+        true, false, true, false, true, false, true, false, true, false, true, false,
+    ]));
+
+    let filtered = filter(&list, &mask).unwrap();
+    let filtered_list = filtered.as_::<ListVTable>();
+
+    assert_eq!(filtered_list.len(), 6);
+
+    // Verify that we have the correct lists (0, 2, 4, 6, 8, 10).
+    for (i, expected_start) in [0, 10, 20, 30, 40, 50].iter().enumerate() {
+        let list_at_i = filtered_list.elements_at(i);
+        assert_eq!(list_at_i.len(), 5);
+        assert_eq!(list_at_i.scalar_at(0), (*expected_start).into());
+    }
+}
+
+#[test]
+fn test_list_filter_variable_sizes() {
+    // Test filtering lists with highly variable sizes.
+    let elements = PrimitiveArray::from_iter(0..100);
+    let offsets = PrimitiveArray::from_iter([0, 1, 2, 5, 10, 20, 35, 60, 100]);
+    let validity = Validity::AllValid;
+
+    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+        .unwrap()
+        .into_array();
+
+    let mask = Mask::from(BooleanBuffer::from(vec![
+        true, false, true, true, false, true, true, true,
+    ]));
+
+    let filtered = filter(&list, &mask).unwrap();
+    let filtered_list = filtered.as_::<ListVTable>();
+
+    assert_eq!(filtered_list.len(), 6);
+
+    // Verify sizes of filtered lists.
+    assert_eq!(filtered_list.elements_at(0).len(), 1); // Size 1
+    assert_eq!(filtered_list.elements_at(1).len(), 3); // Size 3
+    assert_eq!(filtered_list.elements_at(2).len(), 5); // Size 5
+    assert_eq!(filtered_list.elements_at(3).len(), 15); // Size 15
+    assert_eq!(filtered_list.elements_at(4).len(), 25); // Size 25
+    assert_eq!(filtered_list.elements_at(5).len(), 40); // Size 40
+}
+
+#[test]
 fn test_offset_to_0() {
     let mut builder =
         ListBuilder::<u32>::with_capacity(Arc::new(I32.into()), Nullability::NonNullable, 5);
@@ -551,7 +807,7 @@ fn test_validity_length_mismatch() {
 }
 
 #[test]
-#[should_panic(expected = "Expected offsets to be an non-nullable integer type")]
+#[should_panic(expected = "offsets have invalid type")]
 fn test_nullable_offsets() {
     let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
     let offsets = PrimitiveArray::from_option_iter([Some(0u32), Some(2), None, Some(5)]);
@@ -571,9 +827,7 @@ fn test_empty_offsets_array() {
 }
 
 #[test]
-#[should_panic(
-    expected = "Expected offsets to be an non-nullable integer type, got Primitive(F32, NonNullable)"
-)]
+#[should_panic(expected = "offsets have invalid type")]
 fn test_non_integer_offsets() {
     let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
     let offsets = PrimitiveArray::from_iter([0.0f32, 2.0, 4.0, 5.0]);

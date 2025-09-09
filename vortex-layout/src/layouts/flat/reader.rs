@@ -5,9 +5,10 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use vortex_array::compute::filter;
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::pipeline::{
     N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
 };
@@ -19,13 +20,10 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
 use vortex_mask::Mask;
 
+use crate::LayoutReader;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
-use crate::{
-    ArrayEvaluation, LayoutReader, MaskEvaluation, MaskFuture, NoOpPruningEvaluation,
-    PruningEvaluation,
-};
 
 /// The threshold of mask density below which we will evaluate the expression only over the
 /// selected rows, and above which we evaluate the expression over all rows and then select
@@ -102,25 +100,76 @@ impl LayoutReader for FlatReader {
         &self,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation>> {
-        Ok(Box::new(NoOpPruningEvaluation))
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        Ok(MaskFuture::ready(mask))
     }
 
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        mask: MaskFuture,
+    ) -> VortexResult<MaskFuture> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
+        let name = self.name.clone();
+        let array = self.array_future();
+        let expr = expr.clone();
 
-        Ok(Box::new(FlatEvaluation {
-            name: self.name.clone(),
-            array: self.array_future(),
-            row_range,
-            expr: expr.clone(),
+        Ok(MaskFuture::new(mask.len(), async move {
+            // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
+            //  (as often happens with zone map pruning), then we could slice/filter the array prior
+            //  to evaluating the expression.
+            let mut array = array.clone().await?;
+            let mask = mask.await?;
+
+            if let Some(array) =
+                try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask)?
+            {
+                let array_mask = array.try_to_mask_fill_null_false()?;
+                let mask = mask.intersect_by_rank(&array_mask);
+                return Ok(mask);
+            }
+
+            // Slice the array based on the row mask.
+            if row_range.start > 0 || row_range.end < array.len() {
+                array = array.slice(row_range.clone());
+            }
+
+            // TODO(ngates): the mask may actually be dense within a range, as is often the case when
+            //  we have approximate mask results from a zone map. In which case we could look at
+            //  the true_count between the mask's first and last true positions.
+            // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
+            //   or not.
+            let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
+                // Evaluate only the selected rows of the mask.
+                array = filter(&array, &mask)?;
+                // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
+                // can inspect nulls (e.g. `is_null`).
+                // you will need to call the array evaluation instead of the mask evaluation.
+                let array_mask = expr
+                    .evaluate(&Scope::new(array))?
+                    .try_to_mask_fill_null_false()?;
+                mask.intersect_by_rank(&array_mask)
+            } else {
+                // Evaluate all rows, avoiding the more expensive rank intersection.
+                array = expr.evaluate(&Scope::new(array))?;
+                let array_mask = array.try_to_mask_fill_null_false()?;
+                mask.bitand(&array_mask)
+            };
+
+            log::debug!(
+                "Flat mask evaluation {} - {} (mask = {}) => {}",
+                name,
+                expr,
+                mask.density(),
+                array_mask.density(),
+            );
+
+            Ok(array_mask)
         }))
     }
 
@@ -128,114 +177,46 @@ impl LayoutReader for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        mask: MaskFuture,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
-        Ok(Box::new(FlatEvaluation {
-            name: self.name.clone(),
-            array: self.array_future(),
-            row_range,
-            expr: expr.clone(),
-        }))
-    }
-}
+        let name = self.name.clone();
+        let array = self.array_future();
+        let expr = expr.clone();
 
-struct FlatEvaluation {
-    name: Arc<str>,
-    array: SharedArrayFuture,
-    row_range: Range<usize>,
-    expr: ExprRef,
-}
+        Ok(async move {
+            log::debug!("Flat array evaluation {} - {}", name, expr);
 
-#[async_trait]
-impl MaskEvaluation for FlatEvaluation {
-    async fn invoke(&self, mask: MaskFuture) -> VortexResult<Mask> {
-        // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
-        //  (as often happens with zone map pruning), then we could slice/filter the array prior
-        //  to evaluating the expression.
-        let mut array = self.array.clone().await?;
-        let mask = mask.await?;
+            let mut array = array.clone().await?;
+            let mask = mask.await?;
 
-        if let Some(array) =
-            try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
-        {
-            let array_mask = array.try_to_mask_fill_null_false()?;
-            let mask = mask.intersect_by_rank(&array_mask);
-            return Ok(mask);
+            if let Some(array) =
+                try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask)?
+            {
+                return Ok(array);
+            }
+
+            // Slice the array based on the row mask.
+            if row_range.start > 0 || row_range.end < array.len() {
+                array = array.slice(row_range.clone());
+            }
+
+            // Filter the array based on the row mask.
+            if !mask.all_true() {
+                array = filter(&array, &mask)?;
+            }
+
+            // Evaluate the projection expression.
+            if !is_root(&expr) {
+                array = expr.evaluate(&Scope::new(array))?;
+            }
+
+            Ok(array)
         }
-
-        // Slice the array based on the row mask.
-        if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = array.slice(self.row_range.clone());
-        }
-
-        // TODO(ngates): the mask may actually be dense within a range, as is often the case when
-        //  we have approximate mask results from a zone map. In which case we could look at
-        //  the true_count between the mask's first and last true positions.
-        // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
-        //   or not.
-        let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
-            // Evaluate only the selected rows of the mask.
-            array = filter(&array, &mask)?;
-            // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
-            // can inspect nulls (e.g. `is_null`).
-            // you will need to call the array evaluation instead of the mask evaluation.
-            let array_mask = self
-                .expr
-                .evaluate(&Scope::new(array))?
-                .try_to_mask_fill_null_false()?;
-            mask.intersect_by_rank(&array_mask)
-        } else {
-            // Evaluate all rows, avoiding the more expensive rank intersection.
-            array = self.expr.evaluate(&Scope::new(array))?;
-            let array_mask = array.try_to_mask_fill_null_false()?;
-            mask.bitand(&array_mask)
-        };
-
-        log::debug!(
-            "Flat mask evaluation {} - {} (mask = {}) => {}",
-            self.name,
-            self.expr,
-            mask.density(),
-            array_mask.density(),
-        );
-
-        Ok(array_mask)
-    }
-}
-
-#[async_trait]
-impl ArrayEvaluation for FlatEvaluation {
-    async fn invoke(&self, mask: MaskFuture) -> VortexResult<ArrayRef> {
-        log::debug!("Flat array evaluation {} - {}", self.name, self.expr);
-
-        let mut array = self.array.clone().await?;
-        let mask = mask.await?;
-
-        if let Some(array) =
-            try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
-        {
-            return Ok(array);
-        }
-
-        // Slice the array based on the row mask.
-        if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = array.slice(self.row_range.clone());
-        }
-
-        // Filter the array based on the row mask.
-        if !mask.all_true() {
-            array = filter(&array, &mask)?;
-        }
-
-        // Evaluate the projection expression.
-        if !is_root(&self.expr) {
-            array = self.expr.evaluate(&Scope::new(array))?;
-        }
-
-        Ok(array)
+        .boxed())
     }
 }
 
@@ -296,6 +277,7 @@ mod test {
     use futures::executor::block_on;
     use futures::stream;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
@@ -304,7 +286,7 @@ mod test {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutStrategy as _, MaskFuture, SequentialStreamAdapter, SequentialStreamExt};
+    use crate::{LayoutStrategy as _, SequentialStreamAdapter, SequentialStreamExt};
 
     #[test]
     fn flat_identity() {
@@ -331,9 +313,12 @@ mod test {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
                 .to_primitive();
@@ -371,9 +356,12 @@ mod test {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &expr)
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &expr,
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
                 .to_bool();
@@ -410,9 +398,8 @@ mod test {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(2..4), &root())
+                .projection_evaluation(&(2..4), &root(), MaskFuture::new_true(2))
                 .unwrap()
-                .invoke(MaskFuture::new_true(2))
                 .await
                 .unwrap()
                 .to_primitive();

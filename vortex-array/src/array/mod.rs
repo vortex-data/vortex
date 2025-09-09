@@ -17,8 +17,9 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
-    PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
+    BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, FixedSizeListEncoding,
+    ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
+    VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
@@ -88,6 +89,7 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
             || self.is_encoding(DecimalEncoding.id())
             || self.is_encoding(StructEncoding.id())
             || self.is_encoding(ListEncoding.id())
+            || self.is_encoding(FixedSizeListEncoding.id())
             || self.is_encoding(VarBinViewEncoding.id())
             || self.is_encoding(ExtensionEncoding.id())
     }

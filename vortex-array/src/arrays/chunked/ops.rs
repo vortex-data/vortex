@@ -48,7 +48,8 @@ impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
             *c = c.slice(0..length_in_last_chunk);
         }
 
-        // SAFETY: all chunks still have same DType
+        // SAFETY: chunks are slices of the original valid chunks, preserving their dtype.
+        // All chunks maintain the same dtype as the original array.
         unsafe { ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array() }
     }
 

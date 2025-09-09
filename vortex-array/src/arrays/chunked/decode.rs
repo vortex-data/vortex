@@ -72,11 +72,15 @@ fn swizzle_struct_chunks(
                     .to_array()
             })
             .collect::<Vec<_>>();
+        // SAFETY: field_chunks are extracted from valid StructArrays with matching dtypes.
+        // Each chunk's field array is guaranteed to be valid for field_dtype.
         let field_array = unsafe { ChunkedArray::new_unchecked(field_chunks, field_dtype.clone()) };
         field_arrays.push(field_array.into_array());
     }
 
-    StructArray::new_unchecked(field_arrays, struct_dtype.clone(), len, validity)
+    // SAFETY: field_arrays are built from corresponding chunks of same length, dtypes match by
+    // construction.
+    unsafe { StructArray::new_unchecked(field_arrays, struct_dtype.clone(), len, validity) }
 }
 
 fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> ListArray {
@@ -118,10 +122,16 @@ fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> Li
                 .map(|off| off + adjustment_from_previous - first_offset_value as u64),
         );
     }
+    // SAFETY: elements are sliced from valid ListArrays with matching elem_dtype.
+    // All elements arrays are guaranteed to be valid for elem_dtype.
     let chunked_elements =
         unsafe { ChunkedArray::new_unchecked(elements, elem_dtype.clone()) }.into_array();
     let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable);
 
+    // SAFETY: chunked_elements contains valid elements from the original lists.
+    // Offsets are monotonically increasing starting from 0, with each offset[i+1] >= offset[i],
+    // and the last offset equals the total length of chunked_elements.
+    // The validity matches the number of lists (offsets.len() - 1).
     unsafe { ListArray::new_unchecked(chunked_elements, offsets.into_array(), validity) }
 }
 
@@ -141,7 +151,7 @@ mod tests {
     #[test]
     pub fn pack_nested_structs() {
         let struct_array = StructArray::try_new(
-            vec!["a".into()].into(),
+            ["a"].into(),
             vec![VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"]).into_array()],
             4,
             Validity::NonNullable,

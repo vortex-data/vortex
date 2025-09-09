@@ -7,14 +7,16 @@ pub(crate) mod fastlanes;
 pub(crate) mod from_arrow;
 mod native;
 pub(crate) mod py;
+mod range_to_sequence;
 
 use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyDict, PyList, PyRange, PyRangeMethods};
 use vortex::arrays::ChunkedVTable;
 use vortex::arrow::IntoArrowArray;
 use vortex::compute::{Operator, compare, take};
+use vortex::dtype::{DType, Nullability, PType, match_each_integer_ptype};
 use vortex::error::VortexError;
 use vortex::{Array, ArrayRef, ToCanonical};
 
@@ -181,7 +183,10 @@ impl PyArray {
 
     /// Convert a PyArrow object into a Vortex array.
     ///
-    /// One of :class:`pyarrow.Array`, :class:`pyarrow.ChunkedArray`, or :class:`pyarrow.Table`.
+    /// Parameters
+    /// ----------
+    /// obj: pyarrow.Array | pyarrow.ChunkedArray | pyarrow.Table
+    ///     The array to convert.
     ///
     /// Returns
     /// -------
@@ -189,6 +194,76 @@ impl PyArray {
     #[staticmethod]
     fn from_arrow(obj: Bound<'_, PyAny>) -> PyResult<PyArrayRef> {
         from_arrow::from_arrow(&obj)
+    }
+
+    /// Convert a Python range into a Vortex array.
+    ///
+    /// Unless the array is empty, the encoding of the array is Sequence, which uses O(1) bytes to
+    /// represent an array of any size.
+    ///
+    /// Parameters
+    /// ----------
+    /// range: range
+    ///     The range to convert.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`~vortex.Array`
+    ///
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// ```python
+    /// >>> array = vx.Array.from_range(range(0, 10))
+    /// >>> array
+    /// <vortex.SequenceArray object at ...>
+    /// >>> array.to_arrow_array()
+    /// <pyarrow.lib.Int64Array object at ...>
+    /// [
+    ///   0,
+    ///   1,
+    ///   2,
+    ///   3,
+    ///   4,
+    ///   5,
+    ///   6,
+    ///   7,
+    ///   8,
+    ///   9
+    /// ]
+    /// ```
+    #[staticmethod]
+    #[pyo3(signature = (range, *, dtype = None))]
+    fn from_range(range: Bound<PyAny>, dtype: Option<Bound<PyDType>>) -> PyResult<PyArrayRef> {
+        let range = range.downcast::<PyRange>()?;
+        let start = range.start()?;
+        let stop = range.stop()?;
+        let step = range.step()?;
+
+        let (ptype, dtype) = if let Some(dtype) = dtype {
+            let dtype = dtype.downcast::<PyDType>()?.get().inner().clone();
+            let DType::Primitive(ptype, ..) = &dtype else {
+                return Err(PyValueError::new_err(
+                    "Cannot construct non-numeric array from a range.",
+                ));
+            };
+            (*ptype, dtype)
+        } else {
+            let ptype = if start > 0 && stop > 0 {
+                PType::U64
+            } else {
+                PType::I64
+            };
+            let dtype = DType::Primitive(ptype, Nullability::NonNullable);
+            (ptype, dtype)
+        };
+
+        let array = match_each_integer_ptype!(ptype, |T| {
+            range_to_sequence::sequence_array_from_range::<T>(start, stop, step, dtype)
+        })?;
+
+        Ok(PyVortex(array))
     }
 
     /// Convert this array to a PyArrow array.

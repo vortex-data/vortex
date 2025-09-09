@@ -155,3 +155,29 @@ fn test_zstd_var_bin_view() {
     assert_nth_scalar!(sliced, 1, None::<String>);
     assert_nth_scalar!(sliced, 2, "Lorem ipsum dolor sit amet");
 }
+
+#[test]
+fn test_zstd_decompress_var_bin_view() {
+    let data: [Option<&'static [u8]>; 5] = [
+        Some(b"foo"),
+        Some(b"bar"),
+        None,
+        Some(b"Lorem ipsum dolor sit amet"),
+        Some(b"baz"),
+    ];
+    let array = VarBinViewArray::from_iter(data, DType::Utf8(Nullability::Nullable));
+
+    let compressed = ZstdArray::from_var_bin_view(&array, 0, 3).unwrap();
+    assert!(compressed.dictionary.is_none());
+    assert_nth_scalar!(compressed, 0, "foo");
+    assert_nth_scalar!(compressed, 1, "bar");
+    assert_nth_scalar!(compressed, 2, None::<String>);
+    assert_nth_scalar!(compressed, 3, "Lorem ipsum dolor sit amet");
+    assert_nth_scalar!(compressed, 4, "baz");
+    let decompressed = compressed.decompress().to_varbinview();
+    assert_nth_scalar!(decompressed, 0, "foo");
+    assert_nth_scalar!(decompressed, 1, "bar");
+    assert_nth_scalar!(decompressed, 2, None::<String>);
+    assert_nth_scalar!(decompressed, 3, "Lorem ipsum dolor sit amet");
+    assert_nth_scalar!(decompressed, 4, "baz");
+}

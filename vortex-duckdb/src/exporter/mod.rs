@@ -11,6 +11,7 @@ mod primitive;
 mod run_end;
 mod sequence;
 mod temporal;
+mod validity;
 mod varbinview;
 
 use std::sync::Arc;
@@ -199,43 +200,51 @@ impl VectorExt for Vector {
             Mask::AllTrue(_) => {
                 // We only need to blank out validity if there is already a slice allocated.
                 // SAFETY: Caller guaranteees this.
-                if let Some(validity) = unsafe { self.validity_slice_mut(len) } {
+                if let Some(validity) = unsafe { self.validity_bitslice_mut(len) } {
                     validity.fill(true);
                 }
                 false
             }
             Mask::AllFalse(_) => {
                 // SAFETY: Caller guaranteees this.
-                unsafe { self.ensure_validity_slice(len) }.fill(false);
+                unsafe { self.ensure_validity_bitslice(len) }.fill(false);
                 true
             }
             Mask::Values(arr) => {
-                let arr_bits: &[u64] = {
-                    let byte_slice = arr.boolean_buffer().inner().as_slice();
-                    unsafe {
-                        std::slice::from_raw_parts(
-                            byte_slice.as_ptr() as _,
-                            byte_slice.len().div_ceil(size_of::<u64>()),
-                        )
-                    }
-                };
-                let sliced_bits = &arr_bits.view_bits::<Lsb0>()[offset..][..len];
-                let true_count = sliced_bits.count_ones();
+                let true_count = arr.boolean_buffer().count_set_bits();
                 if true_count == len {
                     if let Some(validity) = unsafe { self.validity_slice_mut(len) } {
-                        validity.fill(true);
+                        validity.view_bits_mut::<Lsb0>().fill(true);
                     }
                 } else if true_count == 0 {
-                    unsafe { self.ensure_validity_slice(len) }.fill(false);
+                    unsafe { self.ensure_validity_bitslice(len) }.fill(false);
                 } else {
-                    // SAFETY: Caller guaranteees this.
-                    let validity = unsafe { self.ensure_validity_slice(len) };
-                    validity[..len].copy_from_bitslice(sliced_bits);
+                    let source = arr.boolean_buffer().inner().as_slice();
+                    copy_from_slice(
+                        unsafe { self.ensure_validity_slice(len) },
+                        source,
+                        offset,
+                        len,
+                    );
                 }
+
                 true_count == 0
             }
         }
     }
+}
+
+/// Copy the sliced bits from source into target.
+///
+/// Offset and length are a _bit_ offset and a _bit_ length into source.
+///
+/// `target.len()` must equal `len`.
+fn copy_from_slice(target: &mut [u64], source: &[u8], offset: usize, len: usize) {
+    let (start, middle, end) = unsafe { target.align_to_mut::<u8>() };
+    assert!(start.is_empty());
+    assert!(end.is_empty());
+    let target = &mut middle.view_bits_mut::<Lsb0>()[..len];
+    target.copy_from_bitslice(&source.view_bits()[offset..][..len]);
 }
 
 #[cfg(test)]
@@ -246,6 +255,7 @@ mod tests {
     use super::VectorExt;
     use crate::cpp::DUCKDB_TYPE;
     use crate::duckdb::{LogicalType, Vector};
+    use crate::exporter::copy_from_slice;
 
     #[test]
     fn test_set_validity_all_true() {
@@ -268,7 +278,7 @@ mod tests {
 
         assert!(all_null);
 
-        let validity = unsafe { vector.validity_slice_mut(10).unwrap() };
+        let validity = unsafe { vector.validity_bitslice_mut(10).unwrap() };
         assert!(validity.iter().all(|v| !v));
     }
 
@@ -287,7 +297,7 @@ mod tests {
 
         // When all values are true, the mask may be optimized to AllTrue,
         // so validity_slice_mut may return None (no validity allocated)
-        if let Some(validity) = unsafe { vector.validity_slice_mut(10) } {
+        if let Some(validity) = unsafe { vector.validity_bitslice_mut(10) } {
             assert!(validity.iter().all(|v| *v));
         }
     }
@@ -305,7 +315,7 @@ mod tests {
 
         assert!(all_null);
 
-        let validity = unsafe { vector.validity_slice_mut(10).unwrap() };
+        let validity = unsafe { vector.validity_bitslice_mut(10).unwrap() };
         assert!(validity.iter().all(|v| !v));
     }
 
@@ -324,7 +334,7 @@ mod tests {
 
         assert!(!all_null);
 
-        let validity = unsafe { vector.validity_slice_mut(10).unwrap() };
+        let validity = unsafe { vector.validity_bitslice_mut(10).unwrap() };
         for (i, bit) in bits.iter().enumerate() {
             assert_eq!(validity[i], *bit);
         }
@@ -345,7 +355,7 @@ mod tests {
 
         assert!(!all_null);
 
-        let validity = unsafe { vector.validity_slice_mut(8).unwrap() };
+        let validity = unsafe { vector.validity_bitslice_mut(8).unwrap() };
         for i in 0..8 {
             assert_eq!(validity[i], bits[i + 2]);
         }
@@ -367,7 +377,7 @@ mod tests {
 
         assert!(!all_null);
 
-        let validity = unsafe { vector.validity_slice_mut(5).unwrap() };
+        let validity = unsafe { vector.validity_bitslice_mut(5).unwrap() };
         for i in 0..5 {
             assert_eq!(validity[i], bits[i + 3]);
         }
@@ -387,9 +397,184 @@ mod tests {
 
         assert!(!all_null);
 
-        let validity = unsafe { vector.validity_slice_mut(60).unwrap() };
+        let validity = unsafe { vector.validity_bitslice_mut(60).unwrap() };
         for i in 0..60 {
             assert_eq!(validity[i], bits[i + 5]);
         }
+    }
+
+    #[test]
+    fn test_copy_from_slice_empty_to_empty() {
+        let target = &mut [];
+        let source = Vec::<u8>::new();
+        copy_from_slice(target, &source, 0, 0);
+    }
+
+    #[test]
+    fn test_copy_from_slice_64_to_empty() {
+        let target = &mut [];
+        let source = [1u8, 2, 3, 50, 51, 52, 100, 101];
+        copy_from_slice(target, &source, 0, 0);
+        copy_from_slice(target, &source, 5, 0);
+        copy_from_slice(target, &source, 8, 0);
+    }
+
+    #[test]
+    fn test_copy_from_slice_64_to_64() {
+        let mut target = vec![0u64];
+        let source = [1u8, 2, 3, 50, 51, 52, 100, 101];
+        copy_from_slice(&mut target, &source, 0, 64);
+        assert_eq!(
+            target[0], 0x65_64_34_33_32_03_02_01_u64,
+            "{:#08x} == {:#08x}",
+            target[0], 0x65_64_34_33_32_03_02_01_u64,
+        );
+    }
+
+    #[test]
+    fn test_copy_from_slice_80_to_0() {
+        let target = &mut [];
+        let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
+        copy_from_slice(target, &source, 0, 0);
+        copy_from_slice(target, &source, 8, 0);
+        copy_from_slice(target, &source, 10, 0);
+    }
+
+    #[test]
+    fn test_copy_from_slice_80_to_64_case_1() {
+        let mut target = [0u64];
+        let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
+        copy_from_slice(&mut target, &source, 16, 64);
+        assert_eq!(
+            target[0], 0xff_fe_65_64_34_33_32_03_u64,
+            "{:#08x} == {:#08x}",
+            target[0], 0xff_fe_65_64_34_33_32_03_u64,
+        );
+    }
+
+    #[test]
+    fn test_copy_from_slice_80_to_64_case_2() {
+        let mut target = [0u64];
+        let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
+        copy_from_slice(&mut target, &source, 8, 64);
+        assert_eq!(
+            target[0], 0xfe_65_64_34_33_32_03_02_u64,
+            "{:#08x} == {:#08x}",
+            target[0], 0xfe_65_64_34_33_32_03_02_u64,
+        );
+    }
+
+    #[test]
+    fn test_copy_from_slice_80_to_64_case_3() {
+        let mut target = [0u64];
+        let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
+        copy_from_slice(&mut target, &source, 0, 64);
+        assert_eq!(
+            target[0], 0x65_64_34_33_32_03_02_01_u64,
+            "{:#08x} == {:#08x}",
+            target[0], 0x65_64_34_33_32_03_02_01_u64,
+        );
+    }
+
+    #[test]
+    fn test_copy_from_slice_80_to_64_case_4() {
+        let mut target = [0u64];
+        let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
+        copy_from_slice(&mut target, &source, 10, 64);
+        assert_eq!(
+            target[0],
+            0xff_99_59_0d_0c_cc_80_c0_u64, // Python: hex(0xff_fe_65_64_34_33_32_03_02 >> 2), then remove the high two hexits
+            "{:#08x} == {:#08x}",
+            target[0],
+            0xff_99_59_0d_0c_cc_80_c0_u64
+        );
+    }
+
+    #[test]
+    fn test_copy_from_slice_248_to_128_middle_non_empty() {
+        let mut target = [0u64, 0u64];
+        let source: [u8; 31] = [
+            0x01, 0x02, 0x03, 0x04, 0xff, 0xfe, 0xfd, 0xfc, 0x05, 0x06, 0x07, 0x08, 0xfc, 0xfb,
+            0xfa, 0xf9, 0x01, 0x02, 0x03, 0x04, 0xff, 0xfe, 0xfd, 0xfc, 0x05, 0x06, 0x07, 0x08,
+            0xfc, 0xfb, 0xfa,
+        ];
+        // In a span of 248 bits (31 bytes) there should be at least one 8-byte aligned span.
+        let (_, middle, _) = unsafe { source.align_to::<u64>() };
+        assert!(!middle.is_empty());
+
+        copy_from_slice(&mut target, &source, 0, 128);
+        assert_eq!(
+            target[0], 0xfc_fd_fe_ff_04_03_02_01_u64,
+            "{:#08x} == {:#08x}",
+            target[0], 0xfc_fd_fe_ff_04_03_02_01_u64,
+        );
+        assert_eq!(
+            target[1], 0xf9_fa_fb_fc_08_07_06_05_u64,
+            "{:#08x} == {:#08x}",
+            target[1], 0xf9_fa_fb_fc_08_07_06_05_u64,
+        );
+
+        copy_from_slice(&mut target, &source, 8, 128);
+        assert_eq!(
+            target[0], 0x05_fc_fd_fe_ff_04_03_02_u64,
+            "{:#08x} == {:#08x}",
+            target[0], 0x05_fc_fd_fe_ff_04_03_02_u64,
+        );
+        assert_eq!(
+            target[1], 0x01_f9_fa_fb_fc_08_07_06_u64,
+            "{:#08x} == {:#08x}",
+            target[1], 0x01_f9_fa_fb_fc_08_07_06_u64,
+        );
+
+        copy_from_slice(&mut target, &source, 8 * 8, 128);
+        assert_eq!(
+            target[0], 0xf9_fa_fb_fc_08_07_06_05_u64,
+            "{:#08x} == {:#08x}",
+            target[0], 0xf9_fa_fb_fc_08_07_06_05_u64,
+        );
+        assert_eq!(
+            target[1], 0xfc_fd_fe_ff_04_03_02_01_u64,
+            "{:#08x} == {:#08x}",
+            target[1], 0xfc_fd_fe_ff_04_03_02_01_u64,
+        );
+
+        copy_from_slice(&mut target, &source, 8 * 12, 128);
+        assert_eq!(
+            target[0], 0x04_03_02_01_f9_fa_fb_fc_u64,
+            "{:#08x} == {:#08x}",
+            target[0], 0x04_03_02_01_f9_fa_fb_fc_u64,
+        );
+        assert_eq!(
+            target[1], 0x08_07_06_05_fc_fd_fe_ff_u64,
+            "{:#08x} == {:#08x}",
+            target[1], 0x08_07_06_05_fc_fd_fe_ff_u64,
+        );
+
+        copy_from_slice(&mut target, &source, 8 * 12 + 4, 128);
+        // Find the 12th byte, skip the first hexit, take the next 32 hexits (i.e. 16 bytesor 128
+        // bits).
+        assert_eq!(
+            target[0], 0xf0_40_30_20_1f_9f_af_bf_u64,
+            "{:#08x} == {:#08x}",
+            target[0], 0xf0_40_30_20_1f_9f_af_bf_u64,
+        );
+        assert_eq!(
+            target[1], 0xc0_80_70_60_5f_cf_df_ef_u64,
+            "{:#08x} == {:#08x}",
+            target[1], 0xc0_80_70_60_5f_cf_df_ef_u64,
+        );
+
+        // Take the above and shift one bit towards the right-hand-side.
+        copy_from_slice(&mut target, &source, 8 * 12 + 4 + 1, 128);
+        assert_eq!(
+            target[0], 0xf8_20_18_10_0f_cf_d7_df_u64,
+            "{:#08x} == {:#08x}",
+            target[0], 0xf8_20_18_10_0f_cf_d7_df_u64,
+        );
+        assert_eq!(
+            target[1], 0xe0_40_38_30_2f_e7_ef_f7_u64,
+            "{:#08x} == {:#08x}",
+            target[1], 0xe0_40_38_30_2f_e7_ef_f7_u64,
+        );
     }
 }

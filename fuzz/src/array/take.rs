@@ -54,7 +54,7 @@ pub fn take_canonical_array(
         DType::Bool(_) => {
             let bool_array = array.to_bool();
             let vec_values = bool_array.boolean_buffer().iter().collect::<Vec<_>>();
-            Ok(BoolArray::new(
+            Ok(BoolArray::from_bool_buffer(
                 indices_slice_non_opt
                     .iter()
                     .map(|i| vec_values[*i])
@@ -113,7 +113,7 @@ pub fn take_canonical_array(
             )
             .map(|a| a.into_array())
         }
-        DType::List(..) => {
+        DType::List(..) | DType::FixedSizeList(..) => {
             let mut builder = builder_with_capacity(array.dtype(), indices_slice_non_opt.len());
             for idx in indices {
                 if let Some(idx) = idx {
@@ -124,7 +124,6 @@ pub fn take_canonical_array(
             }
             Ok(builder.finish())
         }
-        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }

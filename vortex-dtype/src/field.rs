@@ -22,7 +22,8 @@ use crate::{DType, FieldName};
 pub enum Field {
     /// Address a field of a [`crate::DType::Struct`].
     Name(FieldName),
-    // TODO(connor): Actually make use of this variant after `FixedSizeList` is implemented.
+    // TODO(connor)[FixedSizeList]: Actually make use of this variant after `FixedSizeList` is
+    // implemented.
     /// Address the element type of a [`crate::DType::List`] or [`crate::DType::FixedSizeList`].
     ElementType,
 }
@@ -31,7 +32,7 @@ impl Field {
     /// Retrieve a field name if it has one
     pub fn as_name(&self) -> Option<&str> {
         match self {
-            Field::Name(name) => Some(name),
+            Field::Name(name) => Some(name.as_ref()),
             Field::ElementType => None,
         }
     }
@@ -50,6 +51,12 @@ impl From<&str> for Field {
 
 impl From<Arc<str>> for Field {
     fn from(value: Arc<str>) -> Self {
+        Self::Name(FieldName::from(value))
+    }
+}
+
+impl From<FieldName> for Field {
+    fn from(value: FieldName) -> Self {
         Self::Name(value)
     }
 }

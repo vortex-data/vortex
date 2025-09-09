@@ -3,7 +3,8 @@
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    BoolArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray,
+    BoolArray, DecimalArray, FixedSizeListArray, ListArray, PrimitiveArray, StructArray,
+    VarBinViewArray,
 };
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -30,7 +31,7 @@ pub fn slice_canonical_array(
         DType::Bool(_) => {
             let bool_array = array.to_bool();
             let sliced_bools = bool_array.boolean_buffer().slice(start, stop - start);
-            Ok(BoolArray::new(sliced_bools, validity).into_array())
+            Ok(BoolArray::from_bool_buffer(sliced_bools, validity).into_array())
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive();
@@ -86,7 +87,15 @@ pub fn slice_canonical_array(
             .into_array();
             ListArray::try_new(elements, offsets, validity).map(|a| a.into_array())
         }
-        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
+        DType::FixedSizeList(..) => {
+            let fsl_array = array.to_fixed_size_list();
+            let list_size = fsl_array.list_size() as usize;
+            let elements =
+                slice_canonical_array(fsl_array.elements(), start * list_size, stop * list_size)?;
+
+            FixedSizeListArray::try_new(elements, fsl_array.list_size(), validity, array.len())
+                .map(|a| a.into_array())
+        }
         DType::Decimal(decimal_dtype, _) => {
             let decimal_array = array.to_decimal();
             Ok(

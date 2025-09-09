@@ -134,12 +134,13 @@ impl ComputeFnVTable for Numeric {
     ) -> VortexResult<Output> {
         let NumericArgs { lhs, rhs, operator } = NumericArgs::try_from(args)?;
 
-        // Check if LHS supports the operation directly.
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
         }
+
+        // Check if LHS supports the operation directly.
         if let Some(output) = lhs.invoke(&NUMERIC_FN, args)? {
             return Ok(output);
         }

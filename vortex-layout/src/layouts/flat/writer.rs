@@ -140,6 +140,7 @@ mod tests {
     use futures::stream;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::stats::{Precision, Stat, StatsProviderExt};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
@@ -153,8 +154,7 @@ mod tests {
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
-        LayoutStrategy, MaskFuture, SendableSequentialStream, SequentialStreamAdapter,
-        SequentialStreamExt as _,
+        LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt as _,
     };
 
     fn stream_only(array: ArrayRef) -> SendableSequentialStream {
@@ -184,9 +184,12 @@ mod tests {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 
@@ -225,14 +228,18 @@ mod tests {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 
             assert_eq!(
                 result.statistics().get_as::<String>(Stat::Min),
+                // The typo is correct, we need this to be truncated.
                 Some(Precision::Inexact(
                     "Another string that's meant to be smaller than the previous valu".to_string()
                 ))
@@ -254,7 +261,8 @@ mod tests {
             validity_builder.append(false);
             let validity_boolean_buffer = validity_builder.finish();
             let validity = Validity::Array(
-                BoolArray::new(validity_boolean_buffer.clone(), Validity::NonNullable).into_array(),
+                BoolArray::from_bool_buffer(validity_boolean_buffer.clone(), Validity::NonNullable)
+                    .into_array(),
             );
             let array = StructArray::try_new(
                 FieldNames::from([FieldName::from("a"), FieldName::from("b")]),
@@ -285,9 +293,12 @@ mod tests {
             let result: ArrayRef = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 

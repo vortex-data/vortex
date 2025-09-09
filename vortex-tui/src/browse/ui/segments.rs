@@ -14,6 +14,7 @@ use taffy::{
     AvailableSpace, Dimension, FlexDirection, LengthPercentage, NodeId, PrintTree, Size, Style,
     TaffyTree, TraversePartialTree,
 };
+use vortex::dtype::FieldName;
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
 use vortex::file::SegmentSpec;
 use vortex::layout::{Layout, LayoutChildType};
@@ -67,12 +68,12 @@ impl SegmentGridState<'_> {
 
 #[derive(Debug, Clone)]
 pub struct NodeContents<'a> {
-    title: Arc<str>,
+    title: FieldName,
     contents: Vec<Line<'a>>,
 }
 
 pub struct SegmentDisplay {
-    name: Arc<str>,
+    name: FieldName,
     spec: SegmentSpec,
     row_offset: u64,
     row_count: u64,
@@ -204,7 +205,7 @@ fn render_tree(
         }
 
         let block = Block::new()
-            .title(&*blk_content.title)
+            .title(blk_content.title.as_ref())
             .borders(Borders::ALL);
 
         if !blk_content.contents.is_empty() {
@@ -336,7 +337,7 @@ fn to_display_segment_tree<'a>(
             node_contents.insert(
                 node_id,
                 NodeContents {
-                    title: name.clone(),
+                    title: name,
                     contents: Vec::new(),
                 },
             );
@@ -369,14 +370,14 @@ fn collect_segment_tree(root_layout: &dyn Layout, segments: &Arc<[SegmentSpec]>)
 }
 
 struct SegmentTree {
-    segments: HashMap<Arc<str>, Vec<SegmentDisplay>>,
-    segment_ordering: Vec<Arc<str>>,
+    segments: HashMap<FieldName, Vec<SegmentDisplay>>,
+    segment_ordering: Vec<FieldName>,
 }
 
 fn segments_by_name_impl(
     root: &dyn Layout,
-    group_name: Option<Arc<str>>,
-    name: Option<Arc<str>>,
+    group_name: Option<FieldName>,
+    name: Option<FieldName>,
     row_offset: Option<u64>,
     segments: &Arc<[SegmentSpec]>,
     segment_tree: &mut SegmentTree,
@@ -390,7 +391,7 @@ fn segments_by_name_impl(
                 Some(
                     name.as_ref()
                         .map(|n| format!("{n}.{sub_name}").into())
-                        .unwrap_or_else(|| sub_name),
+                        .unwrap_or_else(|| sub_name.into()),
                 ),
                 row_offset,
                 segments,
@@ -402,7 +403,7 @@ fn segments_by_name_impl(
                 Some(
                     name.as_ref()
                         .map(|n| format!("{n}.{aux_name}").into())
-                        .unwrap_or_else(|| aux_name),
+                        .unwrap_or_else(|| aux_name.into()),
                 ),
                 Some(0),
                 segments,
@@ -446,7 +447,7 @@ fn segments_by_name_impl(
 
     let current_segments = segment_tree
         .segments
-        .entry(group_name.unwrap_or_else(|| Arc::from("root")))
+        .entry(group_name.unwrap_or_else(|| FieldName::from("root")))
         .or_default();
 
     for segment_id in root.segment_ids() {

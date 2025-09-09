@@ -5,6 +5,7 @@
 
 pub mod binary_bool;
 mod compare;
+mod mask_future;
 mod scalar_compare;
 
 use std::any::Any;
@@ -13,6 +14,7 @@ use std::sync::Arc;
 
 pub use compare::CompareOperator;
 use dyn_hash::DynHash;
+pub use mask_future::MaskFuture;
 pub use scalar_compare::ScalarCompareOperator;
 use vortex_error::VortexResult;
 

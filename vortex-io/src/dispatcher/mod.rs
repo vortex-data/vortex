@@ -81,9 +81,9 @@ impl IoDispatcher {
             if #[cfg(target_arch = "wasm32")] {
                 Self(Arc::new(Inner::Wasm(WasmDispatcher::new())))
             } else if #[cfg(not(feature = "compio"))] {
-                Self(Arc::new(Inner::Tokio(TokioDispatcher::new(1))))
+                Self(Arc::new(Inner::Tokio(TokioDispatcher::new(4))))
             } else {
-                Self(Arc::new(Inner::Compio(CompioDispatcher::new(1))))
+                Self(Arc::new(Inner::Compio(CompioDispatcher::new(4))))
             }
         }
     }

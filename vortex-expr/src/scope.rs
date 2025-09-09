@@ -42,7 +42,7 @@ impl Scope {
 
     /// Create a new scope with the root array set an empty struct.
     pub fn empty(len: usize) -> Self {
-        Self::new(StructArray::new_with_len(len).into_array())
+        Self::new(StructArray::new_fieldless_with_len(len).into_array())
     }
 
     /// Return the root array of the scope.

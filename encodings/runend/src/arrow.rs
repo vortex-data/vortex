@@ -13,6 +13,7 @@ use vortex_dtype::NativePType;
 use vortex_scalar::PValue;
 
 use crate::RunEndArray;
+use crate::ops::find_slice_end_index;
 
 impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndArray
 where
@@ -34,11 +35,7 @@ where
                 .as_primitive_typed()
                 .search_sorted(&PValue::from(offset), SearchSortedSide::Right)
                 .to_ends_index(ends.len());
-            let slice_end = ends
-                .as_primitive_typed()
-                .search_sorted(&PValue::from(offset + len), SearchSortedSide::Right)
-                .to_ends_index(ends.len())
-                + 1;
+            let slice_end = find_slice_end_index(ends.as_ref(), offset + len);
 
             (
                 ends.slice(slice_begin..slice_end),

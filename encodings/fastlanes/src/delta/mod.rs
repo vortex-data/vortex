@@ -84,7 +84,7 @@ pub struct DeltaEncoding;
 /// may be less than the number of physically stored values.
 ///
 /// Each chunk is stored as a vector of bases and a vector of deltas. If the chunk physically
-/// contains 1,024 vlaues, then there are as many bases as there are _lanes_ of this type in a
+/// contains 1,024 values, then there are as many bases as there are _lanes_ of this type in a
 /// 1024-bit register. For example, for 64-bit values, there are 16 bases because there are 16
 /// _lanes_. Each lane is a [delta-encoding](https://en.wikipedia.org/wiki/Delta_encoding) `1024 /
 /// bit_width` long vector of values. The deltas are stored in the

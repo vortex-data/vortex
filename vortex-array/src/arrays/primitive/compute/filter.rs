@@ -28,6 +28,7 @@ impl FilterKernel for PrimitiveVTable {
                 match_each_native_ptype!(array.ptype(), |T| {
                     let values =
                         filter_primitive_indices(array.as_slice::<T>(), indices.iter().copied());
+
                     Ok(PrimitiveArray::new(values, validity).into_array())
                 })
             }
@@ -38,6 +39,7 @@ impl FilterKernel for PrimitiveVTable {
                         mask.true_count(),
                         slices.iter().copied(),
                     );
+
                     Ok(PrimitiveArray::new(values, validity).into_array())
                 })
             }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::borrow::Borrow;
 use std::fmt;
 use std::ops::Index;
 use std::sync::Arc;
@@ -8,7 +9,133 @@ use std::sync::Arc;
 use itertools::Itertools;
 
 /// A name for a field in a struct.
-pub type FieldName = Arc<str>;
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FieldName(Arc<str>);
+
+impl FieldName {
+    /// Returns a reference to the inner string
+    pub fn inner(&self) -> &Arc<str> {
+        &self.0
+    }
+}
+
+// We manually implement serde for `FieldName` so it can round-trip with any string type
+#[cfg(feature = "serde")]
+impl serde::ser::Serialize for FieldName {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_ref())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::de::Deserialize<'de> for FieldName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s: Arc<str> = serde::de::Deserialize::deserialize(deserializer)?;
+        Ok(Self::from(s))
+    }
+}
+
+impl fmt::Display for FieldName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl AsRef<str> for FieldName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Borrow<str> for FieldName {
+    fn borrow(&self) -> &str {
+        self.as_ref()
+    }
+}
+
+impl Borrow<str> for &FieldName {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+impl PartialEq<&FieldName> for FieldName {
+    fn eq(&self, other: &&FieldName) -> bool {
+        self.as_ref() == other.as_ref()
+    }
+}
+
+impl PartialEq<FieldName> for &FieldName {
+    fn eq(&self, other: &FieldName) -> bool {
+        self.as_ref() == other.as_ref()
+    }
+}
+
+impl PartialEq<&str> for FieldName {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_ref() == *other
+    }
+}
+
+impl PartialEq<FieldName> for str {
+    fn eq(&self, other: &FieldName) -> bool {
+        self == other.as_ref()
+    }
+}
+
+impl PartialEq<&str> for &FieldName {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_ref() == *other
+    }
+}
+
+impl PartialEq<String> for FieldName {
+    fn eq(&self, other: &String) -> bool {
+        self.as_ref() == other
+    }
+}
+
+impl PartialEq<&String> for FieldName {
+    fn eq(&self, other: &&String) -> bool {
+        self.as_ref() == *other
+    }
+}
+
+impl From<Arc<str>> for FieldName {
+    fn from(value: Arc<str>) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for FieldName {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<String> for FieldName {
+    fn from(value: String) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<FieldName> for String {
+    fn from(value: FieldName) -> Self {
+        value.as_ref().to_string()
+    }
+}
+
+impl From<FieldName> for Arc<str> {
+    fn from(value: FieldName) -> Self {
+        value.0
+    }
+}
 
 /// An ordered list of field names in a struct.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Hash)]
@@ -33,7 +160,7 @@ impl PartialEq<&FieldNames> for FieldNames {
 
 impl PartialEq<&[&str]> for FieldNames {
     fn eq(&self, other: &&[&str]) -> bool {
-        self.len() == other.len() && self.iter().zip_eq(other.iter()).all(|(l, r)| &**l == *r)
+        self.len() == other.len() && self.iter().zip_eq(other.iter()).all(|(l, r)| l == r)
     }
 }
 
@@ -68,6 +195,10 @@ impl PartialEq<&[FieldName]> for &FieldNames {
 }
 
 impl FieldNames {
+    /// Returns an empty list of names.
+    pub fn empty() -> Self {
+        Self([].into())
+    }
     /// Returns the number of elements.
     pub fn len(&self) -> usize {
         self.0.len()
@@ -179,9 +310,15 @@ impl From<Vec<FieldName>> for FieldNames {
     }
 }
 
+impl From<Vec<Arc<str>>> for FieldNames {
+    fn from(value: Vec<Arc<str>>) -> Self {
+        value.into_iter().collect()
+    }
+}
+
 impl From<&[&'static str]> for FieldNames {
     fn from(value: &[&'static str]) -> Self {
-        Self(value.iter().cloned().map(Arc::from).collect())
+        Self(value.iter().cloned().map(FieldName::from).collect())
     }
 }
 
@@ -193,7 +330,7 @@ impl From<&[FieldName]> for FieldNames {
 
 impl<const N: usize> From<[&'static str; N]> for FieldNames {
     fn from(value: [&'static str; N]) -> Self {
-        Self(value.into_iter().map(Arc::from).collect())
+        Self(value.into_iter().map(FieldName::from).collect())
     }
 }
 
@@ -277,5 +414,33 @@ mod tests {
         let f = format!("{names}");
 
         assert_eq!(f, r#"["a", "b", "c"]"#);
+    }
+
+    /// Tests both that contains is correct but also that the types are set up correctly.
+    #[test]
+    fn test_field_names_contains() {
+        let names = FieldNames::from(["a", "b", "c"]);
+        assert!(names.iter().contains("b"))
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_field_name_serde() {
+        let s = "hello world";
+        let value = serde_json::to_value(s).unwrap();
+        let name = serde_json::from_value::<FieldName>(value).unwrap();
+        assert_eq!(name, s);
+        let value = serde_json::to_value(name.clone()).unwrap();
+        let s = serde_json::from_value::<String>(value).unwrap();
+        assert_eq!(name, s);
+    }
+
+    /// Verify hashing is unchanged and behaves as expected
+    #[test]
+    fn test_hash_behavior() {
+        use std::hash::BuildHasher;
+
+        let rs = std::hash::RandomState::new();
+        assert_eq!(rs.hash_one("hello"), rs.hash_one(FieldName::from("hello")));
     }
 }

@@ -9,7 +9,7 @@ mod opener;
 mod sink;
 mod source;
 
-pub use format::{VortexFormat, VortexFormatFactory, VortexFormatOptions};
+pub use format::{VortexFormat, VortexFormatFactory, VortexOptions};
 pub use source::VortexSource;
 
 #[cfg(test)]

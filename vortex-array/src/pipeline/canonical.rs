@@ -194,5 +194,5 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
         *all_bools.get_unchecked(idx)
     });
 
-    Ok(BoolArray::new(values, Validity::NonNullable))
+    Ok(BoolArray::from_bool_buffer(values, Validity::NonNullable))
 }

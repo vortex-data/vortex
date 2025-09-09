@@ -18,8 +18,8 @@ anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 crossterm = { workspace = true }
 env_logger = { version = "0.11" }
-futures-executor = { workspace = true }
-futures-util = { workspace = true }
+flatbuffers = { workspace = true }
+futures = { workspace = true, features = ["executor"] }
 humansize = { workspace = true }
 indicatif = { workspace = true, features = ["futures"] }
 parquet = { workspace = true, features = ["arrow", "async"] }

@@ -77,7 +77,7 @@ impl VTable for StructVTable {
 ///     FieldNames::from(["a", "b", "c"]),
 ///     vec![
 ///         buffer![1i32, 2i32].into_array(),  // non-null field a
-///         buffer![10i32, 20i32].into_array(), // non-null field b  
+///         buffer![10i32, 20i32].into_array(), // non-null field b
 ///         buffer![100i32, 200i32].into_array(), // non-null field c
 ///     ],
 ///     2,
@@ -213,7 +213,7 @@ impl StructArray {
     }
 
     /// Create a new `StructArray` with the given length, but without any fields.
-    pub fn new_with_len(len: usize) -> Self {
+    pub fn new_fieldless_with_len(len: usize) -> Self {
         Self::try_new(
             FieldNames::default(),
             Vec::new(),
@@ -223,55 +223,71 @@ impl StructArray {
         .vortex_expect("StructArray::new_with_len should not fail")
     }
 
+    /// Creates a new [`StructArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided components do not satisfy the invariants documented
+    /// in [`StructArray::new_unchecked`].
+    pub fn new(
+        names: FieldNames,
+        fields: Vec<ArrayRef>,
+        length: usize,
+        validity: Validity,
+    ) -> Self {
+        Self::try_new(names, fields, length, validity)
+            .vortex_expect("StructArray construction failed")
+    }
+
+    /// Constructs a new `StructArray`.
+    ///
+    /// See [`StructArray::new_unchecked`] for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided components do not satisfy the invariants documented in
+    /// [`StructArray::new_unchecked`].
     pub fn try_new(
         names: FieldNames,
         fields: Vec<ArrayRef>,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        let nullability = validity.nullability();
-
-        if names.len() != fields.len() {
-            vortex_bail!("Got {} names and {} fields", names.len(), fields.len());
-        }
-
-        for field in fields.iter() {
-            if field.len() != length {
-                vortex_bail!(
-                    "Expected all struct fields to have length {length}, found {}",
-                    fields.iter().map(|f| f.len()).format(","),
-                );
-            }
-        }
-
         let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype()).cloned().collect();
-        let dtype = DType::Struct(StructFields::new(names, field_dtypes), nullability);
+        let dtype = StructFields::new(names, field_dtypes);
 
-        if length != validity.maybe_len().unwrap_or(length) {
-            vortex_bail!(
-                "array length {} and validity length must match {}",
-                length,
-                validity
-                    .maybe_len()
-                    .vortex_expect("can only fail if maybe is some")
-            )
-        }
+        Self::validate(&fields, &dtype, length, &validity)?;
 
-        Ok(Self {
-            len: length,
-            dtype,
-            fields,
-            validity,
-            stats_set: Default::default(),
-        })
+        // SAFETY: validate ensures all invariants are met.
+        Ok(unsafe { Self::new_unchecked(fields, dtype, length, validity) })
     }
 
-    /// Create a new `StructArray` directly from components, without performing any type
-    /// of checking.
+    /// Creates a new [`StructArray`] without validation from these components:
     ///
-    /// This should **only** be consumed internally by operations that can maintain the
-    /// StructArray invariants.
-    pub(crate) fn new_unchecked(
+    /// * `fields` is a vector of arrays, one for each field in the struct.
+    /// * `dtype` contains the field names and types.
+    /// * `length` is the number of struct rows.
+    /// * `validity` holds the null values.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure all of the following invariants are satisfied:
+    ///
+    /// ## Field Requirements
+    ///
+    /// - `fields.len()` must exactly equal `dtype.names().len()`.
+    /// - Every field array in `fields` must have length exactly equal to `length`.
+    /// - For each index `i`, `fields[i].dtype()` must exactly match `dtype.fields()[i]`.
+    ///
+    /// ## Type Requirements
+    ///
+    /// - Field names in `dtype` may be duplicated (this is explicitly allowed).
+    /// - The nullability of `dtype` must match the nullability of `validity`.
+    ///
+    /// ## Validity Requirements
+    ///
+    /// - If `validity` is [`Validity::Array`], its length must exactly equal `length`.
+    pub unsafe fn new_unchecked(
         fields: Vec<ArrayRef>,
         dtype: StructFields,
         length: usize,
@@ -286,36 +302,69 @@ impl StructArray {
         }
     }
 
+    /// Validates the components that would be used to create a [`StructArray`].
+    ///
+    /// This function checks all the invariants required by [`StructArray::new_unchecked`].
+    pub(crate) fn validate(
+        fields: &[ArrayRef],
+        dtype: &StructFields,
+        length: usize,
+        validity: &Validity,
+    ) -> VortexResult<()> {
+        // Check field count matches
+        if fields.len() != dtype.names().len() {
+            vortex_bail!(
+                "Got {} fields but dtype has {} names",
+                fields.len(),
+                dtype.names().len()
+            );
+        }
+
+        // Check each field's length and dtype
+        for (i, (field, struct_dt)) in fields.iter().zip(dtype.fields()).enumerate() {
+            if field.len() != length {
+                vortex_bail!(
+                    "Field {} has length {} but expected {}",
+                    i,
+                    field.len(),
+                    length
+                );
+            }
+
+            if field.dtype() != &struct_dt {
+                vortex_bail!(
+                    "Field {} has dtype {} but expected {}",
+                    i,
+                    field.dtype(),
+                    struct_dt
+                );
+            }
+        }
+
+        // Check validity length
+        if let Some(validity_len) = validity.maybe_len()
+            && validity_len != length
+        {
+            vortex_bail!(
+                "Validity has length {} but expected {}",
+                validity_len,
+                length
+            );
+        }
+
+        Ok(())
+    }
+
     pub fn try_new_with_dtype(
         fields: Vec<ArrayRef>,
         dtype: StructFields,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        for (field, struct_dt) in fields.iter().zip(dtype.fields()) {
-            if field.len() != length {
-                vortex_bail!(
-                    "Expected all struct fields to have length {length}, found {}",
-                    field.len()
-                );
-            }
+        Self::validate(&fields, &dtype, length, &validity)?;
 
-            if &struct_dt != field.dtype() {
-                vortex_bail!(
-                    "Expected all struct fields to have dtype {}, found {}",
-                    struct_dt,
-                    field.dtype()
-                );
-            }
-        }
-
-        Ok(Self {
-            len: length,
-            dtype: DType::Struct(dtype, validity.nullability()),
-            fields,
-            validity,
-            stats_set: Default::default(),
-        })
+        // SAFETY: validate ensures all invariants are met.
+        Ok(unsafe { Self::new_unchecked(fields, dtype, length, validity) })
     }
 
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
@@ -449,12 +498,19 @@ impl OperationsVTable<StructVTable> for StructVTable {
             .iter()
             .map(|field| field.slice(range.clone()))
             .collect_vec();
-        StructArray::new_unchecked(
-            fields,
-            array.struct_fields().clone(),
-            range.len(),
-            array.validity().slice(range),
-        )
+        // SAFETY: All invariants are preserved:
+        // - fields.len() == dtype.names().len() (same struct fields)
+        // - Every field has length == range.len() (all sliced to same range)
+        // - Each field's dtype matches the struct dtype (unchanged from original)
+        // - Validity length matches array length (both sliced to same range)
+        unsafe {
+            StructArray::new_unchecked(
+                fields,
+                array.struct_fields().clone(),
+                range.len(),
+                array.validity().slice(range),
+            )
+        }
         .into_array()
     }
 

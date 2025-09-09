@@ -57,8 +57,8 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
             })
             .try_collect()?;
 
-        // Unchecked because we just created each chunk with the same DType.
-        // SAFETY:
+        // SAFETY: All chunks are deserialized with the same dtype that was serialized.
+        // Each chunk was validated during deserialization to match the expected dtype.
         unsafe { Ok(ChunkedArray::new_unchecked(chunks, dtype.clone())) }
     }
 }

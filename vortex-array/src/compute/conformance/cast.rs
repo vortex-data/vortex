@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn test_cast_conformance_struct() {
-        let names: FieldNames = vec!["a".into(), "b".into()].into();
+        let names = FieldNames::from(["a", "b"]);
 
         let a = buffer![1i32, 2, 3].into_array();
         let b = VarBinArray::from_iter(

@@ -64,6 +64,10 @@ use crate::{Array, ArrayRef, IntoArray};
 /// execution than the core `StringArray` and `BinaryArray` types, at the expense of potentially
 /// needing [garbage collection][arrow_array::GenericByteViewArray::gc] to clear unreferenced items
 /// from memory.
+///
+/// # For Developers
+///
+/// If you add another variant to this enum, make sure to update [`Array::is_canonical`].
 #[derive(Debug, Clone)]
 pub enum Canonical {
     Null(NullArray),

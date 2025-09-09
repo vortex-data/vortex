@@ -5,8 +5,9 @@ use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
 
+use itertools::Itertools as _;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{BinaryView, PrimitiveArray, VarBinViewArray};
+use vortex_array::arrays::{BinaryView, ConstantArray, PrimitiveArray, VarBinViewArray};
 use vortex_array::compute::filter;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
@@ -468,24 +469,57 @@ impl ZstdArray {
                 primitive.into_array()
             }
             DType::Binary(_) | DType::Utf8(_) => {
-                // The decompressed buffer is a bunch of interleaved u32 lengths
-                // and strings of those lengths, we need to reconstruct the
-                // views into those strings by passing through the buffer.
-                let views = reconstruct_views(decompressed.clone()).slice(
-                    slice_value_idx_start - n_skipped_values
-                        ..slice_value_idx_stop - n_skipped_values,
-                );
+                match slice_validity.to_mask(slice_n_rows).indices() {
+                    AllOr::All => {
+                        // the decompressed buffer is a bunch of interleaved u32 lengths
+                        // and strings of those lengths, we need to reconstruct the
+                        // views into those strings by passing through the buffer.
+                        let valid_views = reconstruct_views(decompressed.clone()).slice(
+                            slice_value_idx_start - n_skipped_values
+                                ..slice_value_idx_stop - n_skipped_values,
+                        );
 
-                // SAFETY: we properly construct the views inside `reconstruct_views`
-                let vbv = unsafe {
-                    VarBinViewArray::new_unchecked(
-                        views,
-                        Arc::from([decompressed]),
-                        self.dtype.clone(),
-                        slice_validity,
-                    )
-                };
-                vbv.into_array()
+                        // SAFETY: we properly construct the views inside `reconstruct_views`
+                        unsafe {
+                            VarBinViewArray::new_unchecked(
+                                valid_views,
+                                Arc::from([decompressed]),
+                                self.dtype.clone(),
+                                slice_validity,
+                            )
+                        }
+                        .into_array()
+                    }
+                    AllOr::None => {
+                        ConstantArray::new(Scalar::null(self.dtype.clone()), slice_n_rows)
+                            .into_array()
+                    }
+                    AllOr::Some(valid_indices) => {
+                        // the decompressed buffer is a bunch of interleaved u32 lengths
+                        // and strings of those lengths, we need to reconstruct the
+                        // views into those strings by passing through the buffer.
+                        let valid_views = reconstruct_views(decompressed.clone()).slice(
+                            slice_value_idx_start - n_skipped_values
+                                ..slice_value_idx_stop - n_skipped_values,
+                        );
+
+                        let mut views = BufferMut::<BinaryView>::zeroed(slice_n_rows);
+                        for (view, index) in valid_views.into_iter().zip_eq(valid_indices) {
+                            views[*index] = view
+                        }
+
+                        // SAFETY: we properly construct the views inside `reconstruct_views`
+                        unsafe {
+                            VarBinViewArray::new_unchecked(
+                                views.freeze(),
+                                Arc::from([decompressed]),
+                                self.dtype.clone(),
+                                slice_validity,
+                            )
+                        }
+                        .into_array()
+                    }
+                }
             }
             _ => vortex_panic!("Unsupported dtype for Zstd array: {}", self.dtype),
         }

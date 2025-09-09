@@ -110,12 +110,21 @@ fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
     indices_validity: Mask,
 ) -> VortexResult<ArrayRef> {
     let mut new_offsets = PrimitiveBuilder::with_capacity(Nullability::NonNullable, indices.len());
+
+    // This will be the indices we push down to the child array to call `take` with.
+    //
+    // There are 2 things to note here:
+    // - We do not know how many elements we need to take from our child since lists are variable
+    //   size: thus we arbitrarily choose a capacity of `2 * # of indices`.
+    // - The type of the primitive builder needs to fit the largest offset of the (parent)
+    //   `ListArray`, so we make this `PrimitiveBuilder` generic over `O` (instead of `I`).
     let mut elements_to_take =
-        PrimitiveBuilder::with_capacity(Nullability::NonNullable, 2 * indices.len());
+        PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, 2 * indices.len());
 
     let mut current_offset = O::zero();
     new_offsets.append_zero();
-    let mut new_validity = BooleanBufferBuilder::new(2 * indices.len());
+
+    let mut new_validity = BooleanBufferBuilder::new(indices.len());
 
     for (idx, data_idx) in indices.iter().enumerate() {
         if !indices_validity.value(idx) {

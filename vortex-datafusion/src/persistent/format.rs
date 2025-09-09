@@ -8,11 +8,12 @@ use std::sync::Arc;
 use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion_catalog::Session;
+use datafusion_common::config::ConfigField;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
 use datafusion_common::{
-    ColumnStatistics, DataFusionError, GetExt, Result as DFResult, Statistics,
-    config_datafusion_err, not_impl_err,
+    ColumnStatistics, DataFusionError, GetExt, Result as DFResult, Statistics, config_namespace,
+    not_impl_err,
 };
 use datafusion_common_runtime::SpawnedTask;
 use datafusion_datasource::file::FileSource;
@@ -48,7 +49,7 @@ use crate::convert::TryToDataFusion;
 pub struct VortexFormat {
     session: Arc<VortexSession>,
     file_cache: VortexFileCache,
-    opts: VortexFormatOptions,
+    opts: VortexOptions,
 }
 
 impl Debug for VortexFormat {
@@ -59,33 +60,66 @@ impl Debug for VortexFormat {
     }
 }
 
-/// Options to configure the [`VortexFormat`].
-#[derive(Debug)]
-pub struct VortexFormatOptions {
-    /// The size of the in-memory [`vortex::file::Footer`] cache.
-    pub footer_cache_size_mb: usize,
-    /// The size of the in-memory segment cache.
-    pub segment_cache_size_mb: usize,
-}
-
-impl Default for VortexFormatOptions {
-    fn default() -> Self {
-        Self {
-            footer_cache_size_mb: 64,
-            segment_cache_size_mb: 0,
-        }
+config_namespace! {
+    /// Options to configure the [`VortexFormat`].
+    ///
+    /// Can be set through a DataFusion [`SessionConfig`].
+    ///
+    /// [`SessionConfig`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionConfig.html
+    pub struct VortexOptions {
+        /// The size of the in-memory [`vortex::file::Footer`] cache.
+        pub footer_cache_size_mb: usize, default = 64
+        /// The size of the in-memory segment cache.
+        pub segment_cache_size_mb: usize, default = 0
     }
 }
 
+impl Eq for VortexOptions {}
+
 /// Minimal factory to create [`VortexFormat`] instances.
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct VortexFormatFactory {
     session: Arc<VortexSession>,
+    options: Option<VortexOptions>,
 }
 
 impl GetExt for VortexFormatFactory {
     fn get_ext(&self) -> String {
         VORTEX_FILE_EXTENSION.to_string()
+    }
+}
+
+impl VortexFormatFactory {
+    /// Creates a new instance with a default [`VortexSession`] and default options.
+    #[allow(clippy::new_without_default)] // FormatFactory defines `default` method, so having `Default` implementation is confusing.
+    pub fn new() -> Self {
+        Self {
+            session: Arc::new(VortexSession::default()),
+            options: None,
+        }
+    }
+
+    /// Creates a new instance with customized session and default options for all [`VortexFormat`] instances created from this factory.
+    ///
+    /// The options can be overridden by table-level configuration pass in [`FileFormatFactory::create`].
+    pub fn new_with_options(session: Arc<VortexSession>, options: VortexOptions) -> Self {
+        Self {
+            session,
+            options: Some(options),
+        }
+    }
+
+    /// Override the default options for this factory.
+    ///
+    /// For example:
+    /// ```rust
+    /// use vortex_datafusion::{VortexFormatFactory, VortexOptions};
+    ///
+    /// let factory = VortexFormatFactory::new().with_options(VortexOptions::default());
+    /// ```
+    pub fn with_options(mut self, options: VortexOptions) -> Self {
+        self.options = Some(options);
+        self
     }
 }
 
@@ -96,13 +130,19 @@ impl FileFormatFactory for VortexFormatFactory {
         _state: &dyn Session,
         format_options: &std::collections::HashMap<String, String>,
     ) -> DFResult<Arc<dyn FileFormat>> {
-        if !format_options.is_empty() {
-            return Err(config_datafusion_err!(
-                "Vortex tables don't support any options"
-            ));
+        let mut opts = self.options.clone().unwrap_or_default();
+        for (key, value) in format_options {
+            if let Some(key) = key.strip_prefix("format.") {
+                opts.set(key, value)?;
+            } else {
+                tracing::trace!("Ignoring options '{key}'");
+            }
         }
 
-        Ok(Arc::new(VortexFormat::new(self.session.clone())))
+        Ok(Arc::new(VortexFormat::new_with_options(
+            self.session.clone(),
+            opts,
+        )))
     }
 
     fn default(&self) -> Arc<dyn FileFormat> {
@@ -121,9 +161,13 @@ impl Default for VortexFormat {
 }
 
 impl VortexFormat {
-    /// Create a new instance of the [`VortexFormat`].
+    /// Create a new instance with default options.
     pub fn new(session: Arc<VortexSession>) -> Self {
-        let opts = VortexFormatOptions::default();
+        Self::new_with_options(session, VortexOptions::default())
+    }
+
+    /// Creates a new instance with configured by a [`VortexOptions`].
+    pub fn new_with_options(session: Arc<VortexSession>, opts: VortexOptions) -> Self {
         Self {
             session: session.clone(),
             file_cache: VortexFileCache::new(
@@ -136,7 +180,7 @@ impl VortexFormat {
     }
 
     /// Return the format specific configuration
-    pub fn options(&self) -> &VortexFormatOptions {
+    pub fn options(&self) -> &VortexOptions {
         &self.opts
     }
 }
@@ -389,7 +433,7 @@ mod tests {
     async fn create_table() {
         let dir = TempDir::new().unwrap();
 
-        let factory: VortexFormatFactory = Default::default();
+        let factory: VortexFormatFactory = VortexFormatFactory::new();
         let mut session_state_builder = SessionStateBuilder::new().with_default_features();
         register_vortex_format_factory(factory, &mut session_state_builder);
         let session = SessionContext::new_with_state(session_state_builder.build());
@@ -408,11 +452,10 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic]
-    async fn fail_table_config() {
+    async fn configure_format_source() {
         let dir = TempDir::new().unwrap();
 
-        let factory: VortexFormatFactory = Default::default();
+        let factory = VortexFormatFactory::new();
         let mut session_state_builder = SessionStateBuilder::new().with_default_features();
         register_vortex_format_factory(factory, &mut session_state_builder);
         let session = SessionContext::new_with_state(session_state_builder.build());
@@ -422,7 +465,7 @@ mod tests {
                 "CREATE EXTERNAL TABLE my_tbl \
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex LOCATION '{}' \
-                OPTIONS( some_key 'value' );",
+                OPTIONS( segment_cache_size_mb '5' );",
                 dir.path().to_str().unwrap()
             ))
             .await

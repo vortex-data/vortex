@@ -67,7 +67,7 @@ impl BoolBuilder {
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
-        BoolArray::new(
+        BoolArray::from_bool_buffer(
             self.inner.finish(),
             self.nulls.finish_with_nullability(self.dtype.nullability()),
         )

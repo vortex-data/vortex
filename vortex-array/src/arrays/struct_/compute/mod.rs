@@ -111,7 +111,7 @@ mod tests {
     #[test]
     fn filter_empty_struct() {
         let struct_arr =
-            StructArray::try_new(vec![].into(), vec![], 10, Validity::NonNullable).unwrap();
+            StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
         let mask = vec![
             false, true, false, true, false, true, false, true, false, true,
         ];
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn take_empty_struct() {
         let struct_arr =
-            StructArray::try_new(vec![].into(), vec![], 10, Validity::NonNullable).unwrap();
+            StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
         let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
         assert_eq!(taken.len(), 2);
@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn filter_empty_struct_with_empty_filter() {
         let struct_arr =
-            StructArray::try_new(vec![].into(), vec![], 0, Validity::NonNullable).unwrap();
+            StructArray::try_new(FieldNames::empty(), vec![], 0, Validity::NonNullable).unwrap();
         let filtered = filter(struct_arr.as_ref(), &Mask::from_iter::<[bool; 0]>([])).unwrap();
         assert_eq!(filtered.len(), 0);
     }
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn test_mask_empty_struct() {
         test_mask_conformance(
-            StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
+            StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
                 .unwrap()
                 .as_ref(),
         );
@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn test_filter_empty_struct() {
         test_filter_conformance(
-            StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
+            StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
                 .unwrap()
                 .as_ref(),
         );
@@ -316,7 +316,7 @@ mod tests {
     fn test_cast_complex_struct() {
         let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
         let ys = VarBinArray::from_vec(vec!["a", "b", "c", "d", "e"], DType::Utf8(Nullable));
-        let zs = BoolArray::new(
+        let zs = BoolArray::from_bool_buffer(
             BooleanBuffer::from_iter([true, true, false, false, true]),
             Validity::AllValid,
         );
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn test_empty_struct_is_constant() {
-        let array = StructArray::new_with_len(2);
+        let array = StructArray::new_fieldless_with_len(2);
         let is_constant = is_constant(array.as_ref()).vortex_unwrap();
         assert_eq!(is_constant, Some(true));
     }
@@ -401,7 +401,7 @@ mod tests {
     #[test]
     fn test_take_empty_struct_conformance() {
         test_take_conformance(
-            StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
+            StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
                 .unwrap()
                 .as_ref(),
         );
@@ -539,7 +539,7 @@ mod tests {
         .unwrap()
     })]
     // Additional test cases
-    #[case::empty_struct(StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable).unwrap())]
+    #[case::empty_struct(StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable).unwrap())]
     #[case::single_field({
         let xs = buffer![42i64].into_array();
         StructArray::try_new(["xs"].into(), vec![xs], 1, Validity::NonNullable).unwrap()

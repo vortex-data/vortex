@@ -69,6 +69,12 @@ impl ComputeFnVTable for Filter {
     ) -> VortexResult<Output> {
         let FilterArgs { array, mask } = FilterArgs::try_from(args)?;
 
+        debug_assert_eq!(
+            array.len(),
+            mask.len(),
+            "Tried to filter an array via a mask with the wrong length"
+        );
+
         let true_count = mask.true_count();
 
         // Fast-path for empty mask.
@@ -79,6 +85,15 @@ impl ComputeFnVTable for Filter {
         // Fast-path for full mask
         if true_count == mask.len() {
             return Ok(array.to_array().into());
+        }
+
+        // If the entire array is null, then we only need to adjust the length of the array.
+        if array.validity_mask().true_count() == 0 {
+            return Ok(
+                ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
+                    .into_array()
+                    .into(),
+            );
         }
 
         for kernel in kernels {
@@ -162,9 +177,15 @@ inventory::collect!(FilterKernelRef);
 pub trait FilterKernel: VTable {
     /// Filter an array by the provided predicate.
     ///
-    /// Note that the entry-point filter functions handles `Mask::AllTrue` and `Mask::AllFalse`,
-    /// leaving only `Mask::Values` to be handled by this function.
-    fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef>;
+    /// # Preconditions
+    ///
+    /// The entrypoint filter functions will handle `Mask::AllTrue` and `Mask::AllFalse` on the
+    /// selection mask, leaving only `Mask::Values` to be handled by this function.
+    ///
+    /// Additionally, the array length is guaranteed to have the same length as the selection mask.
+    ///
+    /// Finally, the array validity mask is guaranteed not to have a true count of 0 (all nulls).
+    fn filter(&self, array: &Self::Array, selection_mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
 /// Adapter to convert a [`FilterKernel`] into a [`Kernel`].

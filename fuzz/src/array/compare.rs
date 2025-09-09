@@ -20,10 +20,11 @@ pub fn compare_canonical_array(
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
     if value.is_null() {
-        return Ok(
-            BoolArray::new(BooleanBuffer::new_unset(array.len()), Validity::AllInvalid)
-                .into_array(),
-        );
+        return Ok(BoolArray::from_bool_buffer(
+            BooleanBuffer::new_unset(array.len()),
+            Validity::AllInvalid,
+        )
+        .into_array());
     }
 
     match array.dtype() {
@@ -107,7 +108,7 @@ pub fn compare_canonical_array(
                 operator,
             )
         }),
-        DType::Struct(..) | DType::List(..) => {
+        DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
             let scalar_vals: Vec<Scalar> = (0..array.len()).map(|i| array.scalar_at(i)).collect();
             Ok(BoolArray::from_iter(
                 scalar_vals
@@ -116,7 +117,6 @@ pub fn compare_canonical_array(
             )
             .into_array())
         }
-        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }

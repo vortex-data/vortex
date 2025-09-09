@@ -9,7 +9,7 @@ use itertools::Itertools;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyString;
-use vortex::dtype::FieldName;
+use vortex::dtype::{FieldName, FieldNames};
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, SelectExpr, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
@@ -168,10 +168,18 @@ impl PyVortexDataset {
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
     ) -> PyResult<usize> {
+        if row_filter.is_none() {
+            let row_count = match row_range {
+                Some(range) => range.1 - range.0,
+                None => self_.vxf.row_count(),
+            };
+            return row_count.try_into().map_err(PyValueError::new_err);
+        }
+
         let mut scan = self_
             .vxf
             .scan()?
-            .with_projection(select(vec![], root()))
+            .with_projection(select(FieldNames::empty(), root()))
             .with_some_filter(filter_from_python(row_filter))
             .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
         if let Some((l, r)) = row_range {
@@ -179,12 +187,11 @@ impl PyVortexDataset {
         }
 
         // TODO(ngates): should we use multi-threaded read or not?
-        let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
         let n_rows: usize = scan
-            .into_record_batch_reader_multithread(schema)?
-            .map_ok(|rb| rb.num_rows())
+            .into_array_iter_multithread()?
+            .map_ok(|array| array.len())
             .process_results(|iter| iter.sum())
-            .map_err(|err| PyValueError::new_err(format!("arrow error: {}", err)))?;
+            .map_err(|err| PyValueError::new_err(format!("vortex error: {}", err)))?;
 
         Ok(n_rows)
     }

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// TODO(connor): Bring this file more in line with the rest of the builders.
-
 use std::any::Any;
 use std::cmp::max;
 use std::sync::Arc;
