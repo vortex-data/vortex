@@ -13,7 +13,7 @@ pub struct WasmRuntime;
 
 impl WasmRuntime {
     pub fn handle() -> Handle<'static> {
-        Handle(Arc::new(WasmRuntime))
+        Handle::new(Arc::new(WasmRuntime))
     }
 }
 

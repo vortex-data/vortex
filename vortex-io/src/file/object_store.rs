@@ -94,7 +94,10 @@ impl IoSource for ObjectStoreIoSource {
         .boxed()
     }
 
-    fn drive_send(self: Arc<Self>, requests: BoxStream<'static, IoRequest>) -> BoxFuture<'_, ()> {
+    fn drive_send(
+        self: Arc<Self>,
+        requests: BoxStream<'static, IoRequest>,
+    ) -> BoxFuture<'static, ()> {
         let handle = self.handle.clone();
         requests
             .map(move |req| {

@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use futures::future::BoxFuture;
+use futures::stream::BoxStream;
+
+use crate::file::{IoRequest, IoSourceRef};
+
 mod handle;
-
 pub use handle::*;
-
 #[cfg(not(target_arch = "wasm32"))]
 pub mod current;
 #[cfg(not(target_arch = "wasm32"))]
@@ -16,11 +19,6 @@ mod smol;
 pub mod tokio;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
-
-use futures::future::BoxFuture;
-use futures::stream::BoxStream;
-
-use crate::file::{IoRequest, IoSourceRef};
 
 #[cfg(test)]
 mod tests;
