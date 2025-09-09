@@ -133,7 +133,6 @@ impl<O: OffsetPType> ListBuilder<O> {
             "Indices length must be one more than nulls length."
         );
 
-        // TODO(connor): Use `new_unchecked` here.
         ListArray::try_new(
             self.value_builder.finish(),
             self.index_builder.finish(),
@@ -171,12 +170,10 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn append_zeros(&mut self, n: usize) {
-        let count = self.value_builder.len();
-        // TODO(connor): this is incorrect, as it creates lists of size 1 instead of 0.
-        self.value_builder.append_zeros(n);
-        for i in 0..n {
+        let curr_len = self.value_builder.len();
+        for _ in 0..n {
             self.index_builder.append_value(
-                O::from_usize(count + i + 1).vortex_expect("Failed to convert from usize to <O>"),
+                O::from_usize(curr_len).vortex_expect("Failed to convert from usize to <O>"),
             )
         }
         self.nulls.append_n_non_nulls(n);

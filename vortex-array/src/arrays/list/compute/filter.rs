@@ -135,7 +135,6 @@ fn compute_filtered_elements_and_offsets<O: NativePType + AsPrimitive<usize> + A
     // The `Mask` can determine the best representation based on the buffer's density in the future.
     let new_elements = filter(elements, &Mask::from_buffer(new_mask_builder.finish()))?;
 
-    // TODO(connor): Use `new_unchecked` here to avoid a branch?
     let new_offsets = PrimitiveArray::new(new_offsets, Validity::NonNullable);
 
     Ok((new_elements, new_offsets))
