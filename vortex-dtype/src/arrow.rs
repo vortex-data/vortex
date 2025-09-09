@@ -15,9 +15,7 @@
 
 use std::sync::Arc;
 
-use arrow_schema::{
-    DECIMAL128_MAX_PRECISION, DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef,
-};
+use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
@@ -61,8 +59,11 @@ impl TryFromArrowType<&DataType> for PType {
 impl TryFromArrowType<&DataType> for DecimalDType {
     fn try_from_arrow(value: &DataType) -> VortexResult<Self> {
         match value {
-            DataType::Decimal128(precision, scale) => Self::try_new(*precision, *scale),
-            DataType::Decimal256(precision, scale) => Self::try_new(*precision, *scale),
+            DataType::Decimal32(precision, scale)
+            | DataType::Decimal64(precision, scale)
+            | DataType::Decimal128(precision, scale)
+            | DataType::Decimal256(precision, scale) => Self::try_new(*precision, *scale),
+
             _ => Err(vortex_err!(
                 "Arrow datatype {:?} cannot be converted to DecimalDType",
                 value
@@ -108,7 +109,10 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
 
         match data_type {
             DataType::Null => DType::Null,
-            DataType::Decimal128(precision, scale) | DataType::Decimal256(precision, scale) => {
+            DataType::Decimal32(precision, scale)
+            | DataType::Decimal64(precision, scale)
+            | DataType::Decimal128(precision, scale)
+            | DataType::Decimal256(precision, scale) => {
                 DType::Decimal(DecimalDType::new(*precision, *scale), nullability)
             }
             DataType::Boolean => DType::Bool(nullability),
@@ -188,10 +192,17 @@ impl DType {
                 PType::F64 => DataType::Float64,
             },
             DType::Decimal(dt, _) => {
-                if dt.precision() > DECIMAL128_MAX_PRECISION {
-                    DataType::Decimal256(dt.precision(), dt.scale())
-                } else {
-                    DataType::Decimal128(dt.precision(), dt.scale())
+                let precision = dt.precision();
+                let scale = dt.scale();
+                match dt.precision() {
+                    // DECIMAL32_MAX_PRECISION
+                    0..=9 => DataType::Decimal32(precision, scale),
+                    // DECIMAL64_MAX_PRECISION
+                    10..=18 => DataType::Decimal64(precision, scale),
+                    // DECIMAL128_MAX_PRECISION
+                    19..=38 => DataType::Decimal128(precision, scale),
+                    // DECIMAL256_MAX_PRECISION
+                    39.. => DataType::Decimal256(precision, scale),
                 }
             }
             DType::Utf8(_) => DataType::Utf8View,

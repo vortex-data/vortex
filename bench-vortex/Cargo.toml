@@ -29,6 +29,7 @@ datafusion = { workspace = true, features = [
     "parquet",
     "datetime_expressions",
     "nested_expressions",
+    "unicode_expressions",
 ] }
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
