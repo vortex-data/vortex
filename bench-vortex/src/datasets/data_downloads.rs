@@ -15,7 +15,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::utils::file_utils::{idempotent, idempotent_async};
 
-pub async fn download_data(fname: PathBuf, data_url: &str) -> PathBuf {
+pub async fn download_data(fname: PathBuf, data_url: &str) -> Result<PathBuf> {
     idempotent_async(&fname, async |path| {
         info!(
             "Downloading {} from {}",
@@ -49,7 +49,6 @@ pub async fn download_data(fname: PathBuf, data_url: &str) -> PathBuf {
         Ok(())
     })
     .await
-    .expect("Failed to download data")
 }
 
 pub fn decompress_bz2(input_path: PathBuf, output_path: PathBuf) -> Result<PathBuf> {

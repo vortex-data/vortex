@@ -29,7 +29,7 @@ impl Dataset for TaxiData {
     }
 }
 
-pub async fn taxi_data_parquet() -> PathBuf {
+pub async fn taxi_data_parquet() -> Result<PathBuf> {
     let taxi_parquet_fpath = "yellow-tripdata-2023-11.parquet".to_data_path();
     let taxi_data_url =
         "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2023-11.parquet";
@@ -51,7 +51,7 @@ pub async fn taxi_data_vortex() -> Result<PathBuf> {
         let buf = output_fname.to_path_buf();
         let output_file = File::create(output_fname).await?;
         VortexWriteOptions::default()
-            .write(output_file, parquet_to_vortex(taxi_data_parquet().await)?)
+            .write(output_file, parquet_to_vortex(taxi_data_parquet().await?)?)
             .await?
             .flush()
             .await?;

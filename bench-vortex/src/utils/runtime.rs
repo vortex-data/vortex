@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use anyhow::{Context, Result, bail};
 use tokio::runtime::{Builder, Runtime};
-
-use crate::vortex_panic;
 
 /// Creates a Tokio runtime based on the provided thread count configuration.
 ///
@@ -11,7 +10,7 @@ use crate::vortex_panic;
 ///
 /// * `threads` - Optional number of threads to use:
 ///   * `None` - Uses Tokio's default multi-thread runtime
-///   * `Some(0)` - Panics, as 0 threads is invalid
+///   * `Some(0)` - Returns an error, as 0 threads is invalid
 ///   * `Some(1)` - Creates a single-threaded runtime
 ///   * `Some(n)` - Creates a multi-threaded runtime with `n` worker threads
 ///
@@ -19,12 +18,12 @@ use crate::vortex_panic;
 ///
 /// A configured Tokio runtime
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if `threads` is `Some(0)` or if runtime creation fails
-pub fn new_tokio_runtime(threads: Option<usize>) -> Runtime {
+/// Returns an error if `threads` is `Some(0)` or if runtime creation fails
+pub fn new_tokio_runtime(threads: Option<usize>) -> Result<Runtime> {
     match threads {
-        Some(0) => vortex_panic!("Can't use 0 threads for runtime"),
+        Some(0) => bail!("Can't use 0 threads for runtime"),
         Some(1) => Builder::new_current_thread().enable_all().build(),
         Some(n) => Builder::new_multi_thread()
             .worker_threads(n)
@@ -32,5 +31,5 @@ pub fn new_tokio_runtime(threads: Option<usize>) -> Runtime {
             .build(),
         None => Builder::new_multi_thread().enable_all().build(),
     }
-    .expect("Failed building the Runtime")
+    .context("Failed building the Runtime")
 }

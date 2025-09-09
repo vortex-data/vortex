@@ -49,7 +49,7 @@ fn main() -> anyhow::Result<()> {
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
-    let runtime = new_tokio_runtime(args.threads);
+    let runtime = new_tokio_runtime(args.threads)?;
 
     compress(
         runtime,

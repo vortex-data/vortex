@@ -17,6 +17,10 @@ pub fn idempotent<T, P: IdempotentPath + ?Sized>(
     let data_path = path.to_data_path();
     let temp_path = temp_download_filepath();
     if !data_path.exists() {
+        // Ensure parent directory exists
+        if let Some(parent) = data_path.parent() {
+            create_dir_all(parent).context("Failed to create parent directories")?;
+        }
         f(temp_path.as_path())?;
         std::fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
     }
@@ -31,6 +35,10 @@ where
     let data_path = path.to_data_path();
     let temp_path = temp_download_filepath();
     if !data_path.exists() {
+        // Ensure parent directory exists
+        if let Some(parent) = data_path.parent() {
+            create_dir_all(parent).context("Failed to create parent directories")?;
+        }
         f(temp_path.clone()).await?;
         std::fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
     }
@@ -51,23 +59,12 @@ pub fn temp_download_filepath() -> PathBuf {
 
 impl IdempotentPath for str {
     fn to_data_path(&self) -> PathBuf {
-        let path = data_dir().join(self);
-        if let Some(parent) = path.parent()
-            && !parent.exists()
-        {
-            create_dir_all(parent).expect("Failed to create parent directories");
-        }
-        path
+        data_dir().join(self)
     }
 }
 
 impl IdempotentPath for PathBuf {
     fn to_data_path(&self) -> PathBuf {
-        if let Some(parent) = self.parent()
-            && !parent.exists()
-        {
-            create_dir_all(parent).expect("Failed to create parent directories");
-        }
         self.to_path_buf()
     }
 }

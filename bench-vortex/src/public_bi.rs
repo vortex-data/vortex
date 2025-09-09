@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock};
 
-use anyhow::{anyhow, bail};
+use anyhow::{Context, anyhow, bail};
 use arrow_schema::{DataType, Field, Schema};
 use async_trait::async_trait;
 use clap::ValueEnum;
@@ -269,14 +269,18 @@ pub struct PBIData {
 }
 
 impl PBIData {
-    async fn download_bzips(&self) {
+    async fn download_bzips(&self) -> anyhow::Result<()> {
         let download_futures = self.tables.iter().map(|table| {
             download_data(
                 self.get_file_path(&table.name, FileType::CsvBzip2),
                 table.data_url.as_str(),
             )
         });
-        join_all(download_futures).await;
+        let results = join_all(download_futures).await;
+        for result in results {
+            result?;
+        }
+        Ok(())
     }
 
     fn get_file_path(&self, table_name: &str, file_type: FileType) -> PathBuf {
@@ -307,7 +311,7 @@ impl PBIData {
     }
 
     pub async fn write_as_parquet(&self) -> anyhow::Result<()> {
-        self.download_bzips().await;
+        self.download_bzips().await?;
         self.unzip().await?;
 
         let to_parquet_futures = self.tables.iter().map(|table| {
@@ -333,8 +337,8 @@ impl PBIData {
         Ok(())
     }
 
-    pub async fn write_as_vortex(&self) {
-        self.write_as_parquet().await.unwrap();
+    pub async fn write_as_vortex(&self) -> anyhow::Result<()> {
+        self.write_as_parquet().await?;
         let to_vortex_futures = self.tables.iter().map(|table| {
             let parquet = self.get_file_path(&table.name, FileType::Parquet);
             let vortex = self.get_file_path(&table.name, FileType::Vortex);
@@ -357,21 +361,20 @@ impl PBIData {
                             .map_err(|e| anyhow::anyhow!("Failed to write vortex file: {}", e))?;
                         Ok(())
                     })
-                    .await
-                    .expect("failed to compress to vortex");
-                let vx_size = vortex_file
-                    .metadata()
-                    .expect("Failed to get metadata")
-                    .len();
+                    .await?;
+                let vx_size = vortex_file.metadata()?.len();
 
                 trace!(
                     "Vortex size: {}, {}B",
                     format_size(vx_size, DECIMAL),
                     vx_size
                 );
+
+                Ok::<_, anyhow::Error>(())
             }
         });
-        join_all(to_vortex_futures).await;
+        try_join_all(to_vortex_futures).await?;
+        Ok(())
     }
 
     pub async fn register_tables(
@@ -404,7 +407,11 @@ impl PBIData {
             };
 
             let path = self.get_file_path(&table.name, file_type);
-            let table_url = ListingTableUrl::parse(path.to_str().expect("unicode"))?;
+            let table_url = ListingTableUrl::parse(path.to_str().ok_or_else(|| {
+                datafusion_common::DataFusionError::Internal(
+                    "Failed to convert path to unicode string".to_string(),
+                )
+            })?)?;
             let config = ListingTableConfig::new(table_url)
                 .with_listing_options(
                     ListingOptions::new(df_format)
@@ -427,7 +434,7 @@ impl Dataset for PBIBenchmark {
 
     async fn to_vortex_array(&self) -> anyhow::Result<ArrayRef> {
         let dataset = self.dataset()?;
-        dataset.write_as_vortex().await;
+        dataset.write_as_vortex().await?;
         // reading only the first table, each table in a PBI benchmark
         // has its own schema.
         let path = dataset
@@ -481,10 +488,19 @@ pub async fn public_bi_csv_to_parquet_file(
     csv_path: PathBuf,
     parquet_path: &Path,
 ) -> anyhow::Result<()> {
-    info!("Compressing {} to parquet", csv_path.to_str().unwrap());
+    info!(
+        "Compressing {} to parquet",
+        csv_path
+            .to_str()
+            .context("Failed to convert CSV path to string")?
+    );
     let table_name = &table.name;
-    let csv_path = csv_path.to_str().expect("unicode");
-    let parquet_path = parquet_path.to_str().expect("unicode");
+    let csv_path = csv_path
+        .to_str()
+        .context("Failed to convert CSV path to unicode string")?;
+    let parquet_path = parquet_path
+        .to_str()
+        .context("Failed to convert Parquet path to unicode string")?;
 
     let create_table_with_doubles = replace_decimals(&table.create_table_sql);
 
