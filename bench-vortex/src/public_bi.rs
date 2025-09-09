@@ -13,34 +13,33 @@ use anyhow::{anyhow, bail};
 use arrow_schema::{DataType, Field, Schema};
 use async_trait::async_trait;
 use clap::ValueEnum;
-use datafusion::datasource::file_format::FileFormat;
 use datafusion::datasource::file_format::csv::CsvFormat;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
+use datafusion::datasource::file_format::FileFormat;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
 use datafusion_common::{DFSchema, Result, TableReference};
 use futures::future::{join_all, try_join_all};
-use humansize::{DECIMAL, format_size};
+use humansize::{format_size, DECIMAL};
 use log::trace;
 use regex::Regex;
 use tokio::fs::File;
 use tokio::process::Command as TokioCommand;
-use tokio::runtime::Handle;
 use tracing::info;
 use url::Url;
-use vortex::ArrayRef;
-use vortex::error::{VortexResult, vortex_err};
-use vortex::file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
+use vortex::error::{vortex_err, VortexResult};
+use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::iter::ArrayIteratorExt;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex::ArrayRef;
 use vortex_datafusion::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
-use crate::datasets::Dataset;
 use crate::datasets::data_downloads::{decompress_bz2, download_data};
-use crate::{IdempotentPath, idempotent_async, vortex_panic};
+use crate::datasets::Dataset;
+use crate::{idempotent_async, vortex_panic, IdempotentPath};
 
 pub static PBI_DATASETS: LazyLock<PBIDatasets> = LazyLock::new(|| {
     PBIDatasets::try_new(fetch_schemas_and_queries().expect("failed to fetch public bi queries"))
@@ -339,12 +338,7 @@ impl PBIData {
             async move {
                 let vortex_file = idempotent_async(&vortex, async |output_path| {
                     VortexWriteOptions::default()
-                        .with_strategy(
-                            WriteStrategyBuilder::new()
-                                .with_executor(Arc::new(Handle::current()))
-                                .build(),
-                        )
-                        .write(
+                        .write_tokio(
                             File::create(output_path).await.unwrap(),
                             parquet_to_vortex(parquet).unwrap(),
                         )
