@@ -49,7 +49,7 @@ pub(super) fn export_primitive(
                     )
                 })
             }
-        },
+        }
         (Nullability::Nullable, true) => match_each_native_ptype!(ptype, |T| {
             export_primitive_impl::<T, _, _>(
                 TrueSliceIterator::new(mask.len()),
@@ -78,7 +78,7 @@ pub(super) fn export_primitive(
                     )
                 })
             }
-        },
+        }
     }
 }
 
@@ -142,7 +142,9 @@ mod tests {
 
     use super::*;
     use crate::canonical::ToCanonical;
-    use crate::pipeline::bits::{AlignedChunkedIterator, UnalignedChunkedIterator, TrueSliceIterator};
+    use crate::pipeline::bits::{
+        AlignedChunkedIterator, TrueSliceIterator, UnalignedChunkedIterator,
+    };
     use crate::vtable::ValidityHelper;
 
     struct StepCountingKernel {
@@ -680,36 +682,41 @@ mod tests {
     fn test_export_primitive_with_unaligned_iterator_explicitly() {
         // Test with an explicitly unaligned buffer to exercise UnalignedChunkedIterator
         let total_bits = 1024;
-        
+
         // Create a mask with alternating pattern
         let mut mask_data = vec![];
         for i in 0..total_bits {
             mask_data.push(i % 2 == 0);
         }
         let buffer = BooleanBuffer::from(mask_data);
-        
+
         // Create an unaligned buffer by slicing with a bit offset
         let unaligned_buffer = BooleanBuffer::new(buffer.into_inner(), 3, total_bits - 3); // 3-bit offset
         let mask = Mask::from_buffer(unaligned_buffer.clone());
-        
+
         let (mut kernel, step_counter) = StepCountingKernel::new();
-        
+
         // Use UnalignedChunkedIterator explicitly - the 3-bit offset makes this unaligned
         let result = export_primitive_impl::<u32, _, _>(
             UnalignedChunkedIterator::new(&unaligned_buffer, mask.true_count()),
             EmptyBitSink,
             &mut kernel,
         );
-        
+
         assert!(
             result.is_ok(),
             "export_primitive_impl with UnalignedChunkedIterator should not fail"
         );
-        
+
         // Verify step count - should be 1 for less than N bits after offset
         let actual_steps = *step_counter.borrow();
-        assert_eq!(actual_steps, 1, "Should have exactly 1 step for {} bits", total_bits - 3);
-        
+        assert_eq!(
+            actual_steps,
+            1,
+            "Should have exactly 1 step for {} bits",
+            total_bits - 3
+        );
+
         // Verify the result array length matches the true count in the mask
         let result_array = result.unwrap();
         assert_eq!(result_array.len(), mask.true_count());

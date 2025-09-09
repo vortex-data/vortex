@@ -5,7 +5,9 @@
 
 use arrow_buffer::BooleanBuffer;
 use divan::{Bencher, black_box};
-use vortex_array::pipeline::bits::{is_aligned, AlignedChunkedIterator,  MaskSliceIterator, UnalignedChunkedIterator};
+use vortex_array::pipeline::bits::{
+    AlignedChunkedIterator, MaskSliceIterator, UnalignedChunkedIterator, is_aligned,
+};
 use vortex_array::pipeline::{N, N_WORDS};
 
 fn create_test_data(len: usize, pattern: fn(usize) -> bool) -> Vec<u8> {
@@ -88,9 +90,7 @@ fn bit_aligned_iterator_method(bencher: Bencher, bit_offset: usize) {
                     // Just test getting the slice, don't push to vector
                     black_box(chunk);
                 }
-
             }
-
         })
 }
 

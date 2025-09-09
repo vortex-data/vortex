@@ -8,8 +8,8 @@ use std::slice;
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
 
-use crate::pipeline::{N, N_WORDS};
 use super::MaskSliceIterator;
+use crate::pipeline::{N, N_WORDS};
 
 /// Helper function to determine if a BooleanBuffer is aligned for zero-copy access
 pub fn is_aligned(buffer: &BooleanBuffer) -> bool {
@@ -34,7 +34,6 @@ pub struct UnalignedChunkedIterator<'a> {
     buffer: Box<[usize; N_WORDS]>,
     done: bool,
 }
-
 
 impl MaskSliceIterator for AlignedChunkedIterator<'_> {
     #[inline]
@@ -69,8 +68,6 @@ impl MaskSliceIterator for UnalignedChunkedIterator<'_> {
         self.true_count
     }
 }
-
-
 
 impl<'a> AlignedChunkedIterator<'a> {
     pub fn new(buffer: &'a BooleanBuffer, true_count: usize) -> Self {
@@ -162,7 +159,7 @@ impl<'a> UnalignedChunkedIterator<'a> {
         if self.done {
             return None;
         }
-        
+
         let mut u64_count = 0;
 
         // Call iterator up to 16 times to fill our N_WORDS buffer
@@ -192,7 +189,6 @@ impl<'a> UnalignedChunkedIterator<'a> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
 
@@ -203,7 +199,7 @@ mod tests {
         // Test byte-aligned iterator (offset = 0)
         let data = vec![0b10101010u8; 128]; // 1024 bits, alternating pattern
         let buffer = BooleanBuffer::new(data.clone().into(), 0, data.len() * 8);
-        
+
         // Use compile-time dispatch - this data should be aligned
         assert!(is_aligned(&buffer));
         let mut iter = AlignedChunkedIterator::new(&buffer, buffer.count_set_bits());
@@ -225,7 +221,7 @@ mod tests {
         // Test byte-aligned iterator (offset = 0)
         let data = vec![0b10101010u8; 128]; // 1024 bits, alternating pattern
         let buffer = BooleanBuffer::new(data.into(), 0, ((128 - 1) * 8) + 7);
-        
+
         // Use compile-time dispatch
         assert!(is_aligned(&buffer));
         let mut iter = AlignedChunkedIterator::new(&buffer, buffer.count_set_bits());
@@ -250,7 +246,7 @@ mod tests {
         // Test with partial data that needs zero-padding
         let data = vec![0b11110000u8; 64]; // 512 bits (half of N)
         let buffer = BooleanBuffer::new(data.clone().into(), 0, data.len() * 8);
-        
+
         // Use compile-time dispatch
         assert!(is_aligned(&buffer));
         let mut iter = AlignedChunkedIterator::new(&buffer, buffer.count_set_bits());
@@ -271,7 +267,7 @@ mod tests {
         // Test with non-byte-aligned bit offset - this should be unaligned
         let data = vec![0b11100111u8, 0b00011100, 0b11100011, 0b10001110]; // 32 bits
         let buffer = BooleanBuffer::new(data.into(), 3, 32 - 3); // 3-bit offset
-        
+
         // Use compile-time dispatch - bit offset makes this unaligned
         assert!(!is_aligned(&buffer));
         let mut iter = UnalignedChunkedIterator::new(&buffer, buffer.count_set_bits());
@@ -299,7 +295,7 @@ mod tests {
         // Test with enough data for multiple chunks
         let data = vec![0b10101010u8; 256];
         let buffer = BooleanBuffer::new(data.clone().into(), 0, data.len() * 8);
-        
+
         // Use compile-time dispatch
         assert!(is_aligned(&buffer));
         let mut iter = AlignedChunkedIterator::new(&buffer, buffer.count_set_bits());
@@ -323,7 +319,7 @@ mod tests {
         // Test bit offset with enough data to need multiple source bytes
         let data = vec![0b01111000u8; 20]; // 160 bits
         let buffer = BooleanBuffer::new(data.into(), 4, (20 * 8) - 8); // 4-bit offset
-        
+
         // Use compile-time dispatch - bit offset makes this unaligned
         assert!(!is_aligned(&buffer));
         let mut iter = UnalignedChunkedIterator::new(&buffer, buffer.count_set_bits());
@@ -350,7 +346,7 @@ mod tests {
         // Test with bit offset - this should produce exactly one chunk
         let data = vec![0b10101010u8; 129];
         let buffer = BooleanBuffer::new(data.into(), 1, 1024); // 1-bit offset, exactly 1024 bits
-        
+
         // Use compile-time dispatch - bit offset makes this unaligned
         assert!(!is_aligned(&buffer));
         let mut iter = UnalignedChunkedIterator::new(&buffer, buffer.count_set_bits());

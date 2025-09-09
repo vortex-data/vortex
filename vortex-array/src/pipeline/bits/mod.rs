@@ -16,6 +16,7 @@ pub use vector::*;
 pub use view::*;
 pub use view_mut::*;
 use vortex_error::VortexResult;
+
 use crate::pipeline::N_WORDS;
 
 #[allow(clippy::len_without_is_empty)]

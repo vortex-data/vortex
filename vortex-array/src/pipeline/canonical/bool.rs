@@ -21,29 +21,27 @@ pub(super) fn export_bool(
     pipeline: &mut dyn Kernel,
 ) -> VortexResult<BoolArray> {
     match (nullability, mask.all_true()) {
-        (Nullability::NonNullable, true) => export_bool_nonnull_masked::<_, _>(
-            TrueSliceIterator::new(mask.len()),
-            EmptyBitSink,
-            pipeline,
-        ),
+        (Nullability::NonNullable, true) => {
+            export_bool_impl::<_, _>(TrueSliceIterator::new(mask.len()), EmptyBitSink, pipeline)
+        }
         (Nullability::NonNullable, false) => {
             let buffer = mask.to_boolean_buffer();
             let true_count = mask.true_count();
             if is_aligned(&buffer) {
-                export_bool_nonnull_masked::<_, _>(
+                export_bool_impl::<_, _>(
                     AlignedChunkedIterator::new(&buffer, true_count),
                     EmptyBitSink,
                     pipeline,
                 )
             } else {
-                export_bool_nonnull_masked::<_, _>(
+                export_bool_impl::<_, _>(
                     UnalignedChunkedIterator::new(&buffer, true_count),
                     EmptyBitSink,
                     pipeline,
                 )
             }
-        },
-        (Nullability::Nullable, true) => export_bool_nonnull_masked::<_, _>(
+        }
+        (Nullability::Nullable, true) => export_bool_impl::<_, _>(
             TrueSliceIterator::new(mask.len()),
             AlignedBitSink::new(mask.true_count()),
             pipeline,
@@ -52,23 +50,23 @@ pub(super) fn export_bool(
             let buffer = mask.to_boolean_buffer();
             let true_count = mask.true_count();
             if is_aligned(&buffer) {
-                export_bool_nonnull_masked::<_, _>(
+                export_bool_impl::<_, _>(
                     AlignedChunkedIterator::new(&buffer, true_count),
                     UnalignedBitSink::new(true_count),
                     pipeline,
                 )
             } else {
-                export_bool_nonnull_masked::<_, _>(
+                export_bool_impl::<_, _>(
                     UnalignedChunkedIterator::new(&buffer, true_count),
                     UnalignedBitSink::new(true_count),
                     pipeline,
                 )
             }
-        },
+        }
     }
 }
 
-pub(super) fn export_bool_nonnull_masked<T: MaskSliceIterator, Sink: BitSink>(
+fn export_bool_impl<T: MaskSliceIterator, Sink: BitSink>(
     mut mask: T,
     mut sink: Sink,
     pipeline: &mut dyn Kernel,

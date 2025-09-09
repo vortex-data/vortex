@@ -4,8 +4,8 @@
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::pipeline::{N, N_WORDS};
 use super::BitSink;
+use crate::pipeline::{N, N_WORDS};
 
 #[derive(Default)]
 pub struct EmptyBitSink;
