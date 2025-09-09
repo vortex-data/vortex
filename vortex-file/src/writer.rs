@@ -4,8 +4,9 @@
 use std::sync::Arc;
 
 use async_stream::try_stream;
+use futures::channel::oneshot;
 use futures::future::ready;
-use futures::{Stream, StreamExt, TryStreamExt, pin_mut};
+use futures::{Stream, StreamExt, TryFutureExt, TryStreamExt, pin_mut};
 use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStream, ArrayStreamExt, SendableArrayStream};
@@ -21,7 +22,7 @@ use vortex_layout::{LayoutContext, LayoutStrategy};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
 use crate::segments::writer::BufferedSegmentSink;
-use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, WriteStrategyBuilder};
+use crate::{EOF_SIZE, Footer, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, WriteStrategyBuilder};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -75,27 +76,22 @@ impl VortexWriteOptions {
         object_store: &Arc<dyn object_store::ObjectStore>,
         path: &object_store::path::Path,
         stream: S,
-    ) -> VortexResult<()> {
-        use futures::future::FutureExt;
+    ) -> VortexResult<Footer> {
         use vortex_io::ObjectStoreWriter;
 
-        self.write_tokio(
-            ObjectStoreWriter::new(object_store.clone(), path).await?,
-            stream,
-        )
-        .boxed()
-        .await?
-        .shutdown()
-        .await?;
-        Ok(())
+        let mut writer = ObjectStoreWriter::new(object_store.clone(), path).await?;
+        let footer = self.write_tokio(&mut writer, stream).await?;
+        writer.shutdown().await?;
+
+        Ok(footer)
     }
 
     #[cfg(feature = "tokio")]
     pub async fn write_tokio<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
         self,
-        write: W,
+        write: &mut W,
         stream: S,
-    ) -> VortexResult<W> {
+    ) -> VortexResult<Footer> {
         self.write(
             write,
             stream,
@@ -109,9 +105,9 @@ impl VortexWriteOptions {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn write_blocking<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
         self,
-        write: W,
+        write: &mut W,
         stream: S,
-    ) -> VortexResult<W> {
+    ) -> VortexResult<Footer> {
         vortex_io::runtime::single::SingleThreadRuntime::block_on(|handle| {
             self.write(write, ArrayStreamExt::boxed(stream), handle)
         })
@@ -120,18 +116,19 @@ impl VortexWriteOptions {
     /// Perform an async write of the provided stream of `Array`.
     pub async fn write<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
         self,
-        mut write: W,
+        write: &mut W,
         stream: S,
         handle: Handle,
-    ) -> VortexResult<W> {
-        let stream = self.write_stream(ArrayStreamExt::boxed(stream), handle);
+    ) -> VortexResult<Footer> {
+        let (stream, footer) = self.write_stream(ArrayStreamExt::boxed(stream), handle);
         pin_mut!(stream);
 
         while let Some(buffer) = stream.next().await {
             write.write_all(buffer?).await?;
         }
         write.flush().await?;
-        Ok(write)
+
+        footer.await
     }
 
     /// Write an [`ArrayStream`] as a Vortex file by returning a stream of [`ByteBuffer`] that
@@ -140,7 +137,10 @@ impl VortexWriteOptions {
         self,
         stream: SendableArrayStream,
         handle: Handle,
-    ) -> impl Stream<Item = VortexResult<ByteBuffer>> {
+    ) -> (
+        impl Stream<Item = VortexResult<ByteBuffer>>,
+        impl Future<Output = VortexResult<Footer>>,
+    ) {
         // Set up a Context to capture the encodings used in the file.
         let ctx = ArrayContext::empty();
 
@@ -161,7 +161,9 @@ impl VortexWriteOptions {
             self.max_variable_length_statistics_size,
         );
 
-        try_stream! {
+        let (footer_send, footer_recv) = oneshot::channel();
+
+        let byte_stream = try_stream! {
             // First, write the magic bytes.
             yield ByteBuffer::copy_from(MAGIC_BYTES);
             let mut position = MAGIC_BYTES.len() as u64;
@@ -195,6 +197,7 @@ impl VortexWriteOptions {
             }
 
             let (layout, segment_specs) = layout_fut.await?;
+            let segment_specs: Arc<[_]> = segment_specs.into();
 
             let dtype_segment = if self.exclude_dtype {
                 None
@@ -211,21 +214,29 @@ impl VortexWriteOptions {
             )?;
             yield buffer;
 
-            let statistics_segment = if self.file_statistics.is_empty() {
-                None
+            let (statistics_segment, file_statistics) = if self.file_statistics.is_empty() {
+                (None, None)
             } else {
                 let file_statistics = FileStatistics(file_stats.stats_sets().into());
                 let (buffer, stats_segment) = write_flatbuffer(&mut position, &file_statistics)?;
                 yield buffer;
-                Some(stats_segment)
+                (Some(stats_segment), Some(file_statistics))
             };
+
+            // Return a Footer object via the oneshot channel.
+            let footer = Footer::new(
+                layout.clone(),
+                segment_specs.clone(),
+                file_statistics,
+            );
+            let _ = footer_send.send(footer);
 
             let (buffer, footer_segment) = write_flatbuffer(
                 &mut position,
                 &FooterFlatBufferWriter {
                     ctx: ctx.clone(),
                     layout_ctx,
-                    segment_specs: segment_specs.into(),
+                    segment_specs,
                 },
             )?;
             yield buffer;
@@ -256,7 +267,12 @@ impl VortexWriteOptions {
             eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
             eof[4..8].copy_from_slice(&MAGIC_BYTES);
             yield ByteBuffer::copy_from(eof);
-        }
+        };
+
+        let footer_fut =
+            footer_recv.map_err(|_canceled| vortex_err!("Cannot return Footer from failed write"));
+
+        (byte_stream, footer_fut)
     }
 }
 

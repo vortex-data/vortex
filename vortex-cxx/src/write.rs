@@ -64,9 +64,8 @@ pub(crate) unsafe fn write_array_stream(
     let vortex_stream = arrow_stream_to_vortex_stream(stream_reader)?;
 
     RUNTIME.block_on(async {
-        let file = tokio::fs::File::create(path).await?;
-
-        options.inner.write_tokio(file, vortex_stream).await?;
+        let mut file = tokio::fs::File::create(path).await?;
+        options.inner.write_tokio(&mut file, vortex_stream).await?;
         Ok(())
     })
 }

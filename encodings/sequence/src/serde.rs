@@ -107,10 +107,10 @@ mod tests {
         let seq = SequenceArray::typed_new(2i8, 3, Nullability::NonNullable, 4).unwrap();
         let st = StructArray::from_fields(&[("a", seq.to_array())]).unwrap();
 
-        let file = tokio::fs::File::create("/tmp/abc.vx").await.unwrap();
+        let mut file = tokio::fs::File::create("/tmp/abc.vx").await.unwrap();
         VortexWriteOptions::default()
             .with_strategy(Arc::new(FlatLayoutStrategy::default()))
-            .write(file, st.to_array_stream(), TokioRuntime::handle())
+            .write(&mut file, st.to_array_stream(), TokioRuntime::handle())
             .await
             .unwrap();
 
