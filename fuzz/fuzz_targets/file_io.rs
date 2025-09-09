@@ -49,8 +49,9 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .vortex_unwrap()
     };
 
-    let full_buff = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), array_data.to_array_stream())
+    let mut full_buff = ByteBufferMut::empty();
+    let _footer = VortexWriteOptions::default()
+        .write_blocking(&mut full_buff, array_data.to_array_stream())
         .vortex_unwrap();
 
     let mut output = VortexOpenOptions::in_memory()

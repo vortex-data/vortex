@@ -339,7 +339,7 @@ impl PBIData {
                 let vortex_file = idempotent_async(&vortex, async |output_path| {
                     VortexWriteOptions::default()
                         .write_tokio(
-                            File::create(output_path).await.unwrap(),
+                            &mut File::create(output_path).await.unwrap(),
                             parquet_to_vortex(parquet).unwrap(),
                         )
                         .await

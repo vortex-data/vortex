@@ -195,7 +195,7 @@ pub async fn convert_parquet_to_vortex(
                             compaction
                         );
                         let array_stream = parquet_to_vortex(parquet_file_path)?;
-                        let f = OpenOptions::new()
+                        let mut f = OpenOptions::new()
                             .write(true)
                             .truncate(true)
                             .create(true)
@@ -204,7 +204,7 @@ pub async fn convert_parquet_to_vortex(
 
                         let write_options = compaction.apply_options(VortexWriteOptions::default());
 
-                        write_options.write_tokio(f, array_stream).await?;
+                        write_options.write_tokio(&mut f, array_stream).await?;
 
                         anyhow::Ok(())
                     })
