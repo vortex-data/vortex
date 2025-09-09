@@ -90,6 +90,11 @@ impl FieldNames {
     pub fn get(&self, index: usize) -> Option<&FieldName> {
         self.0.get(index)
     }
+
+    /// Returns whether this instance contains a specified name.
+    pub fn contains(&self, s: &str) -> bool {
+        self.0.iter().any(|n| n.as_ref() == s)
+    }
 }
 
 impl AsRef<[FieldName]> for FieldNames {
