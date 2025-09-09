@@ -132,13 +132,17 @@ impl LayoutStrategy for StructStrategy {
             .map(move |(dtype, recv)| {
                 let column_stream =
                     SequentialStreamAdapter::new(dtype, recv.into_stream().boxed()).sendable();
-                self.child.write_stream(
-                    ctx.clone(),
-                    segment_sink.clone(),
-                    column_stream,
-                    eof.advance().descend(),
-                    handle.clone(),
-                )
+                let child_eof = eof.split_off();
+                handle.spawn_nested(|h| {
+                    let child = self.child.clone();
+                    let ctx = ctx.clone();
+                    let segment_sink = segment_sink.clone();
+                    async move {
+                        child
+                            .write_stream(ctx, segment_sink, column_stream, child_eof, h)
+                            .await
+                    }
+                })
             })
             .collect();
 

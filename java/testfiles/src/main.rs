@@ -3,12 +3,9 @@
 
 #![allow(clippy::expect_used)]
 
-use std::io::Write;
 use std::path::Path;
 
-use futures::executor::block_on;
 use vortex::arrays::StructArray;
-use vortex::buffer::ByteBufferMut;
 use vortex::builders::{ArrayBuilder, DecimalBuilder, VarBinViewBuilder};
 use vortex::dtype::{DType, DecimalDType, Nullability};
 use vortex::file::VortexWriteOptions;
@@ -71,17 +68,14 @@ fn main() {
     )
     .expect("Could not create struct array");
 
-    let writer = VortexWriteOptions::default();
-    let written = writer.write_blocking(ByteBufferMut::empty(), rows.to_array_stream())
-        .expect("writing Vortex file")
-        .freeze();
-
     // Save to file
     let minimal_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vortex-jni/src/test/resources/minimal.vortex");
     let mut file = std::fs::File::create(&minimal_path).expect("opening Vortex file");
-    file.write_all(written.as_ref())
-        .expect("flushing Vortex file to disk");
+
+    let _footer = VortexWriteOptions::default()
+        .write_blocking(&mut file, rows.to_array_stream())
+        .expect("writing Vortex file");
 
     println!("Wrote Vortex file to {}", minimal_path.display());
 }

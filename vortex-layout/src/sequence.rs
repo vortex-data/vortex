@@ -125,7 +125,7 @@ impl SequenceId {
     /// onto the sequence ID essentially as a lock on future calls to [`SequenceId::collapse`]
     /// in order to perform ordered operations.
     pub async fn collapse(&mut self) {
-        WaitSequenceFuture(self).await
+        WaitSequenceFuture(self).await;
     }
 
     /// This is intentionally not pub. [SequencePointer::advance] is the only allowed way to create
@@ -152,12 +152,21 @@ impl Drop for SequenceId {
 ///
 /// SequencePointer is the only mechanism for creating new SequenceIds within
 /// a universe.
+#[derive(Debug)]
 pub struct SequencePointer(SequenceId);
 
 impl SequencePointer {
     /// Splits this pointer into two, where the second is strictly greater than the first.
     pub fn split(mut self) -> (SequencePointer, SequencePointer) {
-        (self.advance().descend(), self.advance().descend())
+        (self.split_off(), self)
+    }
+
+    /// Split off a pointer to appear before the current one.
+    ///
+    /// The current pointer is advanced to the next sibling, and we return a new pointer.
+    pub fn split_off(&mut self) -> SequencePointer {
+        // Advance ourselves to the next sibling, and return a new pointer to the previous one.
+        self.advance().descend()
     }
 
     /// Advances to the next sibling sequence and returns the current one.

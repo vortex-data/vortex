@@ -49,7 +49,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         let stream = stream! {
             let mut stream = stream;
             while let Some(chunk) = stream.next().await {
-                let chunk_eof = eof.advance().descend();
+                let chunk_eof = eof.split_off();
 
                 let chunk_strategy = chunk_strategy.clone();
                 let ctx = ctx.clone();

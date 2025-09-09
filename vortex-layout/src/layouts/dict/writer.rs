@@ -154,7 +154,7 @@ impl LayoutStrategy for DictStrategy {
                         ctx.clone(),
                         segment_sink.clone(),
                         SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
-                        eof.advance().descend(),
+                        eof.split_off(),
                         handle.clone(),
                     )
                     .await?;
@@ -165,7 +165,7 @@ impl LayoutStrategy for DictStrategy {
                         segment_sink.clone(),
                         SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
                             .sendable(),
-                        eof.advance().descend(),
+                        eof.split_off(),
                         handle.clone(),
                     )
                     .await?;
