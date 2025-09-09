@@ -3,10 +3,10 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
+use std::task::{Context, Poll, ready};
 
 use futures::{FutureExt, StreamExt};
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 
 use crate::file::{FileRead, IntoIoSource, IoRequestStream};
 use crate::kanal_ext::KanalExt;
@@ -51,6 +51,7 @@ impl Handle {
         }
     }
 
+    /// A helper function to avoid manually cloning the handle when spawning nested tasks.
     pub fn spawn_nested<F, Fut, R>(&self, f: F) -> Task<R>
     where
         F: FnOnce(Handle) -> Fut,

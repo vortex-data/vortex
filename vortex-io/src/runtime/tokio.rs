@@ -18,13 +18,11 @@ impl TokioRuntime {
 
     /// Return the current Tokio runtime handle wrapped in a Vortex handle.
     pub fn handle() -> Handle {
+        static CURRENT: LazyLock<Arc<CurrentTokioRuntime>> =
+            LazyLock::new(|| Arc::new(CurrentTokioRuntime));
         Handle::new(CURRENT.clone())
     }
 }
-
-/// A Tokio runtime that uses the current Tokio runtime handle.
-static CURRENT: LazyLock<Arc<CurrentTokioRuntime>> =
-    LazyLock::new(|| Arc::new(CurrentTokioRuntime));
 
 struct CurrentTokioRuntime;
 
@@ -68,11 +66,11 @@ impl AbortHandle for tokio::task::AbortHandle {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use futures::executor::block_on;
     use futures::FutureExt;
+    use futures::executor::block_on;
     use tokio::runtime::Runtime as TokioRt;
 
     use super::*;

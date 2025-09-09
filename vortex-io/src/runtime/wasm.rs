@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use futures::future::BoxFuture;
 use wasm_bindgen_futures::spawn_local;
@@ -12,8 +12,10 @@ use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 pub struct WasmRuntime;
 
 impl WasmRuntime {
-    pub fn handle() -> Handle<'static> {
-        Handle::new(Arc::new(WasmRuntime))
+    pub fn handle() -> Handle {
+        static RUNTIME: LazyLock<Arc<WasmRuntime>> = LazyLock::new(|| Arc::new(WasmRuntime));
+
+        Handle::new(RUNTIME.clone())
     }
 }
 

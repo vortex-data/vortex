@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
-use smol::{block_on, Executor};
+use smol::{Executor, block_on};
 
 use crate::runtime::Handle;
 
@@ -88,8 +88,8 @@ impl<T> Iterator for BlockingStream<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures::FutureExt;
 
