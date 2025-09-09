@@ -67,9 +67,7 @@ impl BitSink for AlignedBitSink {
             None
         } else {
             // Return direct mutable reference to the buffer slice
-            Some(unsafe {
-                &mut *(self.buffer[start..end].as_mut_ptr() as *mut [usize; N_WORDS])
-            })
+            Some(unsafe { &mut *(self.buffer[start..end].as_mut_ptr() as *mut [usize; N_WORDS]) })
         }
     }
 
