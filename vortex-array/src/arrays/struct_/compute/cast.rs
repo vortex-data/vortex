@@ -67,7 +67,7 @@ mod tests {
     }
 
     fn create_test_struct(nullable: bool) -> StructArray {
-        let names: FieldNames = vec!["a".into(), "b".into()].into();
+        let names = FieldNames::from(["a", "b"]);
 
         let a = buffer![1i32, 2, 3].into_array();
         let b = VarBinArray::from_iter(
@@ -91,7 +91,7 @@ mod tests {
 
     fn create_nested_struct() -> StructArray {
         // Create inner struct
-        let inner_names: FieldNames = vec!["x".into(), "y".into()].into();
+        let inner_names = FieldNames::from(["x", "y"]);
 
         let x = buffer![1.0f32, 2.0, 3.0].into_array();
         let y = buffer![4.0f32, 5.0, 6.0].into_array();
@@ -105,7 +105,7 @@ mod tests {
         .into_array();
 
         // Create outer struct with inner struct as a field
-        let outer_names: FieldNames = vec!["id".into(), "point".into()].into();
+        let outer_names: FieldNames = ["id", "point"].into();
         // Outer struct would have fields: id (I64) and point (inner struct)
 
         let ids = buffer![100i64, 200, 300].into_array();
@@ -120,7 +120,7 @@ mod tests {
     }
 
     fn create_simple_struct() -> StructArray {
-        let names: FieldNames = vec!["value".into()].into();
+        let names = FieldNames::from(["value"]);
         // Simple struct with a single U8 field
 
         let values = buffer![42u8].into_array();

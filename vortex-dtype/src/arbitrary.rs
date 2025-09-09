@@ -17,6 +17,13 @@ impl<'a> Arbitrary<'a> for DType {
     }
 }
 
+impl<'a> Arbitrary<'a> for FieldName {
+    fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
+        let i: Arc<str> = Arbitrary::arbitrary(u)?;
+        Ok(Self::from(i))
+    }
+}
+
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
     const BASE_TYPE_COUNT: i32 = 5;
     const CONTAINER_TYPE_COUNT: i32 = 3;

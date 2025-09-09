@@ -151,7 +151,7 @@ mod tests {
     #[test]
     pub fn pack_nested_structs() {
         let struct_array = StructArray::try_new(
-            vec!["a".into()].into(),
+            ["a"].into(),
             vec![VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"]).into_array()],
             4,
             Validity::NonNullable,

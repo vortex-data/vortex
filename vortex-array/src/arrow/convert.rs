@@ -1179,8 +1179,8 @@ mod tests {
         // Verify metadata - should be StructArray with correct field names
         let struct_vortex_array = vortex_array.as_::<StructVTable>();
         assert_eq!(struct_vortex_array.names().len(), 2);
-        assert_eq!(struct_vortex_array.names()[0], "field1".into());
-        assert_eq!(struct_vortex_array.names()[1], "field2".into());
+        assert_eq!(struct_vortex_array.names()[0], "field1");
+        assert_eq!(struct_vortex_array.names()[1], "field2");
 
         // Test nullable struct
         let nullable_array = StructArray::new(
@@ -1200,8 +1200,8 @@ mod tests {
         // Verify metadata for nullable struct
         let struct_vortex_nullable_array = vortex_nullable_array.as_::<StructVTable>();
         assert_eq!(struct_vortex_nullable_array.names().len(), 2);
-        assert_eq!(struct_vortex_nullable_array.names()[0], "field1".into());
-        assert_eq!(struct_vortex_nullable_array.names()[1], "field2".into());
+        assert_eq!(struct_vortex_nullable_array.names()[0], "field1");
+        assert_eq!(struct_vortex_nullable_array.names()[1], "field2");
     }
 
     // Test list array conversions

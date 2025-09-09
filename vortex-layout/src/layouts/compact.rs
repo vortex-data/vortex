@@ -191,6 +191,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
+    use vortex_dtype::FieldName;
 
     use super::*;
 
@@ -209,7 +210,8 @@ mod tests {
         .iter()
         .map(|a| a.clone().into_array())
         .collect::<Vec<_>>();
-        let field_names = vec!["f64_field".into(), "i32_field".into(), "u8_field".into()];
+        let field_names: Vec<FieldName> =
+            vec!["f64_field".into(), "i32_field".into(), "u8_field".into()];
 
         let n_rows = columns[0].len();
         let struct_array = StructArray::try_new(
@@ -230,7 +232,7 @@ mod tests {
 
         // Verify each field can be accessed and has correct data
         for (i, name) in decompressed_struct.names().iter().enumerate() {
-            assert_eq!(name, &field_names[i]);
+            assert_eq!(name, field_names[i]);
             let decompressed_array = decompressed_struct
                 .field_by_name(name)
                 .unwrap()
