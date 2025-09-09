@@ -5,7 +5,7 @@ use std::future;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{FutureExt, StreamExt as _};
+use futures::{ StreamExt as _};
 use parking_lot::Mutex;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::{ArrayContext, ArrayRef};
@@ -68,38 +68,41 @@ impl LayoutStrategy for ZonedStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        segment_sink: &dyn SegmentSink,
+        segment_sink: &Arc<dyn SegmentSink>,
         stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle,
+        handle: &Handle,
     ) -> VortexResult<LayoutRef> {
         let stats = self.options.stats.clone();
         let handle2 = handle.clone();
-        let precomputed_stream = SequentialStreamAdapter::new(
+
+        let stats_accumulator = Arc::new(Mutex::new(StatsAccumulator::new(
+            stream.dtype(),
+            &stats,
+            self.options.max_variable_length_statistics_size,
+        )));
+
+        // We can compute per-chunk statistics in parallel, so we spawn tasks for each chunk
+        let stream = SequentialStreamAdapter::new(
             stream.dtype().clone(),
             stream
                 .map(move |chunk| {
                     let stats = stats.clone();
-                    async move {
+                    handle2.spawn_cpu(move || {
                         let (sequence_id, chunk) = chunk?;
                         chunk.statistics().compute_all(&stats)?;
                         VortexResult::Ok((sequence_id, chunk))
-                    }
-                    .boxed()
+                    })
                 })
-                .map(move |stats_future| handle2.spawn(stats_future))
                 .buffered(self.options.concurrency),
         )
         .sendable();
 
-        let stats_accumulator = Arc::new(Mutex::new(StatsAccumulator::new(
-            precomputed_stream.dtype(),
-            &self.options.stats,
-            self.options.max_variable_length_statistics_size,
-        )));
+        // Now we accumulate the stats we computed above, this time we cannot spawn because we
+        // need to feed the accumulator an ordered stream.
         let stream = SequentialStreamAdapter::new(
-            precomputed_stream.dtype().clone(),
-            precomputed_stream.scan(stats_accumulator.clone(), |acc, item| {
+            stream.dtype().clone(),
+            stream.scan(stats_accumulator.clone(), |acc, item| {
                 future::ready(Some(accumulate_stats(acc, item)))
             }),
         )
@@ -109,11 +112,11 @@ impl LayoutStrategy for ZonedStrategy {
 
         // We create a new SequencePointer for the stats table so that we can write it just
         // before the end of the file.
-        let (stats_eof, eof) = eof.split();
+        let (eof, stats_eof) = eof.split();
 
         let data_layout = self
             .child
-            .write_stream(ctx, segment_sink, stream, eof, handle.clone())
+            .write_stream(ctx, segment_sink, stream, eof, handle)
             .await?;
 
         let Some(stats_table) = stats_accumulator.lock().as_stats_table() else {
@@ -146,6 +149,7 @@ fn accumulate_stats(
     item: VortexResult<(SequenceId, ArrayRef)>,
 ) -> VortexResult<(SequenceId, ArrayRef)> {
     let (sequence_id, chunk) = item?;
-    stats_accumulator.lock().push_chunk(&chunk)?;
+    // We have already computed per-chunk statistics, so avoid trying again for any that failed.
+    stats_accumulator.lock().push_chunk_without_compute(&chunk)?;
     Ok((sequence_id, chunk))
 }

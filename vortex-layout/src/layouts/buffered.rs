@@ -3,7 +3,6 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::{StreamExt as _, pin_mut};
@@ -37,10 +36,10 @@ impl LayoutStrategy for BufferedStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        segment_sink: &dyn SegmentSink,
+        segment_sink: &Arc<dyn SegmentSink>,
         stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle,
+        handle: &Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::serde::SerializeOptions;
@@ -39,10 +40,10 @@ impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        segment_sink: &dyn SegmentSink,
+        segment_sink: &Arc<dyn SegmentSink>,
         mut stream: SendableSequentialStream,
         _eof: SequencePointer,
-        _handle: Handle,
+        _handle: &Handle,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let options = self.clone();

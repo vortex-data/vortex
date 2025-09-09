@@ -9,12 +9,10 @@ use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
-
-use crate::segments::SequenceWriter;
-use crate::{
-    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt as _, TaskExecutor, TaskExecutorExt as _,
-};
+use vortex_io::runtime::Handle;
+use crate::{LayoutRef, LayoutStrategy};
+use crate::segments::{SegmentSink};
+use crate::sequence::{SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt};
 
 /// A boxed compressor function from arrays into compressed arrays.
 ///
@@ -59,7 +57,6 @@ impl CompressorPlugin for crate::layouts::compact::CompactCompressor {
 pub struct CompressingStrategy {
     child: Arc<dyn LayoutStrategy>,
     compressor: Arc<dyn CompressorPlugin>,
-    executor: Arc<dyn TaskExecutor>,
     parallelism: usize,
 }
 
@@ -72,7 +69,6 @@ impl CompressingStrategy {
     /// which is useful when compressing dictionary codes to avoid recursive dictionary encoding.
     pub fn new_btrblocks<S: LayoutStrategy>(
         child: S,
-        executor: Arc<dyn TaskExecutor>,
         parallelism: usize,
         exclude_int_dict_encoding: bool,
     ) -> Self {
@@ -81,7 +77,6 @@ impl CompressingStrategy {
             compressor: Arc::new(BtrBlocksCompressor {
                 exclude_int_dict_encoding,
             }),
-            executor,
             parallelism,
         }
     }
@@ -97,13 +92,11 @@ impl CompressingStrategy {
     pub fn new_compact<S: LayoutStrategy>(
         child: S,
         compressor: crate::layouts::compact::CompactCompressor,
-        executor: Arc<dyn TaskExecutor>,
         parallelism: usize,
     ) -> Self {
         Self {
             child: Arc::new(child),
             compressor: Arc::new(compressor),
-            executor,
             parallelism,
         }
     }
@@ -112,13 +105,11 @@ impl CompressingStrategy {
     pub fn new_opaque<S: LayoutStrategy, C: CompressorPlugin>(
         child: S,
         compressor: C,
-        executor: Arc<dyn TaskExecutor>,
         parallelism: usize,
     ) -> Self {
         Self {
             child: Arc::new(child),
             compressor: Arc::new(compressor),
-            executor,
             parallelism,
         }
     }
@@ -129,34 +120,35 @@ impl LayoutStrategy for CompressingStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
+        eof: SequencePointer,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let compressor = self.compressor.clone();
-        let executor = self.executor.clone();
 
         let stream = stream
             .map(move |chunk| {
                 let compressor = compressor.clone();
-                async move {
+                handle.spawn_cpu(move || {
                     let (sequence_id, chunk) = chunk?;
                     // Compute the stats for the chunk prior to compression
                     chunk
                         .statistics()
                         .compute_all(&Stat::all().collect::<Vec<_>>())?;
                     Ok((sequence_id, compressor.compress_chunk(&chunk)?))
-                }
-                .boxed()
+                })
             })
-            .map(move |compress_future| executor.spawn(compress_future))
             .buffered(self.parallelism);
 
         self.child
             .write_stream(
                 ctx,
-                sequence_writer,
+                segment_sink,
                 SequentialStreamAdapter::new(dtype, stream).sendable(),
+                eof,
+                handle,
             )
             .await
     }

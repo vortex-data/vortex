@@ -39,10 +39,10 @@ impl LayoutStrategy for StructStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        segment_sink: &dyn SegmentSink,
+        segment_sink: &Arc<dyn SegmentSink>,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: Handle,
+        handle: &Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct_fields_opt().cloned() else {
@@ -138,7 +138,7 @@ impl LayoutStrategy for StructStrategy {
                         segment_sink,
                         column_stream,
                         eof.advance().descend(),
-                        handle.clone(),
+                        handle,
                     )
             })
             .collect();

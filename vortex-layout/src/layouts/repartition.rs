@@ -50,10 +50,10 @@ impl LayoutStrategy for RepartitionStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        segment_sink: &dyn SegmentSink,
+        segment_sink: &Arc<dyn SegmentSink>,
         stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle,
+        handle: &Handle,
     ) -> VortexResult<LayoutRef> {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)

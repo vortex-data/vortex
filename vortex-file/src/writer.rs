@@ -8,7 +8,7 @@ use futures::future::ready;
 use futures::{Stream, StreamExt, TryStreamExt, pin_mut};
 use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
-use vortex_array::stream::ArrayStream;
+use vortex_array::stream::{ArrayStream, ArrayStreamExt, SendableArrayStream};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
@@ -113,7 +113,7 @@ impl VortexWriteOptions {
         stream: S,
     ) -> VortexResult<W> {
         vortex_io::runtime::single::SingleThreadRuntime::block_on(|handle| {
-            self.write(write, stream, handle)
+            self.write(write, ArrayStreamExt::boxed(stream), handle)
         })
     }
 
@@ -122,9 +122,9 @@ impl VortexWriteOptions {
         self,
         mut write: W,
         stream: S,
-        handle: Handle<'_>,
+        handle: Handle,
     ) -> VortexResult<W> {
-        let stream = self.write_stream(stream, handle);
+        let stream = self.write_stream(ArrayStreamExt::boxed(stream), handle);
         pin_mut!(stream);
 
         while let Some(buffer) = stream.next().await {
@@ -134,11 +134,13 @@ impl VortexWriteOptions {
         Ok(write)
     }
 
-    pub fn write_stream<'rt, S: ArrayStream + Unpin + Send + 'rt>(
+    /// Write an [`ArrayStream`] as a Vortex file by returning a stream of [`ByteBuffer`] that
+    /// should be written contiguously.
+    pub fn write_stream(
         self,
-        stream: S,
-        handle: Handle<'rt>,
-    ) -> impl Stream<Item = VortexResult<ByteBuffer>> + 'rt {
+        stream: SendableArrayStream,
+        handle: Handle,
+    ) -> impl Stream<Item = VortexResult<ByteBuffer>> {
         // Set up a Context to capture the encodings used in the file.
         let ctx = ArrayContext::empty();
 

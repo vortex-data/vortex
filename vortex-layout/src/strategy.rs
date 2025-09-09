@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use async_trait::async_trait;
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
@@ -37,10 +38,10 @@ pub trait LayoutStrategy: Send + Sync {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        segment_sink: &dyn SegmentSink,
+        segment_sink: &Arc<dyn SegmentSink>,
         stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle,
+        handle: &Handle,
     ) -> VortexResult<LayoutRef>;
 }
 // [layout writer]

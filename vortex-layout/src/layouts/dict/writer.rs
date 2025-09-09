@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 
 use async_stream::try_stream;
@@ -81,10 +82,10 @@ impl LayoutStrategy for DictStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        segment_sink: &dyn SegmentSink,
+        segment_sink: &Arc<dyn SegmentSink>,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: Handle,
+        handle: &Handle,
     ) -> VortexResult<LayoutRef> {
         if !dict_layout_supported(stream.dtype()) {
             return self
@@ -154,7 +155,7 @@ impl LayoutStrategy for DictStrategy {
                         segment_sink,
                         SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
                         eof.advance().descend(),
-                        handle.clone(),
+                        handle,
                     )
                     .await?;
                 let values_layout = self
@@ -165,7 +166,7 @@ impl LayoutStrategy for DictStrategy {
                         SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
                             .sendable(),
                         eof.advance().descend(),
-                        handle.clone(),
+                        handle,
                     )
                     .await?;
                 children.push(DictLayout::new(values_layout, codes_layout).into_layout());
