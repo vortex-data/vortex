@@ -8,8 +8,8 @@ use vortex_mask::Mask;
 
 use crate::arrays::PrimitiveArray;
 use crate::pipeline::bits::{
-    AlignedBitSink, BitAlignedChunkedIterator, BitSink, BitView, BitViewMut, EmptyBitSink,
-    MaskSliceIterator, TrueSliceIterator, UnalignedBitSink,
+    AlignedBitSink, AlignedChunkedIterator, BitSink, BitView, BitViewMut, EmptyBitSink,
+    MaskSliceIterator, TrueSliceIterator, UnalignedBitSink, UnalignedChunkedIterator, is_aligned,
 };
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext, N};
@@ -29,13 +29,27 @@ pub(super) fn export_primitive(
                 pipeline,
             )
         }),
-        (Nullability::NonNullable, false) => match_each_native_ptype!(ptype, |T| {
-            export_primitive_impl::<T, _, _>(
-                BitAlignedChunkedIterator::new(&mask.to_boolean_buffer(), mask.true_count()),
-                EmptyBitSink,
-                pipeline,
-            )
-        }),
+        (Nullability::NonNullable, false) => {
+            let buffer = mask.to_boolean_buffer();
+            let true_count = mask.true_count();
+            if is_aligned(&buffer) {
+                match_each_native_ptype!(ptype, |T| {
+                    export_primitive_impl::<T, _, _>(
+                        AlignedChunkedIterator::new(&buffer, true_count),
+                        EmptyBitSink,
+                        pipeline,
+                    )
+                })
+            } else {
+                match_each_native_ptype!(ptype, |T| {
+                    export_primitive_impl::<T, _, _>(
+                        UnalignedChunkedIterator::new(&buffer, true_count),
+                        EmptyBitSink,
+                        pipeline,
+                    )
+                })
+            }
+        },
         (Nullability::Nullable, true) => match_each_native_ptype!(ptype, |T| {
             export_primitive_impl::<T, _, _>(
                 TrueSliceIterator::new(mask.len()),
@@ -44,13 +58,27 @@ pub(super) fn export_primitive(
             )
         }),
 
-        (Nullability::Nullable, false) => match_each_native_ptype!(ptype, |T| {
-            export_primitive_impl::<T, _, _>(
-                BitAlignedChunkedIterator::new(&mask.to_boolean_buffer(), mask.true_count()),
-                UnalignedBitSink::new(mask.true_count()),
-                pipeline,
-            )
-        }),
+        (Nullability::Nullable, false) => {
+            let buffer = mask.to_boolean_buffer();
+            let true_count = mask.true_count();
+            if is_aligned(&buffer) {
+                match_each_native_ptype!(ptype, |T| {
+                    export_primitive_impl::<T, _, _>(
+                        AlignedChunkedIterator::new(&buffer, true_count),
+                        UnalignedBitSink::new(true_count),
+                        pipeline,
+                    )
+                })
+            } else {
+                match_each_native_ptype!(ptype, |T| {
+                    export_primitive_impl::<T, _, _>(
+                        UnalignedChunkedIterator::new(&buffer, true_count),
+                        UnalignedBitSink::new(true_count),
+                        pipeline,
+                    )
+                })
+            }
+        },
     }
 }
 
@@ -114,7 +142,7 @@ mod tests {
 
     use super::*;
     use crate::canonical::ToCanonical;
-    use crate::pipeline::bits::{BitAlignedChunkedIterator, TrueSliceIterator};
+    use crate::pipeline::bits::{AlignedChunkedIterator, UnalignedChunkedIterator, TrueSliceIterator};
     use crate::vtable::ValidityHelper;
 
     struct StepCountingKernel {
@@ -320,8 +348,9 @@ mod tests {
         let (mut kernel, step_counter) = StepCountingKernel::new();
 
         let boolean_buffer = mask.to_boolean_buffer();
+        // Use AlignedChunkedIterator explicitly - BooleanBuffer::from(vec) should be aligned
         let result = export_primitive_impl::<u32, _, _>(
-            BitAlignedChunkedIterator::new(&boolean_buffer, mask.true_count()),
+            AlignedChunkedIterator::new(&boolean_buffer, mask.true_count()),
             EmptyBitSink,
             &mut kernel,
         );
@@ -411,8 +440,9 @@ mod tests {
             let (mut kernel, _step_counter, true_counter) = TrueCountTrackingKernel::new();
 
             let boolean_buffer = mask.to_boolean_buffer();
+            // Use AlignedChunkedIterator explicitly - BooleanBuffer::new_set and from(vec) should be aligned
             let result = export_primitive_impl::<u32, _, _>(
-                BitAlignedChunkedIterator::new(&boolean_buffer, mask.true_count()),
+                AlignedChunkedIterator::new(&boolean_buffer, mask.true_count()),
                 EmptyBitSink,
                 &mut kernel,
             );
@@ -516,10 +546,11 @@ mod tests {
         let expected_true_count = mask.true_count(); // Should be 1024 (half)
 
         let boolean_buffer = mask.to_boolean_buffer();
-        let mask_iter = BitAlignedChunkedIterator::new(&boolean_buffer, mask.true_count());
         let unaligned_sink = UnalignedBitSink::new(expected_true_count);
         let (mut kernel, _step_counter, true_counter) = SimpleTrackingKernel::new();
 
+        // Use AlignedChunkedIterator explicitly - BooleanBuffer::from(vec) should be aligned
+        let mask_iter = AlignedChunkedIterator::new(&boolean_buffer, mask.true_count());
         let result = export_primitive_impl::<u32, _, _>(mask_iter, unaligned_sink, &mut kernel);
         assert!(
             result.is_ok(),
@@ -575,10 +606,11 @@ mod tests {
         let mask = Mask::from_buffer(buffer);
 
         let boolean_buffer = mask.to_boolean_buffer();
-        let mask_iter = BitAlignedChunkedIterator::new(&boolean_buffer, mask.true_count());
         let aligned_sink = AlignedBitSink::new(total_bits);
         let (mut kernel, _step_counter, true_counter) = SimpleTrackingKernel::new();
 
+        // Use AlignedChunkedIterator explicitly - BooleanBuffer::from(vec![true; N]) should be aligned
+        let mask_iter = AlignedChunkedIterator::new(&boolean_buffer, mask.true_count());
         let result = export_primitive_impl::<u32, _, _>(mask_iter, aligned_sink, &mut kernel);
         assert!(
             result.is_ok(),
@@ -642,5 +674,44 @@ mod tests {
             }
             _ => panic!("Expected NonNullable validity for EmptyBitSink, but got validity array"),
         }
+    }
+
+    #[test]
+    fn test_export_primitive_with_unaligned_iterator_explicitly() {
+        // Test with an explicitly unaligned buffer to exercise UnalignedChunkedIterator
+        let total_bits = 1024;
+        
+        // Create a mask with alternating pattern
+        let mut mask_data = vec![];
+        for i in 0..total_bits {
+            mask_data.push(i % 2 == 0);
+        }
+        let buffer = BooleanBuffer::from(mask_data);
+        
+        // Create an unaligned buffer by slicing with a bit offset
+        let unaligned_buffer = BooleanBuffer::new(buffer.into_inner(), 3, total_bits - 3); // 3-bit offset
+        let mask = Mask::from_buffer(unaligned_buffer.clone());
+        
+        let (mut kernel, step_counter) = StepCountingKernel::new();
+        
+        // Use UnalignedChunkedIterator explicitly - the 3-bit offset makes this unaligned
+        let result = export_primitive_impl::<u32, _, _>(
+            UnalignedChunkedIterator::new(&unaligned_buffer, mask.true_count()),
+            EmptyBitSink,
+            &mut kernel,
+        );
+        
+        assert!(
+            result.is_ok(),
+            "export_primitive_impl with UnalignedChunkedIterator should not fail"
+        );
+        
+        // Verify step count - should be 1 for less than N bits after offset
+        let actual_steps = *step_counter.borrow();
+        assert_eq!(actual_steps, 1, "Should have exactly 1 step for {} bits", total_bits - 3);
+        
+        // Verify the result array length matches the true count in the mask
+        let result_array = result.unwrap();
+        assert_eq!(result_array.len(), mask.true_count());
     }
 }

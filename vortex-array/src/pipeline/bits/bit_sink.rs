@@ -5,20 +5,7 @@ use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::pipeline::{N, N_WORDS};
-
-/// Trait for writing bits in chunks of N (1024) bits at a time
-pub trait BitSink {
-    /// Get a mutable slice for writing the next chunk of N bits
-    /// Returns a mutable reference to N_WORDS (16) usize values
-    fn next_chunk(&mut self) -> Option<&mut [usize; N_WORDS]>;
-
-    /// Commit exactly n bits from the current chunk (where n <= N)
-    /// This finalizes the current chunk and prepares for the next one
-    fn commit_n(&mut self, n: usize) -> VortexResult<()>;
-
-    /// Finish writing and return the final BooleanBuffer
-    fn finish(self) -> VortexResult<Option<BooleanBuffer>>;
-}
+use super::BitSink;
 
 #[derive(Default)]
 pub struct EmptyBitSink;

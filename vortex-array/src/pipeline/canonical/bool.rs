@@ -8,8 +8,8 @@ use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
 use crate::pipeline::bits::{
-    AlignedBitSink, BitAlignedChunkedIterator, BitSink, BitView, BitViewMut, EmptyBitSink,
-    MaskSliceIterator, TrueSliceIterator, UnalignedBitSink,
+    AlignedBitSink, AlignedChunkedIterator, BitSink, BitView, BitViewMut, EmptyBitSink,
+    MaskSliceIterator, TrueSliceIterator, UnalignedBitSink, UnalignedChunkedIterator, is_aligned,
 };
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext, N};
@@ -26,21 +26,45 @@ pub(super) fn export_bool(
             EmptyBitSink,
             pipeline,
         ),
-        (Nullability::NonNullable, false) => export_bool_nonnull_masked::<_, _>(
-            BitAlignedChunkedIterator::new(&mask.to_boolean_buffer(), mask.true_count()),
-            EmptyBitSink,
-            pipeline,
-        ),
+        (Nullability::NonNullable, false) => {
+            let buffer = mask.to_boolean_buffer();
+            let true_count = mask.true_count();
+            if is_aligned(&buffer) {
+                export_bool_nonnull_masked::<_, _>(
+                    AlignedChunkedIterator::new(&buffer, true_count),
+                    EmptyBitSink,
+                    pipeline,
+                )
+            } else {
+                export_bool_nonnull_masked::<_, _>(
+                    UnalignedChunkedIterator::new(&buffer, true_count),
+                    EmptyBitSink,
+                    pipeline,
+                )
+            }
+        },
         (Nullability::Nullable, true) => export_bool_nonnull_masked::<_, _>(
             TrueSliceIterator::new(mask.len()),
             AlignedBitSink::new(mask.true_count()),
             pipeline,
         ),
-        (Nullability::Nullable, false) => export_bool_nonnull_masked::<_, _>(
-            BitAlignedChunkedIterator::new(&mask.to_boolean_buffer(), mask.true_count()),
-            UnalignedBitSink::new(mask.true_count()),
-            pipeline,
-        ),
+        (Nullability::Nullable, false) => {
+            let buffer = mask.to_boolean_buffer();
+            let true_count = mask.true_count();
+            if is_aligned(&buffer) {
+                export_bool_nonnull_masked::<_, _>(
+                    AlignedChunkedIterator::new(&buffer, true_count),
+                    UnalignedBitSink::new(true_count),
+                    pipeline,
+                )
+            } else {
+                export_bool_nonnull_masked::<_, _>(
+                    UnalignedChunkedIterator::new(&buffer, true_count),
+                    UnalignedBitSink::new(true_count),
+                    pipeline,
+                )
+            }
+        },
     }
 }
 
