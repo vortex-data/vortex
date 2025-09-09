@@ -34,13 +34,13 @@ pub trait LayoutStrategy: Send + Sync {
     ///
     /// Consider accepting a [`TaskExecutor`][crate::TaskExecutor] as an input to your strategy
     /// to support spawning this work in the background.
-    async fn write_stream<'a>(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream<'a>,
+        stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle<'a>,
+        handle: Handle,
     ) -> VortexResult<LayoutRef>;
 }
 // [layout writer]

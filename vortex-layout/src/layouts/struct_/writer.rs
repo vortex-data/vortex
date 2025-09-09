@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use futures::{FutureExt, StreamExt, TryStreamExt, pin_mut};
+use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::{Array, ArrayContext, ToCanonical};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail};
@@ -40,13 +40,13 @@ impl<S> LayoutStrategy for StructStrategy<S>
 where
     S: LayoutStrategy,
 {
-    async fn write_stream<'a>(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream<'a>,
+        stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: Handle<'a>,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct_fields_opt().cloned() else {
@@ -144,7 +144,6 @@ where
                         eof.advance().descend(),
                         handle.clone(),
                     )
-                    .boxed()
             })
             .collect();
 

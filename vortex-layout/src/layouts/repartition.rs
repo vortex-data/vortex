@@ -49,13 +49,13 @@ impl<S> LayoutStrategy for RepartitionStrategy<S>
 where
     S: LayoutStrategy,
 {
-    async fn write_stream<'a>(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream<'a>,
+        stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle<'a>,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)

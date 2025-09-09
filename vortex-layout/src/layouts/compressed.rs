@@ -115,13 +115,13 @@ impl<S> LayoutStrategy for CompressingStrategy<S>
 where
     S: LayoutStrategy,
 {
-    async fn write_stream<'a>(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream<'a>,
+        stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle<'a>,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let compressor = self.compressor.clone();

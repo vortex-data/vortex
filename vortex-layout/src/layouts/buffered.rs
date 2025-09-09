@@ -33,13 +33,13 @@ impl<S> LayoutStrategy for BufferedStrategy<S>
 where
     S: LayoutStrategy,
 {
-    async fn write_stream<'a>(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream<'a>,
+        stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle<'a>,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;

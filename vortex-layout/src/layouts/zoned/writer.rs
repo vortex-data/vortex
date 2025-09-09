@@ -69,13 +69,13 @@ where
     Child: LayoutStrategy,
     Stats: LayoutStrategy,
 {
-    async fn write_stream<'a>(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream<'a>,
+        stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle<'a>,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let stats = self.options.stats.clone();
         let handle2 = handle.clone();

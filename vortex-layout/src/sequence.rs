@@ -241,9 +241,9 @@ pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> 
     fn dtype(&self) -> &DType;
 }
 
-pub type SendableSequentialStream<'rt> = Pin<Box<dyn SequentialStream + Send + 'rt>>;
+pub type SendableSequentialStream = Pin<Box<dyn SequentialStream + Send>>;
 
-impl<'rt> SequentialStream for SendableSequentialStream<'rt> {
+impl SequentialStream for SendableSequentialStream {
     fn dtype(&self) -> &DType {
         (**self).dtype()
     }
@@ -251,9 +251,9 @@ impl<'rt> SequentialStream for SendableSequentialStream<'rt> {
 
 pub trait SequentialStreamExt: SequentialStream {
     // not named boxed to prevent clashing with StreamExt
-    fn sendable<'a>(self) -> SendableSequentialStream<'a>
+    fn sendable(self) -> SendableSequentialStream
     where
-        Self: Sized + Send + 'a,
+        Self: Sized + Send + 'static,
     {
         Box::pin(self)
     }
@@ -313,9 +313,9 @@ where
 
 pub trait SequentialArrayStreamExt: ArrayStream {
     /// Converts the stream to a [`SendableSequentialStream`].
-    fn sequenced<'a>(self, mut pointer: SequencePointer) -> SendableSequentialStream<'a>
+    fn sequenced(self, mut pointer: SequencePointer) -> SendableSequentialStream
     where
-        Self: Sized + Send + 'a,
+        Self: Sized + Send + 'static,
     {
         Box::pin(SequentialStreamAdapter::new(
             self.dtype().clone(),

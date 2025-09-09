@@ -88,13 +88,13 @@ where
     Values: LayoutStrategy,
     Fallback: LayoutStrategy,
 {
-    async fn write_stream<'a>(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream<'a>,
+        stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: Handle<'a>,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         if !dict_layout_supported(stream.dtype()) {
             return self
@@ -205,7 +205,7 @@ enum DictionaryChunk {
     Values((SequenceId, ArrayRef)),
 }
 
-type DictionaryStream<'a> = BoxStream<'a, VortexResult<DictionaryChunk>>;
+type DictionaryStream = BoxStream<'static, VortexResult<DictionaryChunk>>;
 
 fn dict_encode_stream(
     input: SendableSequentialStream,
@@ -330,12 +330,12 @@ impl DictChunkLabeler {
 
 type SequencedChunk = VortexResult<(SequenceId, ArrayRef)>;
 
-struct DictEncodedRuns<'rt> {
-    input: Option<oneshot::Receiver<Option<DictionaryStream<'rt>>>>,
+struct DictEncodedRuns {
+    input: Option<oneshot::Receiver<Option<DictionaryStream>>>,
 }
 
-impl<'a> DictEncodedRuns<'a> {
-    fn new(input: DictionaryStream<'a>) -> Self {
+impl DictEncodedRuns {
+    fn new(input: DictionaryStream) -> Self {
         let (tx, rx) = oneshot::channel();
         tx.send(Some(input))
             .map_err(|_input| vortex_err!("just created rx"))
@@ -346,8 +346,8 @@ impl<'a> DictEncodedRuns<'a> {
     async fn next_run(
         &mut self,
     ) -> Option<(
-        DictEncodedRunStream<'a>,
-        impl Future<Output = SequencedChunk> + 'a,
+        DictEncodedRunStream,
+        impl Future<Output = SequencedChunk> + 'static,
     )> {
         // get input to send to the run stream.
         let Ok(Some(input)) = self.input.take()?.await else {
@@ -374,13 +374,13 @@ impl<'a> DictEncodedRuns<'a> {
     }
 }
 
-struct DictEncodedRunStream<'a> {
-    input: Option<DictionaryStream<'a>>,
-    input_tx: Option<oneshot::Sender<Option<DictionaryStream<'a>>>>,
+struct DictEncodedRunStream {
+    input: Option<DictionaryStream>,
+    input_tx: Option<oneshot::Sender<Option<DictionaryStream>>>,
     values_tx: Option<oneshot::Sender<SequencedChunk>>,
 }
 
-impl Stream for DictEncodedRunStream<'_> {
+impl Stream for DictEncodedRunStream {
     type Item = SequencedChunk;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -407,7 +407,7 @@ impl Stream for DictEncodedRunStream<'_> {
     }
 }
 
-impl DictEncodedRunStream<'_> {
+impl DictEncodedRunStream {
     fn send_values(&mut self, item: (SequenceId, ArrayRef)) {
         // ignore receiver drops
         let _ = self
@@ -427,7 +427,7 @@ impl DictEncodedRunStream<'_> {
     }
 }
 
-impl Drop for DictEncodedRunStream<'_> {
+impl Drop for DictEncodedRunStream {
     fn drop(&mut self) {
         if let Some(tx) = self.input_tx.take() {
             let _ = tx.send(self.input.take());
@@ -435,9 +435,9 @@ impl Drop for DictEncodedRunStream<'_> {
     }
 }
 
-async fn peek_first_chunk<'a>(
-    mut stream: BoxStream<'a, SequencedChunk>,
-) -> VortexResult<(BoxStream<'a, SequencedChunk>, Option<ArrayRef>)> {
+async fn peek_first_chunk(
+    mut stream: BoxStream<'static, SequencedChunk>,
+) -> VortexResult<(BoxStream<'static, SequencedChunk>, Option<ArrayRef>)> {
     match stream.next().await {
         None => Ok((stream.boxed(), None)),
         Some(Err(e)) => Err(e),

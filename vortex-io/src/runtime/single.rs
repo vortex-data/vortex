@@ -12,6 +12,7 @@ use smol::{LocalExecutor, block_on};
 use vortex_error::vortex_panic;
 
 use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
+use crate::runtime::smol::SmolAbortHandle;
 
 /// A runtime that drives all work on the current thread.
 ///
@@ -39,7 +40,8 @@ impl SingleThreadRuntime {
             .spawn(async move {
                 while let Ok(spawn) = scheduling_recv.as_async().recv().await {
                     if let Some(local) = weak_local2.upgrade() {
-                        *spawn.task.lock() = Some(local.spawn(spawn.future));
+                        // Ignore send errors since it means the caller immediately detached.
+                        let _ = spawn.task_callback.send(SmolAbortHandle::new_handle(local.spawn(spawn.future)));
                     }
                 }
             })
@@ -52,7 +54,8 @@ impl SingleThreadRuntime {
                 while let Ok(spawn) = cpu_recv.as_async().recv().await {
                     if let Some(local) = weak_local2.upgrade() {
                         let cpu = spawn.cpu;
-                        *spawn.task.lock() = Some(local.spawn(async move { cpu() }));
+                        // Ignore send errors since it means the caller immediately detached.
+                        let _ = spawn.task_callback.send(SmolAbortHandle::new_handle(local.spawn(async move { cpu() })));
                     }
                 }
             })
@@ -111,25 +114,25 @@ impl SingleThreadRuntime {
 /// calling thread.
 impl Runtime for SingleThreadRuntime {
     fn spawn(&self, future: BoxFuture<'static, ()>) -> AbortHandleRef {
-        let task = Arc::new(Mutex::new(None));
+        let (send, recv) = oneshot::channel();
         if let Err(e) = self.scheduling.send(SpawnFuture {
             future,
-            task: task.clone(),
+            task_callback: send,
         }) {
             vortex_panic!("Executor missing: {}", e);
         }
-        Box::new(SmolAbortHandle { task })
+        Box::new(LazyAbortHandle { task: Mutex::new(recv) })
     }
 
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        let task = Arc::new(Mutex::new(None));
+        let (send, recv) = oneshot::channel();
         if let Err(e) = self.cpu.send(SpawnCpu {
             cpu,
-            task: task.clone(),
+            task_callback: send,
         }) {
             vortex_panic!("Executor missing: {}", e);
         }
-        Box::new(SmolAbortHandle { task })
+        Box::new(LazyAbortHandle { task: Mutex::new(recv) })
     }
 
     fn spawn_io(&self, task: IoTask) {
@@ -139,36 +142,36 @@ impl Runtime for SingleThreadRuntime {
     }
 }
 
-// A spawn request for a future.
+/// A spawn request for a future.
+///
+/// We pass back the abort handle via oneshot channel because this is a single-threaded runtime,
+/// meaning we need the spawning channel consumer to do some work before the caller can actually
+/// get ahold of their task handle.
+///
+/// The reason we don't pass back a smol::Task, and instead pass back a SmolAbortHandle, is because
+/// we invert the behaviour of abort and drop. Dropping the abort handle results in the task being
+/// detached, whereas dropping the smol::Task results in the task being canceled. This helps avoid
+/// a race where the caller detaches the LazyAbortHandle before the smol::Task has been launched.
 struct SpawnFuture<'rt> {
     future: BoxFuture<'rt, ()>,
-    task: Arc<Mutex<Option<smol::Task<()>>>>,
+    task_callback: oneshot::Sender<AbortHandleRef>,
 }
 
 // A spawn request for a CPU job.
 struct SpawnCpu<'rt> {
     cpu: Box<dyn FnOnce() + Send + 'rt>,
-    task: Arc<Mutex<Option<smol::Task<()>>>>,
+    task_callback: oneshot::Sender<AbortHandleRef>,
 }
 
-struct SmolAbortHandle {
-    task: Arc<Mutex<Option<smol::Task<()>>>>,
+struct LazyAbortHandle {
+    task: Mutex<oneshot::Receiver<AbortHandleRef>>
 }
 
-impl AbortHandle for SmolAbortHandle {
+impl AbortHandle for LazyAbortHandle {
     fn abort(self: Box<Self>) {
         // Aborting a smol::Task is done by dropping it.
-        if let Some(task) = self.task.lock().take() {
-            drop(task);
-        }
-    }
-}
-
-impl Drop for SmolAbortHandle {
-    fn drop(&mut self) {
-        // We prevent the task from being canceled by detaching it.
-        if let Some(task) = self.task.lock().take() {
-            task.detach();
+        if let Some(task) = self.task.lock().try_recv().ok() {
+            task.abort()
         }
     }
 }

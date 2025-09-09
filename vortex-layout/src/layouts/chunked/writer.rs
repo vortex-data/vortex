@@ -36,13 +36,13 @@ impl<S> LayoutStrategy for ChunkedLayoutStrategy<S>
 where
     S: LayoutStrategy,
 {
-    async fn write_stream<'a>(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        mut stream: SendableSequentialStream<'a>,
+        mut stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: Handle<'a>,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let mut child_layouts = Vec::new();
         let mut row_count = 0;
