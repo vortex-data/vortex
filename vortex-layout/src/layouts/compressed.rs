@@ -4,18 +4,17 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::StreamExt as _;
+use futures::{FutureExt as _, StreamExt as _};
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
-use vortex_io::runtime::Handle;
 
-use crate::segments::SegmentSink;
-use crate::sequence::{
-    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt as _,
+use crate::segments::SequenceWriter;
+use crate::{
+    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt as _, TaskExecutor, TaskExecutorExt as _,
 };
-use crate::{LayoutRef, LayoutStrategy};
 
 /// A boxed compressor function from arrays into compressed arrays.
 ///
@@ -57,26 +56,33 @@ impl CompressorPlugin for crate::layouts::compact::CompactCompressor {
 
 /// A layout writer that compresses chunks.
 #[derive(Clone)]
-pub struct CompressingStrategy<S> {
-    child: S,
+pub struct CompressingStrategy {
+    child: Arc<dyn LayoutStrategy>,
     compressor: Arc<dyn CompressorPlugin>,
-    concurrency: usize,
+    executor: Arc<dyn TaskExecutor>,
+    parallelism: usize,
 }
 
-impl<S: LayoutStrategy> CompressingStrategy<S> {
+impl CompressingStrategy {
     /// Create a new writer that uses the BtrBlocks-style cascading compressor to compress chunks.
     ///
     /// This provides a good balance between decoding speed and small file size.
     ///
     /// Set `exclude_int_dict_encoding` to true to prevent dictionary encoding of integer arrays,
     /// which is useful when compressing dictionary codes to avoid recursive dictionary encoding.
-    pub fn new_btrblocks(child: S, concurrency: usize, exclude_int_dict_encoding: bool) -> Self {
+    pub fn new_btrblocks<S: LayoutStrategy>(
+        child: S,
+        executor: Arc<dyn TaskExecutor>,
+        parallelism: usize,
+        exclude_int_dict_encoding: bool,
+    ) -> Self {
         Self {
-            child,
+            child: Arc::new(child),
             compressor: Arc::new(BtrBlocksCompressor {
                 exclude_int_dict_encoding,
             }),
-            concurrency,
+            executor,
+            parallelism,
         }
     }
 
@@ -88,69 +94,69 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
     ///
     /// [`CompactCompressor`]: crate::layouts::compact::CompactCompressor
     #[cfg(feature = "zstd")]
-    pub fn new_compact(
+    pub fn new_compact<S: LayoutStrategy>(
         child: S,
         compressor: crate::layouts::compact::CompactCompressor,
-        concurrency: usize,
+        executor: Arc<dyn TaskExecutor>,
+        parallelism: usize,
     ) -> Self {
         Self {
-            child,
+            child: Arc::new(child),
             compressor: Arc::new(compressor),
-            concurrency,
+            executor,
+            parallelism,
         }
     }
 
     /// Create a new compressor from a plugin interface.
-    pub fn new_opaque<C: CompressorPlugin>(child: S, compressor: C, concurrency: usize) -> Self {
+    pub fn new_opaque<S: LayoutStrategy, C: CompressorPlugin>(
+        child: S,
+        compressor: C,
+        executor: Arc<dyn TaskExecutor>,
+        parallelism: usize,
+    ) -> Self {
         Self {
-            child,
+            child: Arc::new(child),
             compressor: Arc::new(compressor),
-            concurrency,
+            executor,
+            parallelism,
         }
     }
 }
 
 #[async_trait]
-impl<S> LayoutStrategy for CompressingStrategy<S>
-where
-    S: LayoutStrategy,
-{
+impl LayoutStrategy for CompressingStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        segment_sink: &dyn SegmentSink,
+        sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-        eof: SequencePointer,
-        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let compressor = self.compressor.clone();
+        let executor = self.executor.clone();
 
-        let handle2 = handle.clone();
         let stream = stream
             .map(move |chunk| {
                 let compressor = compressor.clone();
-                move || {
-                    {
-                        let (sequence_id, chunk) = chunk?;
-                        // Compute the stats for the chunk prior to compression
-                        chunk
-                            .statistics()
-                            .compute_all(&Stat::all().collect::<Vec<_>>())?;
-                        Ok((sequence_id, compressor.compress_chunk(&chunk)?))
-                    }
+                async move {
+                    let (sequence_id, chunk) = chunk?;
+                    // Compute the stats for the chunk prior to compression
+                    chunk
+                        .statistics()
+                        .compute_all(&Stat::all().collect::<Vec<_>>())?;
+                    Ok((sequence_id, compressor.compress_chunk(&chunk)?))
                 }
+                .boxed()
             })
-            .map(move |compress_future| handle2.spawn_cpu(compress_future))
-            .buffered(self.concurrency);
+            .map(move |compress_future| executor.spawn(compress_future))
+            .buffered(self.parallelism);
 
         self.child
             .write_stream(
                 ctx,
-                segment_sink,
+                sequence_writer,
                 SequentialStreamAdapter::new(dtype, stream).sendable(),
-                eof,
-                handle,
             )
             .await
     }

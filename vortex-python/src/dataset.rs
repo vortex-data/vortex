@@ -9,7 +9,7 @@ use itertools::Itertools;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyString;
-use vortex::dtype::FieldName;
+use vortex::dtype::{FieldName, FieldNames};
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, SelectExpr, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
@@ -179,7 +179,7 @@ impl PyVortexDataset {
         let mut scan = self_
             .vxf
             .scan()?
-            .with_projection(select(vec![], root()))
+            .with_projection(select(FieldNames::empty(), root()))
             .with_some_filter(filter_from_python(row_filter))
             .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
         if let Some((l, r)) = row_range {

@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
-use vortex::dtype::{DType, PType};
+use vortex::dtype::{DType, FieldNames, PType};
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, root, select};
 use vortex::file::segments::MokaSegmentCache;
@@ -193,7 +193,7 @@ impl<'py> FromPyObject<'py> for PyIntoProjection {
                 .map(|item| item.extract::<String>())
                 .collect::<PyResult<Vec<String>>>()?;
             return Ok(PyIntoProjection(select(
-                cols.into_iter().map(Arc::<str>::from).collect::<Vec<_>>(),
+                cols.into_iter().collect::<FieldNames>(),
                 root(),
             )));
         }

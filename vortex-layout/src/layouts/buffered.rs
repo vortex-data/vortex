@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
@@ -17,22 +18,22 @@ use crate::sequence::{
 use crate::{LayoutRef, LayoutStrategy};
 
 #[derive(Clone)]
-pub struct BufferedStrategy<S> {
-    child: S,
+pub struct BufferedStrategy {
+    child: Arc<dyn LayoutStrategy>,
     buffer_size: u64,
 }
 
-impl<S: LayoutStrategy> BufferedStrategy<S> {
-    pub fn new(child: S, buffer_size: u64) -> Self {
-        Self { child, buffer_size }
+impl BufferedStrategy {
+    pub fn new<S: LayoutStrategy>(child: S, buffer_size: u64) -> Self {
+        Self {
+            child: Arc::new(child),
+            buffer_size,
+        }
     }
 }
 
 #[async_trait]
-impl<S> LayoutStrategy for BufferedStrategy<S>
-where
-    S: LayoutStrategy,
-{
+impl LayoutStrategy for BufferedStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,

@@ -30,7 +30,7 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-    use vortex_dtype::{DType, ExtDType, ExtMetadata, PType, StructFields};
+    use vortex_dtype::{DType, ExtDType, ExtMetadata, FieldName, PType, StructFields};
 
     use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
@@ -108,7 +108,7 @@ mod tests {
         fn dtype() -> DType {
             DType::Struct(
                 StructFields::new(
-                    [Arc::from("foo")].into(),
+                    [FieldName::from("foo")].into(),
                     vec![DType::Primitive(PType::U32, Nullable)],
                 ),
                 Nullable,
@@ -141,7 +141,7 @@ mod tests {
         let f2 = DType::Primitive(PType::U32, Nullable);
         let dtype = DType::Struct(
             StructFields::new(
-                [Arc::from("foo"), Arc::from("bar")].into(),
+                [FieldName::from("foo"), FieldName::from("bar")].into(),
                 vec![f1.clone(), f2.clone()],
             ),
             Nullable,

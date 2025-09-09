@@ -102,7 +102,7 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
             .keys()
             .iter()
             .map(|key| key.extract::<String>())
-            .map_ok(Arc::from)
+            .map_ok(FieldName::from)
             .collect::<PyResult<Vec<FieldName>>>()?
             .into();
 

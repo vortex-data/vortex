@@ -222,7 +222,7 @@ fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            StructFields::new(vec!["strings".into()].into(), vec![strings_dtype]),
+            StructFields::new(["strings"].into(), vec![strings_dtype]),
             Nullability::NonNullable,
         )
     );
