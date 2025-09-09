@@ -12,7 +12,7 @@ use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_io::runtime::Handle;
 
-use crate::segments::SegmentSink;
+use crate::segments::SegmentSinkRef;
 use crate::sequence::{
     SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt,
 };
@@ -49,11 +49,11 @@ impl RepartitionStrategy {
 impl LayoutStrategy for RepartitionStrategy {
     async fn write_stream(
         &self,
-        ctx: &ArrayContext,
-        segment_sink: &Arc<dyn SegmentSink>,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: &Handle,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)

@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
 use async_trait::async_trait;
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
 use crate::LayoutRef;
-use crate::segments::SegmentSink;
+use crate::segments::SegmentSinkRef;
 use crate::sequence::{SendableSequentialStream, SequencePointer};
 
 // [layout writer]
 #[async_trait]
-pub trait LayoutStrategy: Send + Sync {
+pub trait LayoutStrategy: 'static + Send + Sync {
     /// Asynchronously process an ordered stream of array chunks, emitting them into a sink and
     /// returning the [`Layout`][crate::Layout] instance that can be parsed to retrieve the data
     /// from rest.
@@ -37,11 +36,11 @@ pub trait LayoutStrategy: Send + Sync {
     /// to support spawning this work in the background.
     async fn write_stream(
         &self,
-        ctx: &ArrayContext,
-        segment_sink: &Arc<dyn SegmentSink>,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: &Handle,
+        handle: Handle,
     ) -> VortexResult<LayoutRef>;
 }
 // [layout writer]

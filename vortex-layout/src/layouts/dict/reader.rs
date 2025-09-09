@@ -252,8 +252,8 @@ mod tests {
         let (ptr, eof) = SequenceId::root().split();
         let layout: LayoutRef = strategy
             .write_stream(
-                &ctx,
-                &segments,
+                ctx,
+                segments,
                 SequentialStreamAdapter::new(
                     DType::Utf8(Nullability::Nullable),
                     array_to_write.to_array_stream().sequenced(ptr),
@@ -339,8 +339,8 @@ mod tests {
         let (ptr, eof) = SequenceId::root().split();
         let layout: LayoutRef = strategy
             .write_stream(
-                &ctx,
-                &segments,
+                ctx,
+                segments,
                 SequentialStreamAdapter::new(
                     DType::Utf8(Nullability::Nullable),
                     array.to_array_stream().sequenced(ptr),

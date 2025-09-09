@@ -2,18 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-
+use async_stream::{stream};
 use async_trait::async_trait;
-use futures::{ StreamExt, TryStreamExt};
-use futures::stream::once;
-use vortex_array::{Array, ArrayContext};
-use vortex_error::{ VortexExpect, VortexResult};
+use futures::{stream,  StreamExt, TryStreamExt};
+use vortex_array::{ArrayContext};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_io::runtime::Handle;
 
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::segments::SegmentSink;
-use crate::sequence::{SendableSequentialStream, SequencePointer,  SequentialStreamAdapter, SequentialStreamExt as _};
+use crate::segments::SegmentSinkRef;
+use crate::sequence::{SendableSequentialStream,  SequencePointer, SequentialStreamAdapter, SequentialStreamExt as _};
 use crate::{IntoLayout, LayoutRef, LayoutStrategy};
 
 #[derive(Clone)]
@@ -34,38 +33,45 @@ impl ChunkedLayoutStrategy {
 impl LayoutStrategy for ChunkedLayoutStrategy {
     async fn write_stream(
         &self,
-        ctx: &ArrayContext,
-        segment_sink: &Arc<dyn SegmentSink>,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: &Handle,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
-        let mut row_count = 0;
         let dtype = stream.dtype().clone();
         let dtype2 = dtype.clone();
+        let chunk_strategy = self.chunk_strategy.clone();
 
-        let mut child_layouts: Vec<_>= stream
-            .map(move |chunk| {
-                let dtype = dtype.clone();
-                let chunk_strategy = self.chunk_strategy.clone();
-                let eof = eof.advance().descend();
-                async move {
-                    let (sequence_id, chunk) = chunk?;
-                    // row_count += chunk.len() as u64;
+        let stream = stream! {
+            let mut stream = stream;
+            while let Some(chunk) = stream.next().await {
+                let chunk_eof = eof.advance().descend();
+
+                let chunk_strategy = chunk_strategy.clone();
+                let ctx = ctx.clone();
+                let segment_sink = segment_sink.clone();
+                let dtype = dtype2.clone();
+
+                yield handle.spawn_nested(move |handle| async move {
                     chunk_strategy
                         .write_stream(
                             ctx,
                             segment_sink,
                             SequentialStreamAdapter::new(
                                 dtype,
-                                once(async { Ok((sequence_id, chunk)) }),
+                                stream::iter([chunk]),
                             )
-                                .sendable(),
-                            eof,
+                            .sendable(),
+                            chunk_eof,
                             handle,
-                        ).await
-                }
-            })
+                        )
+                        .await
+                })
+            }
+        };
+
+        let mut child_layouts: Vec<LayoutRef> = stream
             .buffered(16)
             .try_collect()
             .await?;
@@ -73,9 +79,10 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         if child_layouts.len() == 1 {
             Ok(child_layouts.pop().vortex_expect("must have one child"))
         } else {
+            let row_count = child_layouts.iter().map(|layout| layout.row_count()).sum();
             Ok(ChunkedLayout::new(
                 row_count,
-                dtype2,
+                dtype,
                 OwnedLayoutChildren::layout_children(child_layouts),
             )
             .into_layout())

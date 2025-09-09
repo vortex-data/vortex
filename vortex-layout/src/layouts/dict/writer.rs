@@ -22,7 +22,7 @@ use vortex_io::runtime::Handle;
 
 use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::segments::SegmentSink;
+use crate::segments::SegmentSinkRef;
 use crate::sequence::{
     SendableSequentialStream, SequenceId, SequencePointer, SequentialStreamAdapter,
     SequentialStreamExt,
@@ -81,11 +81,11 @@ impl DictStrategy {
 impl LayoutStrategy for DictStrategy {
     async fn write_stream(
         &self,
-        ctx: &ArrayContext,
-        segment_sink: &Arc<dyn SegmentSink>,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: &Handle,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         if !dict_layout_supported(stream.dtype()) {
             return self
@@ -151,22 +151,22 @@ impl LayoutStrategy for DictStrategy {
                 let codes_layout = self
                     .codes
                     .write_stream(
-                        ctx,
-                        segment_sink,
+                        ctx.clone(),
+                        segment_sink.clone(),
                         SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
                         eof.advance().descend(),
-                        handle,
+                        handle.clone(),
                     )
                     .await?;
                 let values_layout = self
                     .values
                     .write_stream(
-                        ctx,
-                        segment_sink,
+                        ctx.clone(),
+                        segment_sink.clone(),
                         SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
                             .sendable(),
                         eof.advance().descend(),
-                        handle,
+                        handle.clone(),
                     )
                     .await?;
                 children.push(DictLayout::new(values_layout, codes_layout).into_layout());

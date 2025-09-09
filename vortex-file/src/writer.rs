@@ -169,7 +169,7 @@ impl VortexWriteOptions {
             // Create a channel to send buffers from the segment sink to the output stream.
             let (send, recv) = kanal::bounded_async(16);
 
-            let segments = BufferedSegmentSink::new(send, position);
+            let segments = Arc::new(BufferedSegmentSink::new(send, position));
 
             // We spawn the layout future so it is driven in the background while we yield the
             // buffer stream, so we don't need to poll it until all buffers have been drained.
@@ -177,7 +177,7 @@ impl VortexWriteOptions {
             let ctx2 = ctx.clone();
             let layout_fut = handle.spawn(async move {
                 let layout = self.strategy
-                    .write_stream(&ctx2, &segments, stream, eof, handle2)
+                    .write_stream(ctx2, segments.clone(), stream, eof, handle2)
                     .await?;
                 Ok::<_, VortexError>((layout, segments.to_specs()))
             });

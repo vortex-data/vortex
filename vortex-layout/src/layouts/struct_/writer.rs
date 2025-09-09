@@ -15,7 +15,7 @@ use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::struct_::StructLayout;
-use crate::segments::SegmentSink;
+use crate::segments::SegmentSinkRef;
 use crate::sequence::{
     SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt,
 };
@@ -38,11 +38,11 @@ impl StructStrategy {
 impl LayoutStrategy for StructStrategy {
     async fn write_stream(
         &self,
-        ctx: &ArrayContext,
-        segment_sink: &Arc<dyn SegmentSink>,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: &Handle,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct_fields_opt().cloned() else {
@@ -132,14 +132,13 @@ impl LayoutStrategy for StructStrategy {
             .map(move |(dtype, recv)| {
                 let column_stream =
                     SequentialStreamAdapter::new(dtype, recv.into_stream().boxed()).sendable();
-                self.child
-                    .write_stream(
-                        ctx,
-                        segment_sink,
-                        column_stream,
-                        eof.advance().descend(),
-                        handle,
-                    )
+                self.child.write_stream(
+                    ctx.clone(),
+                    segment_sink.clone(),
+                    column_stream,
+                    eof.advance().descend(),
+                    handle.clone(),
+                )
             })
             .collect();
 

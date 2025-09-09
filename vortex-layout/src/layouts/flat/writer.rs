@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::serde::SerializeOptions;
@@ -14,7 +13,7 @@ use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
-use crate::segments::SegmentSink;
+use crate::segments::SegmentSinkRef;
 use crate::sequence::{SendableSequentialStream, SequencePointer};
 use crate::{IntoLayout, LayoutRef, LayoutStrategy};
 
@@ -39,11 +38,11 @@ impl Default for FlatLayoutStrategy {
 impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
         &self,
-        ctx: &ArrayContext,
-        segment_sink: &Arc<dyn SegmentSink>,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
         _eof: SequencePointer,
-        _handle: &Handle,
+        _handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let options = self.clone();

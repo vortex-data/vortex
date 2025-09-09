@@ -384,7 +384,7 @@ impl VortexWriter {
             let file = TokioFile::create(&file_path).await?;
             compaction_strategy
                 .apply_options(VortexWriteOptions::default())
-                .write_tokio(file, stream)
+                .write(file, stream)
                 .await
                 .map_err(|e| anyhow!("Vortex write failed: {}", e))?;
 

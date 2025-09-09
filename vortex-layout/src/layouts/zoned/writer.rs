@@ -5,7 +5,7 @@ use std::future;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{ StreamExt as _};
+use futures::StreamExt as _;
 use parking_lot::Mutex;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::{ArrayContext, ArrayRef};
@@ -14,7 +14,7 @@ use vortex_io::runtime::Handle;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
-use crate::segments::SegmentSink;
+use crate::segments::SegmentSinkRef;
 use crate::sequence::{
     SendableSequentialStream, SequenceId, SequencePointer, SequentialArrayStreamExt,
     SequentialStreamAdapter, SequentialStreamExt,
@@ -67,11 +67,11 @@ impl ZonedStrategy {
 impl LayoutStrategy for ZonedStrategy {
     async fn write_stream(
         &self,
-        ctx: &ArrayContext,
-        segment_sink: &Arc<dyn SegmentSink>,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: &Handle,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let stats = self.options.stats.clone();
         let handle2 = handle.clone();
@@ -112,11 +112,17 @@ impl LayoutStrategy for ZonedStrategy {
 
         // We create a new SequencePointer for the stats table so that we can write it just
         // before the end of the file.
-        let (eof, stats_eof) = eof.split();
+        let (data_eof, stats_eof) = eof.split();
 
         let data_layout = self
             .child
-            .write_stream(ctx, segment_sink, stream, eof, handle)
+            .write_stream(
+                ctx.clone(),
+                segment_sink.clone(),
+                stream,
+                data_eof,
+                handle.clone(),
+            )
             .await?;
 
         let Some(stats_table) = stats_accumulator.lock().as_stats_table() else {
@@ -131,7 +137,7 @@ impl LayoutStrategy for ZonedStrategy {
         let stats_stream = stats_table.array().to_array_stream().sequenced(stats_ptr);
         let zones_layout = self
             .stats
-            .write_stream(ctx, segment_sink, stats_stream, stats_eof, handle)
+            .write_stream(ctx, segment_sink.clone(), stats_stream, stats_eof, handle)
             .await?;
 
         Ok(ZonedLayout::new(
@@ -150,6 +156,8 @@ fn accumulate_stats(
 ) -> VortexResult<(SequenceId, ArrayRef)> {
     let (sequence_id, chunk) = item?;
     // We have already computed per-chunk statistics, so avoid trying again for any that failed.
-    stats_accumulator.lock().push_chunk_without_compute(&chunk)?;
+    stats_accumulator
+        .lock()
+        .push_chunk_without_compute(&chunk)?;
     Ok((sequence_id, chunk))
 }

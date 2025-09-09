@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
 use crate::segments::SegmentId;
 use crate::sequence::SequenceId;
+
+pub type SegmentSinkRef = Arc<dyn SegmentSink>;
 
 #[async_trait]
 pub trait SegmentSink: Send + Sync {

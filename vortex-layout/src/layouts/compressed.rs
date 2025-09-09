@@ -4,15 +4,18 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{FutureExt as _, StreamExt as _};
+use futures::StreamExt as _;
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
+
+use crate::segments::SegmentSinkRef;
+use crate::sequence::{
+    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt,
+};
 use crate::{LayoutRef, LayoutStrategy};
-use crate::segments::{SegmentSink};
-use crate::sequence::{SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt};
 
 /// A boxed compressor function from arrays into compressed arrays.
 ///
@@ -119,8 +122,8 @@ impl CompressingStrategy {
 impl LayoutStrategy for CompressingStrategy {
     async fn write_stream(
         &self,
-        ctx: &ArrayContext,
-        segment_sink: &dyn SegmentSink,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
         handle: Handle,
@@ -128,10 +131,11 @@ impl LayoutStrategy for CompressingStrategy {
         let dtype = stream.dtype().clone();
         let compressor = self.compressor.clone();
 
+        let handle2 = handle.clone();
         let stream = stream
             .map(move |chunk| {
                 let compressor = compressor.clone();
-                handle.spawn_cpu(move || {
+                handle2.spawn_cpu(move || {
                     let (sequence_id, chunk) = chunk?;
                     // Compute the stats for the chunk prior to compression
                     chunk

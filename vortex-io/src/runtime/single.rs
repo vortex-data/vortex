@@ -11,8 +11,8 @@ use parking_lot::Mutex;
 use smol::{LocalExecutor, block_on};
 use vortex_error::vortex_panic;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 use crate::runtime::smol::SmolAbortHandle;
+use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 
 /// A runtime that drives all work on the current thread.
 ///
@@ -41,7 +41,9 @@ impl SingleThreadRuntime {
                 while let Ok(spawn) = scheduling_recv.as_async().recv().await {
                     if let Some(local) = weak_local2.upgrade() {
                         // Ignore send errors since it means the caller immediately detached.
-                        let _ = spawn.task_callback.send(SmolAbortHandle::new_handle(local.spawn(spawn.future)));
+                        let _ = spawn
+                            .task_callback
+                            .send(SmolAbortHandle::new_handle(local.spawn(spawn.future)));
                     }
                 }
             })
@@ -55,7 +57,9 @@ impl SingleThreadRuntime {
                     if let Some(local) = weak_local2.upgrade() {
                         let cpu = spawn.cpu;
                         // Ignore send errors since it means the caller immediately detached.
-                        let _ = spawn.task_callback.send(SmolAbortHandle::new_handle(local.spawn(async move { cpu() })));
+                        let _ = spawn.task_callback.send(SmolAbortHandle::new_handle(
+                            local.spawn(async move { cpu() }),
+                        ));
                     }
                 }
             })
@@ -121,7 +125,9 @@ impl Runtime for SingleThreadRuntime {
         }) {
             vortex_panic!("Executor missing: {}", e);
         }
-        Box::new(LazyAbortHandle { task: Mutex::new(recv) })
+        Box::new(LazyAbortHandle {
+            task: Mutex::new(recv),
+        })
     }
 
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
@@ -132,7 +138,9 @@ impl Runtime for SingleThreadRuntime {
         }) {
             vortex_panic!("Executor missing: {}", e);
         }
-        Box::new(LazyAbortHandle { task: Mutex::new(recv) })
+        Box::new(LazyAbortHandle {
+            task: Mutex::new(recv),
+        })
     }
 
     fn spawn_io(&self, task: IoTask) {
@@ -164,7 +172,7 @@ struct SpawnCpu<'rt> {
 }
 
 struct LazyAbortHandle {
-    task: Mutex<oneshot::Receiver<AbortHandleRef>>
+    task: Mutex<oneshot::Receiver<AbortHandleRef>>,
 }
 
 impl AbortHandle for LazyAbortHandle {
