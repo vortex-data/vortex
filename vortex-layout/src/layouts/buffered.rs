@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::{pin_mut, StreamExt as _};
+use futures::{StreamExt as _, pin_mut};
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 
