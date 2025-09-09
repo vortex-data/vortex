@@ -2,14 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_buffer::BooleanBuffer;
-use vortex_dtype::{match_each_native_ptype, Nullability, PType};
+use vortex_dtype::Nullability;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
-use crate::arrays::{BoolArray, PrimitiveArray};
-use crate::pipeline::bits::{AlignedBitSink, BitAlignedChunkedIterator, BitSink, BitView, BitViewMut, EmptyBitSink, MaskSliceIterator, TrueSliceIterator, UnalignedBitSink};
-use crate::pipeline::vec::Vector;
-use crate::pipeline::{Kernel, KernelContext, N};
+
+use crate::arrays::BoolArray;
+use crate::pipeline::bits::{
+    AlignedBitSink, BitAlignedChunkedIterator, BitSink, BitView, BitViewMut, EmptyBitSink,
+    MaskSliceIterator, TrueSliceIterator, UnalignedBitSink,
+};
 use crate::pipeline::view::ViewMut;
+use crate::pipeline::{Kernel, KernelContext, N};
 use crate::validity::Validity;
 
 pub(super) fn export_bool(
@@ -18,34 +21,26 @@ pub(super) fn export_bool(
     pipeline: &mut dyn Kernel,
 ) -> VortexResult<BoolArray> {
     match (nullability, mask.all_true()) {
-        (Nullability::NonNullable, true) =>
-            export_bool_nonnull_masked::< _, _>(
-                TrueSliceIterator::new(mask.len()),
-                EmptyBitSink::default(),
-                pipeline,
-            ),
-        (Nullability::NonNullable, false) =>
-            export_bool_nonnull_masked::<_, _>(
-                BitAlignedChunkedIterator::new(&mask.to_boolean_buffer(), mask.true_count()),
-                EmptyBitSink::default(),
-                pipeline,
-            )
-       ,
-        (Nullability::Nullable, true) =>
-            export_bool_nonnull_masked::<_, _>(
-                TrueSliceIterator::new(mask.len()),
-                AlignedBitSink::new(mask.true_count()),
-                pipeline,
-            )
-        ,
-
-        (Nullability::Nullable, false) =>
-            export_bool_nonnull_masked::<_, _>(
-                BitAlignedChunkedIterator::new(&mask.to_boolean_buffer(), mask.true_count()),
-                UnalignedBitSink::new(mask.true_count()),
-                pipeline,
-            )
-        ,
+        (Nullability::NonNullable, true) => export_bool_nonnull_masked::<_, _>(
+            TrueSliceIterator::new(mask.len()),
+            EmptyBitSink,
+            pipeline,
+        ),
+        (Nullability::NonNullable, false) => export_bool_nonnull_masked::<_, _>(
+            BitAlignedChunkedIterator::new(&mask.to_boolean_buffer(), mask.true_count()),
+            EmptyBitSink,
+            pipeline,
+        ),
+        (Nullability::Nullable, true) => export_bool_nonnull_masked::<_, _>(
+            TrueSliceIterator::new(mask.len()),
+            AlignedBitSink::new(mask.true_count()),
+            pipeline,
+        ),
+        (Nullability::Nullable, false) => export_bool_nonnull_masked::<_, _>(
+            BitAlignedChunkedIterator::new(&mask.to_boolean_buffer(), mask.true_count()),
+            UnalignedBitSink::new(mask.true_count()),
+            pipeline,
+        ),
     }
 }
 
@@ -71,7 +66,10 @@ pub(super) fn export_bool_nonnull_masked<T: MaskSliceIterator, Sink: BitSink>(
         let mask_view = BitView::new(chunk_array);
 
         let dummy_ctx = KernelContext::default();
-        let mut view_mut = ViewMut::new(&mut elements_buffer, sink.next_chunk().map(|b| BitViewMut::new(b)));
+        let mut view_mut = ViewMut::new(
+            &mut elements_buffer,
+            sink.next_chunk().map(BitViewMut::new),
+        );
         pipeline.step(&dummy_ctx, mask_view, &mut view_mut)?;
 
         // Collect bools efficiently with unsafe for better performance
@@ -102,10 +100,7 @@ pub(super) fn export_bool_nonnull_masked<T: MaskSliceIterator, Sink: BitSink>(
             Validity::from(validity),
         ))
     } else {
-        Ok(BoolArray::from_bool_buffer(
-            values,
-            Validity::NonNullable,
-        ))
+        Ok(BoolArray::from_bool_buffer(values, Validity::NonNullable))
     }
 }
 

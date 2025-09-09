@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(clippy::cast_possible_truncation)]
 
 use arrow_buffer::BooleanBuffer;
@@ -44,7 +47,6 @@ fn boolean_buffer_method(bencher: Bencher, bit_offset: usize) {
             let mut chunk_iter = bit_chunks.iter();
             let remainder = bit_chunks.remainder_bits();
             let mut done = false;
-            // let mut count = 0;
 
             // Manually collect 16 u64 chunks to form one [usize; N_WORDS] array
             while !done {
@@ -58,12 +60,9 @@ fn boolean_buffer_method(bencher: Bencher, bit_offset: usize) {
                         break;
                     }
                     black_box(chunk_array.as_slice());
-                    // count += 1;
                 }
-                // Just test getting the slice, don't push to vector
             }
 
-            // Handle remainder if any
             if remainder != 0 {
                 let mut chunk_array = [0usize; N_WORDS];
                 chunk_array[0] = remainder as usize;
@@ -77,90 +76,13 @@ fn bit_aligned_iterator_method(bencher: Bencher, bit_offset: usize) {
     let total_bits = 100 * N; // 100 chunks worth of data (already 64-bit aligned since N=1024)
     let data = create_test_data(total_bits + bit_offset, |i| i % 3 == 0);
     let buffer = BooleanBuffer::new(data.into(), bit_offset, total_bits);
+    let true_count = buffer.count_set_bits();
 
-    bencher.with_inputs(|| &buffer).bench_values(|buffer| {
-        let mut iter = BitAlignedChunkedIterator::new(buffer);
+    bencher.with_inputs(|| (&buffer, true_count)).bench_values(|(buffer, true_count)| {
+        let mut iter = BitAlignedChunkedIterator::new(buffer, true_count);
 
         while let Some(chunk) = black_box(iter.next_chunk()) {
             // Just test getting the slice, don't push to vector
-            black_box(chunk);
-        }
-    })
-}
-
-#[divan::bench(args = [0, 1, 7, 13])]
-fn boolean_buffer_u64_iterator(bencher: Bencher, bit_offset: usize) {
-    let total_bits = 100 * N; // 100 chunks worth of data (already 64-bit aligned since N=1024)
-    let data = create_test_data(total_bits + bit_offset, |i| i % 3 == 0);
-
-    bencher
-        .with_inputs(|| BooleanBuffer::new(data.clone().into(), bit_offset, total_bits))
-        .bench_values(|buffer| {
-            let mut iter = BooleanBufferU64Iterator::new(&buffer);
-
-            while let Some(chunk) = iter.next() {
-                black_box(chunk);
-            }
-        })
-}
-
-/// Iterator that produces chunks of N bits from a BooleanBuffer as [u64; N_WORDS]
-struct BooleanBufferU64Iterator<'a> {
-    iter_padded: Box<dyn Iterator<Item = u64> + 'a>,
-    done: bool,
-}
-
-impl<'a> BooleanBufferU64Iterator<'a> {
-    fn new(buffer: &'a BooleanBuffer) -> Self {
-        let bit_chunks = buffer.bit_chunks();
-        let iter_padded = bit_chunks.iter_padded();
-
-        Self {
-            iter_padded: Box::new(iter_padded),
-            done: false,
-        }
-    }
-}
-
-impl<'a> Iterator for BooleanBufferU64Iterator<'a> {
-    type Item = [u64; N_WORDS];
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.done {
-            return None;
-        }
-
-        let mut result = [0u64; N_WORDS];
-        let mut filled = 0;
-
-        // Fill up to N_WORDS u64 chunks
-        while filled < N_WORDS {
-            if let Some(u64_chunk) = self.iter_padded.next() {
-                result[filled] = u64_chunk;
-                filled += 1;
-            } else {
-                self.done = true;
-                break;
-            }
-        }
-
-        if filled == 0 {
-            self.done = true;
-            return None;
-        }
-
-        Some(result)
-    }
-}
-
-#[divan::bench(args = [0, 1, 7, 13])]
-fn true_slice_iterator_method(bencher: Bencher, _bit_offset: usize) {
-    let total_bits = 100 * N; // 100 chunks worth of data
-
-    bencher.bench_local(|| {
-        let mut iter = TrueSliceIterator::new(total_bits);
-
-        while let Some(chunk) = iter.next_chunk() {
             black_box(chunk);
         }
     })

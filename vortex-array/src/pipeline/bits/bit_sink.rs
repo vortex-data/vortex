@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ptr::slice_from_raw_parts;
+
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
-use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::pipeline::{N, N_WORDS};
@@ -59,7 +58,7 @@ impl AlignedBitSink {
     pub fn new(total_bits: usize) -> Self {
         let total_words = total_bits.div_ceil(u64::BITS as usize);
         // Ensure we have at least N_WORDS capacity for safety
-        let buffer_words = total_words.max(N/u64::BITS as usize);
+        let buffer_words = total_words.max(N / u64::BITS as usize);
 
         Self {
             buffer: vec![0u64; buffer_words],
@@ -81,7 +80,9 @@ impl BitSink for AlignedBitSink {
             None
         } else {
             // Return direct mutable reference to the buffer slice
-            Some(unsafe { &mut *(self.buffer[start..end].as_mut_ptr() as *mut [usize; CHUNK_SIZE]) })
+            Some(unsafe {
+                &mut *(self.buffer[start..end].as_mut_ptr() as *mut [usize; CHUNK_SIZE])
+            })
         }
     }
 
@@ -101,7 +102,7 @@ impl BitSink for AlignedBitSink {
     }
 
     #[inline]
-    fn finish(mut self) -> VortexResult<Option<BooleanBuffer>> {
+    fn finish(self) -> VortexResult<Option<BooleanBuffer>> {
         // Convert usize buffer to u8 buffer for BooleanBuffer
         // TODO(joe): move the self.buffer into the BooleanBuffer
 

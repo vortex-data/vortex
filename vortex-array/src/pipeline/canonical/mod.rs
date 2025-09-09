@@ -4,16 +4,13 @@
 mod bool;
 mod primitive;
 
-use vortex_dtype::{DType, Nullability, match_each_native_ptype};
+use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::Canonical;
 use crate::pipeline::Kernel;
-use crate::pipeline::bits::{
-    AlignedBitSink, BitAlignedChunkedIterator, EmptyBitSink, TrueSliceIterator, UnalignedBitSink,
-};
-use crate::pipeline::canonical::bool::{export_bool, export_bool_nonnull_masked};
+use crate::pipeline::canonical::bool::export_bool;
 use crate::pipeline::canonical::primitive::export_primitive;
 use crate::pipeline::operators::Operator;
 use crate::pipeline::query::QueryPlan;
@@ -30,9 +27,7 @@ pub fn export_canonical_pipeline(
     }
 
     match dtype {
-        DType::Bool(nullability) => {
-            export_bool(*nullability, mask, pipeline).map(Canonical::Bool)
-        }
+        DType::Bool(nullability) => export_bool(*nullability, mask, pipeline).map(Canonical::Bool),
         DType::Primitive(ptype, nullability) => {
             export_primitive(*ptype, *nullability, mask, pipeline).map(Canonical::Primitive)
         }
