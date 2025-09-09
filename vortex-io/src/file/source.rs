@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
-use futures::FutureExt;
 use futures::future::{BoxFuture, LocalBoxFuture};
 use futures::stream::BoxStream;
+use futures::FutureExt;
 use vortex_error::VortexResult;
 
 use crate::file::request::IoRequest;
@@ -47,5 +47,5 @@ pub struct CoalesceWindow {
 
 /// A trait for types that can be opened as an `IoSource`.
 pub trait IntoIoSource {
-    fn into_io_source(self, handle: Handle<'static>) -> VortexResult<IoSourceRef>;
+    fn into_io_source(self, handle: Handle) -> VortexResult<IoSourceRef>;
 }

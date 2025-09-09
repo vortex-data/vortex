@@ -7,7 +7,7 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource, IoSourceRef};
 use crate::runtime::Handle;

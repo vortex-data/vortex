@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, ready};
+use std::task::{ready, Context, Poll};
 
 use futures::{FutureExt, StreamExt};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexResult};
 
 use crate::file::{FileRead, IntoIoSource, IoRequestStream};
 use crate::kanal_ext::KanalExt;
@@ -18,22 +17,13 @@ use crate::runtime::{AbortHandleRef, IoTask, Runtime};
 /// Users should obtain a handle from one of the runtime constructors and use it to spawn new
 /// async tasks or CPU-heavy worker.
 #[derive(Clone)]
-pub struct Handle<'rt> {
+pub struct Handle {
     runtime: Arc<dyn Runtime>,
-    _runtime: PhantomData<*mut &'rt ()>, // *mut makes it invariant which means it cannot be coerced
 }
 
-// Manually implement Send/Sync since *mut breaks auto-derive
-// This is safe since runtime has `Send + Sync` bounds.
-unsafe impl<'rt> Send for Handle<'rt> {}
-unsafe impl<'rt> Sync for Handle<'rt> {}
-
-impl<'rt> Handle<'rt> {
+impl Handle {
     pub(crate) fn new(runtime: Arc<dyn Runtime>) -> Self {
-        Self {
-            runtime,
-            _runtime: PhantomData,
-        }
+        Self { runtime }
     }
 
     /// Spawn a new future onto the runtime.
@@ -42,7 +32,7 @@ impl<'rt> Handle<'rt> {
     /// either CPU tasks or I/O tasks. See [`Handle::spawn_cpu`] for spawning CPU-bound work.
     ///
     /// See [`Task`] for details on cancelling or detaching the spawned task.
-    pub fn spawn<Fut, R>(&self, f: Fut) -> Task<'rt, R>
+    pub fn spawn<Fut, R>(&self, f: Fut) -> Task<R>
     where
         Fut: Future<Output = R> + Send + 'static,
         R: Send + 'static,
@@ -58,7 +48,28 @@ impl<'rt> Handle<'rt> {
         Task {
             recv,
             abort_handle: Some(abort_handle),
-            _runtime: PhantomData,
+        }
+    }
+
+    pub fn spawn_nested<F, Fut, R>(&self, f: F) -> Task<R>
+    where
+        F: FnOnce(Handle) -> Fut,
+        Fut: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        let fut = f(Handle::new(self.runtime.clone()));
+
+        let (send, recv) = oneshot::channel();
+        let abort_handle = self.runtime.spawn(
+            async move {
+                // Task::detach allows the receiver to be dropped, so we ignore send errors.
+                let _ = send.send(fut.await);
+            }
+            .boxed(),
+        );
+        Task {
+            recv,
+            abort_handle: Some(abort_handle),
         }
     }
 
@@ -69,7 +80,7 @@ impl<'rt> Handle<'rt> {
     ///
     /// See [`Task`] for details on cancelling or detaching the spawned work, although note that
     /// once started, CPU work cannot be cancelled.
-    pub fn spawn_cpu<F, R>(&self, f: F) -> Task<'rt, R>
+    pub fn spawn_cpu<F, R>(&self, f: F) -> Task<R>
     where
         // Unlike scheduling futures, the CPU task should have a static lifetime because it
         // doesn't need to access to handle to spawn more work.
@@ -85,24 +96,12 @@ impl<'rt> Handle<'rt> {
         Task {
             recv,
             abort_handle: Some(abort_handle),
-            _runtime: PhantomData,
         }
     }
 
     /// Open a file for I/O on this runtime.
-    pub fn open_read<S: IntoIoSource>(&self, source: S) -> VortexResult<FileRead<'rt>> {
-        // The handle's lifetime is fake! The underlying runtime is Arc<dyn Runtime> which is
-        // 'static. The reason we have a fake lifetime is to prevent users from passing back async
-        // tasks outside the async context (i.e. after the runtime has been dropped) since they
-        // may never be polled to completion, and it's a source of footgun bugs. However, there's
-        // nothing unsafe about passing a 'static runtime to an I/O source.
-        //
-        // When we open I/O sources, we spawn a task to process their requests onto the runtime.
-        // This task often needs to spawn _more_ tasks onto the runtime for parallelism. When a
-        // `FileRead<'rt>` is dropped, the request channel will be closed and cause the I/O task
-        // to eventually finish.
-        let io_handle = Handle::new(self.runtime.clone());
-        let source = source.into_io_source(io_handle)?;
+    pub fn open_read<S: IntoIoSource>(&self, source: S) -> VortexResult<FileRead<'_>> {
+        let source = source.into_io_source(self.clone())?;
 
         let (send, recv) = kanal::unbounded();
 
@@ -124,13 +123,12 @@ impl<'rt> Handle<'rt> {
 ///
 /// If this handle is dropped, the task is cancelled where possible. In order to allow the task to
 /// continue running in the background, call [`Task::detach`].
-pub struct Task<'rt, T> {
+pub struct Task<T> {
     recv: oneshot::Receiver<T>,
     abort_handle: Option<AbortHandleRef>,
-    _runtime: PhantomData<&'rt ()>,
 }
 
-impl<T> Task<'static, T> {
+impl<T> Task<T> {
     /// Detach the task, allowing it to continue running in the background after being dropped.
     /// This is only possible if the underlying runtime has a 'static lifetime.
     pub fn detach(mut self) {
@@ -138,7 +136,7 @@ impl<T> Task<'static, T> {
     }
 }
 
-impl<'rt, T> Future for Task<'rt, T> {
+impl<T> Future for Task<T> {
     type Output = T;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -156,7 +154,7 @@ impl<'rt, T> Future for Task<'rt, T> {
     }
 }
 
-impl<T> Drop for Task<'_, T> {
+impl<T> Drop for Task<T> {
     fn drop(&mut self) {
         // Optimistically abort the task if it's still running.
         if let Some(handle) = self.abort_handle.take() {

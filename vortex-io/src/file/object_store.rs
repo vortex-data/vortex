@@ -61,14 +61,14 @@ impl ObjectStoreIo {
 }
 
 impl IntoIoSource for ObjectStoreIo {
-    fn into_io_source(self, handle: Handle<'static>) -> VortexResult<IoSourceRef> {
+    fn into_io_source(self, handle: Handle) -> VortexResult<IoSourceRef> {
         Ok(Arc::new(ObjectStoreIoSource { io: self, handle }))
     }
 }
 
 struct ObjectStoreIoSource {
     io: ObjectStoreIo,
-    handle: Handle<'static>,
+    handle: Handle,
 }
 
 #[cfg(feature = "object_store")]
@@ -98,7 +98,7 @@ impl IoSource for ObjectStoreIoSource {
         self: Arc<Self>,
         requests: BoxStream<'static, IoRequest>,
     ) -> BoxFuture<'static, ()> {
-        let handle = self.handle.clone();
+        let self2 = self.clone();
         requests
             .map(move |req| {
                 let store = self.io.store.clone();
@@ -150,7 +150,7 @@ impl IoSource for ObjectStoreIoSource {
 
                 async move { req.resolve(Compat::new(read).await) }
             })
-            .map(move |f| handle.spawn(f))
+            .map(move |f| self2.handle.spawn(f))
             .buffer_unordered(CONCURRENCY)
             .collect::<()>()
             .boxed()

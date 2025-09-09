@@ -23,13 +23,13 @@ const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
 const CONCURRENCY: usize = 64;
 
 impl IntoIoSource for PathBuf {
-    fn into_io_source(self, handle: Handle<'static>) -> VortexResult<IoSourceRef> {
+    fn into_io_source(self, handle: Handle) -> VortexResult<IoSourceRef> {
         self.as_path().into_io_source(handle)
     }
 }
 
 impl IntoIoSource for &Path {
-    fn into_io_source(self, _handle: Handle<'static>) -> VortexResult<IoSourceRef> {
+    fn into_io_source(self, _handle: Handle) -> VortexResult<IoSourceRef> {
         let uri = self.to_string_lossy().to_string().into();
         let file = Arc::new(File::open(self)?);
         Ok(Arc::new(FileIoSource { uri, file }))

@@ -4,11 +4,11 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use futures::StreamExt;
-use futures::future::{BoxFuture, LocalBoxFuture};
+use futures::future::BoxFuture;
 use futures::stream::LocalBoxStream;
+use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
-use smol::{LocalExecutor, block_on};
+use smol::{block_on, LocalExecutor};
 use vortex_error::vortex_panic;
 
 use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
@@ -78,10 +78,10 @@ impl SingleThreadRuntime {
     }
 
     /// Drive the given Vortex future on the underlying single-threaded runtime.
-    pub fn block_on<F, R>(f: F) -> R
+    pub fn block_on<F, Fut, R>(f: F) -> R
     where
-        F: for<'rt> FnOnce(Handle<'rt>) -> LocalBoxFuture<'rt, R>,
-        R: 'static, // Result must be static to avoid returning a value that references the handle.
+        F: FnOnce(Handle) -> Fut,
+        Fut: Future<Output = R>,
     {
         let executor = Rc::new(LocalExecutor::new());
         let runtime = Arc::new(SingleThreadRuntime::new(&executor));
@@ -92,10 +92,11 @@ impl SingleThreadRuntime {
     }
 
     /// Drive the given Vortex stream on the underlying single-threaded runtime.
-    pub fn block_on_stream<F, R>(f: F) -> impl Iterator<Item = R>
+    pub fn block_on_stream<'a, F, S, R>(f: F) -> impl Iterator<Item = R> + 'a
     where
-        F: for<'rt> FnOnce(Handle<'rt>) -> LocalBoxStream<'rt, R>,
-        R: Send + 'static,
+        F: FnOnce(Handle) -> S,
+        S: Stream<Item = R> + 'a,
+        R: 'a,
     {
         let executor = Rc::new(LocalExecutor::new());
         let handle = Handle::new(Arc::new(Self::new(&executor)));
@@ -174,7 +175,7 @@ impl Drop for SmolAbortHandle {
 
 /// A stream that wraps up the stream with the executor that drives it.
 struct BlockingStream<'a, T> {
-    executor: Rc<LocalExecutor<'a>>,
+    executor: Rc<LocalExecutor<'static>>,
     stream: LocalBoxStream<'a, T>,
 }
 
@@ -189,8 +190,8 @@ impl<T> Iterator for BlockingStream<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use futures::FutureExt;
 
@@ -204,23 +205,15 @@ mod tests {
 
     #[test]
     fn test_spawn_cpu_task() {
-        let result = SingleThreadRuntime::block_on(|handle| {
-            async move { handle.spawn(async { 42 }).await }.boxed_local()
-        });
-        assert_eq!(result, 42);
-
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
 
-        SingleThreadRuntime::block_on(|handle| {
-            async move {
-                handle
-                    .spawn_cpu(move || {
-                        c.fetch_add(1, Ordering::SeqCst);
-                    })
-                    .await
-            }
-            .boxed_local()
+        SingleThreadRuntime::block_on(|handle| async move {
+            handle
+                .spawn_cpu(move || {
+                    c.fetch_add(1, Ordering::SeqCst);
+                })
+                .await
         });
 
         assert_eq!(counter.load(Ordering::SeqCst), 1);

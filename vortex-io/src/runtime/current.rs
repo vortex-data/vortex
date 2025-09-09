@@ -3,10 +3,8 @@
 
 use std::sync::Arc;
 
-use futures::StreamExt;
-use futures::future::BoxFuture;
-use futures::stream::BoxStream;
-use smol::{Executor, block_on};
+use futures::{Stream, StreamExt};
+use smol::{block_on, Executor};
 
 use crate::runtime::Handle;
 
@@ -17,9 +15,10 @@ pub struct CurrentThreadRuntime;
 
 impl CurrentThreadRuntime {
     /// Drive the given Vortex future on the underlying current thread runtime.
-    pub fn block_on<F, R>(f: F) -> R
+    pub fn block_on<F, Fut, R>(f: F) -> R
     where
-        F: for<'rt> FnOnce(Handle<'rt>) -> BoxFuture<'rt, R>,
+        F: FnOnce(Handle) -> Fut,
+        Fut: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
         let executor = Arc::new(Executor::new());
@@ -33,7 +32,8 @@ impl CurrentThreadRuntime {
     /// multiple threads.
     pub fn block_on_stream<F, S, R>(f: F) -> impl Iterator<Item = R> + Clone
     where
-        F: for<'rt> FnOnce(Handle<'rt>) -> BoxStream<'rt, R>,
+        F: FnOnce(Handle) -> S,
+        S: Stream<Item = R> + Send + Unpin + 'static,
         R: Send + 'static,
     {
         let executor = Arc::new(Executor::new());
@@ -88,8 +88,8 @@ impl<T> Iterator for BlockingStream<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use futures::FutureExt;
 

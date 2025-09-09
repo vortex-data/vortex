@@ -2,8 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::cast_possible_truncation)]
-use std::sync::Arc;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
@@ -13,9 +14,9 @@ use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexResult;
 
 use crate::file::{IntoIoSource, IoRequest, IoSource, IoSourceRef};
-use crate::runtime::Handle;
 use crate::runtime::single::SingleThreadRuntime;
 use crate::runtime::tokio::TokioRuntime;
+use crate::runtime::Handle;
 
 // Test data
 const TEST_DATA: &[u8] = b"Hello, World! This is test data for FileRead.";
@@ -187,7 +188,7 @@ async fn test_concurrent_reads() {
 fn test_handle_spawn_future() {
     let result = SingleThreadRuntime::block_on(|handle| {
         async move {
-            let task = handle.spawn(async { 42 });
+            let task = handle.spawn(async move { 42 });
             task.await
         }
         .boxed_local()
@@ -265,7 +266,7 @@ impl IoSource for CountingIoSource {
 }
 
 impl IntoIoSource for CountingIoSource {
-    fn into_io_source(self, _handle: Handle<'static>) -> VortexResult<IoSourceRef> {
+    fn into_io_source(self, _handle: Handle) -> VortexResult<IoSourceRef> {
         Ok(Arc::new(self))
     }
 }
@@ -334,4 +335,16 @@ async fn test_task_detach() {
 
     // Task should have completed even though we detached it
     assert_eq!(counter.load(Ordering::SeqCst), 1);
+}
+
+// ============================================================================
+// Test nested spawns
+// ============================================================================
+
+#[test]
+fn test_nested_spawns() {
+    let result = SingleThreadRuntime::block_on(|h| {
+        h.spawn_nested(|h| async move { h.spawn(async move { 42 }).await + 10 })
+    });
+    assert_eq!(result, 52);
 }
