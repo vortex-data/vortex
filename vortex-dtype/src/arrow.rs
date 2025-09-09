@@ -194,7 +194,8 @@ impl DType {
             DType::Decimal(dt, _) => {
                 let precision = dt.precision();
                 let scale = dt.scale();
-                match dt.precision() {
+
+                match precision {
                     // DECIMAL32_MAX_PRECISION
                     0..=9 => DataType::Decimal32(precision, scale),
                     // DECIMAL64_MAX_PRECISION
