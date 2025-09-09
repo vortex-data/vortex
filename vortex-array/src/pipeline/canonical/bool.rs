@@ -2,77 +2,91 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_buffer::BooleanBuffer;
+use vortex_dtype::{match_each_native_ptype, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
-
-use crate::arrays::BoolArray;
-use crate::pipeline::bits::{BitAlignedChunkedIterator, BitView, MaskSliceIterator};
+use crate::arrays::{BoolArray, PrimitiveArray};
+use crate::pipeline::bits::{AlignedBitSink, BitAlignedChunkedIterator, BitSink, BitView, BitViewMut, EmptyBitSink, MaskSliceIterator, TrueSliceIterator, UnalignedBitSink};
 use crate::pipeline::vec::Vector;
 use crate::pipeline::{Kernel, KernelContext, N};
+use crate::pipeline::view::ViewMut;
 use crate::validity::Validity;
 
-pub(super) fn export_bool_nonnull_masked<T: MaskSliceIterator>(
-    mask: MaskSliceIterator,
+pub(super) fn export_bool(
+    nullability: Nullability,
+    mask: &Mask,
+    pipeline: &mut dyn Kernel,
+) -> VortexResult<BoolArray> {
+    match (nullability, mask.all_true()) {
+        (Nullability::NonNullable, true) =>
+            export_bool_nonnull_masked::< _, _>(
+                TrueSliceIterator::new(mask.len()),
+                EmptyBitSink::default(),
+                pipeline,
+            ),
+        (Nullability::NonNullable, false) =>
+            export_bool_nonnull_masked::<_, _>(
+                BitAlignedChunkedIterator::new(&mask.to_boolean_buffer(), mask.true_count()),
+                EmptyBitSink::default(),
+                pipeline,
+            )
+       ,
+        (Nullability::Nullable, true) =>
+            export_bool_nonnull_masked::<_, _>(
+                TrueSliceIterator::new(mask.len()),
+                AlignedBitSink::new(mask.true_count()),
+                pipeline,
+            )
+        ,
+
+        (Nullability::Nullable, false) =>
+            export_bool_nonnull_masked::<_, _>(
+                BitAlignedChunkedIterator::new(&mask.to_boolean_buffer(), mask.true_count()),
+                UnalignedBitSink::new(mask.true_count()),
+                pipeline,
+            )
+        ,
+    }
+}
+
+pub(super) fn export_bool_nonnull_masked<T: MaskSliceIterator, Sink: BitSink>(
+    mut mask: T,
+    mut sink: Sink,
     pipeline: &mut dyn Kernel,
 ) -> VortexResult<BoolArray> {
     let len = mask.len();
     let true_count = mask.true_count();
 
-    let mut elements_buffer = Vector::new::<bool>();
-    let mut elements_buffer_mut = elements_buffer.as_view_mut();
-
-    let mask_buffer = mask.to_boolean_buffer();
-
-    let mut mask_iter = BitAlignedChunkedIterator::new(&mask_buffer);
+    let mut elements_buffer = [false; N];
+    // let mut elements_buffer_mut = elements_buffer.as_view_mut();
 
     // Fast path: collect all bools first, then use collect_bool for optimal packing
     let mut all_bools: Vec<bool> = Vec::with_capacity(true_count);
 
     // Process complete runs of N (1024) values
-    let complete_runs = len / N;
-    for i in 0..complete_runs {
-        let chunk_array = mask_iter.next_chunk().vortex_expect("mask chunk");
+    let runs = len.div_ceil(N);
+    for i in 0..runs {
+        let chunk_array = mask.next_chunk().vortex_expect("mask chunk");
         // chunk_array is already a [usize; N_WORDS], no need to copy
-        let mask_view = BitView::new(&chunk_array);
+        let mask_view = BitView::new(chunk_array);
 
         let dummy_ctx = KernelContext::default();
-        pipeline.step(&dummy_ctx, mask_view, &mut elements_buffer_mut)?;
+        let mut view_mut = ViewMut::new(&mut elements_buffer, sink.next_chunk().map(|b| BitViewMut::new(b)));
+        pipeline.step(&dummy_ctx, mask_view, &mut view_mut)?;
 
         // Collect bools efficiently with unsafe for better performance
-        let bool_slice = elements_buffer_mut.as_slice::<bool>();
-        let count = mask_view.true_count();
+        let bool_slice = elements_buffer.as_slice();
+        let element_count = mask_view.true_count();
+        sink.commit_n(element_count)?;
 
         // Unsafe version to avoid bounds checking in hot path
         let old_len = all_bools.len();
         unsafe {
-            all_bools.set_len(old_len + count);
+            all_bools.set_len(old_len + element_count);
             std::ptr::copy_nonoverlapping(
                 bool_slice.as_ptr(),
                 all_bools.as_mut_ptr().add(old_len),
-                count,
-            );
-        }
-    }
-
-    let remaining = len % N;
-    if remaining > 0 {
-        let chunk = mask_iter.next_chunk().vortex_expect("mask chunk");
-        let view = BitView::new(&chunk);
-
-        let dummy_ctx = KernelContext::default();
-        pipeline.step(&dummy_ctx, view, &mut elements_buffer_mut)?;
-
-        // Collect remaining bools
-        let bool_slice = elements_buffer_mut.as_slice::<bool>();
-        let count = view.true_count();
-
-        let old_len = all_bools.len();
-        unsafe {
-            all_bools.set_len(old_len + count);
-            std::ptr::copy_nonoverlapping(
-                bool_slice.as_ptr(),
-                all_bools.as_mut_ptr().add(old_len),
-                count,
+                element_count,
             );
         }
     }
@@ -82,14 +96,26 @@ pub(super) fn export_bool_nonnull_masked<T: MaskSliceIterator>(
         *all_bools.get_unchecked(idx)
     });
 
-    Ok(BoolArray::from_bool_buffer(values, Validity::NonNullable))
+    if let Some(validity) = sink.finish()? {
+        Ok(BoolArray::from_bool_buffer(
+            values,
+            Validity::from(validity),
+        ))
+    } else {
+        Ok(BoolArray::from_bool_buffer(
+            values,
+            Validity::NonNullable,
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
+    use vortex_mask::Mask;
 
     use super::*;
+    use crate::pipeline::canonical::BitAlignedChunkedIterator;
     use crate::pipeline::view::ViewMut;
 
     struct TestKernel {
@@ -157,7 +183,9 @@ mod tests {
         let mut kernel = TestKernel::new();
 
         // Run the export function
-        let result = export_bool_nonnull_masked(&original_mask, &mut kernel).unwrap();
+        let mask_buffer = original_mask.to_boolean_buffer();
+        let mask_iter = BitAlignedChunkedIterator::new(&mask_buffer, original_mask.true_count());
+        let result = export_bool_nonnull_masked(mask_iter, &mut kernel).unwrap();
 
         // Verify the result
         assert_eq!(result.len(), expected_true_count);
@@ -223,7 +251,9 @@ mod tests {
 
         let mut kernel = TestKernel::new();
 
-        let result = export_bool_nonnull_masked(&original_mask, &mut kernel).unwrap();
+        let mask_buffer = original_mask.to_boolean_buffer();
+        let mask_iter = BitAlignedChunkedIterator::new(&mask_buffer, original_mask.true_count());
+        let result = export_bool_nonnull_masked(mask_iter, &mut kernel).unwrap();
 
         // Should have exactly 2 complete runs, no remaining
         let masks = &kernel.collected_masks;
@@ -263,7 +293,9 @@ mod tests {
 
         let mut kernel = TestKernel::new();
 
-        let result = export_bool_nonnull_masked(&original_mask, &mut kernel).unwrap();
+        let mask_buffer = original_mask.to_boolean_buffer();
+        let mask_iter = BitAlignedChunkedIterator::new(&mask_buffer, original_mask.true_count());
+        let result = export_bool_nonnull_masked(mask_iter, &mut kernel).unwrap();
 
         let masks = &kernel.collected_masks;
         let counts = &kernel.collected_counts;
@@ -305,7 +337,9 @@ mod tests {
 
         let mut kernel = TestKernel::new();
 
-        let result = export_bool_nonnull_masked(&sliced_mask, &mut kernel).unwrap();
+        let mask_buffer = sliced_mask.to_boolean_buffer();
+        let mask_iter = BitAlignedChunkedIterator::new(&mask_buffer, sliced_mask.true_count());
+        let result = export_bool_nonnull_masked(mask_iter, &mut kernel).unwrap();
 
         let masks = &kernel.collected_masks;
         let counts = &kernel.collected_counts;
@@ -371,7 +405,9 @@ mod tests {
 
         let mut kernel = TestKernel::new();
 
-        let result = export_bool_nonnull_masked(&sliced_mask, &mut kernel).unwrap();
+        let mask_buffer = sliced_mask.to_boolean_buffer();
+        let mask_iter = BitAlignedChunkedIterator::new(&mask_buffer, sliced_mask.true_count());
+        let result = export_bool_nonnull_masked(mask_iter, &mut kernel).unwrap();
 
         let masks = &kernel.collected_masks;
         let counts = &kernel.collected_counts;

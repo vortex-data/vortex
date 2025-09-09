@@ -226,6 +226,9 @@ fn try_evaluate_using_operator(
     expr: &ExprRef,
     mask: &Mask,
 ) -> VortexResult<Option<ArrayRef>> {
+    // if true {
+    //     return Ok(None);
+    // }
     let Some(operator) = expr.to_operator(array)? else {
         return Ok(None);
     };

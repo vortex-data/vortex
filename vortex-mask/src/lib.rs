@@ -226,8 +226,13 @@ impl Mask {
 
     /// Create a new [`Mask`] from a [`BooleanBuffer`].
     pub fn from_buffer(buffer: BooleanBuffer) -> Self {
-        let len = buffer.len();
         let true_count = buffer.count_set_bits();
+        unsafe { Self::unchecked_from_buffer(buffer, true_count) }
+    }
+
+    /// Create a new [`Mask`] from a [`BooleanBuffer`], taking an unverified true count.
+    pub unsafe fn unchecked_from_buffer(buffer: BooleanBuffer, true_count: usize) -> Self {
+        let len = buffer.len();
 
         if true_count == 0 {
             return Self::AllFalse(len);

@@ -10,9 +10,11 @@ use vortex_mask::Mask;
 
 use crate::Canonical;
 use crate::pipeline::Kernel;
-use crate::pipeline::bits::{BitAlignedChunkedIterator, TrueSliceIterator};
-use crate::pipeline::canonical::bool::export_bool_nonnull_masked;
-use crate::pipeline::canonical::primitive::{export_primitive_nonnull, export_primitive_null};
+use crate::pipeline::bits::{
+    AlignedBitSink, BitAlignedChunkedIterator, EmptyBitSink, TrueSliceIterator, UnalignedBitSink,
+};
+use crate::pipeline::canonical::bool::{export_bool, export_bool_nonnull_masked};
+use crate::pipeline::canonical::primitive::export_primitive;
 use crate::pipeline::operators::Operator;
 use crate::pipeline::query::QueryPlan;
 
@@ -23,44 +25,18 @@ pub fn export_canonical_pipeline(
     pipeline: &mut dyn Kernel,
     mask: &Mask,
 ) -> VortexResult<Canonical> {
+    if mask.all_false() {
+        return Ok(Canonical::empty(dtype));
+    }
+
     match dtype {
-        DType::Bool(Nullability::NonNullable) => {
-            if mask.all_true() {
-                export_bool_nonnull_masked(mask, pipeline).map(Canonical::Bool)
-            } else {
-                export_bool_nonnull_masked(mask, pipeline).map(Canonical::Bool)
-            }
+        DType::Bool(nullability) => {
+            export_bool(*nullability, mask, pipeline).map(Canonical::Bool)
         }
-        DType::Primitive(ptype, Nullability::NonNullable) => {
-            if mask.all_true() {
-                match_each_native_ptype!(ptype, |T| {
-                    export_primitive_nonnull::<T, _>(TrueSliceIterator::new(len), pipeline)
-                        .map(Canonical::Primitive)
-                })
-            } else {
-                match_each_native_ptype!(ptype, |T| {
-                    export_primitive_nonnull::<T, _>(
-                        BitAlignedChunkedIterator::new(&mask.to_boolean_buffer()),
-                        pipeline,
-                    )
-                    .map(Canonical::Primitive)
-                })
-            }
+        DType::Primitive(ptype, nullability) => {
+            export_primitive(*ptype, *nullability, mask, pipeline).map(Canonical::Primitive)
         }
-        DType::Primitive(ptype, Nullability::Nullable) => {
-            if mask.all_true() {
-                return match_each_native_ptype!(ptype, |T| {
-                    export_primitive_null::<T, _>(TrueSliceIterator::new(len), pipeline)
-                        .map(Canonical::Primitive)
-                });
-            } else {
-                return match_each_native_ptype!(ptype, |T| {
-                    export_primitive_null::<T, _>(BitAlignedChunkedIterator::new(&mask.to_boolean_buffer()), pipeline)
-                        .map(Canonical::Primitive)
-                });
-            }
-        }
-        _ => vortex_bail!("Expected a primitive array, got: {}", dtype),
+        _ => vortex_bail!("Expected a bool or primitive array, got: {}", dtype),
     }
 }
 

@@ -10,10 +10,13 @@ use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
 
 use crate::pipeline::{N, N_WORDS};
 
+#[allow(clippy::len_without_is_empty)]
 pub trait MaskSliceIterator {
     fn next_chunk(&mut self) -> Option<&[usize; N_WORDS]>;
 
     fn len(&self) -> usize;
+
+    fn true_count(&self) -> usize;
 }
 
 /// An iterator that returns chunks of N bits as usize words, zero-padded if needed
@@ -22,7 +25,8 @@ pub struct BitAlignedChunkedIterator<'a> {
     data: &'a [u8],
     byte_offset: usize,
     buffer: Box<[usize; N_WORDS]>,
-    len: usize, // Total length in bits
+    len: usize,        // Total length in bits
+    true_count: usize, // Number of true bits
     bit_chunk_iter: Option<Chain<BitChunkIterator<'a>, Once<u64>>>,
     done: bool,
 }
@@ -37,24 +41,31 @@ impl MaskSliceIterator for BitAlignedChunkedIterator<'_> {
     fn len(&self) -> usize {
         self.len
     }
+
+    #[inline]
+    fn true_count(&self) -> usize {
+        self.true_count
+    }
 }
 
 impl<'a> From<&'a BooleanBuffer> for BitAlignedChunkedIterator<'a> {
     fn from(value: &'a BooleanBuffer) -> Self {
-        Self::new(value)
+        let true_count = value.count_set_bits();
+        Self::new(value, true_count)
     }
 }
 
 impl<'a> BitAlignedChunkedIterator<'a> {
-    pub fn new(buffer: &'a BooleanBuffer) -> Self {
+    pub fn new(buffer: &'a BooleanBuffer, true_count: usize) -> Self {
         // Check if data is aligned and we can use fast path
         let is_aligned = buffer.offset() % usize::BITS as usize == 0
             && buffer.values().as_ptr().align_offset(align_of::<usize>()) == 0;
 
+        let len = buffer.len();
+
         if is_aligned {
             // Use original fast path logic
             let bit_offset = buffer.offset();
-            let len = buffer.len();
             let start_byte = bit_offset / 8;
             let end_bit = bit_offset + len;
             let end_byte = end_bit.div_ceil(8);
@@ -68,6 +79,7 @@ impl<'a> BitAlignedChunkedIterator<'a> {
                 byte_offset: 0,
                 buffer: Box::new([0usize; N_WORDS]),
                 len,
+                true_count,
                 bit_chunk_iter: None,
                 done: false,
             }
@@ -88,7 +100,8 @@ impl<'a> BitAlignedChunkedIterator<'a> {
                 data: &[],
                 byte_offset: 0,
                 buffer: Box::new([0usize; N_WORDS]),
-                len: buffer.len(),
+                len,
+                true_count,
                 bit_chunk_iter: Some(iter),
                 done: false,
             }
@@ -109,7 +122,10 @@ impl<'a> BitAlignedChunkedIterator<'a> {
             // Call iterator up to 16 times to fill our N_WORDS buffer
             while u64_count < N_WORDS {
                 if let Some(u64_chunk) = iter.next() {
-                    self.buffer[u64_count] = u64_chunk as usize;
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        self.buffer[u64_count] = u64_chunk as usize;
+                    }
                     u64_count += 1;
                 } else {
                     break;
@@ -180,7 +196,7 @@ mod tests {
         // Test byte-aligned iterator (offset = 0)
         let data = vec![0b10101010u8; 128]; // 1024 bits, alternating pattern
         let buffer = BooleanBuffer::new(data.clone().into(), 0, data.len() * 8);
-        let mut iter = BitAlignedChunkedIterator::new(&buffer);
+        let mut iter = BitAlignedChunkedIterator::new(&buffer, buffer.count_set_bits());
 
         let chunk = iter.next_chunk().unwrap();
 
@@ -199,7 +215,7 @@ mod tests {
         // Test byte-aligned iterator (offset = 0)
         let data = vec![0b10101010u8; 128]; // 1024 bits, alternating pattern
         let buffer = BooleanBuffer::new(data.into(), 0, ((128 - 1) * 8) + 7);
-        let mut iter = BitAlignedChunkedIterator::new(&buffer);
+        let mut iter = BitAlignedChunkedIterator::new(&buffer, buffer.count_set_bits());
 
         let chunk = iter.next_chunk().unwrap();
 
@@ -221,7 +237,7 @@ mod tests {
         // Test with partial data that needs zero-padding
         let data = vec![0b11110000u8; 64]; // 512 bits (half of N)
         let buffer = BooleanBuffer::new(data.clone().into(), 0, data.len() * 8);
-        let mut iter = BitAlignedChunkedIterator::new(&buffer);
+        let mut iter = BitAlignedChunkedIterator::new(&buffer, buffer.count_set_bits());
 
         let chunk = iter.next_chunk().unwrap();
         let chunk_u8: &[u8] = unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
@@ -239,7 +255,7 @@ mod tests {
         // Test with non-byte-aligned bit offset
         let data = vec![0b11100111u8, 0b00011100, 0b11100011, 0b10001110]; // 32 bits
         let buffer = BooleanBuffer::new(data.into(), 3, 32 - 3); // 3-bit offset
-        let mut iter = BitAlignedChunkedIterator::new(&buffer);
+        let mut iter = BitAlignedChunkedIterator::new(&buffer, buffer.count_set_bits());
 
         let chunk = iter.next_chunk().unwrap();
         let chunk_u8: &[u8] = unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
@@ -264,7 +280,7 @@ mod tests {
         // Test with enough data for multiple chunks
         let data = vec![0b10101010u8; 256];
         let buffer = BooleanBuffer::new(data.clone().into(), 0, data.len() * 8);
-        let mut iter = BitAlignedChunkedIterator::new(&buffer);
+        let mut iter = BitAlignedChunkedIterator::new(&buffer, buffer.count_set_bits());
 
         // First chunk
         let chunk1 = iter.next_chunk().unwrap();
@@ -285,7 +301,7 @@ mod tests {
         // Test bit offset with enough data to need multiple source bytes
         let data = vec![0b01111000u8; 20]; // 160 bits
         let buffer = BooleanBuffer::new(data.into(), 4, (20 * 8) - 8); // 4-bit offset
-        let mut iter = BitAlignedChunkedIterator::new(&buffer);
+        let mut iter = BitAlignedChunkedIterator::new(&buffer, buffer.count_set_bits());
 
         let chunk = iter.next_chunk().unwrap();
         let chunk_u8: &[u8] = unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u8, 128) };
@@ -307,9 +323,9 @@ mod tests {
     #[test]
     fn test_bit_aligned_iterator_byte_subword_offset() {
         // Test with bit offset - this should produce exactly one chunk
-        let mut data = vec![0b10101010u8; 129];
+        let data = vec![0b10101010u8; 129];
         let buffer = BooleanBuffer::new(data.into(), 1, 1024); // 1-bit offset, exactly 1024 bits
-        let mut iter = BitAlignedChunkedIterator::new(&buffer);
+        let mut iter = BitAlignedChunkedIterator::new(&buffer, buffer.count_set_bits());
 
         let chunk = iter.next_chunk().unwrap();
 

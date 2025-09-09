@@ -2,7 +2,9 @@
 
 use arrow_buffer::BooleanBuffer;
 use divan::{Bencher, black_box};
-use vortex_array::pipeline::bits::{BitAlignedChunkedIterator, MaskSliceIterator, TrueSliceIterator};
+use vortex_array::pipeline::bits::{
+    BitAlignedChunkedIterator, MaskSliceIterator, TrueSliceIterator,
+};
 use vortex_array::pipeline::{N, N_WORDS};
 
 fn create_test_data(len: usize, pattern: fn(usize) -> bool) -> Vec<u8> {

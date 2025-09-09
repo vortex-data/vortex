@@ -15,6 +15,10 @@ impl MaskSliceIterator for TrueSliceIterator {
     fn len(&self) -> usize {
         self.len
     }
+
+    fn true_count(&self) -> usize {
+        self.len // All bits are true in TrueSliceIterator
+    }
 }
 
 impl TrueSliceIterator {
