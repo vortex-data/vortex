@@ -19,16 +19,23 @@ use vortex_error::VortexResult;
 
 use crate::pipeline::N_WORDS;
 
-#[allow(clippy::len_without_is_empty)]
+/// This is a trait for iterating over a mask in chunks of N (1024) bits at a time
 pub trait MaskSliceIterator {
+    /// TODO(joe): have this return the true_count of the chunk also
+    /// this can sometime avoid computing the true_count of the chunk if its known.
     fn next_chunk(&mut self) -> Option<&[usize; N_WORDS]>;
 
     fn len(&self) -> usize;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 
     fn true_count(&self) -> usize;
 }
 
 /// Trait for writing bits in chunks of N (1024) bits at a time
+/// This is used to write validity masks for canonical exporters.
 pub trait BitSink {
     /// Get a mutable slice for writing the next chunk of N bits
     /// Returns a mutable reference to N_WORDS (16) usize values

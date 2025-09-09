@@ -75,7 +75,6 @@ fn export_bool_impl<T: MaskSliceIterator, Sink: BitSink>(
     let true_count = mask.true_count();
 
     let mut elements_buffer = [false; N];
-    // let mut elements_buffer_mut = elements_buffer.as_view_mut();
 
     // Fast path: collect all bools first, then use collect_bool for optimal packing
     let mut all_bools: Vec<bool> = Vec::with_capacity(true_count);
@@ -84,7 +83,6 @@ fn export_bool_impl<T: MaskSliceIterator, Sink: BitSink>(
     let runs = len.div_ceil(N);
     for i in 0..runs {
         let chunk_array = mask.next_chunk().vortex_expect("mask chunk");
-        // chunk_array is already a [usize; N_WORDS], no need to copy
         let mask_view = BitView::new(chunk_array);
 
         let dummy_ctx = KernelContext::default();
