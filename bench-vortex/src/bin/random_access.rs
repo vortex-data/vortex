@@ -78,7 +78,7 @@ fn random_access(
 
     let mut measurements = Vec::new();
 
-    let taxi_vortex = runtime.block_on(taxi_data_vortex());
+    let taxi_vortex = runtime.block_on(taxi_data_vortex())?;
     let taxi_parquet = runtime.block_on(taxi_data_parquet());
 
     let validate = |array: ArrayRef| {

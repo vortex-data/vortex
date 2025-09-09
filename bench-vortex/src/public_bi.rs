@@ -286,15 +286,17 @@ impl PBIData {
             .with_extension(file_type.extension())
     }
 
-    async fn unzip(&self) {
+    async fn unzip(&self) -> anyhow::Result<()> {
         let decompress_futures = self.tables.iter().map(|table| {
             let bzipped = self.get_file_path(&table.name, FileType::CsvBzip2);
             let unzipped = self.get_file_path(&table.name, FileType::Csv);
-            tokio::task::spawn_blocking(|| {
-                decompress_bz2(bzipped, unzipped);
-            })
+            tokio::task::spawn_blocking(move || decompress_bz2(bzipped, unzipped))
         });
-        join_all(decompress_futures).await;
+        let results = join_all(decompress_futures).await;
+        for result in results {
+            result.map_err(|e| anyhow::anyhow!("Failed to spawn decompression task: {}", e))??;
+        }
+        Ok(())
     }
 
     fn list_files(&self, file_type: FileType) -> Vec<PathBuf> {
@@ -306,7 +308,7 @@ impl PBIData {
 
     pub async fn write_as_parquet(&self) -> anyhow::Result<()> {
         self.download_bzips().await;
-        self.unzip().await;
+        self.unzip().await?;
 
         let to_parquet_futures = self.tables.iter().map(|table| {
             let csv = self.get_file_path(&table.name, FileType::Csv);
@@ -337,21 +339,26 @@ impl PBIData {
             let parquet = self.get_file_path(&table.name, FileType::Parquet);
             let vortex = self.get_file_path(&table.name, FileType::Vortex);
             async move {
-                let vortex_file = idempotent_async(&vortex, async |output_path| {
-                    VortexWriteOptions::default()
-                        .with_strategy(
-                            WriteStrategyBuilder::new()
-                                .with_executor(Arc::new(Handle::current()))
-                                .build(),
-                        )
-                        .write(
-                            File::create(output_path).await.unwrap(),
-                            parquet_to_vortex(parquet).unwrap(),
-                        )
-                        .await
-                })
-                .await
-                .expect("failed to compress to vortex");
+                let vortex_file =
+                    idempotent_async(&vortex, async |output_path| -> anyhow::Result<()> {
+                        VortexWriteOptions::default()
+                            .with_strategy(
+                                WriteStrategyBuilder::new()
+                                    .with_executor(Arc::new(Handle::current()))
+                                    .build(),
+                            )
+                            .write(
+                                File::create(output_path)
+                                    .await
+                                    .map_err(|e| anyhow::anyhow!("Failed to create file: {}", e))?,
+                                parquet_to_vortex(parquet)?,
+                            )
+                            .await
+                            .map_err(|e| anyhow::anyhow!("Failed to write vortex file: {}", e))?;
+                        Ok(())
+                    })
+                    .await
+                    .expect("failed to compress to vortex");
                 let vx_size = vortex_file
                     .metadata()
                     .expect("Failed to get metadata")
@@ -418,27 +425,23 @@ impl Dataset for PBIBenchmark {
         &self.name
     }
 
-    async fn to_vortex_array(&self) -> ArrayRef {
-        let dataset = self.dataset().expect("failed to parse tables");
+    async fn to_vortex_array(&self) -> anyhow::Result<ArrayRef> {
+        let dataset = self.dataset()?;
         dataset.write_as_vortex().await;
         // reading only the first table, each table in a PBI benchmark
         // has its own schema.
         let path = dataset
             .list_files(FileType::Vortex)
             .first()
-            .expect("must have at least one table")
+            .ok_or_else(|| anyhow!("must have at least one table"))?
             .clone();
 
-        async move {
-            VortexOpenOptions::file()
-                .open(&path)
-                .await?
-                .scan()?
-                .into_array_iter_multithread()?
-                .read_all()
-        }
-        .await
-        .expect("must be able to read table")
+        Ok(VortexOpenOptions::file()
+            .open(&path)
+            .await?
+            .scan()?
+            .into_array_iter_multithread()?
+            .read_all()?)
     }
 }
 

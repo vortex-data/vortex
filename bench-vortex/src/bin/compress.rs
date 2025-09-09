@@ -124,6 +124,8 @@ fn compress(
                 dataset_handle,
             )
         })
+        .try_collect::<_, Vec<_>, _>()?
+        .into_iter()
         .collect::<CompressMeasurements>();
 
     progress.finish();
