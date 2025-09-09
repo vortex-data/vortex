@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-
 use arrow_buffer::BooleanBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
-use crate::pipeline::bits::{BitView, BitAlignedChunkedIterator};
+use crate::pipeline::bits::{BitAlignedChunkedIterator, BitView};
 use crate::pipeline::vec::Vector;
 use crate::pipeline::{Kernel, KernelContext, N};
 use crate::validity::Validity;
@@ -24,7 +23,7 @@ pub(super) fn export_bool_nonnull_masked(
 
     let mask_buffer = mask.to_boolean_buffer();
 
-    let mut mask_iter = BitAlignedChunkedIterator::from(&mask_buffer);
+    let mut mask_iter = BitAlignedChunkedIterator::new(&mask_buffer);
 
     // Fast path: collect all bools first, then use collect_bool for optimal packing
     let mut all_bools: Vec<bool> = Vec::with_capacity(true_count);
@@ -63,7 +62,6 @@ pub(super) fn export_bool_nonnull_masked(
         let dummy_ctx = KernelContext::default();
         pipeline.step(&dummy_ctx, view, &mut elements_buffer_mut)?;
 
-
         // Collect remaining bools
         let bool_slice = elements_buffer_mut.as_slice::<bool>();
         let count = view.true_count();
@@ -90,6 +88,7 @@ pub(super) fn export_bool_nonnull_masked(
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
+
     use super::*;
     use crate::pipeline::view::ViewMut;
 
@@ -168,18 +167,28 @@ mod tests {
         let counts = &kernel.collected_counts;
 
         // Should have 3 calls: 2 complete runs + 1 remaining
-        assert_eq!(masks.len(), 3, "Expected 3 step calls (2 complete + 1 remaining)");
+        assert_eq!(
+            masks.len(),
+            3,
+            "Expected 3 step calls (2 complete + 1 remaining)"
+        );
         assert_eq!(counts.len(), 3);
 
         // Build expected masks for each chunk
         // First complete run (bits 0..1024)
         let expected_first_mask = Mask::from_iter((0..N).map(|i| i % 3 == 0));
-        assert_eq!(masks[0], expected_first_mask, "First run mask should match expected pattern");
+        assert_eq!(
+            masks[0], expected_first_mask,
+            "First run mask should match expected pattern"
+        );
         assert_eq!(counts[0], expected_first_mask.true_count());
 
         // Second complete run (bits 1024..2048)
         let expected_second_mask = Mask::from_iter((0..N).map(|i| (1024 + i) % 3 == 0));
-        assert_eq!(masks[1], expected_second_mask, "Second run mask should match expected pattern");
+        assert_eq!(
+            masks[1], expected_second_mask,
+            "Second run mask should match expected pattern"
+        );
         assert_eq!(counts[1], expected_second_mask.true_count());
 
         // Remaining run (bits 2048..2100, padded with false to N)
@@ -187,15 +196,21 @@ mod tests {
             if i < 52 {
                 (2048 + i) % 3 == 0
             } else {
-                false  // Padding
+                false // Padding
             }
         }));
-        assert_eq!(masks[2], expected_remaining_mask, "Remaining mask should match expected pattern with padding");
+        assert_eq!(
+            masks[2], expected_remaining_mask,
+            "Remaining mask should match expected pattern with padding"
+        );
         assert_eq!(counts[2], expected_remaining_mask.true_count());
 
         // Verify total count matches
         let total_collected = counts.iter().sum::<usize>();
-        assert_eq!(total_collected, expected_true_count, "Total collected should match mask true count");
+        assert_eq!(
+            total_collected, expected_true_count,
+            "Total collected should match mask true count"
+        );
     }
 
     #[test]
@@ -214,14 +229,24 @@ mod tests {
         let masks = &kernel.collected_masks;
         let counts = &kernel.collected_counts;
 
-        assert_eq!(masks.len(), 2, "Expected exactly 2 step calls for 2048 elements");
+        assert_eq!(
+            masks.len(),
+            2,
+            "Expected exactly 2 step calls for 2048 elements"
+        );
 
         // Build expected masks for each chunk
         let expected_first_mask = Mask::from_iter((0..N).map(|i| i % 2 == 0));
         let expected_second_mask = Mask::from_iter((0..N).map(|i| (1024 + i) % 2 == 0));
 
-        assert_eq!(masks[0], expected_first_mask, "First chunk mask should match");
-        assert_eq!(masks[1], expected_second_mask, "Second chunk mask should match");
+        assert_eq!(
+            masks[0], expected_first_mask,
+            "First chunk mask should match"
+        );
+        assert_eq!(
+            masks[1], expected_second_mask,
+            "Second chunk mask should match"
+        );
 
         // Each run should have 512 true values (every other bit)
         assert_eq!(counts[0], 512);
@@ -251,11 +276,14 @@ mod tests {
             if i < len {
                 i % 4 == 0
             } else {
-                false  // Padding
+                false // Padding
             }
         }));
 
-        assert_eq!(masks[0], expected_mask, "Mask should match expected pattern with padding");
+        assert_eq!(
+            masks[0], expected_mask,
+            "Mask should match expected pattern with padding"
+        );
 
         // Verify count
         let expected_trues = expected_mask.true_count();
@@ -269,80 +297,108 @@ mod tests {
         // Create a larger mask and then slice it
         let full_len = 3000;
         let full_mask = Mask::from_iter((0..full_len).map(|i| i % 5 == 0));
-        
+
         // Slice the mask starting from position 512 with length 1536 (1.5 * N)
         let slice_start = 512;
         let slice_len = 1536;
         let sliced_mask = full_mask.slice(slice_start..slice_start + slice_len);
-        
+
         let mut kernel = TestKernel::new();
-        
+
         let result = export_bool_nonnull_masked(&sliced_mask, &mut kernel).unwrap();
-        
+
         let masks = &kernel.collected_masks;
         let counts = &kernel.collected_counts;
-        
+
         // Should have 2 calls: 1 complete run + 1 remaining (512 bits)
-        assert_eq!(masks.len(), 2, "Expected 2 step calls (1 complete + 1 remaining)");
-        
+        assert_eq!(
+            masks.len(),
+            2,
+            "Expected 2 step calls (1 complete + 1 remaining)"
+        );
+
         // Build expected masks for the sliced region
         // First complete run (bits 512..1536 from original)
         let expected_first_mask = Mask::from_iter((0..N).map(|i| (slice_start + i) % 5 == 0));
-        assert_eq!(masks[0], expected_first_mask, "First run mask should match sliced pattern");
+        assert_eq!(
+            masks[0], expected_first_mask,
+            "First run mask should match sliced pattern"
+        );
         assert_eq!(counts[0], expected_first_mask.true_count());
-        
+
         // Remaining run (bits 1536..2048 from original, padded)
         let remaining_bits = slice_len - N;
         let expected_remaining_mask = Mask::from_iter((0..N).map(|i| {
             if i < remaining_bits {
                 (slice_start + N + i) % 5 == 0
             } else {
-                false  // Padding
+                false // Padding
             }
         }));
-        assert_eq!(masks[1], expected_remaining_mask, "Remaining mask should match sliced pattern with padding");
+        assert_eq!(
+            masks[1], expected_remaining_mask,
+            "Remaining mask should match sliced pattern with padding"
+        );
         assert_eq!(counts[1], expected_remaining_mask.true_count());
-        
+
         // Verify result length matches true count
         let expected_true_count = sliced_mask.true_count();
-        assert_eq!(result.len(), expected_true_count, "Result length should match sliced mask true count");
-        
+        assert_eq!(
+            result.len(),
+            expected_true_count,
+            "Result length should match sliced mask true count"
+        );
+
         // Verify total collected matches
         let total_collected = counts.iter().sum::<usize>();
-        assert_eq!(total_collected, expected_true_count, "Total collected should match sliced mask true count");
+        assert_eq!(
+            total_collected, expected_true_count,
+            "Total collected should match sliced mask true count"
+        );
     }
-    
+
     #[test]
     fn test_export_bool_nonnull_masked_sliced_non_byte_aligned() {
         // Test with a sliced mask that creates a non-byte-aligned offset
         // This tests the BitAlignedChunkedIterator's bit-shifting logic
         let full_len = 2500;
         let full_mask = Mask::from_iter((0..full_len).map(|i| i % 7 == 0));
-        
+
         // Slice starting at bit 13 (non-byte-aligned) with length 1100
         let slice_start = 13;
         let slice_len = 1100;
         let sliced_mask = full_mask.slice(slice_start..slice_start + slice_len);
 
-
         let mut kernel = TestKernel::new();
-        
+
         let result = export_bool_nonnull_masked(&sliced_mask, &mut kernel).unwrap();
-        
+
         let masks = &kernel.collected_masks;
         let counts = &kernel.collected_counts;
-        
-        // Should have 2 calls: 1 complete run + 1 remaining
-        assert_eq!(masks.len(), 2, "Expected 2 step calls for non-byte-aligned slice");
-        
-        let expected_first_mask = sliced_mask.clone().slice(0..N);
-        assert_eq!(masks[0], expected_first_mask, "First chunk should match non-byte-aligned pattern");
 
+        // Should have 2 calls: 1 complete run + 1 remaining
+        assert_eq!(
+            masks.len(),
+            2,
+            "Expected 2 step calls for non-byte-aligned slice"
+        );
+
+        let expected_first_mask = sliced_mask.clone().slice(0..N);
+        assert_eq!(
+            masks[0], expected_first_mask,
+            "First chunk should match non-byte-aligned pattern"
+        );
 
         // Verify remaining chunk
         let expected_remaining_mask = sliced_mask.slice(N..1087);
-        assert_eq!(masks[1].slice(0..1100-13-N), expected_remaining_mask, "Remaining chunk should match with padding\n{:?}\n{:?}",      masks[1].iter_bools(|i| i.collect_vec()), expected_remaining_mask.iter_bools(|i| i.collect_vec()));
-        
+        assert_eq!(
+            masks[1].slice(0..1100 - 13 - N),
+            expected_remaining_mask,
+            "Remaining chunk should match with padding\n{:?}\n{:?}",
+            masks[1].iter_bools(|i| i.collect_vec()),
+            expected_remaining_mask.iter_bools(|i| i.collect_vec())
+        );
+
         // Verify counts
         assert_eq!(result.len(), sliced_mask.true_count());
         let total_collected: usize = counts.iter().sum();

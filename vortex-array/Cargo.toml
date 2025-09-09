@@ -103,3 +103,7 @@ harness = false
 [[bench]]
 name = "chunk_array_builder"
 harness = false
+
+[[bench]]
+name = "mask_iteration"
+harness = false
