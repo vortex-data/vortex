@@ -119,7 +119,7 @@ impl<A: Annotation + Display> PartitionedExpr<A> {
         let id = FieldName::from(id.to_string());
         self.partition_names
             .iter()
-            .position(|field| field == &id)
+            .position(|field| field == id)
             .map(|idx| &self.partitions[idx])
     }
 }
@@ -296,7 +296,7 @@ mod tests {
 
         let expr = and(
             get_item("y", get_item("a", root())),
-            select(vec!["a".into(), "b".into()], root()),
+            select(["a", "b"], root()),
         );
         let expr = simplify_typed(expr, &dtype).unwrap();
         let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();

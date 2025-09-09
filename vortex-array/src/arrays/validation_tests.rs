@@ -195,7 +195,7 @@ mod tests {
         let field1 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
         let field2 = PrimitiveArray::from_iter([4.0f64, 5.0, 6.0]).into_array();
         let fields = vec![field1, field2];
-        let names = vec!["a".into(), "b".into()];
+        let names = ["a", "b"];
         let result = StructArray::try_new(names.into(), fields, 3, Validity::NonNullable);
         assert!(result.is_ok());
     }
@@ -206,7 +206,7 @@ mod tests {
         let field1 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
         let field2 = PrimitiveArray::from_iter([4.0f64, 5.0]).into_array(); // Length 2, not 3.
         let fields = vec![field1, field2];
-        let names = vec!["a".into(), "b".into()];
+        let names = ["a", "b"];
         let result = StructArray::try_new(names.into(), fields, 3, Validity::NonNullable);
         assert!(result.is_err());
     }

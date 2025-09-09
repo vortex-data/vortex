@@ -294,10 +294,7 @@ mod tests {
         let f1_dt = DType::Utf8(Nullability::NonNullable);
 
         let dtype = DType::Struct(
-            StructFields::new(
-                vec!["a".into(), "b".into()].into(),
-                vec![f0_dt.clone(), f1_dt.clone()],
-            ),
+            StructFields::new(["a", "b"].into(), vec![f0_dt.clone(), f1_dt.clone()]),
             Nullability::Nullable,
         );
 
@@ -424,7 +421,7 @@ mod tests {
     fn test_struct_cast_to_struct() {
         // Create source struct
         let source_fields = StructFields::new(
-            vec!["x".into(), "y".into()].into(),
+            ["x", "y"].into(),
             vec![
                 DType::Primitive(I32, Nullability::NonNullable),
                 DType::Primitive(I32, Nullability::NonNullable),
@@ -434,7 +431,7 @@ mod tests {
 
         // Create target struct with different field types
         let target_fields = StructFields::new(
-            vec!["x".into(), "y".into()].into(),
+            ["x", "y"].into(),
             vec![
                 DType::Primitive(vortex_dtype::PType::I64, Nullability::NonNullable),
                 DType::Primitive(vortex_dtype::PType::I64, Nullability::NonNullable),
@@ -458,13 +455,13 @@ mod tests {
     #[test]
     fn test_struct_cast_mismatched_fields() {
         let source_fields = StructFields::new(
-            vec!["a".into()].into(),
+            ["a"].into(),
             vec![DType::Primitive(I32, Nullability::NonNullable)],
         );
         let source_dtype = DType::Struct(source_fields, Nullability::NonNullable);
 
         let target_fields = StructFields::new(
-            vec!["a".into(), "b".into()].into(),
+            ["a", "b"].into(),
             vec![
                 DType::Primitive(I32, Nullability::NonNullable),
                 DType::Primitive(I32, Nullability::NonNullable),
@@ -585,7 +582,7 @@ mod tests {
         // Different struct types cannot be compared
         let other_dtype = DType::Struct(
             StructFields::new(
-                vec!["c".into()].into(),
+                ["c"].into(),
                 vec![DType::Primitive(I32, Nullability::NonNullable)],
             ),
             Nullability::NonNullable,

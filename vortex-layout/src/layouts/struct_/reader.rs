@@ -292,7 +292,7 @@ mod tests {
                 SequentialStreamAdapter::new(
                     DType::Struct(
                         StructFields::new(
-                            vec!["a".into(), "b".into(), "c".into()].into(),
+                            ["a", "b", "c"].into(),
                             vec![I32.into(), I32.into(), I32.into()],
                         ),
                         NonNullable,

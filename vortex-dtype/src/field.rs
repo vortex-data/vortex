@@ -32,7 +32,7 @@ impl Field {
     /// Retrieve a field name if it has one
     pub fn as_name(&self) -> Option<&str> {
         match self {
-            Field::Name(name) => Some(name),
+            Field::Name(name) => Some(name.as_ref()),
             Field::ElementType => None,
         }
     }
@@ -51,6 +51,12 @@ impl From<&str> for Field {
 
 impl From<Arc<str>> for Field {
     fn from(value: Arc<str>) -> Self {
+        Self::Name(FieldName::from(value))
+    }
+}
+
+impl From<FieldName> for Field {
+    fn from(value: FieldName) -> Self {
         Self::Name(value)
     }
 }

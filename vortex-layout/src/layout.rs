@@ -90,7 +90,7 @@ impl LayoutChildType {
             LayoutChildType::Chunk((idx, _offset)) => format!("[{idx}]").into(),
             LayoutChildType::Auxiliary(name) => name.clone(),
             LayoutChildType::Transparent(name) => name.clone(),
-            LayoutChildType::Field(name) => name.clone(),
+            LayoutChildType::Field(name) => name.clone().into(),
         }
     }
 
@@ -275,7 +275,7 @@ mod tests {
         assert_eq!(chunk.name().as_ref(), "[5]");
 
         // Test Field variant
-        let field = LayoutChildType::Field(Arc::from("customer_id"));
+        let field = LayoutChildType::Field(FieldName::from("customer_id"));
         assert_eq!(field.name().as_ref(), "customer_id");
 
         // Test Auxiliary variant
@@ -294,7 +294,7 @@ mod tests {
         assert_eq!(chunk.row_offset(), Some(42));
 
         // Field should return 0
-        let field = LayoutChildType::Field(Arc::from("field1"));
+        let field = LayoutChildType::Field(FieldName::from("field1"));
         assert_eq!(field.row_offset(), Some(0));
 
         // Auxiliary should return None
@@ -319,9 +319,9 @@ mod tests {
         assert_ne!(chunk1, chunk4);
 
         // Test Field equality
-        let field1 = LayoutChildType::Field(Arc::from("name"));
-        let field2 = LayoutChildType::Field(Arc::from("name"));
-        let field3 = LayoutChildType::Field(Arc::from("age"));
+        let field1 = LayoutChildType::Field(FieldName::from("name"));
+        let field2 = LayoutChildType::Field(FieldName::from("name"));
+        let field3 = LayoutChildType::Field(FieldName::from("age"));
 
         assert_eq!(field1, field2);
         assert_ne!(field1, field3);
@@ -351,9 +351,9 @@ mod tests {
     #[rstest]
     #[case(LayoutChildType::Chunk((0, 0)), "[0]", Some(0))]
     #[case(LayoutChildType::Chunk((999, 1000000)), "[999]", Some(1000000))]
-    #[case(LayoutChildType::Field(Arc::from("")), "", Some(0))]
+    #[case(LayoutChildType::Field(FieldName::from("")), "", Some(0))]
     #[case(
-        LayoutChildType::Field(Arc::from("very_long_field_name_that_is_quite_lengthy")),
+        LayoutChildType::Field(FieldName::from("very_long_field_name_that_is_quite_lengthy")),
         "very_long_field_name_that_is_quite_lengthy",
         Some(0)
     )]
@@ -401,7 +401,7 @@ mod tests {
         ];
 
         for field_name in special_fields {
-            let field = LayoutChildType::Field(field_name.clone());
+            let field = LayoutChildType::Field(field_name.clone().into());
             assert_eq!(field.name(), field_name);
             assert_eq!(field.row_offset(), Some(0));
         }

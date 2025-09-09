@@ -344,7 +344,7 @@ fn to_arrow_struct(
         .zip(fields.iter())
         .map(|((name, field_array), target_field)| {
             Field::new(
-                &**name,
+                name.as_ref(),
                 field_array.data_type().clone(),
                 target_field.is_nullable(),
             )

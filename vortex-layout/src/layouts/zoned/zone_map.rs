@@ -266,10 +266,10 @@ mod tests {
         assert_eq!(
             stats_table.array.names().as_ref(),
             &[
-                Stat::Max.name().into(),
-                MAX_IS_TRUNCATED.into(),
-                Stat::Min.name().into(),
-                MIN_IS_TRUNCATED.into(),
+                Stat::Max.name(),
+                MAX_IS_TRUNCATED,
+                Stat::Min.name(),
+                MIN_IS_TRUNCATED,
             ]
         );
         assert_eq!(
@@ -291,11 +291,11 @@ mod tests {
         assert_eq!(
             stats_table.array.names().as_ref(),
             &[
-                Stat::Max.name().into(),
-                MAX_IS_TRUNCATED.into(),
-                Stat::Min.name().into(),
-                MIN_IS_TRUNCATED.into(),
-                Stat::Sum.name().into(),
+                Stat::Max.name(),
+                MAX_IS_TRUNCATED,
+                Stat::Min.name(),
+                MIN_IS_TRUNCATED,
+                Stat::Sum.name(),
             ]
         );
         assert_eq!(

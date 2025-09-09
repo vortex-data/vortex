@@ -329,7 +329,7 @@ mod tests {
             .unwrap()
             .to_struct();
         let selected_names = selected.names().clone();
-        assert_eq!(selected_names.as_ref(), &["a".into()]);
+        assert_eq!(selected_names.as_ref(), &["a"]);
     }
 
     #[test]
@@ -341,7 +341,7 @@ mod tests {
             .unwrap()
             .to_struct();
         let selected_names = selected.names().clone();
-        assert_eq!(selected_names.as_ref(), &["b".into()]);
+        assert_eq!(selected_names.as_ref(), &["b"]);
     }
 
     #[test]

@@ -330,7 +330,7 @@ mod test {
     #[test]
     fn test_empty_struct() {
         let s = StructArray::try_new(
-            FieldNames::from(vec![]),
+            FieldNames::empty(),
             vec![],
             3,
             Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
