@@ -39,6 +39,16 @@ pub fn layout_from_flatbuffer(
     array_ctx: &ArrayContext,
 ) -> VortexResult<LayoutRef> {
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
+    layout_from_fb_layout(flatbuffer.clone(), fb_layout, dtype, layout_ctx, array_ctx)
+}
+
+pub fn layout_from_fb_layout(
+    flatbuffer: FlatBuffer,
+    fb_layout: layout::Layout,
+    dtype: &DType,
+    layout_ctx: &LayoutContext,
+    array_ctx: &ArrayContext,
+) -> VortexResult<LayoutRef> {
     let encoding = layout_ctx
         .lookup_encoding(fb_layout.encoding())
         .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
@@ -46,7 +56,7 @@ pub fn layout_from_flatbuffer(
     // SAFETY: we validate the flatbuffer above in the `root` call, and extract a loc.
     let viewed_children = unsafe {
         ViewedLayoutChildren::new_unchecked(
-            flatbuffer.clone(),
+            flatbuffer,
             fb_layout._tab.loc(),
             array_ctx.clone(),
             layout_ctx.clone(),

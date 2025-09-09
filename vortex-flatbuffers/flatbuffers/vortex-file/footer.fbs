@@ -112,6 +112,13 @@ table EncryptionSpec {
 }
 // [footer]
 
+table FullFooter {
+  footer: Footer;
+  layout: Layout;
+  statistics: FileStatistics;
+}
+
+root_type FullFooter;
 root_type FileStatistics;
 root_type Footer;
 root_type Postscript;

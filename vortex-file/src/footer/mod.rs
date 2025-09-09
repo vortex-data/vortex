@@ -18,16 +18,19 @@ use std::sync::Arc;
 
 pub(crate) use file_layout::*;
 pub(crate) use file_statistics::*;
-use flatbuffers::root;
+use flatbuffers::{FlatBufferBuilder, root};
 use itertools::Itertools;
 pub(crate) use postscript::*;
 pub use segment::*;
-use vortex_array::ArrayRegistry;
 use vortex_array::stats::StatsSet;
+use vortex_array::{ArrayContext, ArrayRegistry};
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, footer as fb};
-use vortex_layout::{LayoutRef, LayoutRegistry, layout_from_flatbuffer};
+use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, WriteFlatBuffer, footer as fb};
+use vortex_layout::{
+    LayoutContext, LayoutRef, LayoutRegistry, layout_from_fb_layout, layout_from_flatbuffer,
+};
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
@@ -35,6 +38,104 @@ pub struct Footer {
     root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
+}
+
+impl Footer {
+    /// Deserialize a Footer from its FlatBuffer-serialized form.
+    // We cannot impl ReadFlatBuffer because reading a Layout *requires* an owned bytes and the
+    // ReadFlatBuffer interface would only provide an `fb::FullFooter`.
+    pub fn from_flatbuffer(
+        bytes: FlatBuffer,
+        dtype: DType,
+        layout_ctx: &LayoutContext,
+        array_ctx: &ArrayContext,
+    ) -> VortexResult<Self> {
+        let full_footer = root::<fb::FullFooter>(bytes.as_ref())?;
+        let root_layout = layout_from_fb_layout(
+            bytes.clone(),
+            full_footer
+                .layout()
+                .ok_or_else(|| vortex_err!("layout missing"))?,
+            &dtype,
+            layout_ctx,
+            array_ctx,
+        )?;
+        let footer = full_footer
+            .footer()
+            .ok_or_else(|| vortex_err!("footer missing"))?;
+        let segments = footer
+            .segment_specs()
+            .unwrap_or_default()
+            .iter()
+            .map(SegmentSpec::try_from)
+            .try_collect()?;
+        let statistics = full_footer
+            .statistics()
+            .as_ref()
+            .map(FileStatistics::read_flatbuffer)
+            .transpose()?;
+        Ok(Footer {
+            root_layout,
+            segments,
+            statistics,
+        })
+    }
+
+    /// Serialize a Footer to FlatBuffer bytes.
+    ///
+    /// To later reconstruct a Footer with [Self::from_flatbuffer], you will also need the root
+    /// [DType], which can likewise be serialized as a FlatBuffer.
+    ///
+    /// See also: [Self::write_flatbuffer].
+    pub fn write_flatbuffer_bytes(
+        &self,
+        layout_ctx: &LayoutContext,
+        array_ctx: &ArrayContext,
+    ) -> FlatBuffer {
+        let mut fbb = FlatBufferBuilder::new();
+        let root_offset = self.write_flatbuffer(&mut fbb, layout_ctx, array_ctx);
+        fbb.finish_minimal(root_offset);
+        let (vec, start) = fbb.collapse();
+        let end = vec.len();
+        FlatBuffer::align_from(ByteBuffer::from(vec).slice(start..end))
+    }
+
+    /// Serialize a Footer to its FlatBuffer-serialized form.
+    // We cannot implement WriteFlatBuffer because that trait requires us to be able to write into a
+    // FlatBufferBuilder with *any* possible lifetime. We can only write into a builder with a
+    // lifetime shorter than ours. Rust does not allow us to add this constraint to our
+    // implementation.
+    pub fn write_flatbuffer<'fb, 'a: 'fb>(
+        &'a self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+        layout_ctx: &'fb LayoutContext,
+        array_ctx: &ArrayContext,
+    ) -> flatbuffers::WIPOffset<fb::FullFooter<'fb>> {
+        // The order inentionally mirrors teh order in vortex-file/src/writer.rs for pleasing symmetry.
+        let layout = self
+            .root_layout
+            .flatbuffer_writer(layout_ctx)
+            .write_flatbuffer(fbb);
+        let file_statistics = self
+            .statistics
+            .as_ref()
+            .map(|statistics| statistics.write_flatbuffer(fbb));
+        let footer = FooterFlatBufferWriter {
+            ctx: array_ctx.clone(),
+            layout_ctx: layout_ctx.clone(),
+            segment_specs: self.segments.clone(),
+        }
+        .write_flatbuffer(fbb);
+
+        fb::FullFooter::create(
+            fbb,
+            &fb::FullFooterArgs {
+                footer: Some(footer),
+                layout: Some(layout),
+                statistics: file_statistics,
+            },
+        )
+    }
 }
 
 impl Footer {
@@ -51,7 +152,7 @@ impl Footer {
     }
 
     /// Read the [`Footer`] from a flatbuffer.
-    pub(crate) fn from_flatbuffer(
+    pub(crate) fn from_parts(
         footer_bytes: FlatBuffer,
         layout_bytes: FlatBuffer,
         dtype: DType,

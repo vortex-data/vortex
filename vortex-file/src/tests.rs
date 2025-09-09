@@ -12,20 +12,24 @@ use vortex_array::arrays::{
     ChunkedArray, ConstantArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
     VarBinViewArray,
 };
+use vortex_array::arrow::IntoArrowArray;
 use vortex_array::iter::ArrayIteratorExt;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dict::{DictEncoding, DictVTable};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
 use vortex_expr::{PackExpr, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
+use vortex_layout::LayoutContext;
 use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
 
-use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
+use crate::{
+    Footer, V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions,
+};
 
 #[test]
 fn test_eof_values() {
@@ -1199,5 +1203,36 @@ fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
         DictEncoding.id(),
         "dictionary codes should not be dictionary encoded"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_external_footer() -> VortexResult<()> {
+    let layout_ctx = &LayoutContext::empty();
+    let array_ctx = &ArrayContext::empty();
+    let expected = buffer![1, 2, 3, 4].into_array();
+    let expected_dtype = expected.dtype();
+    let mut buf = Vec::new();
+    let footer =
+        VortexWriteOptions::default().write_blocking(&mut buf, expected.to_array_stream())?;
+
+    let footer_bytes = footer.write_flatbuffer_bytes(layout_ctx, array_ctx);
+
+    let deserialized_footer =
+        Footer::from_flatbuffer(footer_bytes, expected_dtype.clone(), layout_ctx, array_ctx)?;
+
+    let file = VortexOpenOptions::in_memory()
+        .with_footer(deserialized_footer)
+        .open(buf)?;
+    let stream = file.scan().unwrap().into_tokio_array_stream()?;
+    let actual = stream.read_all().await?;
+
+    assert_eq!(actual.len(), 4);
+    assert_eq!(actual.dtype(), expected_dtype);
+    assert_eq!(
+        &actual.into_arrow_preferred().unwrap(),
+        &expected.into_arrow_preferred().unwrap()
+    );
+
     Ok(())
 }

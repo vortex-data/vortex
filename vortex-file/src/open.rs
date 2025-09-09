@@ -192,7 +192,7 @@ impl<F: FileType> VortexOpenOptions<F> {
             &initial_read[layout_offset..layout_offset + (layout_segment.length as usize)],
         );
 
-        Footer::from_flatbuffer(
+        Footer::from_parts(
             footer_bytes,
             layout_bytes,
             dtype,

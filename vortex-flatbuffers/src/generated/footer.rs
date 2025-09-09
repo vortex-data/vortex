@@ -1314,6 +1314,137 @@ impl core::fmt::Debug for EncryptionSpec<'_> {
       ds.finish()
   }
 }
+pub enum FullFooterOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct FullFooter<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for FullFooter<'a> {
+  type Inner = FullFooter<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> FullFooter<'a> {
+  pub const VT_FOOTER: flatbuffers::VOffsetT = 4;
+  pub const VT_LAYOUT: flatbuffers::VOffsetT = 6;
+  pub const VT_STATISTICS: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    FullFooter { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args FullFooterArgs<'args>
+  ) -> flatbuffers::WIPOffset<FullFooter<'bldr>> {
+    let mut builder = FullFooterBuilder::new(_fbb);
+    if let Some(x) = args.statistics { builder.add_statistics(x); }
+    if let Some(x) = args.layout { builder.add_layout(x); }
+    if let Some(x) = args.footer { builder.add_footer(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn footer(&self) -> Option<Footer<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Footer>>(FullFooter::VT_FOOTER, None)}
+  }
+  #[inline]
+  pub fn layout(&self) -> Option<Layout<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Layout>>(FullFooter::VT_LAYOUT, None)}
+  }
+  #[inline]
+  pub fn statistics(&self) -> Option<FileStatistics<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<FileStatistics>>(FullFooter::VT_STATISTICS, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for FullFooter<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<Footer>>("footer", Self::VT_FOOTER, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<Layout>>("layout", Self::VT_LAYOUT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<FileStatistics>>("statistics", Self::VT_STATISTICS, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct FullFooterArgs<'a> {
+    pub footer: Option<flatbuffers::WIPOffset<Footer<'a>>>,
+    pub layout: Option<flatbuffers::WIPOffset<Layout<'a>>>,
+    pub statistics: Option<flatbuffers::WIPOffset<FileStatistics<'a>>>,
+}
+impl<'a> Default for FullFooterArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    FullFooterArgs {
+      footer: None,
+      layout: None,
+      statistics: None,
+    }
+  }
+}
+
+pub struct FullFooterBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FullFooterBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_footer(&mut self, footer: flatbuffers::WIPOffset<Footer<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Footer>>(FullFooter::VT_FOOTER, footer);
+  }
+  #[inline]
+  pub fn add_layout(&mut self, layout: flatbuffers::WIPOffset<Layout<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Layout>>(FullFooter::VT_LAYOUT, layout);
+  }
+  #[inline]
+  pub fn add_statistics(&mut self, statistics: flatbuffers::WIPOffset<FileStatistics<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<FileStatistics>>(FullFooter::VT_STATISTICS, statistics);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> FullFooterBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    FullFooterBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<FullFooter<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for FullFooter<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("FullFooter");
+      ds.field("footer", &self.footer());
+      ds.field("layout", &self.layout());
+      ds.field("statistics", &self.statistics());
+      ds.finish()
+  }
+}
 #[inline]
 /// Verifies that a buffer of bytes contains a `Postscript`
 /// and returns it.
