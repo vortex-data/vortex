@@ -12,7 +12,10 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl InvertKernel for BoolVTable {
     fn invert(&self, array: &BoolArray) -> VortexResult<ArrayRef> {
-        Ok(BoolArray::new(array.boolean_buffer().not(), array.validity().clone()).into_array())
+        Ok(
+            BoolArray::from_bool_buffer(array.boolean_buffer().not(), array.validity().clone())
+                .into_array(),
+        )
     }
 }
 

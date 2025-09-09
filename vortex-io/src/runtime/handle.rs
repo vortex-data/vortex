@@ -10,32 +10,61 @@ use vortex_error::{VortexResult, vortex_panic};
 
 use crate::file::{FileRead, IntoIoSource, IoRequestStream};
 use crate::kanal_ext::KanalExt;
-use crate::runtime::{AbortHandle, IoTask, Runtime};
+use crate::runtime::{AbortHandleRef, IoTask, Runtime};
 
 /// A handle to an active Vortex runtime.
 ///
 /// Users should obtain a handle from one of the runtime constructors and use it to spawn new
 /// async tasks or CPU-heavy worker.
 #[derive(Clone)]
-pub struct Handle<'rt>(pub(crate) Arc<dyn Runtime<'rt> + 'rt>);
+pub struct Handle {
+    runtime: Arc<dyn Runtime>,
+}
 
-impl<'rt> Handle<'rt> {
+impl Handle {
+    pub(crate) fn new(runtime: Arc<dyn Runtime>) -> Self {
+        Self { runtime }
+    }
+
     /// Spawn a new future onto the runtime.
     ///
     /// These futures are expected to not perform expensive CPU work and instead simply schedule
     /// either CPU tasks or I/O tasks. See [`Handle::spawn_cpu`] for spawning CPU-bound work.
     ///
     /// See [`Task`] for details on cancelling or detaching the spawned task.
-    pub fn spawn<Fut, R>(&self, f: Fut) -> Task<'rt, R>
+    pub fn spawn<Fut, R>(&self, f: Fut) -> Task<R>
     where
-        Fut: Future<Output = R> + Send + 'rt,
-        R: Send + 'rt,
+        Fut: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
-        let abort_handle = self.0.spawn(
+        let abort_handle = self.runtime.spawn(
             async move {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
                 let _ = send.send(f.await);
+            }
+            .boxed(),
+        );
+        Task {
+            recv,
+            abort_handle: Some(abort_handle),
+        }
+    }
+
+    /// A helper function to avoid manually cloning the handle when spawning nested tasks.
+    pub fn spawn_nested<F, Fut, R>(&self, f: F) -> Task<R>
+    where
+        F: FnOnce(Handle) -> Fut,
+        Fut: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        let fut = f(Handle::new(self.runtime.clone()));
+
+        let (send, recv) = oneshot::channel();
+        let abort_handle = self.runtime.spawn(
+            async move {
+                // Task::detach allows the receiver to be dropped, so we ignore send errors.
+                let _ = send.send(fut.await);
             }
             .boxed(),
         );
@@ -52,7 +81,7 @@ impl<'rt> Handle<'rt> {
     ///
     /// See [`Task`] for details on cancelling or detaching the spawned work, although note that
     /// once started, CPU work cannot be cancelled.
-    pub fn spawn_cpu<F, R>(&self, f: F) -> Task<'rt, R>
+    pub fn spawn_cpu<F, R>(&self, f: F) -> Task<R>
     where
         // Unlike scheduling futures, the CPU task should have a static lifetime because it
         // doesn't need to access to handle to spawn more work.
@@ -61,7 +90,7 @@ impl<'rt> Handle<'rt> {
     {
         // TODO(ngates): we want a droppable handle for this.
         let (send, recv) = oneshot::channel();
-        let abort_handle = self.0.spawn_cpu(Box::new(move || {
+        let abort_handle = self.runtime.spawn_cpu(Box::new(move || {
             // Task::detach allows the receiver to be dropped, so we ignore send errors.
             let _ = send.send(f());
         }));
@@ -72,18 +101,20 @@ impl<'rt> Handle<'rt> {
     }
 
     /// Open a file for I/O on this runtime.
-    pub fn open_read<S: IntoIoSource>(&self, source: S) -> VortexResult<FileRead<'rt>> {
-        let source = source.into_io_source()?;
+    pub fn open_read<S: IntoIoSource>(&self, source: S) -> VortexResult<FileRead<'_>> {
+        let source = source.into_io_source(self.clone())?;
 
-        let (read, events) = FileRead::new(source.uri().clone(), source.size());
+        let (send, recv) = kanal::unbounded();
+
+        let read = FileRead::new(source.uri().clone(), source.size(), send);
 
         let stream = IoRequestStream::new(
-            StreamExt::boxed(events.to_async().into_stream()),
+            StreamExt::boxed(recv.to_async().into_stream()),
             source.coalesce_window(),
         )
         .boxed();
 
-        self.0.spawn_io(IoTask::new(source, stream, self.clone()));
+        self.runtime.clone().spawn_io(IoTask::new(source, stream));
 
         Ok(read)
     }
@@ -94,19 +125,20 @@ impl<'rt> Handle<'rt> {
 /// If this handle is dropped, the task is cancelled where possible. In order to allow the task to
 /// continue running in the background, call [`Task::detach`].
 #[must_use = "When a Task is dropped without being awaited, it is cancelled"]
-pub struct Task<'rt, T> {
+pub struct Task<T> {
     recv: oneshot::Receiver<T>,
-    abort_handle: Option<Box<dyn AbortHandle<'rt> + 'rt>>,
+    abort_handle: Option<AbortHandleRef>,
 }
 
-impl<'rt, T> Task<'rt, T> {
+impl<T> Task<T> {
     /// Detach the task, allowing it to continue running in the background after being dropped.
+    /// This is only possible if the underlying runtime has a 'static lifetime.
     pub fn detach(mut self) {
         drop(self.abort_handle.take());
     }
 }
 
-impl<'rt, T> Future for Task<'rt, T> {
+impl<T> Future for Task<T> {
     type Output = T;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -124,7 +156,7 @@ impl<'rt, T> Future for Task<'rt, T> {
     }
 }
 
-impl<T> Drop for Task<'_, T> {
+impl<T> Drop for Task<T> {
     fn drop(&mut self) {
         // Optimistically abort the task if it's still running.
         if let Some(handle) = self.abort_handle.take() {

@@ -25,13 +25,14 @@ impl StatsSet {
     /// # Safety
     ///
     /// This method will not panic or trigger UB, but may lead to duplicate stats being stored.
-    pub fn new_unchecked(values: Vec<(Stat, Precision<ScalarValue>)>) -> Self {
+    pub unsafe fn new_unchecked(values: Vec<(Stat, Precision<ScalarValue>)>) -> Self {
         Self { values }
     }
 
     /// Create StatsSet from single stat and value
     pub fn of(stat: Stat, value: Precision<ScalarValue>) -> Self {
-        Self::new_unchecked(vec![(stat, value)])
+        // SAFETY: No duplicate stats will be set here.
+        unsafe { Self::new_unchecked(vec![(stat, value)]) }
     }
 
     fn reserve_full_capacity(&mut self) {
@@ -537,10 +538,13 @@ mod test {
 
     #[test]
     fn test_iter() {
-        let set = StatsSet::new_unchecked(vec![
-            (Stat::Max, Precision::exact(100)),
-            (Stat::Min, Precision::exact(42)),
-        ]);
+        // SAFETY: No duplicate stats.
+        let set = unsafe {
+            StatsSet::new_unchecked(vec![
+                (Stat::Max, Precision::exact(100)),
+                (Stat::Min, Precision::exact(42)),
+            ])
+        };
         let mut iter = set.iter();
         let first = iter.next().unwrap().clone();
         assert_eq!(first.0, Stat::Max);
@@ -561,10 +565,13 @@ mod test {
 
     #[test]
     fn into_iter() {
-        let mut set = StatsSet::new_unchecked(vec![
-            (Stat::Max, Precision::exact(100)),
-            (Stat::Min, Precision::exact(42)),
-        ])
+        // SAFETY: No duplicate stats.
+        let mut set = unsafe {
+            StatsSet::new_unchecked(vec![
+                (Stat::Max, Precision::exact(100)),
+                (Stat::Min, Precision::exact(42)),
+            ])
+        }
         .into_iter();
         let (stat, first) = set.next().unwrap();
         assert_eq!(stat, Stat::Max);

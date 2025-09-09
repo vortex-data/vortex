@@ -142,6 +142,7 @@ where
                     unsafe { codes.push_unchecked(code) }
                 }
             })?;
+
             PrimitiveArray::new(codes, Validity::NonNullable)
         };
 
@@ -149,7 +150,7 @@ where
     }
 
     fn values(&mut self) -> VortexResult<ArrayRef> {
-        Ok(PrimitiveArray::new(self.values.clone().freeze(), self.nullability.into()).into_array())
+        Ok(PrimitiveArray::new(self.values.clone(), self.nullability.into()).into_array())
     }
 }
 

@@ -42,11 +42,18 @@ impl ZoneMap {
         if &expected_dtype != array.dtype() {
             vortex_bail!("Array dtype does not match expected zone map dtype: {expected_dtype}");
         }
-        Ok(Self::new_unchecked(array, stats))
+
+        // SAFETY: We checked that the
+        Ok(unsafe { Self::new_unchecked(array, stats) })
     }
 
     /// Creates [`ZoneMap`] without validating return array against expected stats.
-    pub fn new_unchecked(array: StructArray, stats: Arc<[Stat]>) -> Self {
+    ///
+    /// # Safety
+    ///
+    /// Assumes that the input struct array has the correct statistics as fields. Or in other words,
+    /// the [`DType`] of the input array is equal to the result of [`Self::dtype_for_stats_table`].
+    pub unsafe fn new_unchecked(array: StructArray, stats: Arc<[Stat]>) -> Self {
         Self { array, stats }
     }
 

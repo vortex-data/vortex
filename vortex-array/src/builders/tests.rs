@@ -47,12 +47,10 @@ use crate::builders::{ArrayBuilder, builder_with_capacity};
     ]),
     Nullability::NonNullable
 ))]
-// TODO(connor): This test case is expected to fail due to a known bug where append_zeros creates
-// lists of size 1 instead of empty lists.
-// #[case::list(DType::List(
-//     Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-//     Nullability::NonNullable
-// ))]
+#[case::list(DType::List(
+    Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+    Nullability::NonNullable
+))]
 #[case::fixed_size_list(DType::FixedSizeList(
     Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
     3,

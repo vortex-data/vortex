@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_bool_max() {
-        let p = BoolArray::new(
+        let p = BoolArray::from_bool_buffer(
             BooleanBuffer::from([true, true, true].as_slice()),
             Validity::NonNullable,
         );
@@ -244,7 +244,7 @@ mod tests {
             })
         );
 
-        let p = BoolArray::new(
+        let p = BoolArray::from_bool_buffer(
             BooleanBuffer::from([false, false, false].as_slice()),
             Validity::NonNullable,
         );
@@ -256,7 +256,7 @@ mod tests {
             })
         );
 
-        let p = BoolArray::new(
+        let p = BoolArray::from_bool_buffer(
             BooleanBuffer::from([false, true, false].as_slice()),
             Validity::NonNullable,
         );

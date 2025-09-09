@@ -98,7 +98,7 @@ where
     T: NativePType + Copy,
 {
     let slice = arr.as_slice::<T>();
-    BoolArray::new(
+    BoolArray::from_bool_buffer(
         BooleanBuffer::collect_bool(slice.len(), |idx| {
             // We only iterate upto arr len and |arr| == |slice|.
             let i = unsafe { *slice.get_unchecked(idx) };

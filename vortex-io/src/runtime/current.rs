@@ -15,14 +15,14 @@ pub struct CurrentThreadRuntime;
 
 impl CurrentThreadRuntime {
     /// Drive the given Vortex future on the underlying current thread runtime.
-    pub fn block_on<'rt, F, Fut, R>(f: F) -> R
+    pub fn block_on<F, Fut, R>(f: F) -> R
     where
-        F: FnOnce(Handle<'rt>) -> Fut,
-        Fut: Future<Output = R> + 'rt,
+        F: FnOnce(Handle) -> Fut,
+        Fut: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
         let executor = Arc::new(Executor::new());
-        let fut = f(Handle(executor.clone()));
+        let fut = f(Handle::new(executor.clone()));
         block_on(executor.run(fut))
     }
 
@@ -30,14 +30,14 @@ impl CurrentThreadRuntime {
     ///
     /// Note the resulting [`Iterator`] supports [`Clone`] in order to drive the stream from
     /// multiple threads.
-    pub fn block_on_stream<'rt, F, S, R>(f: F) -> impl Iterator<Item = R> + Clone
+    pub fn block_on_stream<F, S, R>(f: F) -> impl Iterator<Item = R> + Clone
     where
-        F: FnOnce(Handle<'rt>) -> S,
-        S: Stream<Item = R> + Send + Unpin + 'rt,
-        R: Send + 'rt,
+        F: FnOnce(Handle) -> S,
+        S: Stream<Item = R> + Send + Unpin + 'static,
+        R: Send + 'static,
     {
         let executor = Arc::new(Executor::new());
-        let stream = f(Handle(executor.clone()));
+        let stream = f(Handle::new(executor.clone()));
 
         // We create an MPMC result channel and spawn a task to drive the stream and send results.
         // This allows multiple worker threads to drive the executor while all waiting for results
@@ -52,11 +52,6 @@ impl CurrentThreadRuntime {
                 }
             })
             .detach();
-
-        // SAFETY: the returned stream is self-referential and lives as long as the executor.
-        //  We therefore extend the lifetime of the executor to 'static.
-        let executor: Arc<Executor<'static>> =
-            unsafe { std::mem::transmute::<Arc<Executor<'_>>, Arc<Executor<'static>>>(executor) };
 
         BlockingStream {
             executor,
@@ -96,11 +91,13 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use futures::FutureExt;
+
     use super::*;
 
     #[test]
     fn test_drive_simple_future() {
-        let result = CurrentThreadRuntime::block_on(|_handle| async { 123 });
+        let result = CurrentThreadRuntime::block_on(|_handle| async { 123 }.boxed());
         assert_eq!(result, 123);
     }
 
@@ -109,10 +106,13 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
 
-        let result = CurrentThreadRuntime::block_on(|handle| async move {
-            handle
-                .spawn_cpu(move || c.fetch_add(1, Ordering::SeqCst))
-                .await
+        let result = CurrentThreadRuntime::block_on(|handle| {
+            async move {
+                handle
+                    .spawn_cpu(move || c.fetch_add(1, Ordering::SeqCst))
+                    .await
+            }
+            .boxed()
         });
 
         assert_eq!(result, 0);

@@ -6,18 +6,18 @@ use smol::Executor;
 
 use crate::runtime::{AbortHandle, AbortHandleRef, IoTask, Runtime};
 
-impl<'rt> Runtime<'rt> for Executor<'rt> {
-    fn spawn(&self, fut: BoxFuture<'rt, ()>) -> AbortHandleRef<'rt> {
+impl Runtime for Executor<'static> {
+    fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
         SmolAbortHandle::new_handle(self.spawn(fut))
     }
 
-    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'rt> {
+    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         // For now, we spawn CPU work back onto the same executor.
         SmolAbortHandle::new_handle(self.spawn(async move { task() }))
     }
 
-    fn spawn_io(&self, task: IoTask<'rt>) {
-        self.spawn(task.drive_send()).detach();
+    fn spawn_io(&self, task: IoTask) {
+        self.spawn(task.source.drive_send(task.stream)).detach()
     }
 }
 
@@ -26,13 +26,13 @@ pub(crate) struct SmolAbortHandle<T> {
     task: Option<smol::Task<T>>,
 }
 
-impl<'rt, T: 'rt + Send> SmolAbortHandle<T> {
-    pub(crate) fn new_handle(task: smol::Task<T>) -> AbortHandleRef<'rt> {
+impl<T: 'static + Send> SmolAbortHandle<T> {
+    pub(crate) fn new_handle(task: smol::Task<T>) -> AbortHandleRef {
         Box::new(Self { task: Some(task) })
     }
 }
 
-impl<T: Send> AbortHandle<'_> for SmolAbortHandle<T> {
+impl<T: Send> AbortHandle for SmolAbortHandle<T> {
     fn abort(mut self: Box<Self>) {
         // Aborting a smol::Task is done by dropping it.
         drop(self.task.take());

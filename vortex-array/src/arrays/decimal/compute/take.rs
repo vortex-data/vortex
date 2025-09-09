@@ -23,7 +23,9 @@ impl TakeKernel for DecimalVTable {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 let buffer =
                     take_to_buffer::<I, D>(indices.as_slice::<I>(), array.buffer::<D>().as_slice());
-                DecimalArray::new(buffer, array.decimal_dtype(), validity)
+                // SAFETY: Take operation preserves decimal dtype and creates valid buffer.
+                // Validity is computed correctly from the parent array and indices.
+                unsafe { DecimalArray::new_unchecked(buffer, array.decimal_dtype(), validity) }
             })
         });
 

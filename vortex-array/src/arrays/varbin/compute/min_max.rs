@@ -42,7 +42,7 @@ pub(crate) fn compute_min_max<T: ArrayAccessor<[u8]>>(
     Ok(minmax)
 }
 
-/// Helper function to make sure that min/max has the right [`ScalarValue`] type.
+/// Helper function to make sure that min/max has the right [`Scalar`] type.
 fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {
     match dtype {
         DType::Binary(_) => Scalar::new(dtype.clone(), value.into()),

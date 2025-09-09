@@ -5,15 +5,15 @@ use std::sync::{Arc, LazyLock};
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::{FutureExt, StreamExt, pin_mut};
+use futures::{FutureExt, StreamExt};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
-use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource};
+use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource, IoSourceRef};
 use crate::runtime::Handle;
 
 impl IntoIoSource for ByteBuffer {
-    fn into_io_source(self) -> VortexResult<Arc<dyn IoSource>> {
+    fn into_io_source(self, _handle: Handle) -> VortexResult<IoSourceRef> {
         Ok(Arc::new(self))
     }
 }
@@ -33,14 +33,12 @@ impl IoSource for ByteBuffer {
         async move { Ok(len) }.boxed()
     }
 
-    fn drive_send<'rt>(
-        &self,
-        requests: BoxStream<'rt, IoRequest>,
-        _handle: Handle<'rt>,
-    ) -> BoxFuture<'rt, ()> {
-        let buffer = self.clone();
+    fn drive_send(
+        self: Arc<Self>,
+        mut requests: BoxStream<'static, IoRequest>,
+    ) -> BoxFuture<'static, ()> {
+        let buffer = self;
         async move {
-            pin_mut!(requests);
             while let Some(req) = requests.next().await {
                 let offset = usize::try_from(req.offset())
                     .vortex_expect("In-memory buffer offset exceeds usize");

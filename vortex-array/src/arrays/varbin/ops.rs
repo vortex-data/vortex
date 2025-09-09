@@ -11,13 +11,15 @@ use crate::{Array, ArrayRef, IntoArray};
 
 impl OperationsVTable<VarBinVTable> for VarBinVTable {
     fn slice(array: &VarBinArray, range: Range<usize>) -> ArrayRef {
-        VarBinArray::new(
-            array.offsets().slice(range.start..range.end + 1),
-            array.bytes().clone(),
-            array.dtype().clone(),
-            array.validity().slice(range),
-        )
-        .into_array()
+        unsafe {
+            VarBinArray::new_unchecked(
+                array.offsets().slice(range.start..range.end + 1),
+                array.bytes().clone(),
+                array.dtype().clone(),
+                array.validity().slice(range),
+            )
+            .into_array()
+        }
     }
 
     fn scalar_at(array: &VarBinArray, index: usize) -> Scalar {

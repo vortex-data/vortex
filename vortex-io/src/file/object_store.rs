@@ -13,7 +13,7 @@ use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::file::{CoalesceWindow, IoRequest, IoSource};
+use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource, IoSourceRef};
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
@@ -60,19 +60,30 @@ impl ObjectStoreIo {
     }
 }
 
+impl IntoIoSource for ObjectStoreIo {
+    fn into_io_source(self, handle: Handle) -> VortexResult<IoSourceRef> {
+        Ok(Arc::new(ObjectStoreIoSource { io: self, handle }))
+    }
+}
+
+struct ObjectStoreIoSource {
+    io: ObjectStoreIo,
+    handle: Handle,
+}
+
 #[cfg(feature = "object_store")]
-impl IoSource for ObjectStoreIo {
+impl IoSource for ObjectStoreIoSource {
     fn uri(&self) -> &Arc<str> {
-        &self.uri
+        &self.io.uri
     }
 
     fn coalesce_window(&self) -> Option<CoalesceWindow> {
-        self.coalesce_window
+        self.io.coalesce_window
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let store = self.store.clone();
-        let path = self.path.clone();
+        let store = self.io.store.clone();
+        let path = self.io.path.clone();
         Compat::new(async move {
             store
                 .head(&path)
@@ -83,18 +94,15 @@ impl IoSource for ObjectStoreIo {
         .boxed()
     }
 
-    fn drive_send<'rt>(
-        &self,
-        requests: BoxStream<'rt, IoRequest>,
-        handle: Handle<'rt>,
-    ) -> BoxFuture<'rt, ()> {
-        let store = self.store.clone();
-        let path = self.path.clone();
-
+    fn drive_send(
+        self: Arc<Self>,
+        requests: BoxStream<'static, IoRequest>,
+    ) -> BoxFuture<'static, ()> {
+        let self2 = self.clone();
         requests
             .map(move |req| {
-                let store = store.clone();
-                let path = path.clone();
+                let store = self.io.store.clone();
+                let path = self.io.path.clone();
 
                 let len = req.len();
                 let range = req.range();
@@ -140,12 +148,10 @@ impl IoSource for ObjectStoreIo {
                     Ok(buffer.freeze())
                 };
 
-                handle.spawn(async move {
-                    let result = Compat::new(read).await;
-                    req.resolve(result);
-                })
+                async move { req.resolve(Compat::new(read).await) }
             })
-            .buffer_unordered(self.concurrency)
+            .map(move |f| self2.handle.spawn(f))
+            .buffer_unordered(CONCURRENCY)
             .collect::<()>()
             .boxed()
     }

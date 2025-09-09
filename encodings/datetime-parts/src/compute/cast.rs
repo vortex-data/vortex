@@ -70,7 +70,7 @@ mod tests {
     #[case(Validity::NonNullable, Nullability::NonNullable)]
     #[case(Validity::AllValid, Nullability::NonNullable)]
     #[case(Validity::from_iter([true, true, true]), Nullability::Nullable)]
-    fn test_cast_to_compatibile_nullability(
+    fn test_cast_to_compatible_nullability(
         #[case] validity: Validity,
         #[case] cast_to_nullability: Nullability,
     ) {

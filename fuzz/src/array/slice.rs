@@ -31,7 +31,7 @@ pub fn slice_canonical_array(
         DType::Bool(_) => {
             let bool_array = array.to_bool();
             let sliced_bools = bool_array.boolean_buffer().slice(start, stop - start);
-            Ok(BoolArray::new(sliced_bools, validity).into_array())
+            Ok(BoolArray::from_bool_buffer(sliced_bools, validity).into_array())
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive();

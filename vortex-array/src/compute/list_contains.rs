@@ -300,7 +300,10 @@ fn list_false_or_null(list_array: &ListArray, nullability: Nullability) -> Vorte
         Validity::Array(validity_array) => {
             // Create a new bool array with false, and the provided nulls
             let buffer = BooleanBuffer::new_unset(list_array.len());
-            Ok(BoolArray::new(buffer, Validity::Array(validity_array.clone())).into_array())
+            Ok(
+                BoolArray::from_bool_buffer(buffer, Validity::Array(validity_array.clone()))
+                    .into_array(),
+            )
         }
     }
 }
@@ -323,7 +326,7 @@ fn list_is_not_empty(list_array: &ListArray, nullability: Nullability) -> Vortex
     });
 
     // Copy over the validity mask from the input.
-    Ok(BoolArray::new(
+    Ok(BoolArray::from_bool_buffer(
         buffer,
         list_array.validity().clone().union_nullability(nullability),
     )
@@ -346,7 +349,7 @@ fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
         })
         .collect();
 
-    BoolArray::new(mask, validity).into_array()
+    BoolArray::from_bool_buffer(mask, validity).into_array()
 }
 
 /// Returns a new array of `u64` representing the length of each list element.
@@ -447,7 +450,7 @@ mod tests {
     }
 
     fn bool_array(values: Vec<bool>, validity: Validity) -> BoolArray {
-        BoolArray::new(values.into_iter().collect(), validity)
+        BoolArray::from_bool_buffer(values.into_iter().collect(), validity)
     }
 
     #[rstest]

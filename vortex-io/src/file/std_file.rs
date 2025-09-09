@@ -13,7 +13,7 @@ use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource};
+use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource, IoSourceRef};
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
@@ -23,13 +23,13 @@ const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
 const CONCURRENCY: usize = 64;
 
 impl IntoIoSource for PathBuf {
-    fn into_io_source(self) -> VortexResult<Arc<dyn IoSource>> {
-        self.as_path().into_io_source()
+    fn into_io_source(self, handle: Handle) -> VortexResult<IoSourceRef> {
+        self.as_path().into_io_source(handle)
     }
 }
 
 impl IntoIoSource for &Path {
-    fn into_io_source(self) -> VortexResult<Arc<dyn IoSource>> {
+    fn into_io_source(self, _handle: Handle) -> VortexResult<IoSourceRef> {
         let uri = self.to_string_lossy().to_string().into();
         let file = Arc::new(File::open(self)?);
         Ok(Arc::new(FileIoSource { uri, file }))
@@ -59,16 +59,14 @@ impl IoSource for FileIoSource {
         .boxed()
     }
 
-    fn drive_send<'rt>(
-        &self,
-        requests: BoxStream<'rt, IoRequest>,
-        handle: Handle<'rt>,
-    ) -> BoxFuture<'rt, ()> {
-        let file = self.file.clone();
+    fn drive_send(
+        self: Arc<Self>,
+        requests: BoxStream<'static, IoRequest>,
+    ) -> BoxFuture<'static, ()> {
         requests
             .map(move |req| {
-                let file = file.clone();
-                handle.spawn(async move {
+                let file = self.file.clone();
+                async move {
                     let offset = req.offset();
                     let len = req.len();
                     let alignment = req.alignment();
@@ -83,7 +81,7 @@ impl IoSource for FileIoSource {
                     })
                     .await;
                     req.resolve(result);
-                })
+                }
             })
             .buffer_unordered(CONCURRENCY)
             .collect::<()>()

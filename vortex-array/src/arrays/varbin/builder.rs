@@ -5,7 +5,7 @@ use arrow_buffer::NullBufferBuilder;
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType};
-use vortex_error::{VortexExpect as _, vortex_panic};
+use vortex_error::vortex_panic;
 
 use crate::IntoArray;
 use crate::arrays::primitive::PrimitiveArray;
@@ -98,8 +98,14 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
             Validity::NonNullable
         };
 
-        VarBinArray::try_new(offsets.into_array(), self.data.freeze(), dtype, validity)
-            .vortex_expect("Unexpected error while building VarBinArray")
+        // SAFETY: The builder maintains all invariants:
+        // - Offsets are monotonically increasing starting from 0 (guaranteed by builder logic).
+        // - Bytes buffer contains exactly the data referenced by offsets.
+        // - Validity matches the dtype nullability.
+        // - UTF-8 validity is ensured by the caller when using DType::Utf8.
+        unsafe {
+            VarBinArray::new_unchecked(offsets.into_array(), self.data.freeze(), dtype, validity)
+        }
     }
 }
 

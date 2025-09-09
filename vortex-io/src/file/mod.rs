@@ -76,22 +76,19 @@ impl Display for FileRead<'_> {
     }
 }
 
-impl FileRead<'_> {
+impl<'rt> FileRead<'rt> {
     pub(crate) fn new(
         uri: Arc<str>,
         size: BoxFuture<'static, VortexResult<u64>>,
-    ) -> (Self, kanal::Receiver<ReadEvent>) {
-        let (send, recv) = kanal::unbounded::<ReadEvent>();
-        (
-            Self {
-                uri,
-                size: size.map_err(Arc::new).boxed().shared(),
-                events: send,
-                next_id: Arc::new(AtomicUsize::new(0)),
-                _rt: Default::default(),
-            },
-            recv,
-        )
+        send: kanal::Sender<ReadEvent>,
+    ) -> Self {
+        Self {
+            uri,
+            size: size.map_err(Arc::new).boxed().shared(),
+            events: send,
+            next_id: Arc::new(AtomicUsize::new(0)),
+            _rt: Default::default(),
+        }
     }
 
     /// The URI of the file.
@@ -100,12 +97,12 @@ impl FileRead<'_> {
     }
 
     /// Returns the size of the file in bytes.
-    pub fn size(&self) -> impl Future<Output = VortexResult<u64>> + Send + 'static {
+    pub fn size(&self) -> impl Future<Output = VortexResult<u64>> + Send + 'rt {
         self.size.clone().map_err(VortexError::from)
     }
 
     /// Submits a read request for the specified byte range and alignment.
-    pub fn read(&self, offset: u64, length: usize, alignment: Alignment) -> ReadFuture {
+    pub fn read(&self, offset: u64, length: usize, alignment: Alignment) -> ReadFuture<'rt> {
         let (send, recv) = oneshot::channel();
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let event = ReadEvent::Request(ReadRequest {
@@ -125,6 +122,7 @@ impl FileRead<'_> {
                 recv,
                 polled: false,
                 events: self.events.clone(),
+                _rt: PhantomData,
             };
         }
 
@@ -133,6 +131,7 @@ impl FileRead<'_> {
             recv,
             polled: false,
             events: self.events.clone(),
+            _rt: PhantomData,
         }
     }
 }
@@ -148,14 +147,15 @@ pub(crate) enum ReadEvent {
 ///
 /// See the documentation for [`FileRead`] for details on coalescing and pre-fetching.
 /// If dropped, the read request will be canceled where possible.
-pub struct ReadFuture {
+pub struct ReadFuture<'rt> {
     id: usize,
     recv: oneshot::Receiver<VortexResult<ByteBuffer>>,
     polled: bool,
     events: kanal::Sender<ReadEvent>,
+    _rt: PhantomData<&'rt ()>,
 }
 
-impl Future for ReadFuture {
+impl Future for ReadFuture<'_> {
     type Output = VortexResult<ByteBuffer>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -174,7 +174,7 @@ impl Future for ReadFuture {
     }
 }
 
-impl Drop for ReadFuture {
+impl Drop for ReadFuture<'_> {
     fn drop(&mut self) {
         // When the FileHandle is dropped, we can send a shutdown event to the I/O stream.
         // If the I/O stream has already been dropped, this will fail silently.

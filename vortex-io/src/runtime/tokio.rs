@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use futures::future::BoxFuture;
 use tokio::runtime::Handle as TokioHandle;
@@ -12,31 +12,53 @@ use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 pub struct TokioRuntime(TokioHandle);
 
 impl TokioRuntime {
-    pub fn with(handle: TokioHandle) -> Handle<'static> {
-        Handle(Arc::new(Self(handle)))
+    pub fn with(handle: TokioHandle) -> Handle {
+        Handle::new(Arc::new(Self(handle)))
     }
 
     /// Return the current Tokio runtime handle wrapped in a Vortex handle.
-    pub fn handle() -> Handle<'static> {
-        Handle(Arc::new(TokioRuntime(TokioHandle::current())))
+    pub fn handle() -> Handle {
+        static CURRENT: LazyLock<Arc<CurrentTokioRuntime>> =
+            LazyLock::new(|| Arc::new(CurrentTokioRuntime));
+        Handle::new(CURRENT.clone())
     }
 }
 
-impl Runtime<'static> for TokioRuntime {
-    fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef<'static> {
+struct CurrentTokioRuntime;
+
+impl Runtime for CurrentTokioRuntime {
+    fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
+        Box::new(TokioHandle::current().spawn(fut).abort_handle())
+    }
+
+    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        Box::new(
+            TokioHandle::current()
+                .spawn(async move { cpu() })
+                .abort_handle(),
+        )
+    }
+
+    fn spawn_io(&self, task: IoTask) {
+        TokioHandle::current().spawn(task.source.drive_send(task.stream));
+    }
+}
+
+impl Runtime for TokioRuntime {
+    fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
         Box::new(self.0.spawn(fut).abort_handle())
     }
 
-    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'static> {
+    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         Box::new(self.0.spawn(async move { cpu() }).abort_handle())
     }
 
-    fn spawn_io(&self, task: IoTask<'static>) {
-        self.0.spawn(task.drive_send());
+    fn spawn_io(&self, task: IoTask) {
+        self.0.spawn(task.source.drive_send(task.stream));
     }
 }
 
-impl AbortHandle<'_> for tokio::task::AbortHandle {
+impl AbortHandle for tokio::task::AbortHandle {
     fn abort(self: Box<Self>) {
         tokio::task::AbortHandle::abort(&self)
     }
