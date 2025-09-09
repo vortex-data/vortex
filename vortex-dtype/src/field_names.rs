@@ -12,6 +12,13 @@ use itertools::Itertools;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FieldName(Arc<str>);
 
+impl FieldName {
+    /// Returns a reference to the inner string
+    pub fn inner(&self) -> &Arc<str> {
+        &self.0
+    }
+}
+
 // We manually implement serde for `FieldName` so it can round-trip with any string type
 #[cfg(feature = "serde")]
 impl serde::ser::Serialize for FieldName {

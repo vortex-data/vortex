@@ -42,8 +42,8 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
     if idx >= struct_dtype.nfields() {
         return ptr::null();
     }
-    let name = struct_dtype.names()[idx].clone().into();
-    vx_string::new_ref(&name)
+    let name = struct_dtype.names()[idx].inner();
+    vx_string::new_ref(name)
 }
 
 /// Returns an *owned* reference to the dtype of the field at the given index.
