@@ -110,7 +110,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::*;
-    use crate::pipeline::canonical::BitAlignedChunkedIterator;
+    use vortex_dtype::Nullability::NonNullable;
     use crate::pipeline::view::ViewMut;
 
     struct TestKernel {
@@ -178,9 +178,7 @@ mod tests {
         let mut kernel = TestKernel::new();
 
         // Run the export function
-        let mask_buffer = original_mask.to_boolean_buffer();
-        let mask_iter = BitAlignedChunkedIterator::new(&mask_buffer, original_mask.true_count());
-        let result = export_bool_nonnull_masked(mask_iter, &mut kernel).unwrap();
+        let result = export_bool(NonNullable, &original_mask, &mut kernel).unwrap();
 
         // Verify the result
         assert_eq!(result.len(), expected_true_count);
@@ -246,9 +244,7 @@ mod tests {
 
         let mut kernel = TestKernel::new();
 
-        let mask_buffer = original_mask.to_boolean_buffer();
-        let mask_iter = BitAlignedChunkedIterator::new(&mask_buffer, original_mask.true_count());
-        let result = export_bool_nonnull_masked(mask_iter, &mut kernel).unwrap();
+        let result = export_bool(NonNullable, &original_mask, &mut kernel).unwrap();
 
         // Should have exactly 2 complete runs, no remaining
         let masks = &kernel.collected_masks;
@@ -288,9 +284,7 @@ mod tests {
 
         let mut kernel = TestKernel::new();
 
-        let mask_buffer = original_mask.to_boolean_buffer();
-        let mask_iter = BitAlignedChunkedIterator::new(&mask_buffer, original_mask.true_count());
-        let result = export_bool_nonnull_masked(mask_iter, &mut kernel).unwrap();
+        let result = export_bool(NonNullable, &original_mask, &mut kernel).unwrap();
 
         let masks = &kernel.collected_masks;
         let counts = &kernel.collected_counts;
@@ -332,9 +326,7 @@ mod tests {
 
         let mut kernel = TestKernel::new();
 
-        let mask_buffer = sliced_mask.to_boolean_buffer();
-        let mask_iter = BitAlignedChunkedIterator::new(&mask_buffer, sliced_mask.true_count());
-        let result = export_bool_nonnull_masked(mask_iter, &mut kernel).unwrap();
+        let result = export_bool(NonNullable, &sliced_mask, &mut kernel).unwrap();
 
         let masks = &kernel.collected_masks;
         let counts = &kernel.collected_counts;
@@ -400,9 +392,7 @@ mod tests {
 
         let mut kernel = TestKernel::new();
 
-        let mask_buffer = sliced_mask.to_boolean_buffer();
-        let mask_iter = BitAlignedChunkedIterator::new(&mask_buffer, sliced_mask.true_count());
-        let result = export_bool_nonnull_masked(mask_iter, &mut kernel).unwrap();
+        let result = export_bool(NonNullable, &sliced_mask, &mut kernel).unwrap();
 
         let masks = &kernel.collected_masks;
         let counts = &kernel.collected_counts;

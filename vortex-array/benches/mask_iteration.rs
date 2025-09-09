@@ -6,7 +6,7 @@
 use arrow_buffer::BooleanBuffer;
 use divan::{Bencher, black_box};
 use vortex_array::pipeline::bits::{
-    BitAlignedChunkedIterator, MaskSliceIterator, TrueSliceIterator,
+    BitAlignedChunkedIterator, MaskSliceIterator,
 };
 use vortex_array::pipeline::{N, N_WORDS};
 
@@ -28,11 +28,10 @@ fn create_test_data(len: usize, pattern: fn(usize) -> bool) -> Vec<u8> {
     }
 
     // Convert to bytes while maintaining alignment
-    let bytes =
-        unsafe { std::slice::from_raw_parts(u64_data.as_ptr() as *const u8, aligned_byte_len) }
-            .to_vec();
+    
 
-    bytes
+    unsafe { std::slice::from_raw_parts(u64_data.as_ptr() as *const u8, aligned_byte_len) }
+            .to_vec()
 }
 
 #[divan::bench(args = [0, 1, 7, 13])]

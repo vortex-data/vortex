@@ -44,6 +44,7 @@ impl BitSink for EmptyBitSink {
 /// Aligned bit sink that pre-allocates all memory upfront
 /// Efficient for cases where the total number of bits is known ahead of time
 /// Requires committing exactly N bits at a time
+// TODO(joe): relax the `N` requirement to allow committing less than N bits, as long as the number divides 64.
 pub struct AlignedBitSink {
     /// Pre-allocated buffer to hold all bits
     buffer: Vec<u64>,
@@ -90,6 +91,10 @@ impl BitSink for AlignedBitSink {
     fn commit_n(&mut self, n: usize) -> VortexResult<()> {
         // AlignedBitSink requires committing exactly N bits
         if n != N {
+            if self.chunk_index == 0 && n == self.total_bits {
+                self.chunk_index += 1;
+                return Ok(());
+            }
             vortex_bail!(
                 "AlignedBitSink requires committing exactly {} bits, got {}",
                 N,
@@ -103,23 +108,6 @@ impl BitSink for AlignedBitSink {
 
     #[inline]
     fn finish(self) -> VortexResult<Option<BooleanBuffer>> {
-        // Convert usize buffer to u8 buffer for BooleanBuffer
-        // TODO(joe): move the self.buffer into the BooleanBuffer
-
-        // let mut buf = std::mem::take(&mut self.buffer);
-        //
-        // let buffer_u8 = unsafe {
-        //     slice_from_raw_parts(buf.as_mut_ptr() as *mut u8, buf.len() * size_of::<usize>())
-        // };
-        //
-        // let buffer: arrow_buffer::Buffer = arrow_buffer::Buffer::from_vec(buffer_u8)
-        //
-        // let byte_buffer: Vec<u8> = self
-        //     .buffer
-        //     .into_iter()
-        //     .flat_map(|word| word.to_le_bytes())
-        //     .collect();
-
         Ok(Some(BooleanBuffer::new(
             arrow_buffer::Buffer::from_vec(self.buffer),
             0,

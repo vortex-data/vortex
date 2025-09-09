@@ -6,7 +6,6 @@ use vortex_dtype::{NativePType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::arrays::PrimitiveArray;
 use crate::pipeline::bits::{
     AlignedBitSink, BitAlignedChunkedIterator, BitSink, BitView, BitViewMut, EmptyBitSink,
@@ -107,11 +106,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use arrow_buffer::BooleanBuffer;
+use vortex_array::pipeline::N_WORDS;
+use std::cell::RefCell;
     use std::rc::Rc;
 
     use super::*;
     use crate::pipeline::bits::{BitAlignedChunkedIterator, TrueSliceIterator};
+    use crate::vtable::ValidityHelper;
+    use crate::canonical::ToCanonical;
 
     struct StepCountingKernel {
         step_count: Rc<RefCell<usize>>,
@@ -197,12 +200,10 @@ mod tests {
 
     impl MaskSliceIterator for MockMaskIterator {
         fn next_chunk(&mut self) -> Option<&[usize; N_WORDS]> {
-            if self.calls < self.max_calls {
+            (self.calls < self.max_calls).then(|| {
                 self.calls += 1;
-                Some(&*self.buffer)
-            } else {
-                None
-            }
+                &*self.buffer
+            })
         }
 
         fn len(&self) -> usize {
@@ -230,7 +231,7 @@ mod tests {
 
             // Test the fixed version
             let result =
-                export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink::default(), &mut kernel);
+                export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
             assert!(result.is_ok(), "Fixed function should not fail");
 
             let actual_steps = *step_counter.borrow();
@@ -257,7 +258,7 @@ mod tests {
             let (mut kernel, step_counter) = StepCountingKernel::new();
 
             let result =
-                export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink::default(), &mut kernel);
+                export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
             assert!(result.is_ok(), "export_primitive_null should not fail");
 
             let actual_steps = *step_counter.borrow();
@@ -285,7 +286,7 @@ mod tests {
             // Create a mask with all bits set to true
             let result = export_primitive_impl::<u32, _, _>(
                 TrueSliceIterator::new(total_bits),
-                EmptyBitSink::default(),
+                EmptyBitSink,
                 &mut kernel,
             );
             assert!(
@@ -322,7 +323,7 @@ mod tests {
         let boolean_buffer = mask.to_boolean_buffer();
         let result = export_primitive_impl::<u32, _, _>(
             BitAlignedChunkedIterator::new(&boolean_buffer, mask.true_count()),
-            EmptyBitSink::default(),
+            EmptyBitSink,
             &mut kernel,
         );
         assert!(
@@ -351,7 +352,7 @@ mod tests {
             let (mut kernel, _step_counter, true_counter) = TrueCountTrackingKernel::new();
 
             let result =
-                export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink::default(), &mut kernel);
+                export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
             assert!(result.is_ok(), "export_primitive_nonnull should not fail");
 
             let actual_true_count = *true_counter.borrow();
@@ -376,7 +377,7 @@ mod tests {
             let (mut kernel, _step_counter, true_counter) = TrueCountTrackingKernel::new();
 
             let result =
-                export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink::default(), &mut kernel);
+                export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
             assert!(result.is_ok(), "export_primitive_null should not fail");
 
             let actual_true_count = *true_counter.borrow();
@@ -415,7 +416,7 @@ mod tests {
             let boolean_buffer = mask.to_boolean_buffer();
             let result = export_primitive_impl::<u32, _, _>(
                 BitAlignedChunkedIterator::new(&boolean_buffer, mask.true_count()),
-                EmptyBitSink::default(),
+                EmptyBitSink,
                 &mut kernel,
             );
             assert!(
@@ -448,7 +449,7 @@ mod tests {
 
         // Test export_primitive_nonnull
         let result =
-            export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink::default(), &mut kernel);
+            export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
         assert!(result.is_ok());
 
         let true_count_nonnull = *true_counter.borrow();
@@ -459,7 +460,7 @@ mod tests {
         let (mut kernel2, _step_counter2, true_counter2) = TrueCountTrackingKernel::new();
 
         let result2 =
-            export_primitive_impl::<u32, _, _>(mask_iter2, EmptyBitSink::default(), &mut kernel2);
+            export_primitive_impl::<u32, _, _>(mask_iter2, EmptyBitSink, &mut kernel2);
         assert!(result2.is_ok());
 
         let true_count_null = *true_counter2.borrow();
@@ -622,10 +623,9 @@ mod tests {
         // Test export_primitive_nonnull with EmptyBitSink should produce no validity
         let total_bits = 1024;
         let mask_iter = MockMaskIterator::new(total_bits);
-        let empty_sink = EmptyBitSink::default();
         let (mut kernel, _step_counter, true_counter) = SimpleTrackingKernel::new();
 
-        let result = export_primitive_impl::<u32, _, _>(mask_iter, empty_sink, &mut kernel);
+        let result = export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
         assert!(
             result.is_ok(),
             "export_primitive_nonnull with EmptyBitSink should not fail"

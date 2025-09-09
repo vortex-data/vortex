@@ -82,12 +82,12 @@ mod tests {
 
         // First chunk should be all true bits
         let chunk1 = iter.next_chunk().unwrap();
-        let view1 = BitView::new(&chunk1);
+        let view1 = BitView::new(chunk1);
         assert_eq!(view1.true_count(), N, "First chunk should have N true bits");
 
         // Second chunk should be all true bits
         let chunk2 = iter.next_chunk().unwrap();
-        let view2 = BitView::new(&chunk2);
+        let view2 = BitView::new(chunk2);
         assert_eq!(
             view2.true_count(),
             N,
@@ -104,7 +104,7 @@ mod tests {
         let mut iter = TrueSliceIterator::new(N);
 
         let chunk = iter.next_chunk().unwrap();
-        let view = BitView::new(&chunk);
+        let view = BitView::new(chunk);
         assert_eq!(view.true_count(), N, "Chunk should have N true bits");
 
         // No more chunks
@@ -118,7 +118,7 @@ mod tests {
         let mut iter = TrueSliceIterator::new(test_bits);
 
         let chunk = iter.next_chunk().unwrap();
-        let view = BitView::new(&chunk);
+        let view = BitView::new(chunk);
         assert_eq!(
             view.true_count(),
             test_bits,
@@ -137,7 +137,7 @@ mod tests {
         let mut iter = TrueSliceIterator::new(usize_bits);
 
         let chunk = iter.next_chunk().unwrap();
-        let view = BitView::new(&chunk);
+        let view = BitView::new(chunk);
         assert_eq!(
             view.true_count(),
             usize_bits,
@@ -164,7 +164,7 @@ mod tests {
         let mut iter = TrueSliceIterator::new(test_bits);
 
         let chunk = iter.next_chunk().unwrap();
-        let view = BitView::new(&chunk);
+        let view = BitView::new(chunk);
         assert_eq!(
             view.true_count(),
             test_bits,
@@ -201,12 +201,12 @@ mod tests {
 
         // First chunk should be complete
         let chunk1 = iter.next_chunk().unwrap();
-        let view1 = BitView::new(&chunk1);
+        let view1 = BitView::new(chunk1);
         assert_eq!(view1.true_count(), N, "First chunk should have N true bits");
 
         // Second chunk should be partial
         let chunk2 = iter.next_chunk().unwrap();
-        let view2 = BitView::new(&chunk2);
+        let view2 = BitView::new(chunk2);
         assert_eq!(
             view2.true_count(),
             100,
@@ -223,7 +223,7 @@ mod tests {
         let mut iter = TrueSliceIterator::new(1);
 
         let chunk = iter.next_chunk().unwrap();
-        let view = BitView::new(&chunk);
+        let view = BitView::new(chunk);
         assert_eq!(view.true_count(), 1, "Chunk should have exactly 1 true bit");
 
         // Verify the bit pattern
@@ -259,7 +259,7 @@ mod tests {
         let mut chunk_count = 0;
 
         while let Some(chunk) = iter.next_chunk() {
-            let view = BitView::new(&chunk);
+            let view = BitView::new(chunk);
             total_true_bits += view.true_count();
             chunk_count += 1;
         }
@@ -281,7 +281,7 @@ mod tests {
         let mut iter = TrueSliceIterator::new(test_bits);
 
         let chunk = iter.next_chunk().unwrap();
-        let view = BitView::new(&chunk);
+        let view = BitView::new(chunk);
         assert_eq!(
             view.true_count(),
             test_bits,
@@ -301,12 +301,12 @@ mod tests {
 
         // First chunk should be complete
         let chunk1 = iter.next_chunk().unwrap();
-        let view1 = BitView::new(&chunk1);
+        let view1 = BitView::new(chunk1);
         assert_eq!(view1.true_count(), N, "First chunk should have N true bits");
 
         // Second chunk should have 1 bit
         let chunk2 = iter.next_chunk().unwrap();
-        let view2 = BitView::new(&chunk2);
+        let view2 = BitView::new(chunk2);
         assert_eq!(
             view2.true_count(),
             1,
