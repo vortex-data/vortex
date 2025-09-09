@@ -5,9 +5,7 @@
 
 use arrow_buffer::BooleanBuffer;
 use divan::{Bencher, black_box};
-use vortex_array::pipeline::bits::{
-    BitAlignedChunkedIterator, MaskSliceIterator,
-};
+use vortex_array::pipeline::bits::{BitAlignedChunkedIterator, MaskSliceIterator};
 use vortex_array::pipeline::{N, N_WORDS};
 
 fn create_test_data(len: usize, pattern: fn(usize) -> bool) -> Vec<u8> {
@@ -28,10 +26,8 @@ fn create_test_data(len: usize, pattern: fn(usize) -> bool) -> Vec<u8> {
     }
 
     // Convert to bytes while maintaining alignment
-    
 
-    unsafe { std::slice::from_raw_parts(u64_data.as_ptr() as *const u8, aligned_byte_len) }
-            .to_vec()
+    unsafe { std::slice::from_raw_parts(u64_data.as_ptr() as *const u8, aligned_byte_len) }.to_vec()
 }
 
 #[divan::bench(args = [0, 1, 7, 13])]
@@ -77,14 +73,16 @@ fn bit_aligned_iterator_method(bencher: Bencher, bit_offset: usize) {
     let buffer = BooleanBuffer::new(data.into(), bit_offset, total_bits);
     let true_count = buffer.count_set_bits();
 
-    bencher.with_inputs(|| (&buffer, true_count)).bench_values(|(buffer, true_count)| {
-        let mut iter = BitAlignedChunkedIterator::new(buffer, true_count);
+    bencher
+        .with_inputs(|| (&buffer, true_count))
+        .bench_values(|(buffer, true_count)| {
+            let mut iter = BitAlignedChunkedIterator::new(buffer, true_count);
 
-        while let Some(chunk) = black_box(iter.next_chunk()) {
-            // Just test getting the slice, don't push to vector
-            black_box(chunk);
-        }
-    })
+            while let Some(chunk) = black_box(iter.next_chunk()) {
+                // Just test getting the slice, don't push to vector
+                black_box(chunk);
+            }
+        })
 }
 
 fn main() {

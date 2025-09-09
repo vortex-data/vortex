@@ -106,15 +106,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::BooleanBuffer;
-use vortex_array::pipeline::N_WORDS;
-use std::cell::RefCell;
+    use std::cell::RefCell;
     use std::rc::Rc;
 
+    use arrow_buffer::BooleanBuffer;
+    use vortex_array::pipeline::N_WORDS;
+
     use super::*;
+    use crate::canonical::ToCanonical;
     use crate::pipeline::bits::{BitAlignedChunkedIterator, TrueSliceIterator};
     use crate::vtable::ValidityHelper;
-    use crate::canonical::ToCanonical;
 
     struct StepCountingKernel {
         step_count: Rc<RefCell<usize>>,
@@ -230,8 +231,7 @@ use std::cell::RefCell;
             let (mut kernel, step_counter) = StepCountingKernel::new();
 
             // Test the fixed version
-            let result =
-                export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
+            let result = export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
             assert!(result.is_ok(), "Fixed function should not fail");
 
             let actual_steps = *step_counter.borrow();
@@ -257,8 +257,7 @@ use std::cell::RefCell;
             let mask_iter = MockMaskIterator::new(total_bits);
             let (mut kernel, step_counter) = StepCountingKernel::new();
 
-            let result =
-                export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
+            let result = export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
             assert!(result.is_ok(), "export_primitive_null should not fail");
 
             let actual_steps = *step_counter.borrow();
@@ -351,8 +350,7 @@ use std::cell::RefCell;
             let mask_iter = MockMaskIterator::new(total_bits);
             let (mut kernel, _step_counter, true_counter) = TrueCountTrackingKernel::new();
 
-            let result =
-                export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
+            let result = export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
             assert!(result.is_ok(), "export_primitive_nonnull should not fail");
 
             let actual_true_count = *true_counter.borrow();
@@ -376,8 +374,7 @@ use std::cell::RefCell;
             let mask_iter = MockMaskIterator::new(total_bits);
             let (mut kernel, _step_counter, true_counter) = TrueCountTrackingKernel::new();
 
-            let result =
-                export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
+            let result = export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
             assert!(result.is_ok(), "export_primitive_null should not fail");
 
             let actual_true_count = *true_counter.borrow();
@@ -448,8 +445,7 @@ use std::cell::RefCell;
         let (mut kernel, _step_counter, true_counter) = TrueCountTrackingKernel::new();
 
         // Test export_primitive_nonnull
-        let result =
-            export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
+        let result = export_primitive_impl::<u32, _, _>(mask_iter, EmptyBitSink, &mut kernel);
         assert!(result.is_ok());
 
         let true_count_nonnull = *true_counter.borrow();
@@ -459,8 +455,7 @@ use std::cell::RefCell;
         let mask_iter2 = MockMaskIterator::new(total_bits);
         let (mut kernel2, _step_counter2, true_counter2) = TrueCountTrackingKernel::new();
 
-        let result2 =
-            export_primitive_impl::<u32, _, _>(mask_iter2, EmptyBitSink, &mut kernel2);
+        let result2 = export_primitive_impl::<u32, _, _>(mask_iter2, EmptyBitSink, &mut kernel2);
         assert!(result2.is_ok());
 
         let true_count_null = *true_counter2.borrow();

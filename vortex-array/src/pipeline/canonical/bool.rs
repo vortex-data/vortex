@@ -66,10 +66,8 @@ pub(super) fn export_bool_nonnull_masked<T: MaskSliceIterator, Sink: BitSink>(
         let mask_view = BitView::new(chunk_array);
 
         let dummy_ctx = KernelContext::default();
-        let mut view_mut = ViewMut::new(
-            &mut elements_buffer,
-            sink.next_chunk().map(BitViewMut::new),
-        );
+        let mut view_mut =
+            ViewMut::new(&mut elements_buffer, sink.next_chunk().map(BitViewMut::new));
         pipeline.step(&dummy_ctx, mask_view, &mut view_mut)?;
 
         // Collect bools efficiently with unsafe for better performance
@@ -107,10 +105,10 @@ pub(super) fn export_bool_nonnull_masked<T: MaskSliceIterator, Sink: BitSink>(
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
+    use vortex_dtype::Nullability::NonNullable;
     use vortex_mask::Mask;
 
     use super::*;
-    use vortex_dtype::Nullability::NonNullable;
     use crate::pipeline::view::ViewMut;
 
     struct TestKernel {
