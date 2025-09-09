@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
@@ -29,25 +30,22 @@ pub struct RepartitionWriterOptions {
 /// Each emitted block (except the last) is at least `block_size_minimum` bytes and contains a
 /// multiple of `block_len_multiple` rows.
 #[derive(Clone)]
-pub struct RepartitionStrategy<S> {
-    child: S,
+pub struct RepartitionStrategy {
+    child: Arc<dyn LayoutStrategy>,
     options: RepartitionWriterOptions,
 }
 
-impl<S> RepartitionStrategy<S>
-where
-    S: LayoutStrategy,
-{
-    pub fn new(child: S, options: RepartitionWriterOptions) -> Self {
-        Self { child, options }
+impl RepartitionStrategy {
+    pub fn new<S: LayoutStrategy>(child: S, options: RepartitionWriterOptions) -> Self {
+        Self {
+            child: Arc::new(child),
+            options,
+        }
     }
 }
 
 #[async_trait]
-impl<S> LayoutStrategy for RepartitionStrategy<S>
-where
-    S: LayoutStrategy,
-{
+impl LayoutStrategy for RepartitionStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,

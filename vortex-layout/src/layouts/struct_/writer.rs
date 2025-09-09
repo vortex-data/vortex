@@ -25,25 +25,21 @@ use crate::{
     SequentialStreamExt,
 };
 
-pub struct StructStrategy<S> {
-    child: S,
+pub struct StructStrategy {
+    child: Arc<dyn LayoutStrategy>,
 }
 
 /// A [`LayoutStrategy`] that splits a StructArray batch into child layout writers
-impl<S> StructStrategy<S>
-where
-    S: LayoutStrategy,
-{
-    pub fn new(child: S) -> Self {
-        Self { child }
+impl StructStrategy {
+    pub fn new<S: LayoutStrategy>(child: S) -> Self {
+        Self {
+            child: Arc::new(child),
+        }
     }
 }
 
 #[async_trait]
-impl<S> LayoutStrategy for StructStrategy<S>
-where
-    S: LayoutStrategy,
-{
+impl LayoutStrategy for StructStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,

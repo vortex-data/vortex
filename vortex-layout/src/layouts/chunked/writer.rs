@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::once;
@@ -16,25 +18,21 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct ChunkedLayoutStrategy<S> {
+pub struct ChunkedLayoutStrategy {
     /// The layout strategy for each chunk.
-    pub chunk_strategy: S,
+    pub chunk_strategy: Arc<dyn LayoutStrategy>,
 }
 
-impl<S> ChunkedLayoutStrategy<S>
-where
-    S: LayoutStrategy,
-{
-    pub fn new(chunk_strategy: S) -> Self {
-        Self { chunk_strategy }
+impl ChunkedLayoutStrategy {
+    pub fn new<S: LayoutStrategy>(chunk_strategy: S) -> Self {
+        Self {
+            chunk_strategy: Arc::new(chunk_strategy),
+        }
     }
 }
 
 #[async_trait]
-impl<S> LayoutStrategy for ChunkedLayoutStrategy<S>
-where
-    S: LayoutStrategy,
-{
+impl LayoutStrategy for ChunkedLayoutStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,

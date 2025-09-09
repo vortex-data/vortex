@@ -51,21 +51,16 @@ impl Default for DictLayoutOptions {
 /// encodes chunks into dictionaries. When the dict constraints are hit, a
 /// new dictionary is created.
 #[derive(Clone)]
-pub struct DictStrategy<Codes, Values, Fallback> {
-    codes: Codes,
-    values: Values,
-    fallback: Fallback,
+pub struct DictStrategy {
+    codes: Arc<dyn LayoutStrategy>,
+    values: Arc<dyn LayoutStrategy>,
+    fallback: Arc<dyn LayoutStrategy>,
     options: DictLayoutOptions,
     executor: Arc<dyn TaskExecutor>,
 }
 
-impl<Codes, Values, Fallback> DictStrategy<Codes, Values, Fallback>
-where
-    Codes: LayoutStrategy,
-    Values: LayoutStrategy,
-    Fallback: LayoutStrategy,
-{
-    pub fn new(
+impl DictStrategy {
+    pub fn new<Codes: LayoutStrategy, Values: LayoutStrategy, Fallback: LayoutStrategy>(
         codes: Codes,
         values: Values,
         fallback: Fallback,
@@ -73,9 +68,9 @@ where
         executor: Arc<dyn TaskExecutor>,
     ) -> Self {
         Self {
-            codes,
-            values,
-            fallback,
+            codes: Arc::new(codes),
+            values: Arc::new(values),
+            fallback: Arc::new(fallback),
             options,
             executor,
         }
@@ -83,12 +78,7 @@ where
 }
 
 #[async_trait]
-impl<Codes, Values, Fallback> LayoutStrategy for DictStrategy<Codes, Values, Fallback>
-where
-    Codes: LayoutStrategy,
-    Values: LayoutStrategy,
-    Fallback: LayoutStrategy,
-{
+impl LayoutStrategy for DictStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,

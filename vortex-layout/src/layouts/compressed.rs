@@ -56,28 +56,28 @@ impl CompressorPlugin for crate::layouts::compact::CompactCompressor {
 
 /// A layout writer that compresses chunks.
 #[derive(Clone)]
-pub struct CompressingStrategy<S> {
-    child: S,
+pub struct CompressingStrategy {
+    child: Arc<dyn LayoutStrategy>,
     compressor: Arc<dyn CompressorPlugin>,
     executor: Arc<dyn TaskExecutor>,
     parallelism: usize,
 }
 
-impl<S: LayoutStrategy> CompressingStrategy<S> {
+impl CompressingStrategy {
     /// Create a new writer that uses the BtrBlocks-style cascading compressor to compress chunks.
     ///
     /// This provides a good balance between decoding speed and small file size.
     ///
     /// Set `exclude_int_dict_encoding` to true to prevent dictionary encoding of integer arrays,
     /// which is useful when compressing dictionary codes to avoid recursive dictionary encoding.
-    pub fn new_btrblocks(
+    pub fn new_btrblocks<S: LayoutStrategy>(
         child: S,
         executor: Arc<dyn TaskExecutor>,
         parallelism: usize,
         exclude_int_dict_encoding: bool,
     ) -> Self {
         Self {
-            child,
+            child: Arc::new(child),
             compressor: Arc::new(BtrBlocksCompressor {
                 exclude_int_dict_encoding,
             }),
@@ -94,14 +94,14 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
     ///
     /// [`CompactCompressor`]: crate::layouts::compact::CompactCompressor
     #[cfg(feature = "zstd")]
-    pub fn new_compact(
+    pub fn new_compact<S: LayoutStrategy>(
         child: S,
         compressor: crate::layouts::compact::CompactCompressor,
         executor: Arc<dyn TaskExecutor>,
         parallelism: usize,
     ) -> Self {
         Self {
-            child,
+            child: Arc::new(child),
             compressor: Arc::new(compressor),
             executor,
             parallelism,
@@ -109,14 +109,14 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
     }
 
     /// Create a new compressor from a plugin interface.
-    pub fn new_opaque<C: CompressorPlugin>(
+    pub fn new_opaque<S: LayoutStrategy, C: CompressorPlugin>(
         child: S,
         compressor: C,
         executor: Arc<dyn TaskExecutor>,
         parallelism: usize,
     ) -> Self {
         Self {
-            child,
+            child: Arc::new(child),
             compressor: Arc::new(compressor),
             executor,
             parallelism,
@@ -125,10 +125,7 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
 }
 
 #[async_trait]
-impl<S> LayoutStrategy for CompressingStrategy<S>
-where
-    S: LayoutStrategy,
-{
+impl LayoutStrategy for CompressingStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,

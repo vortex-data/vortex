@@ -44,27 +44,23 @@ impl Default for ZonedLayoutOptions {
     }
 }
 
-pub struct ZonedStrategy<Child, Stats> {
-    child: Child,
-    stats: Stats,
+pub struct ZonedStrategy {
+    child: Arc<dyn LayoutStrategy>,
+    stats: Arc<dyn LayoutStrategy>,
     options: ZonedLayoutOptions,
     executor: Arc<dyn TaskExecutor>,
 }
 
-impl<Child, Stats> ZonedStrategy<Child, Stats>
-where
-    Child: LayoutStrategy,
-    Stats: LayoutStrategy,
-{
-    pub fn new(
+impl ZonedStrategy {
+    pub fn new<Child: LayoutStrategy, Stats: LayoutStrategy>(
         child: Child,
         stats: Stats,
         options: ZonedLayoutOptions,
         executor: Arc<dyn TaskExecutor>,
     ) -> Self {
         Self {
-            child,
-            stats,
+            child: Arc::new(child),
+            stats: Arc::new(stats),
             options,
             executor,
         }
@@ -72,11 +68,7 @@ where
 }
 
 #[async_trait]
-impl<Child, Stats> LayoutStrategy for ZonedStrategy<Child, Stats>
-where
-    Child: LayoutStrategy,
-    Stats: LayoutStrategy,
-{
+impl LayoutStrategy for ZonedStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
