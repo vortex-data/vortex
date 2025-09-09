@@ -44,6 +44,7 @@ pub struct DictArray {
     codes: ArrayRef,
     values: ArrayRef,
     stats_set: ArrayStats,
+    dtype: DType,
 }
 
 #[derive(Clone, Debug)]
@@ -57,10 +58,14 @@ impl DictArray {
     /// by the safe [`DictArray::try_new`] constructor are valid, for example when
     /// you are filtering or slicing an existing valid `DictArray`.
     pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
+        let dtype = values
+            .dtype()
+            .union_nullability(codes.dtype().nullability());
         Self {
             codes,
             values,
             stats_set: Default::default(),
+            dtype,
         }
     }
 
@@ -88,11 +93,7 @@ impl DictArray {
             vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
         }
 
-        Ok(Self {
-            codes,
-            values,
-            stats_set: Default::default(),
-        })
+        Ok(unsafe { Self::new_unchecked(codes, values) })
     }
 
     #[inline]
@@ -112,7 +113,7 @@ impl ArrayVTable<DictVTable> for DictVTable {
     }
 
     fn dtype(array: &DictArray) -> &DType {
-        array.values.dtype()
+        &array.dtype
     }
 
     fn stats(array: &DictArray) -> StatsSetRef<'_> {
