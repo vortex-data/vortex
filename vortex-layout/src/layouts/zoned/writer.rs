@@ -70,7 +70,7 @@ impl LayoutStrategy for ZonedStrategy {
         ctx: ArrayContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
-        eof: SequencePointer,
+        mut eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let stats = self.options.stats.clone();
@@ -110,10 +110,8 @@ impl LayoutStrategy for ZonedStrategy {
 
         let block_size = self.options.block_size;
 
-        // We create a new SequencePointer for the stats table so that we can write it just
-        // before the end of the file.
-        let (data_eof, stats_eof) = eof.split();
-
+        // The eof used for the data child should appear _before_ our own stats tables.
+        let data_eof = eof.split_off();
         let data_layout = self
             .child
             .write_stream(
@@ -133,11 +131,13 @@ impl LayoutStrategy for ZonedStrategy {
 
         // We must defer creating the stats table LayoutWriter until now, because the DType of
         // the table depends on which stats were successfully computed.
-        let (stats_ptr, stats_eof) = stats_eof.split();
-        let stats_stream = stats_table.array().to_array_stream().sequenced(stats_ptr);
+        let stats_stream = stats_table
+            .array()
+            .to_array_stream()
+            .sequenced(eof.split_off());
         let zones_layout = self
             .stats
-            .write_stream(ctx, segment_sink.clone(), stats_stream, stats_eof, handle)
+            .write_stream(ctx, segment_sink.clone(), stats_stream, eof, handle)
             .await?;
 
         Ok(ZonedLayout::new(

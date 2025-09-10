@@ -207,8 +207,10 @@ fn dict_encode_stream(
             encoder: None,
             constraints,
         };
+
         let input = input.peekable();
         pin_mut!(input);
+
         while let Some(item) = input.as_mut().next().await {
             let (sequence_id, chunk) = item?;
             // labeler potentially creates sub sequences, we must

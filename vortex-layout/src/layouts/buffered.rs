@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::{StreamExt as _, pin_mut};
+use futures::StreamExt as _;
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
@@ -38,16 +38,19 @@ impl LayoutStrategy for BufferedStrategy {
         &self,
         ctx: ArrayContext,
         segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
-        eof: SequencePointer,
+        mut stream: SendableSequentialStream,
+        mut eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
-        let buffered_stream = try_stream! {
-            let stream = stream.peekable();
-            pin_mut!(stream);
 
+        // We have no choice but to put our final buffers here!
+        // We cannot hold on to sequence ids across iterations of the stream, otherwise we can
+        // cause deadlocks with other columns that are waiting for us to flush.
+        let mut final_flush = eof.split_off();
+
+        let buffered_stream = try_stream! {
             let mut nbytes = 0u64;
             let mut chunks = VecDeque::new();
 
@@ -56,30 +59,28 @@ impl LayoutStrategy for BufferedStrategy {
                 nbytes += chunk.nbytes();
                 chunks.push_back(chunk);
 
-                // if this is the last element, flush everything
-                if stream.as_mut().peek().await.is_none() {
-                    let mut sequence_pointer = sequence_id.descend();
-                    while let Some(chunk) = chunks.pop_front() {
-                        yield (sequence_pointer.advance(), chunk)
-                    }
-                    break;
-                }
-
                 if nbytes < 2 * buffer_size {
                     continue;
                 };
+
                 // Wait until we're at 2x the buffer size before flushing 1x the buffer size
                 // This avoids small tail stragglers being flushed at the end of the file.
-                let mut sequence_pointer = sequence_id.descend();
+                let mut sequence_ptr = sequence_id.descend();
                 while nbytes > buffer_size {
                     let Some(chunk) = chunks.pop_front() else {
                         break;
                     };
                     nbytes -= chunk.nbytes();
-                    yield (sequence_pointer.advance(), chunk)
+                    yield (sequence_ptr.advance(), chunk)
                 }
             }
+
+            // Now the input stream has ended, flush everything
+            while let Some(chunk) = chunks.pop_front() {
+                yield (final_flush.advance(), chunk)
+            }
         };
+
         self.child
             .write_stream(
                 ctx,

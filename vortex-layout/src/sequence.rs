@@ -234,6 +234,7 @@ impl Future for WaitSequenceFuture<'_> {
             guard.wakers.remove(&self.0.id);
             return Poll::Ready(());
         }
+
         guard.wakers.insert(self.0.id.clone(), cx.waker().clone());
         Poll::Pending
     }
