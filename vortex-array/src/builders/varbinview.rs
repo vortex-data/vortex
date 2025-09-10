@@ -520,4 +520,68 @@ mod tests {
         array2.slice(0..1).append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 2);
     }
+
+    #[test]
+    fn test_append_scalar() {
+        use vortex_scalar::Scalar;
+
+        // Test with Utf8 builder.
+        let mut utf8_builder =
+            VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+
+        // Test appending a valid utf8 value.
+        let utf8_scalar1 = Scalar::utf8("hello", Nullability::Nullable);
+        utf8_builder.append_scalar(&utf8_scalar1).unwrap();
+
+        // Test appending another value.
+        let utf8_scalar2 = Scalar::utf8("world", Nullability::Nullable);
+        utf8_builder.append_scalar(&utf8_scalar2).unwrap();
+
+        // Test appending null value.
+        let null_scalar = Scalar::null(DType::Utf8(Nullability::Nullable));
+        utf8_builder.append_scalar(&null_scalar).unwrap();
+
+        let array = utf8_builder.finish();
+        assert_eq!(array.len(), 3);
+
+        // Check actual values using scalar_at.
+        use crate::array::Array;
+        let scalar0 = array.scalar_at(0).as_utf8().value();
+        assert_eq!(scalar0.as_ref().map(|s| s.as_str()), Some("hello"));
+
+        let scalar1 = array.scalar_at(1).as_utf8().value();
+        assert_eq!(scalar1.as_ref().map(|s| s.as_str()), Some("world"));
+
+        let scalar2 = array.scalar_at(2).as_utf8().value();
+        assert_eq!(scalar2, None); // This should be null.
+
+        // Test with Binary builder.
+        let mut binary_builder =
+            VarBinViewBuilder::with_capacity(DType::Binary(Nullability::Nullable), 10);
+
+        let binary_scalar = Scalar::binary(vec![1u8, 2, 3], Nullability::Nullable);
+        binary_builder.append_scalar(&binary_scalar).unwrap();
+
+        let binary_null = Scalar::null(DType::Binary(Nullability::Nullable));
+        binary_builder.append_scalar(&binary_null).unwrap();
+
+        let binary_array = binary_builder.finish();
+        assert_eq!(binary_array.len(), 2);
+
+        // Check actual binary values.
+        let binary0 = binary_array.scalar_at(0).as_binary().value();
+        assert_eq!(
+            binary0.as_ref().map(|b| b.as_slice()),
+            Some(&[1u8, 2, 3][..])
+        );
+
+        let binary1 = binary_array.scalar_at(1).as_binary().value();
+        assert_eq!(binary1, None); // This should be null.
+
+        // Test wrong dtype error.
+        let mut builder =
+            VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 10);
+        let wrong_scalar = Scalar::from(42i32);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
+    }
 }

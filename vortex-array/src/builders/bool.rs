@@ -137,13 +137,16 @@ impl ArrayBuilder for BoolBuilder {
 mod tests {
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
+    use vortex_dtype::{DType, Nullability};
+    use vortex_scalar::Scalar;
 
     use crate::array::Array;
     use crate::arrays::{BoolArray, ChunkedArray};
-    use crate::builders::builder_with_capacity;
+    use crate::builders::{ArrayBuilder, BoolBuilder, builder_with_capacity};
     use crate::canonical::ToCanonical;
     use crate::vtable::ValidityHelper;
     use crate::{ArrayRef, IntoArray};
+
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(0);
 
@@ -175,5 +178,40 @@ mod tests {
 
         assert_eq!(canon_into.validity(), into_canon.validity());
         assert_eq!(canon_into.boolean_buffer(), into_canon.boolean_buffer());
+    }
+
+    #[test]
+    fn test_append_scalar() {
+        let mut builder = BoolBuilder::with_capacity(Nullability::Nullable, 10);
+
+        // Test appending true value.
+        let true_scalar = Scalar::bool(true, Nullability::Nullable);
+        builder.append_scalar(&true_scalar).unwrap();
+
+        // Test appending false value.
+        let false_scalar = Scalar::bool(false, Nullability::Nullable);
+        builder.append_scalar(&false_scalar).unwrap();
+
+        // Test appending null value.
+        let null_scalar = Scalar::null(DType::Bool(Nullability::Nullable));
+        builder.append_scalar(&null_scalar).unwrap();
+
+        let array = builder.finish_into_bool();
+        assert_eq!(array.len(), 3);
+
+        // Check actual values.
+        assert!(array.boolean_buffer().value(0));
+        assert!(!array.boolean_buffer().value(1));
+        // The third value is null, but the buffer might have any value.
+
+        // Check validity - first two should be valid, third should be null.
+        assert!(array.validity().is_valid(0));
+        assert!(array.validity().is_valid(1));
+        assert!(!array.validity().is_valid(2));
+
+        // Test wrong dtype error.
+        let mut builder = BoolBuilder::with_capacity(Nullability::NonNullable, 10);
+        let wrong_scalar = Scalar::from(42i32);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 }

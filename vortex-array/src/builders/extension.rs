@@ -114,3 +114,66 @@ impl ArrayBuilder for ExtensionBuilder {
         Canonical::Extension(self.finish_into_extension())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::{ExtDType, ExtID, Nullability};
+    use vortex_scalar::Scalar;
+
+    use super::*;
+    use crate::builders::ArrayBuilder;
+
+    #[test]
+    fn test_append_scalar() {
+        let ext_dtype = Arc::new(ExtDType::new(
+            ExtID::new("test_ext".into()),
+            Arc::new(DType::Primitive(
+                vortex_dtype::PType::I32,
+                Nullability::Nullable,
+            )),
+            None,
+        ));
+
+        let mut builder = ExtensionBuilder::new(ext_dtype.clone());
+
+        // Test appending a valid extension value.
+        let storage1 = Scalar::from(42i32);
+        let ext_scalar1 = Scalar::extension(ext_dtype.clone(), storage1);
+        builder.append_scalar(&ext_scalar1).unwrap();
+
+        // Test appending another value.
+        let storage2 = Scalar::from(84i32);
+        let ext_scalar2 = Scalar::extension(ext_dtype.clone(), storage2);
+        builder.append_scalar(&ext_scalar2).unwrap();
+
+        // Test appending null value.
+        let null_storage = Scalar::null(DType::Primitive(
+            vortex_dtype::PType::I32,
+            Nullability::Nullable,
+        ));
+        let null_scalar = Scalar::extension(ext_dtype.clone(), null_storage);
+        builder.append_scalar(&null_scalar).unwrap();
+
+        let array = builder.finish_into_extension();
+        assert_eq!(array.len(), 3);
+
+        // Check actual values using scalar_at.
+
+        let scalar0 = array.scalar_at(0);
+        let ext0 = scalar0.as_extension();
+        assert_eq!(ext0.storage().as_primitive().typed_value::<i32>(), Some(42));
+
+        let scalar1 = array.scalar_at(1);
+        let ext1 = scalar1.as_extension();
+        assert_eq!(ext1.storage().as_primitive().typed_value::<i32>(), Some(84));
+
+        let scalar2 = array.scalar_at(2);
+        let ext2 = scalar2.as_extension();
+        assert_eq!(ext2.storage().as_primitive().typed_value::<i32>(), None); // Storage is null.
+
+        // Test wrong dtype error.
+        let mut builder = ExtensionBuilder::new(ext_dtype);
+        let wrong_scalar = Scalar::from(true);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
+    }
+}

@@ -229,4 +229,85 @@ mod tests {
         assert_eq!(struct_.len(), 1);
         assert_eq!(struct_.dtype(), &dtype);
     }
+
+    #[test]
+    fn test_append_scalar() {
+        use vortex_scalar::Scalar;
+
+        let dtype = DType::Struct(
+            StructFields::from_iter([
+                ("a", DType::Primitive(I32, Nullability::Nullable)),
+                ("b", DType::Utf8(Nullability::Nullable)),
+            ]),
+            Nullability::Nullable,
+        );
+
+        let struct_fields = match &dtype {
+            DType::Struct(fields, _) => fields.clone(),
+            _ => panic!("Expected struct dtype"),
+        };
+        let mut builder = StructBuilder::new(struct_fields, Nullability::Nullable);
+
+        // Test appending a valid struct value.
+        let struct_scalar1 = Scalar::struct_(
+            dtype.clone(),
+            vec![
+                Scalar::primitive(42i32, Nullability::Nullable),
+                Scalar::utf8("hello", Nullability::Nullable),
+            ],
+        );
+        builder.append_scalar(&struct_scalar1).unwrap();
+
+        // Test appending another struct value.
+        let struct_scalar2 = Scalar::struct_(
+            dtype.clone(),
+            vec![
+                Scalar::primitive(84i32, Nullability::Nullable),
+                Scalar::utf8("world", Nullability::Nullable),
+            ],
+        );
+        builder.append_scalar(&struct_scalar2).unwrap();
+
+        // Test appending null value.
+        let null_scalar = Scalar::null(dtype.clone());
+        builder.append_scalar(&null_scalar).unwrap();
+
+        let array = builder.finish_into_struct();
+        assert_eq!(array.len(), 3);
+
+        // Check actual values using scalar_at.
+
+        let scalar0 = array.scalar_at(0);
+        let struct0 = scalar0.as_struct();
+        if let Some(fields0) = struct0.fields() {
+            assert_eq!(fields0[0].as_primitive().typed_value::<i32>(), Some(42));
+            assert_eq!(fields0[1].as_utf8().value().as_deref(), Some("hello"));
+        }
+
+        let scalar1 = array.scalar_at(1);
+        let struct1 = scalar1.as_struct();
+        if let Some(fields1) = struct1.fields() {
+            assert_eq!(fields1[0].as_primitive().typed_value::<i32>(), Some(84));
+            assert_eq!(fields1[1].as_utf8().value().as_deref(), Some("world"));
+        }
+
+        let scalar2 = array.scalar_at(2);
+        let struct2 = scalar2.as_struct();
+        assert!(struct2.fields().is_none()); // Null struct has no fields.
+
+        // Check validity - first two should be valid, third should be null.
+        use crate::vtable::ValidityHelper;
+        assert!(array.validity().is_valid(0));
+        assert!(array.validity().is_valid(1));
+        assert!(!array.validity().is_valid(2));
+
+        // Test wrong dtype error.
+        let struct_fields = match &dtype {
+            DType::Struct(fields, _) => fields.clone(),
+            _ => panic!("Expected struct dtype"),
+        };
+        let mut builder = StructBuilder::new(struct_fields, Nullability::NonNullable);
+        let wrong_scalar = Scalar::from(42i32);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
+    }
 }

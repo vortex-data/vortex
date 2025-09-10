@@ -298,4 +298,52 @@ mod tests {
             assert_eq!(i8s.scalar_at(i), i128s.scalar_at(i));
         }
     }
+
+    #[test]
+    fn test_append_scalar() {
+        use vortex_scalar::Scalar;
+
+        // Simply test that the builder accepts its own finish output via scalar.
+        let mut builder = DecimalBuilder::new::<i64>(10, 2, true.into());
+        builder.append_value(1234i64);
+        builder.append_value(5678i64);
+        builder.append_null();
+
+        let array = builder.finish();
+        assert_eq!(array.len(), 3);
+
+        // Check actual values using scalar_at.
+        let scalar0 = array.scalar_at(0);
+        let decimal0 = scalar0.as_decimal();
+        assert!(decimal0.decimal_value().is_some());
+        // We can't easily check the exact value without accessing internals.
+
+        let scalar1 = array.scalar_at(1);
+        let decimal1 = scalar1.as_decimal();
+        assert!(decimal1.decimal_value().is_some());
+
+        let scalar2 = array.scalar_at(2);
+        let decimal2 = scalar2.as_decimal();
+        assert!(decimal2.decimal_value().is_none()); // This should be null.
+
+        // Test by taking a scalar from the array and appending it to a new builder.
+        let mut builder2 = DecimalBuilder::new::<i64>(10, 2, true.into());
+        for i in 0..array.len() {
+            let scalar = array.scalar_at(i);
+            builder2.append_scalar(&scalar).unwrap();
+        }
+
+        let array2 = builder2.finish();
+        assert_eq!(array2.len(), 3);
+
+        // Verify the values match.
+        for i in 0..3 {
+            assert_eq!(array.scalar_at(i), array2.scalar_at(i));
+        }
+
+        // Test wrong dtype error.
+        let mut builder = DecimalBuilder::new::<i64>(10, 2, false.into());
+        let wrong_scalar = Scalar::from(true);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
+    }
 }
