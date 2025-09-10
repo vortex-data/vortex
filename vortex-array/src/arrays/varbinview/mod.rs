@@ -10,7 +10,7 @@ use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{
-    VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure, vortex_err, vortex_panic,
+    vortex_bail, vortex_ensure, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
 };
 
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
@@ -20,7 +20,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{Canonical, EncodingId, EncodingRef, vtable};
+use crate::{vtable, Canonical, EncodingId, EncodingRef};
 
 mod accessor;
 mod compact;
@@ -113,6 +113,12 @@ assert_eq_align!(BinaryView, u128);
 impl Hash for BinaryView {
     fn hash<H: Hasher>(&self, state: &mut H) {
         unsafe { std::mem::transmute::<&BinaryView, &[u8; 16]>(self) }.hash(state);
+    }
+}
+
+impl Default for BinaryView {
+    fn default() -> Self {
+        Self::make_view(&[], 0, 0)
     }
 }
 

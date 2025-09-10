@@ -10,9 +10,9 @@ mod like;
 mod min_max;
 
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
+    filter, take, FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter,
 };
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::{register_kernel, Array, ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -46,7 +46,7 @@ mod test {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::compute::{Operator, compare, take};
+    use vortex_array::compute::{compare, take, Operator};
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
@@ -70,10 +70,10 @@ mod test {
 
         let expected: Vec<i32> = (0..65)
             .map(|i| match i % 3 {
-                // Compressor puts 0 as a code for invalid values which we end up using in take
-                // thus invalid values on decompression turn into whatever is at 0th position in dictionary
-                0 | 2 => 42,
+                // Compressor puts 0 as a code for invalid values
+                0 => 42,
                 1 => -9,
+                2 => 0,
                 _ => unreachable!(),
             })
             .collect();
@@ -266,13 +266,13 @@ mod test {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
     use vortex_array::arrays::{PrimitiveArray, VarBinArray};
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::IntoArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::DictArray;
     use crate::builders::dict_encode;
+    use crate::DictArray;
 
     #[rstest]
     // Primitive arrays

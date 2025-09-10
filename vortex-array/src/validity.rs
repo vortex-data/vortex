@@ -8,7 +8,7 @@ use std::ops::{BitAnd, Not, Range};
 
 use arrow_buffer::{BooleanBuffer, NullBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::{AllOr, Mask, MaskValues};
 use vortex_scalar::Scalar;
 
@@ -434,6 +434,20 @@ impl From<Nullability> for Validity {
 }
 
 impl Validity {
+    pub fn from_null_buffer(buffer: Option<NullBuffer>, nullability: Nullability) -> Self {
+        match buffer {
+            // If there are no nulls, then we infer from nullability
+            None => nullability.into(),
+            Some(nulls) => {
+                if nulls.null_count() == nulls.len() {
+                    Validity::AllInvalid
+                } else {
+                    Validity::Array(BoolArray::from(nulls.into_inner()).into_array())
+                }
+            }
+        }
+    }
+
     pub fn from_mask(mask: Mask, nullability: Nullability) -> Self {
         assert!(
             nullability == Nullability::Nullable || matches!(mask, Mask::AllTrue(_)),
@@ -472,7 +486,7 @@ impl IntoArray for &MaskValues {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_buffer::{Buffer, buffer};
+    use vortex_buffer::{buffer, Buffer};
     use vortex_dtype::Nullability;
     use vortex_mask::Mask;
 
