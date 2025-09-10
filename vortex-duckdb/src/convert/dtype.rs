@@ -99,6 +99,23 @@ impl LogicalType {
         }
     }
 
+    /// Creates a DuckDB fixed-size list logical type with the specified element type and list size.
+    ///
+    /// Note that DuckDB calls what we call a fixed-size list the ARRAY type.
+    fn fixed_size_list_type(element_type: LogicalType, list_size: u32) -> VortexResult<Self> {
+        // SAFETY: We trust that DuckDB correctly gives us a valid pointer or `NULL`.
+        let ptr = unsafe {
+            cpp::duckdb_create_array_type(element_type.as_ptr(), list_size as cpp::idx_t)
+        };
+
+        if ptr.is_null() {
+            vortex_bail!("Failed to create fixed-size list (array) type");
+        }
+
+        // SAFETY: This pointer came directly from DuckDB, and we checked that it was not `NULL`.
+        Ok(unsafe { Self::own(ptr) })
+    }
+
     /// Converts temporal extension types to corresponding DuckDB types.
     ///
     /// # Arguments
@@ -315,8 +332,9 @@ impl TryFrom<&DType> for LogicalType {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
                 return LogicalType::list_type(element_logical_type);
             }
-            DType::FixedSizeList(..) => {
-                unimplemented!("TODO(connor)[FixedSizeList]")
+            DType::FixedSizeList(element_dtype, list_size, _) => {
+                let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
+                return LogicalType::fixed_size_list_type(element_logical_type, *list_size);
             }
             DType::Extension(ext_dtype) => {
                 if datetime::is_temporal_ext_type(ext_dtype.id()) {
