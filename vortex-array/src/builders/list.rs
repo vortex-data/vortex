@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
-use vortex_scalar::ListScalar;
+use vortex_scalar::{ListScalar, Scalar};
 
 use crate::arrays::{ListArray, OffsetPType};
 use crate::builders::{
@@ -108,23 +108,6 @@ impl<O: OffsetPType> ListBuilder<O> {
         Ok(())
     }
 
-    /// Appends an optional list value to the builder.
-    ///
-    /// If the value is `Some`, it appends the list. If the value is `None`, it appends a null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option(&mut self, value: Option<ListScalar>) -> VortexResult<()> {
-        match value {
-            Some(value) => self.append_value(value),
-            None => {
-                self.append_null();
-                Ok(())
-            }
-        }
-    }
-
     /// Finishes the builder directly into a [`ListArray`].
     pub fn finish_into_list(&mut self) -> ListArray {
         assert_eq!(
@@ -189,6 +172,18 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
             )
         }
         self.nulls.append_n_nulls(n);
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "ListBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
+
+        let list_scalar = ListScalar::try_from(scalar)?;
+        self.append_value(list_scalar)
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
@@ -461,5 +456,63 @@ mod tests {
             canon_values.scalar_at(0)
         );
         assert_eq!(second_array.scalar_at(0), canon_values.scalar_at(1));
+    }
+
+    #[test]
+    fn test_append_scalar() {
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut builder = ListBuilder::<u64>::with_capacity(dtype.clone(), Nullable, 10);
+
+        // Test appending a valid list.
+        let list_scalar1 = Scalar::list(dtype.clone(), vec![1i32.into(), 2i32.into()], Nullable);
+        builder.append_scalar(&list_scalar1).unwrap();
+
+        // Test appending another list.
+        let list_scalar2 = Scalar::list(
+            dtype.clone(),
+            vec![3i32.into(), 4i32.into(), 5i32.into()],
+            Nullable,
+        );
+        builder.append_scalar(&list_scalar2).unwrap();
+
+        // Test appending null value.
+        let null_scalar = Scalar::null(DType::List(dtype.clone(), Nullable));
+        builder.append_scalar(&null_scalar).unwrap();
+
+        let array = builder.finish_into_list();
+        assert_eq!(array.len(), 3);
+
+        // Check actual values using scalar_at.
+
+        let scalar0 = array.scalar_at(0);
+        let list0 = scalar0.as_list();
+        assert_eq!(list0.len(), 2);
+        if let Some(list0_items) = list0.elements() {
+            assert_eq!(list0_items[0].as_primitive().typed_value::<i32>(), Some(1));
+            assert_eq!(list0_items[1].as_primitive().typed_value::<i32>(), Some(2));
+        }
+
+        let scalar1 = array.scalar_at(1);
+        let list1 = scalar1.as_list();
+        assert_eq!(list1.len(), 3);
+        if let Some(list1_items) = list1.elements() {
+            assert_eq!(list1_items[0].as_primitive().typed_value::<i32>(), Some(3));
+            assert_eq!(list1_items[1].as_primitive().typed_value::<i32>(), Some(4));
+            assert_eq!(list1_items[2].as_primitive().typed_value::<i32>(), Some(5));
+        }
+
+        let scalar2 = array.scalar_at(2);
+        let list2 = scalar2.as_list();
+        assert!(list2.is_null()); // This should be null.
+
+        // Check validity.
+        assert!(array.validity().is_valid(0));
+        assert!(array.validity().is_valid(1));
+        assert!(!array.validity().is_valid(2));
+
+        // Test wrong dtype error.
+        let mut builder = ListBuilder::<u64>::with_capacity(dtype, NonNullable, 10);
+        let wrong_scalar = Scalar::from(42i32);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 }

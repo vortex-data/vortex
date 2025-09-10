@@ -5,9 +5,9 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_ensure};
 use vortex_mask::Mask;
-use vortex_scalar::ExtScalar;
+use vortex_scalar::{ExtScalar, Scalar};
 
 use crate::arrays::ExtensionArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, builder_with_capacity};
@@ -37,24 +37,6 @@ impl ExtensionBuilder {
     /// Appends an extension `value` to the builder.
     pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
         self.storage.append_scalar(&value.storage())
-    }
-
-    /// Appends an optional extension value to the builder.
-    ///
-    /// If the value is `Some`, it appends the extension value. If the value is `None`, it appends a
-    /// null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option(&mut self, value: Option<ExtScalar>) -> VortexResult<()> {
-        match value {
-            Some(value) => self.append_value(value),
-            None => {
-                self.append_nulls(1);
-                Ok(())
-            }
-        }
     }
 
     /// Finishes the builder directly into a [`ExtensionArray`].
@@ -98,6 +80,18 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.append_nulls(n)
     }
 
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "ExtensionBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
+
+        let ext_scalar = ExtScalar::try_from(scalar)?;
+        self.append_value(ext_scalar)
+    }
+
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         let ext_array = array.to_extension();
         self.storage.extend_from_array(ext_array.storage())
@@ -117,5 +111,68 @@ impl ArrayBuilder for ExtensionBuilder {
 
     fn finish_into_canonical(&mut self) -> Canonical {
         Canonical::Extension(self.finish_into_extension())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::{ExtDType, ExtID, Nullability};
+    use vortex_scalar::Scalar;
+
+    use super::*;
+    use crate::builders::ArrayBuilder;
+
+    #[test]
+    fn test_append_scalar() {
+        let ext_dtype = Arc::new(ExtDType::new(
+            ExtID::new("test_ext".into()),
+            Arc::new(DType::Primitive(
+                vortex_dtype::PType::I32,
+                Nullability::Nullable,
+            )),
+            None,
+        ));
+
+        let mut builder = ExtensionBuilder::new(ext_dtype.clone());
+
+        // Test appending a valid extension value.
+        let storage1 = Scalar::from(42i32);
+        let ext_scalar1 = Scalar::extension(ext_dtype.clone(), storage1);
+        builder.append_scalar(&ext_scalar1).unwrap();
+
+        // Test appending another value.
+        let storage2 = Scalar::from(84i32);
+        let ext_scalar2 = Scalar::extension(ext_dtype.clone(), storage2);
+        builder.append_scalar(&ext_scalar2).unwrap();
+
+        // Test appending null value.
+        let null_storage = Scalar::null(DType::Primitive(
+            vortex_dtype::PType::I32,
+            Nullability::Nullable,
+        ));
+        let null_scalar = Scalar::extension(ext_dtype.clone(), null_storage);
+        builder.append_scalar(&null_scalar).unwrap();
+
+        let array = builder.finish_into_extension();
+        assert_eq!(array.len(), 3);
+
+        // Check actual values using scalar_at.
+
+        let scalar0 = array.scalar_at(0);
+        let ext0 = scalar0.as_extension();
+        assert_eq!(ext0.storage().as_primitive().typed_value::<i32>(), Some(42));
+
+        let scalar1 = array.scalar_at(1);
+        let ext1 = scalar1.as_extension();
+        assert_eq!(ext1.storage().as_primitive().typed_value::<i32>(), Some(84));
+
+        let scalar2 = array.scalar_at(2);
+        let ext2 = scalar2.as_extension();
+        assert_eq!(ext2.storage().as_primitive().typed_value::<i32>(), None); // Storage is null.
+
+        // Test wrong dtype error.
+        let mut builder = ExtensionBuilder::new(ext_dtype);
+        let wrong_scalar = Scalar::from(true);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 }

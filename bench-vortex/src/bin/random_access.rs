@@ -47,7 +47,7 @@ fn main() -> anyhow::Result<()> {
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
-    let runtime = new_tokio_runtime(args.threads);
+    let runtime = new_tokio_runtime(args.threads)?;
 
     let indices = buffer![10u64, 11, 12, 13, 100_000, 3_000_000];
     random_access(
@@ -78,8 +78,8 @@ fn random_access(
 
     let mut measurements = Vec::new();
 
-    let taxi_vortex = runtime.block_on(taxi_data_vortex());
-    let taxi_parquet = runtime.block_on(taxi_data_parquet());
+    let taxi_vortex = runtime.block_on(taxi_data_vortex())?;
+    let taxi_parquet = runtime.block_on(taxi_data_parquet())?;
 
     let validate = |array: ArrayRef| {
         let struct_ = array.to_struct();

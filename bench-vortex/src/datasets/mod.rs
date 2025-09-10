@@ -23,7 +23,7 @@ pub mod tpch_l_comment;
 pub trait Dataset {
     fn name(&self) -> &str;
 
-    async fn to_vortex_array(&self) -> ArrayRef;
+    async fn to_vortex_array(&self) -> Result<ArrayRef>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

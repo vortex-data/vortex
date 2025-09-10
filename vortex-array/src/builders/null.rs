@@ -4,7 +4,9 @@
 use std::any::Any;
 
 use vortex_dtype::DType;
+use vortex_error::{VortexResult, vortex_ensure};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
@@ -53,6 +55,18 @@ impl ArrayBuilder for NullBuilder {
         self.length += n;
     }
 
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "NullBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
+
+        self.append_null();
+        Ok(())
+    }
+
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         self.append_nulls(array.len());
     }
@@ -69,5 +83,36 @@ impl ArrayBuilder for NullBuilder {
 
     fn finish_into_canonical(&mut self) -> Canonical {
         Canonical::Null(NullArray::new(self.length))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::DType;
+    use vortex_scalar::Scalar;
+
+    use super::*;
+    use crate::builders::ArrayBuilder;
+
+    #[test]
+    fn test_append_scalar() {
+        let mut builder = NullBuilder::new();
+
+        // Test appending null scalar.
+        let null_scalar = Scalar::null(DType::Null);
+        builder.append_scalar(&null_scalar).unwrap();
+        builder.append_scalar(&null_scalar).unwrap();
+        builder.append_scalar(&null_scalar).unwrap();
+
+        let array = builder.finish();
+        assert_eq!(array.len(), 3);
+
+        // For null arrays, all values are null - nothing to check for actual values.
+        // Just verify the array is indeed a null array with the right length.
+
+        // Test wrong dtype error.
+        let mut builder = NullBuilder::new();
+        let wrong_scalar = Scalar::from(42i32);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 }

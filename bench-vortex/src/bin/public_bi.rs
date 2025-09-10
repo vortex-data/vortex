@@ -60,7 +60,7 @@ fn main() -> anyhow::Result<()> {
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
-    let runtime = new_tokio_runtime(args.threads);
+    let runtime = new_tokio_runtime(args.threads)?;
 
     let pbi_dataset = PBI_DATASETS.get(args.dataset);
     let queries = match args.queries.clone() {
@@ -79,7 +79,7 @@ fn main() -> anyhow::Result<()> {
     let dataset = pbi_dataset.dataset()?;
     tracing::info!("preparing files");
     // download csvs, unzip, convert to parquet, and convert that to vortex
-    runtime.block_on(dataset.write_as_vortex());
+    runtime.block_on(dataset.write_as_vortex())?;
 
     for target in &args.targets {
         let format = target.format();
