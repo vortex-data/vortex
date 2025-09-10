@@ -6,7 +6,7 @@ use std::mem::MaybeUninit;
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
@@ -138,13 +138,12 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        if scalar.dtype() != self.dtype() {
-            vortex_bail!(
-                "PrimitiveBuilder expected scalar with dtype {:?}, got {:?}",
-                self.dtype(),
-                scalar.dtype()
-            );
-        }
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "PrimitiveBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
 
         let primitive_scalar = PrimitiveScalar::try_from(scalar)?;
         match primitive_scalar.pvalue() {

@@ -5,7 +5,7 @@ use std::any::Any;
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{
     BigCast, DecimalValue, NativeDecimalType, Scalar, i256, match_each_decimal_value,
@@ -160,13 +160,12 @@ impl ArrayBuilder for DecimalBuilder {
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        if scalar.dtype() != self.dtype() {
-            vortex_bail!(
-                "DecimalBuilder expected scalar with dtype {:?}, got {:?}",
-                self.dtype(),
-                scalar.dtype()
-            );
-        }
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "DecimalBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
 
         match scalar.as_decimal().decimal_value() {
             None => self.append_null(),

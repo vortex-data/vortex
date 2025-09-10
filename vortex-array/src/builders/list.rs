@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{ListScalar, Scalar};
 
@@ -175,13 +175,12 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        if scalar.dtype() != self.dtype() {
-            vortex_bail!(
-                "ListBuilder expected scalar with dtype {:?}, got {:?}",
-                self.dtype(),
-                scalar.dtype()
-            );
-        }
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "ListBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
 
         let list_scalar = ListScalar::try_from(scalar)?;
         self.append_value(list_scalar)

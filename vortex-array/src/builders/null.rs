@@ -4,7 +4,7 @@
 use std::any::Any;
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -56,12 +56,12 @@ impl ArrayBuilder for NullBuilder {
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        if scalar.dtype() != &DType::Null {
-            vortex_bail!(
-                "NullBuilder can only append null scalars, got {:?}",
-                scalar.dtype()
-            );
-        }
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "NullBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
 
         self.append_null();
         Ok(())

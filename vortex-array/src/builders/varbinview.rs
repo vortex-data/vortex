@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
 use vortex_mask::Mask;
 use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
@@ -198,13 +198,12 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        if scalar.dtype() != self.dtype() {
-            vortex_bail!(
-                "VarBinViewBuilder expected scalar with dtype {:?}, got {:?}",
-                self.dtype(),
-                scalar.dtype()
-            );
-        }
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "VarBinViewBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
 
         match self.dtype() {
             DType::Utf8(_) => {

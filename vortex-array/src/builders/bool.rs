@@ -5,7 +5,7 @@ use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 use vortex_scalar::{BoolScalar, Scalar};
 
@@ -88,13 +88,12 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        if scalar.dtype() != self.dtype() {
-            vortex_bail!(
-                "BoolBuilder expected scalar with dtype {:?}, got {:?}",
-                self.dtype(),
-                scalar.dtype()
-            );
-        }
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "BoolBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
 
         let bool_scalar = BoolScalar::try_from(scalar)?;
         match bool_scalar.value() {

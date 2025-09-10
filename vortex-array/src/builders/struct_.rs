@@ -5,7 +5,7 @@ use std::any::Any;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, StructScalar};
 
@@ -144,13 +144,12 @@ impl ArrayBuilder for StructBuilder {
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        if scalar.dtype() != self.dtype() {
-            vortex_bail!(
-                "StructBuilder expected scalar with dtype {:?}, got {:?}",
-                self.dtype(),
-                scalar.dtype()
-            );
-        }
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "StructBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
 
         let struct_scalar = StructScalar::try_from(scalar)?;
         self.append_value(struct_scalar)
