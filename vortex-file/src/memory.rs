@@ -8,7 +8,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
-use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
+use crate::{EOF_SIZE, FileType, Footer, VortexFile, VortexOpenOptions};
 
 /// A Vortex file that is backed by an in-memory buffer.
 ///
@@ -29,8 +29,10 @@ impl VortexOpenOptions<InMemoryFileType> {
     /// Open an in-memory file contained in the provided buffer.
     pub fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer = buffer.into();
+        let buffer_size = buffer.len() as u64;
 
-        let postscript = self.parse_postscript(&buffer)?;
+        let (postscript, postscript_size) = self.parse_postscript(&buffer)?;
+        let postscript_offset = buffer_size - EOF_SIZE as u64 - postscript_size as u64;
 
         // If we haven't been provided a DType, we must read one from the file.
         let dtype = self.dtype
@@ -40,12 +42,12 @@ impl VortexOpenOptions<InMemoryFileType> {
                 let dtype_segment = postscript
                     .dtype
                     .ok_or_else(|| vortex_err!("Vortex file doesn't embed a DType and one has not been provided to VortexOpenOptions"))?;
-                self.parse_dtype(0, &buffer, &dtype_segment)
+                self.parse_dtype(0, &buffer, &dtype_segment, postscript_offset)
             })?;
 
         let file_stats = postscript
             .statistics
-            .map(|segment| self.parse_file_statistics(0, &buffer, &segment))
+            .map(|segment| self.parse_file_statistics(0, &buffer, &segment, postscript_offset))
             .transpose()?;
 
         let footer = self.parse_footer(
@@ -55,6 +57,7 @@ impl VortexOpenOptions<InMemoryFileType> {
             &postscript.layout,
             dtype,
             file_stats,
+            postscript_offset,
         )?;
 
         let segment_source = Arc::new(InMemorySegmentReader {

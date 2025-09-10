@@ -20,7 +20,7 @@ use vortex_flatbuffers::{FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, footer
 /// for a field or column in the file. These statistics can be used for query
 /// optimization and data exploration.
 #[derive(Clone, Debug)]
-pub(crate) struct FileStatistics(
+pub struct FileStatistics(
     /// An array of statistics sets, one for each field or column in the file.
     pub(crate) Arc<[StatsSet]>,
 );

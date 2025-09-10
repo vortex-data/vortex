@@ -104,7 +104,10 @@ impl<F: FileType> VortexOpenOptions<F> {
 
 impl<F: FileType> VortexOpenOptions<F> {
     /// Parse the postscript from the initial read.
-    pub(crate) fn parse_postscript(&self, initial_read: &[u8]) -> VortexResult<Postscript> {
+    pub(crate) fn parse_postscript(
+        &self,
+        initial_read: &[u8],
+    ) -> VortexResult<(Postscript, usize)> {
         if initial_read.len() < EOF_SIZE {
             vortex_bail!(
                 "Initial read must be at least EOF_SIZE ({}) bytes",
@@ -141,7 +144,8 @@ impl<F: FileType> VortexOpenOptions<F> {
             );
         }
 
-        Postscript::read_flatbuffer_bytes(&initial_read[eof_loc - ps_size..eof_loc])
+        let ps = Postscript::read_flatbuffer_bytes(&initial_read[eof_loc - ps_size..eof_loc])?;
+        Ok((ps, ps_size))
     }
 
     /// Parse the DType from the initial read.
@@ -150,8 +154,9 @@ impl<F: FileType> VortexOpenOptions<F> {
         initial_offset: u64,
         initial_read: &[u8],
         segment: &PostscriptSegment,
+        postscript_offset: u64,
     ) -> VortexResult<DType> {
-        let offset = usize::try_from(segment.offset - initial_offset)?;
+        let offset = usize::try_from(segment.position(postscript_offset) - initial_offset)?;
         let sliced_buffer =
             FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
         let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
@@ -165,14 +170,16 @@ impl<F: FileType> VortexOpenOptions<F> {
         initial_offset: u64,
         initial_read: &[u8],
         segment: &PostscriptSegment,
+        postscript_offset: u64,
     ) -> VortexResult<FileStatistics> {
-        let offset = usize::try_from(segment.offset - initial_offset)?;
+        let offset = usize::try_from(segment.position(postscript_offset) - initial_offset)?;
         let sliced_buffer =
             FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
         FileStatistics::read_flatbuffer_bytes(&sliced_buffer)
     }
 
     /// Parse the rest of the footer from the initial read.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn parse_footer(
         &self,
         initial_offset: u64,
@@ -181,13 +188,16 @@ impl<F: FileType> VortexOpenOptions<F> {
         layout_segment: &PostscriptSegment,
         dtype: DType,
         file_stats: Option<FileStatistics>,
+        postscript_offset: u64,
     ) -> VortexResult<Footer> {
-        let footer_offset = usize::try_from(footer_segment.offset - initial_offset)?;
+        let footer_offset =
+            usize::try_from(footer_segment.position(postscript_offset) - initial_offset)?;
         let footer_bytes = FlatBuffer::copy_from(
             &initial_read[footer_offset..footer_offset + (footer_segment.length as usize)],
         );
 
-        let layout_offset = usize::try_from(layout_segment.offset - initial_offset)?;
+        let layout_offset =
+            usize::try_from(layout_segment.position(postscript_offset) - initial_offset)?;
         let layout_bytes = FlatBuffer::copy_from(
             &initial_read[layout_offset..layout_offset + (layout_segment.length as usize)],
         );

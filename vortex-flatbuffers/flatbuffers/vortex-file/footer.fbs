@@ -34,7 +34,7 @@ table Postscript {
 /// A `PostscriptSegment` describes the location of a segment in the file without referencing any
 /// specification objects. That is, encryption and compression are defined inline.
 table PostscriptSegment {
-    offset: uint64;
+    offset: int64;
     length: uint32;
     alignment_exponent: uint8;
     _compression: CompressionSpec;
@@ -83,7 +83,10 @@ table LayoutSpec {
 
 /// A `SegmentSpec` acts as the locator for a buffer within the file.
 struct SegmentSpec {
-    /// Offset relative to the start of the file.
+    /// Offset.
+    ///
+    /// If positive, it is an offset from the start of the file. If negative, it is an offset from
+    /// the end of the file.
     offset: uint64;
     /// Length in bytes of the segment.
     length: uint32;

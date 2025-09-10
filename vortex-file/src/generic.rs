@@ -170,7 +170,8 @@ impl VortexOpenOptions<GenericVortexFile> {
             .dispatched_read(read.clone(), initial_offset..file_size)
             .await?;
 
-        let postscript = self.parse_postscript(&initial_read)?;
+        let (postscript, postscript_size) = self.parse_postscript(&initial_read)?;
+        let postscript_offset = file_size - EOF_SIZE as u64 - postscript_size as u64;
 
         // If we haven't been provided a DType, we must read one from the file.
         let dtype_segment = self
@@ -188,14 +189,15 @@ impl VortexOpenOptions<GenericVortexFile> {
         // The other postscript segments are required, so now we figure out our the offset that
         // contains all the required segments.
         let mut read_more_offset = initial_offset;
+
         if let Some(dtype_segment) = &dtype_segment {
-            read_more_offset = read_more_offset.min(dtype_segment.offset);
+            read_more_offset = read_more_offset.min(dtype_segment.position(postscript_offset));
         }
         if let Some(stats_segment) = &postscript.statistics {
-            read_more_offset = read_more_offset.min(stats_segment.offset);
+            read_more_offset = read_more_offset.min(stats_segment.position(postscript_offset));
         }
-        read_more_offset = read_more_offset.min(postscript.layout.offset);
-        read_more_offset = read_more_offset.min(postscript.footer.offset);
+        read_more_offset = read_more_offset.min(postscript.layout.position(postscript_offset));
+        read_more_offset = read_more_offset.min(postscript.footer.position(postscript_offset));
 
         // Read more bytes if necessary.
         if read_more_offset < initial_offset {
@@ -218,12 +220,21 @@ impl VortexOpenOptions<GenericVortexFile> {
 
         // Now we read our initial segments.
         let dtype = dtype_segment
-            .map(|segment| self.parse_dtype(initial_offset, &initial_read, &segment))
+            .map(|segment| {
+                self.parse_dtype(initial_offset, &initial_read, &segment, postscript_offset)
+            })
             .transpose()?
             .unwrap_or_else(|| self.dtype.clone().vortex_expect("DType was provided"));
         let file_stats = postscript
             .statistics
-            .map(|segment| self.parse_file_statistics(initial_offset, &initial_read, &segment))
+            .map(|segment| {
+                self.parse_file_statistics(
+                    initial_offset,
+                    &initial_read,
+                    &segment,
+                    postscript_offset,
+                )
+            })
             .transpose()?;
         let footer = self.parse_footer(
             initial_offset,
@@ -232,6 +243,7 @@ impl VortexOpenOptions<GenericVortexFile> {
             &postscript.layout,
             dtype,
             file_stats,
+            postscript_offset,
         )?;
 
         // If the initial read happened to cover any segments, then we can populate the

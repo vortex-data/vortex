@@ -182,7 +182,10 @@ impl<'a> SegmentSpec {
     s
   }
 
-  /// Offset relative to the start of the file.
+  /// Offset.
+  ///
+  /// If positive, it is an offset from the start of the file. If negative, it is an offset from
+  /// the end of the file.
   pub fn offset(&self) -> u64 {
     let mut mem = core::mem::MaybeUninit::<<u64 as EndianScalar>::Scalar>::uninit();
     // Safety:
@@ -543,11 +546,11 @@ impl<'a> PostscriptSegment<'a> {
 
 
   #[inline]
-  pub fn offset(&self) -> u64 {
+  pub fn offset(&self) -> i64 {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(PostscriptSegment::VT_OFFSET, Some(0)).unwrap()}
+    unsafe { self._tab.get::<i64>(PostscriptSegment::VT_OFFSET, Some(0)).unwrap()}
   }
   #[inline]
   pub fn length(&self) -> u32 {
@@ -586,7 +589,7 @@ impl flatbuffers::Verifiable for PostscriptSegment<'_> {
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
-     .visit_field::<u64>("offset", Self::VT_OFFSET, false)?
+     .visit_field::<i64>("offset", Self::VT_OFFSET, false)?
      .visit_field::<u32>("length", Self::VT_LENGTH, false)?
      .visit_field::<u8>("alignment_exponent", Self::VT_ALIGNMENT_EXPONENT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<CompressionSpec>>("_compression", Self::VT__COMPRESSION, false)?
@@ -596,7 +599,7 @@ impl flatbuffers::Verifiable for PostscriptSegment<'_> {
   }
 }
 pub struct PostscriptSegmentArgs<'a> {
-    pub offset: u64,
+    pub offset: i64,
     pub length: u32,
     pub alignment_exponent: u8,
     pub _compression: Option<flatbuffers::WIPOffset<CompressionSpec<'a>>>,
@@ -621,8 +624,8 @@ pub struct PostscriptSegmentBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> 
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PostscriptSegmentBuilder<'a, 'b, A> {
   #[inline]
-  pub fn add_offset(&mut self, offset: u64) {
-    self.fbb_.push_slot::<u64>(PostscriptSegment::VT_OFFSET, offset, 0);
+  pub fn add_offset(&mut self, offset: i64) {
+    self.fbb_.push_slot::<i64>(PostscriptSegment::VT_OFFSET, offset, 0);
   }
   #[inline]
   pub fn add_length(&mut self, length: u32) {

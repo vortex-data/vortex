@@ -160,7 +160,7 @@ impl VortexInspector {
             .map_err(|e| vortex_err!("Failed to parse postscript flatbuffer: {}", e))?;
 
         let dtype = fb_postscript.dtype().map(|s| SegmentInfo {
-            offset: s.offset(),
+            offset: s.position(postscript_offset),
             length: s.length(),
             alignment: Alignment::from_exponent(s.alignment_exponent()),
         });
@@ -168,14 +168,14 @@ impl VortexInspector {
         let layout = fb_postscript
             .layout()
             .map(|s| SegmentInfo {
-                offset: s.offset(),
+                offset: s.position(postscript_offset),
                 length: s.length(),
                 alignment: Alignment::from_exponent(s.alignment_exponent()),
             })
             .ok_or_else(|| vortex_err!("Postscript missing layout segment"))?;
 
         let statistics = fb_postscript.statistics().map(|s| SegmentInfo {
-            offset: s.offset(),
+            offset: s.position(postscript_offset),
             length: s.length(),
             alignment: Alignment::from_exponent(s.alignment_exponent()),
         });
@@ -183,7 +183,7 @@ impl VortexInspector {
         let footer = fb_postscript
             .footer()
             .map(|s| SegmentInfo {
-                offset: s.offset(),
+                offset: s.position(postscript_offset),
                 length: s.length(),
                 alignment: Alignment::from_exponent(s.alignment_exponent()),
             })

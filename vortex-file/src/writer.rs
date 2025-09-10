@@ -10,16 +10,16 @@ use futures::future::try_join;
 use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::segments::SequenceWriter;
-use vortex_layout::{LayoutContext, LayoutStrategy, LocalExecutor};
+use vortex_layout::{LayoutStrategy, LocalExecutor};
 
-use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
+use crate::footer::{FileStatistics, PostscriptSegment};
 use crate::segments::writer::SerialSegmentWriter;
-use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, WriteStrategyBuilder};
+use crate::{Footer, MAGIC_BYTES, WriteStrategyBuilder};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -141,58 +141,14 @@ impl VortexWriteOptions {
             Some(self.write_flatbuffer(&mut write, &dtype).await?)
         };
 
-        let layout_ctx = LayoutContext::empty();
-        let layout_segment = self
-            .write_flatbuffer(&mut write, &layout.flatbuffer_writer(&layout_ctx))
-            .await?;
+        let footer = Footer::from_parts(
+            layout,
+            Arc::from(segment_specs),
+            (!self.file_statistics.is_empty())
+                .then(|| FileStatistics(file_stats.stats_sets().into())),
+        );
 
-        let statistics_segment = if self.file_statistics.is_empty() {
-            None
-        } else {
-            let file_statistics = FileStatistics(file_stats.stats_sets().into());
-            Some(self.write_flatbuffer(&mut write, &file_statistics).await?)
-        };
-
-        let footer_segment = self
-            .write_flatbuffer(
-                &mut write,
-                &FooterFlatBufferWriter {
-                    ctx,
-                    layout_ctx,
-                    segment_specs: segment_specs.into(),
-                },
-            )
-            .await?;
-
-        // Assemble the postscript, and write it manually to avoid any framing.
-        let postscript = Postscript {
-            dtype: dtype_segment,
-            layout: layout_segment,
-            statistics: statistics_segment,
-            footer: footer_segment,
-        };
-        let postscript_buffer = postscript.write_flatbuffer_bytes();
-        if postscript_buffer.len() > MAX_FOOTER_SIZE as usize {
-            vortex_bail!(
-                "Postscript is too large ({} bytes); max postscript size is {}",
-                postscript_buffer.len(),
-                MAX_FOOTER_SIZE
-            );
-        }
-        let postscript_len = u16::try_from(postscript_buffer.len())
-            .vortex_expect("Postscript already verified to fit into u16");
-        write.write_all(postscript_buffer).await?;
-
-        // And finally, the EOF 8-byte footer.
-        let mut eof = [0u8; EOF_SIZE];
-        eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
-        eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
-        eof[4..8].copy_from_slice(&MAGIC_BYTES);
-        write.write_all(eof).await?;
-
-        write.flush().await?;
-
-        Ok(write.into_inner())
+        footer.write(write, ctx, dtype_segment).await
     }
 
     async fn write_flatbuffer<W: VortexWrite, F: FlatBufferRoot + WriteFlatBuffer>(
@@ -203,7 +159,7 @@ impl VortexWriteOptions {
         let layout_offset = write.position();
         write.write_all(flatbuffer.write_flatbuffer_bytes()).await?;
         Ok(PostscriptSegment {
-            offset: layout_offset,
+            offset: i64::try_from(layout_offset).map_err(|_| vortex_err!("file too big"))?,
             length: u32::try_from(write.position() - layout_offset)
                 .map_err(|_| vortex_err!("segment length exceeds maximum u32"))?,
             alignment: FlatBuffer::alignment(),

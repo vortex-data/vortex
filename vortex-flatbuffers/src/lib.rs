@@ -145,6 +145,8 @@ pub mod message;
 use flatbuffers::{FlatBufferBuilder, Follow, InvalidFlatbuffer, Verifiable, WIPOffset, root};
 use vortex_buffer::{ByteBuffer, ConstByteBuffer};
 
+use crate::footer::PostscriptSegment;
+
 /// We define a const-aligned byte buffer for flatbuffers with 8-byte alignment.
 ///
 /// This is based on the assumption that the maximum primitive type is 8 bytes.
@@ -202,5 +204,21 @@ impl<F: WriteFlatBuffer + FlatBufferRoot> WriteFlatBufferExt for F {
         let (vec, start) = fbb.collapse();
         let end = vec.len();
         FlatBuffer::align_from(ByteBuffer::from(vec).slice(start..end))
+    }
+}
+
+impl PostscriptSegment<'_> {
+    /// The position of this segment within a file of the given size.
+    ///
+    /// Positive offsets are literal positions whereas negative offsets are relative to the end of
+    /// the file.
+    pub fn position(&self, postscript_offset: u64) -> u64 {
+        let offset = self.offset();
+        if offset < 0 {
+            assert!(offset != i64::MIN);
+            postscript_offset - (-offset) as u64
+        } else {
+            offset as u64
+        }
     }
 }

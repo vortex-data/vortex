@@ -69,9 +69,20 @@ impl ReadFlatBuffer for Postscript {
 }
 
 pub struct PostscriptSegment {
-    pub(crate) offset: u64,
+    pub(crate) offset: i64,
     pub(crate) length: u32,
     pub(crate) alignment: Alignment,
+}
+
+impl PostscriptSegment {
+    pub fn position(&self, postscript_offset: u64) -> u64 {
+        if self.offset < 0 {
+            assert!(self.offset != i64::MIN);
+            postscript_offset - (-self.offset) as u64
+        } else {
+            self.offset as u64
+        }
+    }
 }
 
 impl FlatBufferRoot for PostscriptSegment {}
