@@ -9,25 +9,30 @@
 //! - Segment map, which describe the physical location of data in the file
 //!
 //! The footer is located at the end of the file and is used to interpret the file's contents.
+mod deserializer;
 mod file_layout;
 mod file_statistics;
 mod postscript;
 mod segment;
+mod serializer;
 
 use std::sync::Arc;
 
+pub use deserializer::*;
 pub(crate) use file_layout::*;
 pub(crate) use file_statistics::*;
 use flatbuffers::root;
 use itertools::Itertools;
 pub(crate) use postscript::*;
 pub use segment::*;
-use vortex_array::ArrayRegistry;
+pub use serializer::*;
 use vortex_array::stats::StatsSet;
+use vortex_array::{ArrayContext, ArrayRegistry};
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, footer as fb};
-use vortex_layout::{LayoutRef, LayoutRegistry, layout_from_flatbuffer};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_flatbuffers::{footer as fb, FlatBuffer};
+use vortex_layout::{layout_from_flatbuffer, LayoutRef, LayoutRegistry};
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
@@ -35,6 +40,7 @@ pub struct Footer {
     root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
+    array_ctx: ArrayContext,
 }
 
 impl Footer {
@@ -42,11 +48,13 @@ impl Footer {
         root_layout: LayoutRef,
         segments: Arc<[SegmentSpec]>,
         statistics: Option<FileStatistics>,
+        array_ctx: ArrayContext,
     ) -> Self {
         Self {
             root_layout,
             segments,
             statistics,
+            array_ctx,
         }
     }
 
@@ -95,6 +103,7 @@ impl Footer {
             root_layout,
             segments,
             statistics,
+            array_ctx,
         })
     }
 
@@ -121,5 +130,15 @@ impl Footer {
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> u64 {
         self.root_layout.row_count()
+    }
+
+    /// Returns a serializer for the footer.
+    pub fn into_serializer(self) -> FooterSerializer {
+        FooterSerializer::new(self)
+    }
+
+    /// Returns a deserializer for the footer, initialized with the provided initial EOF bytes.
+    pub fn deserializer(initial_eof: ByteBuffer) -> FooterDeserializer {
+        FooterDeserializer::new(initial_eof)
     }
 }

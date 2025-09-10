@@ -137,10 +137,7 @@ impl Runtime for Sender {
 }
 
 impl BlockingRuntime for SingleThreadRuntime {
-    type BlockingIterator<'a, R>
-        = SingleThreadIterator<'a, R>
-    where
-        R: 'a;
+    type BlockingIterator<'a, R: 'a> = SingleThreadIterator<'a, R>;
 
     fn block_on<F, Fut, R>(&self, f: F) -> R
     where
@@ -240,13 +237,13 @@ impl<T> Iterator for SingleThreadIterator<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use futures::FutureExt;
 
+    use crate::runtime::single::{block_on, SingleThreadRuntime};
     use crate::runtime::BlockingRuntime;
-    use crate::runtime::single::{SingleThreadRuntime, block_on};
 
     #[test]
     fn test_drive_simple_future() {

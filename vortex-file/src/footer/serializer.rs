@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
+use crate::{Footer, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+use vortex_buffer::ByteBuffer;
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
+use vortex_layout::LayoutContext;
+
+pub struct FooterSerializer {
+    footer: Footer,
+    exclude_dtype: bool,
+    offset: u64,
+}
+
+impl FooterSerializer {
+    pub(super) fn new(footer: Footer) -> Self {
+        Self {
+            footer,
+            exclude_dtype: false,
+            offset: 0,
+        }
+    }
+
+    /// Update the offset used to generate absolute segment locations.
+    ///
+    /// This represents the byte position that the first buffer emitted by this serializer will be
+    /// written to.
+    pub fn with_offset(mut self, offset: u64) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    /// Exclude the DType from the serialized footer.
+    /// If excluded, the reader must be provided the DType from an external source.
+    pub fn exclude_dtype(mut self) -> Self {
+        self.exclude_dtype = true;
+        self
+    }
+
+    /// Whether to exclude the DType from the serialized footer.
+    /// If excluded, the reader must be provided the DType from an external source.
+    pub fn with_exclude_dtype(mut self, exclude_dtype: bool) -> Self {
+        self.exclude_dtype = exclude_dtype;
+        self
+    }
+
+    /// Serialize the footer into a byte buffer that can later be deserialized as a [`Footer`].
+    /// This can be helpful for storing some footer data out-of-band to accelerate opening a file.
+    pub fn serialize(mut self) -> VortexResult<Vec<ByteBuffer>> {
+        let mut buffers = vec![];
+
+        let dtype_segment = if self.exclude_dtype {
+            None
+        } else {
+            let (buffer, dtype_segment) = write_flatbuffer(&mut self.offset, self.footer.dtype())?;
+            buffers.push(buffer);
+            Some(dtype_segment)
+        };
+
+        let layout_ctx = LayoutContext::empty();
+        let (buffer, layout_segment) = write_flatbuffer(
+            &mut self.offset,
+            &self.footer.layout().flatbuffer_writer(&layout_ctx),
+        )?;
+        buffers.push(buffer);
+
+        let statistics_segment = match self.footer.statistics() {
+            None => None,
+            Some(stats) if stats.is_empty() => None,
+            Some(stats) => {
+                let stats = FileStatistics(stats.clone());
+                let (buffer, stats_segment) = write_flatbuffer(&mut self.offset, &stats)?;
+                buffers.push(buffer);
+                Some(stats_segment)
+            }
+        };
+
+        let (buffer, footer_segment) = write_flatbuffer(
+            &mut self.offset,
+            &FooterFlatBufferWriter {
+                ctx: self.footer.array_ctx.clone(),
+                layout_ctx,
+                segment_specs: self.footer.segments.clone(),
+            },
+        )?;
+        buffers.push(buffer);
+
+        // Assemble the postscript, and write it manually to avoid any framing.
+        let postscript = Postscript {
+            dtype: dtype_segment,
+            layout: layout_segment,
+            statistics: statistics_segment,
+            footer: footer_segment,
+        };
+        let postscript_buffer = postscript.write_flatbuffer_bytes();
+        if postscript_buffer.len() > MAX_FOOTER_SIZE as usize {
+            Err(vortex_err!(
+                "Postscript is too large ({} bytes); max postscript size is {}",
+                postscript_buffer.len(),
+                MAX_FOOTER_SIZE
+            ))?;
+        }
+
+        let postscript_len = u16::try_from(postscript_buffer.len())
+            .vortex_expect("Postscript already verified to fit into u16");
+        buffers.push(postscript_buffer.into_inner());
+
+        // And finally, the EOF 8-byte footer.
+        let mut eof = [0u8; EOF_SIZE];
+        eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
+        eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
+        eof[4..8].copy_from_slice(&MAGIC_BYTES);
+        buffers.push(ByteBuffer::copy_from(eof));
+
+        Ok(buffers)
+    }
+}
+
+fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
+    offset: &mut u64,
+    flatbuffer: &F,
+) -> VortexResult<(ByteBuffer, PostscriptSegment)> {
+    let buffer = flatbuffer.write_flatbuffer_bytes();
+    let length = u32::try_from(buffer.len())
+        .map_err(|_| vortex_err!("flatbuffer length exceeds maximum u32"))?;
+
+    let segment = PostscriptSegment {
+        offset: *offset,
+        length,
+        alignment: FlatBuffer::alignment(),
+    };
+
+    *offset += u64::from(length);
+
+    Ok((buffer.into_inner(), segment))
+}
