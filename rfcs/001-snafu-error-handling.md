@@ -1,5 +1,7 @@
 # RFC: Hierarchical Error Handling with Snafu
 
+Status: Proposed
+
 ## Summary
 
 This RFC proposes migrating Vortex's error handling from a centralized `VortexError` enum to a hierarchical error system using the [`snafu`] library. The migration would proceed incrementally, with each crate defining its own error types that convert into the existing `VortexError`, allowing for a gradual transition without breaking changes. Once the migration is done, we can remove the current `VortexError` and replace it with a top-level, user-facing `VortexError`.
@@ -194,17 +196,11 @@ We could keep the centralized approach but enhance `VortexError` with better con
 
 ### anyhow/color-eyre
 
-These libraries provide excellent error context but are better suited for applications than libraries. They use dynamic dispatch which makes it impossible to match on specific error types, a capability we need to preserve.
+These libraries provide excellent error context, but are better suited for applications than libraries. This would really just be replacing the current system with the same issues.
 
-### thiserror Without Hierarchy
+### `thiserror` Without Hierarchy
 
 We could use thiserror to reduce boilerplate while keeping a flat error structure. This would provide some ergonomic improvements but wouldn't address the core architectural issues around error ownership and context.
-
-## Performance Considerations
-
-The location capture in snafu is designed to be very lightweight, recording only file, line, and column information without symbol resolution. The error path is typically cold code, so the performance impact should be minimal for the success path. However, workloads that generate many errors (such as parsing invalid data) could see performance impacts that would need benchmarking.
-
-The virtual stack traces would actually be more efficient than the current backtrace capture, which performs symbol resolution at runtime. The context propagation adds only pointer-sized overhead at each level.
 
 ## Testing Strategy
 
