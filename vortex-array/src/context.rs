@@ -12,8 +12,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::EncodingRef;
 use crate::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
-    ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
-    VarBinViewEncoding,
+    FixedSizeListEncoding, ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
+    VarBinEncoding, VarBinViewEncoding,
 };
 
 /// A collection of array encodings.
@@ -33,6 +33,7 @@ impl ArrayRegistry {
             EncodingRef::new_ref(DecimalEncoding.as_ref()),
             EncodingRef::new_ref(StructEncoding.as_ref()),
             EncodingRef::new_ref(ListEncoding.as_ref()),
+            EncodingRef::new_ref(FixedSizeListEncoding.as_ref()),
             EncodingRef::new_ref(VarBinEncoding.as_ref()),
             EncodingRef::new_ref(VarBinViewEncoding.as_ref()),
             EncodingRef::new_ref(ExtensionEncoding.as_ref()),

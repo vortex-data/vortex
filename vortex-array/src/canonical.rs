@@ -67,7 +67,10 @@ use crate::{Array, ArrayRef, IntoArray};
 ///
 /// # For Developers
 ///
-/// If you add another variant to this enum, make sure to update [`Array::is_canonical`].
+/// If you add another variant to this enum, make sure to update [`Array::is_canonical`],
+/// [`ArrayRegistry::canonical_only`], and the fuzzer in `fuzz/fuzz_targets/array_ops.rs`.
+///
+/// [`ArrayRegistry::canonical_only`]: crate::ArrayRegistry::canonical_only
 #[derive(Debug, Clone)]
 pub enum Canonical {
     Null(NullArray),
