@@ -228,6 +228,13 @@ impl Vector {
         unsafe { Self::borrow(cpp::duckdb_list_vector_get_child(self.as_ptr())) }
     }
 
+    pub fn array_vector_get_child(&self) -> Self {
+        // SAFETY: duckdb_array_vector_get_child dereferences the vector pointer which must be
+        // valid and point to an ARRAY type vector. The returned child vector is borrowed and
+        // remains valid as long as the parent vector is valid.
+        unsafe { Self::borrow(cpp::duckdb_array_vector_get_child(self.as_ptr())) }
+    }
+
     pub fn list_vector_set_size(&self, size: u64) -> VortexResult<()> {
         let state = unsafe { cpp::duckdb_list_vector_set_size(self.as_ptr(), size) };
         match state {
