@@ -7,7 +7,7 @@ use std::sync::Arc;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
-use vortex_scalar::ListScalar;
+use vortex_scalar::{ListScalar, Scalar};
 
 use crate::arrays::FixedSizeListArray;
 use crate::builders::{
@@ -204,6 +204,19 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
         self.elements_builder.append_defaults(element_count);
         self.nulls.append_n_nulls(n);
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        if scalar.dtype() != self.dtype() {
+            vortex_bail!(
+                "FixedSizeListBuilder expected scalar with dtype {:?}, got {:?}",
+                self.dtype(),
+                scalar.dtype()
+            );
+        }
+
+        let list_scalar = ListScalar::try_from(scalar)?;
+        self.append_value(list_scalar)
     }
 
     /// This will increase the capacity if extending with this `array` would go past the original

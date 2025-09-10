@@ -4,7 +4,9 @@
 use std::any::Any;
 
 use vortex_dtype::DType;
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
@@ -51,6 +53,18 @@ impl ArrayBuilder for NullBuilder {
 
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.length += n;
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        if scalar.dtype() != &DType::Null {
+            vortex_bail!(
+                "NullBuilder can only append null scalars, got {:?}",
+                scalar.dtype()
+            );
+        }
+
+        self.append_null();
+        Ok(())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {

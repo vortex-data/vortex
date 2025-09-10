@@ -6,7 +6,9 @@ use std::mem::MaybeUninit;
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
+use vortex_scalar::{PrimitiveScalar, Scalar};
 
 use crate::arrays::PrimitiveArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
@@ -148,6 +150,22 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.values.push_n(T::default(), n);
         self.nulls.append_n_nulls(n);
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        if scalar.dtype() != self.dtype() {
+            vortex_bail!(
+                "PrimitiveBuilder expected scalar with dtype {:?}, got {:?}",
+                self.dtype(),
+                scalar.dtype()
+            );
+        }
+
+        let primitive_scalar = PrimitiveScalar::try_from(scalar)?;
+        let value = primitive_scalar.pvalue().map(|pv| pv.as_primitive::<T>());
+        self.append_option(value);
+
+        Ok(())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {

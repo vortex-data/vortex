@@ -5,9 +5,12 @@ use std::any::Any;
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexExpect, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
-use vortex_scalar::{BigCast, NativeDecimalType, i256, match_each_decimal_value_type};
+use vortex_scalar::{
+    BigCast, DecimalValue, NativeDecimalType, Scalar, i256, match_each_decimal_value,
+    match_each_decimal_value_type,
+};
 
 use crate::arrays::DecimalArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
@@ -169,6 +172,25 @@ impl ArrayBuilder for DecimalBuilder {
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.values.push_n(0, n);
         self.nulls.append_n_nulls(n);
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        if scalar.dtype() != self.dtype() {
+            vortex_bail!(
+                "DecimalBuilder expected scalar with dtype {:?}, got {:?}",
+                self.dtype(),
+                scalar.dtype()
+            );
+        }
+
+        match scalar.as_decimal().decimal_value() {
+            None => self.append_null(),
+            Some(v) => match_each_decimal_value!(v, |dec_val| {
+                self.append_value(dec_val);
+            }),
+        }
+
+        Ok(())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {

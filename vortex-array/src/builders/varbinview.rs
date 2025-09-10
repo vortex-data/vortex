@@ -7,8 +7,9 @@ use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
+use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use crate::arrays::{BinaryView, VarBinViewArray};
@@ -209,6 +210,33 @@ impl ArrayBuilder for VarBinViewBuilder {
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
         self.nulls.append_n_nulls(n);
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        if scalar.dtype() != self.dtype() {
+            vortex_bail!(
+                "VarBinViewBuilder expected scalar with dtype {:?}, got {:?}",
+                self.dtype(),
+                scalar.dtype()
+            );
+        }
+
+        match self.dtype() {
+            DType::Utf8(_) => {
+                let utf8_scalar = Utf8Scalar::try_from(scalar)?;
+                self.append_option(utf8_scalar.value());
+            }
+            DType::Binary(_) => {
+                let binary_scalar = BinaryScalar::try_from(scalar)?;
+                self.append_option(binary_scalar.value());
+            }
+            _ => vortex_bail!(
+                "VarBinViewBuilder can only handle Utf8 or Binary scalars, got {:?}",
+                scalar.dtype()
+            ),
+        }
+
+        Ok(())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {

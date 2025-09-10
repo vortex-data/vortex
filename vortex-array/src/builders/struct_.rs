@@ -7,7 +7,7 @@ use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
-use vortex_scalar::StructScalar;
+use vortex_scalar::{Scalar, StructScalar};
 
 use crate::arrays::StructArray;
 use crate::builders::{
@@ -158,6 +158,19 @@ impl ArrayBuilder for StructBuilder {
             // themselves non-nullable.
             .for_each(|builder| builder.append_defaults(n));
         self.nulls.append_null();
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        if scalar.dtype() != self.dtype() {
+            vortex_bail!(
+                "StructBuilder expected scalar with dtype {:?}, got {:?}",
+                self.dtype(),
+                scalar.dtype()
+            );
+        }
+
+        let struct_scalar = StructScalar::try_from(scalar)?;
+        self.append_value(struct_scalar)
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {

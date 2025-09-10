@@ -5,7 +5,9 @@ use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
+use vortex_scalar::{BoolScalar, Scalar};
 
 use crate::arrays::BoolArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
@@ -98,6 +100,21 @@ impl ArrayBuilder for BoolBuilder {
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.inner.append_n(n, false);
         self.nulls.append_n_nulls(n)
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        if scalar.dtype() != self.dtype() {
+            vortex_bail!(
+                "BoolBuilder expected scalar with dtype {:?}, got {:?}",
+                self.dtype(),
+                scalar.dtype()
+            );
+        }
+
+        let bool_scalar = BoolScalar::try_from(scalar)?;
+        self.append_option(bool_scalar.value());
+
+        Ok(())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {

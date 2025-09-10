@@ -5,9 +5,9 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_scalar::ExtScalar;
+use vortex_scalar::{ExtScalar, Scalar};
 
 use crate::arrays::ExtensionArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, builder_with_capacity};
@@ -96,6 +96,19 @@ impl ArrayBuilder for ExtensionBuilder {
 
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.storage.append_nulls(n)
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        if scalar.dtype() != self.dtype() {
+            vortex_bail!(
+                "ExtensionBuilder expected scalar with dtype {:?}, got {:?}",
+                self.dtype(),
+                scalar.dtype()
+            );
+        }
+
+        let ext_scalar = ExtScalar::try_from(scalar)?;
+        self.append_value(ext_scalar)
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
