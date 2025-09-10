@@ -32,7 +32,7 @@ use crate::session::{FileKey, vx_session};
 use crate::{arc_wrapper, get_runtime, to_string_vec};
 
 arc_wrapper!(
-    /// A handle to a Vortex file encapsulating ther footer and logic for instantiating a reader.
+    /// A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.
     VortexFile,
     vx_file
 );

@@ -27,24 +27,26 @@ arc_wrapper!(
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum vx_dtype_variant {
-    /// Null type
+    /// Null type.
     DTYPE_NULL = 0,
-    /// Boolean type
+    /// Boolean type.
     DTYPE_BOOL = 1,
-    /// Primitive types (e.g., u8, i16, f32, etc.)
+    /// Primitive types (e.g., u8, i16, f32, etc.).
     DTYPE_PRIMITIVE = 2,
-    /// Variable-length UTF-8 string type
+    /// Variable-length UTF-8 string type.
     DTYPE_UTF8 = 3,
-    /// Variable-length binary data type
+    /// Variable-length binary data type.
     DTYPE_BINARY = 4,
-    /// Nested struct type
+    /// Nested struct type.
     DTYPE_STRUCT = 5,
-    /// Nested list type
+    /// Nested list type.
     DTYPE_LIST = 6,
-    /// User-defined extension type
+    /// User-defined extension type.
     DTYPE_EXTENSION = 7,
-    /// Decimal type with fixed precision and scale
+    /// Decimal type with fixed precision and scale.
     DTYPE_DECIMAL = 8,
+    /// Nested fixed-size list type.
+    DTYPE_FIXED_SIZE_LIST = 9,
 }
 
 impl From<&DType> for vx_dtype_variant {
@@ -58,9 +60,7 @@ impl From<&DType> for vx_dtype_variant {
             DType::Binary(_) => vx_dtype_variant::DTYPE_BINARY,
             DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
-            DType::FixedSizeList(..) => {
-                unimplemented!("TODO(connor)[FixedSizeList]")
-            }
+            DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
             DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
         }
     }
@@ -109,6 +109,23 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_list(
 ) -> *const vx_dtype {
     let element = vx_dtype::into_arc(element);
     vx_dtype::new(Arc::new(DType::List(element, is_nullable.into())))
+}
+
+/// Create a new fixed-size list data type.
+///
+/// Takes ownership of the `element` pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_dtype_new_fixed_size_list(
+    element: *const vx_dtype,
+    size: u32,
+    is_nullable: bool,
+) -> *const vx_dtype {
+    let element = vx_dtype::into_arc(element);
+    vx_dtype::new(Arc::new(DType::FixedSizeList(
+        element,
+        size,
+        is_nullable.into(),
+    )))
 }
 
 /// Create a new struct data type.
@@ -196,6 +213,30 @@ pub unsafe extern "C-unwind" fn vx_dtype_list_element(dtype: *const vx_dtype) ->
         .as_list_element_opt()
         .vortex_expect("not a list dtype");
     vx_dtype::new_ref(element_dtype)
+}
+
+/// Return the `element` type of a fixed-size list data type.
+///
+/// The returned pointer is valid as long as the fixed-size list dtype is valid.
+/// Do NOT free the returned dtype pointer - it shares the lifetime of the fixed-size list dtype.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_element(
+    dtype: *const vx_dtype,
+) -> *const vx_dtype {
+    let element_dtype = vx_dtype::as_ref(dtype)
+        .as_fixed_size_list_element_opt()
+        .vortex_expect("not a fixed-size list dtype");
+    vx_dtype::new_ref(element_dtype)
+}
+
+/// Return the size of a fixed-size list data type.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_size(dtype: *const vx_dtype) -> u32 {
+    let dtype_ref = vx_dtype::as_ref(dtype);
+    match dtype_ref {
+        DType::FixedSizeList(_, size, _) => *size,
+        _ => vortex_panic!("not a fixed-size list dtype"),
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -408,6 +449,95 @@ mod tests {
     }
 
     #[test]
+    fn test_dtype_fixed_size_list() {
+        unsafe {
+            let element_dtype = vx_dtype_new_primitive(vx_ptype::PTYPE_F64, false);
+            let fsl_dtype = vx_dtype_new_fixed_size_list(element_dtype, 3, true);
+
+            assert_eq!(
+                vx_dtype_get_variant(fsl_dtype),
+                vx_dtype_variant::DTYPE_FIXED_SIZE_LIST
+            );
+            assert!(vx_dtype_is_nullable(fsl_dtype));
+
+            // Test element accessor
+            let element = vx_dtype_fixed_size_list_element(fsl_dtype);
+            assert_eq!(
+                vx_dtype_get_variant(element),
+                vx_dtype_variant::DTYPE_PRIMITIVE
+            );
+            assert_eq!(vx_dtype_primitive_ptype(element), vx_ptype::PTYPE_F64);
+
+            // Test size accessor
+            let size = vx_dtype_fixed_size_list_size(fsl_dtype);
+            assert_eq!(size, 3);
+
+            vx_dtype_free(fsl_dtype);
+        }
+    }
+
+    #[test]
+    fn test_dtype_fixed_size_list_non_nullable() {
+        unsafe {
+            let element_dtype = vx_dtype_new_utf8(true);
+            let fsl_dtype = vx_dtype_new_fixed_size_list(element_dtype, 10, false);
+
+            assert_eq!(
+                vx_dtype_get_variant(fsl_dtype),
+                vx_dtype_variant::DTYPE_FIXED_SIZE_LIST
+            );
+            assert!(!vx_dtype_is_nullable(fsl_dtype));
+
+            let element = vx_dtype_fixed_size_list_element(fsl_dtype);
+            assert_eq!(vx_dtype_get_variant(element), vx_dtype_variant::DTYPE_UTF8);
+            assert!(vx_dtype_is_nullable(element));
+
+            let size = vx_dtype_fixed_size_list_size(fsl_dtype);
+            assert_eq!(size, 10);
+
+            vx_dtype_free(fsl_dtype);
+        }
+    }
+
+    #[test]
+    fn test_nested_fixed_size_lists() {
+        unsafe {
+            // Create inner fixed-size list: FSL<i32>[5]
+            let inner_element = vx_dtype_new_primitive(vx_ptype::PTYPE_I32, false);
+            let inner_fsl = vx_dtype_new_fixed_size_list(inner_element, 5, false);
+
+            // Create outer fixed-size list: FSL<FSL<i32>[5]>[3]
+            let outer_fsl = vx_dtype_new_fixed_size_list(inner_fsl, 3, true);
+
+            assert_eq!(
+                vx_dtype_get_variant(outer_fsl),
+                vx_dtype_variant::DTYPE_FIXED_SIZE_LIST
+            );
+            assert!(vx_dtype_is_nullable(outer_fsl));
+            assert_eq!(vx_dtype_fixed_size_list_size(outer_fsl), 3);
+
+            // Check inner FSL
+            let inner = vx_dtype_fixed_size_list_element(outer_fsl);
+            assert_eq!(
+                vx_dtype_get_variant(inner),
+                vx_dtype_variant::DTYPE_FIXED_SIZE_LIST
+            );
+            assert!(!vx_dtype_is_nullable(inner));
+            assert_eq!(vx_dtype_fixed_size_list_size(inner), 5);
+
+            // Check innermost element
+            let innermost = vx_dtype_fixed_size_list_element(inner);
+            assert_eq!(
+                vx_dtype_get_variant(innermost),
+                vx_dtype_variant::DTYPE_PRIMITIVE
+            );
+            assert_eq!(vx_dtype_primitive_ptype(innermost), vx_ptype::PTYPE_I32);
+
+            vx_dtype_free(outer_fsl);
+        }
+    }
+
+    #[test]
     fn test_dtype_decimal() {
         unsafe {
             let decimal_dtype = vx_dtype_new_decimal(10, 2, true);
@@ -453,6 +583,11 @@ mod tests {
             DType::Decimal(DecimalDType::new(10, 2), true.into()),
             DType::Utf8(false.into()),
             DType::Binary(true.into()),
+            DType::FixedSizeList(
+                Arc::new(DType::Primitive(vortex::dtype::PType::U8, false.into())),
+                4,
+                true.into(),
+            ),
         ];
 
         for dtype in dtypes {
@@ -464,6 +599,9 @@ mod tests {
                 DType::Decimal(..) => assert_eq!(variant, vx_dtype_variant::DTYPE_DECIMAL),
                 DType::Utf8(_) => assert_eq!(variant, vx_dtype_variant::DTYPE_UTF8),
                 DType::Binary(_) => assert_eq!(variant, vx_dtype_variant::DTYPE_BINARY),
+                DType::FixedSizeList(..) => {
+                    assert_eq!(variant, vx_dtype_variant::DTYPE_FIXED_SIZE_LIST)
+                }
                 _ => {}
             }
         }
