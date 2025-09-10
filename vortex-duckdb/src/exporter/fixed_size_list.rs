@@ -320,4 +320,139 @@ mod tests {
         let vector = chunk.get_vector(0);
         verify_array_elements(&vector, &[4, 5, 6, 7, 8, 9], 3, 2);
     }
+
+    #[test]
+    fn test_export_nested_fixed_size_list() {
+        // Test nested fixed-size lists: FSL<FSL<i32, 2>, 3>
+        // This represents an array of arrays, where:
+        // - The outer array has 3 elements
+        // - Each element is itself an array of 2 i32 values
+        //
+        // We'll create 2 outer arrays:
+        // Outer array 1: [[1, 2], [3, 4], [5, 6]]
+        // Outer array 2: [[7, 8], [9, 10], [11, 12]]
+
+        // First create the inner FSL with all the flattened elements.
+        let inner_fsl = FixedSizeListArray::new(
+            buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array(),
+            2, // inner list_size
+            Validity::AllValid,
+            6, // 6 inner lists total (3 per outer list * 2 outer lists)
+        );
+
+        // Now create the outer FSL that contains the inner FSL.
+        let outer_fsl = FixedSizeListArray::new(
+            inner_fsl.into_array(),
+            3, // outer list_size (3 inner lists per outer list)
+            Validity::AllValid,
+            2, // 2 outer lists
+        );
+
+        // Create the nested array type for DuckDB.
+        // First create the inner array type, then use it for the outer.
+        let inner_array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, 2);
+        // SAFETY: inner_array_type is a valid LogicalType created above.
+        let outer_array_type = unsafe {
+            LogicalType::own(cpp::duckdb_create_array_type(
+                inner_array_type.as_ptr(),
+                3 as cpp::idx_t,
+            ))
+        };
+
+        let mut chunk = DataChunk::new([outer_array_type]);
+
+        new_exporter(&outer_fsl, &ConversionCache::new(0))
+            .unwrap()
+            .export(0, 2, &mut chunk.get_vector(0))
+            .unwrap();
+        chunk.set_len(2);
+
+        assert_eq!(chunk.len(), 2);
+
+        // Verify the nested structure.
+        let outer_vector = chunk.get_vector(0);
+        let inner_vector = outer_vector.array_vector_get_child();
+        let elements_vector = inner_vector.array_vector_get_child();
+
+        // The elements should be all 12 integers in order.
+        let elements = elements_vector.as_slice_with_len::<i32>(12);
+        assert_eq!(elements, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    }
+
+    #[test]
+    fn test_export_nested_fixed_size_list_with_nulls() {
+        // Test nested FSL with nulls at different levels.
+        // Outer structure: FSL<FSL<i32, 2>, 3> with 3 outer arrays
+        // Outer array 1: [[1, 2], [3, 4], [5, 6]]    - valid
+        // Outer array 2: NULL                         - null outer array
+        // Outer array 3: [[13, 14], NULL, [17, 18]]  - valid outer with null inner
+
+        // Create inner FSL with mixed validity.
+        let inner_fsl = FixedSizeListArray::new(
+            buffer![
+                1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
+            ]
+            .into_array(),
+            2, // inner list_size
+            Validity::from_iter([
+                true, true, true, // First outer's inner arrays
+                true, true, true, // Second outer's inner arrays (unused due to outer null)
+                true, false, true, // Third outer's inner arrays (middle one is null)
+            ]),
+            9, // 9 inner lists total
+        );
+
+        // Create outer FSL with null in the middle.
+        let outer_fsl = FixedSizeListArray::new(
+            inner_fsl.into_array(),
+            3, // outer list_size
+            Validity::from_iter([true, false, true]),
+            3, // 3 outer lists
+        );
+
+        // Create the nested array type.
+        let inner_array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, 2);
+        // SAFETY: inner_array_type is a valid LogicalType created above.
+        let outer_array_type = unsafe {
+            LogicalType::own(cpp::duckdb_create_array_type(
+                inner_array_type.as_ptr(),
+                3 as cpp::idx_t,
+            ))
+        };
+
+        let mut chunk = DataChunk::new([outer_array_type]);
+
+        new_exporter(&outer_fsl, &ConversionCache::new(0))
+            .unwrap()
+            .export(0, 3, &mut chunk.get_vector(0))
+            .unwrap();
+        chunk.set_len(3);
+
+        assert_eq!(chunk.len(), 3);
+
+        // Verify outer level nullability.
+        let outer_vector = chunk.get_vector(0);
+        assert!(!outer_vector.row_is_null(0)); // First outer array is valid
+        assert!(outer_vector.row_is_null(1)); // Second outer array is null
+        assert!(!outer_vector.row_is_null(2)); // Third outer array is valid
+
+        // Verify inner level structure and nullability.
+        let inner_vector = outer_vector.array_vector_get_child();
+
+        // For the third outer array, check its inner null pattern.
+        // Inner arrays are at indices 6, 7, 8 (3rd outer array's children).
+        assert!(!inner_vector.row_is_null(6)); // [13, 14] - valid
+        assert!(inner_vector.row_is_null(7)); // NULL
+        assert!(!inner_vector.row_is_null(8)); // [17, 18] - valid
+
+        // Verify all elements are present in storage.
+        let elements_vector = inner_vector.array_vector_get_child();
+        let elements = elements_vector.as_slice_with_len::<i32>(18);
+        assert_eq!(
+            elements,
+            &[
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
+            ]
+        );
+    }
 }
