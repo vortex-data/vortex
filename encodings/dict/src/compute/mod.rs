@@ -10,9 +10,9 @@ mod like;
 mod min_max;
 
 use vortex_array::compute::{
-    filter, take, FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter,
+    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
 };
-use vortex_array::{register_kernel, Array, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -46,7 +46,7 @@ mod test {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::compute::{compare, take, Operator};
+    use vortex_array::compute::{Operator, compare, take};
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
@@ -266,13 +266,13 @@ mod test {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::{PrimitiveArray, VarBinArray};
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::IntoArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::builders::dict_encode;
     use crate::DictArray;
+    use crate::builders::dict_encode;
 
     #[rstest]
     // Primitive arrays

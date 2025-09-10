@@ -10,7 +10,7 @@ use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{
-    vortex_bail, vortex_ensure, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
+    VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure, vortex_err, vortex_panic,
 };
 
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
@@ -20,7 +20,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{vtable, Canonical, EncodingId, EncodingRef};
+use crate::{Canonical, EncodingId, EncodingRef, vtable};
 
 mod accessor;
 mod compact;

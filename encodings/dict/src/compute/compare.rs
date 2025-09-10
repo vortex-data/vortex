@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{compare, CompareKernel, CompareKernelAdapter, Operator};
-use vortex_array::{register_kernel, Array, ArrayRef, IntoArray};
+use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 
 use crate::{DictArray, DictVTable};
@@ -48,7 +48,7 @@ register_kernel!(CompareKernelAdapter(DictVTable).lift());
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::{ConstantArray, PrimitiveArray};
-    use vortex_array::compute::{compare, Operator};
+    use vortex_array::compute::{Operator, compare};
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;

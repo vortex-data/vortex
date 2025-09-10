@@ -12,7 +12,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use super::DictConstraints;
