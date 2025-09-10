@@ -43,21 +43,6 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.nulls.append_non_null();
     }
 
-    /// Appends an optional primitive value to the builder.
-    ///
-    /// If the value is `Some`, it appends the primitive value. If the value is `None`, it appends a
-    /// null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub(crate) fn append_option(&mut self, value: Option<T>) {
-        match value {
-            Some(value) => self.append_value(value),
-            None => self.append_null(),
-        }
-    }
-
     /// Returns the raw primitive values in this builder as a slice.
     pub fn values(&self) -> &[T] {
         self.values.as_ref()
@@ -162,8 +147,10 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         }
 
         let primitive_scalar = PrimitiveScalar::try_from(scalar)?;
-        let value = primitive_scalar.pvalue().map(|pv| pv.as_primitive::<T>());
-        self.append_option(value);
+        match primitive_scalar.pvalue() {
+            Some(pv) => self.append_value(pv.as_primitive::<T>()),
+            None => self.append_null(),
+        }
 
         Ok(())
     }

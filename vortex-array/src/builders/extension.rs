@@ -39,24 +39,6 @@ impl ExtensionBuilder {
         self.storage.append_scalar(&value.storage())
     }
 
-    /// Appends an optional extension value to the builder.
-    ///
-    /// If the value is `Some`, it appends the extension value. If the value is `None`, it appends a
-    /// null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option(&mut self, value: Option<ExtScalar>) -> VortexResult<()> {
-        match value {
-            Some(value) => self.append_value(value),
-            None => {
-                self.append_nulls(1);
-                Ok(())
-            }
-        }
-    }
-
     /// Finishes the builder directly into a [`ExtensionArray`].
     pub fn finish_into_extension(&mut self) -> ExtensionArray {
         let storage = self.storage.finish();

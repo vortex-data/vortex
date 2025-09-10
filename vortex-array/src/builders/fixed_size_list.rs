@@ -96,24 +96,6 @@ impl FixedSizeListBuilder {
         Ok(())
     }
 
-    /// Appends an optional fixed-size list value to the builder.
-    ///
-    /// If the value is `Some`, it appends the list value. If the value is `None`, it appends a
-    /// null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option(&mut self, value: Option<ListScalar>) -> VortexResult<()> {
-        match value {
-            Some(value) => self.append_value(value),
-            None => {
-                self.append_null();
-                Ok(())
-            }
-        }
-    }
-
     /// Finishes the builder directly into a [`FixedSizeListArray`].
     pub fn finish_into_fixed_size_list(&mut self) -> FixedSizeListArray {
         let final_len = self.len();
@@ -215,7 +197,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
             );
         }
 
-        let list_scalar = ListScalar::try_from(scalar)?;
+        let list_scalar = scalar.as_list();
         self.append_value(list_scalar)
     }
 

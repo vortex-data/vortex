@@ -46,21 +46,6 @@ impl BoolBuilder {
         self.nulls.append_n_non_nulls(n)
     }
 
-    /// Appends an optional boolean value to the builder.
-    ///
-    /// If the value is `Some`, it appends the boolean value. If the value is `None`, it appends a
-    /// null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option(&mut self, value: Option<bool>) {
-        match value {
-            Some(value) => self.append_value(value),
-            None => self.append_null(),
-        }
-    }
-
     /// Finishes the builder directly into a [`BoolArray`].
     pub fn finish_into_bool(&mut self) -> BoolArray {
         assert_eq!(
@@ -112,7 +97,10 @@ impl ArrayBuilder for BoolBuilder {
         }
 
         let bool_scalar = BoolScalar::try_from(scalar)?;
-        self.append_option(bool_scalar.value());
+        match bool_scalar.value() {
+            Some(value) => self.append_value(value),
+            None => self.append_null(),
+        }
 
         Ok(())
     }

@@ -111,21 +111,6 @@ impl DecimalBuilder {
         self.nulls.append_non_null();
     }
 
-    /// Appends an optional decimal value to the builder.
-    ///
-    /// If the value is `Some`, it appends the decimal value. If the value is `None`, it appends a
-    /// null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option<V: NativeDecimalType>(&mut self, value: Option<V>) {
-        match value {
-            Some(value) => self.append_value(value),
-            None => self.append_null(),
-        }
-    }
-
     /// Finishes the builder directly into a [`DecimalArray`].
     pub fn finish_into_decimal(&mut self) -> DecimalArray {
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());

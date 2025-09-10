@@ -74,23 +74,6 @@ impl StructBuilder {
         Ok(())
     }
 
-    /// Appends an optional struct value to the builder.
-    ///
-    /// If the value is `Some`, it appends the struct. If the value is `None`, it appends a null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option(&mut self, value: Option<StructScalar>) -> VortexResult<()> {
-        match value {
-            Some(value) => self.append_value(value),
-            None => {
-                self.append_null();
-                Ok(())
-            }
-        }
-    }
-
     /// Finishes the builder directly into a [`StructArray`].
     pub fn finish_into_struct(&mut self) -> StructArray {
         let len = self.len();

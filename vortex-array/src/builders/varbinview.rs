@@ -88,21 +88,6 @@ impl VarBinViewBuilder {
         self.nulls.append_non_null();
     }
 
-    /// Appends an optional value to the builder.
-    ///
-    /// If the value is `Some`, it appends the varbin view value. If the value is `None`, it appends
-    /// a null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option<S: AsRef<[u8]>>(&mut self, value: Option<S>) {
-        match value {
-            Some(value) => self.append_value(value),
-            None => self.append_null(),
-        }
-    }
-
     fn flush_in_progress(&mut self) {
         if self.in_progress.is_empty() {
             return;
@@ -224,11 +209,17 @@ impl ArrayBuilder for VarBinViewBuilder {
         match self.dtype() {
             DType::Utf8(_) => {
                 let utf8_scalar = Utf8Scalar::try_from(scalar)?;
-                self.append_option(utf8_scalar.value());
+                match utf8_scalar.value() {
+                    Some(value) => self.append_value(value),
+                    None => self.append_null(),
+                }
             }
             DType::Binary(_) => {
                 let binary_scalar = BinaryScalar::try_from(scalar)?;
-                self.append_option(binary_scalar.value());
+                match binary_scalar.value() {
+                    Some(value) => self.append_value(value),
+                    None => self.append_null(),
+                }
             }
             _ => vortex_bail!(
                 "VarBinViewBuilder can only handle Utf8 or Binary scalars, got {:?}",
@@ -422,8 +413,8 @@ mod tests {
     fn test_utf8_builder() {
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
-        builder.append_option(Some("Hello"));
-        builder.append_option::<&str>(None);
+        builder.append_value("Hello");
+        builder.append_null();
         builder.append_value("World");
 
         builder.append_nulls(2);
@@ -467,7 +458,7 @@ mod tests {
         };
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
-        builder.append_option(Some("Hello1"));
+        builder.append_value("Hello1");
         builder.extend_from_array(&array);
         builder.append_nulls(2);
         builder.append_value("Hello3");
