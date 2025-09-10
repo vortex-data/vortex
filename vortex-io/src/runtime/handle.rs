@@ -150,7 +150,9 @@ impl<T> Future for Task<T> {
                 // dropping it, then they wouldn't be able to poll it anymore.
                 // So we consider a closed channel to be a Runtime programming error and therefore
                 // we panic.
-                vortex_panic!("Runtime dropped task without completing it: {recv_err}")
+                vortex_panic!(
+                    "Runtime dropped task without completing it, likely it panicked: {recv_err}"
+                )
             }
         }
     }

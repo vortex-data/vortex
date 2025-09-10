@@ -15,7 +15,7 @@ use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
-use vortex_dtype::Nullability::Nullable;
+use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 use vortex_io::kanal_ext::KanalExt;
@@ -380,7 +380,7 @@ impl Stream for DictionaryTransformer {
 
                         // Create output streams
                         let codes_stream = SequentialStreamAdapter::new(
-                            DType::Primitive(PType::U16, Nullable),
+                            DType::Primitive(PType::U16, NonNullable),
                             codes_rx.into_stream().boxed(),
                         )
                         .sendable();

@@ -3,18 +3,18 @@
 
 use std::path::PathBuf;
 
-use crate::conversions::parquet_to_vortex;
-use crate::datasets::data_downloads::download_data;
-use crate::datasets::Dataset;
-use crate::{idempotent_async, IdempotentPath};
 use anyhow::Result;
 use async_trait::async_trait;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use vortex::error::VortexError;
+use vortex::ArrayRef;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::iter::ArrayIteratorExt;
-use vortex::ArrayRef;
+
+use crate::conversions::parquet_to_vortex;
+use crate::datasets::Dataset;
+use crate::datasets::data_downloads::download_data;
+use crate::{IdempotentPath, idempotent_async};
 
 pub struct TaxiData;
 
@@ -55,11 +55,9 @@ pub async fn taxi_data_vortex() -> Result<PathBuf> {
                 &mut output_file,
                 parquet_to_vortex(taxi_data_parquet().await?)?,
             )
-            .await?
-            .flush()
             .await?;
         output_file.flush().await?;
-        Ok::<PathBuf, VortexError>(buf)
+        Ok(buf)
     })
     .await
 }
