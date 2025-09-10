@@ -5,7 +5,6 @@
 
 use std::sync::Arc;
 
-use vortex_array::stats::PRUNING_STATS;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -59,9 +58,9 @@ impl WriteStrategyBuilder {
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
         // 5. compress each chunk
         let compressing = if let Some(ref compressor) = self.compressor {
-            CompressingStrategy::new_opaque(buffered, compressor.clone(), 16)
+            CompressingStrategy::new_opaque(buffered, compressor.clone())
         } else {
-            CompressingStrategy::new_btrblocks(buffered, 16, true)
+            CompressingStrategy::new_btrblocks(buffered, true)
         };
 
         // 4. prior to compression, coalesce up to a minimum size
@@ -75,9 +74,9 @@ impl WriteStrategyBuilder {
 
         // 2.1. | 3.1. compress stats tables and dict values.
         let compress_then_flat = if let Some(ref compressor) = self.compressor {
-            CompressingStrategy::new_opaque(FlatLayoutStrategy::default(), compressor.clone(), 1)
+            CompressingStrategy::new_opaque(FlatLayoutStrategy::default(), compressor.clone())
         } else {
-            CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), 1, false)
+            CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), false)
         };
 
         // 3. apply dict encoding or fallback
@@ -94,9 +93,7 @@ impl WriteStrategyBuilder {
             compress_then_flat,
             ZonedLayoutOptions {
                 block_size: ROW_BLOCK_SIZE,
-                stats: PRUNING_STATS.into(),
-                max_variable_length_statistics_size: 64,
-                concurrency: 16,
+                ..Default::default()
             },
         );
 

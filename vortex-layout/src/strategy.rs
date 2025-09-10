@@ -22,6 +22,20 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     /// form a pipeline of operations, each of which modifies the chunk stream in some way before
     /// passing the data on to a downstream writer.
     ///
+    /// # Sequencing and EOF
+    ///
+    /// The `stream` parameter is a stream of ordered array chunks, each of which is associated
+    /// with a sequence pointer that indicates its position in the overall array. By passing
+    /// around these pointers (essentially vector clocks), the writer can support concurrent
+    /// and parallel processing while maintaining a deterministic order of data in the file.
+    ///
+    /// The `eof` parameter is a guaranteed to be greater than all sequence pointers in the stream.
+    ///
+    /// Because child strategies can write to the end-of-file pointer, it is very important that
+    /// **all strategies must await all children concurrently**. Otherwise it is possible to
+    /// deadlock if one child is waiting to write to EOF while your strategy is preventing the
+    /// stream from progressing to completion.
+    ///
     /// # Blocking operations
     ///
     /// This is an async trait method, which will return a `BoxFuture` that you can await from

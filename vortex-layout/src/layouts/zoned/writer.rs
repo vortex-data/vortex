@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use parking_lot::Mutex;
+use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
-use vortex_array::{ArrayContext, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
@@ -16,8 +15,8 @@ use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{
-    SendableSequentialStream, SequenceId, SequencePointer, SequentialArrayStreamExt,
-    SequentialStreamAdapter, SequentialStreamExt,
+    SendableSequentialStream, SequencePointer, SequentialArrayStreamExt, SequentialStreamAdapter,
+    SequentialStreamExt,
 };
 use crate::{IntoLayout, LayoutRef, LayoutStrategy};
 
@@ -38,7 +37,9 @@ impl Default for ZonedLayoutOptions {
             block_size: 8192,
             stats: PRUNING_STATS.into(),
             max_variable_length_statistics_size: 64,
-            concurrency: 16,
+            concurrency: std::thread::available_parallelism()
+                .map(|v| v.get())
+                .unwrap_or(1),
         }
     }
 }
@@ -100,10 +101,16 @@ impl LayoutStrategy for ZonedStrategy {
 
         // Now we accumulate the stats we computed above, this time we cannot spawn because we
         // need to feed the accumulator an ordered stream.
+        let stats_accumulator2 = stats_accumulator.clone();
         let stream = SequentialStreamAdapter::new(
             stream.dtype().clone(),
-            stream.scan(stats_accumulator.clone(), |acc, item| {
-                future::ready(Some(accumulate_stats(acc, item)))
+            stream.map(move |item| {
+                let (sequence_id, chunk) = item?;
+                // We have already computed per-chunk statistics, so avoid trying again for any that failed.
+                stats_accumulator2
+                    .lock()
+                    .push_chunk_without_compute(&chunk)?;
+                Ok((sequence_id, chunk))
             }),
         )
         .sendable();
@@ -148,16 +155,4 @@ impl LayoutStrategy for ZonedStrategy {
         )
         .into_layout())
     }
-}
-
-fn accumulate_stats(
-    stats_accumulator: &mut Arc<Mutex<StatsAccumulator>>,
-    item: VortexResult<(SequenceId, ArrayRef)>,
-) -> VortexResult<(SequenceId, ArrayRef)> {
-    let (sequence_id, chunk) = item?;
-    // We have already computed per-chunk statistics, so avoid trying again for any that failed.
-    stats_accumulator
-        .lock()
-        .push_chunk_without_compute(&chunk)?;
-    Ok((sequence_id, chunk))
 }

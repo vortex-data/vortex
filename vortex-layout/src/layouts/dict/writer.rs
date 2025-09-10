@@ -7,9 +7,9 @@ use std::task::{Context, Poll, ready};
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::channel::{mpsc, oneshot};
+use futures::channel::oneshot;
 use futures::stream::{BoxStream, once};
-use futures::{FutureExt, SinkExt, Stream, StreamExt, pin_mut, try_join};
+use futures::{FutureExt, Stream, StreamExt, pin_mut, try_join};
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
@@ -18,6 +18,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{
     VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err,
 };
+use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 
 use super::DictLayout;
@@ -32,8 +33,6 @@ use crate::{IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren};
 #[derive(Clone)]
 pub struct DictLayoutOptions {
     pub constraints: DictConstraints,
-    /// Max number of encoded chunks to keep in memory.
-    pub encoded_buffer_size: usize,
 }
 
 impl Default for DictLayoutOptions {
@@ -43,7 +42,6 @@ impl Default for DictLayoutOptions {
                 max_bytes: 1024 * 1024,
                 max_len: u16::MAX as usize,
             },
-            encoded_buffer_size: 8,
         }
     }
 }
@@ -87,12 +85,14 @@ impl LayoutStrategy for DictStrategy {
         mut eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
+        // Fallback if dtype is not supported
         if !dict_layout_supported(stream.dtype()) {
             return self
                 .fallback
                 .write_stream(ctx, segment_sink, stream, eof, handle)
                 .await;
         }
+
         let options = self.options.clone();
         let dtype = stream.dtype().clone();
 
@@ -121,7 +121,7 @@ impl LayoutStrategy for DictStrategy {
         let mut dict_stream = dict_encode_stream(stream, options.constraints);
 
         // 2.a spawn encoding codes
-        let (mut encoded_tx, encoded_rx) = mpsc::channel(options.encoded_buffer_size);
+        let (encoded_tx, encoded_rx) = kanal::bounded_async(1);
         let encode_handle = handle.spawn({
             async move {
                 while let Some(item) = dict_stream.next().await {
@@ -140,7 +140,7 @@ impl LayoutStrategy for DictStrategy {
         let dtype_clone = dtype.clone();
         let child_layouts_fut = async move {
             let mut children = Vec::new();
-            let mut runs = DictEncodedRuns::new(Box::pin(encoded_rx));
+            let mut runs = DictEncodedRuns::new(Box::pin(encoded_rx.into_stream()));
             while let Some((codes_stream, values_future)) = runs.next_run().await {
                 let (codes_stream, first_chunk) = peek_first_chunk(codes_stream.boxed()).await?;
                 let codes_dtype = match first_chunk {
@@ -148,27 +148,25 @@ impl LayoutStrategy for DictStrategy {
                     None => break,
                     Some(chunk) => chunk.dtype().clone(),
                 };
-                let codes_layout = self
-                    .codes
-                    .write_stream(
+
+                let (codes_layout, values_layout) = try_join!(
+                    self.codes.write_stream(
                         ctx.clone(),
                         segment_sink.clone(),
                         SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
                         eof.split_off(),
                         handle.clone(),
-                    )
-                    .await?;
-                let values_layout = self
-                    .values
-                    .write_stream(
+                    ),
+                    self.values.write_stream(
                         ctx.clone(),
                         segment_sink.clone(),
                         SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
                             .sendable(),
                         eof.split_off(),
                         handle.clone(),
-                    )
-                    .await?;
+                    ),
+                )?;
+
                 children.push(DictLayout::new(values_layout, codes_layout).into_layout());
             }
             Ok(children)
@@ -211,8 +209,9 @@ fn dict_encode_stream(
         let input = input.peekable();
         pin_mut!(input);
 
-        while let Some(item) = input.as_mut().next().await {
+        while let Some(item) = input.next().await {
             let (sequence_id, chunk) = item?;
+
             // labeler potentially creates sub sequences, we must
             // create it on both arms to avoid having a SequencePointer
             // between await points

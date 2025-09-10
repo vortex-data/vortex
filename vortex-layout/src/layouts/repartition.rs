@@ -72,6 +72,7 @@ impl LayoutStrategy for RepartitionStrategy {
         let repartitioned_stream = try_stream! {
             let canonical_stream = canonical_stream.peekable();
             pin_mut!(canonical_stream);
+
             let mut chunks = ChunksBuffer::new(options.clone());
             while let Some(chunk) = canonical_stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;

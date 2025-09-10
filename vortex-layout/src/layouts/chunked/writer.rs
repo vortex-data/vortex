@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use async_stream::stream;
 use async_trait::async_trait;
+use futures::stream::FuturesOrdered;
 use futures::{StreamExt, TryStreamExt, stream};
 use vortex_array::ArrayContext;
 use vortex_error::{VortexExpect, VortexResult};
@@ -46,6 +47,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         let dtype2 = dtype.clone();
         let chunk_strategy = self.chunk_strategy.clone();
 
+        // We spawn each child to allow parallelism when processing chunks.
         let stream = stream! {
             let mut stream = stream;
             while let Some(chunk) = stream.next().await {
@@ -74,7 +76,12 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
             }
         };
 
-        let mut child_layouts: Vec<LayoutRef> = stream.buffered(16).try_collect().await?;
+        // Poll all of our children concurrently to accumulate their layouts.
+        let mut child_layouts: Vec<LayoutRef> = stream
+            .collect::<FuturesOrdered<_>>()
+            .await
+            .try_collect()
+            .await?;
 
         if child_layouts.len() == 1 {
             Ok(child_layouts.pop().vortex_expect("must have one child"))

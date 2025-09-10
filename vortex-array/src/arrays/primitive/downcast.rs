@@ -8,7 +8,6 @@ use vortex_error::VortexResult;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{cast, min_max};
-use crate::validity::Validity;
 
 impl PrimitiveArray {
     pub fn downcast(&self) -> VortexResult<PrimitiveArray> {
@@ -19,7 +18,7 @@ impl PrimitiveArray {
         let Some(min_max) = min_max(self.as_ref())? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
-                Validity::AllInvalid,
+                self.validity.clone(),
             ));
         };
 
