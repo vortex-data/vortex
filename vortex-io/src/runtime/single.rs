@@ -137,10 +137,7 @@ impl Runtime for Sender {
 }
 
 impl BlockingRuntime for SingleThreadRuntime {
-    type BlockingIterator<'a, R>
-        = SingleThreadIterator<'a, R>
-    where
-        R: 'a;
+    type BlockingIterator<'a, R: 'a> = SingleThreadIterator<'a, R>;
 
     fn block_on<F, Fut, R>(&self, f: F) -> R
     where

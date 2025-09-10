@@ -8,9 +8,7 @@ use crate::runtime::Handle;
 /// A generic API blocking entry points to runtimes.
 pub trait BlockingRuntime {
     /// Associated type for the blocking iterator returned by `block_on_stream`.
-    type BlockingIterator<'a, R>: Iterator<Item = R> + 'a
-    where
-        R: 'a;
+    type BlockingIterator<'a, R: 'a>: Iterator<Item = R> + 'a;
 
     /// Runs a future to completion on the runtime, blocking the current thread until it completes.
     ///

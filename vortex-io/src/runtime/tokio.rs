@@ -69,10 +69,7 @@ impl AbortHandle for tokio::task::AbortHandle {
 // We depend on Tokio's rt-multi-thread feature for block-in-place
 #[cfg(feature = "tokio")]
 impl crate::runtime::BlockingRuntime for TokioRuntime {
-    type BlockingIterator<'a, R>
-        = TokioBlockingIterator<'a, R>
-    where
-        R: 'a;
+    type BlockingIterator<'a, R: 'a> = TokioBlockingIterator<'a, R>;
 
     fn block_on<F, Fut, R>(&self, f: F) -> R
     where

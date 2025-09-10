@@ -3,30 +3,30 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, ready};
+use std::task::{Context, Poll};
 
-use async_stream::try_stream;
+use async_stream::{stream, try_stream};
 use async_trait::async_trait;
 use futures::channel::oneshot;
+use futures::future::BoxFuture;
 use futures::stream::{BoxStream, once};
-use futures::{FutureExt, Stream, StreamExt, pin_mut, try_join};
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt, pin_mut, try_join};
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
+use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err,
-};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 
-use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::dict::DictLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{
-    SendableSequentialStream, SequenceId, SequencePointer, SequentialStreamAdapter,
-    SequentialStreamExt,
+    SendableSequentialStream, SequenceId, SequencePointer, SequentialStream,
+    SequentialStreamAdapter, SequentialStreamExt,
 };
 use crate::{IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren};
 
@@ -118,72 +118,70 @@ impl LayoutStrategy for DictStrategy {
         // 1. from a chunk stream, create a stream that yields codes
         // followed by a single value chunk when dict constraints are hit.
         // (a1, a2) -> (code(c1), code(c2), values(v1), code(c3), ...)
-        let mut dict_stream = dict_encode_stream(stream, options.constraints);
+        let dict_stream = dict_encode_stream(stream, options.constraints);
 
-        // 2.a spawn encoding codes
-        let (encoded_tx, encoded_rx) = kanal::bounded_async(1);
-        let encode_handle = handle.spawn({
-            async move {
-                while let Some(item) = dict_stream.next().await {
-                    encoded_tx
-                        .send(item)
-                        .await
-                        .map_err(|e| vortex_err!("rx dropped: {}", e))?;
-                }
-                Ok::<_, VortexError>(())
+        // Wrap up the dict stream to yield pairs of (codes_stream, values_future).
+        // Each of these pairs becomes a child dict layout.
+        let runs = DictionaryTransformer::new(dict_stream);
+
+        let dtype2 = dtype.clone();
+        let child_layouts = stream! {
+            pin_mut!(runs);
+
+            while let Some((codes_stream, values_fut)) = runs.next().await {
+                let codes = self.codes.clone();
+                let codes_eof = eof.split_off();
+                let ctx2 = ctx.clone();
+                let segment_sink2 = segment_sink.clone();
+                let codes_fut = handle.spawn_nested(move |h| async move {
+                    codes.write_stream(
+                        ctx2,
+                        segment_sink2,
+                        codes_stream.sendable(),
+                        codes_eof,
+                        h,
+                    ).await
+                });
+
+                let values = self.values.clone();
+                let values_eof = eof.split_off();
+                let ctx2 = ctx.clone();
+                let segment_sink2 = segment_sink.clone();
+                let dtype2 = dtype2.clone();
+                let values_layout = handle.spawn_nested(move |h| async move {
+                    values.write_stream(
+                        ctx2,
+                        segment_sink2,
+                        SequentialStreamAdapter::new(dtype2, once(values_fut)).sendable(),
+                        values_eof,
+                        h,
+                    ).await
+                });
+
+                yield async move {
+                    try_join!(codes_fut, values_layout)
+                }.boxed();
             }
-            .boxed()
-        });
-
-        // 2.b get contiguous runs of codes from the dict stream and
-        // create child dict layouts from them.
-        let dtype_clone = dtype.clone();
-        let child_layouts_fut = async move {
-            let mut children = Vec::new();
-            let mut runs = DictEncodedRuns::new(Box::pin(encoded_rx.into_stream()));
-            while let Some((codes_stream, values_future)) = runs.next_run().await {
-                let (codes_stream, first_chunk) = peek_first_chunk(codes_stream.boxed()).await?;
-                let codes_dtype = match first_chunk {
-                    // codes_stream is empty, this would happen if the parent stream end coincided with a dict run end
-                    None => break,
-                    Some(chunk) => chunk.dtype().clone(),
-                };
-
-                let (codes_layout, values_layout) = try_join!(
-                    self.codes.write_stream(
-                        ctx.clone(),
-                        segment_sink.clone(),
-                        SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
-                        eof.split_off(),
-                        handle.clone(),
-                    ),
-                    self.values.write_stream(
-                        ctx.clone(),
-                        segment_sink.clone(),
-                        SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
-                            .sendable(),
-                        eof.split_off(),
-                        handle.clone(),
-                    ),
-                )?;
-
-                children.push(DictLayout::new(values_layout, codes_layout).into_layout());
-            }
-            Ok(children)
         };
 
-        // join dict encoding task
-        let (mut children, _) = try_join!(child_layouts_fut, encode_handle)?;
+        let mut child_layouts = child_layouts
+            .buffered(usize::MAX)
+            .map(|result| {
+                let (codes_layout, values_layout) = result?;
+                Ok::<_, VortexError>(DictLayout::new(values_layout, codes_layout).into_layout())
+            })
+            .try_collect::<Vec<_>>()
+            .await?;
 
-        if children.len() == 1 {
-            return Ok(children.remove(0));
+        if child_layouts.len() == 1 {
+            return Ok(child_layouts.remove(0));
         }
 
-        let row_count = children.iter().map(|child| child.row_count()).sum();
+        let row_count = child_layouts.iter().map(|child| child.row_count()).sum();
         Ok(ChunkedLayout::new(
             row_count,
             dtype,
-            OwnedLayoutChildren::layout_children(children),
+            OwnedLayoutChildren::layout_children(child_layouts),
         )
         .into_layout())
     }
@@ -322,107 +320,115 @@ impl DictChunkLabeler {
 
 type SequencedChunk = VortexResult<(SequenceId, ArrayRef)>;
 
-struct DictEncodedRuns {
-    input: Option<oneshot::Receiver<Option<DictionaryStream>>>,
+struct DictionaryTransformer {
+    input: DictionaryStream,
+    active_codes_tx: Option<kanal::AsyncSender<SequencedChunk>>,
+    active_values_tx: Option<oneshot::Sender<SequencedChunk>>,
+    pending_send: Option<BoxFuture<'static, Result<(), kanal::SendError>>>,
 }
 
-impl DictEncodedRuns {
+impl DictionaryTransformer {
     fn new(input: DictionaryStream) -> Self {
-        let (tx, rx) = oneshot::channel();
-        tx.send(Some(input))
-            .map_err(|_input| vortex_err!("just created rx"))
-            .vortex_unwrap();
-        Self { input: Some(rx) }
-    }
-
-    async fn next_run(
-        &mut self,
-    ) -> Option<(
-        DictEncodedRunStream,
-        impl Future<Output = SequencedChunk> + 'static,
-    )> {
-        // get input to send to the run stream.
-        let Ok(Some(input)) = self.input.take()?.await else {
-            // input exhausted
-            return None;
-        };
-        let (input_tx, input_rx) = oneshot::channel();
-        self.input = Some(input_rx);
-
-        let (values_tx, values_rx) = oneshot::channel();
-        let values_future = async {
-            values_rx
-                .await
-                .unwrap_or_else(|_| vortex_bail!("sender dropped"))
-        };
-
-        let codes_stream = DictEncodedRunStream {
-            input: Some(input),
-            input_tx: Some(input_tx),
-            values_tx: Some(values_tx),
-        };
-
-        Some((codes_stream, values_future))
-    }
-}
-
-struct DictEncodedRunStream {
-    input: Option<DictionaryStream>,
-    input_tx: Option<oneshot::Sender<Option<DictionaryStream>>>,
-    values_tx: Option<oneshot::Sender<SequencedChunk>>,
-}
-
-impl Stream for DictEncodedRunStream {
-    type Item = SequencedChunk;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let poll_result = {
-            let Some(stream) = self.input.as_mut() else {
-                return Poll::Ready(None);
-            };
-            ready!(stream.poll_next_unpin(cx))
-        };
-
-        match poll_result {
-            Some(Ok(DictionaryChunk::Codes(item))) => Poll::Ready(Some(Ok(item))),
-            Some(Ok(DictionaryChunk::Values(item))) => {
-                self.send_values(item);
-                self.send_back_input_stream();
-                Poll::Ready(None)
-            }
-            Some(Err(e)) => Poll::Ready(Some(Err(e))),
-            None => {
-                self.send_back_input_stream();
-                Poll::Ready(None)
-            }
+        Self {
+            input,
+            active_codes_tx: None,
+            active_values_tx: None,
+            pending_send: None,
         }
     }
 }
 
-impl DictEncodedRunStream {
-    fn send_values(&mut self, item: (SequenceId, ArrayRef)) {
-        // ignore receiver drops
-        let _ = self
-            .values_tx
-            .take()
-            .vortex_expect("must not be polled after returning None")
-            .send(Ok(item));
-    }
+impl Stream for DictionaryTransformer {
+    type Item = (SendableSequentialStream, BoxFuture<'static, SequencedChunk>);
 
-    fn send_back_input_stream(&mut self) {
-        // ignore receiver drops
-        let _ = self
-            .input_tx
-            .take()
-            .vortex_expect("input already sent")
-            .send(self.input.take());
-    }
-}
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            // First, try to complete any pending send
+            if let Some(mut send_fut) = self.pending_send.take() {
+                match send_fut.poll_unpin(cx) {
+                    Poll::Ready(Ok(())) => {
+                        // Send completed, continue processing
+                    }
+                    Poll::Ready(Err(_)) => {
+                        // Receiver dropped, close this group
+                        self.active_codes_tx = None;
+                        if let Some(values_tx) = self.active_values_tx.take() {
+                            let _ = values_tx.send(Err(vortex_err!("values receiver dropped")));
+                        }
+                    }
+                    Poll::Pending => {
+                        // Still pending, save it and return
+                        self.pending_send = Some(send_fut);
+                        return Poll::Pending;
+                    }
+                }
+            }
 
-impl Drop for DictEncodedRunStream {
-    fn drop(&mut self) {
-        if let Some(tx) = self.input_tx.take() {
-            let _ = tx.send(self.input.take());
+            match self.input.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(DictionaryChunk::Codes(codes)))) => {
+                    if self.active_codes_tx.is_none() {
+                        // Start a new group
+                        let (codes_tx, codes_rx) = kanal::bounded_async::<SequencedChunk>(8);
+                        let (values_tx, values_rx) = oneshot::channel();
+
+                        self.active_codes_tx = Some(codes_tx.clone());
+                        self.active_values_tx = Some(values_tx);
+
+                        // Send first codes
+                        self.pending_send =
+                            Some(Box::pin(async move { codes_tx.send(Ok(codes)).await }));
+
+                        // Create output streams
+                        let codes_stream = SequentialStreamAdapter::new(
+                            DType::Primitive(PType::U16, Nullable),
+                            codes_rx.into_stream().boxed(),
+                        )
+                        .sendable();
+
+                        let values_future = async move {
+                            values_rx
+                                .await
+                                .map_err(|e| vortex_err!("values sender dropped: {}", e))
+                                .flatten()
+                        }
+                        .boxed();
+
+                        return Poll::Ready(Some((codes_stream, values_future)));
+                    } else {
+                        // Continue streaming codes to existing group
+                        if let Some(tx) = &self.active_codes_tx {
+                            let tx = tx.clone();
+                            self.pending_send =
+                                Some(Box::pin(async move { tx.send(Ok(codes)).await }));
+                        }
+                    }
+                }
+                Poll::Ready(Some(Ok(DictionaryChunk::Values(values)))) => {
+                    // Complete the current group
+                    if let Some(values_tx) = self.active_values_tx.take() {
+                        let _ = values_tx.send(Ok(values));
+                    }
+                    self.active_codes_tx = None; // Close codes stream
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    // Send error to active channels if any
+                    if let Some(values_tx) = self.active_values_tx.take() {
+                        let _ = values_tx.send(Err(e));
+                    }
+                    self.active_codes_tx = None;
+                    // And terminate the stream
+                    return Poll::Ready(None);
+                }
+                Poll::Ready(None) => {
+                    // Handle any incomplete group
+                    if let Some(values_tx) = self.active_values_tx.take() {
+                        let _ = values_tx.send(Err(vortex_err!("Incomplete dictionary group")));
+                    }
+                    self.active_codes_tx = None;
+                    return Poll::Ready(None);
+                }
+                Poll::Pending => return Poll::Pending,
+            }
         }
     }
 }
