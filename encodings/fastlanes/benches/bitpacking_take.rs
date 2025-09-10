@@ -8,10 +8,11 @@ use divan::Bencher;
 use rand::distr::Uniform;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng, rng};
+use vortex_array::IntoArray as _;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::take;
 use vortex_array::validity::Validity;
-use vortex_buffer::Buffer;
+use vortex_buffer::{Buffer, buffer};
 use vortex_fastlanes::bitpack_to_best_bit_width;
 
 fn main() {
@@ -35,7 +36,7 @@ fn take_10_contiguous(bencher: Bencher) {
     let values = fixture(1_000_000, 8);
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
-    let indices = PrimitiveArray::from_iter(0..10);
+    let indices = buffer![0..10].into_array();
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
@@ -144,7 +145,7 @@ fn patched_take_10_contiguous(bencher: Bencher) {
         NUM_EXCEPTIONS as usize
     );
 
-    let indices = PrimitiveArray::from_iter(0..10);
+    let indices = buffer![0..10].into_array();
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))

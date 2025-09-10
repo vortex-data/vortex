@@ -28,7 +28,9 @@ impl ColumnExporter for TemporalExporter {
 
 #[cfg(test)]
 mod tests {
+    use vortex::IntoArray as _;
     use vortex::arrays::{PrimitiveArray, TemporalArray};
+    use vortex::buffer::buffer;
     use vortex::dtype::datetime::TimeUnit;
 
     use crate::cpp;
@@ -38,7 +40,7 @@ mod tests {
     #[test]
     fn test_timestamp_s() {
         let arr = TemporalArray::new_timestamp(
-            PrimitiveArray::from_iter(1750265024i64..(1750265024 + 10)).to_array(),
+            buffer![1750265024i64..(1750265024 + 10)].into_array(),
             TimeUnit::Seconds,
             None,
         );

@@ -10,6 +10,7 @@
 mod tests {
     use std::sync::Arc;
 
+    use vortex_buffer::buffer;
     use vortex_buffer::{Buffer, ByteBuffer};
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -36,8 +37,8 @@ mod tests {
     #[test]
     fn test_chunked_array_validation_success() {
         // Valid case: all chunks have the same dtype.
-        let chunk1 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
-        let chunk2 = PrimitiveArray::from_iter([4i32, 5, 6]).into_array();
+        let chunk1 = buffer![1i32, 2, 3].into_array();
+        let chunk2 = buffer![4i32, 5, 6].into_array();
         let result = ChunkedArray::try_new(vec![chunk1, chunk2], PType::I32.into());
         assert!(result.is_ok());
     }
@@ -45,8 +46,8 @@ mod tests {
     #[test]
     fn test_chunked_array_validation_failure_mismatched_dtypes() {
         // Invalid case: chunks have different dtypes.
-        let chunk1 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
-        let chunk2 = PrimitiveArray::from_iter([4i64, 5, 6]).into_array();
+        let chunk1 = buffer![1i32, 2, 3].into_array();
+        let chunk2 = buffer![4i64, 5, 6].into_array();
         let result = ChunkedArray::try_new(vec![chunk1, chunk2], PType::I32.into());
         assert!(result.is_err());
     }
@@ -90,7 +91,7 @@ mod tests {
     #[test]
     fn test_varbin_array_validation_success() {
         // Valid case: offsets are monotonically increasing and within bounds.
-        let offsets = PrimitiveArray::from_iter([0i32, 3, 6, 10]).into_array();
+        let offsets = buffer![0i32, 3, 6, 10].into_array();
         let bytes = ByteBuffer::from(vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let result = VarBinArray::try_new(
             offsets,
@@ -104,7 +105,7 @@ mod tests {
     #[test]
     fn test_varbin_array_validation_failure_offsets_not_monotonic() {
         // Invalid case: offsets are not monotonically increasing.
-        let offsets = PrimitiveArray::from_iter([0i32, 3, 2, 5]).into_array(); // 3 -> 2 is decreasing.
+        let offsets = buffer![0i32, 3, 2, 5].into_array(); // 3 -> 2 is decreasing.
         let bytes = ByteBuffer::from(vec![0u8, 1, 2, 3, 4]);
         let result = VarBinArray::try_new(
             offsets,
@@ -118,8 +119,8 @@ mod tests {
     #[test]
     fn test_list_array_validation_success() {
         // Valid case: offsets are monotonically increasing.
-        let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]).into_array();
-        let offsets = PrimitiveArray::from_iter([0i64, 2, 3, 5]).into_array();
+        let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+        let offsets = buffer![0i64, 2, 3, 5].into_array();
         let result = ListArray::try_new(elements, offsets, Validity::NonNullable);
         assert!(result.is_ok());
     }
@@ -127,8 +128,8 @@ mod tests {
     #[test]
     fn test_list_array_validation_failure_offsets_out_of_bounds() {
         // Invalid case: last offset exceeds elements length.
-        let elements = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
-        let offsets = PrimitiveArray::from_iter([0i64, 2, 5]).into_array(); // 5 > 3.
+        let elements = buffer![1i32, 2, 3].into_array();
+        let offsets = buffer![0i64, 2, 5].into_array(); // 5 > 3.
         let result = ListArray::try_new(elements, offsets, Validity::NonNullable);
         assert!(result.is_err());
     }
@@ -136,7 +137,7 @@ mod tests {
     #[test]
     fn test_fixed_size_list_array_validation_success() {
         // Valid case: elements length matches list_size * len.
-        let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]).into_array();
+        let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
         let result = FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 3);
         assert!(result.is_ok());
     }
@@ -144,7 +145,7 @@ mod tests {
     #[test]
     fn test_fixed_size_list_array_validation_failure_length_mismatch() {
         // Invalid case: elements length doesn't match list_size * len.
-        let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]).into_array(); // 5 elements.
+        let elements = buffer![1i32, 2, 3, 4, 5].into_array(); // 5 elements.
         let result = FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 3); // Expects 2 * 3 = 6.
         assert!(result.is_err());
     }
@@ -192,8 +193,8 @@ mod tests {
     #[test]
     fn test_struct_array_validation_success() {
         // Valid case: all fields have the same length.
-        let field1 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
-        let field2 = PrimitiveArray::from_iter([4.0f64, 5.0, 6.0]).into_array();
+        let field1 = buffer![1i32, 2, 3].into_array();
+        let field2 = buffer![4.0f64, 5.0, 6.0].into_array();
         let fields = vec![field1, field2];
         let names = ["a", "b"];
         let result = StructArray::try_new(names.into(), fields, 3, Validity::NonNullable);
@@ -203,8 +204,8 @@ mod tests {
     #[test]
     fn test_struct_array_validation_failure_field_length_mismatch() {
         // Invalid case: fields have different lengths.
-        let field1 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
-        let field2 = PrimitiveArray::from_iter([4.0f64, 5.0]).into_array(); // Length 2, not 3.
+        let field1 = buffer![1i32, 2, 3].into_array();
+        let field2 = buffer![4.0f64, 5.0].into_array(); // Length 2, not 3.
         let fields = vec![field1, field2];
         let names = ["a", "b"];
         let result = StructArray::try_new(names.into(), fields, 3, Validity::NonNullable);

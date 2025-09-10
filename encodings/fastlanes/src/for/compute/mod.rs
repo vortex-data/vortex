@@ -44,6 +44,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
     use crate::FoRArray;
@@ -51,15 +52,15 @@ mod test {
     #[test]
     fn test_filter_for_array() {
         // Test with i32 values
-        let values = PrimitiveArray::from_iter([100i32, 101, 102, 103, 104]);
+        let values = buffer![100i32, 101, 102, 103, 104].into_array();
         let reference = Scalar::from(100i32);
-        let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
+        let for_array = FoRArray::try_new(values, reference).unwrap();
         test_filter_conformance(for_array.as_ref());
 
         // Test with u64 values
-        let values = PrimitiveArray::from_iter([1000u64, 1001, 1002, 1003, 1004]);
+        let values = buffer![1000u64, 1001, 1002, 1003, 1004].into_array();
         let reference = Scalar::from(1000u64);
-        let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
+        let for_array = FoRArray::try_new(values, reference).unwrap();
         test_filter_conformance(for_array.as_ref());
 
         // Test with nullable values
@@ -71,26 +72,14 @@ mod test {
     }
 
     #[rstest]
-    #[case(FoRArray::try_new(
-        PrimitiveArray::from_iter([100i32, 101, 102, 103, 104]).into_array(),
-        Scalar::from(100i32)
-    ).unwrap())]
-    #[case(FoRArray::try_new(
-        PrimitiveArray::from_iter([1000u64, 1001, 1002, 1003, 1004]).into_array(),
-        Scalar::from(1000u64)
-    ).unwrap())]
+    #[case(FoRArray::try_new(buffer![100i32, 101, 102, 103, 104].into_array(), Scalar::from(100i32)).unwrap())]
+    #[case(FoRArray::try_new(buffer![1000u64, 1001, 1002, 1003, 1004].into_array(), Scalar::from(1000u64)).unwrap())]
     #[case(FoRArray::try_new(
         PrimitiveArray::from_option_iter([Some(50i16), None, Some(52), Some(53), None]).into_array(),
         Scalar::from(50i16)
     ).unwrap())]
-    #[case(FoRArray::try_new(
-        PrimitiveArray::from_iter([-100i32, -99, -98, -97, -96]).into_array(),
-        Scalar::from(-100i32)
-    ).unwrap())]
-    #[case(FoRArray::try_new(
-        PrimitiveArray::from_iter([42i64]).into_array(),
-        Scalar::from(40i64)
-    ).unwrap())]
+    #[case(FoRArray::try_new(buffer![-100i32, -99, -98, -97, -96].into_array(), Scalar::from(-100i32)).unwrap())]
+    #[case(FoRArray::try_new(buffer![42i64].into_array(), Scalar::from(40i64)).unwrap())]
     fn test_take_for_conformance(#[case] for_array: FoRArray) {
         use vortex_array::compute::conformance::take::test_take_conformance;
         test_take_conformance(for_array.as_ref());
@@ -104,6 +93,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
     use crate::FoRArray;
@@ -111,11 +101,11 @@ mod tests {
     #[rstest]
     // Basic FoR arrays
     #[case::for_i32(FoRArray::try_new(
-        PrimitiveArray::from_iter([100i32, 101, 102, 103, 104]).into_array(),
+        buffer![100i32, 101, 102, 103, 104].into_array(),
         Scalar::from(100i32)
     ).unwrap())]
     #[case::for_u64(FoRArray::try_new(
-        PrimitiveArray::from_iter([1000u64, 1001, 1002, 1003, 1004]).into_array(),
+        buffer![1000u64, 1001, 1002, 1003, 1004].into_array(),
         Scalar::from(1000u64)
     ).unwrap())]
     // Nullable arrays
@@ -129,16 +119,16 @@ mod tests {
     ).unwrap())]
     // Negative values
     #[case::for_negative(FoRArray::try_new(
-        PrimitiveArray::from_iter([-100i32, -99, -98, -97, -96]).into_array(),
+        buffer![-100i32, -99, -98, -97, -96].into_array(),
         Scalar::from(-100i32)
     ).unwrap())]
     // Edge cases
     #[case::for_single(FoRArray::try_new(
-        PrimitiveArray::from_iter([42i64]).into_array(),
+        buffer![42i64].into_array(),
         Scalar::from(40i64)
     ).unwrap())]
     #[case::for_zero_ref(FoRArray::try_new(
-        PrimitiveArray::from_iter([0u32, 1, 2, 3, 4]).into_array(),
+        buffer![0u32, 1, 2, 3, 4].into_array(),
         Scalar::from(0u32)
     ).unwrap())]
     // Large arrays (> 1024 elements for fastlanes chunking)
@@ -156,7 +146,7 @@ mod tests {
     ).unwrap())]
     // Arrays with large deltas from reference
     #[case::for_large_deltas(FoRArray::try_new(
-        PrimitiveArray::from_iter([100i64, 200, 300, 400, 500]).into_array(),
+        buffer![100i64, 200, 300, 400, 500].into_array(),
         Scalar::from(100i64)
     ).unwrap())]
 
@@ -166,19 +156,19 @@ mod tests {
 
     #[rstest]
     #[case::for_i32_basic(FoRArray::try_new(
-        PrimitiveArray::from_iter([100i32, 101, 102, 103, 104]).into_array(),
+        buffer![100i32, 101, 102, 103, 104].into_array(),
         Scalar::from(100i32)
     ).unwrap())]
     #[case::for_u32_basic(FoRArray::try_new(
-        PrimitiveArray::from_iter([1000u32, 1001, 1002, 1003, 1004]).into_array(),
+        buffer![1000u32, 1001, 1002, 1003, 1004].into_array(),
         Scalar::from(1000u32)
     ).unwrap())]
     #[case::for_i64_basic(FoRArray::try_new(
-        PrimitiveArray::from_iter([5000i64, 5001, 5002, 5003, 5004]).into_array(),
+        buffer![5000i64, 5001, 5002, 5003, 5004].into_array(),
         Scalar::from(5000i64)
     ).unwrap())]
     #[case::for_u64_basic(FoRArray::try_new(
-        PrimitiveArray::from_iter([10000u64, 10001, 10002, 10003, 10004]).into_array(),
+        buffer![10000u64, 10001, 10002, 10003, 10004].into_array(),
         Scalar::from(10000u64)
     ).unwrap())]
     #[case::for_i32_large(FoRArray::try_new(

@@ -129,18 +129,16 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::PrimitiveArray;
+
     use vortex_array::{IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
     use super::filter_run_end;
     use crate::{RunEndArray, RunEndVTable};
 
     fn ree_array() -> RunEndArray {
-        RunEndArray::encode(
-            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
-        )
-        .unwrap()
+        RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array()).unwrap()
     }
 
     #[test]

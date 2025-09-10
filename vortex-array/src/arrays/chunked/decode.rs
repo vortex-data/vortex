@@ -139,12 +139,13 @@ fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> Li
 mod tests {
     use std::sync::Arc;
 
+    use vortex_buffer::buffer;
     use vortex_dtype::DType::{List, Primitive};
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
 
     use crate::accessor::ArrayAccessor;
-    use crate::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
+    use crate::arrays::{ChunkedArray, ListArray, StructArray, VarBinViewArray};
     use crate::validity::Validity;
     use crate::{IntoArray, ToCanonical};
 
@@ -183,15 +184,15 @@ mod tests {
     #[test]
     pub fn pack_nested_lists() {
         let l1 = ListArray::try_new(
-            PrimitiveArray::from_iter([1, 2, 3, 4]).into_array(),
-            PrimitiveArray::from_iter([0, 3]).into_array(),
+            buffer![1, 2, 3, 4].into_array(),
+            buffer![0, 3].into_array(),
             Validity::NonNullable,
         )
         .unwrap();
 
         let l2 = ListArray::try_new(
-            PrimitiveArray::from_iter([5, 6]).into_array(),
-            PrimitiveArray::from_iter([0, 2]).into_array(),
+            buffer![5, 6].into_array(),
+            buffer![0, 2].into_array(),
             Validity::NonNullable,
         )
         .unwrap();

@@ -211,27 +211,28 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::zip;
     use vortex_array::{IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
     #[test]
     fn test_zip_basic() {
         let mask = Mask::from_iter([true, false, false, true, false]);
-        let if_true = PrimitiveArray::from_iter([10, 20, 30, 40, 50]).into_array();
-        let if_false = PrimitiveArray::from_iter([1, 2, 3, 4, 5]).into_array();
+        let if_true = buffer![10, 20, 30, 40, 50].into_array();
+        let if_false = buffer![1, 2, 3, 4, 5].into_array();
 
         let result = zip(&if_true, &if_false, &mask).unwrap();
-        let expected = PrimitiveArray::from_iter([10, 2, 3, 40, 5]);
+        let expected = buffer![10, 2, 3, 40, 5].into_array();
 
         assert_eq!(
             result.to_primitive().as_slice::<i32>(),
-            expected.as_slice::<i32>()
+            expected.to_primitive().as_slice::<i32>()
         );
     }
 
     #[test]
     fn test_zip_all_true() {
         let mask = Mask::new_true(4);
-        let if_true = PrimitiveArray::from_iter([10, 20, 30, 40]).into_array();
+        let if_true = buffer![10, 20, 30, 40].into_array();
         let if_false =
             PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), None]).into_array();
 
@@ -250,8 +251,8 @@ mod tests {
     #[should_panic]
     fn test_invalid_lengths() {
         let mask = Mask::new_false(4);
-        let if_true = PrimitiveArray::from_iter([10, 20, 30]).into_array();
-        let if_false = PrimitiveArray::from_iter([1, 2, 3, 4]).into_array();
+        let if_true = buffer![10, 20, 30].into_array();
+        let if_false = buffer![1, 2, 3, 4].into_array();
 
         zip(&if_true, &if_false, &mask).unwrap();
     }

@@ -15,6 +15,7 @@ use num_traits::AsPrimitive;
 use tempfile::NamedTempFile;
 use vortex::IntoArray;
 use vortex::arrays::{BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray};
+use vortex::buffer::buffer;
 use vortex::file::VortexWriteOptions;
 use vortex::scalar::Scalar;
 use vortex::validity::Validity;
@@ -198,7 +199,7 @@ fn test_vortex_scan_strings_contains() {
 fn test_vortex_scan_integers() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let file = runtime.block_on(async {
-        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
+        let numbers = buffer![1i32, 42, 100, -5, 0];
         write_single_column_vortex_file("number", numbers).await
     });
     let sum: i64 =
@@ -210,7 +211,7 @@ fn test_vortex_scan_integers() {
 fn test_vortex_scan_integers_in_list() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let file = runtime.block_on(async {
-        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
+        let numbers = buffer![1i32, 42, 100, -5, 0];
         write_single_column_vortex_file("number", numbers).await
     });
     let sum: i64 = scan_vortex_file_single_row::<i64, _>(
@@ -225,7 +226,7 @@ fn test_vortex_scan_integers_in_list() {
 fn test_vortex_scan_integers_between() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let file = runtime.block_on(async {
-        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
+        let numbers = buffer![1i32, 42, 100, -5, 0];
         write_single_column_vortex_file("number", numbers).await
     });
     let sum: i64 = scan_vortex_file_single_row::<i64, _>(
@@ -240,7 +241,7 @@ fn test_vortex_scan_integers_between() {
 fn test_vortex_scan_floats() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let file = runtime.block_on(async {
-        let values = PrimitiveArray::from_iter([1.5f64, -2.5, 0.0, 42.42]);
+        let values = buffer![1.5f64, -2.5, 0.0, 42.42];
         write_single_column_vortex_file("value", values).await
     });
     let count: i64 = scan_vortex_file_single_row::<i64, _>(
@@ -312,19 +313,9 @@ fn test_vortex_scan_multiple_files() {
     let (tempdir, _file1, _file2) = runtime.block_on(async {
         let tempdir = tempfile::tempdir().unwrap();
 
-        let file1 = write_vortex_file_to_dir(
-            tempdir.path(),
-            "numbers",
-            PrimitiveArray::from_iter([1i32, 2, 3]),
-        )
-        .await;
+        let file1 = write_vortex_file_to_dir(tempdir.path(), "numbers", buffer![1i32, 2, 3]).await;
 
-        let file2 = write_vortex_file_to_dir(
-            tempdir.path(),
-            "numbers",
-            PrimitiveArray::from_iter([4i32, 5, 6]),
-        )
-        .await;
+        let file2 = write_vortex_file_to_dir(tempdir.path(), "numbers", buffer![4i32, 5, 6]).await;
 
         (tempdir, file1, file2)
     });

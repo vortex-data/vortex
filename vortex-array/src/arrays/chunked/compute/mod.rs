@@ -62,8 +62,8 @@ mod tests {
     // Large chunks
     #[case::large_chunks(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_iter(0..1000i32).into_array(),
-            PrimitiveArray::from_iter(1000..2000i32).into_array(),
+            buffer![0..1000i32].into_array(),
+            buffer![1000..2000i32].into_array(),
         ],
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
@@ -107,15 +107,15 @@ mod tests {
     ).unwrap())]
     #[case::chunked_f32_basic(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_iter([1.5f32, 2.5, 3.5]).into_array(),
-            PrimitiveArray::from_iter([4.5f32, 5.5]).into_array(),
+            buffer![1.5f32, 2.5, 3.5].into_array(),
+            buffer![4.5f32, 5.5].into_array(),
         ],
         DType::Primitive(PType::F32, Nullability::NonNullable),
     ).unwrap())]
     #[case::chunked_f64_basic(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_iter([10.1f64, 20.2]).into_array(),
-            PrimitiveArray::from_iter([30.3f64, 40.4, 50.5]).into_array(),
+            buffer![10.1f64, 20.2].into_array(),
+            buffer![30.3f64, 40.4, 50.5].into_array(),
         ],
         DType::Primitive(PType::F64, Nullability::NonNullable),
     ).unwrap())]
@@ -147,8 +147,8 @@ mod tests {
     ).unwrap())]
     #[case::chunked_large(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_iter(0..500).into_array(),
-            PrimitiveArray::from_iter(500..1000).into_array(),
+            buffer![0..500].into_array().into_array(),
+            buffer![500..1000].into_array().into_array(),
         ],
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]

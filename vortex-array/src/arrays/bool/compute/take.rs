@@ -77,7 +77,7 @@ mod test {
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
-    use crate::{Array, ToCanonical};
+    use crate::{Array, IntoArray as _, ToCanonical};
 
     #[test]
     fn take_nullable() {
@@ -89,12 +89,9 @@ mod test {
             Some(false),
         ]);
 
-        let b = take(
-            reference.as_ref(),
-            PrimitiveArray::from_iter([0, 3, 4]).as_ref(),
-        )
-        .unwrap()
-        .to_bool();
+        let b = take(reference.as_ref(), buffer![0, 3, 4].into_array().as_ref())
+            .unwrap()
+            .to_bool();
         assert_eq!(
             b.boolean_buffer(),
             BoolArray::from_iter([Some(false), None, Some(false)]).boolean_buffer()

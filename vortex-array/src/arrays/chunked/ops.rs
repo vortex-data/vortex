@@ -61,20 +61,20 @@ impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::Buffer;
+    use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::{DType, NativePType, Nullability, PType};
 
     use crate::IntoArray;
     use crate::array::Array;
-    use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
+    use crate::arrays::{ChunkedArray, ChunkedVTable};
     use crate::canonical::ToCanonical;
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
             vec![
-                PrimitiveArray::from_iter([1u64, 2, 3]).into_array(),
-                PrimitiveArray::from_iter([4u64, 5, 6]).into_array(),
-                PrimitiveArray::from_iter([7u64, 8, 9]).into_array(),
+                buffer![1u64, 2, 3].into_array(),
+                buffer![4u64, 5, 6].into_array(),
+                buffer![7u64, 8, 9].into_array(),
             ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
@@ -138,7 +138,7 @@ mod tests {
             vec![
                 Buffer::<u64>::empty().into_array(),
                 Buffer::<u64>::empty().into_array(),
-                PrimitiveArray::from_iter([1u64, 2]).into_array(),
+                buffer![1u64, 2].into_array(),
                 Buffer::<u64>::empty().into_array(),
                 Buffer::<u64>::empty().into_array(),
             ],
@@ -153,10 +153,10 @@ mod tests {
     fn scalar_at_empty_children_trailing() {
         let array = ChunkedArray::try_new(
             vec![
-                PrimitiveArray::from_iter([1u64, 2]).into_array(),
+                buffer![1u64, 2].into_array(),
                 Buffer::<u64>::empty().into_array(),
                 Buffer::<u64>::empty().into_array(),
-                PrimitiveArray::from_iter([3u64, 4]).into_array(),
+                buffer![3u64, 4].into_array(),
             ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
@@ -173,8 +173,8 @@ mod tests {
             vec![
                 Buffer::<u64>::empty().into_array(),
                 Buffer::<u64>::empty().into_array(),
-                PrimitiveArray::from_iter([1u64, 2]).into_array(),
-                PrimitiveArray::from_iter([3u64, 4]).into_array(),
+                buffer![1u64, 2].into_array(),
+                buffer![3u64, 4].into_array(),
             ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )

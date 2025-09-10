@@ -42,7 +42,7 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use vortex_buffer::buffer;
+    use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::{ExtDType, Nullability, PType};
 
@@ -58,7 +58,7 @@ mod tests {
             Arc::new(PType::I64.into()),
             Some(TemporalMetadata::Timestamp(TimeUnit::Milliseconds, None).into()),
         ));
-        let storage = PrimitiveArray::from_iter(Vec::<i64>::new()).into_array();
+        let storage = Buffer::<i64>::empty().into_array();
 
         let arr = ExtensionArray::new(ext_dtype.clone(), storage);
 
@@ -75,7 +75,7 @@ mod tests {
             Arc::new(PType::I64.into()),
             Some(TemporalMetadata::Timestamp(TimeUnit::Milliseconds, None).into()),
         ));
-        let storage = PrimitiveArray::from_iter(Vec::<i64>::new()).into_array();
+        let storage = Buffer::<i64>::empty().into_array();
 
         let arr = ExtensionArray::new(ext_dtype.clone(), storage);
         assert!(!arr.dtype.is_nullable());
@@ -102,7 +102,7 @@ mod tests {
             Some(TemporalMetadata::Timestamp(TimeUnit::Nanoseconds, None).into()),
         ));
 
-        let storage = PrimitiveArray::from_iter(vec![1i64]).into_array();
+        let storage = buffer![1i64].into_array();
         let arr = ExtensionArray::new(original_dtype, storage);
 
         assert!(cast(arr.as_ref(), &DType::Extension(target_dtype)).is_err());

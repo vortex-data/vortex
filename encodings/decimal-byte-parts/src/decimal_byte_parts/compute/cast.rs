@@ -45,6 +45,7 @@ mod tests {
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::{IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, DecimalDType, Nullability};
 
     use crate::DecimalBytePartsArray;
@@ -53,7 +54,7 @@ mod tests {
     fn test_cast_decimal_byte_parts_nullability() {
         let decimal_dtype = DecimalDType::new(10, 2);
         let array = DecimalBytePartsArray::try_new(
-            PrimitiveArray::from_iter([100i32, 200, 300, 400]).into_array(),
+            buffer![100i32, 200, 300, 400].into_array(),
             decimal_dtype,
         )
         .unwrap();
@@ -93,11 +94,11 @@ mod tests {
 
     #[rstest]
     #[case::i32(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_iter([100i32, 200, 300, 400, 500]).into_array(),
+        buffer![100i32, 200, 300, 400, 500].into_array(),
         DecimalDType::new(10, 2),
     ).unwrap())]
     #[case::i64(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_iter([1000i64, 2000, 3000, 4000]).into_array(),
+        buffer![1000i64, 2000, 3000, 4000].into_array(),
         DecimalDType::new(19, 4),
     ).unwrap())]
     #[case::nullable(DecimalBytePartsArray::try_new(
@@ -106,11 +107,11 @@ mod tests {
         DecimalDType::new(10, 2),
     ).unwrap())]
     #[case::single(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_iter([42i32]).into_array(),
+        buffer![42i32].into_array(),
         DecimalDType::new(5, 1),
     ).unwrap())]
     #[case::negative(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_iter([-100i32, -200, 300, -400, 500]).into_array(),
+        buffer![-100i32, -200, 300, -400, 500].into_array(),
         DecimalDType::new(10, 2),
     ).unwrap())]
     fn test_cast_decimal_byte_parts_conformance(#[case] array: DecimalBytePartsArray) {

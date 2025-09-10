@@ -48,6 +48,7 @@ mod test {
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::{Operator, compare, take};
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
@@ -165,7 +166,7 @@ mod test {
 
     #[test]
     fn test_mask_dict_array() {
-        let array = dict_encode(&PrimitiveArray::from_iter([2, 0, 2, 0, 10]).into_array()).unwrap();
+        let array = dict_encode(&buffer![2, 0, 2, 0, 10].into_array()).unwrap();
         test_mask_conformance(array.as_ref());
 
         let array = dict_encode(
@@ -193,7 +194,7 @@ mod test {
 
     #[test]
     fn test_filter_dict_array() {
-        let array = dict_encode(&PrimitiveArray::from_iter([2, 0, 2, 0, 10]).into_array()).unwrap();
+        let array = dict_encode(&buffer![2, 0, 2, 0, 10].into_array()).unwrap();
         test_filter_conformance(array.as_ref());
 
         let array = dict_encode(
@@ -221,7 +222,7 @@ mod test {
 
     #[test]
     fn test_take_dict() {
-        let array = dict_encode(PrimitiveArray::from_iter([1, 2]).as_ref()).unwrap();
+        let array = dict_encode(buffer![1, 2].into_array().as_ref()).unwrap();
 
         assert_eq!(
             take(
@@ -236,7 +237,7 @@ mod test {
 
     #[test]
     fn test_take_dict_conformance() {
-        let array = dict_encode(&PrimitiveArray::from_iter([2, 0, 2, 0, 10]).into_array()).unwrap();
+        let array = dict_encode(&buffer![2, 0, 2, 0, 10].into_array()).unwrap();
         test_take_conformance(array.as_ref());
 
         let array = dict_encode(
@@ -269,6 +270,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::{PrimitiveArray, VarBinArray};
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability};
 
     use crate::DictArray;
@@ -276,11 +278,11 @@ mod tests {
 
     #[rstest]
     // Primitive arrays
-    #[case::dict_i32(dict_encode(&PrimitiveArray::from_iter([1i32, 2, 3, 2, 1]).into_array()).unwrap())]
+    #[case::dict_i32(dict_encode(&buffer![1i32, 2, 3, 2, 1].into_array()).unwrap())]
     #[case::dict_nullable_i32(dict_encode(
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).as_ref()
     ).unwrap())]
-    #[case::dict_u64(dict_encode(&PrimitiveArray::from_iter([100u64, 200, 100, 300, 200]).into_array()).unwrap())]
+    #[case::dict_u64(dict_encode(&buffer![100u64, 200, 100, 300, 200].into_array()).unwrap())]
     // String arrays
     #[case::dict_str(dict_encode(
         &VarBinArray::from_iter(
@@ -295,8 +297,8 @@ mod tests {
         ).into_array()
     ).unwrap())]
     // Edge cases
-    #[case::dict_single(dict_encode(&PrimitiveArray::from_iter([42i32]).into_array()).unwrap())]
-    #[case::dict_all_same(dict_encode(&PrimitiveArray::from_iter([5i32, 5, 5, 5, 5]).into_array()).unwrap())]
+    #[case::dict_single(dict_encode(&buffer![42i32].into_array()).unwrap())]
+    #[case::dict_all_same(dict_encode(&buffer![5i32, 5, 5, 5, 5].into_array()).unwrap())]
     #[case::dict_large(dict_encode(&PrimitiveArray::from_iter((0..1000).map(|i| i % 10)).into_array()).unwrap())]
 
     fn test_dict_consistency(#[case] array: DictArray) {

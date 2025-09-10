@@ -161,9 +161,11 @@ pub fn sum_impl(
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
+    use crate::IntoArray as _;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::sum;
 
@@ -189,14 +191,14 @@ mod test {
 
     #[test]
     fn sum_constant() {
-        let array = PrimitiveArray::from_iter([1, 1, 1, 1]);
+        let array = buffer![1, 1, 1, 1].into_array();
         let result = sum(array.as_ref()).unwrap();
         assert_eq!(result.as_primitive().as_::<i32>(), Some(4));
     }
 
     #[test]
     fn sum_constant_float() {
-        let array = PrimitiveArray::from_iter([1., 1., 1., 1.]);
+        let array = buffer![1., 1., 1., 1.].into_array();
         let result = sum(array.as_ref()).unwrap();
         assert_eq!(result.as_primitive().as_::<f32>(), Some(4.));
     }

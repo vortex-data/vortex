@@ -145,9 +145,7 @@ mod tests {
 
     #[test]
     fn take_field_struct() {
-        let struct_arr =
-            StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).to_array())])
-                .unwrap();
+        let struct_arr = StructArray::from_fields(&[("a", buffer![0..10].into_array())]).unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
         let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
         assert_eq!(taken.len(), 2);
@@ -487,7 +485,7 @@ mod tests {
     #[test]
     fn test_take_large_struct_conformance() {
         // Test with larger array for additional edge cases
-        let xs = PrimitiveArray::from_iter(0i64..100).into_array();
+        let xs = buffer![0i64..100].into_array();
         let ys = VarBinArray::from_iter(
             (0..100).map(|i| format!("str_{i}")).map(Some),
             DType::Utf8(NonNullable),
@@ -511,7 +509,7 @@ mod tests {
     #[rstest]
     // From test_all_consistency
     #[case::struct_simple({
-        let xs = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+        let xs = buffer![1i32, 2, 3, 4, 5].into_array();
         let ys = VarBinArray::from_iter(
             ["a", "b", "c", "d", "e"].map(Some),
             DType::Utf8(NonNullable),
@@ -545,7 +543,7 @@ mod tests {
         StructArray::try_new(["xs"].into(), vec![xs], 1, Validity::NonNullable).unwrap()
     })]
     #[case::large_struct({
-        let xs = PrimitiveArray::from_iter(0..100i64).into_array();
+        let xs = buffer![0..100i64].into_array();
         let ys = VarBinArray::from_iter(
             (0..100).map(|i| format!("value_{i}")).map(Some),
             DType::Utf8(NonNullable),

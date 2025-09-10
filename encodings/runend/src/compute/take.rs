@@ -81,23 +81,21 @@ mod test {
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::take;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::{Scalar, ScalarValue};
 
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
-        RunEndArray::encode(
-            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
-        )
-        .unwrap()
+        RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array()).unwrap()
     }
 
     #[test]
     fn ree_take() {
         let taken = take(
             ree_array().as_ref(),
-            PrimitiveArray::from_iter([9, 8, 1, 3]).as_ref(),
+            buffer![9, 8, 1, 3].into_array().as_ref(),
         )
         .unwrap();
         assert_eq!(taken.to_primitive().as_slice::<i32>(), &[5, 5, 1, 4]);
@@ -105,32 +103,20 @@ mod test {
 
     #[test]
     fn ree_take_end() {
-        let taken = take(
-            ree_array().as_ref(),
-            PrimitiveArray::from_iter([11]).as_ref(),
-        )
-        .unwrap();
+        let taken = take(ree_array().as_ref(), buffer![11].into_array().as_ref()).unwrap();
         assert_eq!(taken.to_primitive().as_slice::<i32>(), &[5]);
     }
 
     #[test]
     #[should_panic]
     fn ree_take_out_of_bounds() {
-        take(
-            ree_array().as_ref(),
-            PrimitiveArray::from_iter([12]).as_ref(),
-        )
-        .unwrap();
+        take(ree_array().as_ref(), buffer![12].into_array().as_ref()).unwrap();
     }
 
     #[test]
     fn sliced_take() {
         let sliced = ree_array().slice(4..9);
-        let taken = take(
-            sliced.as_ref(),
-            PrimitiveArray::from_iter([1, 3, 4]).as_ref(),
-        )
-        .unwrap();
+        let taken = take(sliced.as_ref(), buffer![1, 3, 4].into_array().as_ref()).unwrap();
 
         assert_eq!(taken.len(), 3);
         assert_eq!(taken.scalar_at(0), 4.into());
@@ -162,7 +148,7 @@ mod test {
     #[rstest]
     #[case(ree_array())]
     #[case(RunEndArray::encode(
-        PrimitiveArray::from_iter([1u8, 1, 2, 2, 2, 3, 3, 3, 3, 4]).into_array(),
+        buffer![1u8, 1, 2, 2, 2, 3, 3, 3, 3, 4].into_array(),
     ).unwrap())]
     #[case(RunEndArray::encode(
         PrimitiveArray::from_option_iter([
@@ -176,10 +162,10 @@ mod test {
         ])
         .into_array(),
     ).unwrap())]
-    #[case(RunEndArray::encode(PrimitiveArray::from_iter([42i32, 42, 42, 42, 42]).into_array())
+    #[case(RunEndArray::encode(buffer![42i32, 42, 42, 42, 42].into_array())
         .unwrap())]
     #[case(RunEndArray::encode(
-        PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]).into_array(),
+        buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array(),
     ).unwrap())]
     #[case({
         let mut values = Vec::new();
@@ -198,7 +184,7 @@ mod test {
     #[case(ree_array().slice(3..6))]
     #[case({
         let array = RunEndArray::encode(
-            PrimitiveArray::from_iter([1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]).into_array(),
+            buffer![1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3].into_array(),
         )
         .unwrap();
         array.slice(2..8)

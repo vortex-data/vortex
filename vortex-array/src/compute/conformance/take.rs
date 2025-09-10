@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::buffer;
 use vortex_dtype::Nullability;
 use vortex_error::VortexUnwrap;
 
 use crate::arrays::PrimitiveArray;
 use crate::compute::take;
-use crate::{Array, Canonical};
+use crate::{Array, Canonical, IntoArray as _};
 
 /// Test conformance of the take compute function for an array.
 ///
@@ -153,7 +154,7 @@ fn test_take_repeated_indices(array: &dyn Array) {
     }
 
     // Take the first element multiple times
-    let indices = PrimitiveArray::from_iter([0u64, 0, 0]);
+    let indices = buffer![0u64, 0, 0].into_array();
     let result = take(array, indices.as_ref()).vortex_unwrap();
 
     assert_eq!(result.len(), 3);

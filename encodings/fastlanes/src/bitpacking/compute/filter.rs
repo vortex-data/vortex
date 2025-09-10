@@ -154,8 +154,8 @@ mod test {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ToCanonical};
-    use vortex_buffer::Buffer;
+    use vortex_array::{Array, IntoArray as _, ToCanonical};
+    use vortex_buffer::{Buffer, buffer};
     use vortex_mask::Mask;
 
     use crate::BitPackedArray;
@@ -220,12 +220,12 @@ mod test {
     #[test]
     fn test_filter_bitpacked_conformance() {
         // Test with u8 values
-        let unpacked = PrimitiveArray::from_iter([1u8, 2, 3, 4, 5]);
+        let unpacked = buffer![1u8, 2, 3, 4, 5].into_array();
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 3).unwrap();
         test_filter_conformance(bitpacked.as_ref());
 
         // Test with u32 values
-        let unpacked = PrimitiveArray::from_iter([100u32, 200, 300, 400, 500]);
+        let unpacked = buffer![100u32, 200, 300, 400, 500].into_array();
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
         test_filter_conformance(bitpacked.as_ref());
 

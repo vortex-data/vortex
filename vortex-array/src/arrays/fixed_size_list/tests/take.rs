@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
+use vortex_buffer::{Buffer, buffer};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_scalar::Scalar;
 
@@ -14,11 +15,11 @@ use crate::{Array, IntoArray};
 #[test]
 fn test_take_basic() {
     // Create a FSL array with 3 lists, each containing 2 elements.
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
+    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     // Take indices [2, 0, 1].
-    let indices = PrimitiveArray::from_iter([2u32, 0, 1]);
+    let indices = buffer![2u32, 0, 1].into_array();
     let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 
@@ -44,11 +45,11 @@ fn test_take_basic() {
 #[test]
 fn test_take_with_duplicates() {
     // Create a FSL array with 2 lists, each containing 3 elements.
-    let elements = PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0]);
-    let fsl = FixedSizeListArray::new(elements.into_array(), 3, Validity::NonNullable, 2);
+    let elements = buffer![1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0].into_array();
+    let fsl = FixedSizeListArray::new(elements, 3, Validity::NonNullable, 2);
 
     // Take indices [0, 0, 1, 1, 0] - duplicating lists.
-    let indices = PrimitiveArray::from_iter([0i32, 0, 1, 1, 0]);
+    let indices = buffer![0i32, 0, 1, 1, 0].into_array();
     let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 
@@ -65,11 +66,11 @@ fn test_take_with_duplicates() {
 
 #[test]
 fn test_take_empty_indices() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4]);
+    let elements = buffer![1i32, 2, 3, 4].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 2);
 
     // Take with empty indices.
-    let indices = PrimitiveArray::from_iter(Vec::<u32>::new());
+    let indices = Buffer::<u32>::empty().into_array();
     let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 
@@ -80,11 +81,11 @@ fn test_take_empty_indices() {
 
 #[test]
 fn test_take_single_index() {
-    let elements = PrimitiveArray::from_iter([10i64, 20, 30, 40, 50, 60]);
+    let elements = buffer![10i64, 20, 30, 40, 50, 60].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     // Take a single index [1].
-    let indices = PrimitiveArray::from_iter([1u64]);
+    let indices = buffer![1u64].into_array();
     let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 
@@ -98,7 +99,7 @@ fn test_take_single_index() {
 
 #[test]
 fn test_take_with_null_indices() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
+    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     // Create indices with nulls: [1, null, 0].
@@ -231,11 +232,11 @@ fn test_take_degenerate_lists(
 #[test]
 fn test_take_large_list_size() {
     // Create a FSL array with large list size.
-    let elements = PrimitiveArray::from_iter(0i32..30);
-    let fsl = FixedSizeListArray::new(elements.into_array(), 10, Validity::NonNullable, 3);
+    let elements = buffer![0i32..30].into_array();
+    let fsl = FixedSizeListArray::new(elements, 10, Validity::NonNullable, 3);
 
     // Take indices [2, 0].
-    let indices = PrimitiveArray::from_iter([2u16, 0]);
+    let indices = buffer![2u16, 0].into_array();
     let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 
@@ -258,11 +259,11 @@ fn test_take_large_list_size() {
 #[test]
 fn test_take_all_indices() {
     // Create a FSL array.
-    let elements = PrimitiveArray::from_iter([1u8, 2, 3, 4, 5, 6, 7, 8]);
+    let elements = buffer![1u8, 2, 3, 4, 5, 6, 7, 8].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 4);
 
     // Take all indices in order [0, 1, 2, 3].
-    let indices = PrimitiveArray::from_iter([0i64, 1, 2, 3]);
+    let indices = buffer![0i64, 1, 2, 3].into_array();
     let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 
@@ -278,11 +279,11 @@ fn test_take_all_indices() {
 #[test]
 fn test_take_reverse_order() {
     // Create a FSL array.
-    let elements = PrimitiveArray::from_iter([100i16, 200, 300, 400, 500, 600]);
+    let elements = buffer![100i16, 200, 300, 400, 500, 600].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     // Take indices in reverse order [2, 1, 0].
-    let indices = PrimitiveArray::from_iter([2u32, 1, 0]);
+    let indices = buffer![2u32, 1, 0].into_array();
     let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 

@@ -145,8 +145,7 @@ mod test {
     #[test]
     fn slice_empty_patches() {
         // We create an array that has 1 element that does not fit in the 6-bit range.
-        let array =
-            BitPackedArray::encode(PrimitiveArray::from_iter(0u32..=64).as_ref(), 6).unwrap();
+        let array = BitPackedArray::encode(&buffer![0u32..=64].into_array(), 6).unwrap();
 
         assert!(array.patches().is_some());
 
@@ -176,11 +175,7 @@ mod test {
         // Chunk 2: physical indices 1024-2047, logical indices  102-1125
         // Chunk 3: physical indices 2048-2060, logical indices 1126-1138
 
-        let taken = take(
-            &sliced,
-            PrimitiveArray::from_iter([101i64, 1125, 1138]).as_ref(),
-        )
-        .unwrap();
+        let taken = take(&sliced, buffer![101i64, 1125, 1138].into_array().as_ref()).unwrap();
         assert_eq!(taken.len(), 3);
     }
 

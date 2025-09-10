@@ -382,7 +382,7 @@ mod test {
 
         assert_eq!(
             inner_a.cloned().unwrap(),
-            ArrowPrimitiveArray::from_iter([100i64]),
+            ArrowPrimitiveArray::from_iter([100i64])
         );
     }
 

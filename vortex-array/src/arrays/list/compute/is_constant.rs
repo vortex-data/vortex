@@ -72,6 +72,7 @@ register_kernel!(IsConstantKernelAdapter(ListVTable).lift());
 mod tests {
 
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_dtype::FieldNames;
 
     use crate::IntoArray;
@@ -82,8 +83,8 @@ mod tests {
     #[test]
     fn test_is_constant_nested_list() {
         let xs = ListArray::try_new(
-            PrimitiveArray::from_iter([0i32, 1, 0, 1]).into_array(),
-            PrimitiveArray::from_iter([0u32, 2, 4]).into_array(),
+            buffer![0i32, 1, 0, 1].into_array(),
+            buffer![0u32, 2, 4].into_array(),
             Validity::NonNullable,
         )
         .unwrap();
@@ -146,12 +147,12 @@ mod tests {
 
     #[test]
     fn test_list_is_constant_nested_lists() {
-        let inner_elements = PrimitiveArray::from_iter([1i32, 2, 1, 2]).into_array();
-        let inner_offsets = PrimitiveArray::from_iter([0u32, 1, 2, 3, 4]).into_array();
+        let inner_elements = buffer![1i32, 2, 1, 2].into_array();
+        let inner_offsets = buffer![0u32, 1, 2, 3, 4].into_array();
         let inner_lists =
             ListArray::try_new(inner_elements, inner_offsets, Validity::NonNullable).unwrap();
 
-        let outer_offsets = PrimitiveArray::from_iter([0u32, 2, 4]).into_array();
+        let outer_offsets = buffer![0u32, 2, 4].into_array();
         let outer_list = ListArray::try_new(
             inner_lists.into_array(),
             outer_offsets,

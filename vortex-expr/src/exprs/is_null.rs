@@ -119,6 +119,7 @@ pub fn is_null(child: ExprRef) -> ExprRef {
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
@@ -164,7 +165,7 @@ mod tests {
 
     #[test]
     fn evaluate_all_false() {
-        let test_array = PrimitiveArray::from_iter(vec![1, 2, 3, 4, 5]).into_array();
+        let test_array = buffer![1, 2, 3, 4, 5].into_array();
 
         let result = is_null(root())
             .evaluate(&Scope::new(test_array.clone()))

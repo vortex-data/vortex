@@ -414,10 +414,9 @@ pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
 #[cfg(test)]
 mod test {
     use rstest::{fixture, rstest};
-    use vortex_buffer::Buffer;
+    use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::{DType, Nullability};
 
-    use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::validity::Validity;
     use crate::{Array, ArrayRef, IntoArray};
@@ -425,7 +424,7 @@ mod test {
     #[fixture]
     fn binary_array() -> ArrayRef {
         let values = Buffer::copy_from("hello worldhello world this is a long string".as_bytes());
-        let offsets = PrimitiveArray::from_iter([0, 11, 44]);
+        let offsets = buffer![0, 11, 44].into_array();
 
         VarBinArray::try_new(
             offsets.into_array(),

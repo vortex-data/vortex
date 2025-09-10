@@ -182,14 +182,13 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::{ByteBuffer, buffer};
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::BoolArray;
-    use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::arrays::varbin::compute::filter::{
         filter_select_var_bin_by_index, filter_select_var_bin_by_slice,
@@ -253,7 +252,7 @@ mod test {
         .flat_map(|x| x.iter().cloned())
         .collect::<ByteBuffer>();
 
-        let offsets = PrimitiveArray::from_iter([0, 3, 6, 11, 15, 19, 22]).into_array();
+        let offsets = buffer![0, 3, 6, 11, 15, 19, 22].into_array();
         let validity = Validity::Array(
             BoolArray::from_iter([true, false, true, true, true, true]).into_array(),
         );
@@ -278,7 +277,7 @@ mod test {
             .flat_map(|x| x.iter().cloned())
             .collect::<ByteBuffer>();
 
-        let offsets = PrimitiveArray::from_iter([0, 0, 3, 6]).into_array();
+        let offsets = buffer![0, 0, 3, 6].into_array();
         let validity = Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
 
@@ -293,7 +292,7 @@ mod test {
 
     #[test]
     fn filter_varbin_all_null() {
-        let offsets = PrimitiveArray::from_iter([0, 0, 0, 0]).into_array();
+        let offsets = buffer![0, 0, 0, 0].into_array();
         let validity = Validity::Array(BoolArray::from_iter([false, false, false]).into_array());
         let arr = VarBinArray::try_new(
             offsets,

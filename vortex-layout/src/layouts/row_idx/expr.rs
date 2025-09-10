@@ -89,6 +89,7 @@ pub fn row_idx() -> ExprRef {
 mod tests {
     use rstest::rstest;
     use vortex_array::EmptyMetadata;
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_expr::{ExprRef, IntoExpr, VTable};
 
@@ -189,12 +190,12 @@ mod tests {
     #[test]
     fn test_vtable_evaluate_fails() {
         use vortex_array::IntoArray;
-        use vortex_array::arrays::PrimitiveArray;
+
         use vortex_expr::Scope;
 
         let expr = RowIdxExpr;
         // Create a dummy array for the scope
-        let array = PrimitiveArray::from_iter([0u64, 1, 2]).into_array();
+        let array = buffer![0u64, 1, 2].into_array();
         let scope = Scope::new(array);
         let result = RowIdxVTable::evaluate(&expr, &scope);
         assert!(result.is_err());
