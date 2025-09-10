@@ -180,6 +180,10 @@ GreptimeDB successfully implemented a hierarchical error handling system using s
 
 Their approach of creating per-module error types that form a tree structure directly inspired this RFC. They also demonstrated that migration can be incremental—existing error types can be annotated with `#[stack_trace_debug]` to add location tracking without requiring a full rewrite, allowing teams to adopt the pattern gradually. GreptimeDB's experience demonstrates that this pattern scales well for large Rust projects with complex error propagation requirements.
 
+### `iroh`
+
+They wrote a blog about using `snafu` as well: [blog](https://www.iroh.computer/blog/error-handling-in-iroh). They argue that an even more fine-grained approach is necessary for complex code, and instead of using module-level errors they have _function_-level errors.
+
 ### Other Projects Using Snafu
 
 - **[Vector](https://github.com/vectordotdev/vector)**: A high-performance observability data pipeline that uses snafu throughout their codebase to maintain error context across transformations. Their [error handling patterns](https://github.com/vectordotdev/vector/search?q=snafu) show extensive use of contextual errors across dozens of modules.
