@@ -9,15 +9,15 @@ use async_stream::{stream, try_stream};
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
-use futures::stream::{BoxStream, once};
-use futures::{FutureExt, Stream, StreamExt, TryStreamExt, pin_mut, try_join};
+use futures::stream::{once, BoxStream};
+use futures::{pin_mut, try_join, FutureExt, Stream, StreamExt, TryStreamExt};
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_dict::builders::{dict_encoder, DictConstraints, DictEncoder};
 use vortex_dict::DictEncoding;
-use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 
@@ -368,7 +368,7 @@ impl Stream for DictionaryTransformer {
                 Poll::Ready(Some(Ok(DictionaryChunk::Codes(codes)))) => {
                     if self.active_codes_tx.is_none() {
                         // Start a new group
-                        let (codes_tx, codes_rx) = kanal::bounded_async::<SequencedChunk>(8);
+                        let (codes_tx, codes_rx) = kanal::bounded_async::<SequencedChunk>(1);
                         let (values_tx, values_rx) = oneshot::channel();
 
                         self.active_codes_tx = Some(codes_tx.clone());
