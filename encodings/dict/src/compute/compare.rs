@@ -2,14 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::builders::builder_with_capacity;
-use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, cast, compare};
-use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
-use vortex_dtype::{DType, Nullability};
+use vortex_array::compute::{compare, CompareKernel, CompareKernelAdapter, Operator};
+use vortex_array::{register_kernel, Array, ArrayRef, IntoArray};
 use vortex_error::VortexResult;
-use vortex_mask::{AllOr, Mask};
-use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictVTable};
 
@@ -24,6 +19,7 @@ impl CompareKernel for DictVTable {
         if lhs.values().len() > lhs.codes().len() {
             return Ok(None);
         }
+
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(rhs) = rhs.as_constant() {
             let compare_result = compare(
@@ -31,18 +27,14 @@ impl CompareKernel for DictVTable {
                 ConstantArray::new(rhs, lhs.values().len()).as_ref(),
                 operator,
             )?;
-            return if operator == Operator::Eq {
-                let result_nullability =
-                    compare_result.dtype().nullability() | lhs.dtype().nullability();
-                dict_equal_to(compare_result, lhs.codes(), result_nullability).map(Some)
-            } else {
-                // SAFETY: values len preserved, codes all still point to valid values
-                unsafe {
-                    Ok(Some(
-                        DictArray::new_unchecked(lhs.codes().clone(), compare_result).into_array(),
-                    ))
-                }
+
+            // SAFETY: values len preserved, codes all still point to valid values
+            let result = unsafe {
+                DictArray::new_unchecked(lhs.codes().clone(), compare_result).into_array()
             };
+
+            // We canonicalize the result because dictionary-encoded bools is dumb.
+            return Ok(Some(result.to_canonical().into_array()));
         }
 
         // It's a little more complex, but we could perform a comparison against the dictionary
@@ -53,83 +45,10 @@ impl CompareKernel for DictVTable {
 
 register_kernel!(CompareKernelAdapter(DictVTable).lift());
 
-fn dict_equal_to(
-    values_compare: ArrayRef,
-    codes: &ArrayRef,
-    result_nullability: Nullability,
-) -> VortexResult<ArrayRef> {
-    let bool_result = values_compare.to_bool();
-    let result_validity = bool_result.validity_mask();
-    let bool_buffer = bool_result.boolean_buffer();
-    let (first_match, second_match) = match result_validity.boolean_buffer() {
-        AllOr::All => {
-            let mut indices_iter = bool_buffer.set_indices();
-            (indices_iter.next(), indices_iter.next())
-        }
-        AllOr::None => (None, None),
-        AllOr::Some(v) => {
-            let mut indices_iter = bool_buffer.set_indices().filter(|i| v.value(*i));
-            (indices_iter.next(), indices_iter.next())
-        }
-    };
-
-    Ok(match (first_match, second_match) {
-        // Couldn't find a value match, so the result is all false
-        (None, _) => match result_validity {
-            Mask::AllTrue(_) => {
-                let mut result_builder =
-                    builder_with_capacity(&DType::Bool(result_nullability), codes.len());
-                result_builder.extend_from_array(
-                    &ConstantArray::new(Scalar::bool(false, result_nullability), codes.len())
-                        .into_array(),
-                );
-                result_builder.set_validity(codes.validity_mask());
-                result_builder.finish()
-            }
-            Mask::AllFalse(_) => ConstantArray::new(
-                Scalar::null(DType::Bool(Nullability::Nullable)),
-                codes.len(),
-            )
-            .into_array(),
-            Mask::Values(_) => {
-                let mut result_builder =
-                    builder_with_capacity(&DType::Bool(result_nullability), codes.len());
-                result_builder.extend_from_array(
-                    &ConstantArray::new(Scalar::bool(false, result_nullability), codes.len())
-                        .into_array(),
-                );
-                result_builder.set_validity(
-                    Validity::from_mask(result_validity, bool_result.dtype().nullability())
-                        .take(codes)?
-                        .to_mask(codes.len()),
-                );
-                result_builder.finish()
-            }
-        },
-        // We found a single matching value so we can compare the codes directly.
-        // Note: the codes include nullability so we can just compare the codes directly, to the found code.
-        (Some(code), None) => cast(
-            &compare(
-                codes,
-                &cast(
-                    ConstantArray::new(code, codes.len()).as_ref(),
-                    codes.dtype(),
-                )?,
-                Operator::Eq,
-            )?,
-            &DType::Bool(result_nullability),
-        )?,
-        // more than one value matches
-        _ => unsafe {
-            DictArray::new_unchecked(codes.clone(), bool_result.into_array()).into_array()
-        },
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::{ConstantArray, PrimitiveArray};
-    use vortex_array::compute::{Operator, compare};
+    use vortex_array::compute::{compare, Operator};
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
