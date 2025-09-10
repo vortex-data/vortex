@@ -3,11 +3,11 @@
 
 use std::path::PathBuf;
 
+use anyhow::Result;
 use async_trait::async_trait;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use vortex::ArrayRef;
-use vortex::error::VortexError;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::iter::ArrayIteratorExt;
 
@@ -24,46 +24,38 @@ impl Dataset for TaxiData {
         "taxi"
     }
 
-    async fn to_vortex_array(&self) -> ArrayRef {
+    async fn to_vortex_array(&self) -> Result<ArrayRef> {
         fetch_taxi_data().await
     }
 }
 
-pub async fn taxi_data_parquet() -> PathBuf {
+pub async fn taxi_data_parquet() -> Result<PathBuf> {
     let taxi_parquet_fpath = "yellow-tripdata-2023-11.parquet".to_data_path();
     let taxi_data_url =
         "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2023-11.parquet";
     download_data(taxi_parquet_fpath, taxi_data_url).await
 }
 
-pub async fn fetch_taxi_data() -> ArrayRef {
-    let vortex_data = taxi_data_vortex().await;
-    VortexOpenOptions::file()
+pub async fn fetch_taxi_data() -> Result<ArrayRef> {
+    let vortex_data = taxi_data_vortex().await?;
+    Ok(VortexOpenOptions::file()
         .open(vortex_data)
-        .await
-        .unwrap()
-        .scan()
-        .unwrap()
-        .into_array_iter_multithread()
-        .unwrap()
-        .read_all()
-        .unwrap()
+        .await?
+        .scan()?
+        .into_array_iter_multithread()?
+        .read_all()?)
 }
 
-pub async fn taxi_data_vortex() -> PathBuf {
+pub async fn taxi_data_vortex() -> Result<PathBuf> {
     idempotent_async("taxi.vortex", |output_fname| async move {
         let buf = output_fname.to_path_buf();
         let output_file = File::create(output_fname).await?;
         VortexWriteOptions::default()
-            .write(
-                output_file,
-                parquet_to_vortex(taxi_data_parquet().await).unwrap(),
-            )
+            .write(output_file, parquet_to_vortex(taxi_data_parquet().await?)?)
             .await?
             .flush()
             .await?;
-        Ok::<PathBuf, VortexError>(buf)
+        Ok(buf)
     })
     .await
-    .unwrap()
 }

@@ -13,7 +13,6 @@ use datafusion::datasource::listing::{
 use datafusion::prelude::SessionContext;
 use tracing::info;
 use url::Url;
-use vortex::error::{VortexResult, vortex_err};
 use vortex_datafusion::VortexFormat;
 
 use crate::benchmark_trait::Benchmark;
@@ -51,10 +50,10 @@ impl StatPopGenBenchmark {
     ///
     /// # Returns
     /// A configured benchmark instance with pre-calculated expected row counts for query validation.
-    pub fn new(data_url: Url, scale_factor: u64) -> VortexResult<Self> {
+    pub fn new(data_url: Url, scale_factor: u64) -> Result<Self> {
         let n_rows = scale_factor * 1000;
         let n_rows = usize::try_from(n_rows).map_err(|_| {
-            vortex_err!(
+            anyhow::anyhow!(
                 "Dataset size ({} rows) exceeds maximum supported size for this platform",
                 n_rows
             )
@@ -92,36 +91,36 @@ impl StatPopGenBenchmark {
     ///
     /// Constructs the path based on the configured data URL and number of rows.
     /// The path follows the pattern: `{data_url}/{n_rows}/parquet/gnomad.genomes.v3.1.2.hgdp_tgp.chr21.parquet`
-    pub fn parquet_path(&self) -> VortexResult<PathBuf> {
+    pub fn parquet_path(&self) -> Result<PathBuf> {
         self.data_url
             .join(&(self.n_rows.to_string() + "/parquet/"))?
             .join(&format!("{}.parquet", StatPopGenBenchmark::FILE_NAME))?
             .to_file_path()
-            .map_err(|_| vortex_err!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
+            .map_err(|_| anyhow::anyhow!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
     }
 
     /// Returns the filesystem path to the compressed Vortex dataset file.
     ///
     /// Constructs the path based on the configured data URL and number of rows.
     /// The path follows the pattern: `{data_url}/{n_rows}/vortex-file-compressed/gnomad.genomes.v3.1.2.hgdp_tgp.chr21.vortex`
-    pub fn vortex_path(&self) -> VortexResult<PathBuf> {
+    pub fn vortex_path(&self) -> Result<PathBuf> {
         self.data_url
             .join(&(self.n_rows.to_string() + "/vortex-file-compressed/"))?
             .join(&format!("{}.vortex", StatPopGenBenchmark::FILE_NAME))?
             .to_file_path()
-            .map_err(|_| vortex_err!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
+            .map_err(|_| anyhow::anyhow!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
     }
 
     /// Returns the filesystem path to the compacted Vortex dataset file.
     ///
     /// Constructs the path based on the configured data URL and number of rows.
     /// The path follows the pattern: `{data_url}/{n_rows}/vortex-compact/{StatPopGenBenchmark::FILE_NAME}.vortex`
-    pub fn vortex_compact_path(&self) -> VortexResult<PathBuf> {
+    pub fn vortex_compact_path(&self) -> Result<PathBuf> {
         self.data_url
             .join(&(self.n_rows.to_string() + "/vortex-compact/"))?
             .join(&format!("{}.vortex", StatPopGenBenchmark::FILE_NAME))?
             .to_file_path()
-            .map_err(|_| vortex_err!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
+            .map_err(|_| anyhow::anyhow!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
     }
 }
 
