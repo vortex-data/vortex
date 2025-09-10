@@ -338,8 +338,7 @@ mod tests {
 
                 thread::spawn(move || {
                     barrier.wait();
-                    let mut iter = iter;
-                    while let Some(val) = iter.next() {
+                    for val in iter {
                         received.lock().push(val);
                     }
                 })

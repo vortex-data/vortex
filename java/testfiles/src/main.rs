@@ -8,10 +8,10 @@ use std::path::Path;
 
 use futures::executor::block_on;
 use vortex::arrays::StructArray;
-use vortex::buffer::ByteBufferMut;
 use vortex::builders::{ArrayBuilder, DecimalBuilder, VarBinViewBuilder};
 use vortex::dtype::{DType, DecimalDType, Nullability};
 use vortex::file::VortexWriteOptions;
+use vortex::io::runtime::single::SingleThreadRuntime;
 use vortex::validity::Validity;
 
 /// Generate a test dataset with the following small set of rows:
@@ -71,18 +71,14 @@ fn main() {
     )
     .expect("Could not create struct array");
 
-    let mut written = ByteBufferMut::empty();
-    VortexWriteOptions::default()
-        .write_blocking(&mut written, rows.to_array_stream())
-        .expect("writing Vortex file");
-    let written = written.freeze();
-
     // Save to file
     let minimal_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vortex-jni/src/test/resources/minimal.vortex");
     let mut file = std::fs::File::create(&minimal_path).expect("opening Vortex file");
-    file.write_all(written.as_ref())
-        .expect("flushing Vortex file to disk");
+    VortexWriteOptions::default()
+        .blocking::<SingleThreadRuntime>()
+        .write(&mut file, rows.to_array_iterator())
+        .expect("writing Vortex file");
 
     println!("Wrote Vortex file to {}", minimal_path.display());
 }
