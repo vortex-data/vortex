@@ -269,7 +269,6 @@ impl LayoutReader for ChunkedReader {
 mod test {
     use std::sync::Arc;
 
-    use futures::executor::block_on;
     use futures::stream;
     use rstest::{fixture, rstest};
     use vortex_array::pipeline::operators::MaskFuture;
@@ -278,7 +277,7 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::root;
-    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::runtime::single::block_on;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -293,7 +292,7 @@ mod test {
         let segments = Arc::new(TestSegments::default());
         let strategy = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
         let (mut sequence_id, eof) = SequenceId::root().split();
-        let layout = SingleThreadRuntime::block_on(|handle| {
+        let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
                 segments.clone(),
@@ -319,7 +318,7 @@ mod test {
     fn test_chunked_evaluator(
         #[from(chunked_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(async {
+        block_on(|_h| async {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()

@@ -150,7 +150,7 @@ mod tests {
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
     use vortex_expr::root;
-    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::runtime::single::block_on;
     use vortex_mask::AllOr;
 
     use crate::LayoutStrategy;
@@ -163,7 +163,7 @@ mod tests {
     #[should_panic]
     #[test]
     fn flat_stats() {
-        SingleThreadRuntime::block_on(|handle| async {
+        block_on(|handle| async {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn truncates_variable_size_stats() {
-        SingleThreadRuntime::block_on(|handle| async {
+        block_on(|handle| async {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn struct_array_round_trip() {
-        SingleThreadRuntime::block_on(|handle| async {
+        block_on(|handle| async {
             let mut validity_builder = BooleanBufferBuilder::new(2);
             validity_builder.append(true);
             validity_builder.append(false);

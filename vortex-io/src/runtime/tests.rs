@@ -15,7 +15,7 @@ use vortex_error::VortexResult;
 
 use crate::file::{IntoIoSource, IoRequest, IoSource, IoSourceRef};
 use crate::runtime::Handle;
-use crate::runtime::single::SingleThreadRuntime;
+use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;
 
 // Test data
@@ -29,7 +29,7 @@ const TEST_LEN: usize = 5;
 
 #[test]
 fn test_file_read_with_single_thread_runtime() {
-    let result = SingleThreadRuntime::block_on(|handle| {
+    let result = block_on(|handle| {
         async move {
             let buffer = ByteBuffer::from(TEST_DATA.to_vec());
             let file_read = handle.open_read(buffer).unwrap();
@@ -90,7 +90,7 @@ async fn test_file_read_with_tokio_runtime() {
 fn test_file_read_with_real_file_single_thread() {
     use std::io::Write;
 
-    let result = SingleThreadRuntime::block_on(|handle| {
+    let result = block_on(|handle| {
         async move {
             // Create a temporary file
             let mut temp_file = NamedTempFile::new().unwrap();
@@ -186,7 +186,7 @@ async fn test_concurrent_reads() {
 
 #[test]
 fn test_handle_spawn_future() {
-    let result = SingleThreadRuntime::block_on(|handle| {
+    let result = block_on(|handle| {
         async move {
             let task = handle.spawn(async move { 42 });
             task.await
@@ -343,8 +343,7 @@ async fn test_task_detach() {
 
 #[test]
 fn test_nested_spawns() {
-    let result = SingleThreadRuntime::block_on(|h| {
-        h.spawn_nested(|h| async move { h.spawn(async move { 42 }).await + 10 })
-    });
+    let result =
+        block_on(|h| h.spawn_nested(|h| async move { h.spawn(async move { 42 }).await + 10 }));
     assert_eq!(result, 52);
 }

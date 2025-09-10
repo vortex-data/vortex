@@ -94,7 +94,7 @@ impl LayoutStrategy for StructStrategy {
         });
 
         let (column_streams_tx, column_streams_rx): (Vec<_>, Vec<_>) = (0..struct_dtype.nfields())
-            .map(|_| kanal::unbounded_async())
+            .map(|_| kanal::bounded_async(1))
             .unzip();
 
         // Spawn a task to fan out column chunks to their respective transposed streams
@@ -163,7 +163,7 @@ mod tests {
     use vortex_array::{ArrayContext, Canonical, IntoArray as _};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldNames, Nullability, PType};
-    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::runtime::single::block_on;
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -178,7 +178,7 @@ mod tests {
         let (ptr, eof) = SequenceId::root().split();
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
-        SingleThreadRuntime::block_on(|handle| {
+        block_on(|handle| {
             strategy.write_stream(
                 ctx,
                 segments,
@@ -207,7 +207,7 @@ mod tests {
         let (ptr, eof) = SequenceId::root().split();
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
-        let res = SingleThreadRuntime::block_on(|handle| {
+        let res = block_on(|handle| {
             strategy.write_stream(
                 ctx,
                 segments,
@@ -237,7 +237,7 @@ mod tests {
         let (ptr, eof) = SequenceId::root().split();
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
-        let res = SingleThreadRuntime::block_on(|handle| {
+        let res = block_on(|handle| {
             strategy.write_stream(
                 ctx,
                 segments,

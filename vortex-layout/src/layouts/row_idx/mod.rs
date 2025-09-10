@@ -256,7 +256,7 @@ mod tests {
     use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_expr::{eq, gt, lit, or, root};
-    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::runtime::single::block_on;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn flat_expr_no_row_id() {
-        SingleThreadRuntime::block_on(|handle| async {
+        block_on(|handle| async {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn flat_expr_row_id() {
-        SingleThreadRuntime::block_on(|handle| async {
+        block_on(|handle| async {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn flat_expr_or() {
-        SingleThreadRuntime::block_on(|handle| async {
+        block_on(|handle| async {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();

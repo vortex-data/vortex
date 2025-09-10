@@ -258,7 +258,6 @@ impl LayoutReader for StructReader {
 mod tests {
     use std::sync::Arc;
 
-    use futures::executor::block_on;
     use itertools::Itertools;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::StructArray;
@@ -267,7 +266,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root};
-    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -283,7 +282,7 @@ mod tests {
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy = StructStrategy::new(FlatLayoutStrategy::default());
-        let layout = SingleThreadRuntime::block_on(|handle| {
+        let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
                 segments.clone(),
@@ -317,11 +316,11 @@ mod tests {
             eq(col("a"), lit(7)),
             or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
         );
-        let result = block_on(
+        let result = block_on(|_h| {
             reader
                 .filter_evaluation(&(0..3), &filt, MaskFuture::new_true(3))
-                .unwrap(),
-        )
+                .unwrap()
+        })
         .unwrap();
         assert_eq!(
             vec![true, true, true],
@@ -335,11 +334,11 @@ mod tests {
     ) {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
-        let result = block_on(
+        let result = block_on(|_h| {
             reader
                 .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
-                .unwrap(),
-        )
+                .unwrap()
+        })
         .unwrap();
         assert_eq!(
             vec![true, false, false],
@@ -353,15 +352,15 @@ mod tests {
     ) {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
-        let result = block_on(
+        let result = block_on(|_h| {
             reader
                 .projection_evaluation(
                     &(0..3),
                     &expr,
                     MaskFuture::ready(Mask::from_iter([true, true, false])),
                 )
-                .unwrap(),
-        )
+                .unwrap()
+        })
         .unwrap();
 
         assert_eq!(result.len(), 2);
@@ -381,7 +380,7 @@ mod tests {
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             NonNullable,
         );
-        let result = block_on(
+        let result = block_on(|_h| {
             reader
                 .projection_evaluation(
                     &(0..3),
@@ -389,8 +388,8 @@ mod tests {
                     // Take rows 0 and 1, skip row 2, and anything after that
                     MaskFuture::ready(Mask::from_iter([true, true, false])),
                 )
-                .unwrap(),
-        )
+                .unwrap()
+        })
         .unwrap();
 
         assert_eq!(result.len(), 2);

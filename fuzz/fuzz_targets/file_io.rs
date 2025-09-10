@@ -19,6 +19,7 @@ use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_expr::{Scope, lit, root};
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 use vortex_fuzz::FuzzFileAction;
+use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -51,7 +52,8 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
 
     let mut full_buff = ByteBufferMut::empty();
     let _footer = VortexWriteOptions::default()
-        .write_blocking(&mut full_buff, array_data.to_array_stream())
+        .blocking::<SingleThreadRuntime>()
+        .write(&mut full_buff, array_data.to_array_iterator())
         .vortex_unwrap();
 
     let mut output = VortexOpenOptions::in_memory()

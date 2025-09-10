@@ -345,14 +345,13 @@ impl PruningResult {
 mod test {
     use std::sync::Arc;
 
-    use futures::executor::block_on;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
-    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -384,7 +383,7 @@ mod test {
         .into_array()
         .to_array_stream()
         .sequenced(ptr);
-        let layout = SingleThreadRuntime::block_on(|handle| {
+        let layout = block_on(|handle| {
             strategy.write_stream(ctx, segments.clone(), array_stream, eof, handle)
         })
         .unwrap();
@@ -395,7 +394,7 @@ mod test {
     fn test_stats_evaluator(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(async {
+        block_on(|_h| async {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
@@ -418,7 +417,7 @@ mod test {
     fn test_stats_pruning_mask(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(async {
+        block_on(|_h| async {
             let row_count = layout.row_count();
             let reader = layout.new_reader("".into(), segments).unwrap();
 

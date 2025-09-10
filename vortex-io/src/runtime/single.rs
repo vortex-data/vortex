@@ -8,23 +8,36 @@ use futures::future::BoxFuture;
 use futures::stream::LocalBoxStream;
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
-use smol::{LocalExecutor, block_on};
+use smol::LocalExecutor;
 use vortex_error::vortex_panic;
 
 use crate::runtime::smol::SmolAbortHandle;
-use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
+use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Handle, IoTask, Runtime};
 
 /// A runtime that drives all work on the current thread.
 ///
 /// This is subtly different from using a current-thread runtime to drive a future since it is
 /// capable of running `!Send` I/O futures.
 pub struct SingleThreadRuntime {
+    sender: Arc<Sender>,
+    executor: Rc<LocalExecutor<'static>>,
+}
+
+impl Default for SingleThreadRuntime {
+    fn default() -> Self {
+        let executor = Rc::new(LocalExecutor::new());
+        let sender = Arc::new(Sender::new(&executor));
+        Self { sender, executor }
+    }
+}
+
+struct Sender {
     scheduling: kanal::Sender<SpawnFuture<'static>>,
     cpu: kanal::Sender<SpawnCpu<'static>>,
     io: kanal::Sender<IoTask>,
 }
 
-impl SingleThreadRuntime {
+impl Sender {
     fn new(local: &Rc<LocalExecutor<'static>>) -> Self {
         let (scheduling_send, scheduling_recv) = kanal::unbounded::<SpawnFuture>();
         let (cpu_send, cpu_recv) = kanal::unbounded::<SpawnCpu>();
@@ -83,40 +96,13 @@ impl SingleThreadRuntime {
             io: io_send,
         }
     }
-
-    /// Drive the given Vortex future on the underlying single-threaded runtime.
-    pub fn block_on<F, Fut, R>(f: F) -> R
-    where
-        F: FnOnce(Handle) -> Fut,
-        Fut: Future<Output = R>,
-    {
-        let executor = Rc::new(LocalExecutor::new());
-        let runtime = Arc::new(SingleThreadRuntime::new(&executor));
-        let handle = Handle::new(runtime);
-
-        let fut = f(handle);
-        block_on(executor.run(fut))
-    }
-
-    /// Drive the given Vortex stream on the underlying single-threaded runtime.
-    pub fn block_on_stream<'a, F, S, R>(f: F) -> impl Iterator<Item = R> + 'a
-    where
-        F: FnOnce(Handle) -> S,
-        S: Stream<Item = R> + 'a,
-        R: 'a,
-    {
-        let executor = Rc::new(LocalExecutor::new());
-        let handle = Handle::new(Arc::new(Self::new(&executor)));
-        let stream = f(handle).boxed_local();
-        BlockingStream { executor, stream }
-    }
 }
 
 /// Since the [`Handle`], and therefore runtime implementation needs to be `Send` and `Sync`,
 /// we cannot just `impl Runtime for LocalExecutor`. Instead, we create channels that the handle
 /// can forward its work into, and we drive the resulting tasks on a [`LocalExecutor`] on the
 /// calling thread.
-impl Runtime for SingleThreadRuntime {
+impl Runtime for Sender {
     fn spawn(&self, future: BoxFuture<'static, ()>) -> AbortHandleRef {
         let (send, recv) = oneshot::channel();
         if let Err(e) = self.scheduling.send(SpawnFuture {
@@ -148,6 +134,59 @@ impl Runtime for SingleThreadRuntime {
             vortex_panic!("Executor missing: {}", e);
         }
     }
+}
+
+impl BlockingRuntime for SingleThreadRuntime {
+    type BlockingIterator<'a, R>
+        = SingleThreadIterator<'a, R>
+    where
+        R: 'a;
+
+    fn block_on<F, Fut, R>(&self, f: F) -> R
+    where
+        F: FnOnce(Handle) -> Fut,
+        Fut: Future<Output = R>,
+    {
+        let handle = Handle::new(self.sender.clone());
+        let fut = f(handle);
+        smol::block_on(self.executor.run(fut))
+    }
+
+    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
+    where
+        F: FnOnce(Handle) -> S,
+        S: Stream<Item = R> + Send + Unpin + 'a,
+        R: Send + 'a,
+    {
+        let handle = Handle::new(self.sender.clone());
+        let stream = f(handle).boxed_local();
+        SingleThreadIterator {
+            executor: self.executor.clone(),
+            stream,
+        }
+    }
+}
+
+/// Runs a future to completion on the current thread until it completes.
+///
+/// The future is provided a [`Handle`] to the runtime so that it may spawn additional tasks
+/// to be executed concurrently.
+pub fn block_on<F, Fut, R>(f: F) -> R
+where
+    F: FnOnce(Handle) -> Fut,
+    Fut: Future<Output = R>,
+{
+    SingleThreadRuntime::default().block_on(f)
+}
+
+/// Returns an iterator wrapper around a stream, blocking the current thread for each item.
+pub fn block_on_stream<'a, F, S, R>(f: F) -> SingleThreadIterator<'a, R>
+where
+    F: FnOnce(Handle) -> S,
+    S: Stream<Item = R> + Send + Unpin + 'a,
+    R: Send + 'a,
+{
+    SingleThreadRuntime::default().block_on_stream(f)
 }
 
 /// A spawn request for a future.
@@ -185,17 +224,17 @@ impl AbortHandle for LazyAbortHandle {
 }
 
 /// A stream that wraps up the stream with the executor that drives it.
-struct BlockingStream<'a, T> {
+pub struct SingleThreadIterator<'a, T> {
     executor: Rc<LocalExecutor<'static>>,
     stream: LocalBoxStream<'a, T>,
 }
 
-impl<T> Iterator for BlockingStream<'_, T> {
+impl<T> Iterator for SingleThreadIterator<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         let fut = self.stream.next();
-        block_on(self.executor.run(fut))
+        smol::block_on(self.executor.run(fut))
     }
 }
 
@@ -206,11 +245,12 @@ mod tests {
 
     use futures::FutureExt;
 
-    use crate::runtime::single::SingleThreadRuntime;
+    use crate::runtime::BlockingRuntime;
+    use crate::runtime::single::{SingleThreadRuntime, block_on};
 
     #[test]
     fn test_drive_simple_future() {
-        let result = SingleThreadRuntime::block_on(|_handle| async { 123 }.boxed_local());
+        let result = SingleThreadRuntime::default().block_on(|_handle| async { 123 }.boxed_local());
         assert_eq!(result, 123);
     }
 
@@ -219,7 +259,7 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
 
-        SingleThreadRuntime::block_on(|handle| async move {
+        block_on(|handle| async move {
             handle
                 .spawn_cpu(move || {
                     c.fetch_add(1, Ordering::SeqCst);
@@ -228,28 +268,5 @@ mod tests {
         });
 
         assert_eq!(counter.load(Ordering::SeqCst), 1);
-    }
-
-    /// Returning a future that references the handle is not allowed, e.g.
-    ///
-    /// ```compile_fail
-    /// use vortex_io::runtime::single::SingleThreadRuntime;
-    /// use futures::FutureExt;
-    ///
-    /// SingleThreadRuntime::block_on(|handle| async move {
-    ///     handle.spawn_cpu(move || 123)
-    /// })
-    /// ```
-    #[test]
-    fn test_handle_scope() {
-        // But returning a result that _doesn't_ reference the handle is allowed.
-        let result = SingleThreadRuntime::block_on(|handle| {
-            async move { handle.spawn_cpu(move || 123).await }.boxed_local()
-        });
-        assert_eq!(result, 123);
-
-        // E.g. this should not compile:
-        // let result =
-        //     SingleThreadRuntime::block_on(|handle| async move { handle.spawn_cpu(move || 123) });
     }
 }

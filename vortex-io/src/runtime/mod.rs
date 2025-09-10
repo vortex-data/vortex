@@ -6,6 +6,8 @@ use futures::stream::BoxStream;
 
 use crate::file::{IoRequest, IoSourceRef};
 
+mod blocking;
+pub use blocking::*;
 mod handle;
 pub use handle::*;
 #[cfg(not(target_arch = "wasm32"))]

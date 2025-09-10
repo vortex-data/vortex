@@ -7008,6 +7008,7 @@ dependencies = [
  "vortex-error",
  "vortex-expr",
  "vortex-file",
+ "vortex-io",
  "vortex-mask",
  "vortex-scalar",
  "vortex-utils",

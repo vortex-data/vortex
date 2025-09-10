@@ -109,7 +109,6 @@ impl FileSink for VortexSink {
             // the demux task might deadlock itself.
             file_write_tasks.spawn(async move {
                 let stream = ReceiverStream::new(rx).map(move |rb| {
-                    println!("Writing batch of {} rows", rb.num_rows());
                     row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
                     VortexResult::Ok(ArrayRef::from_arrow(rb, false))
                 });

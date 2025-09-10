@@ -280,7 +280,7 @@ mod test {
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
-    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::runtime::single::block_on;
 
     use crate::LayoutStrategy as _;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -289,7 +289,7 @@ mod test {
 
     #[test]
     fn flat_identity() {
-        SingleThreadRuntime::block_on(|handle| async {
+        block_on(|handle| async {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -327,7 +327,7 @@ mod test {
 
     #[test]
     fn flat_expr() {
-        SingleThreadRuntime::block_on(|handle| async {
+        block_on(|handle| async {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -366,7 +366,7 @@ mod test {
 
     #[test]
     fn flat_unaligned_row_mask() {
-        SingleThreadRuntime::block_on(|handle| async {
+        block_on(|handle| async {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();

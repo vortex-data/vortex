@@ -54,7 +54,7 @@ tracing-subscriber = { workspace = true }
 [features]
 compio = ["dep:compio", "vortex-buffer/compio"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
-tokio = ["tokio/fs"]
+tokio = ["tokio/fs", "tokio/rt-multi-thread"]
 
 [lints]
 workspace = true

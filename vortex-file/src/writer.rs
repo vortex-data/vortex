@@ -1,21 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::io::Write;
 use std::sync::Arc;
 
 use async_stream::try_stream;
 use futures::channel::oneshot;
 use futures::future::ready;
-use futures::{Stream, StreamExt, TryFutureExt, TryStreamExt, pin_mut};
+use futures::io::AllowStdIo;
+use futures::stream::BoxStream;
+use futures::{StreamExt, TryFutureExt, TryStreamExt, pin_mut};
 use vortex_array::ArrayContext;
+use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStream, ArrayStreamExt, SendableArrayStream};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
-use vortex_io::VortexWrite;
 use vortex_io::kanal_ext::KanalExt;
-use vortex_io::runtime::Handle;
+use vortex_io::runtime::{BlockingRuntime, Handle};
+use vortex_io::{AsyncWriteAdapter, VortexWrite};
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
 use vortex_layout::{LayoutContext, LayoutStrategy};
@@ -86,6 +90,19 @@ impl VortexWriteOptions {
         Ok(footer)
     }
 
+    /// Drop into the blocking writer API using the given runtime.
+    pub fn blocking<B: BlockingRuntime + Default>(self) -> BlockingWriter<B> {
+        self.with_blocking(B::default())
+    }
+
+    /// Drop into the blocking writer API using the given runtime.
+    pub fn with_blocking<B: BlockingRuntime>(self, runtime: B) -> BlockingWriter<B> {
+        BlockingWriter {
+            options: self,
+            runtime,
+        }
+    }
+
     #[cfg(feature = "tokio")]
     pub async fn write_tokio<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
         self,
@@ -100,19 +117,6 @@ impl VortexWriteOptions {
         .await
     }
 
-    /// Perform a blocking single-threaded write of the provided stream of `Array`.
-    // TODO(ngates): we may just want to not have these APIs to avoid all the feature flags.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn write_blocking<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
-        self,
-        write: &mut W,
-        stream: S,
-    ) -> VortexResult<Footer> {
-        vortex_io::runtime::single::SingleThreadRuntime::block_on(|handle| {
-            self.write(write, ArrayStreamExt::boxed(stream), handle)
-        })
-    }
-
     /// Perform an async write of the provided stream of `Array`.
     pub async fn write<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
         self,
@@ -120,27 +124,34 @@ impl VortexWriteOptions {
         stream: S,
         handle: Handle,
     ) -> VortexResult<Footer> {
-        let (stream, footer) = self.write_stream(ArrayStreamExt::boxed(stream), handle);
-        pin_mut!(stream);
-
-        while let Some(buffer) = stream.next().await {
-            write.write_all(buffer?).await?;
-        }
-        write.flush().await?;
-
-        footer.await
+        self.write_stream(
+            ArrayStreamExt::boxed(stream),
+            handle,
+            |mut bytes| async move {
+                while let Some(buffer) = bytes.next().await {
+                    write.write_all(buffer?).await?;
+                }
+                Ok(write.flush().await?)
+            },
+        )
+        .await
     }
 
-    /// Write an [`ArrayStream`] as a Vortex file by returning a stream of [`ByteBuffer`] that
-    /// should be written contiguously.
-    pub fn write_stream(
+    /// Write an [`ArrayStream`] as a Vortex file.
+    ///
+    /// The sink is passed a stream of byte buffers that should be written contiguously. Once
+    /// complete, the returned future will resolve to a [`Footer`] object that describes the layout
+    /// of the written data.
+    pub async fn write_stream<F, Fut>(
         self,
         stream: SendableArrayStream,
         handle: Handle,
-    ) -> (
-        impl Stream<Item = VortexResult<ByteBuffer>>,
-        impl Future<Output = VortexResult<Footer>>,
-    ) {
+        sink: F,
+    ) -> VortexResult<Footer>
+    where
+        F: FnOnce(BoxStream<'static, VortexResult<ByteBuffer>>) -> Fut,
+        Fut: Future<Output = VortexResult<()>>,
+    {
         // Set up a Context to capture the encodings used in the file.
         let ctx = ArrayContext::empty();
 
@@ -229,7 +240,6 @@ impl VortexWriteOptions {
                 segment_specs.clone(),
                 file_statistics,
             );
-            let _ = footer_send.send(footer);
 
             let (buffer, footer_segment) = write_flatbuffer(
                 &mut position,
@@ -267,12 +277,16 @@ impl VortexWriteOptions {
             eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
             eof[4..8].copy_from_slice(&MAGIC_BYTES);
             yield ByteBuffer::copy_from(eof);
+
+            // Emit the footer to the caller.
+            let _ = footer_send.send(footer);
         };
 
-        let footer_fut =
-            footer_recv.map_err(|_canceled| vortex_err!("Cannot return Footer from failed write"));
+        sink(byte_stream.boxed()).await?;
 
-        (byte_stream, footer_fut)
+        footer_recv
+            .map_err(|_canceled| vortex_err!("Cannot return Footer from failed write"))
+            .await
     }
 }
 
@@ -293,4 +307,29 @@ fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
     *offset += u64::from(length);
 
     Ok((buffer.into_inner(), segment))
+}
+
+/// A blocking API for writing Vortex files.
+pub struct BlockingWriter<B: BlockingRuntime> {
+    options: VortexWriteOptions,
+    runtime: B,
+}
+
+impl<B: BlockingRuntime> BlockingWriter<B> {
+    /// Write a Vortex file into the given `Write` sink.
+    pub fn write(
+        self,
+        write: &mut impl Write,
+        iter: impl ArrayIterator + Send + 'static,
+    ) -> VortexResult<Footer> {
+        self.runtime.block_on(|handle| async move {
+            self.options
+                .write(
+                    &mut AsyncWriteAdapter(AllowStdIo::new(write)),
+                    ArrayStreamExt::boxed(iter.into_array_stream()),
+                    handle,
+                )
+                .await
+        })
+    }
 }

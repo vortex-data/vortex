@@ -69,7 +69,7 @@ mod test {
     use vortex_array::{ArrayContext, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::FieldPath;
-    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::runtime::single::block_on;
     use vortex_layout::LayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::segments::TestSegments;
@@ -82,7 +82,7 @@ mod test {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
-        let layout = SingleThreadRuntime::block_on(|handle| async {
+        let layout = block_on(|handle| async {
             FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
@@ -111,7 +111,7 @@ mod test {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
-        let layout = SingleThreadRuntime::block_on(|handle| async {
+        let layout = block_on(|handle| async {
             FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
