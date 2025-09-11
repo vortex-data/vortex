@@ -6,6 +6,7 @@ mod cache;
 mod constant;
 mod decimal;
 mod dict;
+mod fixed_size_list;
 mod list;
 mod primitive;
 mod run_end;
@@ -171,7 +172,7 @@ fn new_array_exporter(
             vortex_bail!("Struct arrays are not supported in DuckDB export yet");
         }
         Canonical::List(array) => list::new_exporter(&array, cache),
-        Canonical::FixedSizeList(_) => todo!("TODO(connor)[FixedSizeList]"),
+        Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(&array, cache),
         Canonical::VarBinView(array) => varbinview::new_exporter(&array),
         Canonical::Extension(ext) => {
             if is_temporal_ext_type(ext.id()) {

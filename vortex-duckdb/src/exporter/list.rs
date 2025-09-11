@@ -125,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn test_export_non_empty_list_with_preceeding_and_trailing_garbage() {
+    fn test_export_non_empty_list_with_preceding_and_trailing_garbage() {
         let list = ListArray::try_new(
             buffer![0, 1, 2, 3, 4, 5].into_array(),
             buffer![1u8, 2, 3, 4].into_array(),

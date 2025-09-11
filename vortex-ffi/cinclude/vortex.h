@@ -19,41 +19,45 @@
  */
 typedef enum {
   /**
-   * Null type
+   * Null type.
    */
   DTYPE_NULL = 0,
   /**
-   * Boolean type
+   * Boolean type.
    */
   DTYPE_BOOL = 1,
   /**
-   * Primitive types (e.g., u8, i16, f32, etc.)
+   * Primitive types (e.g., u8, i16, f32, etc.).
    */
   DTYPE_PRIMITIVE = 2,
   /**
-   * Variable-length UTF-8 string type
+   * Variable-length UTF-8 string type.
    */
   DTYPE_UTF8 = 3,
   /**
-   * Variable-length binary data type
+   * Variable-length binary data type.
    */
   DTYPE_BINARY = 4,
   /**
-   * Nested struct type
+   * Nested struct type.
    */
   DTYPE_STRUCT = 5,
   /**
-   * Nested list type
+   * Nested list type.
    */
   DTYPE_LIST = 6,
   /**
-   * User-defined extension type
+   * User-defined extension type.
    */
   DTYPE_EXTENSION = 7,
   /**
-   * Decimal type with fixed precision and scale
+   * Decimal type with fixed precision and scale.
    */
   DTYPE_DECIMAL = 8,
+  /**
+   * Nested fixed-size list type.
+   */
+  DTYPE_FIXED_SIZE_LIST = 9,
 } vx_dtype_variant;
 
 /**
@@ -221,7 +225,7 @@ typedef struct vx_dtype vx_dtype;
 typedef struct vx_error vx_error;
 
 /**
- * A handle to a Vortex file encapsulating ther footer and logic for instantiating a reader.
+ * A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.
  */
 typedef struct vx_file vx_file;
 
@@ -474,6 +478,15 @@ const vx_dtype *vx_dtype_new_binary(bool is_nullable);
 const vx_dtype *vx_dtype_new_list(const vx_dtype *element, bool is_nullable);
 
 /**
+ * Create a new fixed-size list data type.
+ *
+ * Takes ownership of the `element` pointer.
+ */
+const vx_dtype *vx_dtype_new_fixed_size_list(const vx_dtype *element,
+                                             uint32_t size,
+                                             bool is_nullable);
+
+/**
  * Create a new struct data type.
  *
  * Takes ownership of the `struct_dtype` pointer.
@@ -496,22 +509,22 @@ vx_dtype_variant vx_dtype_get_variant(const vx_dtype *dtype);
 bool vx_dtype_is_nullable(const vx_dtype *dtype);
 
 /**
- * Return the [`vx_ptype`] of a primitive data type.
+ * Returns the [`vx_ptype`] of a primitive.
  */
 vx_ptype vx_dtype_primitive_ptype(const vx_dtype *dtype);
 
 /**
- * Return the precision of a decimal data type.
+ * Returns the precision of a decimal.
  */
 uint8_t vx_dtype_decimal_precision(const vx_dtype *dtype);
 
 /**
- * Return the scale of a decimal data type.
+ * Returns the scale of a decimal.
  */
 int8_t vx_dtype_decimal_scale(const vx_dtype *dtype);
 
 /**
- * Return a borrowed reference to the [`vx_struct_fields`] of a struct data type.
+ * Return a borrowed reference to the [`vx_struct_fields`] of a struct.
  *
  * The returned pointer is valid as long as the struct dtype is valid.
  * Do NOT free the returned pointer - it shares the lifetime of the struct dtype.
@@ -519,21 +532,49 @@ int8_t vx_dtype_decimal_scale(const vx_dtype *dtype);
 const vx_struct_fields *vx_dtype_struct_dtype(const vx_dtype *dtype);
 
 /**
- * Return the `element` type of a list data type.
+ * Returns the element type of a list.
  *
  * The returned pointer is valid as long as the list dtype is valid.
  * Do NOT free the returned dtype pointer - it shares the lifetime of the list dtype.
  */
 const vx_dtype *vx_dtype_list_element(const vx_dtype *dtype);
 
+/**
+ * Returns the element type of a fixed-size list.
+ *
+ * The returned pointer is valid as long as the fixed-size list dtype is valid.
+ * Do NOT free the returned dtype pointer - it shares the lifetime of the fixed-size list dtype.
+ */
+const vx_dtype *vx_dtype_fixed_size_list_element(const vx_dtype *dtype);
+
+/**
+ * Returns the size of a fixed-size list.
+ */
+uint32_t vx_dtype_fixed_size_list_size(const vx_dtype *dtype);
+
+/**
+ * Checks if the type is time.
+ */
 bool vx_dtype_is_time(const DType *dtype);
 
+/**
+ * Checks if the type is a date.
+ */
 bool vx_dtype_is_date(const DType *dtype);
 
+/**
+ * Checks if the type is a timestamp.
+ */
 bool vx_dtype_is_timestamp(const DType *dtype);
 
+/**
+ * Returns the time unit, assuming the type is time.
+ */
 uint8_t vx_dtype_time_unit(const DType *dtype);
 
+/**
+ * Returns the time zone, assuming the type is time.
+ */
 void vx_dtype_time_zone(const DType *dtype, void *dst, int *len);
 
 /**
