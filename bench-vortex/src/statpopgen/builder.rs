@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use arrow_array::builder::{
-    ArrayBuilder, BooleanBuilder, Float32Builder, Int32Builder, ListBuilder, StringBuilder,
-    UInt64Builder,
+    ArrayBuilder, BooleanBuilder, FixedSizeListBuilder, Float32Builder, Int32Builder, ListBuilder,
+    StringBuilder, UInt64Builder,
 };
 use arrow_array::{ArrayRef, RecordBatch};
 use arrow_schema::{ArrowError, SchemaRef};
@@ -38,18 +38,21 @@ pub struct GnomADBuilder<'a> {
     /// - `chrX`
     /// - `chrMT`
     pub CHROM_builder: StringBuilder,
+
     /// The 1-indexed position on the contig at which this variant was found.
     ///
     /// Typically the first 100,000 and last 100,000 positions are not recorded in a VCF because
     /// they are difficult to sequence. In particular, they contain long repetitive runs that are
     /// difficult to capture with "short read sequencing".
     pub POS_builder: UInt64Builder,
+
     /// A unique identifier for this variant.
     ///
     /// While contig, position, reference allele, and alternate alele uniquely identify a variant,
     /// the "reference" contig may change. A variant ID is, by definition, invariant to the
     /// reference "build".
     pub ID_builder: StringBuilder,
+
     /// The reference allele of this variant.
     ///
     /// # Examples
@@ -57,6 +60,7 @@ pub struct GnomADBuilder<'a> {
     /// - `A`
     /// - `ATG`
     pub REF_builder: StringBuilder,
+
     /// The list of alternate alleles of this variant.
     ///
     /// An empty list of alternate alleles is unusual in an analysis-ready, jointly-called VCF.
@@ -71,8 +75,10 @@ pub struct GnomADBuilder<'a> {
     /// - `["A"]`
     /// - `["AA", "G", "ATG"]`
     pub ALT_builder: ListBuilder<StringBuilder>,
+
     /// The quality score of this variant.
     pub QUAL_builder: Float32Builder,
+
     /// A list of "filter" values of this variant.
     ///
     /// The header of the VCF lists possible FILTER values other than the string "PASS".
@@ -117,49 +123,60 @@ pub struct GnomADBuilder<'a> {
     /// `1|1`. We do not support these in the GT field.
     ///
     /// Every list is the same length; however, individual positions may be missing.
-    pub GT_builder: ListBuilder<UInt64Builder>,
+    pub GT_builder: FixedSizeListBuilder<UInt64Builder>,
+
     /// The genotype quality.
     ///
     /// A small non-negative integer indicating our confidence in this genotype. It is usually the
-    /// difference between the lowest and second lowest PL. Larger values indicate higher confidence.
-    pub GQ_builder: ListBuilder<Int32Builder>,
+    /// difference between the lowest and second lowest PL. Larger values indicate higher
+    /// confidence.
+    pub GQ_builder: FixedSizeListBuilder<Int32Builder>,
+
     /// The genotype depth.
     ///
     /// Varies by sequencing technology and service provider, but typically the number of reads
     /// which influenced this genotype call.
-    pub DP_builder: ListBuilder<Int32Builder>,
+    pub DP_builder: FixedSizeListBuilder<Int32Builder>,
+
     /// The allele depth.
     ///
     /// For each alternate allele, how many reads contained this allele.
     ///
     /// The outer list is always equal to the number of samples and does not vary. The inner list is
     /// equal to the number of alternate alleles at this variant.
-    pub AD_builder: ListBuilder<ListBuilder<Int32Builder>>,
+    pub AD_builder: FixedSizeListBuilder<ListBuilder<Int32Builder>>,
+
     /// The minimum depth.
     ///
     /// From the VCF header: "Minimum DP observed within the GVCF block". I believe this is mostly
     /// relevant for homozygous reference calls.
-    pub MIN_DP_builder: ListBuilder<Int32Builder>,
+    pub MIN_DP_builder: FixedSizeListBuilder<Int32Builder>,
+
     /// A phased genotype.
     ///
     /// We encode them as `0|0`: 0, `0|1`: 1, `1|0`: 2, and `1|1`: 3. Almost all these values are
     /// null.
-    pub PGT_builder: ListBuilder<Int32Builder>,
+    pub PGT_builder: FixedSizeListBuilder<Int32Builder>,
+
     /// The phase ID.
     ///
     /// An identifier used to reconstruct the two distinguished copies of the contig.
-    pub PID_builder: ListBuilder<StringBuilder>,
+    pub PID_builder: FixedSizeListBuilder<StringBuilder>,
+
     /// The phred-scaled (log) likelihood of each possible genotype call.
     ///
     /// Smaller is better. Has length equal to the number of possible unphased genotypes. For
     /// biallelic variants, that number is three: 0/0, 0/1, 1/1.
-    pub PL_builder: ListBuilder<ListBuilder<Int32Builder>>,
-    /// Per-sample component statistics which comprise the Fisher's Exact Test to detect strand bias.
+    pub PL_builder: FixedSizeListBuilder<ListBuilder<Int32Builder>>,
+
+    /// Per-sample component statistics which comprise the Fisher's Exact Test to detect strand
+    /// bias.
     ///
     /// A single copy of a chromosome is a double-helix. Opposing positions on that double-helix are
     /// complementary. Sometimes when you're sequencing one of the two helices is preferred, for
-    /// complicated chemical reasons. This is a test of how biased we were towards one or the other strand.
-    pub SB_builder: ListBuilder<ListBuilder<Int32Builder>>,
+    /// complicated chemical reasons. This is a test of how biased we were towards one or the other
+    /// strand.
+    pub SB_builder: FixedSizeListBuilder<FixedSizeListBuilder<Int32Builder>>,
 }
 
 pub enum InfoArrayBuilder {
@@ -232,7 +249,7 @@ impl InfoArrayBuilder {
 
 impl<'a> GnomADBuilder<'a> {
     #[allow(non_snake_case)]
-    pub fn new(header: &'a Header, schema: SchemaRef) -> Self {
+    pub fn new(header: &'a Header, schema: SchemaRef, num_samples: i32) -> Self {
         let info_builder: HashMap<&'a str, InfoArrayBuilder> = header
             .infos()
             .iter()
@@ -252,15 +269,24 @@ impl<'a> GnomADBuilder<'a> {
             ALT_builder: Default::default(),
             QUAL_builder: Default::default(),
             FILTER_builder: Default::default(),
-            GT_builder: Default::default(),
-            GQ_builder: Default::default(),
-            DP_builder: Default::default(),
-            AD_builder: Default::default(),
-            MIN_DP_builder: Default::default(),
-            PGT_builder: Default::default(),
-            PID_builder: Default::default(),
-            PL_builder: Default::default(),
-            SB_builder: Default::default(),
+            GT_builder: FixedSizeListBuilder::new(UInt64Builder::new(), num_samples),
+            GQ_builder: FixedSizeListBuilder::new(Int32Builder::new(), num_samples),
+            DP_builder: FixedSizeListBuilder::new(Int32Builder::new(), num_samples),
+            AD_builder: FixedSizeListBuilder::new(
+                ListBuilder::new(Int32Builder::new()),
+                num_samples,
+            ),
+            MIN_DP_builder: FixedSizeListBuilder::new(Int32Builder::new(), num_samples),
+            PGT_builder: FixedSizeListBuilder::new(Int32Builder::new(), num_samples),
+            PID_builder: FixedSizeListBuilder::new(StringBuilder::new(), num_samples),
+            PL_builder: FixedSizeListBuilder::new(
+                ListBuilder::new(Int32Builder::new()),
+                num_samples,
+            ),
+            SB_builder: FixedSizeListBuilder::new(
+                FixedSizeListBuilder::new(Int32Builder::new(), 4),
+                num_samples,
+            ),
         }
     }
 
@@ -295,50 +321,118 @@ impl<'a> GnomADBuilder<'a> {
 
         self.consume_info(header, record.info())?;
 
+        // Process each sample and ensure we append exactly `num_samples` values.
         for sample in record.samples().iter() {
+            // Collect all fields for this sample.
+            let mut sample_fields = HashMap::new();
             for result in sample.iter(header) {
                 let (field, value) = result?;
-                match field {
-                    "GT" => self
-                        .GT_builder
-                        .values()
-                        .append_option(parse_genotype(value)?),
-                    "GQ" => self
-                        .GQ_builder
-                        .values()
-                        .append_option(parse_int32_format(value)?),
-                    "DP" => self
-                        .DP_builder
-                        .values()
-                        .append_option(parse_int32_format(value)?),
-                    "AD" => self
-                        .AD_builder
-                        .values()
-                        .append_option(parse_list_int32_format(value)?),
-                    "MIN_DP" => self
-                        .MIN_DP_builder
-                        .values()
-                        .append_option(parse_int32_format(value)?),
-                    "PGT" => self
-                        .PGT_builder
-                        .values()
-                        .append_option(parse_pgt_format(value)?),
-                    "PID" => self
-                        .PID_builder
-                        .values()
-                        .append_option(parse_string_format(value)?),
-                    "PL" => self
-                        .PL_builder
-                        .values()
-                        .append_option(parse_list_int32_format(value)?),
-                    "SB" => self
-                        .SB_builder
-                        .values()
-                        .append_option(parse_list_int32_format(value)?),
-                    _ => vortex_bail!("unknown field {field}"),
+                sample_fields.insert(field, value);
+            }
+
+            // GT field.
+            if let Some(value) = sample_fields.remove("GT") {
+                self.GT_builder
+                    .values()
+                    .append_option(parse_genotype(value)?);
+            } else {
+                self.GT_builder.values().append_null();
+            }
+
+            // GQ field.
+            if let Some(value) = sample_fields.remove("GQ") {
+                self.GQ_builder
+                    .values()
+                    .append_option(parse_int32_format(value)?);
+            } else {
+                self.GQ_builder.values().append_null();
+            }
+
+            // DP field.
+            if let Some(value) = sample_fields.remove("DP") {
+                self.DP_builder
+                    .values()
+                    .append_option(parse_int32_format(value)?);
+            } else {
+                self.DP_builder.values().append_null();
+            }
+
+            // AD field.
+            if let Some(value) = sample_fields.remove("AD") {
+                self.AD_builder
+                    .values()
+                    .append_option(parse_list_int32_format(value)?);
+            } else {
+                self.AD_builder.values().append_null();
+            }
+
+            // MIN_DP field.
+            if let Some(value) = sample_fields.remove("MIN_DP") {
+                self.MIN_DP_builder
+                    .values()
+                    .append_option(parse_int32_format(value)?);
+            } else {
+                self.MIN_DP_builder.values().append_null();
+            }
+
+            // PGT field.
+            if let Some(value) = sample_fields.remove("PGT") {
+                self.PGT_builder
+                    .values()
+                    .append_option(parse_pgt_format(value)?);
+            } else {
+                self.PGT_builder.values().append_null();
+            }
+
+            // PID field.
+            if let Some(value) = sample_fields.remove("PID") {
+                self.PID_builder
+                    .values()
+                    .append_option(parse_string_format(value)?);
+            } else {
+                self.PID_builder.values().append_null();
+            }
+
+            // PL field.
+            if let Some(value) = sample_fields.remove("PL") {
+                self.PL_builder
+                    .values()
+                    .append_option(parse_list_int32_format(value)?);
+            } else {
+                self.PL_builder.values().append_null();
+            }
+
+            // SB field.
+            if let Some(value) = sample_fields.remove("SB") {
+                if let Some(sb_values) = parse_list_int32_format(value)? {
+                    // SB must have exactly 4 values when present.
+                    if sb_values.len() != 4 {
+                        vortex_bail!(
+                            "SB field must have exactly 4 values, got {}",
+                            sb_values.len()
+                        );
+                    }
+                    for v in sb_values {
+                        self.SB_builder.values().values().append_option(v);
+                    }
+                    self.SB_builder.values().append(true);
+                } else {
+                    // SB field is null/missing for this sample.
+                    for _ in 0..4 {
+                        self.SB_builder.values().values().append_null();
+                    }
+                    self.SB_builder.values().append(false);
                 }
+            } else {
+                // SB field is not present for this sample.
+                for _ in 0..4 {
+                    self.SB_builder.values().values().append_null();
+                }
+                self.SB_builder.values().append(false);
             }
         }
+
+        // After processing all samples, append to the `FixedSizeListBuilder`'s outer null map.
         self.GT_builder.append(true);
         self.GQ_builder.append(true);
         self.DP_builder.append(true);

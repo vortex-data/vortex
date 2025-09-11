@@ -67,6 +67,13 @@ impl StatPopGenBenchmark {
 
                 // Read and print the first 100,000 records
                 let header = vcf_reader.read_header().await?;
+
+                let num_samples = header
+                    .sample_names()
+                    .len()
+                    .try_into()
+                    .context("Too many samples for i32")?;
+
                 let progress = ProgressBar::new(self.n_rows);
                 progress.set_style(
                     ProgressStyle::with_template(
@@ -75,15 +82,15 @@ impl StatPopGenBenchmark {
                     .expect("style is ok"),
                 );
                 let mut record = Record::default();
-                let schema = schema_from_vcf_header(&header);
-                let mut builder = GnomADBuilder::new(&header, schema.clone());
+                let schema = schema_from_vcf_header(&header, num_samples);
+                let mut builder = GnomADBuilder::new(&header, schema.clone(), num_samples);
                 let file = File::create(parquet_output_path).await?;
                 let mut writer = AsyncArrowWriter::try_new(file, schema.clone(), None)
                     .context("Failed to create parquet writer")?;
                 for i in progress.wrap_iter(0..self.n_rows) {
                     if i % ROW_GROUP_SIZE_IN_VARIANTS == 0 {
                         let rb = builder.finish()?;
-                        builder = GnomADBuilder::new(&header, schema.clone());
+                        builder = GnomADBuilder::new(&header, schema.clone(), num_samples);
                         writer
                             .write(&rb)
                             .await
@@ -161,10 +168,10 @@ impl StatPopGenBenchmark {
             let dtype = DType::from_arrow(parquet.schema().as_ref());
             let mut vortex_stream = parquet
                 .build()
-                .map_err(|err| VortexError::generic(Box::new(err)))?
+                .context("Failed to build parquet stream")?
                 .map(|record_batch| {
                     record_batch
-                        .map_err(|err| VortexError::generic(Box::new(err)))
+                        .map_err(|e| VortexError::generic(Box::new(e)))
                         .map(|rb| ArrayRef::from_arrow(rb, false))
                 })
                 .boxed();
