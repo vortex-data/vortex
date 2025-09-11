@@ -7,8 +7,9 @@ use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
 use vortex_mask::Mask;
+use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use crate::arrays::{BinaryView, VarBinViewArray};
@@ -85,21 +86,6 @@ impl VarBinViewBuilder {
     pub fn append_value<S: AsRef<[u8]>>(&mut self, value: S) {
         self.append_value_view(value.as_ref());
         self.nulls.append_non_null();
-    }
-
-    /// Appends an optional value to the builder.
-    ///
-    /// If the value is `Some`, it appends the varbin view value. If the value is `None`, it appends
-    /// a null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option<S: AsRef<[u8]>>(&mut self, value: Option<S>) {
-        match value {
-            Some(value) => self.append_value(value),
-            None => self.append_null(),
-        }
     }
 
     fn flush_in_progress(&mut self) {
@@ -209,6 +195,38 @@ impl ArrayBuilder for VarBinViewBuilder {
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
         self.nulls.append_n_nulls(n);
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "VarBinViewBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
+
+        match self.dtype() {
+            DType::Utf8(_) => {
+                let utf8_scalar = Utf8Scalar::try_from(scalar)?;
+                match utf8_scalar.value() {
+                    Some(value) => self.append_value(value),
+                    None => self.append_null(),
+                }
+            }
+            DType::Binary(_) => {
+                let binary_scalar = BinaryScalar::try_from(scalar)?;
+                match binary_scalar.value() {
+                    Some(value) => self.append_value(value),
+                    None => self.append_null(),
+                }
+            }
+            _ => vortex_bail!(
+                "VarBinViewBuilder can only handle Utf8 or Binary scalars, got {:?}",
+                scalar.dtype()
+            ),
+        }
+
+        Ok(())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
@@ -394,8 +412,8 @@ mod tests {
     fn test_utf8_builder() {
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
-        builder.append_option(Some("Hello"));
-        builder.append_option::<&str>(None);
+        builder.append_value("Hello");
+        builder.append_null();
         builder.append_value("World");
 
         builder.append_nulls(2);
@@ -439,7 +457,7 @@ mod tests {
         };
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
-        builder.append_option(Some("Hello1"));
+        builder.append_value("Hello1");
         builder.extend_from_array(&array);
         builder.append_nulls(2);
         builder.append_value("Hello3");
@@ -500,5 +518,69 @@ mod tests {
         array.slice(0..1).append_to_builder(&mut builder);
         array2.slice(0..1).append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 2);
+    }
+
+    #[test]
+    fn test_append_scalar() {
+        use vortex_scalar::Scalar;
+
+        // Test with Utf8 builder.
+        let mut utf8_builder =
+            VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+
+        // Test appending a valid utf8 value.
+        let utf8_scalar1 = Scalar::utf8("hello", Nullability::Nullable);
+        utf8_builder.append_scalar(&utf8_scalar1).unwrap();
+
+        // Test appending another value.
+        let utf8_scalar2 = Scalar::utf8("world", Nullability::Nullable);
+        utf8_builder.append_scalar(&utf8_scalar2).unwrap();
+
+        // Test appending null value.
+        let null_scalar = Scalar::null(DType::Utf8(Nullability::Nullable));
+        utf8_builder.append_scalar(&null_scalar).unwrap();
+
+        let array = utf8_builder.finish();
+        assert_eq!(array.len(), 3);
+
+        // Check actual values using scalar_at.
+        use crate::array::Array;
+        let scalar0 = array.scalar_at(0).as_utf8().value();
+        assert_eq!(scalar0.as_ref().map(|s| s.as_str()), Some("hello"));
+
+        let scalar1 = array.scalar_at(1).as_utf8().value();
+        assert_eq!(scalar1.as_ref().map(|s| s.as_str()), Some("world"));
+
+        let scalar2 = array.scalar_at(2).as_utf8().value();
+        assert_eq!(scalar2, None); // This should be null.
+
+        // Test with Binary builder.
+        let mut binary_builder =
+            VarBinViewBuilder::with_capacity(DType::Binary(Nullability::Nullable), 10);
+
+        let binary_scalar = Scalar::binary(vec![1u8, 2, 3], Nullability::Nullable);
+        binary_builder.append_scalar(&binary_scalar).unwrap();
+
+        let binary_null = Scalar::null(DType::Binary(Nullability::Nullable));
+        binary_builder.append_scalar(&binary_null).unwrap();
+
+        let binary_array = binary_builder.finish();
+        assert_eq!(binary_array.len(), 2);
+
+        // Check actual binary values.
+        let binary0 = binary_array.scalar_at(0).as_binary().value();
+        assert_eq!(
+            binary0.as_ref().map(|b| b.as_slice()),
+            Some(&[1u8, 2, 3][..])
+        );
+
+        let binary1 = binary_array.scalar_at(1).as_binary().value();
+        assert_eq!(binary1, None); // This should be null.
+
+        // Test wrong dtype error.
+        let mut builder =
+            VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 10);
+        let wrong_scalar = Scalar::from(42i32);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 }

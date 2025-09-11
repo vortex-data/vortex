@@ -2,13 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{CastKernel, CastKernelAdapter};
-use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
@@ -20,19 +19,10 @@ impl CastKernel for PrimitiveVTable {
         let (new_ptype, new_nullability) = (*new_ptype, *new_nullability);
 
         // First, check that the cast is compatible with the source array's validity
-        let new_validity = if array.dtype().nullability() == new_nullability {
-            array.validity().clone()
-        } else if new_nullability == Nullability::Nullable {
-            // from non-nullable to nullable
-            array.validity().clone().into_nullable()
-        } else if new_nullability == Nullability::NonNullable && array.validity().all_valid() {
-            // from nullable but all valid, to non-nullable
-            Validity::NonNullable
-        } else {
-            vortex_bail!(
-                "invalid cast from nullable to non-nullable, since source array actually contains nulls"
-            );
-        };
+        let new_validity = array
+            .validity()
+            .clone()
+            .cast_nullability(new_nullability, array.len())?;
 
         // If the bit width is the same, we can short-circuit and simply update the validity
         if array.ptype() == new_ptype {
@@ -162,7 +152,7 @@ mod test {
         };
         assert_eq!(
             s.to_string(),
-            "invalid cast from nullable to non-nullable, since source array actually contains nulls"
+            "Cannot cast array with invalid values to non-nullable type."
         );
     }
 

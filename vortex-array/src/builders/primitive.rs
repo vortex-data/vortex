@@ -6,7 +6,9 @@ use std::mem::MaybeUninit;
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_error::{VortexResult, vortex_ensure};
 use vortex_mask::Mask;
+use vortex_scalar::{PrimitiveScalar, Scalar};
 
 use crate::arrays::PrimitiveArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
@@ -39,21 +41,6 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     pub fn append_value(&mut self, value: T) {
         self.values.push(value);
         self.nulls.append_non_null();
-    }
-
-    /// Appends an optional primitive value to the builder.
-    ///
-    /// If the value is `Some`, it appends the primitive value. If the value is `None`, it appends a
-    /// null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub(crate) fn append_option(&mut self, value: Option<T>) {
-        match value {
-            Some(value) => self.append_value(value),
-            None => self.append_null(),
-        }
     }
 
     /// Returns the raw primitive values in this builder as a slice.
@@ -148,6 +135,23 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.values.push_n(T::default(), n);
         self.nulls.append_n_nulls(n);
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "PrimitiveBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
+
+        let primitive_scalar = PrimitiveScalar::try_from(scalar)?;
+        match primitive_scalar.pvalue() {
+            Some(pv) => self.append_value(pv.as_primitive::<T>()),
+            None => self.append_null(),
+        }
+
+        Ok(())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
@@ -554,5 +558,48 @@ mod tests {
         let array = builder.finish_into_primitive();
         assert_eq!(array.len(), 3);
         assert_eq!(array.as_slice::<i32>(), &[10, 20, 30]);
+    }
+
+    #[test]
+    fn test_append_scalar() {
+        use vortex_dtype::DType;
+        use vortex_scalar::Scalar;
+
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::Nullable, 10);
+
+        // Test appending a valid primitive value.
+        let scalar1 = Scalar::primitive(42i32, Nullability::Nullable);
+        builder.append_scalar(&scalar1).unwrap();
+
+        // Test appending another value.
+        let scalar2 = Scalar::primitive(84i32, Nullability::Nullable);
+        builder.append_scalar(&scalar2).unwrap();
+
+        // Test appending null value.
+        let null_scalar = Scalar::null(DType::Primitive(
+            vortex_dtype::PType::I32,
+            Nullability::Nullable,
+        ));
+        builder.append_scalar(&null_scalar).unwrap();
+
+        let array = builder.finish_into_primitive();
+        assert_eq!(array.len(), 3);
+
+        // Check actual values.
+        let values = array.as_slice::<i32>();
+        assert_eq!(values[0], 42);
+        assert_eq!(values[1], 84);
+        // values[2] might be any value since it's null.
+
+        // Check validity - first two should be valid, third should be null.
+        use crate::vtable::ValidityHelper;
+        assert!(array.validity().is_valid(0));
+        assert!(array.validity().is_valid(1));
+        assert!(!array.validity().is_valid(2));
+
+        // Test wrong dtype error.
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);
+        let wrong_scalar = Scalar::from(true);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 }

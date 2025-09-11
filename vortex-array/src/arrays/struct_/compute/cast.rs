@@ -28,7 +28,7 @@ impl CastKernel for StructVTable {
         let validity = array
             .validity()
             .clone()
-            .cast_nullability(dtype.nullability())?;
+            .cast_nullability(dtype.nullability(), array.len())?;
 
         StructArray::try_new(
             target_sdtype.names().clone(),
@@ -51,11 +51,12 @@ register_kernel!(CastKernelAdapter(StructVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldNames, Nullability};
+    use vortex_dtype::{DType, FieldNames, Nullability, PType};
 
     use crate::IntoArray;
-    use crate::arrays::{StructArray, VarBinArray};
+    use crate::arrays::{PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::validity::Validity;
 
     #[rstest]
     #[case(create_test_struct(false))]
@@ -81,9 +82,9 @@ mod tests {
             vec![a, b],
             3,
             if nullable {
-                crate::validity::Validity::AllValid
+                Validity::AllValid
             } else {
-                crate::validity::Validity::NonNullable
+                Validity::NonNullable
             },
         )
         .unwrap()
@@ -95,14 +96,9 @@ mod tests {
 
         let x = buffer![1.0f32, 2.0, 3.0].into_array();
         let y = buffer![4.0f32, 5.0, 6.0].into_array();
-        let inner_struct = StructArray::try_new(
-            inner_names,
-            vec![x, y],
-            3,
-            crate::validity::Validity::NonNullable,
-        )
-        .unwrap()
-        .into_array();
+        let inner_struct = StructArray::try_new(inner_names, vec![x, y], 3, Validity::NonNullable)
+            .unwrap()
+            .into_array();
 
         // Create outer struct with inner struct as a field
         let outer_names: FieldNames = ["id", "point"].into();
@@ -114,7 +110,7 @@ mod tests {
             outer_names,
             vec![ids, inner_struct],
             3,
-            crate::validity::Validity::NonNullable,
+            Validity::NonNullable,
         )
         .unwrap()
     }
@@ -125,12 +121,27 @@ mod tests {
 
         let values = buffer![42u8].into_array();
 
-        StructArray::try_new(
-            names,
-            vec![values],
-            1,
-            crate::validity::Validity::NonNullable,
+        StructArray::try_new(names, vec![values], 1, Validity::NonNullable).unwrap()
+    }
+
+    #[test]
+    fn cast_nullable_all_invalid() {
+        let empty_struct = StructArray::try_new(
+            FieldNames::from(["a"]),
+            vec![PrimitiveArray::new::<i32>(buffer![], Validity::AllInvalid).to_array()],
+            0,
+            Validity::AllInvalid,
         )
         .unwrap()
+        .to_array();
+
+        let target_dtype = DType::struct_(
+            [("a", DType::Primitive(PType::I32, Nullability::NonNullable))],
+            Nullability::NonNullable,
+        );
+
+        let result = crate::compute::cast(&empty_struct, &target_dtype).unwrap();
+        assert_eq!(result.dtype(), &target_dtype);
+        assert_eq!(result.len(), 0);
     }
 }

@@ -10,7 +10,7 @@ mod like;
 mod min_max;
 
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, cast, filter, take,
+    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
 };
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
@@ -20,16 +20,9 @@ use crate::{DictArray, DictVTable};
 
 impl TakeKernel for DictVTable {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        // TODO(joe): can we remove the cast and allow dict arrays to have nullable codes and values
         let codes = take(array.codes(), indices)?;
-        let values_dtype = array
-            .values()
-            .dtype()
-            .union_nullability(codes.dtype().nullability());
         // SAFETY: selecting codes doesn't change the invariants of DictArray
-        unsafe {
-            Ok(DictArray::new_unchecked(codes, cast(array.values(), &values_dtype)?).into_array())
-        }
+        Ok(unsafe { DictArray::new_unchecked(codes, array.values().clone()) }.into_array())
     }
 }
 
@@ -77,10 +70,10 @@ mod test {
 
         let expected: Vec<i32> = (0..65)
             .map(|i| match i % 3 {
-                // Compressor puts 0 as a code for invalid values which we end up using in take
-                // thus invalid values on decompression turn into whatever is at 0th position in dictionary
-                0 | 2 => 42,
+                // Compressor puts 0 as a code for invalid values
+                0 => 42,
                 1 => -9,
+                2 => 0,
                 _ => unreachable!(),
             })
             .collect();

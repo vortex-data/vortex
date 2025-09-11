@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::cell::LazyCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use anyhow::Result;
 use bytes::Bytes;
 use clap::ValueEnum;
 use indicatif::ProgressBar;
@@ -64,11 +65,11 @@ pub fn benchmark_compress(
     ops: &[CompressOp],
     iterations: usize,
     dataset_handle: &dyn Dataset,
-) -> CompressMeasurements {
+) -> Result<CompressMeasurements> {
     let bench_name = dataset_handle.name();
     tracing::info!("Running {bench_name} benchmark");
 
-    let vx_array = runtime.block_on(async { dataset_handle.to_vortex_array().await });
+    let vx_array = runtime.block_on(async { dataset_handle.to_vortex_array().await })?;
     let uncompressed = ChunkedArray::from_iter(
         vx_array
             .as_::<ChunkedVTable>()
@@ -96,7 +97,7 @@ pub fn benchmark_compress(
             compressed_size.store(
                 vortex_compress_write(&uncompressed, &mut Vec::new())
                     .await
-                    .unwrap(),
+                    .expect("Failed to compress with vortex"),
                 Ordering::SeqCst,
             );
         });
@@ -161,14 +162,16 @@ pub fn benchmark_compress(
             let mut buf = Vec::new();
             runtime
                 .block_on(vortex_compress_write(&uncompressed, &mut buf))
-                .unwrap();
+                .expect("Failed to compress with vortex for decompression test");
             Bytes::from(buf)
         });
         // Force materialization of the lazy cell so it's not invoked from within the async benchmark function
         LazyCell::force(&buffer);
 
         let time = run(runtime, iterations, || async {
-            vortex_decompress_read(buffer.clone()).await.unwrap()
+            vortex_decompress_read(buffer.clone())
+                .await
+                .expect("Failed to decompress with vortex")
         });
         vortex_decompress_time = Some(time);
         timings.push(CompressionTimingMeasurement {
@@ -224,5 +227,5 @@ pub fn benchmark_compress(
         });
     }
 
-    CompressMeasurements { timings, ratios }
+    Ok(CompressMeasurements { timings, ratios })
 }

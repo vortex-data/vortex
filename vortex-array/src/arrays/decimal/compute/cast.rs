@@ -40,7 +40,10 @@ impl CastKernel for DecimalVTable {
         }
 
         // Cast the validity to the new nullability
-        let new_validity = array.validity().clone().cast_nullability(*to_nullability)?;
+        let new_validity = array
+            .validity()
+            .clone()
+            .cast_nullability(*to_nullability, array.len())?;
 
         // Construct DecimalArray directly since we can't use new() without knowing the concrete type
         Ok(Some(

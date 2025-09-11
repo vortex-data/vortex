@@ -201,8 +201,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             return Ok(vec![]);
         }
 
-        let row_range = self.row_range.clone();
-        self.prepare()?.execute(row_range)
+        self.prepare()?.execute(None)
     }
 
     /// Returns a [`Stream`](futures::Stream) with tasks spawned onto the current Tokio runtime.
@@ -216,8 +215,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     pub fn into_tokio_stream(
         self,
     ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
-        let row_range = self.row_range.clone();
-        self.prepare()?.execute_tokio_stream(row_range)
+        self.prepare()?.execute_tokio_stream(None)
     }
 }
 
@@ -377,8 +375,6 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
-        let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
-
         use futures::StreamExt;
         use vortex_error::vortex_err;
 
@@ -401,8 +397,6 @@ impl RepeatedScan<ArrayRef> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<impl ArrayIterator + Send + Clone + 'static> {
-        let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
-
         let dtype = self.dtype.clone();
         let tasks = self.execute(row_range)?;
         let queue = WorkStealingQueue::new([Box::new(move || Ok(tasks)) as TaskFactory<ArrayTask>]);
@@ -419,8 +413,6 @@ impl RepeatedScan<ArrayRef> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'static> {
-        let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
-
         let dtype = self.dtype.clone();
         let stream = self.execute_tokio_stream(row_range)?;
         Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))

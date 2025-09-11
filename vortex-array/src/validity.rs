@@ -73,8 +73,9 @@ impl Validity {
     }
 
     #[inline]
-    pub fn all_valid(&self) -> bool {
+    pub fn all_valid(&self, len: usize) -> bool {
         match self {
+            _ if len == 0 => true,
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
             Validity::Array(array) => {
@@ -86,8 +87,9 @@ impl Validity {
     }
 
     #[inline]
-    pub fn all_invalid(&self) -> bool {
+    pub fn all_invalid(&self, len: usize) -> bool {
         match self {
+            _ if len == 0 => true,
             Validity::NonNullable | Validity::AllValid => false,
             Validity::AllInvalid => true,
             Validity::Array(array) => {
@@ -300,8 +302,9 @@ impl Validity {
 
     /// Convert into a non-nullable variant
     #[inline]
-    pub fn into_non_nullable(self) -> Option<Validity> {
+    pub fn into_non_nullable(self, len: usize) -> Option<Validity> {
         match self {
+            _ if len == 0 => Some(Validity::NonNullable),
             Self::NonNullable => Some(Self::NonNullable),
             Self::AllValid => Some(Self::NonNullable),
             Self::AllInvalid => None,
@@ -320,9 +323,9 @@ impl Validity {
 
     /// Convert into a variant compatible with the given nullability, if possible.
     #[inline]
-    pub fn cast_nullability(self, nullability: Nullability) -> VortexResult<Validity> {
+    pub fn cast_nullability(self, nullability: Nullability, len: usize) -> VortexResult<Validity> {
         match nullability {
-            Nullability::NonNullable => self.into_non_nullable().ok_or_else(|| {
+            Nullability::NonNullable => self.into_non_nullable(len).ok_or_else(|| {
                 vortex_err!("Cannot cast array with invalid values to non-nullable type.")
             }),
             Nullability::Nullable => Ok(self.into_nullable()),
@@ -338,7 +341,7 @@ impl Validity {
     /// Create Validity from boolean array with given nullability of the array.
     ///
     /// Note: You want to pass the nullability of parent array and not the nullability of the validity array itself
-    ///     as that is always nonnullable
+    ///     as that is always non-nullable
     #[inline]
     fn from_array(value: ArrayRef, nullability: Nullability) -> Self {
         if !matches!(value.dtype(), DType::Bool(Nullability::NonNullable)) {
@@ -431,6 +434,20 @@ impl From<Nullability> for Validity {
 }
 
 impl Validity {
+    pub fn from_null_buffer(buffer: Option<NullBuffer>, nullability: Nullability) -> Self {
+        match buffer {
+            // If there are no nulls, then we infer from nullability
+            None => nullability.into(),
+            Some(nulls) => {
+                if nulls.null_count() == nulls.len() {
+                    Validity::AllInvalid
+                } else {
+                    Validity::Array(BoolArray::from(nulls.into_inner()).into_array())
+                }
+            }
+        }
+    }
+
     pub fn from_mask(mask: Mask, nullability: Nullability) -> Self {
         assert!(
             nullability == Nullability::Nullable || matches!(mask, Mask::AllTrue(_)),

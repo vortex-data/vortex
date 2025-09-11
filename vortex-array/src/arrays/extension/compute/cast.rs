@@ -102,7 +102,7 @@ mod tests {
             Some(TemporalMetadata::Timestamp(TimeUnit::Nanoseconds, None).into()),
         ));
 
-        let storage = PrimitiveArray::from_iter(Vec::<i64>::new()).into_array();
+        let storage = PrimitiveArray::from_iter(vec![1i64]).into_array();
         let arr = ExtensionArray::new(original_dtype, storage);
 
         assert!(cast(arr.as_ref(), &DType::Extension(target_dtype)).is_err());

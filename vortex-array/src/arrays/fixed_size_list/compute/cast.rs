@@ -23,7 +23,7 @@ impl CastKernel for FixedSizeListVTable {
         let validity = array
             .validity()
             .clone()
-            .cast_nullability(dtype.nullability())?;
+            .cast_nullability(dtype.nullability(), array.len())?;
 
         Ok(Some(
             // SAFETY: The only requirements for safety here are related to lengths, and no lengths

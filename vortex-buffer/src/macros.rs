@@ -5,7 +5,7 @@
 #[macro_export]
 macro_rules! buffer {
     () => (
-        $crate::Buffer:empty()
+        $crate::Buffer::empty()
     );
     ($elem:expr; $n:expr) => (
         $crate::Buffer::full($elem, $n)

@@ -68,7 +68,7 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
     let mut global_memory_tracker = config.track_memory.then(BenchmarkMemoryTracker::new);
 
     for target in config.targets.iter() {
-        let tokio_runtime = new_tokio_runtime(config.threads);
+        let tokio_runtime = new_tokio_runtime(config.threads)?;
 
         let mut engine_ctx = benchmark.setup_engine_context(
             target,

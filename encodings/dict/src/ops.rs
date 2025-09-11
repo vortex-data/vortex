@@ -19,10 +19,8 @@ impl OperationsVTable<DictVTable> for DictVTable {
             return if let Some(code) = code {
                 ConstantArray::new(array.values().scalar_at(*code), sliced_code.len()).into_array()
             } else {
-                let dtype = array.values().dtype().with_nullability(
-                    array.values().dtype().nullability() | array.codes().dtype().nullability(),
-                );
-                ConstantArray::new(Scalar::null(dtype), sliced_code.len()).to_array()
+                ConstantArray::new(Scalar::null(array.dtype().clone()), sliced_code.len())
+                    .to_array()
             };
         }
         // SAFETY: slicing the codes preserves invariants
@@ -30,19 +28,24 @@ impl OperationsVTable<DictVTable> for DictVTable {
     }
 
     fn scalar_at(array: &DictArray, index: usize) -> Scalar {
-        let dict_index: usize = array
-            .codes()
-            .scalar_at(index)
-            .as_ref()
-            .try_into()
-            .vortex_expect("code overflowed usize");
-        array.values().scalar_at(dict_index)
+        let Some(dict_index) = array.codes().scalar_at(index).as_primitive().as_::<usize>() else {
+            return Scalar::null(array.dtype().clone());
+        };
+
+        array
+            .values()
+            .scalar_at(dict_index)
+            .cast(array.dtype())
+            .vortex_expect("Array dtype will only differ by nullability")
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_buffer::buffer;
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use crate::DictArray;
@@ -63,6 +66,21 @@ mod tests {
         assert_eq!(
             Some(Scalar::null(dict.dtype().clone())),
             dict.slice(1..2).as_constant()
+        );
+    }
+
+    #[test]
+    fn test_scalar_at_null_code() {
+        let dict = DictArray::try_new(
+            PrimitiveArray::from_option_iter(vec![None, Some(0u32), None]).to_array(),
+            buffer![1i32].into_array(),
+        )
+        .unwrap();
+
+        assert_eq!(dict.scalar_at(0), Scalar::null(dict.dtype().clone()));
+        assert_eq!(
+            dict.scalar_at(1),
+            Scalar::primitive(1, Nullability::Nullable)
         );
     }
 }

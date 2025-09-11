@@ -5,9 +5,12 @@ use std::any::Any;
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexExpect, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
-use vortex_scalar::{BigCast, NativeDecimalType, i256, match_each_decimal_value_type};
+use vortex_scalar::{
+    BigCast, DecimalValue, NativeDecimalType, Scalar, i256, match_each_decimal_value,
+    match_each_decimal_value_type,
+};
 
 use crate::arrays::DecimalArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
@@ -108,21 +111,6 @@ impl DecimalBuilder {
         self.nulls.append_non_null();
     }
 
-    /// Appends an optional decimal value to the builder.
-    ///
-    /// If the value is `Some`, it appends the decimal value. If the value is `None`, it appends a
-    /// null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option<V: NativeDecimalType>(&mut self, value: Option<V>) {
-        match value {
-            Some(value) => self.append_value(value),
-            None => self.append_null(),
-        }
-    }
-
     /// Finishes the builder directly into a [`DecimalArray`].
     pub fn finish_into_decimal(&mut self) -> DecimalArray {
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
@@ -169,6 +157,24 @@ impl ArrayBuilder for DecimalBuilder {
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.values.push_n(0, n);
         self.nulls.append_n_nulls(n);
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "DecimalBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
+
+        match scalar.as_decimal().decimal_value() {
+            None => self.append_null(),
+            Some(v) => match_each_decimal_value!(v, |dec_val| {
+                self.append_value(dec_val);
+            }),
+        }
+
+        Ok(())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
@@ -290,5 +296,53 @@ mod tests {
         for i in 0..i8s.len() {
             assert_eq!(i8s.scalar_at(i), i128s.scalar_at(i));
         }
+    }
+
+    #[test]
+    fn test_append_scalar() {
+        use vortex_scalar::Scalar;
+
+        // Simply test that the builder accepts its own finish output via scalar.
+        let mut builder = DecimalBuilder::new::<i64>(10, 2, true.into());
+        builder.append_value(1234i64);
+        builder.append_value(5678i64);
+        builder.append_null();
+
+        let array = builder.finish();
+        assert_eq!(array.len(), 3);
+
+        // Check actual values using scalar_at.
+        let scalar0 = array.scalar_at(0);
+        let decimal0 = scalar0.as_decimal();
+        assert!(decimal0.decimal_value().is_some());
+        // We can't easily check the exact value without accessing internals.
+
+        let scalar1 = array.scalar_at(1);
+        let decimal1 = scalar1.as_decimal();
+        assert!(decimal1.decimal_value().is_some());
+
+        let scalar2 = array.scalar_at(2);
+        let decimal2 = scalar2.as_decimal();
+        assert!(decimal2.decimal_value().is_none()); // This should be null.
+
+        // Test by taking a scalar from the array and appending it to a new builder.
+        let mut builder2 = DecimalBuilder::new::<i64>(10, 2, true.into());
+        for i in 0..array.len() {
+            let scalar = array.scalar_at(i);
+            builder2.append_scalar(&scalar).unwrap();
+        }
+
+        let array2 = builder2.finish();
+        assert_eq!(array2.len(), 3);
+
+        // Verify the values match.
+        for i in 0..3 {
+            assert_eq!(array.scalar_at(i), array2.scalar_at(i));
+        }
+
+        // Test wrong dtype error.
+        let mut builder = DecimalBuilder::new::<i64>(10, 2, false.into());
+        let wrong_scalar = Scalar::from(true);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 }

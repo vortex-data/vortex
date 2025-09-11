@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -13,7 +13,8 @@ impl CastKernel for DictVTable {
         // Cast the dictionary values to the target type
         let casted_values = cast(array.values(), dtype)?;
 
-        let casted_codes = if dtype.nullability() != array.codes().dtype().nullability() {
+        // If the codes are nullable but we are casting to non nullable dtype we have to remove nullability from codes as well
+        let casted_codes = if array.codes().dtype().is_nullable() && !dtype.is_nullable() {
             cast(
                 array.codes(),
                 &array.codes().dtype().with_nullability(dtype.nullability()),
@@ -23,11 +24,9 @@ impl CastKernel for DictVTable {
         };
 
         // SAFETY: casting does not alter invariants of the codes
-        unsafe {
-            Ok(Some(
-                DictArray::new_unchecked(casted_codes, casted_values).into_array(),
-            ))
-        }
+        Ok(Some(
+            unsafe { DictArray::new_unchecked(casted_codes, casted_values) }.into_array(),
+        ))
     }
 }
 
@@ -132,7 +131,7 @@ mod tests {
         let nullable_dict = nullable.as_::<DictVTable>();
         assert_eq!(
             nullable_dict.codes().dtype().nullability(),
-            Nullability::Nullable
+            Nullability::NonNullable
         );
         assert_eq!(
             nullable_dict.values().dtype().nullability(),

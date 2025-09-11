@@ -31,12 +31,9 @@
 use std::any::Any;
 
 use vortex_dtype::{DType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
-use vortex_scalar::{
-    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, PrimitiveScalar, Scalar,
-    StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
-};
+use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 use crate::arrays::smallest_storage_type;
 use crate::canonical::Canonical;
@@ -145,85 +142,7 @@ pub trait ArrayBuilder: Send {
     }
 
     /// A generic function to append a scalar to the builder.
-    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        if scalar.dtype() != self.dtype() {
-            vortex_bail!(
-                "Builder has dtype {:?}, scalar has {:?}",
-                self.dtype(),
-                scalar.dtype()
-            )
-        }
-
-        match scalar.dtype() {
-            DType::Null => self
-                .as_any_mut()
-                .downcast_mut::<NullBuilder>()
-                .ok_or_else(|| vortex_err!("Cannot append null scalar to non-null builder"))?
-                .append_null(),
-            DType::Bool(_) => self
-                .as_any_mut()
-                .downcast_mut::<BoolBuilder>()
-                .ok_or_else(|| vortex_err!("Cannot append bool scalar to non-bool builder"))?
-                .append_option(BoolScalar::try_from(scalar)?.value()),
-            DType::Primitive(ptype, ..) => {
-                match_each_native_ptype!(ptype, |P| {
-                    self.as_any_mut()
-                        .downcast_mut::<PrimitiveBuilder<P>>()
-                        .ok_or_else(|| {
-                            vortex_err!("Cannot append primitive scalar to non-primitive builder")
-                        })?
-                        .append_option(PrimitiveScalar::try_from(scalar)?.typed_value::<P>())
-                })
-            }
-            DType::Decimal(..) => {
-                let builder = self
-                    .as_any_mut()
-                    .downcast_mut::<DecimalBuilder>()
-                    .ok_or_else(|| {
-                        vortex_err!("Cannot append decimal scalar to non-decimal builder")
-                    })?;
-                match scalar.as_decimal().decimal_value() {
-                    None => builder.append_null(),
-                    Some(v) => match_each_decimal_value!(v, |dec_val| {
-                        builder.append_value(dec_val);
-                    }),
-                }
-            }
-            DType::Utf8(_) => self
-                .as_any_mut()
-                .downcast_mut::<VarBinViewBuilder>()
-                .ok_or_else(|| vortex_err!("Cannot append utf8 scalar to non-utf8 builder"))?
-                .append_option(Utf8Scalar::try_from(scalar)?.value()),
-            DType::Binary(_) => self
-                .as_any_mut()
-                .downcast_mut::<VarBinViewBuilder>()
-                .ok_or_else(|| vortex_err!("Cannot append binary scalar to non-binary builder"))?
-                .append_option(BinaryScalar::try_from(scalar)?.value()),
-            DType::Struct(..) => self
-                .as_any_mut()
-                .downcast_mut::<StructBuilder>()
-                .ok_or_else(|| vortex_err!("Cannot append struct scalar to non-struct builder"))?
-                .append_value(StructScalar::try_from(scalar)?)?,
-            DType::List(..) => self
-                .as_any_mut()
-                .downcast_mut::<ListBuilder<u64>>()
-                .ok_or_else(|| vortex_err!("Cannot append list scalar to non-list builder"))?
-                .append_value(ListScalar::try_from(scalar)?)?,
-            DType::FixedSizeList(..) => self
-                .as_any_mut()
-                .downcast_mut::<FixedSizeListBuilder>()
-                .ok_or_else(|| vortex_err!("Cannot append list scalar to non-list builder"))?
-                .append_value(ListScalar::try_from(scalar)?)?,
-            DType::Extension(..) => self
-                .as_any_mut()
-                .downcast_mut::<ExtensionBuilder>()
-                .ok_or_else(|| {
-                    vortex_err!("Cannot append extension scalar to non-extension builder")
-                })?
-                .append_value(ExtScalar::try_from(scalar)?)?,
-        }
-        Ok(())
-    }
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()>;
 
     /// The inner part of `extend_from_array`.
     ///

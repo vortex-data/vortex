@@ -5,9 +5,9 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
-use vortex_scalar::ListScalar;
+use vortex_scalar::{ListScalar, Scalar};
 
 use crate::arrays::FixedSizeListArray;
 use crate::builders::{
@@ -94,24 +94,6 @@ impl FixedSizeListBuilder {
         self.nulls.append_non_null();
 
         Ok(())
-    }
-
-    /// Appends an optional fixed-size list value to the builder.
-    ///
-    /// If the value is `Some`, it appends the list value. If the value is `None`, it appends a
-    /// null.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option(&mut self, value: Option<ListScalar>) -> VortexResult<()> {
-        match value {
-            Some(value) => self.append_value(value),
-            None => {
-                self.append_null();
-                Ok(())
-            }
-        }
     }
 
     /// Finishes the builder directly into a [`FixedSizeListArray`].
@@ -204,6 +186,18 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
         self.elements_builder.append_defaults(element_count);
         self.nulls.append_n_nulls(n);
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "FixedSizeListBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
+
+        let list_scalar = scalar.as_list();
+        self.append_value(list_scalar)
     }
 
     /// This will increase the capacity if extending with this `array` would go past the original
@@ -699,5 +693,55 @@ mod tests {
         assert!(fsl_array.validity().is_valid(3)); // append_zeros
         assert!(!fsl_array.validity().is_valid(4)); // append_nulls
         assert!(fsl_array.validity().is_valid(5)); // extend_from_array
+    }
+
+    #[test]
+    fn test_append_scalar() {
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 2, Nullable, 10);
+
+        // Test appending a valid fixed-size list.
+        let list_scalar1 =
+            Scalar::fixed_size_list(dtype.clone(), vec![1i32.into(), 2i32.into()], Nullable);
+        builder.append_scalar(&list_scalar1).unwrap();
+
+        // Test appending another list.
+        let list_scalar2 =
+            Scalar::fixed_size_list(dtype.clone(), vec![3i32.into(), 4i32.into()], Nullable);
+        builder.append_scalar(&list_scalar2).unwrap();
+
+        // Test appending null via builder method (since fixed-size list null handling is special).
+        builder.append_null();
+
+        let array = builder.finish_into_fixed_size_list();
+        assert_eq!(array.len(), 3);
+
+        // Check actual values using scalar_at.
+
+        let scalar0 = array.scalar_at(0);
+        let list0 = scalar0.as_list();
+        assert_eq!(list0.len(), 2);
+        if let Some(list0_items) = list0.elements() {
+            assert_eq!(list0_items[0].as_primitive().typed_value::<i32>(), Some(1));
+            assert_eq!(list0_items[1].as_primitive().typed_value::<i32>(), Some(2));
+        }
+
+        let scalar1 = array.scalar_at(1);
+        let list1 = scalar1.as_list();
+        assert_eq!(list1.len(), 2);
+        if let Some(list1_items) = list1.elements() {
+            assert_eq!(list1_items[0].as_primitive().typed_value::<i32>(), Some(3));
+            assert_eq!(list1_items[1].as_primitive().typed_value::<i32>(), Some(4));
+        }
+
+        // Check validity - first two should be valid, third should be null.
+        assert!(array.validity().is_valid(0));
+        assert!(array.validity().is_valid(1));
+        assert!(!array.validity().is_valid(2));
+
+        // Test wrong dtype error.
+        let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, NonNullable, 10);
+        let wrong_scalar = Scalar::from(42i32);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 }

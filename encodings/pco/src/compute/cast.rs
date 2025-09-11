@@ -19,7 +19,7 @@ impl CastKernel for PcoVTable {
             let new_validity = array
                 .unsliced_validity
                 .clone()
-                .cast_nullability(dtype.nullability())?;
+                .cast_nullability(dtype.nullability(), array.len())?;
 
             return Ok(Some(
                 PcoArray::new(
