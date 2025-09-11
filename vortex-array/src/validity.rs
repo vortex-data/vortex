@@ -434,6 +434,20 @@ impl From<Nullability> for Validity {
 }
 
 impl Validity {
+    pub fn from_null_buffer(buffer: Option<NullBuffer>, nullability: Nullability) -> Self {
+        match buffer {
+            // If there are no nulls, then we infer from nullability
+            None => nullability.into(),
+            Some(nulls) => {
+                if nulls.null_count() == nulls.len() {
+                    Validity::AllInvalid
+                } else {
+                    Validity::Array(BoolArray::from(nulls.into_inner()).into_array())
+                }
+            }
+        }
+    }
+
     pub fn from_mask(mask: Mask, nullability: Nullability) -> Self {
         assert!(
             nullability == Nullability::Nullable || matches!(mask, Mask::AllTrue(_)),

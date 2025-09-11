@@ -116,6 +116,12 @@ impl Hash for BinaryView {
     }
 }
 
+impl Default for BinaryView {
+    fn default() -> Self {
+        Self::make_view(&[], 0, 0)
+    }
+}
+
 impl BinaryView {
     pub const MAX_INLINED_SIZE: usize = 12;
 

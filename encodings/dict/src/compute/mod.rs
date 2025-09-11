@@ -70,10 +70,10 @@ mod test {
 
         let expected: Vec<i32> = (0..65)
             .map(|i| match i % 3 {
-                // Compressor puts 0 as a code for invalid values which we end up using in take
-                // thus invalid values on decompression turn into whatever is at 0th position in dictionary
-                0 | 2 => 42,
+                // Compressor puts 0 as a code for invalid values
+                0 => 42,
                 1 => -9,
+                2 => 0,
                 _ => unreachable!(),
             })
             .collect();

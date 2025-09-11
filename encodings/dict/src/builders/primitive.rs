@@ -12,7 +12,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use super::DictConstraints;
@@ -64,14 +64,15 @@ where
         Self {
             lookup: HashMap::with_hasher(FxBuildHasher),
             values: BufferMut::<T>::empty(),
+            values_nulls: NullBufferBuilder::new(0),
             nullability,
             max_dict_len,
         }
     }
 
     #[inline]
-    fn encode_value(&mut self, v: T) -> Option<Code> {
-        match self.lookup.entry(NativeValue(v)) {
+    fn encode_value(&mut self, v: Option<T>) -> Option<Code> {
+        match self.lookup.entry(v.map(NativeValue)) {
             Entry::Occupied(o) => Some(*o.get()),
             Entry::Vacant(vac) => {
                 if self.values.len() >= self.max_dict_len {
@@ -81,7 +82,16 @@ where
                     vortex_panic!("{} has to fit into {}", self.values.len(), Code::PTYPE)
                 });
                 vac.insert(next_code);
-                self.values.push(v);
+                match v {
+                    None => {
+                        self.values.push(T::default());
+                        self.values_nulls.append_null();
+                    }
+                    Some(v) => {
+                        self.values.push(v);
+                        self.values_nulls.append_non_null();
+                    }
+                }
                 Some(next_code)
             }
         }
@@ -89,10 +99,12 @@ where
 }
 
 /// Dictionary encode primitive array with given PType.
-/// Null values in the original array are encoded in the dictionary.
+///
+/// Null values are stored in the values of the dictionary such that codes are always non-null.
 pub struct PrimitiveDictBuilder<T, Codes> {
-    lookup: HashMap<NativeValue<T>, Codes, FxBuildHasher>,
+    lookup: HashMap<Option<NativeValue<T>>, Codes, FxBuildHasher>,
     values: BufferMut<T>,
+    values_nulls: NullBufferBuilder,
     nullability: Nullability,
     max_dict_len: usize,
 }
@@ -107,57 +119,32 @@ where
             vortex_bail!("Can only encode arrays of {}", T::PTYPE);
         }
         let mut codes = BufferMut::<Code>::with_capacity(array.len());
-        let primitive = array.to_primitive();
 
-        let codes = if array.dtype().is_nullable() {
-            let mut null_buf = NullBufferBuilder::new(array.len());
-            primitive.with_iterator(|it| {
-                for value in it {
-                    let (code, validity) = match value {
-                        Some(v) => match self.encode_value(*v) {
-                            Some(code) => (code, true),
-                            None => break,
-                        },
-                        None => (Code::zero(), false),
-                    };
-                    null_buf.append(validity);
-                    unsafe { codes.push_unchecked(code) }
-                }
-            })?;
-            PrimitiveArray::new(
-                codes,
-                null_buf
-                    .finish()
-                    .map(Validity::from)
-                    .unwrap_or(Validity::AllValid),
-            )
-        } else {
-            primitive.with_iterator(|it| {
-                for value in it {
-                    let Some(code) = self.encode_value(
-                        *value.vortex_expect("Dict encode null value in non-nullable array"),
-                    ) else {
-                        break;
-                    };
-                    unsafe { codes.push_unchecked(code) }
-                }
-            })?;
+        array.to_primitive().with_iterator(|it| {
+            for value in it {
+                let Some(code) = self.encode_value(value.copied()) else {
+                    break;
+                };
+                unsafe { codes.push_unchecked(code) }
+            }
+        })?;
 
-            PrimitiveArray::new(codes, Validity::NonNullable)
-        };
-
-        Ok(codes.into_array())
+        Ok(PrimitiveArray::new(codes, Validity::NonNullable).into_array())
     }
 
     fn values(&mut self) -> VortexResult<ArrayRef> {
-        Ok(PrimitiveArray::new(self.values.clone(), self.nullability.into()).into_array())
+        Ok(PrimitiveArray::new(
+            self.values.clone(),
+            Validity::from_null_buffer(self.values_nulls.finish_cloned(), self.nullability),
+        )
+        .into_array())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::{Array, ToCanonical};
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
@@ -189,10 +176,13 @@ mod test {
         let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
             dict.codes().to_primitive().as_slice::<u8>(),
-            &[0, 0, 0, 1, 1, 0, 1, 0]
+            &[0, 0, 1, 2, 2, 1, 2, 1],
         );
         let dict_values = dict.values();
         assert_eq!(dict_values.scalar_at(0), Scalar::primitive(1, Nullable));
-        assert_eq!(dict_values.scalar_at(1), Scalar::primitive(3, Nullable));
+        assert_eq!(
+            dict_values.scalar_at(1),
+            Scalar::null(dict_values.dtype().clone())
+        );
     }
 }
