@@ -7,10 +7,7 @@
 use std::backtrace::Backtrace;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
-use vortex_array::arrays::{
-    BoolEncoding, ConstantArray, FixedSizeListEncoding, ListEncoding, PrimitiveEncoding,
-    StructEncoding, VarBinEncoding, VarBinViewEncoding,
-};
+use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{cast, compare, filter, take};
 use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
