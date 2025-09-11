@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::{collections::BTreeSet, iter::once};
+use std::collections::BTreeSet;
+use std::iter::once;
 
 use vortex_array::stats::StatBound;
 use vortex_dtype::FieldMask;
