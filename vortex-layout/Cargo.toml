@@ -25,6 +25,7 @@ flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
+kanal = { workspace = true }
 log = { workspace = true }
 once_cell = { workspace = true, features = ["parking_lot"] }
 parking_lot = { workspace = true }
@@ -43,6 +44,7 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
+vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-scalar = { workspace = true }

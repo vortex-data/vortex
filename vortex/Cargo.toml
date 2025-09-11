@@ -35,6 +35,7 @@ vortex-fastlanes = { workspace = true }
 vortex-file = { workspace = true, optional = true, default-features = true }
 vortex-flatbuffers = { workspace = true }
 vortex-fsst = { workspace = true }
+vortex-io = { workspace = true }
 vortex-ipc = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }

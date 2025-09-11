@@ -1,31 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
 use async_trait::async_trait;
-use futures::Stream;
-use pin_project_lite::pin_project;
-use vortex_array::{ArrayContext, ArrayRef};
-use vortex_dtype::DType;
+use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
+use vortex_io::runtime::Handle;
 
 use crate::LayoutRef;
-use crate::segments::SequenceWriter;
-use crate::sequence::SequenceId;
-
-pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
-    fn dtype(&self) -> &DType;
-}
-
-pub type SendableSequentialStream = Pin<Box<dyn SequentialStream + Send>>;
-
-impl SequentialStream for SendableSequentialStream {
-    fn dtype(&self) -> &DType {
-        (**self).dtype()
-    }
-}
+use crate::segments::SegmentSinkRef;
+use crate::sequence::{SendableSequentialStream, SequencePointer};
 
 // [layout writer]
 #[async_trait]
@@ -39,6 +22,20 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     /// form a pipeline of operations, each of which modifies the chunk stream in some way before
     /// passing the data on to a downstream writer.
     ///
+    /// # Sequencing and EOF
+    ///
+    /// The `stream` parameter is a stream of ordered array chunks, each of which is associated
+    /// with a sequence pointer that indicates its position in the overall array. By passing
+    /// around these pointers (essentially vector clocks), the writer can support concurrent
+    /// and parallel processing while maintaining a deterministic order of data in the file.
+    ///
+    /// The `eof` parameter is a guaranteed to be greater than all sequence pointers in the stream.
+    ///
+    /// Because child strategies can write to the end-of-file pointer, it is very important that
+    /// **all strategies must await all children concurrently**. Otherwise it is possible to
+    /// deadlock if one child is waiting to write to EOF while your strategy is preventing the
+    /// stream from progressing to completion.
+    ///
     /// # Blocking operations
     ///
     /// This is an async trait method, which will return a `BoxFuture` that you can await from
@@ -48,76 +45,13 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     ///
     /// Such operations are common, and include things like compression and parsing large blobs
     /// of data, or serializing very large messages to flatbuffers.
-    ///
-    /// Consider accepting a [`TaskExecutor`][crate::TaskExecutor] as an input to your strategy
-    /// to support spawning this work in the background.
     async fn write_stream(
         &self,
-        ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
+        eof: SequencePointer,
+        handle: Handle,
     ) -> VortexResult<LayoutRef>;
 }
 // [layout writer]
-
-pub trait SequentialStreamExt: SequentialStream {
-    // not named boxed to prevent clashing with StreamExt
-    fn sendable(self) -> SendableSequentialStream
-    where
-        Self: Sized + Send + 'static,
-    {
-        Box::pin(self)
-    }
-}
-
-impl<S: SequentialStream> SequentialStreamExt for S {}
-
-pin_project! {
-    pub struct SequentialStreamAdapter<S> {
-        dtype: DType,
-        #[pin]
-        inner: S,
-    }
-}
-
-impl<S> SequentialStreamAdapter<S> {
-    pub fn new(dtype: DType, inner: S) -> Self {
-        Self { dtype, inner }
-    }
-}
-
-impl<S> SequentialStream for SequentialStreamAdapter<S>
-where
-    S: Stream<Item = VortexResult<(SequenceId, ArrayRef)>>,
-{
-    fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-}
-
-impl<S> Stream for SequentialStreamAdapter<S>
-where
-    S: Stream<Item = VortexResult<(SequenceId, ArrayRef)>>,
-{
-    type Item = VortexResult<(SequenceId, ArrayRef)>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.project();
-        let array = futures::ready!(this.inner.poll_next(cx));
-        if let Some(Ok((_, array))) = array.as_ref() {
-            assert_eq!(
-                array.dtype(),
-                this.dtype,
-                "Sequential stream of {} got chunk of {}.",
-                array.dtype(),
-                this.dtype
-            );
-        }
-
-        Poll::Ready(array)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}

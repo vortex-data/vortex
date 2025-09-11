@@ -8,7 +8,6 @@ use vortex_error::VortexResult;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{cast, min_max};
-use crate::validity::Validity;
 
 impl PrimitiveArray {
     pub fn downcast(&self) -> VortexResult<PrimitiveArray> {
@@ -19,7 +18,7 @@ impl PrimitiveArray {
         let Some(min_max) = min_max(self.as_ref())? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
-                Validity::AllInvalid,
+                self.validity.clone(),
             ));
         };
 
@@ -91,7 +90,7 @@ impl PrimitiveArray {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_buffer::buffer;
+    use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::arrays::PrimitiveArray;
@@ -187,9 +186,12 @@ mod tests {
 
     #[test]
     fn test_downcast_empty_array() {
-        let array = PrimitiveArray::from_iter(Vec::<i32>::new());
+        let array = PrimitiveArray::new(Buffer::<i32>::empty(), Validity::AllInvalid);
         let result = array.downcast().unwrap();
-        // Empty arrays should get all invalid buffer
+        let array2 = PrimitiveArray::new(Buffer::<i64>::empty(), Validity::NonNullable);
+        let result2 = array2.downcast().unwrap();
+        // Empty arrays should not have their validity changed
         assert_eq!(result.validity, Validity::AllInvalid);
+        assert_eq!(result2.validity, Validity::NonNullable);
     }
 }

@@ -10,12 +10,13 @@ use futures::{StreamExt as _, pin_mut};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_io::runtime::Handle;
 
-use crate::segments::SequenceWriter;
-use crate::{
-    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt,
+use crate::segments::SegmentSinkRef;
+use crate::sequence::{
+    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt,
 };
+use crate::{LayoutRef, LayoutStrategy};
 
 #[derive(Clone)]
 pub struct RepartitionWriterOptions {
@@ -48,9 +49,11 @@ impl RepartitionStrategy {
 impl LayoutStrategy for RepartitionStrategy {
     async fn write_stream(
         &self,
-        ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
+        eof: SequencePointer,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
@@ -69,6 +72,7 @@ impl LayoutStrategy for RepartitionStrategy {
         let repartitioned_stream = try_stream! {
             let canonical_stream = canonical_stream.peekable();
             pin_mut!(canonical_stream);
+
             let mut chunks = ChunksBuffer::new(options.clone());
             while let Some(chunk) = canonical_stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;
@@ -111,8 +115,10 @@ impl LayoutStrategy for RepartitionStrategy {
         self.child
             .write_stream(
                 ctx,
-                sequence_writer,
+                segment_sink,
                 SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
+                eof,
+                handle,
             )
             .await
     }

@@ -41,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
 
     let filepath = temp_dir.path().join("a.vortex");
 
-    let f = OpenOptions::new()
+    let mut f = OpenOptions::new()
         .write(true)
         .truncate(true)
         .create(true)
@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     VortexWriteOptions::default()
-        .write(f, st.to_array_stream())
+        .write_tokio(&mut f, st.to_array_stream())
         .await?;
 
     let ctx = SessionContext::new();

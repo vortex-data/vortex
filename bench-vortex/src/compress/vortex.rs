@@ -5,21 +5,16 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use tokio::runtime::Handle;
 use vortex::Array;
-use vortex::file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
+use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 
 #[inline(never)]
 pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyhow::Result<u64> {
-    Ok(VortexWriteOptions::default()
-        .with_strategy(
-            WriteStrategyBuilder::new()
-                .with_executor(Arc::new(Handle::current()))
-                .build(),
-        )
-        .write(Cursor::new(buf), array.to_array_stream())
-        .await?
-        .position())
+    let mut cursor = Cursor::new(buf);
+    VortexWriteOptions::default()
+        .write_tokio(&mut cursor, array.to_array_stream())
+        .await?;
+    Ok(cursor.position())
 }
 
 #[inline(never)]

@@ -13,8 +13,9 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
 use crate::layouts::zoned::zone_map::StatsAccumulator;
-use crate::sequence::SequenceId;
-use crate::{SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt};
+use crate::sequence::{
+    SendableSequentialStream, SequenceId, SequentialStreamAdapter, SequentialStreamExt,
+};
 
 pub fn accumulate_stats(
     stream: SendableSequentialStream,

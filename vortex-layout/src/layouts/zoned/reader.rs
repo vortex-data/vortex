@@ -345,30 +345,28 @@ impl PruningResult {
 mod test {
     use std::sync::Arc;
 
-    use futures::executor::block_on;
-    use futures::stream;
     use rstest::{fixture, rstest};
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::pipeline::operators::MaskFuture;
-    use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
     use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, PType};
     use vortex_expr::{gt, lit, root};
+    use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use crate::{LayoutRef, LayoutStrategy, LocalExecutor};
+    use crate::segments::{SegmentSource, TestSegments};
+    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
     fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
-        let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
         let strategy = ZonedStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             FlatLayoutStrategy::default(),
@@ -376,26 +374,27 @@ mod test {
                 block_size: 3,
                 ..Default::default()
             },
-            Arc::new(LocalExecutor),
         );
-        let array_stream =
-            sequence_writer.new_sequential(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
-                DType::Primitive(PType::I32, NonNullable),
-                stream::iter([
-                    Ok(buffer![1, 2, 3].into_array()),
-                    Ok(buffer![4, 5, 6].into_array()),
-                    Ok(buffer![7, 8, 9].into_array()),
-                ]),
-            )));
-        let layout = block_on(strategy.write_stream(&ctx, sequence_writer, array_stream)).unwrap();
-        (Arc::new(segments), layout)
+        let array_stream = ChunkedArray::from_iter([
+            buffer![1, 2, 3].into_array(),
+            buffer![4, 5, 6].into_array(),
+            buffer![7, 8, 9].into_array(),
+        ])
+        .into_array()
+        .to_array_stream()
+        .sequenced(ptr);
+        let layout = block_on(|handle| {
+            strategy.write_stream(ctx, segments.clone(), array_stream, eof, handle)
+        })
+        .unwrap();
+        (segments, layout)
     }
 
     #[rstest]
     fn test_stats_evaluator(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(async {
+        block_on(|_h| async {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
@@ -418,7 +417,7 @@ mod test {
     fn test_stats_pruning_mask(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(async {
+        block_on(|_h| async {
             let row_count = layout.row_count();
             let reader = layout.new_reader("".into(), segments).unwrap();
 

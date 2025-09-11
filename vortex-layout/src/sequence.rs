@@ -9,11 +9,14 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
+use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
-use vortex_error::VortexExpect;
+use pin_project_lite::pin_project;
+use vortex_array::stream::ArrayStream;
+use vortex_array::{Array, ArrayRef};
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
-
-use crate::segments::SegmentId;
 
 /// A hierarchical sequence identifier that exists within a shared universe.
 ///
@@ -108,7 +111,6 @@ impl SequenceId {
     /// Once `collapse()` returns, you can be certain that:
     /// - All sequences with smaller IDs have been dropped
     /// - No new sequences with smaller IDs can ever be created (due to collision prevention)
-    /// - The returned `SegmentId` is monotonically increasing within this universe
     ///
     /// # Use Cases
     ///
@@ -119,11 +121,11 @@ impl SequenceId {
     ///
     /// # Returns
     ///
-    /// A monotonically increasing `SegmentId` that can be used for ordered storage
-    /// or processing. Each successful collapse within a universe produces a larger
-    /// `SegmentId` than the previous one.
-    pub async fn collapse(self) -> SegmentId {
-        WaitSequenceFuture(self).await
+    /// The [`SequenceId`] once all other segment IDs before it have been dropped. The caller can hold
+    /// onto the sequence ID essentially as a lock on future calls to [`SequenceId::collapse`]
+    /// in order to perform ordered operations.
+    pub async fn collapse(&mut self) {
+        WaitSequenceFuture(self).await;
     }
 
     /// This is intentionally not pub. [SequencePointer::advance] is the only allowed way to create
@@ -146,21 +148,27 @@ impl Drop for SequenceId {
     }
 }
 
-/// If the future itself is dropped, we don't want to orphan the waker
-impl Drop for WaitSequenceFuture {
-    fn drop(&mut self) {
-        let mut guard = self.0.universe.lock();
-        guard.wakers.remove(&self.0.id);
-    }
-}
-
 /// A pointer that can advance through sibling sequence IDs.
 ///
 /// SequencePointer is the only mechanism for creating new SequenceIds within
 /// a universe.
+#[derive(Debug)]
 pub struct SequencePointer(SequenceId);
 
 impl SequencePointer {
+    /// Splits this pointer into two, where the second is strictly greater than the first.
+    pub fn split(mut self) -> (SequencePointer, SequencePointer) {
+        (self.split_off(), self)
+    }
+
+    /// Split off a pointer to appear before the current one.
+    ///
+    /// The current pointer is advanced to the next sibling, and we return a new pointer.
+    pub fn split_off(&mut self) -> SequencePointer {
+        // Advance ourselves to the next sibling, and return a new pointer to the previous one.
+        self.advance().descend()
+    }
+
     /// Advances to the next sibling sequence and returns the current one.
     ///
     /// # Ownership
@@ -192,7 +200,6 @@ impl SequencePointer {
 struct SequenceUniverse {
     active: BTreeSet<Vec<usize>>,
     wakers: HashMap<Vec<usize>, Waker>,
-    next_segment_id: SegmentId,
 }
 
 impl SequenceUniverse {
@@ -209,18 +216,12 @@ impl SequenceUniverse {
         };
         self.wakers.remove(first)
     }
-
-    pub fn next_segment_id(&mut self) -> SegmentId {
-        let res = self.next_segment_id;
-        self.next_segment_id = SegmentId::from(*res + 1);
-        res
-    }
 }
 
-struct WaitSequenceFuture(SequenceId);
+struct WaitSequenceFuture<'a>(&'a mut SequenceId);
 
-impl Future for WaitSequenceFuture {
-    type Output = SegmentId;
+impl Future for WaitSequenceFuture<'_> {
+    type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut guard = self.0.universe.lock();
@@ -230,9 +231,109 @@ impl Future for WaitSequenceFuture {
             .cloned()
             .vortex_expect("if we have a future, we must have at least one active sequence");
         if self.0.id == current_first {
-            return Poll::Ready(guard.next_segment_id());
+            guard.wakers.remove(&self.0.id);
+            return Poll::Ready(());
         }
+
         guard.wakers.insert(self.0.id.clone(), cx.waker().clone());
         Poll::Pending
     }
 }
+
+/// If the future itself is dropped, we don't want to orphan the waker
+impl Drop for WaitSequenceFuture<'_> {
+    fn drop(&mut self) {
+        self.0.universe.lock().wakers.remove(&self.0.id);
+    }
+}
+
+pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
+    fn dtype(&self) -> &DType;
+}
+
+pub type SendableSequentialStream = Pin<Box<dyn SequentialStream + Send>>;
+
+impl SequentialStream for SendableSequentialStream {
+    fn dtype(&self) -> &DType {
+        (**self).dtype()
+    }
+}
+
+pub trait SequentialStreamExt: SequentialStream {
+    // not named boxed to prevent clashing with StreamExt
+    fn sendable(self) -> SendableSequentialStream
+    where
+        Self: Sized + Send + 'static,
+    {
+        Box::pin(self)
+    }
+}
+
+impl<S: SequentialStream> SequentialStreamExt for S {}
+
+pin_project! {
+    pub struct SequentialStreamAdapter<S> {
+        dtype: DType,
+        #[pin]
+        inner: S,
+    }
+}
+
+impl<S> SequentialStreamAdapter<S> {
+    pub fn new(dtype: DType, inner: S) -> Self {
+        Self { dtype, inner }
+    }
+}
+
+impl<S> SequentialStream for SequentialStreamAdapter<S>
+where
+    S: Stream<Item = VortexResult<(SequenceId, ArrayRef)>>,
+{
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+}
+
+impl<S> Stream for SequentialStreamAdapter<S>
+where
+    S: Stream<Item = VortexResult<(SequenceId, ArrayRef)>>,
+{
+    type Item = VortexResult<(SequenceId, ArrayRef)>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+        let array = futures::ready!(this.inner.poll_next(cx));
+        if let Some(Ok((_, array))) = array.as_ref() {
+            assert_eq!(
+                array.dtype(),
+                this.dtype,
+                "Sequential stream of {} got chunk of {}.",
+                array.dtype(),
+                this.dtype
+            );
+        }
+
+        Poll::Ready(array)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+pub trait SequentialArrayStreamExt: ArrayStream {
+    /// Converts the stream to a [`SendableSequentialStream`].
+    fn sequenced(self, mut pointer: SequencePointer) -> SendableSequentialStream
+    where
+        Self: Sized + Send + 'static,
+    {
+        Box::pin(SequentialStreamAdapter::new(
+            self.dtype().clone(),
+            StreamExt::map(self, move |item| {
+                item.map(|array| (pointer.advance(), array))
+            }),
+        ))
+    }
+}
+
+impl<S: ArrayStream> SequentialArrayStreamExt for S {}

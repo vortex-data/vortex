@@ -124,6 +124,7 @@ impl Handle {
 ///
 /// If this handle is dropped, the task is cancelled where possible. In order to allow the task to
 /// continue running in the background, call [`Task::detach`].
+#[must_use = "When a Task is dropped without being awaited, it is cancelled"]
 pub struct Task<T> {
     recv: oneshot::Receiver<T>,
     abort_handle: Option<AbortHandleRef>,
@@ -149,7 +150,9 @@ impl<T> Future for Task<T> {
                 // dropping it, then they wouldn't be able to poll it anymore.
                 // So we consider a closed channel to be a Runtime programming error and therefore
                 // we panic.
-                vortex_panic!("Runtime dropped task without completing it: {recv_err}")
+                vortex_panic!(
+                    "Runtime dropped task without completing it, likely it panicked: {recv_err}"
+                )
             }
         }
     }

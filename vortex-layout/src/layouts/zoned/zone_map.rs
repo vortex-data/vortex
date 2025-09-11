@@ -6,7 +6,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::sum;
-use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::stats::{Precision, Stat, StatsProvider, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, Nullability, PType, StructFields};
@@ -174,6 +174,18 @@ impl StatsAccumulator {
             builders,
             length: 0,
         }
+    }
+
+    pub fn push_chunk_without_compute(&mut self, array: &dyn Array) -> VortexResult<()> {
+        for builder in self.builders.iter_mut() {
+            if let Some(Precision::Exact(v)) = array.statistics().get(builder.stat()) {
+                builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
+            } else {
+                builder.append_null();
+            }
+        }
+        self.length += 1;
+        Ok(())
     }
 
     pub fn push_chunk(&mut self, array: &dyn Array) -> VortexResult<()> {

@@ -269,7 +269,6 @@ impl LayoutReader for ChunkedReader {
 mod test {
     use std::sync::Arc;
 
-    use futures::executor::block_on;
     use futures::stream;
     use rstest::{fixture, rstest};
     use vortex_array::pipeline::operators::MaskFuture;
@@ -278,25 +277,25 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::root;
+    use vortex_io::runtime::single::block_on;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use crate::sequence::SequenceId;
-    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
+    use crate::segments::{SegmentSource, TestSegments};
+    use crate::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt as _};
+    use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
-        let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+        let segments = Arc::new(TestSegments::default());
         let strategy = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
-        let mut sequence_id = SequenceId::root();
-        let layout = block_on(
+        let (mut sequence_id, eof) = SequenceId::root().split();
+        let layout = block_on(|handle| {
             strategy.write_stream(
-                &ctx,
-                sequence_writer,
+                ctx,
+                segments.clone(),
                 SequentialStreamAdapter::new(
                     DType::Primitive(PType::I32, NonNullable),
                     stream::iter([
@@ -306,18 +305,20 @@ mod test {
                     ]),
                 )
                 .sendable(),
-            ),
-        )
+                eof,
+                handle,
+            )
+        })
         .unwrap();
 
-        (Arc::new(segments), layout)
+        (segments, layout)
     }
 
     #[rstest]
     fn test_chunked_evaluator(
         #[from(chunked_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(async {
+        block_on(|_h| async {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()

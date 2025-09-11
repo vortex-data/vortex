@@ -44,9 +44,9 @@ async fn write_vortex_file(
     let temp_file_path = create_temp_file();
 
     let struct_array = StructArray::try_from_iter(iter).unwrap();
-    let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
+    let mut file = tokio::fs::File::create(&temp_file_path).await.unwrap();
     VortexWriteOptions::default()
-        .write(file, struct_array.to_array_stream())
+        .write_tokio(&mut file, struct_array.to_array_stream())
         .await
         .unwrap();
 
@@ -137,9 +137,9 @@ async fn write_vortex_file_to_dir(
         .tempfile_in(dir)
         .unwrap();
 
-    let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
+    let mut file = tokio::fs::File::create(&temp_file_path).await.unwrap();
     VortexWriteOptions::default()
-        .write(file, struct_array.to_array_stream())
+        .write_tokio(&mut file, struct_array.to_array_stream())
         .await
         .unwrap();
 

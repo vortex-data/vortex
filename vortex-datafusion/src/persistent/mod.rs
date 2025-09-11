@@ -77,7 +77,7 @@ mod tests {
 
         let filepath = temp_dir.path().join("data.vortex");
 
-        let f = OpenOptions::new()
+        let mut f = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
@@ -85,7 +85,7 @@ mod tests {
             .await?;
 
         VortexWriteOptions::default()
-            .write(f, st.to_array_stream())
+            .write_tokio(&mut f, st.to_array_stream())
             .await?;
 
         let ctx = SessionContext::default();

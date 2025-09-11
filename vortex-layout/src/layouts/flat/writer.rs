@@ -8,12 +8,14 @@ use vortex_array::stats::{Precision, Stat, StatsProvider};
 use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_io::runtime::Handle;
 use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
-use crate::segments::SequenceWriter;
-use crate::{IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream};
+use crate::segments::SegmentSinkRef;
+use crate::sequence::{SendableSequentialStream, SequencePointer};
+use crate::{IntoLayout, LayoutRef, LayoutStrategy};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -36,9 +38,11 @@ impl Default for FlatLayoutStrategy {
 impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
         &self,
-        ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
+        _eof: SequencePointer,
+        _handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let options = self.clone();
@@ -119,7 +123,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
                 include_padding: options.include_padding,
             },
         )?;
-        let segment_id = sequence_writer.put(sequence_id, buffers).await?;
+        let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
         let None = stream.next().await else {
             vortex_bail!("flat layout received stream with more than a single chunk");
@@ -136,8 +140,6 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_buffer::BooleanBufferBuilder;
-    use futures::executor::block_on;
-    use futures::stream;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_array::pipeline::operators::MaskFuture;
@@ -148,38 +150,34 @@ mod tests {
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
     use vortex_expr::root;
+    use vortex_io::runtime::single::block_on;
     use vortex_mask::AllOr;
 
+    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use crate::sequence::SequenceId;
-    use crate::{
-        LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt as _,
-    };
-
-    fn stream_only(array: ArrayRef) -> SendableSequentialStream {
-        SequentialStreamAdapter::new(
-            array.dtype().clone(),
-            stream::once(async move { Ok((SequenceId::root().downgrade(), array)) }),
-        )
-        .sendable()
-    }
+    use crate::segments::TestSegments;
+    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.
     #[should_panic]
     #[test]
     fn flat_stats() {
-        block_on(async {
+        block_on(|handle| async {
             let ctx = ArrayContext::empty();
-            let segments = TestSegments::default();
-            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutStrategy::default()
-                .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
+                .write_stream(
+                    ctx,
+                    segments.clone(),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    handle,
+                )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
                 .new_reader("".into(), segments)
@@ -202,10 +200,10 @@ mod tests {
 
     #[test]
     fn truncates_variable_size_stats() {
-        block_on(async {
+        block_on(|handle| async {
             let ctx = ArrayContext::empty();
-            let segments = TestSegments::default();
-            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
             let mut builder =
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 2);
             builder.append_value("Long value to test that the statistics are actually truncated, it needs a bit of extra padding though");
@@ -220,10 +218,15 @@ mod tests {
             );
 
             let layout = FlatLayoutStrategy::default()
-                .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
+                .write_stream(
+                    ctx,
+                    segments.clone(),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    handle,
+                )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
                 .new_reader("".into(), segments)
@@ -255,7 +258,7 @@ mod tests {
 
     #[test]
     fn struct_array_round_trip() {
-        block_on(async {
+        block_on(|handle| async {
             let mut validity_builder = BooleanBufferBuilder::new(2);
             validity_builder.append(true);
             validity_builder.append(false);
@@ -279,14 +282,20 @@ mod tests {
 
             // Write the array into a byte buffer.
             let (layout, segments) = {
-                let segments = TestSegments::default();
-                let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+                let segments = Arc::new(TestSegments::default());
+                let (ptr, eof) = SequenceId::root().split();
                 let layout = FlatLayoutStrategy::default()
-                    .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
+                    .write_stream(
+                        ctx,
+                        segments.clone(),
+                        array.to_array_stream().sequenced(ptr),
+                        eof,
+                        handle,
+                    )
                     .await
                     .unwrap();
 
-                (layout, Arc::new(segments) as Arc<dyn SegmentSource>)
+                (layout, segments)
             };
 
             // We should be able to read the array we just wrote.

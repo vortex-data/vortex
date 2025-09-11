@@ -40,6 +40,7 @@ vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm
 smol = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -56,7 +57,7 @@ tracing-subscriber = { workspace = true }
 [features]
 compio = ["dep:compio", "vortex-buffer/compio"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
-tokio = ["tokio/fs"]
+tokio = ["tokio/fs", "tokio/rt-multi-thread"]
 
 [lints]
 workspace = true

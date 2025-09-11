@@ -38,6 +38,18 @@ pub struct Footer {
 }
 
 impl Footer {
+    pub(crate) fn new(
+        root_layout: LayoutRef,
+        segments: Arc<[SegmentSpec]>,
+        statistics: Option<FileStatistics>,
+    ) -> Self {
+        Self {
+            root_layout,
+            segments,
+            statistics,
+        }
+    }
+
     /// Read the [`Footer`] from a flatbuffer.
     pub(crate) fn from_flatbuffer(
         footer_bytes: FlatBuffer,

@@ -49,12 +49,14 @@ pub async fn fetch_taxi_data() -> Result<ArrayRef> {
 pub async fn taxi_data_vortex() -> Result<PathBuf> {
     idempotent_async("taxi.vortex", |output_fname| async move {
         let buf = output_fname.to_path_buf();
-        let output_file = File::create(output_fname).await?;
+        let mut output_file = File::create(output_fname).await?;
         VortexWriteOptions::default()
-            .write(output_file, parquet_to_vortex(taxi_data_parquet().await?)?)
-            .await?
-            .flush()
+            .write_tokio(
+                &mut output_file,
+                parquet_to_vortex(taxi_data_parquet().await?)?,
+            )
             .await?;
+        output_file.flush().await?;
         Ok(buf)
     })
     .await

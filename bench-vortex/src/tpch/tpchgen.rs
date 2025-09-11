@@ -381,10 +381,10 @@ impl VortexWriter {
         let write_task = Some(tokio::spawn(async move {
             let stream = ArrayStreamAdapter::new(dtype, ReceiverStream::new(receiver));
 
-            let file = TokioFile::create(&file_path).await?;
+            let mut file = TokioFile::create(&file_path).await?;
             compaction_strategy
                 .apply_options(VortexWriteOptions::default())
-                .write(file, stream)
+                .write_tokio(&mut file, stream)
                 .await
                 .map_err(|e| anyhow!("Vortex write failed: {}", e))?;
 

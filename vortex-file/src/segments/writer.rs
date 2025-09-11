@@ -1,74 +1,56 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use futures::StreamExt;
-use futures::channel::mpsc;
-use futures::io::Cursor;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use async_trait::async_trait;
+use parking_lot::Mutex;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
-use vortex_io::VortexWrite;
-use vortex_layout::segments::{SegmentId, SegmentWriter};
+use vortex_error::{VortexResult, vortex_err};
+use vortex_layout::segments::{SegmentId, SegmentSink};
+use vortex_layout::sequence::SequenceId;
 
 use crate::footer::SegmentSpec;
 
-/// A segment writer that enforces segment id's it receives are monotonically increasing.
-/// It does buffer segments in a flush channel.
-pub struct SerialSegmentWriter {
-    flush_tx: mpsc::UnboundedSender<Vec<ByteBuffer>>,
-    next_expected: SegmentId,
+pub struct BufferedSegmentSink {
+    buffers: kanal::AsyncSender<VortexResult<ByteBuffer>>,
+    byte_offset: AtomicU64,
+    segment_specs: Mutex<Vec<SegmentSpec>>,
 }
 
-impl SegmentWriter for SerialSegmentWriter {
-    fn put(&mut self, segment_id: SegmentId, buffer: Vec<ByteBuffer>) -> VortexResult<()> {
-        if segment_id != self.next_expected {
-            vortex_bail!(
-                "out of order segment id, expected {:?}, got {:?}",
-                self.next_expected,
-                segment_id
-            );
+impl BufferedSegmentSink {
+    pub fn new(send: kanal::AsyncSender<VortexResult<ByteBuffer>>, byte_offset: u64) -> Self {
+        Self {
+            buffers: send,
+            byte_offset: AtomicU64::new(byte_offset),
+            segment_specs: Default::default(),
         }
-        self.next_expected = SegmentId::from(*segment_id + 1);
-        self.flush_tx
-            .unbounded_send(buffer)
-            .map_err(|_| vortex_err!("out of memory"))
-            .vortex_unwrap();
-        Ok(())
+    }
+
+    pub fn to_specs(&self) -> Vec<SegmentSpec> {
+        let specs = self.segment_specs.lock();
+        specs.clone()
     }
 }
 
-impl SerialSegmentWriter {
-    /// Create a [SegmentWriter] and a [SegmentFlusher].
-    pub fn create() -> (Self, SegmentFlusher) {
-        // TODO(os): make this bounded, on slow I/O we will buffer
-        // in memory unbounded. We should make SegmentWriter::put async
-        // and do a bounded send in this implementation.
-        let (flush_tx, rx) = mpsc::unbounded();
-        (
-            SerialSegmentWriter {
-                flush_tx,
-                next_expected: SegmentId::from(0),
-            },
-            SegmentFlusher {
-                rx,
-                segment_specs: Vec::new(),
-            },
-        )
-    }
-}
+#[async_trait]
+impl SegmentSink for BufferedSegmentSink {
+    async fn write(
+        &self,
+        mut sequence_id: SequenceId,
+        buffers: Vec<ByteBuffer>,
+    ) -> VortexResult<SegmentId> {
+        // We wait for all segment IDs before this one to be dropped. Then while we hold a strong
+        // reference to this one, we essentially have an exclusive lock on the segment writer.
+        sequence_id.collapse().await;
 
-pub struct SegmentFlusher {
-    rx: mpsc::UnboundedReceiver<Vec<ByteBuffer>>,
-    segment_specs: Vec<SegmentSpec>,
-}
+        let (segment_id, padding_bufer) = {
+            let mut specs = self.segment_specs.lock();
+            let segment_id = SegmentId::from(
+                u32::try_from(specs.len())
+                    .map_err(|_| vortex_err!("Too mant segments, u32 overflow"))?,
+            );
 
-impl SegmentFlusher {
-    /// Flush received Segments to the writer. Returns a future that will progress until
-    /// the sender is dropped.
-    pub async fn flush<W: VortexWrite>(
-        mut self,
-        mut writer: Cursor<W>,
-    ) -> VortexResult<(Cursor<W>, Vec<SegmentSpec>)> {
-        while let Some(buffers) = self.rx.next().await {
             // The API requires us to write these buffers contiguously. Therefore, we can only
             // respect the alignment of the first one.
             // Don't worry, in most cases the caller knows what they're doing and will align the
@@ -77,28 +59,37 @@ impl SegmentFlusher {
                 .first()
                 .map(|buffer| buffer.alignment())
                 .unwrap_or_else(Alignment::none);
+            let length = u32::try_from(buffers.iter().map(|buffer| buffer.len()).sum::<usize>())
+                .map_err(|_| vortex_err!("segment buffer length exceeds maximum u32"))?;
 
             // Add any padding required to align the segment.
-            let offset = writer.position();
-            let padding = offset.next_multiple_of(*alignment as u64) - offset;
-            if padding > 0 {
-                writer
-                    .write_all(ByteBuffer::zeroed(padding as usize))
-                    .await?;
-            }
-            let offset = writer.position();
-
-            for buffer in buffers {
-                writer.write_all(buffer).await?;
-            }
-
-            self.segment_specs.push(SegmentSpec {
+            let byte_offset = self.byte_offset.load(Ordering::Relaxed);
+            let padding = byte_offset.next_multiple_of(*alignment as u64) - byte_offset;
+            let offset = byte_offset + padding;
+            specs.push(SegmentSpec {
                 offset,
-                length: u32::try_from(writer.position() - offset)
-                    .map_err(|_| vortex_err!("segment length exceeds maximum u32"))?,
+                length,
                 alignment,
             });
+
+            self.byte_offset
+                .store(byte_offset + padding + u64::from(length), Ordering::Relaxed);
+
+            // Send the buffers to the stream.
+            if padding > 0 {
+                (segment_id, Some(ByteBuffer::zeroed(padding as usize)))
+            } else {
+                (segment_id, None)
+            }
+        };
+
+        if let Some(padding) = padding_bufer {
+            let _ = self.buffers.send(Ok(padding)).await;
         }
-        Ok((writer, self.segment_specs))
+        for buffer in buffers {
+            let _ = self.buffers.send(Ok(buffer)).await;
+        }
+
+        Ok(segment_id)
     }
 }

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::io;
-use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use futures::StreamExt;
@@ -12,7 +11,6 @@ use parquet::arrow::{AsyncArrowWriter, ParquetRecordBatchStreamBuilder};
 use reqwest::Client;
 use tokio::fs::{File, create_dir_all};
 use tokio::io::BufReader;
-use tokio::runtime::Handle;
 use tokio_util::io::StreamReader;
 use tracing::info;
 use vortex::ArrayRef;
@@ -132,7 +130,7 @@ impl StatPopGenBenchmark {
 
     pub async fn parquet_to_vortex(&self, format: Format) -> Result<()> {
         let parquet_path = self.parquet_path()?;
-        let strategy = WriteStrategyBuilder::new().with_executor(Arc::new(Handle::current()));
+        let strategy = WriteStrategyBuilder::new();
         let (output_path, strategy) = match format {
             Format::OnDiskVortex => (self.vortex_path()?, strategy),
             Format::VortexCompact => (
@@ -179,8 +177,8 @@ impl StatPopGenBenchmark {
 
             VortexWriteOptions::default()
                 .with_strategy(strategy.build())
-                .write(
-                    File::create(output_path).await?,
+                .write_tokio(
+                    &mut File::create(output_path).await?,
                     ArrayStreamAdapter::new(dtype, vortex_stream),
                 )
                 .await?;

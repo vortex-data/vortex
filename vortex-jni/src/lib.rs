@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 use vortex::error::VortexExpect;
-use vortex::layout::TaskExecutor;
 use vortex::session::VortexSession;
 
 macro_rules! throw_runtime {
@@ -52,10 +51,4 @@ where
     F::Output: Send + 'static,
 {
     TOKIO_RUNTIME.spawn(future)
-}
-
-/// Get a process-global [TaskExecutor] for spawning layout tasks onto.
-pub(crate) fn get_process_task_executor() -> Arc<dyn TaskExecutor> {
-    // Pass out a new handle to a task executor that uses the process-global
-    Arc::new(TOKIO_RUNTIME.handle().clone())
 }

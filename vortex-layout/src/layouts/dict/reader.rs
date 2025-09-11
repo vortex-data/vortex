@@ -204,8 +204,6 @@ impl LayoutReader for DictReader {
 mod tests {
     use std::sync::Arc;
 
-    use futures::executor::block_on;
-    use futures::stream;
     use rstest::rstest;
     use vortex_array::arrays::{StructArray, VarBinArray};
     use vortex_array::arrow::IntoArrowArray;
@@ -214,15 +212,15 @@ mod tests {
     use vortex_array::{ArrayContext, IntoArray as _};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_expr::{is_null, not, pack, root};
+    use vortex_io::runtime::tokio::TokioRuntime;
 
     use crate::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SequenceWriter, TestSegments};
-    use crate::sequence::SequenceId;
-    use crate::{
-        LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, SequentialStreamAdapter,
-        SequentialStreamExt,
+    use crate::segments::TestSegments;
+    use crate::sequence::{
+        SequenceId, SequentialArrayStreamExt, SequentialStreamAdapter, SequentialStreamExt,
     };
+    use crate::{LayoutId, LayoutRef, LayoutStrategy};
 
     #[tokio::test]
     async fn reading_nested_packs_works() {
@@ -231,7 +229,6 @@ mod tests {
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
             DictLayoutOptions::default(),
-            Arc::new(LocalExecutor),
         );
 
         let array = VarBinArray::from_iter(
@@ -251,21 +248,22 @@ mod tests {
         .to_array();
         let array_to_write = array.clone();
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
-        let layout: LayoutRef = block_on(
-            strategy.write_stream(
-                &ctx,
-                SequenceWriter::new(Box::new(segments.clone())),
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let layout: LayoutRef = strategy
+            .write_stream(
+                ctx,
+                segments.clone(),
                 SequentialStreamAdapter::new(
                     DType::Utf8(Nullability::Nullable),
-                    stream::once(
-                        async move { Ok((SequenceId::root().downgrade(), array_to_write)) },
-                    ),
+                    array_to_write.to_array_stream().sequenced(ptr),
                 )
                 .sendable(),
-            ),
-        )
-        .unwrap();
+                eof,
+                TokioRuntime::handle(),
+            )
+            .await
+            .unwrap();
 
         let expression = pack(
             [(
@@ -276,7 +274,7 @@ mod tests {
         );
         assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
         let actual = layout
-            .new_reader("".into(), Arc::from(segments))
+            .new_reader("".into(), segments)
             .unwrap()
             .projection_evaluation(
                 &(0..layout.row_count()),
@@ -332,25 +330,27 @@ mod tests {
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
             DictLayoutOptions::default(),
-            Arc::new(LocalExecutor),
         );
 
         let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).to_array();
 
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
-        let layout: LayoutRef = block_on(
-            strategy.write_stream(
-                &ctx,
-                SequenceWriter::new(Box::new(segments.clone())),
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let layout: LayoutRef = strategy
+            .write_stream(
+                ctx,
+                segments.clone(),
                 SequentialStreamAdapter::new(
                     DType::Utf8(Nullability::Nullable),
-                    stream::once(async move { Ok((SequenceId::root().downgrade(), array)) }),
+                    array.to_array_stream().sequenced(ptr),
                 )
                 .sendable(),
-            ),
-        )
-        .unwrap();
+                eof,
+                TokioRuntime::handle(),
+            )
+            .await
+            .unwrap();
 
         let filter = vortex_expr::eq(
             root(),
@@ -360,7 +360,7 @@ mod tests {
             )),
         );
         let mask = layout
-            .new_reader("".into(), Arc::from(segments))
+            .new_reader("".into(), segments)
             .unwrap()
             .filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))
             .unwrap()
@@ -380,7 +380,6 @@ mod tests {
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
             DictLayoutOptions::default(),
-            Arc::new(LocalExecutor),
         );
 
         let array = VarBinArray::from_iter(
@@ -400,26 +399,27 @@ mod tests {
         .to_array();
         let array_to_write = array.clone();
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
-        let layout: LayoutRef = block_on(
-            strategy.write_stream(
-                &ctx,
-                SequenceWriter::new(Box::new(segments.clone())),
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let layout: LayoutRef = strategy
+            .write_stream(
+                ctx,
+                segments.clone(),
                 SequentialStreamAdapter::new(
                     DType::Utf8(Nullability::Nullable),
-                    stream::once(
-                        async move { Ok((SequenceId::root().downgrade(), array_to_write)) },
-                    ),
+                    array_to_write.to_array_stream().sequenced(ptr),
                 )
                 .sendable(),
-            ),
-        )
-        .unwrap();
+                eof,
+                TokioRuntime::handle(),
+            )
+            .await
+            .unwrap();
 
         let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
         assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
         let actual = layout
-            .new_reader("".into(), Arc::from(segments))
+            .new_reader("".into(), segments)
             .unwrap()
             .projection_evaluation(
                 &(0..layout.row_count()),

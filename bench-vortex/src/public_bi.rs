@@ -27,12 +27,11 @@ use log::trace;
 use regex::Regex;
 use tokio::fs::File;
 use tokio::process::Command as TokioCommand;
-use tokio::runtime::Handle;
 use tracing::info;
 use url::Url;
 use vortex::ArrayRef;
 use vortex::error::{VortexResult, vortex_err};
-use vortex::file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
+use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::iter::ArrayIteratorExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_datafusion::VortexFormat;
@@ -346,13 +345,8 @@ impl PBIData {
                 let vortex_file =
                     idempotent_async(&vortex, async |output_path| -> anyhow::Result<()> {
                         VortexWriteOptions::default()
-                            .with_strategy(
-                                WriteStrategyBuilder::new()
-                                    .with_executor(Arc::new(Handle::current()))
-                                    .build(),
-                            )
-                            .write(
-                                File::create(output_path)
+                            .write_tokio(
+                                &mut File::create(output_path)
                                     .await
                                     .map_err(|e| anyhow::anyhow!("Failed to create file: {}", e))?,
                                 parquet_to_vortex(parquet)?,
