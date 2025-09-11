@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp;
+use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
+use std::{cmp, iter};
 
 use futures::future::BoxFuture;
 use itertools::Itertools;
@@ -326,7 +327,7 @@ pub struct RepeatedScan<A: 'static + Send> {
     /// The selection mask to apply to the selected row range.
     selection: Selection,
     /// The natural splits of the file.
-    splits: Vec<Range<u64>>,
+    splits: BTreeSet<u64>,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
@@ -342,10 +343,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
-        let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
-
         let ctx = Arc::new(TaskContext {
-            row_range,
             selection: self.selection.clone(),
             filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
             reader: self.layout_reader.clone(),
@@ -353,16 +351,30 @@ impl<A: 'static + Send> RepeatedScan<A> {
             mapper: self.map_fn.clone(),
         });
 
+        let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
+        let splits_iter: Box<dyn Iterator<Item = _>> = match row_range {
+            None => Box::new(self.splits.iter().copied()),
+            Some(range) => {
+                if range.start > range.end {
+                    return Ok(Vec::new());
+                }
+                Box::new(
+                    iter::once(range.start)
+                        .chain(self.splits.range(range.clone()).copied())
+                        .chain(iter::once(range.end)),
+                )
+            }
+        };
+
         // Create a task that executes the full scan pipeline for each split.
         let mut limit = self.limit;
-        let split_tasks = self
-            .splits
-            .iter()
-            .filter_map(|split_range| {
-                if limit.is_some_and(|l| l == 0) {
+        let split_tasks = splits_iter
+            .tuple_windows()
+            .filter_map(|(start, end)| {
+                if limit.is_some_and(|l| l == 0) || start >= end {
                     None
                 } else {
-                    Some(split_exec(ctx.clone(), split_range.clone(), limit.as_mut()))
+                    Some(split_exec(ctx.clone(), start..end, limit.as_mut()))
                 }
             })
             .try_collect()?;

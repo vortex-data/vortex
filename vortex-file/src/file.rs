@@ -9,6 +9,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath, FieldPathSet};
@@ -136,6 +137,11 @@ impl VortexFile {
     }
 
     pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
-        SplitBy::Layout.splits(self.layout_reader()?.as_ref(), &[FieldMask::All])
+        Ok(SplitBy::Layout
+            .splits(self.layout_reader()?.as_ref(), &[FieldMask::All])?
+            .into_iter()
+            .tuple_windows()
+            .map(|(start, end)| start..end)
+            .collect())
     }
 }
