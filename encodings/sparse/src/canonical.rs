@@ -457,7 +457,7 @@ fn canonicalize_sparse_struct(
         )
     } else {
         top_level_fill_validity
-            .into_non_nullable()
+            .into_non_nullable(len)
             .unwrap_or_else(|| vortex_panic!("fill validity should match sparse array nullability"))
     };
 

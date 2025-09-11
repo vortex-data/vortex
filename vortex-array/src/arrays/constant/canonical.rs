@@ -116,7 +116,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                         .map(|s| ConstantArray::new(s, array.len()).into_array())
                         .collect(),
                     None => {
-                        assert!(validity.all_invalid());
+                        assert!(validity.all_invalid(array.len()));
                         struct_dtype
                             .fields()
                             .map(|dt| {

@@ -31,7 +31,7 @@ impl CastKernel for DeltaVTable {
                 array
                     .validity()
                     .clone()
-                    .cast_nullability(dtype.nullability())?,
+                    .cast_nullability(dtype.nullability(), array.len())?,
             )?
             .into_array(),
         ))

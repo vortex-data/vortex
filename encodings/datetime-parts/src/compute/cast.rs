@@ -101,7 +101,7 @@ mod tests {
         assert!(
             result.as_ref().is_err_and(|err| err
                 .to_string()
-                .contains("invalid cast from nullable to non-nullable")),
+                .contains("invalid values to non-nullable type")),
             "Got error: {result:?}"
         );
     }
