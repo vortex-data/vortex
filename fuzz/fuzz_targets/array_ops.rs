@@ -7,10 +7,7 @@
 use std::backtrace::Backtrace;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
-use vortex_array::arrays::{
-    BoolEncoding, ConstantArray, ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
-    VarBinViewEncoding,
-};
+use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{cast, compare, filter, take};
 use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
@@ -19,7 +16,6 @@ use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_fuzz::error::{VortexFuzzError, VortexFuzzResult};
 use vortex_fuzz::{Action, FuzzArrayAction, sort_canonical_array};
 use vortex_scalar::Scalar;
-use vortex_utils::aliases::hash_set::HashSet;
 
 fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     let FuzzArrayAction { array, actions } = fuzz_action;
@@ -46,16 +42,9 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
             Action::SearchSorted(s, side) => {
                 // TODO(robert): Ideally we'd preserve the encoding perfectly but this is close enough
                 let mut sorted = sort_canonical_array(&current_array).vortex_unwrap();
-                if !HashSet::from([
-                    PrimitiveEncoding.id(),
-                    VarBinEncoding.id(),
-                    VarBinViewEncoding.id(),
-                    BoolEncoding.id(),
-                    StructEncoding.id(),
-                    ListEncoding.id(),
-                ])
-                .contains(&current_array.encoding_id())
-                {
+
+                // If the current array is not in one of these canonical encodings, compress again.
+                if !current_array.is_canonical() {
                     sorted = BtrBlocksCompressor::default()
                         .compress(&sorted)
                         .vortex_unwrap();

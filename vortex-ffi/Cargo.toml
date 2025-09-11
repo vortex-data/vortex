@@ -16,6 +16,9 @@ edition = { workspace = true }
 rust-version = { workspace = true }
 categories = { workspace = true }
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 itertools = { workspace = true }
 log = { workspace = true }
