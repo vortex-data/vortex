@@ -3,16 +3,13 @@
 
 use std::sync::Arc;
 
-use flatbuffers::root;
 use vortex_array::ArrayRegistry;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
 
-use crate::footer::{FileStatistics, Footer, Postscript, PostscriptSegment};
-use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, VERSION};
+use crate::DEFAULT_REGISTRY;
+use crate::footer::Footer;
 
 pub trait FileType: Sized {
     type Options;
@@ -99,106 +96,5 @@ impl<F: FileType> VortexOpenOptions<F> {
     pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
         self.metrics = metrics;
         self
-    }
-}
-
-impl<F: FileType> VortexOpenOptions<F> {
-    /// Parse the postscript from the initial read.
-    pub(crate) fn parse_postscript(&self, initial_read: &[u8]) -> VortexResult<Postscript> {
-        if initial_read.len() < EOF_SIZE {
-            vortex_bail!(
-                "Initial read must be at least EOF_SIZE ({}) bytes",
-                EOF_SIZE
-            );
-        }
-        let eof_loc = initial_read.len() - EOF_SIZE;
-        let magic_bytes_loc = eof_loc + (EOF_SIZE - MAGIC_BYTES.len());
-
-        let magic_number = &initial_read[magic_bytes_loc..];
-        if magic_number != MAGIC_BYTES {
-            vortex_bail!("Malformed file, invalid magic bytes, got {magic_number:?}")
-        }
-
-        let version = u16::from_le_bytes(
-            initial_read[eof_loc..eof_loc + 2]
-                .try_into()
-                .map_err(|e| vortex_err!("Version was not a u16 {e}"))?,
-        );
-        if version != VERSION {
-            vortex_bail!("Malformed file, unsupported version {version}")
-        }
-
-        let ps_size = u16::from_le_bytes(
-            initial_read[eof_loc + 2..eof_loc + 4]
-                .try_into()
-                .map_err(|e| vortex_err!("Postscript size was not a u16 {e}"))?,
-        ) as usize;
-
-        if initial_read.len() < ps_size + EOF_SIZE {
-            vortex_bail!(
-                "Initial read must be at least {} bytes to include the Postscript",
-                ps_size + EOF_SIZE
-            );
-        }
-
-        Postscript::read_flatbuffer_bytes(&initial_read[eof_loc - ps_size..eof_loc])
-    }
-
-    /// Parse the DType from the initial read.
-    pub(crate) fn parse_dtype(
-        &self,
-        initial_offset: u64,
-        initial_read: &[u8],
-        segment: &PostscriptSegment,
-    ) -> VortexResult<DType> {
-        let offset = usize::try_from(segment.offset - initial_offset)?;
-        let sliced_buffer =
-            FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
-        let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
-
-        DType::try_from_view(fbd_dtype, sliced_buffer.clone())
-    }
-
-    /// Parse the [`FileStatistics`] from the initial read buffer.
-    pub(crate) fn parse_file_statistics(
-        &self,
-        initial_offset: u64,
-        initial_read: &[u8],
-        segment: &PostscriptSegment,
-    ) -> VortexResult<FileStatistics> {
-        let offset = usize::try_from(segment.offset - initial_offset)?;
-        let sliced_buffer =
-            FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
-        FileStatistics::read_flatbuffer_bytes(&sliced_buffer)
-    }
-
-    /// Parse the rest of the footer from the initial read.
-    pub(crate) fn parse_footer(
-        &self,
-        initial_offset: u64,
-        initial_read: &[u8],
-        footer_segment: &PostscriptSegment,
-        layout_segment: &PostscriptSegment,
-        dtype: DType,
-        file_stats: Option<FileStatistics>,
-    ) -> VortexResult<Footer> {
-        let footer_offset = usize::try_from(footer_segment.offset - initial_offset)?;
-        let footer_bytes = FlatBuffer::copy_from(
-            &initial_read[footer_offset..footer_offset + (footer_segment.length as usize)],
-        );
-
-        let layout_offset = usize::try_from(layout_segment.offset - initial_offset)?;
-        let layout_bytes = FlatBuffer::copy_from(
-            &initial_read[layout_offset..layout_offset + (layout_segment.length as usize)],
-        );
-
-        Footer::from_flatbuffer(
-            footer_bytes,
-            layout_bytes,
-            dtype,
-            file_stats,
-            &self.registry,
-            &self.layout_registry,
-        )
     }
 }

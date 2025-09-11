@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::footer::{FileStatistics, Postscript, PostscriptSegment};
-use crate::{Footer, DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, VERSION};
-use flatbuffers::root;
 use std::sync::Arc;
+
+use flatbuffers::root;
+use moka::ops::compute::Op;
 use vortex_array::ArrayRegistry;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{dtype as fbd, FlatBuffer, ReadFlatBuffer};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
+
+use crate::footer::{FileStatistics, Postscript, PostscriptSegment};
+use crate::{DEFAULT_REGISTRY, EOF_SIZE, Footer, MAGIC_BYTES, VERSION};
 
 /// Deserialize a footer from the end of a Vortex file or created from a
 /// [`crate::footer::FooterSerializer`].
@@ -25,10 +28,12 @@ pub struct FooterDeserializer {
     layout_registry: Arc<LayoutRegistry>,
     // The DType, if provided externally.
     dtype: Option<DType>,
-    // The file size, if provided externally.
-    file_size: Option<u64>,
 
-    /// Internal state that we accumulate
+    // Internal state that we accumulate
+
+    // The file size, possibly provided externally.
+    file_size: Option<u64>,
+    // The postscript, once we've parsed it.
     postscript: Option<Postscript>,
 }
 
@@ -154,6 +159,11 @@ impl FooterDeserializer {
             dtype,
             file_stats,
         )?))
+    }
+
+    /// The current buffer being used for deserialization.
+    pub fn buffer(&self) -> &ByteBuffer {
+        &self.buffer
     }
 
     /// Parse the postscript from the initial read.

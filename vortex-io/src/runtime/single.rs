@@ -237,13 +237,13 @@ impl<T> Iterator for SingleThreadIterator<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures::FutureExt;
 
-    use crate::runtime::single::{block_on, SingleThreadRuntime};
     use crate::runtime::BlockingRuntime;
+    use crate::runtime::single::{SingleThreadRuntime, block_on};
 
     #[test]
     fn test_drive_simple_future() {

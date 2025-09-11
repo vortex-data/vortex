@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
-use crate::{Footer, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_layout::LayoutContext;
+
+use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
+use crate::{EOF_SIZE, Footer, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 pub struct FooterSerializer {
     footer: Footer,

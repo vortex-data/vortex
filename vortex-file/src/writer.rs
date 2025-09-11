@@ -9,23 +9,23 @@ use futures::channel::oneshot;
 use futures::future::ready;
 use futures::io::AllowStdIo;
 use futures::stream::BoxStream;
-use futures::{pin_mut, StreamExt, TryFutureExt, TryStreamExt};
-use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-use vortex_array::stats::{Stat, PRUNING_STATS};
-use vortex_array::stream::{ArrayStream, ArrayStreamExt, SendableArrayStream};
+use futures::{StreamExt, TryFutureExt, TryStreamExt, pin_mut};
 use vortex_array::ArrayContext;
+use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
+use vortex_array::stats::{PRUNING_STATS, Stat};
+use vortex_array::stream::{ArrayStream, ArrayStreamExt, SendableArrayStream};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_io::{AsyncWriteAdapter, VortexWrite};
+use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
-use vortex_layout::LayoutStrategy;
 
 use crate::footer::FileStatistics;
 use crate::segments::writer::BufferedSegmentSink;
-use crate::{Footer, WriteStrategyBuilder, MAGIC_BYTES};
+use crate::{Footer, MAGIC_BYTES, WriteStrategyBuilder};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -225,6 +225,7 @@ impl VortexWriteOptions {
                 .clone()
                 .into_serializer()
                 .with_offset(position)
+                .with_exclude_dtype(self.exclude_dtype)
                 .serialize()?;
             for buffer in footer_buffers {
                 position += buffer.len() as u64;

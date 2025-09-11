@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
+use crate::footer::DeserializeStep;
 use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
 
 /// A Vortex file that is backed by an in-memory buffer.
@@ -30,32 +31,19 @@ impl VortexOpenOptions<InMemoryFileType> {
     pub fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer = buffer.into();
 
-        let postscript = self.parse_postscript(&buffer)?;
+        let mut deserializer = Footer::deserializer(buffer.clone())
+            .with_size(buffer.len() as u64)
+            .with_some_dtype(self.dtype.clone())
+            .with_array_registry(self.registry.clone())
+            .with_layout_registry(self.layout_registry.clone());
 
-        // If we haven't been provided a DType, we must read one from the file.
-        let dtype = self.dtype
-            .clone()
-            .map(Ok)
-            .unwrap_or_else(|| {
-                let dtype_segment = postscript
-                    .dtype
-                    .ok_or_else(|| vortex_err!("Vortex file doesn't embed a DType and one has not been provided to VortexOpenOptions"))?;
-                self.parse_dtype(0, &buffer, &dtype_segment)
-            })?;
-
-        let file_stats = postscript
-            .statistics
-            .map(|segment| self.parse_file_statistics(0, &buffer, &segment))
-            .transpose()?;
-
-        let footer = self.parse_footer(
-            0,
-            &buffer,
-            &postscript.footer,
-            &postscript.layout,
-            dtype,
-            file_stats,
-        )?;
+        let footer = loop {
+            match deserializer.deserialize()? {
+                DeserializeStep::NeedMoreData { .. } => unreachable!("all data provided up front"),
+                DeserializeStep::NeedFileSize => unreachable!("size passed above"),
+                DeserializeStep::Done(footer) => break Ok::<_, VortexError>(footer),
+            }
+        }?;
 
         let segment_source = Arc::new(InMemorySegmentReader {
             buffer,
