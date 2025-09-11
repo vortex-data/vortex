@@ -354,11 +354,16 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
         let splits_iter: Box<dyn Iterator<Item = _>> = match row_range {
             None => Box::new(self.splits.iter().copied()),
-            Some(range) => Box::new(
-                iter::once(range.start)
-                    .chain(self.splits.range(range.clone()).copied())
-                    .chain(iter::once(range.end)),
-            ),
+            Some(range) => {
+                if range.start > range.end {
+                    return Ok(Vec::new());
+                }
+                Box::new(
+                    iter::once(range.start)
+                        .chain(self.splits.range(range.clone()).copied())
+                        .chain(iter::once(range.end)),
+                )
+            }
         };
 
         // Create a task that executes the full scan pipeline for each split.
