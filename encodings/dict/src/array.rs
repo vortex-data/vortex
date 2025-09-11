@@ -4,12 +4,9 @@
 use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
-use vortex_array::compute::take;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
-use vortex_array::{
-    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
-};
+use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
+use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, ToCanonical, vtable};
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
@@ -118,26 +115,6 @@ impl ArrayVTable<DictVTable> for DictVTable {
 
     fn stats(array: &DictArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
-    }
-}
-
-impl CanonicalVTable<DictVTable> for DictVTable {
-    fn canonicalize(array: &DictArray) -> Canonical {
-        match array.dtype() {
-            // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
-            // decompression to construct the views child array.
-            // For this case, it is *always* faster to decompress the values first and then create
-            // copies of the view pointers.
-            DType::Utf8(_) | DType::Binary(_) => {
-                let canonical_values: ArrayRef = array.values().to_canonical().into_array();
-                take(&canonical_values, array.codes())
-                    .vortex_expect("taking codes from dictionary values shouldn't fail")
-                    .to_canonical()
-            }
-            _ => take(array.values(), array.codes())
-                .vortex_expect("taking codes from dictionary values shouldn't fail")
-                .to_canonical(),
-        }
     }
 }
 
