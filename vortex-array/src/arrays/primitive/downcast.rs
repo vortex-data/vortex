@@ -5,9 +5,9 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::VortexResult;
 
+use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{cast, min_max};
-use crate::ToCanonical;
 
 impl PrimitiveArray {
     pub fn downcast(&self) -> VortexResult<PrimitiveArray> {
@@ -90,7 +90,7 @@ impl PrimitiveArray {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_buffer::{buffer, Buffer};
+    use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::arrays::PrimitiveArray;
