@@ -6,16 +6,17 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use futures::channel::oneshot;
-use futures::future::ready;
+use futures::future::{ready, Fuse, LocalBoxFuture};
 use futures::io::AllowStdIo;
 use futures::stream::BoxStream;
-use futures::{StreamExt, TryFutureExt, TryStreamExt, pin_mut};
-use vortex_array::ArrayContext;
+use futures::{pin_mut, select, AsyncWrite, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-use vortex_array::stats::{PRUNING_STATS, Stat};
+use vortex_array::stats::{Stat, PRUNING_STATS};
 use vortex_array::stream::{ArrayStream, ArrayStreamExt, SendableArrayStream};
+use vortex_array::{ArrayContext, ArrayRef};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex_dtype::DType;
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::{BlockingRuntime, Handle};
@@ -26,7 +27,7 @@ use vortex_layout::{LayoutContext, LayoutStrategy};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
 use crate::segments::writer::BufferedSegmentSink;
-use crate::{EOF_SIZE, Footer, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, WriteStrategyBuilder};
+use crate::{Footer, WriteStrategyBuilder, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -116,6 +117,8 @@ impl VortexWriteOptions {
         )
         .await
     }
+
+    pub fn writer(self, dtype: DType) -> Writer {}
 
     /// Perform an async write of the provided stream of `Array`.
     pub async fn write<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
@@ -307,6 +310,52 @@ fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
     *offset += u64::from(length);
 
     Ok((buffer.into_inner(), segment))
+}
+
+pub struct Writer<W> {
+    options: VortexWriteOptions,
+    dtype: DType,
+    arrays: kanal::AsyncSender<VortexResult<ArrayRef>>,
+    write: Fuse<LocalBoxFuture<'static, VortexResult<()>>>,
+}
+
+impl<W> Writer<W> {
+    pub async fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
+        if !self.dtype.eq(chunk.dtype()) {
+            vortex_bail!(
+                "Incompatible DType: expected {}, got {}",
+                self.dtype,
+                chunk.dtype()
+            );
+        }
+
+        // While we wait for the send future to complete, we need to continue to write buffers.
+        // Otherwise, we may never make room for the array to be pushed into the writer.
+        let send_fut = self.arrays.send(Ok(chunk)).fuse();
+        select! {
+            res = send_fut.fuse() => {
+                if let Err(_send_err) = res {
+                    // This means the error is in the writer task.
+                    // TODO(ngates): we should take it, await it, and return it here.
+                    log::debug!("Failed to send array chunk, writer failed");
+                }
+            },
+            res = &mut self.write => {
+                // If the write task failed, we should return the error.
+                // Otherwise, we expect it to never complete since we hold the sending side
+                // of the channel.
+                res?;
+            },
+        }
+
+        if let Err(_send_err) = self.arrays.send(Ok(chunk)).await {
+            // This means the error is in the writer task.
+            // TODO(ngates): we should take it, await it, and return it here.
+            log::debug!("Failed to send array chunk, writer failed");
+        }
+
+        Ok(())
+    }
 }
 
 /// A blocking API for writing Vortex files.
