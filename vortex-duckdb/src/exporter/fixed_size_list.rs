@@ -42,6 +42,8 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for FixedSizeListExporter {
+    // TODO(connor): Should `export` be `unsafe` instead? We have no way to verify this without
+    // making an assertion.
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Verify that offset + len doesn't exceed the validity mask length.
         assert!(
@@ -51,9 +53,6 @@ impl ColumnExporter for FixedSizeListExporter {
             offset + len,
             self.validity.len()
         );
-
-        // TODO(connor): Should `export` be `unsafe` instead? We have no way to verify this without
-        // making an assertion.
 
         // Set validity if necessary.
         // SAFETY: We've asserted that offset + len <= self.validity.len(), which ensures
@@ -87,6 +86,47 @@ mod tests {
     use crate::cpp;
     use crate::duckdb::{DataChunk, LogicalType, Vector};
 
+    /// Sets up a DataChunk, exports the array to it, and returns the chunk.
+    fn export_to_chunk(
+        fsl: &FixedSizeListArray,
+        list_size: u32,
+        offset: usize,
+        len: usize,
+    ) -> DataChunk {
+        let array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, list_size);
+
+        // TODO(connor): This mutable API is brittle. Maybe bundle this logic?
+        let mut chunk = DataChunk::new([array_type]);
+
+        new_exporter(fsl, &ConversionCache::new(0))
+            .unwrap()
+            .export(offset, len, &mut chunk.get_vector(0))
+            .unwrap();
+        chunk.set_len(len);
+
+        chunk
+    }
+
+    /// Asserts that the null pattern in a vector matches the expected pattern.
+    /// true = valid (not null), false = null
+    fn assert_nulls(vector: &Vector, expected: &[bool]) {
+        for (i, &expected_valid) in expected.iter().enumerate() {
+            if expected_valid {
+                assert!(
+                    !vector.row_is_null(i as u64),
+                    "Row {} should be valid but is null",
+                    i
+                );
+            } else {
+                assert!(
+                    vector.row_is_null(i as u64),
+                    "Row {} should be null but is valid",
+                    i
+                );
+            }
+        }
+    }
+
     /// Helper function to verify array elements in a DuckDB vector.
     fn verify_array_elements(
         vector: &Vector,
@@ -102,21 +142,8 @@ mod tests {
     #[test]
     fn test_export_empty_fixed_size_list() {
         // Create an empty FixedSizeListArray with list_size=3.
-        let fsl = FixedSizeListArray::new(
-            buffer![0i32; 0].into_array(), // Empty elements
-            3,                             // list_size
-            Validity::AllValid,
-            0, // len (no lists)
-        );
-
-        let array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, 3);
-        let mut chunk = DataChunk::new([array_type]);
-
-        new_exporter(&fsl, &ConversionCache::new(0))
-            .unwrap()
-            .export(0, 0, &mut chunk.get_vector(0))
-            .unwrap();
-        chunk.set_len(0);
+        let fsl = FixedSizeListArray::new(buffer![0i32; 0].into_array(), 3, Validity::AllValid, 0);
+        let chunk = export_to_chunk(&fsl, 3, 0, 0);
 
         // Should produce an empty chunk.
         assert_eq!(chunk.len(), 0);
@@ -128,19 +155,11 @@ mod tests {
         // Lists: [1, 2], [3, 4], [5, 6]
         let fsl = FixedSizeListArray::new(
             buffer![1i32, 2, 3, 4, 5, 6].into_array(),
-            2, // list_size
+            2,
             Validity::AllValid,
-            3, // len (3 lists)
+            3,
         );
-
-        let array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, 2);
-        let mut chunk = DataChunk::new([array_type]);
-
-        new_exporter(&fsl, &ConversionCache::new(0))
-            .unwrap()
-            .export(0, 3, &mut chunk.get_vector(0))
-            .unwrap();
-        chunk.set_len(3);
+        let chunk = export_to_chunk(&fsl, 2, 0, 3);
 
         // Verify the chunk contains the expected data.
         assert_eq!(chunk.len(), 3);
@@ -156,28 +175,17 @@ mod tests {
         // Lists: [1, 2, 3], NULL, [7, 8, 9], [10, 11, 12]
         let fsl = FixedSizeListArray::new(
             buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array(),
-            3, // list_size
+            3,
             Validity::from_iter([true, false, true, true]),
-            4, // len (4 lists)
+            4,
         );
-
-        let array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, 3);
-        let mut chunk = DataChunk::new([array_type]);
-
-        new_exporter(&fsl, &ConversionCache::new(0))
-            .unwrap()
-            .export(0, 4, &mut chunk.get_vector(0))
-            .unwrap();
-        chunk.set_len(4);
+        let chunk = export_to_chunk(&fsl, 3, 0, 4);
 
         assert_eq!(chunk.len(), 4);
 
         // Verify nullability.
         let vector = chunk.get_vector(0);
-        assert!(!vector.row_is_null(0));
-        assert!(vector.row_is_null(1));
-        assert!(!vector.row_is_null(2));
-        assert!(!vector.row_is_null(3));
+        assert_nulls(&vector, &[true, false, true, true]);
 
         // Verify the values (note: elements for null list still exist in storage).
         verify_array_elements(&vector, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 3, 4);
@@ -187,28 +195,18 @@ mod tests {
     fn test_export_all_null_lists() {
         // Create a FixedSizeListArray where all lists are null.
         let fsl = FixedSizeListArray::new(
-            buffer![0i32; 6].into_array(), // Elements (unused due to nulls)
-            2,                             // list_size
+            buffer![0i32; 6].into_array(),
+            2,
             Validity::from_iter([false, false, false]),
-            3, // len (3 lists, all null)
+            3,
         );
-
-        let array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, 2);
-        let mut chunk = DataChunk::new([array_type]);
-
-        new_exporter(&fsl, &ConversionCache::new(0))
-            .unwrap()
-            .export(0, 3, &mut chunk.get_vector(0))
-            .unwrap();
-        chunk.set_len(3);
+        let chunk = export_to_chunk(&fsl, 2, 0, 3);
 
         assert_eq!(chunk.len(), 3);
 
         // All lists should be null.
         let vector = chunk.get_vector(0);
-        assert!(vector.row_is_null(0));
-        assert!(vector.row_is_null(1));
-        assert!(vector.row_is_null(2));
+        assert_nulls(&vector, &[false, false, false]);
     }
 
     #[test]
@@ -217,50 +215,25 @@ mod tests {
         // Lists: NULL, [2, 3], NULL, [6, 7], NULL
         let fsl = FixedSizeListArray::new(
             buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array(),
-            2, // list_size
+            2,
             Validity::from_iter([false, true, false, true, false]),
-            5, // len (5 lists)
+            5,
         );
-
-        let array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, 2);
-        let mut chunk = DataChunk::new([array_type]);
-
-        new_exporter(&fsl, &ConversionCache::new(0))
-            .unwrap()
-            .export(0, 5, &mut chunk.get_vector(0))
-            .unwrap();
-        chunk.set_len(5);
+        let chunk = export_to_chunk(&fsl, 2, 0, 5);
 
         assert_eq!(chunk.len(), 5);
 
         // Verify alternating null pattern.
         let vector = chunk.get_vector(0);
-        assert!(vector.row_is_null(0));
-        assert!(!vector.row_is_null(1));
-        assert!(vector.row_is_null(2));
-        assert!(!vector.row_is_null(3));
-        assert!(vector.row_is_null(4));
+        assert_nulls(&vector, &[false, true, false, true, false]);
     }
 
     #[test]
     fn test_export_list_size_zero() {
         // Create a FixedSizeListArray with list_size=0 (degenerate case).
         // This represents arrays with no elements.
-        let fsl = FixedSizeListArray::new(
-            buffer![0i32; 0].into_array(), // No elements needed
-            0,                             // list_size = 0
-            Validity::AllValid,
-            3, // len (3 empty lists)
-        );
-
-        let array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, 0);
-        let mut chunk = DataChunk::new([array_type]);
-
-        new_exporter(&fsl, &ConversionCache::new(0))
-            .unwrap()
-            .export(0, 3, &mut chunk.get_vector(0))
-            .unwrap();
-        chunk.set_len(3);
+        let fsl = FixedSizeListArray::new(buffer![0i32; 0].into_array(), 0, Validity::AllValid, 3);
+        let chunk = export_to_chunk(&fsl, 0, 0, 3);
 
         // Should have 3 lists, each with 0 elements.
         assert_eq!(chunk.len(), 3);
@@ -272,19 +245,11 @@ mod tests {
         // Lists: [10], [20], [30], [40]
         let fsl = FixedSizeListArray::new(
             buffer![10i32, 20, 30, 40].into_array(),
-            1, // list_size = 1
+            1,
             Validity::AllValid,
-            4, // len (4 lists)
+            4,
         );
-
-        let array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, 1);
-        let mut chunk = DataChunk::new([array_type]);
-
-        new_exporter(&fsl, &ConversionCache::new(0))
-            .unwrap()
-            .export(0, 4, &mut chunk.get_vector(0))
-            .unwrap();
-        chunk.set_len(4);
+        let chunk = export_to_chunk(&fsl, 1, 0, 4);
 
         assert_eq!(chunk.len(), 4);
 
@@ -299,26 +264,32 @@ mod tests {
         // Lists: [1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]
         let fsl = FixedSizeListArray::new(
             buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array(),
-            3, // list_size
+            3,
             Validity::AllValid,
-            4, // len (4 lists)
+            4,
         );
 
-        let array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, 3);
-        let mut chunk = DataChunk::new([array_type]);
-
         // Export only the middle 2 lists (indices 1 and 2).
-        new_exporter(&fsl, &ConversionCache::new(0))
-            .unwrap()
-            .export(1, 2, &mut chunk.get_vector(0))
-            .unwrap();
-        chunk.set_len(2);
+        let chunk = export_to_chunk(&fsl, 3, 1, 2);
 
         assert_eq!(chunk.len(), 2);
 
         // Should contain [4, 5, 6], [7, 8, 9].
         let vector = chunk.get_vector(0);
         verify_array_elements(&vector, &[4, 5, 6, 7, 8, 9], 3, 2);
+    }
+
+    /// Helper to create nested array type for DuckDB.
+    fn create_nested_array_type(inner_list_size: u32, outer_list_size: u32) -> LogicalType {
+        let inner_array_type =
+            LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, inner_list_size);
+        // SAFETY: inner_array_type is a valid LogicalType created above.
+        unsafe {
+            LogicalType::own(cpp::duckdb_create_array_type(
+                inner_array_type.as_ptr(),
+                outer_list_size as cpp::idx_t,
+            ))
+        }
     }
 
     #[test]
@@ -335,7 +306,7 @@ mod tests {
         // First create the inner FSL with all the flattened elements.
         let inner_fsl = FixedSizeListArray::new(
             buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array(),
-            2, // inner list_size
+            2,
             Validity::AllValid,
             6, // 6 inner lists total (3 per outer list * 2 outer lists)
         );
@@ -348,17 +319,8 @@ mod tests {
             2, // 2 outer lists
         );
 
-        // Create the nested array type for DuckDB.
-        // First create the inner array type, then use it for the outer.
-        let inner_array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, 2);
-        // SAFETY: inner_array_type is a valid LogicalType created above.
-        let outer_array_type = unsafe {
-            LogicalType::own(cpp::duckdb_create_array_type(
-                inner_array_type.as_ptr(),
-                3 as cpp::idx_t,
-            ))
-        };
-
+        // Create the nested array type and export.
+        let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
 
         new_exporter(&outer_fsl, &ConversionCache::new(0))
@@ -393,7 +355,7 @@ mod tests {
                 1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
             ]
             .into_array(),
-            2, // inner list_size
+            2,
             Validity::from_iter([
                 true, true, true, // First outer's inner arrays
                 true, true, true, // Second outer's inner arrays (unused due to outer null)
@@ -410,16 +372,8 @@ mod tests {
             3, // 3 outer lists
         );
 
-        // Create the nested array type.
-        let inner_array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, 2);
-        // SAFETY: inner_array_type is a valid LogicalType created above.
-        let outer_array_type = unsafe {
-            LogicalType::own(cpp::duckdb_create_array_type(
-                inner_array_type.as_ptr(),
-                3 as cpp::idx_t,
-            ))
-        };
-
+        // Create the nested array type and export.
+        let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
 
         new_exporter(&outer_fsl, &ConversionCache::new(0))
@@ -432,9 +386,7 @@ mod tests {
 
         // Verify outer level nullability.
         let outer_vector = chunk.get_vector(0);
-        assert!(!outer_vector.row_is_null(0)); // First outer array is valid
-        assert!(outer_vector.row_is_null(1)); // Second outer array is null
-        assert!(!outer_vector.row_is_null(2)); // Third outer array is valid
+        assert_nulls(&outer_vector, &[true, false, true]);
 
         // Verify inner level structure and nullability.
         let inner_vector = outer_vector.array_vector_get_child();

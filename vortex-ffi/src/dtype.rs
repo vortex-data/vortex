@@ -165,13 +165,13 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_nullable(dtype: *const vx_dtype) -> 
     vx_dtype::as_ref(dtype).is_nullable()
 }
 
-/// Return the [`vx_ptype`] of a primitive data type.
+/// Returns the [`vx_ptype`] of a primitive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_primitive_ptype(dtype: *const vx_dtype) -> vx_ptype {
     vx_dtype::as_ref(dtype).as_ptype().into()
 }
 
-/// Return the precision of a decimal data type.
+/// Returns the precision of a decimal.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_decimal_precision(dtype: *const vx_dtype) -> u8 {
     vx_dtype::as_ref(dtype)
@@ -180,7 +180,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_precision(dtype: *const vx_dtyp
         .precision()
 }
 
-/// Return the scale of a decimal data type.
+/// Returns the scale of a decimal.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -> i8 {
     vx_dtype::as_ref(dtype)
@@ -189,7 +189,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -
         .scale()
 }
 
-/// Return a borrowed reference to the [`vx_struct_fields`] of a struct data type.
+/// Return a borrowed reference to the [`vx_struct_fields`] of a struct.
 ///
 /// The returned pointer is valid as long as the struct dtype is valid.
 /// Do NOT free the returned pointer - it shares the lifetime of the struct dtype.
@@ -203,7 +203,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     vx_struct_fields::new_ref(struct_dtype)
 }
 
-/// Return the `element` type of a list data type.
+/// Returns the element type of a list.
 ///
 /// The returned pointer is valid as long as the list dtype is valid.
 /// Do NOT free the returned dtype pointer - it shares the lifetime of the list dtype.
@@ -215,7 +215,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_list_element(dtype: *const vx_dtype) ->
     vx_dtype::new_ref(element_dtype)
 }
 
-/// Return the `element` type of a fixed-size list data type.
+/// Returns the element type of a fixed-size list.
 ///
 /// The returned pointer is valid as long as the fixed-size list dtype is valid.
 /// Do NOT free the returned dtype pointer - it shares the lifetime of the fixed-size list dtype.
@@ -229,7 +229,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_element(
     vx_dtype::new_ref(element_dtype)
 }
 
-/// Return the size of a fixed-size list data type.
+/// Returns the size of a fixed-size list.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_size(dtype: *const vx_dtype) -> u32 {
     let dtype_ref = vx_dtype::as_ref(dtype);
@@ -239,6 +239,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_size(dtype: *const vx_d
     }
 }
 
+/// Checks if the type is time.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_is_time(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
@@ -249,6 +250,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_time(dtype: *const DType) -> bool {
     }
 }
 
+/// Checks if the type is a date.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_is_date(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
@@ -259,6 +261,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_date(dtype: *const DType) -> bool {
     }
 }
 
+/// Checks if the type is a timestamp.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_is_timestamp(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
@@ -269,6 +272,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_timestamp(dtype: *const DType) -> bo
     }
 }
 
+/// Returns the time unit, assuming the type is time.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_time_unit(dtype: *const DType) -> u8 {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
@@ -282,6 +286,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_unit(dtype: *const DType) -> u8 {
     metadata.as_ref()[0]
 }
 
+/// Returns the time zone, assuming the type is time.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
     dtype: *const DType,
