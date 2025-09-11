@@ -22,6 +22,7 @@ flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 humansize = { workspace = true }
 indicatif = { workspace = true, features = ["futures"] }
+itertools = { workspace = true }
 parquet = { workspace = true, features = ["arrow", "async"] }
 ratatui = { workspace = true }
 taffy = { workspace = true }

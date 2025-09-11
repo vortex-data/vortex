@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use flatbuffers::root;
+use itertools::Itertools;
+use std::collections::VecDeque;
+use std::fmt::Display;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
-
-use flatbuffers::root;
+use std::sync::Arc;
 use vortex::buffer::{Alignment, ByteBuffer};
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
-use vortex::file::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex::file::{Footer, VortexOpenOptions, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 use vortex::flatbuffers::footer as fb;
+use vortex::layout::LayoutRef;
 
 #[derive(Debug, clap::Parser)]
 pub struct InspectArgs {
@@ -75,10 +79,9 @@ pub fn exec_inspect(args: InspectArgs) -> anyhow::Result<()> {
                 return Ok(());
             }
 
-            let postscript = match inspector.read_postscript(eof.postscript_size) {
+            match inspector.read_postscript(eof.postscript_size) {
                 Ok(ps) => {
                     ps.display();
-                    ps
                 }
                 Err(e) => {
                     eprintln!("\nError reading postscript: {}", e);
@@ -86,8 +89,8 @@ pub fn exec_inspect(args: InspectArgs) -> anyhow::Result<()> {
                 }
             };
 
-            match inspector.read_footer_segments(&postscript) {
-                Ok(footer) => footer.display(),
+            match inspector.read_footer() {
+                Ok(footer) => FooterSegments(footer).display(),
                 Err(e) => {
                     eprintln!("\nError reading footer segments: {}", e);
                 }
@@ -99,6 +102,7 @@ pub fn exec_inspect(args: InspectArgs) -> anyhow::Result<()> {
 }
 
 struct VortexInspector {
+    path: PathBuf,
     file: File,
     file_size: u64,
 }
@@ -112,7 +116,11 @@ impl VortexInspector {
             .seek(SeekFrom::End(0))
             .map_err(|e| vortex_err!("Failed to get file size: {}", e))?;
 
-        Ok(Self { file, file_size })
+        Ok(Self {
+            path,
+            file,
+            file_size,
+        })
     }
 
     fn read_eof(&mut self) -> VortexResult<EofInfo> {
@@ -197,45 +205,11 @@ impl VortexInspector {
         })
     }
 
-    fn read_footer_segments(
-        &mut self,
-        postscript: &PostscriptInfo,
-    ) -> VortexResult<FooterSegments> {
-        // Read footer segment
-
-        let mut footer_bytes = vec![0u8; postscript.footer.length as usize];
-        self.file
-            .seek(SeekFrom::Start(postscript.footer.offset))
-            .map_err(|e| vortex_err!("Failed to seek to footer: {}", e))?;
-        self.file
-            .read_exact(&mut footer_bytes)
-            .map_err(|e| vortex_err!("Failed to read footer: {}", e))?;
-
-        let footer_buffer = ByteBuffer::from(footer_bytes);
-        let fb_footer = root::<fb::Footer>(&footer_buffer)
-            .map_err(|e| vortex_err!("Failed to parse footer flatbuffer: {}", e))?;
-
-        let segment_count = fb_footer
-            .segment_specs()
-            .map(|segs| segs.len())
-            .unwrap_or(0);
-
-        let mut segments = Vec::new();
-        if let Some(fb_segments) = fb_footer.segment_specs() {
-            for seg in fb_segments {
-                segments.push(SegmentInfo {
-                    offset: seg.offset(),
-                    length: seg.length(),
-                    alignment: Alignment::from_exponent(seg.alignment_exponent()),
-                });
-            }
-        }
-
-        Ok(FooterSegments {
-            segment_count,
-            total_data_size: segments.iter().map(|s| s.length as u64).sum(),
-            segments,
-        })
+    fn read_footer(&mut self) -> VortexResult<Footer> {
+        Ok(VortexOpenOptions::file()
+            .open_blocking(&self.path)?
+            .footer()
+            .clone())
     }
 }
 
@@ -263,11 +237,7 @@ struct PostscriptInfo {
 }
 
 #[derive(Debug)]
-struct FooterSegments {
-    segment_count: usize,
-    segments: Vec<SegmentInfo>,
-    total_data_size: u64,
-}
+struct FooterSegments(Footer);
 
 impl EofInfo {
     fn display(&self) {
@@ -319,17 +289,107 @@ impl PostscriptInfo {
 impl FooterSegments {
     fn display(&self) {
         println!("\n=== Footer Segments ===");
-        println!("Total segments: {}", self.segment_count);
-        println!("Total data size: {} bytes", self.total_data_size);
+        println!("Total segments: {}", self.0.segment_map().len());
+        let total_size = self
+            .0
+            .segment_map()
+            .iter()
+            .map(|s| s.length as u64)
+            .sum::<u64>();
+        println!("Total data size: {} bytes", total_size);
 
-        if !self.segments.is_empty() {
-            println!("\nSegment details:");
-            for (i, segment) in self.segments.iter().enumerate() {
-                println!(
-                    "  [{}] offset={}, length={}, alignment={}",
-                    i, segment.offset, segment.length, segment.alignment
-                );
+        println!("\nSegment details:\n");
+
+        let segment_map = self.0.segment_map().clone();
+        if segment_map.is_empty() {
+            println!("<no segments>");
+            return;
+        }
+
+        let mut segment_paths: Vec<Option<Vec<Arc<str>>>> = vec![None; segment_map.len()];
+        let root_layout = self.0.layout().clone();
+
+        let mut queue =
+            VecDeque::<(Vec<Arc<str>>, LayoutRef)>::from_iter([(Vec::new(), root_layout)]);
+        while !queue.is_empty() {
+            let (path, layout) = queue.pop_front().vortex_expect("queue is not empty");
+            for segment in layout.segment_ids() {
+                segment_paths[*segment as usize] = Some(path.clone());
             }
+
+            for (child_layout, child_name) in layout
+                .children()
+                .vortex_expect("Failed to deserialize children")
+                .into_iter()
+                .zip(layout.child_names())
+            {
+                let child_path = path.iter().cloned().chain([child_name]).collect();
+                queue.push_back((child_path, child_layout));
+            }
+        }
+
+        // Find the largest values for formatting
+        let max_offset = segment_map.last().vortex_expect("non-empty").offset;
+        let max_length = segment_map
+            .iter()
+            .map(|s| s.length)
+            .max()
+            .vortex_expect("non-empty");
+        let max_alignment = segment_map
+            .iter()
+            .map(|s| s.alignment)
+            .max()
+            .vortex_expect("non-empty");
+
+        // Calculate all widths
+        let offset_width = max_offset.to_string().len();
+        let end_width = (max_offset + max_length as u64).to_string().len();
+        let length_width = max_length.to_string().len().max(6);
+        let alignment_width = max_alignment.to_string().len().max(5);
+        let index_width = segment_paths.len().to_string().len();
+
+        // Print header
+        println!(
+            "{:>index_w$}  {:>offset_w$}..{:<end_w$}  {:>length_w$}  {:>align_w$}  Path",
+            "#",
+            "Start",
+            "End",
+            "Length",
+            "Align",
+            index_w = index_width,
+            offset_w = offset_width,
+            end_w = end_width,
+            length_w = length_width,
+            align_w = alignment_width,
+        );
+
+        for (i, name) in segment_paths.iter().enumerate() {
+            let segment = &segment_map[i];
+            let end_offset = segment.offset + segment.length as u64;
+
+            print!(
+                "{:>index_w$}  {:>offset_w$}..{:<end_w$}  ",
+                i,
+                segment.offset,
+                end_offset,
+                index_w = index_width,
+                offset_w = offset_width,
+                end_w = end_width,
+            );
+            print!(
+                "{:>length_w$}  {:>align_w$}  ",
+                segment.length,
+                *segment.alignment,
+                length_w = length_width,
+                align_w = alignment_width,
+            );
+            println!(
+                "{}",
+                match name.as_ref() {
+                    Some(path) => format!("{}", path.iter().format(".")),
+                    None => "<missing>".to_string(),
+                }
+            );
         }
     }
 }
