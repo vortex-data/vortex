@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use flatbuffers::root;
-use itertools::Itertools;
 use std::collections::VecDeque;
-use std::fmt::Display;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use flatbuffers::root;
+use itertools::Itertools;
 use vortex::buffer::{Alignment, ByteBuffer};
-use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex::file::{Footer, VortexOpenOptions, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::file::{EOF_SIZE, Footer, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexOpenOptions};
 use vortex::flatbuffers::footer as fb;
 use vortex::layout::LayoutRef;
 
