@@ -13,6 +13,9 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[package.metadata.docs.rs]
+all-features = true
+
 [features]
 flatbuffers = ["dep:flatbuffers"]
 python = ["dep:pyo3"]
