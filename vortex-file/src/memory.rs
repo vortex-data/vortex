@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
 use crate::footer::DeserializeStep;
@@ -37,13 +37,11 @@ impl VortexOpenOptions<InMemoryFileType> {
             .with_array_registry(self.registry.clone())
             .with_layout_registry(self.layout_registry.clone());
 
-        let footer = loop {
-            match deserializer.deserialize()? {
-                DeserializeStep::NeedMoreData { .. } => unreachable!("all data provided up front"),
-                DeserializeStep::NeedFileSize => unreachable!("size passed above"),
-                DeserializeStep::Done(footer) => break Ok::<_, VortexError>(footer),
-            }
-        }?;
+        let footer = match deserializer.deserialize()? {
+            DeserializeStep::NeedMoreData { .. } => unreachable!("all data provided up front"),
+            DeserializeStep::NeedFileSize => unreachable!("size passed above"),
+            DeserializeStep::Done(footer) => footer,
+        };
 
         let segment_source = Arc::new(InMemorySegmentReader {
             buffer,

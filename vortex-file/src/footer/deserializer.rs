@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use flatbuffers::root;
-use moka::ops::compute::Op;
 use vortex_array::ArrayRegistry;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
@@ -142,7 +141,7 @@ impl FooterDeserializer {
 
         // Now we read our initial segments.
         let dtype = dtype_segment
-            .map(|segment| self.parse_dtype(initial_offset, &self.buffer, &segment))
+            .map(|segment| self.parse_dtype(initial_offset, &self.buffer, segment))
             .transpose()?
             .unwrap_or_else(|| self.dtype.clone().vortex_expect("DType was provided"));
         let file_stats = postscript
