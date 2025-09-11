@@ -16,18 +16,21 @@ mod segment;
 
 use std::sync::Arc;
 
-pub(crate) use file_layout::*;
+mod serializer;
+pub use serializer::*;
+mod deserializer;
+pub use deserializer::*;
 pub(crate) use file_statistics::*;
 use flatbuffers::root;
 use itertools::Itertools;
-pub(crate) use postscript::*;
 pub use segment::*;
 use vortex_array::stats::StatsSet;
-use vortex_array::ArrayRegistry;
+use vortex_array::{ArrayContext, ArrayRegistry};
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
-use vortex_flatbuffers::{footer as fb, FlatBuffer};
-use vortex_layout::{layout_from_flatbuffer, LayoutRef, LayoutRegistry};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_flatbuffers::{FlatBuffer, footer as fb};
+use vortex_layout::{LayoutRef, LayoutRegistry, layout_from_flatbuffer};
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
@@ -35,9 +38,24 @@ pub struct Footer {
     root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
+    array_ctx: ArrayContext,
 }
 
 impl Footer {
+    pub(crate) fn new(
+        root_layout: LayoutRef,
+        segments: Arc<[SegmentSpec]>,
+        statistics: Option<FileStatistics>,
+        array_ctx: ArrayContext,
+    ) -> Self {
+        Self {
+            root_layout,
+            segments,
+            statistics,
+            array_ctx,
+        }
+    }
+
     /// Read the [`Footer`] from a flatbuffer.
     pub(crate) fn from_flatbuffer(
         footer_bytes: FlatBuffer,
@@ -83,6 +101,7 @@ impl Footer {
             root_layout,
             segments,
             statistics,
+            array_ctx,
         })
     }
 
@@ -109,5 +128,15 @@ impl Footer {
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> u64 {
         self.root_layout.row_count()
+    }
+
+    /// Returns a serializer for this footer.
+    pub fn into_serializer(self) -> FooterSerializer {
+        FooterSerializer::new(self)
+    }
+
+    /// Create a deserializer for a Vortex file footer.
+    pub fn deserializer(eof_buffer: ByteBuffer) -> FooterDeserializer {
+        FooterDeserializer::new(eof_buffer)
     }
 }

@@ -11,7 +11,8 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 
-use crate::footer::{FileStatistics, Postscript, PostscriptSegment};
+use crate::footer::FileStatistics;
+use crate::footer::postscript::{Postscript, PostscriptSegment};
 use crate::{DEFAULT_REGISTRY, EOF_SIZE, Footer, MAGIC_BYTES, VERSION};
 
 /// Deserialize a footer from the end of a Vortex file or created from a

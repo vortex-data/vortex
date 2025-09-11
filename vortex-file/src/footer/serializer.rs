@@ -6,7 +6,9 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_layout::LayoutContext;
 
-use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
+use crate::footer::FileStatistics;
+use crate::footer::file_layout::FooterFlatBufferWriter;
+use crate::footer::postscript::{Postscript, PostscriptSegment};
 use crate::{EOF_SIZE, Footer, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 pub struct FooterSerializer {

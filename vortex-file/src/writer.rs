@@ -15,7 +15,6 @@ use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStream, ArrayStreamExt, SendableArrayStream};
 use vortex_buffer::ByteBuffer;
-<<<<<<< HEAD
 use vortex_error::{VortexError, VortexResult, vortex_err};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::{BlockingRuntime, Handle};
@@ -27,20 +26,6 @@ use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStr
 use crate::footer::FileStatistics;
 use crate::segments::writer::BufferedSegmentSink;
 use crate::{Footer, MAGIC_BYTES, WriteStrategyBuilder};
-=======
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
-use vortex_io::kanal_ext::KanalExt;
-use vortex_io::runtime::{BlockingRuntime, Handle};
-use vortex_io::{AsyncWriteAdapter, VortexWrite};
-use vortex_layout::layouts::file_stats::accumulate_stats;
-use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
-use vortex_layout::{LayoutContext, LayoutStrategy};
-
-use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
-use crate::segments::writer::BufferedSegmentSink;
-use crate::{EOF_SIZE, Footer, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, WriteStrategyBuilder};
->>>>>>> develop
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -222,7 +207,6 @@ impl VortexWriteOptions {
             }
 
             let (layout, segment_specs) = layout_fut.await?;
-<<<<<<< HEAD
 
             // Assemble the Footer object now that we have all the segments.
             let footer = Footer::new(
@@ -252,82 +236,6 @@ impl VortexWriteOptions {
             let _ = footer_send.send(footer);
         };
 
-=======
-            let segment_specs: Arc<[_]> = segment_specs.into();
-
-            let dtype_segment = if self.exclude_dtype {
-                None
-            } else {
-                let (buffer, dtype_segment) = write_flatbuffer(&mut position, &dtype)?;
-                yield buffer;
-                Some(dtype_segment)
-            };
-
-            let layout_ctx = LayoutContext::empty();
-            let (buffer, layout_segment) = write_flatbuffer(
-                &mut position,
-                &layout.flatbuffer_writer(&layout_ctx),
-            )?;
-            yield buffer;
-
-            let (statistics_segment, file_statistics) = if self.file_statistics.is_empty() {
-                (None, None)
-            } else {
-                let file_statistics = FileStatistics(file_stats.stats_sets().into());
-                let (buffer, stats_segment) = write_flatbuffer(&mut position, &file_statistics)?;
-                yield buffer;
-                (Some(stats_segment), Some(file_statistics))
-            };
-
-            // Return a Footer object via the oneshot channel.
-            let footer = Footer::new(
-                layout.clone(),
-                segment_specs.clone(),
-                file_statistics,
-            );
-
-            let (buffer, footer_segment) = write_flatbuffer(
-                &mut position,
-                &FooterFlatBufferWriter {
-                    ctx: ctx.clone(),
-                    layout_ctx,
-                    segment_specs,
-                },
-            )?;
-            yield buffer;
-
-            // Assemble the postscript, and write it manually to avoid any framing.
-            let postscript = Postscript {
-                dtype: dtype_segment,
-                layout: layout_segment,
-                statistics: statistics_segment,
-                footer: footer_segment,
-            };
-            let postscript_buffer = postscript.write_flatbuffer_bytes();
-            if postscript_buffer.len() > MAX_FOOTER_SIZE as usize {
-                Err(vortex_err!(
-                    "Postscript is too large ({} bytes); max postscript size is {}",
-                    postscript_buffer.len(),
-                    MAX_FOOTER_SIZE
-                ))?;
-            }
-
-            let postscript_len = u16::try_from(postscript_buffer.len())
-                .vortex_expect("Postscript already verified to fit into u16");
-            yield postscript_buffer.into_inner();
-
-            // And finally, the EOF 8-byte footer.
-            let mut eof = [0u8; EOF_SIZE];
-            eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
-            eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
-            eof[4..8].copy_from_slice(&MAGIC_BYTES);
-            yield ByteBuffer::copy_from(eof);
-
-            // Emit the footer to the caller.
-            let _ = footer_send.send(footer);
-        };
-
->>>>>>> develop
         sink(byte_stream.boxed()).await?;
 
         footer_recv
@@ -336,28 +244,6 @@ impl VortexWriteOptions {
     }
 }
 
-<<<<<<< HEAD
-=======
-fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
-    offset: &mut u64,
-    flatbuffer: &F,
-) -> VortexResult<(ByteBuffer, PostscriptSegment)> {
-    let buffer = flatbuffer.write_flatbuffer_bytes();
-    let length = u32::try_from(buffer.len())
-        .map_err(|_| vortex_err!("flatbuffer length exceeds maximum u32"))?;
-
-    let segment = PostscriptSegment {
-        offset: *offset,
-        length,
-        alignment: FlatBuffer::alignment(),
-    };
-
-    *offset += u64::from(length);
-
-    Ok((buffer.into_inner(), segment))
-}
-
->>>>>>> develop
 /// A blocking API for writing Vortex files.
 pub struct BlockingWriter<B: BlockingRuntime> {
     options: VortexWriteOptions,
