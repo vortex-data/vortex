@@ -77,7 +77,7 @@ fn main() {
     let mut file = std::fs::File::create(&minimal_path).expect("opening Vortex file");
     VortexWriteOptions::default()
         .blocking::<SingleThreadRuntime>()
-        .write(&mut AllowStdIo(file), rows.to_array_iterator())
+        .write(&mut AllowStdIo::new(file), rows.to_array_iterator())
         .expect("writing Vortex file");
 
     println!("Wrote Vortex file to {}", minimal_path.display());

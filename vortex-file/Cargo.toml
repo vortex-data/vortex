@@ -70,7 +70,7 @@ vortex-scan = { workspace = true, features = ["tokio"] }
 workspace = true
 
 [features]
-object_store = ["dep:object_store", "vortex-io/object_store"]
+object_store = ["dep:object_store", "vortex-io/object_store", "tokio"]
 tokio = [
     "dep:tokio",
     "vortex-error/tokio",
