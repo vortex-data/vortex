@@ -6,6 +6,7 @@ use std::iter;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use futures::io::AllowStdIo;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
@@ -1189,9 +1190,8 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, st.to_array_iterator())
-        .unwrap();
+        .write(AllowStdIo::new(&mut buf), st.to_array_stream())
+        .await?;
 
     let file = VortexOpenOptions::in_memory().open(buf)?;
     let stream = file.scan().unwrap().into_tokio_array_stream()?;

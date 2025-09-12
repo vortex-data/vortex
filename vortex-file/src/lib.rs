@@ -105,6 +105,7 @@ mod strategy;
 #[cfg(test)]
 mod tests;
 mod writer;
+mod counting;
 
 use std::sync::{Arc, LazyLock};
 

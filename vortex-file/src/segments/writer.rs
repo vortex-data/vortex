@@ -14,13 +14,13 @@ use vortex_layout::sequence::SequenceId;
 use crate::footer::SegmentSpec;
 
 pub struct BufferedSegmentSink {
-    buffers: kanal::AsyncSender<VortexResult<ByteBuffer>>,
+    buffers: kanal::AsyncSender<ByteBuffer>,
     byte_offset: AtomicU64,
     segment_specs: Mutex<Vec<SegmentSpec>>,
 }
 
 impl BufferedSegmentSink {
-    pub fn new(send: kanal::AsyncSender<VortexResult<ByteBuffer>>, byte_offset: u64) -> Self {
+    pub fn new(send: kanal::AsyncSender<ByteBuffer>, byte_offset: u64) -> Self {
         Self {
             buffers: send,
             byte_offset: AtomicU64::new(byte_offset),
@@ -29,11 +29,9 @@ impl BufferedSegmentSink {
     }
 
     /// Close the sink, returning the segment specs and the final byte offset.
-    pub fn close(self) -> (Arc<[SegmentSpec]>, u64) {
+    pub fn segment_specs(&self) -> Arc<[SegmentSpec]> {
         let specs = self.segment_specs.lock();
-        let specs = Arc::from(specs.clone());
-        let byte_offset = self.byte_offset.load(Ordering::Relaxed);
-        (specs, byte_offset)
+        specs.clone().into()
     }
 }
 
@@ -88,10 +86,10 @@ impl SegmentSink for BufferedSegmentSink {
         };
 
         if let Some(padding) = padding_bufer {
-            let _ = self.buffers.send(Ok(padding)).await;
+            let _ = self.buffers.send(padding).await;
         }
         for buffer in buffers {
-            let _ = self.buffers.send(Ok(buffer)).await;
+            let _ = self.buffers.send(buffer).await;
         }
 
         Ok(segment_id)
