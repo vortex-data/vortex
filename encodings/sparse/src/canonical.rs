@@ -436,9 +436,12 @@ fn canonicalize_sparse_struct(
     len: usize,
 ) -> Canonical {
     let (fill_values, top_level_fill_validity) = match fill_struct.fields() {
-        Some(fill_values) => (fill_values, Validity::AllValid),
+        Some(fill_values) => (fill_values.collect::<Vec<_>>(), Validity::AllValid),
         None => (
-            struct_fields.fields().map(Scalar::default_value).collect(),
+            struct_fields
+                .fields()
+                .map(Scalar::default_value)
+                .collect::<Vec<_>>(),
             Validity::AllInvalid,
         ),
     };

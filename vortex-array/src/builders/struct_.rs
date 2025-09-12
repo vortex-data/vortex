@@ -279,6 +279,7 @@ mod tests {
         let scalar0 = array.scalar_at(0);
         let struct0 = scalar0.as_struct();
         if let Some(fields0) = struct0.fields() {
+            let fields0 = fields0.collect::<Vec<_>>();
             assert_eq!(fields0[0].as_primitive().typed_value::<i32>(), Some(42));
             assert_eq!(fields0[1].as_utf8().value().as_deref(), Some("hello"));
         }
@@ -286,6 +287,7 @@ mod tests {
         let scalar1 = array.scalar_at(1);
         let struct1 = scalar1.as_struct();
         if let Some(fields1) = struct1.fields() {
+            let fields1 = fields1.collect::<Vec<_>>();
             assert_eq!(fields1[0].as_primitive().typed_value::<i32>(), Some(84));
             assert_eq!(fields1[1].as_utf8().value().as_deref(), Some("world"));
         }

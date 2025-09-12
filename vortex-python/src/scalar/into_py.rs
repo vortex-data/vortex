@@ -89,8 +89,8 @@ impl<'py> IntoPyObject<'py> for PyVortex<StructScalar<'_>> {
         };
 
         let dict = PyDict::new(py);
-        for (child, name) in fields.iter().zip(self.0.names().iter()) {
-            dict.set_item(name.to_string(), PyVortex(child).into_pyobject(py)?)
+        for (child, name) in fields.zip(self.0.names().iter()) {
+            dict.set_item(name.to_string(), PyVortex(&child).into_pyobject(py)?)
                 .map_err(|e| vortex_err!("Failed to set item in dictionary {}", e))
                 .vortex_expect("Failed to set item in dictionary");
         }

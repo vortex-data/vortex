@@ -199,7 +199,7 @@ mod tests {
         );
 
         let struct_scalar = scalar.as_struct();
-        let fields = struct_scalar.fields().unwrap();
+        let fields = struct_scalar.fields().unwrap().collect::<Vec<_>>();
 
         // Check first field (no coercion needed)
         assert_eq!(fields[0].as_primitive().pvalue().unwrap(), PValue::U32(42));
@@ -349,7 +349,8 @@ mod tests {
             .storage()
             .as_struct()
             .fields()
-            .vortex_expect("non null");
+            .vortex_expect("non null")
+            .collect::<Vec<_>>();
         assert_eq!(
             list_elems[0].as_primitive().pvalue().unwrap(),
             PValue::U32(123)
