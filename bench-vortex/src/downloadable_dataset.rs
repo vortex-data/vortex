@@ -19,11 +19,11 @@ use crate::{IdempotentPath, idempotent_async};
 /// Twitter, CMS, and CalHousing are all TSVs, some compressed, so need some pre-processing
 ///
 /// - Taxi. Already in datasets/taxi_data.rs.
-/// - California Housing https://www.dcc.fc.up.pt/~ltorgo/Regression/cal_housing.html
-/// - CMS payments https://openpaymentsdata.cms.gov/dataset/fb3a65aa-c901-4a38-a813-b04b00dfa2a9
-/// - Twitter https://snap.stanford.edu/data/ego-Twitter.html
-/// - r/place data https://pcodec-public.s3.amazonaws.com/reddit_2022_place_numerical.parquet (https://github.com/pcodec/pcodec/blob/main/docs/benchmark_results.md)
-/// - AirQuality https://pcodec-public.s3.amazonaws.com/devinrsmith-air-quality.20220714.zstd.parquet
+/// - California Housing <https://www.dcc.fc.up.pt/~ltorgo/Regression/cal_housing.html>.
+/// - CMS payments <https://openpaymentsdata.cms.gov/dataset/fb3a65aa-c901-4a38-a813-b04b00dfa2a9>.
+/// - Twitter <https://snap.stanford.edu/data/ego-Twitter.html>.
+/// - r/place data <https://pcodec-public.s3.amazonaws.com/reddit_2022_place_numerical.parquet> (<https://github.com/pcodec/pcodec/blob/main/docs/benchmark_results.md>).
+/// - AirQuality <https://pcodec-public.s3.amazonaws.com/devinrsmith-air-quality.20220714.zstd.parquet>.
 pub enum DownloadableDataset {
     RPlace,
     AirQuality,
