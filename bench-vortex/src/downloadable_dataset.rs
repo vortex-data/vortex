@@ -58,7 +58,7 @@ impl Dataset for DownloadableDataset {
         download_data(parquet.clone(), self.parquet_url()).await?;
         idempotent_async(&vortex, async |path| -> anyhow::Result<()> {
             VortexWriteOptions::default()
-                .write_tokio(
+                .write(
                     &mut File::create(path)
                         .await
                         .map_err(|e| anyhow::anyhow!("Failed to create file: {}", e))?,
