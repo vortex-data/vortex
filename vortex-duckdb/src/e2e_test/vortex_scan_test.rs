@@ -14,7 +14,10 @@ use jiff::{Span, Timestamp, Zoned, tz};
 use num_traits::AsPrimitive;
 use tempfile::NamedTempFile;
 use vortex::IntoArray;
-use vortex::arrays::{BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray};
+use vortex::arrays::{
+    BoolArray, ConstantArray, FixedSizeListArray, ListArray, PrimitiveArray, StructArray,
+    VarBinArray, VarBinViewArray,
+};
 use vortex::buffer::buffer;
 use vortex::file::VortexWriteOptions;
 use vortex::scalar::Scalar;
@@ -385,4 +388,162 @@ fn test_write_timestamps() {
             .to_zoned(TimeZone::fixed(tz::offset(-7))),
         Zoned::from_str("2025-05-03 16:19:14.338895-07[-07]").unwrap()
     );
+}
+
+#[test]
+fn test_vortex_scan_nested_fixed_size_list_utf8() {
+    // Regression test for a segfault that occurs inside query 7 and 8 of the `statpopgen` benchmark
+    // when running with `FixedSizeList` instead of `List`.
+
+    // Test FixedSizeList of Utf8 to ensure proper materialization.
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        // Create a large number of strings to stress test.
+        let strings: Vec<&str> = (0..24)
+            .map(|i| match i % 6 {
+                0 => "first",
+                1 => "second",
+                2 => "third",
+                3 => "fourth",
+                4 => "fifth",
+                _ => "sixth",
+            })
+            .collect();
+
+        let strings_array = VarBinViewArray::from_iter_str(strings);
+
+        // Create inner fixed-size lists.
+        let inner_fsl = FixedSizeListArray::new(
+            strings_array.into_array(),
+            4, // 4 strings per inner list
+            Validity::AllValid,
+            6, // 6 inner lists
+        );
+
+        // Create outer fixed-size list of lists.
+        let outer_fsl = FixedSizeListArray::new(
+            inner_fsl.into_array(),
+            3, // 3 inner lists per outer list
+            Validity::AllValid,
+            2, // 2 outer lists
+        );
+
+        write_single_column_vortex_file("nested_string_lists", outer_fsl).await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+
+    // Query the nested structure.
+    let result = conn
+        .query(&format!(
+            "SELECT nested_string_lists FROM vortex_scan('{file_path}')"
+        ))
+        .unwrap();
+
+    let mut row_count = 0;
+    for chunk in result {
+        row_count += chunk.len();
+        // Accessing the nested structure should not cause a segfault.
+        let _vec = chunk.get_vector(0);
+    }
+    assert_eq!(row_count, 2, "Should have retrieved 2 outer lists");
+}
+
+#[test]
+fn test_vortex_scan_ultra_deep_nesting() {
+    // Test ultra-deep nesting: Multiple levels of FSL and List combinations with UTF8.
+    // FSL[List[FSL[List[FSL[UTF8]]]]]
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        // Level 1: Create base UTF8 strings - need a lot for deep nesting.
+        let strings = VarBinViewArray::from_iter_str(
+            (0..360)
+                .map(|i| match i % 10 {
+                    0 => "zero",
+                    1 => "one",
+                    2 => "two",
+                    3 => "three",
+                    4 => "four",
+                    5 => "five",
+                    6 => "six",
+                    7 => "seven",
+                    8 => "eight",
+                    _ => "nine",
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        // Level 2: Inner-most FixedSizeList of strings.
+        let level2_fsl = FixedSizeListArray::new(
+            strings.into_array(),
+            5, // 5 strings per list
+            Validity::AllValid,
+            72, // 72 lists at this level
+        );
+
+        // Level 3: Variable-length lists of level 2 FSLs.
+        let level3_offsets = buffer![0i32, 3, 6, 8, 12, 15, 18, 20, 24, 27, 30, 32, 36];
+        let level3_list = ListArray::try_new(
+            level2_fsl.into_array(),
+            level3_offsets.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        // Level 4: FixedSizeList of level 3 lists.
+        let level4_fsl = FixedSizeListArray::new(
+            level3_list.into_array(),
+            3, // 3 variable lists per FSL
+            Validity::AllValid,
+            4, // 4 FSLs at this level
+        );
+
+        // Level 5: Variable-length lists of level 4 FSLs.
+        let level5_offsets = buffer![0i32, 2, 4];
+        let level5_list = ListArray::try_new(
+            level4_fsl.into_array(),
+            level5_offsets.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        // Level 6: Outermost FixedSizeList.
+        let outermost_fsl = FixedSizeListArray::new(
+            level5_list.into_array(),
+            2, // 2 lists per outermost FSL
+            Validity::AllValid,
+            1, // 1 outermost FSL
+        );
+
+        write_single_column_vortex_file("ultra_deep", outermost_fsl).await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+
+    // Query the ultra-deep nested structure.
+    let result = conn
+        .query(&format!("SELECT COUNT(*) FROM vortex_scan('{file_path}')"))
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let count = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
+    assert_eq!(count, 1, "Should have 1 outermost list");
+
+    // Try to access the data - this is the critical test for segfaults.
+    let result = conn
+        .query(&format!(
+            "SELECT ultra_deep FROM vortex_scan('{file_path}')"
+        ))
+        .unwrap();
+
+    let mut row_count = 0;
+    for chunk in result {
+        row_count += chunk.len();
+        let _vec = chunk.get_vector(0);
+    }
+    assert_eq!(row_count, 1, "Should have retrieved 1 row");
 }

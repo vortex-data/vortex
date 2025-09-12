@@ -54,25 +54,27 @@ impl ColumnExporter for FixedSizeListExporter {
             self.validity.len()
         );
 
-        // Set validity if necessary.
-        // SAFETY: We've asserted that offset + len <= self.validity.len(), which ensures
-        // we won't read past the validity mask bounds.
-        if unsafe { vector.set_validity(&self.validity, offset, len) } {
-            // All values are null, so no point copying the data.
-            return Ok(());
-        }
+        let list_size = self.list_size as usize;
 
-        // Get the child vector for array elements.
+        // SAFETY: We've asserted that offset + len <= self.validity.len(), which ensures we won't
+        // read past the validity mask bounds.
+        unsafe { vector.set_validity(&self.validity, offset, len) };
+
+        // TODO(connor): It may be possible to early return here if the null map is completely null,
+        // similar to how `List` does it.
+
+        // Get the child vector for array elements and export the elements directly.
         let mut elements_vector = vector.array_vector_get_child();
-
-        // Export elements directly.
-        // For fixed-size lists: elements start at offset * list_size
-        // and we export len * list_size elements.
-        let element_offset = offset * self.list_size as usize;
-        let element_count = len * self.list_size as usize;
-
         self.elements_exporter
-            .export(element_offset, element_count, &mut elements_vector)
+            .export(offset * list_size, len * list_size, &mut elements_vector)?;
+
+        // CRITICAL: We must flatten the child vector to ensure any child views (namely UTF-8 string
+        // views) are materialized.
+        // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825 for a
+        // detailed explanation on why we need this.
+        elements_vector.flatten((len * list_size) as u64);
+
+        Ok(())
     }
 }
 

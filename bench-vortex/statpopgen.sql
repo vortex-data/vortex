@@ -18,7 +18,7 @@ SELECT "CHROM", "POS", "REF", "ALT", CAST(LIST_SUM(GT) AS DOUBLE) / (2 * LIST_SU
 SELECT "CHROM", "POS", "REF", "ALT", LIST_SUM(LIST_TRANSFORM(GT, lambda GT: GT IS NOT NULL)) AS n_called FROM statpopgen;
 -- 6.
 --
--- Collect the necessary statistics for a Hardy-Weinberg Equalibrium test. The
+-- Collect the necessary statistics for a Hardy-Weinberg Equilibrium test. The
 -- actual test involves the Levene-Haldane distribution which is somewhat subtle
 -- to implement in SQL.
 SELECT "CHROM", "POS", "REF", "ALT",
