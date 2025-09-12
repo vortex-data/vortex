@@ -206,23 +206,23 @@ mod test {
     fn filter_chunked_floats() {
         let chunked = ChunkedArray::try_new(
             vec![
-                PrimitiveArray::from_iter([f16::from_f32(0.1463623)]).to_array(),
-                PrimitiveArray::from_iter([
+                buffer![f16::from_f32(0.1463623)].into_array(),
+                buffer![
                     f16::NAN,
                     f16::from_f32(0.24987793),
                     f16::from_f32(0.22497559),
                     f16::from_f32(0.22497559),
                     f16::from_f32(-36160.0),
-                ])
-                .to_array(),
-                PrimitiveArray::from_iter([
+                ]
+                .into_array(),
+                buffer![
                     f16::NAN,
                     f16::NAN,
                     f16::from_f32(0.22497559),
                     f16::from_f32(0.22497559),
                     f16::from_f32(3174.0),
-                ])
-                .to_array(),
+                ]
+                .into_array(),
             ],
             DType::Primitive(PType::F16, Nullability::NonNullable),
         )

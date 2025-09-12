@@ -81,11 +81,12 @@ impl VTable for ListVTable {
 /// use vortex_array::arrays::{ListArray, PrimitiveArray};
 /// use vortex_array::validity::Validity;
 /// use vortex_array::IntoArray;
+/// use vortex_buffer::buffer;
 /// use std::sync::Arc;
 ///
 /// // Create a list array representing [[1, 2], [3, 4, 5], []]
-/// let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-/// let offsets = PrimitiveArray::from_iter([0u32, 2, 5, 5]); // 3 lists
+/// let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+/// let offsets = buffer![0u32, 2, 5, 5].into_array(); // 3 lists
 ///
 /// let list_array = ListArray::try_new(
 ///     elements.into_array(),

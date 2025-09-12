@@ -130,7 +130,7 @@ test_fail_case!(
 // We test Timestamp explicitly to avoid the macro getting too complex.
 #[test]
 fn test_timestamp() {
-    let ts = PrimitiveArray::from_iter([100i64]);
+    let ts = buffer![100i64].into_array();
     let ts_array = ts.into_array();
 
     for unit in [
@@ -156,7 +156,7 @@ fn test_timestamp() {
 #[test]
 #[should_panic]
 fn test_timestamp_fails_i32() {
-    let ts = PrimitiveArray::from_iter([100i32]);
+    let ts = buffer![100i32].into_array();
     let ts_array = ts.into_array();
 
     let _ = TemporalArray::new_timestamp(ts_array, TimeUnit::Seconds, None);

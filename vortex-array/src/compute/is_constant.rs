@@ -286,18 +286,21 @@ impl IsConstantOpts {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
+
+    use crate::IntoArray as _;
     use crate::arrays::PrimitiveArray;
     use crate::stats::Stat;
 
     #[test]
     fn is_constant_min_max_no_nan() {
-        let arr = PrimitiveArray::from_iter([0, 1]);
+        let arr = buffer![0, 1].into_array();
         arr.statistics()
             .compute_all(&[Stat::Min, Stat::Max])
             .unwrap();
         assert!(!arr.is_constant());
 
-        let arr = PrimitiveArray::from_iter([0, 0]);
+        let arr = buffer![0, 0].into_array();
         arr.statistics()
             .compute_all(&[Stat::Min, Stat::Max])
             .unwrap();

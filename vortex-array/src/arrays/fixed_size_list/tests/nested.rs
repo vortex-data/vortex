@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use vortex_buffer::buffer;
 use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
 use vortex_scalar::Scalar;
 
@@ -23,7 +24,7 @@ fn test_fsl_of_fsl_basic() {
 
     // Create inner FSLs: [[1,2], [3,4], [5,6]], [[7,8], [9,10], [11,12]].
     // This needs 12 primitive elements total.
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array();
 
     // First create the inner FSL array containing all inner lists.
     let inner_fsl = FixedSizeListArray::new(
@@ -160,7 +161,7 @@ fn test_deeply_nested_fsl() {
     let list_size = 2;
 
     // Create a 3-level nested FSL: FSL[FSL[FSL[i32]]].
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8]);
+    let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
 
     // Level 1: FSL of i32.
     let level1 =
@@ -377,12 +378,12 @@ fn test_fsl_of_struct() {
     );
 
     // Create struct arrays for the FSL.
-    let a_values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
-    let b_values = PrimitiveArray::from_iter([1.1f64, 2.2, 3.3, 4.4, 5.5, 6.6]);
+    let a_values = buffer![1i32, 2, 3, 4, 5, 6].into_array();
+    let b_values = buffer![1.1f64, 2.2, 3.3, 4.4, 5.5, 6.6].into_array();
 
     let struct_array = StructArray::try_new(
         struct_fields.names().clone(),
-        vec![a_values.into_array(), b_values.into_array()],
+        vec![a_values, b_values],
         fsl_len * fsl_size as usize,
         Validity::NonNullable,
     )
@@ -422,8 +423,8 @@ fn test_fsl_of_nullable_struct() {
     );
 
     // Create struct arrays with some null structs.
-    let x_values = PrimitiveArray::from_iter([10u32, 20, 30, 40, 50, 60]);
-    let y_values = PrimitiveArray::from_iter([1u16, 2, 3, 4, 5, 6]);
+    let x_values = buffer![10u32, 20, 30, 40, 50, 60].into_array();
+    let y_values = buffer![1u16, 2, 3, 4, 5, 6].into_array();
 
     let struct_validity = Validity::from_iter([true, false, true, true, false, true]);
     let struct_array = StructArray::try_new(
@@ -484,11 +485,11 @@ fn test_fsl_with_empty_struct() {
 #[test]
 fn test_struct_of_fsl() {
     // Create a struct containing FSL fields.
-    let fsl1_elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
-    let fsl1 = FixedSizeListArray::new(fsl1_elements.into_array(), 2, Validity::NonNullable, 3);
+    let fsl1_elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
+    let fsl1 = FixedSizeListArray::new(fsl1_elements, 2, Validity::NonNullable, 3);
 
-    let fsl2_elements = PrimitiveArray::from_iter([1.1f64, 2.2, 3.3, 4.4, 5.5, 6.6]);
-    let fsl2 = FixedSizeListArray::new(fsl2_elements.into_array(), 2, Validity::NonNullable, 3);
+    let fsl2_elements = buffer![1.1f64, 2.2, 3.3, 4.4, 5.5, 6.6].into_array();
+    let fsl2 = FixedSizeListArray::new(fsl2_elements, 2, Validity::NonNullable, 3);
 
     let struct_fields = StructFields::new(
         FieldNames::from(["int_lists", "float_lists"].as_slice()),

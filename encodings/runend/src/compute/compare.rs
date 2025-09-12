@@ -44,17 +44,15 @@ register_kernel!(CompareKernelAdapter(RunEndVTable).lift());
 
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::{BooleanBuffer, ConstantArray, PrimitiveArray};
+    use vortex_array::arrays::{BooleanBuffer, ConstantArray};
     use vortex_array::compute::{Operator, compare};
     use vortex_array::{IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
 
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
-        RunEndArray::encode(
-            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
-        )
-        .unwrap()
+        RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array()).unwrap()
     }
 
     #[test]

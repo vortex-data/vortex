@@ -45,27 +45,28 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
+    use vortex_buffer::buffer;
 
     use crate::RunEndArray;
 
     #[rstest]
     #[case::runend_i32_basic(RunEndArray::encode(
-        PrimitiveArray::from_iter([10i32, 10, 10, 20, 20, 30, 30, 30, 30]).into_array()
+        buffer![10i32, 10, 10, 20, 20, 30, 30, 30, 30].into_array()
     ).unwrap())]
     #[case::runend_u32_basic(RunEndArray::encode(
-        PrimitiveArray::from_iter([100u32, 100, 200, 200, 200]).into_array()
+        buffer![100u32, 100, 200, 200, 200].into_array()
     ).unwrap())]
     #[case::runend_i64_basic(RunEndArray::encode(
-        PrimitiveArray::from_iter([1000i64, 1000, 2000, 2000, 3000, 3000]).into_array()
+        buffer![1000i64, 1000, 2000, 2000, 3000, 3000].into_array()
     ).unwrap())]
     #[case::runend_u64_basic(RunEndArray::encode(
-        PrimitiveArray::from_iter([5000u64, 5000, 5000, 6000, 6000]).into_array()
+        buffer![5000u64, 5000, 5000, 6000, 6000].into_array()
     ).unwrap())]
     #[case::runend_f32_basic(RunEndArray::encode(
-        PrimitiveArray::from_iter([1.5f32, 1.5, 2.5, 2.5, 3.5]).into_array()
+        buffer![1.5f32, 1.5, 2.5, 2.5, 3.5].into_array()
     ).unwrap())]
     #[case::runend_f64_basic(RunEndArray::encode(
-        PrimitiveArray::from_iter([10.1f64, 10.1, 20.2, 20.2, 20.2]).into_array()
+        buffer![10.1f64, 10.1, 20.2, 20.2, 20.2].into_array()
     ).unwrap())]
     #[case::runend_i32_large(RunEndArray::encode(
         PrimitiveArray::from_iter((0..100).map(|i| i / 5)).into_array()

@@ -22,6 +22,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
 
     use crate::DecimalBytePartsArray;
@@ -29,7 +30,7 @@ mod test {
     #[test]
     fn test_filter_decimal_byte_parts() {
         // Create test data with 5 signed integer values
-        let msp = PrimitiveArray::from_iter([100i32, 200, 300, 400, 500]).into_array();
+        let msp = buffer![100i32, 200, 300, 400, 500].into_array();
 
         let decimal_dtype = DecimalDType::new(8, 2);
         let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();

@@ -39,13 +39,14 @@ register_kernel!(CompareKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::Buffer;
+
     use super::*;
     use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
 
     #[test]
     fn empty_compare() {
-        let base = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
+        let base = Buffer::<u32>::empty().into_array();
         let chunked =
             ChunkedArray::try_new(vec![base.clone(), base.clone()], base.dtype().clone()).unwrap();
         let chunked_empty = ChunkedArray::try_new(vec![], base.dtype().clone()).unwrap();

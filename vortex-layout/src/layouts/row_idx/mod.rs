@@ -252,9 +252,9 @@ mod tests {
 
     use arrow_buffer::BooleanBuffer;
     use itertools::Itertools;
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::pipeline::operators::MaskFuture;
-    use vortex_array::{ArrayContext, ToCanonical};
+    use vortex_array::{ArrayContext, IntoArray as _, ToCanonical};
+    use vortex_buffer::buffer;
     use vortex_expr::{eq, gt, lit, or, root};
     use vortex_io::runtime::single::block_on;
 
@@ -270,7 +270,7 @@ mod tests {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::from_iter(1..=5).to_array();
+            let array = buffer![1..=5].into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
@@ -308,7 +308,7 @@ mod tests {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::from_iter(1..=5).to_array();
+            let array = buffer![1..=5].into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
@@ -346,7 +346,7 @@ mod tests {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::from_iter(1..=5).to_array();
+            let array = buffer![1..=5].into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,

@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_scalar::Scalar;
 
@@ -274,7 +275,7 @@ fn test_fsl_size_0_validation() {
     // Should fail: non-empty elements array with list_size = 0.
     {
         let len = 1;
-        let elements = PrimitiveArray::from_iter([1i32]);
+        let elements = buffer![1i32].into_array();
         let result = FixedSizeListArray::try_new(
             elements.into_array(),
             list_size,

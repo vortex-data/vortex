@@ -144,7 +144,8 @@ where
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{Array, ToCanonical};
+    use vortex_array::{Array, IntoArray as _, ToCanonical};
+    use vortex_buffer::buffer;
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
@@ -152,7 +153,7 @@ mod test {
 
     #[test]
     fn encode_primitive() {
-        let arr = PrimitiveArray::from_iter([1, 1, 3, 3, 3]);
+        let arr = buffer![1, 1, 3, 3, 3].into_array();
         let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
             dict.codes().to_primitive().as_slice::<u8>(),

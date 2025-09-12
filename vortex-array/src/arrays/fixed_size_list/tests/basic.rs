@@ -3,10 +3,11 @@
 
 use std::sync::Arc;
 
+use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{FixedSizeListArray, PrimitiveArray};
+use crate::arrays::FixedSizeListArray;
 use crate::validity::Validity;
 use crate::{Array, IntoArray};
 
@@ -16,7 +17,7 @@ fn test_basic_fixed_size_list() {
     let list_size = 3;
 
     // Create a FSL of size 3 with 4 lists: [[1,2,3], [4,5,6], [7,8,9], [10,11,12]].
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), list_size, Validity::NonNullable, len);
 
     assert_eq!(fsl.len(), len);
@@ -57,7 +58,7 @@ fn test_scalar_at() {
     let len = 2;
     let list_size = 3;
 
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
+    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), list_size, Validity::NonNullable, len);
 
     // First list: [1, 2, 3].
@@ -100,8 +101,8 @@ fn test_fixed_size_list_at() {
     let len = 3;
     let list_size = 2;
 
-    let elements = PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0]);
-    let fsl = FixedSizeListArray::new(elements.into_array(), list_size, Validity::AllValid, len);
+    let elements = buffer![1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0].into_array();
+    let fsl = FixedSizeListArray::new(elements, list_size, Validity::AllValid, len);
 
     // Get the first list [1.0, 2.0].
     let first_list = fsl.fixed_size_list_at(0);
@@ -122,7 +123,7 @@ fn test_validation_error_length_mismatch() {
     let list_size = 3;
 
     // Elements length is not a multiple of list_size.
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let result = FixedSizeListArray::try_new(
         elements.into_array(),
         list_size, // List size is 3, but we have 5 elements (not enough for 2 complete lists).
@@ -140,7 +141,7 @@ fn test_validation_error_validity_length() {
     let len = 3;
     let list_size = 2;
 
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
+    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
 
     // Create a validity array with wrong length.
     let validity = Validity::from_iter([true, false]); // Length 2.

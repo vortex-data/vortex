@@ -22,22 +22,22 @@ mod tests {
     #[rstest]
     // Basic datetime arrays
     #[case::datetime_seconds(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
-        PrimitiveArray::from_iter([0i64, 86400, 172800, 259200, 345600]).into_array(),
+        buffer![0i64, 86400, 172800, 259200, 345600].into_array(),
         TimeUnit::Seconds,
         Some("UTC".to_string()),
     )).unwrap())]
     #[case::datetime_millis(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
-        PrimitiveArray::from_iter([0i64, 86400000, 172800000]).into_array(),
+        buffer![0i64, 86400000, 172800000].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".to_string()),
     )).unwrap())]
     #[case::datetime_micros(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
-        PrimitiveArray::from_iter([0i64, 86400000000, 172800000000]).into_array(),
+        buffer![0i64, 86400000000, 172800000000].into_array(),
         TimeUnit::Microseconds,
         Some("UTC".to_string()),
     )).unwrap())]
     #[case::datetime_nanos(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
-        PrimitiveArray::from_iter([0i64, 86400000000000]).into_array(),
+        buffer![0i64, 86400000000000].into_array(),
         TimeUnit::Nanoseconds,
         Some("UTC".to_string()),
     )).unwrap())]
@@ -61,7 +61,7 @@ mod tests {
     )).unwrap())]
     // Different time patterns
     #[case::datetime_with_subseconds(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
-        PrimitiveArray::from_iter([123456789i64, 234567890, 345678901, 456789012, 567890123]).into_array(),
+        buffer![123456789i64, 234567890, 345678901, 456789012, 567890123].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".to_string()),
     )).unwrap())]

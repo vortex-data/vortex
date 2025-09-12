@@ -192,7 +192,7 @@ impl AnalysisExpr for GetItemExpr {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{PrimitiveArray, StructArray};
+    use vortex_array::arrays::StructArray;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
@@ -230,7 +230,7 @@ mod tests {
     fn get_nullable_field() {
         let st = StructArray::try_new(
             FieldNames::from(["a"]),
-            vec![PrimitiveArray::from_iter([1i32]).to_array()],
+            vec![buffer![1i32].into_array()],
             1,
             Validity::AllInvalid,
         )

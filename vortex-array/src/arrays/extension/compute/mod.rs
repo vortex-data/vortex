@@ -120,6 +120,7 @@ mod test {
     use std::sync::Arc;
 
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType};
 
     use crate::IntoArray;
@@ -137,7 +138,7 @@ mod test {
         );
 
         // Create storage array
-        let storage = PrimitiveArray::from_iter([1u64, 2, 3, 4, 5]).into_array();
+        let storage = buffer![1u64, 2, 3, 4, 5].into_array();
         let array = ExtensionArray::new(Arc::new(ext_dtype), storage);
         test_filter_conformance(array.as_ref());
 
@@ -156,7 +157,7 @@ mod test {
     #[rstest]
     #[case({
         // Simple extension type (non-nullable u64)
-        let storage = PrimitiveArray::from_iter([1u64, 2, 3, 4, 5]).into_array();
+        let storage = buffer![1u64, 2, 3, 4, 5].into_array();
         let ext_dtype = ExtDType::new(
             ExtID::new("uuid".into()),
             Arc::new(storage.dtype().clone()),
@@ -177,7 +178,7 @@ mod test {
     })]
     #[case({
         // Single element
-        let storage = PrimitiveArray::from_iter([42u64]).into_array();
+        let storage = buffer![42u64].into_array();
         let ext_dtype_single = ExtDType::new(
             ExtID::new("uuid".into()),
             Arc::new(storage.dtype().clone()),
@@ -187,7 +188,7 @@ mod test {
     })]
     #[case({
         // Larger array for edge cases
-        let storage = PrimitiveArray::from_iter(0u64..100).into_array();
+        let storage = buffer![0u64..100].into_array();
         let ext_dtype_large = ExtDType::new(
             ExtID::new("uuid".into()),
             Arc::new(storage.dtype().clone()),
@@ -205,6 +206,7 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_dtype::{ExtDType, ExtID};
 
     use crate::IntoArray;
@@ -215,7 +217,7 @@ mod tests {
     // Note: The original test_all_consistency cases for extension arrays caused errors
     // because of unsupported extension type "uuid". We'll use simpler test cases.
     #[case::extension_simple({
-        let storage = PrimitiveArray::from_iter([1u64, 2, 3, 4, 5]).into_array();
+        let storage = buffer![1u64, 2, 3, 4, 5].into_array();
         let ext_dtype = ExtDType::new(
             ExtID::new("test_ext".into()),
             Arc::new(storage.dtype().clone()),
@@ -235,7 +237,7 @@ mod tests {
     })]
     // Additional test cases
     #[case::extension_single({
-        let storage = PrimitiveArray::from_iter([42i32]).into_array();
+        let storage = buffer![42i32].into_array();
         let ext_dtype = ExtDType::new(
             ExtID::new("test_ext".into()),
             Arc::new(storage.dtype().clone()),
@@ -244,7 +246,7 @@ mod tests {
         ExtensionArray::new(Arc::new(ext_dtype), storage)
     })]
     #[case::extension_large({
-        let storage = PrimitiveArray::from_iter(0..100i64).into_array();
+        let storage = buffer![0..100i64].into_array();
         let ext_dtype = ExtDType::new(
             ExtID::new("test_ext".into()),
             Arc::new(storage.dtype().clone()),

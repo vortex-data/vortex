@@ -154,15 +154,15 @@ impl Iterator for ArrayIteratorIPCBytes {
 mod test {
     use std::io::Cursor;
 
-    use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
+    use vortex_array::{IntoArray as _, ToCanonical};
+    use vortex_buffer::buffer;
 
     use super::*;
 
     #[test]
     fn test_sync_stream() {
-        let array = PrimitiveArray::from_iter([1i32, 2, 3]);
+        let array = buffer![1i32, 2, 3].into_array();
         let ipc_buffer = array
             .to_array_iterator()
             .into_ipc()
@@ -175,6 +175,9 @@ mod test {
 
         assert_eq!(reader.dtype(), array.dtype());
         let result = reader.read_all().unwrap().to_primitive();
-        assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
+        assert_eq!(
+            array.to_primitive().as_slice::<i32>(),
+            result.as_slice::<i32>()
+        );
     }
 }

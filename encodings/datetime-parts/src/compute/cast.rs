@@ -108,13 +108,13 @@ mod tests {
 
     #[rstest]
     #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
-        PrimitiveArray::from_iter([
+        buffer![
             0i64,
             86_400_000,  // 1 day in ms
             172_800_000, // 2 days in ms
             259_200_000, // 3 days in ms
             345_600_000, // 4 days in ms
-        ]).into_array(),
+        ].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".to_string())
     )).unwrap())]
@@ -130,7 +130,7 @@ mod tests {
         Some("UTC".to_string())
     )).unwrap())]
     #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
-        PrimitiveArray::from_iter([86_400_000_000_000i64]).into_array(), // 1 day in ns
+        buffer![86_400_000_000_000i64].into_array(), // 1 day in ns
         TimeUnit::Nanoseconds,
         Some("UTC".to_string())
     )).unwrap())]

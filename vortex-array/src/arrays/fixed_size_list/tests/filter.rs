@@ -3,6 +3,7 @@
 
 use arrow_buffer::BooleanBuffer;
 use rstest::rstest;
+use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_mask::Mask;
 
@@ -16,7 +17,7 @@ use crate::{Array, ArrayRef, IntoArray};
 
 #[test]
 fn test_filter_all_true() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
+    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     let mask = Mask::from(BooleanBuffer::from(vec![true, true, true]));
@@ -35,7 +36,7 @@ fn test_filter_all_true() {
 
 #[test]
 fn test_filter_all_false() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
+    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     let mask = Mask::from(BooleanBuffer::from(vec![false, false, false]));
@@ -49,7 +50,7 @@ fn test_filter_all_false() {
 
 #[test]
 fn test_filter_alternating() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8]);
+    let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 4);
 
     let mask = Mask::from(BooleanBuffer::from(vec![true, false, true, false]));
@@ -73,8 +74,8 @@ fn test_filter_alternating() {
 
 #[test]
 fn test_filter_selective() {
-    let elements = PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
-    let fsl = FixedSizeListArray::new(elements.into_array(), 3, Validity::NonNullable, 3);
+    let elements = buffer![1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0].into_array();
+    let fsl = FixedSizeListArray::new(elements, 3, Validity::NonNullable, 3);
 
     let mask = Mask::from(BooleanBuffer::from(vec![false, true, true]));
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
@@ -113,7 +114,7 @@ fn test_filter_empty_array() {
 
 #[test]
 fn test_filter_single_element() {
-    let elements = PrimitiveArray::from_iter([42i32, 43, 44]);
+    let elements = buffer![42i32, 43, 44].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 3, Validity::NonNullable, 1);
 
     // Keep the single element.
@@ -234,7 +235,7 @@ fn test_filter_with_nulls() {
 #[test]
 fn test_filter_all_null_array() {
     // Create an array where all elements are null.
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
+    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let validity = Validity::AllInvalid;
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, validity, 3);
 
@@ -253,17 +254,18 @@ fn test_filter_nested_fixed_size_lists() {
     // Create nested fixed-size lists: FSL<FSL<i32>>.
     // Inner lists are of size 2, outer lists are of size 3.
     // So we have 2 outer lists, each containing 3 inner lists, each containing 2 i32s.
-    let inner_elements = PrimitiveArray::from_iter([
+    let inner_elements = buffer![
         1i32, 2, // First inner list of first outer list.
         3, 4, // Second inner list of first outer list.
         5, 6, // Third inner list of first outer list.
         7, 8, // First inner list of second outer list.
         9, 10, // Second inner list of second outer list.
         11, 12, // Third inner list of second outer list.
-    ]);
+    ]
+    .into_array();
 
     let inner_fsl = FixedSizeListArray::new(
-        inner_elements.into_array(),
+        inner_elements,
         2, // Inner list size.
         Validity::NonNullable,
         6, // 6 inner lists total.
@@ -310,7 +312,9 @@ fn test_filter_nested_fixed_size_lists() {
 #[case::values_partial(Mask::from(BooleanBuffer::from(vec![true, true, false])), 2)]
 #[case::values_alternating(Mask::from(BooleanBuffer::from(vec![true, false, true])), 2)]
 fn test_filter_mask_types(#[case] mask: Mask, #[case] expected_len: usize) {
-    let elements = PrimitiveArray::from_iter([1u32, 2, 3, 4, 5, 6]);
+    use vortex_buffer::buffer;
+
+    let elements = buffer![1u32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
@@ -319,8 +323,8 @@ fn test_filter_mask_types(#[case] mask: Mask, #[case] expected_len: usize) {
 
 #[test]
 fn test_filter_preserves_dtype() {
-    let elements = PrimitiveArray::from_iter([1.5f32, 2.5, 3.5, 4.5]);
-    let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::AllValid, 2);
+    let elements = buffer![1.5f32, 2.5, 3.5, 4.5].into_array();
+    let fsl = FixedSizeListArray::new(elements, 2, Validity::AllValid, 2);
 
     let mask = Mask::from(BooleanBuffer::from(vec![true, false]));
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
@@ -407,7 +411,7 @@ fn create_fsl_mixed_nulls() -> ArrayRef {
 }
 
 fn create_fsl_single_element() -> ArrayRef {
-    let elements = PrimitiveArray::from_iter([100u64, 200, 300, 400, 500]);
+    let elements = buffer![100u64, 200, 300, 400, 500].into_array();
     FixedSizeListArray::new(elements.into_array(), 5, Validity::NonNullable, 1).into_array()
 }
 
@@ -419,8 +423,8 @@ fn create_fsl_empty() -> ArrayRef {
 #[test]
 fn test_complex_filter_pattern() {
     // Create a larger array to test complex patterns.
-    let elements = PrimitiveArray::from_iter((0..30i32).collect::<Vec<_>>());
-    let fsl = FixedSizeListArray::new(elements.into_array(), 3, Validity::NonNullable, 10);
+    let elements = buffer![0..30i32].into_array();
+    let fsl = FixedSizeListArray::new(elements, 3, Validity::NonNullable, 10);
 
     // Complex mask pattern: [T, T, F, T, F, F, T, T, T, F].
     let mask = Mask::from(BooleanBuffer::from(vec![
@@ -499,7 +503,7 @@ fn test_filter_all_null_various_list_sizes() {
     assert!(filtered0.scalar_at(1).is_null());
 
     // Case 2: list_size == 1
-    let elements1 = PrimitiveArray::from_iter([1i32, 2, 3]);
+    let elements1 = buffer![1i32, 2, 3].into_array();
     let fsl1 = FixedSizeListArray::new(elements1.into_array(), 1, Validity::AllInvalid, 3);
     let mask1 = Mask::from(BooleanBuffer::from(vec![false, true, true]));
     let filtered1 = filter(fsl1.as_ref(), &mask1).unwrap();
@@ -509,8 +513,8 @@ fn test_filter_all_null_various_list_sizes() {
     assert!(filtered1.scalar_at(1).is_null());
 
     // Case 3: list_size == 10 (large)
-    let elements10 = PrimitiveArray::from_iter((0..50i32).collect::<Vec<_>>());
-    let fsl10 = FixedSizeListArray::new(elements10.into_array(), 10, Validity::AllInvalid, 5);
+    let elements10 = buffer![0..50i32].into_array();
+    let fsl10 = FixedSizeListArray::new(elements10, 10, Validity::AllInvalid, 5);
     let mask10 = Mask::AllTrue(5);
     let filtered10 = filter(fsl10.as_ref(), &mask10).unwrap();
     assert_eq!(filtered10.len(), 5);

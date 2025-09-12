@@ -241,6 +241,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
 mod tests {
     use std::sync::Arc;
 
+    use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::PType::I32;
@@ -248,7 +249,7 @@ mod tests {
 
     use super::FixedSizeListBuilder;
     use crate::array::Array;
-    use crate::arrays::FixedSizeListArray;
+    use crate::arrays::{FixedSizeListArray, PrimitiveArray};
     use crate::builders::ArrayBuilder;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
@@ -548,7 +549,7 @@ mod tests {
 
         // Create a source array.
         let source = FixedSizeListArray::new(
-            crate::arrays::PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]).into_array(),
+            buffer![1i32, 2, 3, 4, 5, 6].into_array(),
             2,
             Validity::from_iter([true, false, true]),
             3,
@@ -581,14 +582,14 @@ mod tests {
 
         // Create degenerate source arrays (size = 0).
         let source1 = FixedSizeListArray::new(
-            crate::arrays::PrimitiveArray::from_iter::<[i32; 0]>([]).into_array(),
+            PrimitiveArray::from_iter::<[i32; 0]>([]).into_array(),
             0,
             Validity::from_iter([true, false, true]),
             3,
         );
 
         let source2 = FixedSizeListArray::new(
-            crate::arrays::PrimitiveArray::from_iter::<[i32; 0]>([]).into_array(),
+            PrimitiveArray::from_iter::<[i32; 0]>([]).into_array(),
             0,
             Validity::from_iter([false, true]),
             2,
@@ -620,7 +621,7 @@ mod tests {
 
         // Create an empty source array.
         let source = FixedSizeListArray::new(
-            crate::arrays::PrimitiveArray::from_iter::<[i32; 0]>([]).into_array(),
+            PrimitiveArray::from_iter::<[i32; 0]>([]).into_array(),
             3,
             Validity::NonNullable,
             0,
@@ -673,7 +674,7 @@ mod tests {
 
         // Create source with nullable elements to match builder dtype
         let source = FixedSizeListArray::new(
-            crate::arrays::PrimitiveArray::from_option_iter([Some(5i32), Some(6)]).into_array(),
+            PrimitiveArray::from_option_iter([Some(5i32), Some(6)]).into_array(),
             2,
             Validity::AllValid,
             1,

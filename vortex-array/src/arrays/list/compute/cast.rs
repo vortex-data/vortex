@@ -48,8 +48,8 @@ mod tests {
     #[test]
     fn test_cast_list_success() {
         let list = ListArray::try_new(
-            PrimitiveArray::from_iter([1i32, 2, 3, 4]).to_array(),
-            PrimitiveArray::from_iter([0, 2, 3]).to_array(),
+            buffer![1i32, 2, 3, 4].into_array().to_array(),
+            buffer![0, 2, 3].into_array().to_array(),
             Validity::NonNullable,
         )
         .unwrap();
@@ -67,8 +67,8 @@ mod tests {
     #[test]
     fn test_cast_to_wrong_type() {
         let list = ListArray::try_new(
-            PrimitiveArray::from_iter([0i32, 2, 3, 4]).to_array(),
-            PrimitiveArray::from_iter([0, 2, 3]).to_array(),
+            buffer![0i32, 2, 3, 4].into_array().to_array(),
+            buffer![0, 2, 3].into_array().to_array(),
             Validity::NonNullable,
         )
         .unwrap();
@@ -86,8 +86,8 @@ mod tests {
 
         // Nulls in the list itself
         let list = ListArray::try_new(
-            PrimitiveArray::from_iter([0i32, 2, 3, 4]).to_array(),
-            PrimitiveArray::from_iter([0, 2, 3]).to_array(),
+            buffer![0i32, 2, 3, 4].into_array().to_array(),
+            buffer![0, 2, 3].into_array().to_array(),
             Validity::Array(BoolArray::from_iter(vec![false, true]).to_array()),
         )
         .unwrap();
@@ -103,7 +103,7 @@ mod tests {
         // Nulls in list element array
         let list = ListArray::try_new(
             PrimitiveArray::from_option_iter([Some(0i32), Some(2), None, None]).to_array(),
-            PrimitiveArray::from_iter([0, 2, 3]).to_array(),
+            buffer![0, 2, 3].into_array().to_array(),
             Validity::NonNullable,
         )
         .unwrap();

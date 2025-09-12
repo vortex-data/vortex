@@ -161,7 +161,7 @@ mod test {
         let unpacked = Buffer::from_iter(0u32..1024).into_array();
         let bitpacked = BitPackedArray::encode(&unpacked, 2).unwrap();
 
-        let indices = PrimitiveArray::from_iter([0, 2, 4, 6]);
+        let indices = buffer![0, 2, 4, 6].into_array();
 
         let primitive_result = take(bitpacked.as_ref(), indices.as_ref())
             .unwrap()
@@ -249,12 +249,12 @@ mod test {
     #[rstest]
     #[case(BitPackedArray::encode(PrimitiveArray::from_iter((0..100).map(|i| (i % 63) as u8)).as_ref(), 6).unwrap())]
     #[case(BitPackedArray::encode(PrimitiveArray::from_iter((0..256).map(|i| i as u32)).as_ref(), 8).unwrap())]
-    #[case(BitPackedArray::encode(PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8]).as_ref(), 3).unwrap())]
+    #[case(BitPackedArray::encode(buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array().as_ref(), 3).unwrap())]
     #[case(BitPackedArray::encode(
         PrimitiveArray::from_option_iter([Some(10u16), None, Some(20), Some(30), None]).as_ref(),
         5
     ).unwrap())]
-    #[case(BitPackedArray::encode(PrimitiveArray::from_iter([42u32]).as_ref(), 6).unwrap())]
+    #[case(BitPackedArray::encode(buffer![42u32].into_array().as_ref(), 6).unwrap())]
     #[case(BitPackedArray::encode(PrimitiveArray::from_iter((0..1024).map(|i| i as u32)).as_ref(), 8).unwrap())]
     fn test_take_bitpacked_conformance(#[case] bitpacked: BitPackedArray) {
         use vortex_array::compute::conformance::take::test_take_conformance;

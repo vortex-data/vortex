@@ -63,7 +63,7 @@ pub(crate) fn find_slice_end_index(array: &dyn Array, index: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::PrimitiveArray;
+
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
@@ -153,11 +153,9 @@ mod tests {
 
     #[test]
     fn ree_scalar_at_end() {
-        let scalar = RunEndArray::encode(
-            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
-        )
-        .unwrap()
-        .scalar_at(11);
+        let scalar = RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array())
+            .unwrap()
+            .scalar_at(11);
         assert_eq!(scalar, 5.into());
     }
 

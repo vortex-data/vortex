@@ -14,6 +14,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
 
     use crate::DecimalBytePartsArray;
@@ -21,11 +22,11 @@ mod tests {
     #[rstest]
     // Basic decimal byte parts arrays
     #[case::decimal_i32(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_iter([100i32, 200, 300, 400, 500]).into_array(),
+        buffer![100i32, 200, 300, 400, 500].into_array(),
         DecimalDType::new(10, 2)
     ).unwrap())]
     #[case::decimal_i64(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_iter([1000i64, 2000, 3000, 4000, 5000]).into_array(),
+        buffer![1000i64, 2000, 3000, 4000, 5000].into_array(),
         DecimalDType::new(19, 4)
     ).unwrap())]
     // Nullable arrays
@@ -39,20 +40,20 @@ mod tests {
     ).unwrap())]
     // Different precision/scale combinations
     #[case::decimal_high_precision(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_iter([123456789i32, 987654321, -123456789]).into_array(),
+        buffer![123456789i32, 987654321, -123456789].into_array(),
         DecimalDType::new(38, 10)
     ).unwrap())]
     #[case::decimal_zero_scale(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_iter([100i32, 200, 300]).into_array(),
+        buffer![100i32, 200, 300].into_array(),
         DecimalDType::new(10, 0)
     ).unwrap())]
     // Edge cases
     #[case::decimal_single(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_iter([42i32]).into_array(),
+        buffer![42i32].into_array(),
         DecimalDType::new(5, 1)
     ).unwrap())]
     #[case::decimal_negative(DecimalBytePartsArray::try_new(
-        PrimitiveArray::from_iter([-100i32, -200, 300, -400, 500]).into_array(),
+        buffer![-100i32, -200, 300, -400, 500].into_array(),
         DecimalDType::new(10, 2)
     ).unwrap())]
     // Large arrays

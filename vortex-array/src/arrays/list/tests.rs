@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use arrow_buffer::BooleanBuffer;
+use vortex_buffer::buffer;
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexUnwrap;
@@ -16,21 +17,21 @@ use crate::compute::filter;
 #[test]
 fn test_empty_list_array() {
     let elements = PrimitiveArray::empty::<u32>(Nullability::NonNullable);
-    let offsets = PrimitiveArray::from_iter([0]);
+    let offsets = buffer![0].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    let list = ListArray::try_new(elements.into_array(), offsets, validity).unwrap();
 
     assert_eq!(0, list.len());
 }
 
 #[test]
 fn test_simple_list_array() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-    let offsets = PrimitiveArray::from_iter([0, 2, 4, 5]);
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+    let offsets = buffer![0, 2, 4, 5].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    let list = ListArray::try_new(elements, offsets, validity).unwrap();
 
     assert_eq!(
         Scalar::list(
@@ -56,11 +57,11 @@ fn test_simple_list_array() {
 
 #[test]
 fn test_simple_list_array_from_iter() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3]);
-    let offsets = PrimitiveArray::from_iter([0, 2, 3]);
+    let elements = buffer![1i32, 2, 3].into_array();
+    let offsets = buffer![0, 2, 3].into_array();
     let validity = Validity::NonNullable;
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    let list = ListArray::try_new(elements, offsets, validity).unwrap();
 
     let list_from_iter =
         ListArray::from_iter_slow::<u32, _>(vec![vec![1i32, 2], vec![3]], Arc::new(I32.into()))
@@ -74,10 +75,10 @@ fn test_simple_list_array_from_iter() {
 #[test]
 fn test_simple_list_filter() {
     let elements = PrimitiveArray::from_option_iter([None, Some(2), Some(3), Some(4), Some(5)]);
-    let offsets = PrimitiveArray::from_iter([0, 2, 4, 5]);
+    let offsets = buffer![0, 2, 4, 5].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+    let list = ListArray::try_new(elements.into_array(), offsets, validity)
         .unwrap()
         .into_array();
 
@@ -92,11 +93,11 @@ fn test_simple_list_filter() {
 #[test]
 fn test_list_filter_dense_mask() {
     // Test filtering with a dense mask (high density of true values).
-    let elements = PrimitiveArray::from_iter(0..100);
-    let offsets = PrimitiveArray::from_iter([0, 10, 25, 40, 60, 85, 100]);
+    let elements = buffer![0..100].into_array();
+    let offsets = buffer![0, 10, 25, 40, 60, 85, 100].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+    let list = ListArray::try_new(elements, offsets, validity)
         .unwrap()
         .into_array();
 
@@ -121,11 +122,11 @@ fn test_list_filter_dense_mask() {
 #[test]
 fn test_list_filter_sparse_mask() {
     // Test filtering with a sparse mask (low density of true values).
-    let elements = PrimitiveArray::from_iter(0..100);
-    let offsets = PrimitiveArray::from_iter([0, 10, 25, 40, 60, 85, 100]);
+    let elements = buffer![0..100].into_array();
+    let offsets = buffer![0, 10, 25, 40, 60, 85, 100].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+    let list = ListArray::try_new(elements, offsets, validity)
         .unwrap()
         .into_array();
 
@@ -156,11 +157,11 @@ fn test_list_filter_sparse_mask() {
 #[test]
 fn test_list_filter_empty_lists() {
     // Test filtering arrays that contain empty lists.
-    let elements = PrimitiveArray::from_iter(0..10);
-    let offsets = PrimitiveArray::from_iter([0, 0, 3, 3, 7, 10, 10]); // Lists at indices 0, 2, 5 are empty.
+    let elements = buffer![0..10].into_array();
+    let offsets = buffer![0, 0, 3, 3, 7, 10, 10].into_array(); // Lists at indices 0, 2, 5 are empty.
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+    let list = ListArray::try_new(elements, offsets, validity)
         .unwrap()
         .into_array();
 
@@ -191,14 +192,14 @@ fn test_list_filter_empty_lists() {
 #[test]
 fn test_list_filter_with_nulls() {
     // Test filtering lists with null validity.
-    let elements = PrimitiveArray::from_iter(0..15);
-    let offsets = PrimitiveArray::from_iter([0, 3, 7, 10, 12, 15]);
+    let elements = buffer![0..15].into_array();
+    let offsets = buffer![0, 3, 7, 10, 12, 15].into_array();
     let validity = Validity::from_mask(
         Mask::from(BooleanBuffer::from(vec![true, false, true, false, true])),
         Nullability::Nullable,
     );
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+    let list = ListArray::try_new(elements, offsets, validity)
         .unwrap()
         .into_array();
 
@@ -219,11 +220,11 @@ fn test_list_filter_with_nulls() {
 #[test]
 fn test_list_filter_all_true() {
     // Test filtering with an all-true mask.
-    let elements = PrimitiveArray::from_iter(0..20);
-    let offsets = PrimitiveArray::from_iter([0, 5, 10, 15, 20]);
+    let elements = buffer![0..20].into_array();
+    let offsets = buffer![0, 5, 10, 15, 20].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+    let list = ListArray::try_new(elements, offsets, validity)
         .unwrap()
         .into_array();
 
@@ -246,11 +247,11 @@ fn test_list_filter_all_true() {
 #[test]
 fn test_list_filter_all_false() {
     // Test filtering with an all-false mask.
-    let elements = PrimitiveArray::from_iter(0..20);
-    let offsets = PrimitiveArray::from_iter([0, 5, 10, 15, 20]);
+    let elements = buffer![0..20].into_array();
+    let offsets = buffer![0, 5, 10, 15, 20].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+    let list = ListArray::try_new(elements, offsets, validity)
         .unwrap()
         .into_array();
 
@@ -266,11 +267,11 @@ fn test_list_filter_all_false() {
 #[test]
 fn test_list_filter_single_element() {
     // Test filtering to keep only one element.
-    let elements = PrimitiveArray::from_iter(0..50);
-    let offsets = PrimitiveArray::from_iter([0, 10, 20, 30, 40, 50]);
+    let elements = buffer![0..50].into_array();
+    let offsets = buffer![0, 10, 20, 30, 40, 50].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+    let list = ListArray::try_new(elements, offsets, validity)
         .unwrap()
         .into_array();
 
@@ -290,11 +291,11 @@ fn test_list_filter_single_element() {
 #[test]
 fn test_list_filter_alternating_pattern() {
     // Test filtering with an alternating pattern.
-    let elements = PrimitiveArray::from_iter(0..60);
-    let offsets = PrimitiveArray::from_iter([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]);
+    let elements = buffer![0..60].into_array();
+    let offsets = buffer![0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+    let list = ListArray::try_new(elements, offsets, validity)
         .unwrap()
         .into_array();
 
@@ -319,11 +320,11 @@ fn test_list_filter_alternating_pattern() {
 #[test]
 fn test_list_filter_variable_sizes() {
     // Test filtering lists with highly variable sizes.
-    let elements = PrimitiveArray::from_iter(0..100);
-    let offsets = PrimitiveArray::from_iter([0, 1, 2, 5, 10, 20, 35, 60, 100]);
+    let elements = buffer![0..100].into_array();
+    let offsets = buffer![0, 1, 2, 5, 10, 20, 35, 60, 100].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+    let list = ListArray::try_new(elements, offsets, validity)
         .unwrap()
         .into_array();
 
@@ -766,84 +767,84 @@ fn test_list_of_lists_both_nullable() {
 #[test]
 #[should_panic(expected = "offsets minimum -1 outside valid range")]
 fn test_negative_offset_values() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-    let offsets = PrimitiveArray::from_iter([-1i32, 2, 4, 5]);
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+    let offsets = buffer![-1i32, 2, 4, 5].into_array();
     let validity = Validity::AllValid;
 
-    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    let _ = ListArray::try_new(elements, offsets, validity).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "offsets must be sorted")]
 fn test_unsorted_offsets() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-    let offsets = PrimitiveArray::from_iter([0u32, 3, 2, 5]);
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+    let offsets = buffer![0u32, 3, 2, 5].into_array();
     let validity = Validity::AllValid;
 
-    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    let _ = ListArray::try_new(elements, offsets, validity).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "Max offset 7 is beyond the length of the elements array 5")]
 fn test_offset_exceeding_elements_length() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-    let offsets = PrimitiveArray::from_iter([0u32, 2, 4, 7]);
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+    let offsets = buffer![0u32, 2, 4, 7].into_array();
     let validity = Validity::AllValid;
 
-    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    let _ = ListArray::try_new(elements, offsets, validity).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "validity with size 2 does not match array size 4")]
 fn test_validity_length_mismatch() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-    let offsets = PrimitiveArray::from_iter([0u32, 2, 4, 5, 5]);
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+    let offsets = buffer![0u32, 2, 4, 5, 5].into_array();
     let validity = Validity::from_mask(
         Mask::from(BooleanBuffer::from(vec![true, false])),
         Nullability::Nullable,
     );
 
-    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    let _ = ListArray::try_new(elements, offsets, validity).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "offsets have invalid type")]
 fn test_nullable_offsets() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = PrimitiveArray::from_option_iter([Some(0u32), Some(2), None, Some(5)]);
     let validity = Validity::AllValid;
 
-    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    let _ = ListArray::try_new(elements, offsets.into_array(), validity).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "Offsets must have at least one element, [0] for an empty list")]
 fn test_empty_offsets_array() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3]);
+    let elements = buffer![1i32, 2, 3].into_array();
     let offsets = PrimitiveArray::empty::<u32>(Nullability::NonNullable);
     let validity = Validity::AllValid;
 
-    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    let _ = ListArray::try_new(elements, offsets.into_array(), validity).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "offsets have invalid type")]
 fn test_non_integer_offsets() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-    let offsets = PrimitiveArray::from_iter([0.0f32, 2.0, 4.0, 5.0]);
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+    let offsets = buffer![0.0f32, 2.0, 4.0, 5.0].into_array();
     let validity = Validity::AllValid;
 
-    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    let _ = ListArray::try_new(elements, offsets, validity).unwrap();
 }
 
 #[test]
 fn test_offsets_constant() {
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-    let offsets = PrimitiveArray::from_iter([5u32, 5, 5, 5]);
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+    let offsets = buffer![5u32, 5, 5, 5].into_array();
     let validity = Validity::AllValid;
 
     // This should succeed as it represents empty lists
-    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    let list = ListArray::try_new(elements, offsets, validity).unwrap();
     assert_eq!(list.len(), 3);
     assert_eq!(list.elements_at(0).len(), 0);
     assert_eq!(list.elements_at(1).len(), 0);

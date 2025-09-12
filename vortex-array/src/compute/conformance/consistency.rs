@@ -20,6 +20,7 @@
 //! - **Edge Cases**: Tests empty arrays, single elements, and boundary conditions.
 
 use arrow_buffer::BooleanBuffer;
+use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
@@ -367,7 +368,7 @@ fn test_take_repeated_indices(array: &dyn Array) {
     }
 
     // Take the first element three times
-    let indices = PrimitiveArray::from_iter([0u64, 0, 0]).into_array();
+    let indices = buffer![0u64, 0, 0].into_array();
     let taken = take(array, &indices).vortex_unwrap();
 
     assert_eq!(taken.len(), 3);
