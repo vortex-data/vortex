@@ -16,7 +16,7 @@ use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::{DType, StructFields};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::stream::ArrayStreamAdapter;
-use vortex_file::{Footer, VortexWriteOptions};
+use vortex_file::{VortexWriteOptions, WriteSummary};
 
 use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
 use crate::duckdb::{CopyFunction, DataChunk, LogicalType};
@@ -42,7 +42,7 @@ static COPY_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 /// Once finished we can close all sinks and then the task can be awaited and the file
 /// flushed to disk.
 pub struct GlobalState {
-    write_task: Option<JoinHandle<VortexResult<Footer>>>,
+    write_task: Option<JoinHandle<VortexResult<WriteSummary>>>,
     sink: Option<Sender<VortexResult<ArrayRef>>>,
 }
 
@@ -118,7 +118,7 @@ impl CopyFunction for VortexCopyFunction {
         let writer = COPY_RUNTIME.spawn(async move {
             let mut file = File::create(file_path).await?;
             VortexWriteOptions::default()
-                .write_tokio(&mut file, array_stream)
+                .write(&mut file, array_stream)
                 .await
         });
 

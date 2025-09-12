@@ -12,7 +12,7 @@ use futures::{StreamExt, TryStreamExt};
 use object_store::path::Path;
 use object_store::{
     GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, ObjectStoreScheme,
-    PutPayload,
+    PutPayload, PutResult,
 };
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
@@ -122,6 +122,7 @@ impl VortexReadAt for ObjectStoreReadAt {
 pub struct ObjectStoreWriter {
     upload: Box<dyn MultipartUpload>,
     buffer: BytesMut,
+    put_result: Option<PutResult>,
 }
 
 const CHUNKS_SIZE: usize = 25 * 1024 * 1024;
@@ -132,7 +133,12 @@ impl ObjectStoreWriter {
         Ok(Self {
             upload,
             buffer: BytesMut::with_capacity(CHUNKS_SIZE),
+            put_result: None,
         })
+    }
+
+    pub fn put_result(&self) -> Option<&PutResult> {
+        self.put_result.as_ref()
     }
 }
 
@@ -179,7 +185,7 @@ impl VortexWrite for ObjectStoreWriter {
                 .await?;
         }
 
-        self.upload.complete().await?;
+        self.put_result = Some(self.upload.complete().await?);
         Ok(())
     }
 }

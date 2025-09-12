@@ -25,6 +25,7 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
 use vortex::file::VortexWriteOptions;
+use vortex::io::{ObjectStoreWriter, VortexWrite};
 use vortex::stream::ArrayStreamAdapter;
 
 pub struct VortexSink {
@@ -115,12 +116,24 @@ impl FileSink for VortexSink {
 
                 let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
 
+                let mut sink = ObjectStoreWriter::new(object_store.clone(), &path)
+                    .await
+                    .map_err(|e| {
+                        DataFusionError::Execution(format!(
+                            "Failed to create ObjectStoreWriter: {e}"
+                        ))
+                    })?;
+
                 VortexWriteOptions::default()
-                    .write_object_store(&object_store, &path, stream_adapter)
+                    .write(&mut sink, stream_adapter)
                     .await
                     .map_err(|e| {
                         DataFusionError::Execution(format!("Failed to write Vortex file: {e}"))
                     })?;
+
+                sink.shutdown().await.map_err(|e| {
+                    DataFusionError::Execution(format!("Failed to shutdown Vortex writer: {e}"))
+                })?;
 
                 Ok(path)
             });

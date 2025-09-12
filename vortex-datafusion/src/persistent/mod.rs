@@ -85,7 +85,7 @@ mod tests {
             .await?;
 
         VortexWriteOptions::default()
-            .write_tokio(&mut f, st.to_array_stream())
+            .write(&mut f, st.to_array_stream())
             .await?;
 
         let ctx = SessionContext::default();

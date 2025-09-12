@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::file::{Footer, VortexWriteOptions};
+use vortex::file::{VortexWriteOptions, WriteSummary};
 use vortex::stream::ArrayStreamAdapter;
 
 use crate::array::vx_array;
@@ -34,7 +34,7 @@ use crate::get_runtime;
 /// called exactly once after all `push` operations are complete.
 pub struct vx_array_sink {
     sink: Sender<VortexResult<ArrayRef>>,
-    writer: JoinHandle<VortexResult<Footer>>,
+    writer: JoinHandle<VortexResult<WriteSummary>>,
 }
 
 /// Opens a writable array stream, where sink is used to push values into the stream.
@@ -61,7 +61,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
         let writer = get_runtime().spawn(async move {
             let mut file = File::create(path).await?;
             VortexWriteOptions::default()
-                .write_tokio(&mut file, array_stream)
+                .write(&mut file, array_stream)
                 .await
         });
 

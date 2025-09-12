@@ -18,7 +18,7 @@ impl TokioRuntime {
     }
 
     /// Return the current Tokio runtime handle wrapped in a Vortex handle.
-    pub fn handle() -> Handle {
+    pub fn current() -> Handle {
         static CURRENT: LazyLock<Arc<CurrentTokioRuntime>> =
             LazyLock::new(|| Arc::new(CurrentTokioRuntime));
         Handle::new(CURRENT.clone())
@@ -71,9 +71,12 @@ impl AbortHandle for tokio::task::AbortHandle {
 impl crate::runtime::BlockingRuntime for TokioRuntime {
     type BlockingIterator<'a, R: 'a> = TokioBlockingIterator<'a, R>;
 
-    fn block_on<F, Fut, R>(&self, f: F) -> R
+    fn handle(&self) -> Handle {
+        Handle::new(self.0.clone())
+    }
+
+    fn block_on<Fut, R>(&self, fut: Fut) -> R
     where
-        F: FnOnce(Handle) -> Fut,
         Fut: Future<Output = R>,
     {
         // Assert that we're not currently inside the Tokio context.
@@ -81,12 +84,11 @@ impl crate::runtime::BlockingRuntime for TokioRuntime {
             vortex_error::vortex_panic!("block_on cannot be called from within a Tokio runtime");
         }
         let handle = self.0.clone();
-        tokio::task::block_in_place(move || handle.block_on(f(Handle::new(handle.clone()))))
+        tokio::task::block_in_place(move || handle.block_on(fut))
     }
 
-    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
+    fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
     where
-        F: FnOnce(Handle) -> S,
         S: futures::Stream<Item = R> + Send + Unpin + 'a,
         R: Send + 'a,
     {
@@ -97,7 +99,7 @@ impl crate::runtime::BlockingRuntime for TokioRuntime {
             );
         }
         let handle = self.0.clone();
-        let stream = Box::pin(f(Handle::new(handle.clone())));
+        let stream = Box::pin(stream);
         TokioBlockingIterator { handle, stream }
     }
 }

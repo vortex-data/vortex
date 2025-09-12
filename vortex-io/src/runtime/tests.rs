@@ -60,7 +60,7 @@ fn test_file_read_with_single_thread_runtime() {
 
 #[tokio::test]
 async fn test_file_read_with_tokio_runtime() {
-    let handle = TokioRuntime::handle();
+    let handle = TokioRuntime::current();
     let buffer = ByteBuffer::from(TEST_DATA.to_vec());
     let file_read = handle.open_read(buffer).unwrap();
 
@@ -133,7 +133,7 @@ async fn test_file_read_with_real_file_tokio() {
     temp_file.write_all(TEST_DATA).unwrap();
     temp_file.flush().unwrap();
 
-    let handle = TokioRuntime::handle();
+    let handle = TokioRuntime::current();
     let file_read = handle.open_read(temp_file.path()).unwrap();
 
     // Read a slice
@@ -160,7 +160,7 @@ async fn test_file_read_with_real_file_tokio() {
 
 #[tokio::test]
 async fn test_concurrent_reads() {
-    let handle = TokioRuntime::handle();
+    let handle = TokioRuntime::current();
     let buffer = ByteBuffer::from(TEST_DATA.to_vec());
     let file_read = handle.open_read(buffer).unwrap();
 
@@ -198,7 +198,7 @@ fn test_handle_spawn_future() {
 
 #[tokio::test]
 async fn test_handle_spawn_cpu() {
-    let handle = TokioRuntime::handle();
+    let handle = TokioRuntime::current();
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
 
@@ -273,7 +273,7 @@ impl IntoIoSource for CountingIoSource {
 
 #[tokio::test]
 async fn test_custom_io_source() {
-    let handle = TokioRuntime::handle();
+    let handle = TokioRuntime::current();
     let read_count = Arc::new(AtomicUsize::new(0));
 
     let source = CountingIoSource {
@@ -298,7 +298,7 @@ async fn test_custom_io_source() {
 
 #[tokio::test]
 async fn test_read_out_of_bounds() {
-    let handle = TokioRuntime::handle();
+    let handle = TokioRuntime::current();
     let buffer = ByteBuffer::from(TEST_DATA.to_vec());
     let file_read = handle.open_read(buffer).unwrap();
 
@@ -317,7 +317,7 @@ async fn test_read_out_of_bounds() {
 
 #[tokio::test]
 async fn test_task_detach() {
-    let handle = TokioRuntime::handle();
+    let handle = TokioRuntime::current();
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
 

@@ -12,7 +12,7 @@ use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyhow::Result<u64> {
     let mut cursor = Cursor::new(buf);
     VortexWriteOptions::default()
-        .write_tokio(&mut cursor, array.to_array_stream())
+        .write(&mut cursor, array.to_array_stream())
         .await?;
     Ok(cursor.position())
 }

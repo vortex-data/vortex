@@ -2,19 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::io;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::task::{Context, Poll};
-use futures::AsyncWrite;
 
-/// A wrapper around an `AsyncWrite` that counts the number of bytes written.
-pub(crate) struct CountingAsyncWrite<W> {
+use vortex_io::{IoBuf, VortexWrite};
+
+/// A wrapper around an `VortexWrite` that counts the number of bytes written.
+pub(crate) struct CountingVortexWrite<W> {
     inner: W,
     bytes_written: Arc<AtomicU64>,
 }
 
-impl<W: AsyncWrite> CountingAsyncWrite<W> {
+impl<W: VortexWrite> CountingVortexWrite<W> {
     pub fn new(inner: W) -> Self {
         Self {
             inner,
@@ -27,30 +26,21 @@ impl<W: AsyncWrite> CountingAsyncWrite<W> {
     }
 }
 
-impl<W: AsyncWrite + Unpin> AsyncWrite for CountingAsyncWrite<W> {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        let result = Pin::new(&mut self.inner).poll_write(cx, buf);
-        if let Poll::Ready(Ok(n)) = &result {
-            self.bytes_written.fetch_add(*n as u64, Ordering::Relaxed);
+impl<W: VortexWrite + Unpin> VortexWrite for CountingVortexWrite<W> {
+    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
+        let buf_len = buffer.as_slice().len() as u64;
+        let result = self.inner.write_all(buffer).await;
+        if result.is_ok() {
+            self.bytes_written.fetch_add(buf_len, Ordering::Relaxed);
         }
         result
     }
 
-    fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+        self.inner.flush()
     }
 
-    fn poll_close(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_close(cx)
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+        self.inner.shutdown()
     }
 }

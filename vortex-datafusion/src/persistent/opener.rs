@@ -273,6 +273,7 @@ mod tests {
     use rstest::rstest;
     use vortex::arrow::FromArrowArray;
     use vortex::file::VortexWriteOptions;
+    use vortex::io::{ObjectStoreWriter, VortexWrite};
     use vortex::session::VortexSession;
 
     use super::*;
@@ -327,11 +328,13 @@ mod tests {
         let array = ArrayRef::from_arrow(rb, false);
         let path = Path::parse(path)?;
 
-        VortexWriteOptions::default()
-            .write_object_store(&object_store, &path, array.to_array_stream())
+        let mut write = ObjectStoreWriter::new(object_store, &path).await?;
+        let summary = VortexWriteOptions::default()
+            .write(&mut write, array.to_array_stream())
             .await?;
+        write.shutdown().await?;
 
-        Ok(object_store.head(&path).await?.size)
+        Ok(summary.size())
     }
 
     async fn count_data(

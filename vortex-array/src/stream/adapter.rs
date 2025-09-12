@@ -48,7 +48,11 @@ where
         let this = self.project();
         let array = futures::ready!(this.inner.poll_next(cx));
         if let Some(Ok(array)) = array.as_ref() {
-            debug_assert_eq!(array.dtype(), this.dtype);
+            debug_assert_eq!(
+                array.dtype(),
+                this.dtype,
+                "ArrayStreamAdapter received an array with unexpected dtype"
+            );
         }
 
         Poll::Ready(array)

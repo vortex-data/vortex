@@ -35,7 +35,7 @@ impl Handle {
         {
             use tokio::runtime::Handle as TokioHandle;
             if TokioHandle::try_current().is_ok() {
-                return Some(crate::runtime::tokio::TokioRuntime::handle())
+                return Some(crate::runtime::tokio::TokioRuntime::current());
             }
         }
 

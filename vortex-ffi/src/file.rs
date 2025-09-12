@@ -197,7 +197,7 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
 
         get_runtime().block_on(async {
             VortexWriteOptions::default()
-                .write_tokio(
+                .write(
                     &mut tokio::fs::File::create(path).await?,
                     array.to_array_stream(),
                 )

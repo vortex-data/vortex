@@ -143,7 +143,7 @@ async fn write_vortex_file(path: impl AsRef<Path>) -> VortexResult<()> {
     let test_data = ChunkedArray::try_new(vec![chunk1, chunk2, chunk3], dtype)?;
 
     VortexWriteOptions::default()
-        .write_tokio(&mut file, test_data.to_array_stream())
+        .write(&mut file, test_data.to_array_stream())
         .await?;
 
     Ok(())

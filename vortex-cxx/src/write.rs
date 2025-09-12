@@ -65,7 +65,7 @@ pub(crate) unsafe fn write_array_stream(
 
     RUNTIME.block_on(async {
         let mut file = tokio::fs::File::create(path).await?;
-        options.inner.write_tokio(&mut file, vortex_stream).await?;
+        options.inner.write(&mut file, vortex_stream).await?;
         Ok(())
     })
 }

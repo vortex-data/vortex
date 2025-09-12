@@ -51,7 +51,7 @@ pub async fn taxi_data_vortex() -> Result<PathBuf> {
         let buf = output_fname.to_path_buf();
         let mut output_file = File::create(output_fname).await?;
         VortexWriteOptions::default()
-            .write_tokio(
+            .write(
                 &mut output_file,
                 parquet_to_vortex(taxi_data_parquet().await?)?,
             )

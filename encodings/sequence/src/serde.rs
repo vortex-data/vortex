@@ -97,7 +97,6 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_expr::{get_item, root};
     use vortex_file::{VortexOpenOptions, VortexWriteOptions};
-    use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 
     use crate::SequenceArray;
@@ -110,7 +109,7 @@ mod tests {
         let mut file = tokio::fs::File::create("/tmp/abc.vx").await.unwrap();
         VortexWriteOptions::default()
             .with_strategy(Arc::new(FlatLayoutStrategy::default()))
-            .write(&mut file, st.to_array_stream(), TokioRuntime::handle())
+            .write(&mut file, st.to_array_stream())
             .await
             .unwrap();
 

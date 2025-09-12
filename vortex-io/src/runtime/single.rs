@@ -139,27 +139,25 @@ impl Runtime for Sender {
 impl BlockingRuntime for SingleThreadRuntime {
     type BlockingIterator<'a, R: 'a> = SingleThreadIterator<'a, R>;
 
-    fn block_on<F, Fut, R>(&self, f: F) -> R
+    fn handle(&self) -> Handle {
+        Handle::new(self.sender.clone())
+    }
+
+    fn block_on<Fut, R>(&self, fut: Fut) -> R
     where
-        F: FnOnce(Handle) -> Fut,
         Fut: Future<Output = R>,
     {
-        let handle = Handle::new(self.sender.clone());
-        let fut = f(handle);
         smol::block_on(self.executor.run(fut))
     }
 
-    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
+    fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
     where
-        F: FnOnce(Handle) -> S,
         S: Stream<Item = R> + Send + Unpin + 'a,
         R: Send + 'a,
     {
-        let handle = Handle::new(self.sender.clone());
-        let stream = f(handle).boxed_local();
         SingleThreadIterator {
             executor: self.executor.clone(),
-            stream,
+            stream: stream.boxed_local(),
         }
     }
 }
@@ -173,7 +171,9 @@ where
     F: FnOnce(Handle) -> Fut,
     Fut: Future<Output = R>,
 {
-    SingleThreadRuntime::default().block_on(f)
+    let runtime = SingleThreadRuntime::default();
+    let fut = f(runtime.handle());
+    runtime.block_on(fut)
 }
 
 /// Returns an iterator wrapper around a stream, blocking the current thread for each item.
@@ -183,7 +183,9 @@ where
     S: Stream<Item = R> + Send + Unpin + 'a,
     R: Send + 'a,
 {
-    SingleThreadRuntime::default().block_on_stream(f)
+    let runtime = SingleThreadRuntime::default();
+    let stream = f(runtime.handle());
+    runtime.block_on_stream(stream)
 }
 
 /// A spawn request for a future.
@@ -247,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_drive_simple_future() {
-        let result = SingleThreadRuntime::default().block_on(|_handle| async { 123 }.boxed_local());
+        let result = SingleThreadRuntime::default().block_on(async { 123 }.boxed_local());
         assert_eq!(result, 123);
     }
 

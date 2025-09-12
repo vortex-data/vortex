@@ -345,7 +345,7 @@ impl PBIData {
                 let vortex_file =
                     idempotent_async(&vortex, async |output_path| -> anyhow::Result<()> {
                         VortexWriteOptions::default()
-                            .write_tokio(
+                            .write(
                                 &mut File::create(output_path)
                                     .await
                                     .map_err(|e| anyhow::anyhow!("Failed to create file: {}", e))?,
@@ -505,8 +505,8 @@ pub async fn public_bi_csv_to_parquet_file(
              {create_table_with_doubles};
 
              COPY {table_name} FROM '{csv_path}' (
-              DELIMITER '|', 
-              HEADER false, 
+              DELIMITER '|',
+              HEADER false,
               NULL 'null'
              );
 

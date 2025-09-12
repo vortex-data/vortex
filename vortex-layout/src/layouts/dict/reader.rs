@@ -260,7 +260,7 @@ mod tests {
                 )
                 .sendable(),
                 eof,
-                TokioRuntime::handle(),
+                TokioRuntime::current(),
             )
             .await
             .unwrap();
@@ -347,7 +347,7 @@ mod tests {
                 )
                 .sendable(),
                 eof,
-                TokioRuntime::handle(),
+                TokioRuntime::current(),
             )
             .await
             .unwrap();
@@ -411,7 +411,7 @@ mod tests {
                 )
                 .sendable(),
                 eof,
-                TokioRuntime::handle(),
+                TokioRuntime::current(),
             )
             .await
             .unwrap();

@@ -154,7 +154,7 @@ pub fn write(iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
     TOKIO_RUNTIME.block_on(async move {
         let mut file = File::create(path).await?;
         VortexWriteOptions::default()
-            .write_tokio(&mut file, iter.into_inner().into_array_stream())
+            .write(&mut file, iter.into_inner().into_array_stream())
             .await
     })?;
 
