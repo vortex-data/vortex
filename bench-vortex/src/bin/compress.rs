@@ -11,6 +11,7 @@ use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
 use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLCommentChunked};
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
+use bench_vortex::downloadable_dataset::DownloadableDataset;
 use bench_vortex::public_bi::PBI_DATASETS;
 use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
 use bench_vortex::utils::new_tokio_runtime;
@@ -99,14 +100,19 @@ fn compress(
         // YaleLanguages, // 4th column looks like integer but also contains Y
         &TPCHLCommentChunked,
         &TPCHLCommentCanonical,
+        &DownloadableDataset::RPlace,
+        &DownloadableDataset::AirQuality,
     ]
     .into_iter()
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
     .filter(|d| {
-        datasets_filter.is_none()
-            || datasets_filter
-                .as_ref()
-                .is_some_and(|ds| ds.is_match(d.name()))
+        if let Some(filter) = datasets_filter.as_ref() {
+            filter.is_match(d.name())
+        } else {
+            // These download data from pcodec's public bucket, presumably creating egress charges for
+            // pcodec. As such, we do not run in CI.
+            d.name() != "airquality" && d.name() != "rplace"
+        }
     })
     .collect();
 

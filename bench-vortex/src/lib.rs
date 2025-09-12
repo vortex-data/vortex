@@ -25,6 +25,7 @@ pub mod compress;
 pub mod conversions;
 pub mod datasets;
 pub mod display;
+pub mod downloadable_dataset;
 pub mod engines;
 pub mod measurements;
 pub mod memory;
