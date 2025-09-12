@@ -11,7 +11,9 @@ use flatbuffers::root;
 use itertools::Itertools;
 use vortex::buffer::{Alignment, ByteBuffer};
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::file::{EOF_SIZE, Footer, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexOpenOptions};
+use vortex::file::{
+    EOF_SIZE, Footer, MAGIC_BYTES, MAX_POSTSCRIPT_SIZE, VERSION, VortexOpenOptions,
+};
 use vortex::flatbuffers::footer as fb;
 use vortex::layout::LayoutRef;
 
@@ -250,10 +252,10 @@ impl EofInfo {
             if self.valid_magic { "VALID" } else { "INVALID" }
         );
 
-        if self.postscript_size > MAX_FOOTER_SIZE {
+        if self.postscript_size > MAX_POSTSCRIPT_SIZE {
             println!(
                 "WARNING: Postscript size exceeds maximum ({} > {})",
-                self.postscript_size, MAX_FOOTER_SIZE
+                self.postscript_size, MAX_POSTSCRIPT_SIZE
             );
         }
     }

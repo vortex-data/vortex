@@ -15,8 +15,8 @@ use vortex::ArrayRef;
 use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::{DType, StructFields};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::file::{VortexWriteOptions, WriteSummary};
 use vortex::stream::ArrayStreamAdapter;
-use vortex_file::{VortexWriteOptions, WriteSummary};
 
 use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
 use crate::duckdb::{CopyFunction, DataChunk, LogicalType};

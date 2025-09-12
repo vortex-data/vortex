@@ -17,7 +17,6 @@ version = { workspace = true }
 all-features = true
 
 [dependencies]
-async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
@@ -71,12 +70,7 @@ vortex-scan = { workspace = true, features = ["tokio"] }
 workspace = true
 
 [features]
-object_store = [
-    "tokio",
-    "dep:object_store",
-    "vortex-error/object_store",
-    "vortex-io/object_store",
-]
+object_store = ["dep:object_store", "vortex-io/object_store"]
 tokio = [
     "dep:tokio",
     "vortex-error/tokio",

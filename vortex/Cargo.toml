@@ -66,7 +66,7 @@ vortex = { path = ".", features = ["tokio"] }
 default = ["files", "zstd"]
 files = ["dep:vortex-file"]
 memmap2 = ["vortex-buffer/memmap2"]
-object_store = ["vortex-file/object_store"]
+object_store = ["vortex-file/object_store", "vortex-io/object_store"]
 python = ["vortex-error/python"]
 tokio = ["vortex-file/tokio", "vortex-scan/tokio"]
 zstd = ["dep:vortex-zstd", "vortex-file/zstd", "vortex-layout/zstd"]

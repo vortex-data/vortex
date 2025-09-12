@@ -36,8 +36,7 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 tokio-stream = { workspace = true }
 url = { workspace = true }
-vortex = { workspace = true, features = ["files"] }
-vortex-file = { workspace = true, features = ["tokio", "object_store"] }
+vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]

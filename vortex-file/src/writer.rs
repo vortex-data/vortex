@@ -26,7 +26,7 @@ use vortex_layout::{LayoutContext, LayoutStrategy};
 use crate::counting::CountingVortexWrite;
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
 use crate::segments::writer::BufferedSegmentSink;
-use crate::{EOF_SIZE, Footer, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, WriteStrategyBuilder};
+use crate::{EOF_SIZE, Footer, MAGIC_BYTES, MAX_POSTSCRIPT_SIZE, VERSION, WriteStrategyBuilder};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -151,11 +151,11 @@ impl VortexWriteOptions {
         let mut position = MAGIC_BYTES.len() as u64;
 
         // Create a channel to send buffers from the segment sink to the output stream.
-        let (send, recv) = kanal::bounded_async(16);
+        let (send, recv) = kanal::bounded_async(1);
 
         let segments = Arc::new(BufferedSegmentSink::new(send, position));
 
-        // We spawn the layout future so it is driven in the background while we yield the
+        // We spawn the layout future so it is driven in the background while we write the
         // buffer stream, so we don't need to poll it until all buffers have been drained.
         let ctx2 = ctx.clone();
         let layout_fut = handle.spawn_nested(|h| async move {
@@ -166,7 +166,7 @@ impl VortexWriteOptions {
             Ok::<_, VortexError>((layout, segments.segment_specs()))
         });
 
-        // Yield buffers as they arrive
+        // Flush buffers as they arrive
         let recv_stream = recv.into_stream();
         pin_mut!(recv_stream);
         while let Some(buffer) = recv_stream.next().await {
@@ -201,15 +201,12 @@ impl VortexWriteOptions {
             (Some(stats_segment), Some(file_statistics))
         };
 
-        // Return a Footer object via the oneshot channel.
-        let footer = Footer::new(layout.clone(), segment_specs.clone(), file_statistics);
-
         let (buffer, footer_segment) = write_flatbuffer(
             &mut position,
             &FooterFlatBufferWriter {
                 ctx: ctx.clone(),
                 layout_ctx,
-                segment_specs,
+                segment_specs: segment_specs.clone(),
             },
         )?;
         write.write_all(buffer).await?;
@@ -222,11 +219,11 @@ impl VortexWriteOptions {
             footer: footer_segment,
         };
         let postscript_buffer = postscript.write_flatbuffer_bytes();
-        if postscript_buffer.len() > MAX_FOOTER_SIZE as usize {
+        if postscript_buffer.len() > MAX_POSTSCRIPT_SIZE as usize {
             Err(vortex_err!(
                 "Postscript is too large ({} bytes); max postscript size is {}",
                 postscript_buffer.len(),
-                MAX_FOOTER_SIZE
+                MAX_POSTSCRIPT_SIZE
             ))?;
         }
         position += postscript_buffer.len() as u64;
@@ -243,9 +240,8 @@ impl VortexWriteOptions {
         write.write_all(ByteBuffer::copy_from(eof)).await?;
         position += EOF_SIZE as u64;
 
-        // Emit the footer to the caller.
         Ok(WriteSummary {
-            footer,
+            footer: Footer::new(layout, segment_specs, file_statistics),
             size: position,
         })
     }
