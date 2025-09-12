@@ -101,8 +101,11 @@ impl PyScalar {
             DType::Utf8(..) => Self::with_subclass(py, scalar, PyUtf8Scalar),
             DType::Binary(..) => Self::with_subclass(py, scalar, PyBinaryScalar),
             DType::Struct(..) => Self::with_subclass(py, scalar, PyStructScalar),
-            DType::List(..) => Self::with_subclass(py, scalar, PyListScalar),
-            DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
+            DType::List(..) | DType::FixedSizeList(..) => {
+                // We represent both lists and fixed-size lists with `PyListScalar` since the notion
+                // of "fixed-size" only applies to full arrays, not scalars.
+                Self::with_subclass(py, scalar, PyListScalar)
+            }
             DType::Extension(..) => Self::with_subclass(py, scalar, PyExtensionScalar),
         }
     }

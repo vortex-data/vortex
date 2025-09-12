@@ -376,7 +376,8 @@ pub(super) fn dtype_struct<'py>(
 /// element : :class:`DType`
 ///     The type of the list element.
 /// nullable : :class:`bool`
-///     When :obj:`True`, :obj:`None` is a permissible value (this is not element nullability).
+///     When :obj:`True`, :obj:`None` is a permissible value (note that this is the nullability of
+///     the lists, not the inner elements).
 ///
 /// Returns
 /// -------
@@ -401,6 +402,49 @@ pub(super) fn dtype_list<'py>(
     PyDType::init(
         element.py(),
         DType::List(Arc::new(element.get().inner().clone()), nullable.into()),
+    )
+}
+
+/// Construct a fixed-size list data type.
+///
+/// Parameters
+/// ----------
+/// element : :class:`DType`
+///     The element type of the fixed-size list.
+/// size : :class:`int`
+///     The size of each list scalar.
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value (note that this is the nullability of
+///     the fixed-size lists, not the inner elements).
+///
+/// Returns
+/// -------
+/// :class:`DType`
+///
+/// Examples
+/// --------
+///
+/// Create a fixed-size list of 3 integers:
+///
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.fixed_size_list(vx.int_(32), 3, nullable=False)
+/// fixed_size_list(int(32, nullable=False), 3, nullable=False)
+/// ```
+#[pyfunction(name = "fixed_size_list")]
+#[pyo3(signature = (element, size, *, nullable = false))]
+pub(super) fn dtype_fixed_size_list<'py>(
+    element: &'py Bound<'py, PyDType>,
+    size: u32,
+    nullable: bool,
+) -> PyResult<Bound<'py, PyDType>> {
+    PyDType::init(
+        element.py(),
+        DType::FixedSizeList(
+            Arc::new(element.get().inner().clone()),
+            size,
+            nullable.into(),
+        ),
     )
 }
 

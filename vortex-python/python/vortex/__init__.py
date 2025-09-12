@@ -10,11 +10,13 @@ from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     ChunkedArray,
     ConstantArray,
     DateTimePartsArray,
+    # DecimalArray # TODO(connor): Is this missing a `DecimalArray`?
     DictArray,
     ExtensionArray,
     FastLanesBitPackedArray,
     FastLanesDeltaArray,
     FastLanesFoRArray,
+    FixedSizeListArray,
     FsstArray,
     ListArray,
     NullArray,
@@ -32,7 +34,9 @@ from ._lib.dtype import (  # pyright: ignore[reportMissingModuleSource]
     BinaryDType,
     BoolDType,
     DType,
+    # TODO(connor): Is this missing a `DecimalDType` and `decimal` function?
     ExtensionDType,
+    FixedSizeListDType,
     ListDType,
     NullDType,
     PrimitiveDType,
@@ -42,6 +46,7 @@ from ._lib.dtype import (  # pyright: ignore[reportMissingModuleSource]
     binary,
     bool_,
     ext,
+    fixed_size_list,
     float_,
     int_,
     list_,
@@ -55,6 +60,7 @@ from ._lib.registry import Registry  # pyright: ignore[reportMissingModuleSource
 from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
     BinaryScalar,
     BoolScalar,
+    # TODO(connor): Is this missing a `DecimalScalar`?
     ExtensionScalar,
     ListScalar,
     NullScalar,
@@ -96,7 +102,9 @@ __all__ = [
     "BinaryDType",
     "StructDType",
     "ListDType",
+    "FixedSizeListDType",
     "ExtensionDType",
+    # TODO(connor): Is this missing `DecimalDType` and `decimal_`?
     "null",
     "bool_",
     "int_",
@@ -106,6 +114,7 @@ __all__ = [
     "binary",
     "struct",
     "list_",
+    "fixed_size_list",
     "ext",
     # Encodings
     "ConstantArray",
@@ -118,6 +127,7 @@ __all__ = [
     "VarBinViewArray",
     "StructArray",
     "ListArray",
+    "FixedSizeListArray",
     "ExtensionArray",
     "AlpArray",
     "AlpRdArray",

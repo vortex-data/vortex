@@ -46,6 +46,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<builtins::PyVarBinViewArray>()?;
     m.add_class::<builtins::PyStructArray>()?;
     m.add_class::<builtins::PyListArray>()?;
+    m.add_class::<builtins::PyFixedSizeListArray>()?;
     m.add_class::<builtins::PyExtensionArray>()?;
 
     // Utility encodings

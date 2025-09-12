@@ -7,8 +7,8 @@ use pyo3::PyClass;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use vortex::arrays::{
-    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, ExtensionVTable, ListVTable,
-    NullVTable, PrimitiveVTable, StructVTable, VarBinVTable, VarBinViewVTable,
+    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, ExtensionVTable, FixedSizeListVTable,
+    ListVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable, VarBinViewVTable,
 };
 use vortex::encodings::alp::{ALPRDVTable, ALPVTable};
 use vortex::encodings::bytebool::ByteBoolVTable;
@@ -27,8 +27,8 @@ use vortex::{Array, ArrayAdapter, ArrayRef};
 use crate::arrays::PyArray;
 use crate::arrays::builtins::{
     PyBoolArray, PyByteBoolArray, PyChunkedArray, PyConstantArray, PyDecimalArray,
-    PyExtensionArray, PyListArray, PyNullArray, PyPrimitiveArray, PyStructArray, PyVarBinArray,
-    PyVarBinViewArray,
+    PyExtensionArray, PyFixedSizeListArray, PyListArray, PyNullArray, PyPrimitiveArray,
+    PyStructArray, PyVarBinArray, PyVarBinViewArray,
 };
 use crate::arrays::compressed::{
     PyAlpArray, PyAlpRdArray, PyDateTimePartsArray, PyDictArray, PyFsstArray, PyRunEndArray,
@@ -80,6 +80,10 @@ impl PyNativeArray {
 
         if array.is::<ListVTable>() {
             return Self::with_subclass(py, array, PyListArray);
+        }
+
+        if array.is::<FixedSizeListVTable>() {
+            return Self::with_subclass(py, array, PyFixedSizeListArray);
         }
 
         if array.is::<ExtensionVTable>() {

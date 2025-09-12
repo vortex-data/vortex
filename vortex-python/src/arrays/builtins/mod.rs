@@ -14,7 +14,8 @@ pub(crate) use primitive::*;
 use pyo3::prelude::*;
 pub(crate) use struct_::*;
 use vortex::arrays::{
-    BoolVTable, ExtensionVTable, ListVTable, NullVTable, VarBinVTable, VarBinViewVTable,
+    BoolVTable, ExtensionVTable, FixedSizeListVTable, ListVTable, NullVTable, VarBinVTable,
+    VarBinViewVTable,
 };
 use vortex::encodings::bytebool::ByteBoolVTable;
 
@@ -66,6 +67,14 @@ pub(crate) struct PyListArray;
 
 impl EncodingSubclass for PyListArray {
     type VTable = ListVTable;
+}
+
+/// Concrete class for arrays with `vortex.fixed_size_list` encoding.
+#[pyclass(name = "FixedSizeListArray", module = "vortex", extends=PyNativeArray, frozen)]
+pub(crate) struct PyFixedSizeListArray;
+
+impl EncodingSubclass for PyFixedSizeListArray {
+    type VTable = FixedSizeListVTable;
 }
 
 /// Concrete class for arrays with `vortex.ext` encoding.

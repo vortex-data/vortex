@@ -60,6 +60,8 @@ class PrimitiveArray(Array):
     @property
     def ptype(self) -> PType: ...
 
+# TODO(connor): Is this missing a `DecimalArray`?
+
 @final
 class VarBinArray(Array): ...
 
@@ -73,6 +75,9 @@ class StructArray(Array):
 
 @final
 class ListArray(Array): ...
+
+@final
+class FixedSizeListArray(Array): ...
 
 @final
 class ExtensionArray(Array): ...
