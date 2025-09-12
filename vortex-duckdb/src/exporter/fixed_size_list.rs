@@ -54,28 +54,34 @@ impl ColumnExporter for FixedSizeListExporter {
             self.validity.len()
         );
 
-        // Set validity if necessary.
         // SAFETY: We've asserted that offset + len <= self.validity.len(), which ensures
         // we won't read past the validity mask bounds.
-        if unsafe { vector.set_validity(&self.validity, offset, len) } {
-            // All values are null, so no point copying the data.
-            return Ok(());
-        }
+        unsafe { vector.set_validity(&self.validity, offset, len) };
+
+        // Note: Unlike variable-size lists, for fixed-size lists (ARRAY type) we must always export
+        // the child data even if all values are null, because the ARRAY type has a fixed size that
+        // must be respected. The child vector needs to have the correct number of elements.
 
         // Get the child vector for array elements.
         let mut elements_vector = vector.array_vector_get_child();
 
         // Export elements directly.
-        // For fixed-size lists: elements start at offset * list_size
-        // and we export len * list_size elements.
         let element_offset = offset * self.list_size as usize;
         let element_count = len * self.list_size as usize;
-
         self.elements_exporter
-            .export(element_offset, element_count, &mut elements_vector)
+            .export(element_offset, element_count, &mut elements_vector)?;
+
+        // CRITICAL: We must flatten the child vector to ensure the data is materialized.
+        // The child vector returned by `array_vector_get_child()` is borrowed and only valid while
+        // the parent is valid. After a `scan` returns, DuckDB accesses this data and will segfault
+        // if it's not materialized.
+        elements_vector.flatten(element_count as u64);
+
+        Ok(())
     }
 }
 
+#[allow(clippy::cast_possible_truncation)]
 #[cfg(test)]
 mod tests {
     use vortex::IntoArray as _;
@@ -140,109 +146,20 @@ mod tests {
     }
 
     #[test]
-    fn test_export_empty_fixed_size_list() {
-        // Create an empty FixedSizeListArray with list_size=3.
+    fn test_basic_export() {
+        // Test basic export with various list sizes including edge cases.
+
+        // Empty case.
         let fsl = FixedSizeListArray::new(buffer![0i32; 0].into_array(), 3, Validity::AllValid, 0);
         let chunk = export_to_chunk(&fsl, 3, 0, 0);
-
-        // Should produce an empty chunk.
         assert_eq!(chunk.len(), 0);
-    }
 
-    #[test]
-    fn test_export_non_empty_fixed_size_list() {
-        // Create a FixedSizeListArray with 3 lists of size 2.
-        // Lists: [1, 2], [3, 4], [5, 6]
-        let fsl = FixedSizeListArray::new(
-            buffer![1i32, 2, 3, 4, 5, 6].into_array(),
-            2,
-            Validity::AllValid,
-            3,
-        );
-        let chunk = export_to_chunk(&fsl, 2, 0, 3);
-
-        // Verify the chunk contains the expected data.
-        assert_eq!(chunk.len(), 3);
-
-        // Verify the actual array values.
-        let vector = chunk.get_vector(0);
-        verify_array_elements(&vector, &[1, 2, 3, 4, 5, 6], 2, 3);
-    }
-
-    #[test]
-    fn test_export_fixed_size_list_with_nulls() {
-        // Create a FixedSizeListArray with 4 lists of size 3, with 2nd list null.
-        // Lists: [1, 2, 3], NULL, [7, 8, 9], [10, 11, 12]
-        let fsl = FixedSizeListArray::new(
-            buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array(),
-            3,
-            Validity::from_iter([true, false, true, true]),
-            4,
-        );
-        let chunk = export_to_chunk(&fsl, 3, 0, 4);
-
-        assert_eq!(chunk.len(), 4);
-
-        // Verify nullability.
-        let vector = chunk.get_vector(0);
-        assert_nulls(&vector, &[true, false, true, true]);
-
-        // Verify the values (note: elements for null list still exist in storage).
-        verify_array_elements(&vector, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 3, 4);
-    }
-
-    #[test]
-    fn test_export_all_null_lists() {
-        // Create a FixedSizeListArray where all lists are null.
-        let fsl = FixedSizeListArray::new(
-            buffer![0i32; 6].into_array(),
-            2,
-            Validity::from_iter([false, false, false]),
-            3,
-        );
-        let chunk = export_to_chunk(&fsl, 2, 0, 3);
-
-        assert_eq!(chunk.len(), 3);
-
-        // All lists should be null.
-        let vector = chunk.get_vector(0);
-        assert_nulls(&vector, &[false, false, false]);
-    }
-
-    #[test]
-    fn test_export_alternating_null_pattern() {
-        // Create a FixedSizeListArray with alternating null/valid pattern.
-        // Lists: NULL, [2, 3], NULL, [6, 7], NULL
-        let fsl = FixedSizeListArray::new(
-            buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array(),
-            2,
-            Validity::from_iter([false, true, false, true, false]),
-            5,
-        );
-        let chunk = export_to_chunk(&fsl, 2, 0, 5);
-
-        assert_eq!(chunk.len(), 5);
-
-        // Verify alternating null pattern.
-        let vector = chunk.get_vector(0);
-        assert_nulls(&vector, &[false, true, false, true, false]);
-    }
-
-    #[test]
-    fn test_export_list_size_zero() {
-        // Create a FixedSizeListArray with list_size=0 (degenerate case).
-        // This represents arrays with no elements.
+        // List size = 0 (degenerate case).
         let fsl = FixedSizeListArray::new(buffer![0i32; 0].into_array(), 0, Validity::AllValid, 3);
         let chunk = export_to_chunk(&fsl, 0, 0, 3);
-
-        // Should have 3 lists, each with 0 elements.
         assert_eq!(chunk.len(), 3);
-    }
 
-    #[test]
-    fn test_export_list_size_one() {
-        // Create a FixedSizeListArray with list_size=1 (single element arrays).
-        // Lists: [10], [20], [30], [40]
+        // List size = 1.
         let fsl = FixedSizeListArray::new(
             buffer![10i32, 20, 30, 40].into_array(),
             1,
@@ -250,12 +167,63 @@ mod tests {
             4,
         );
         let chunk = export_to_chunk(&fsl, 1, 0, 4);
-
         assert_eq!(chunk.len(), 4);
-
-        // Verify the single-element arrays.
         let vector = chunk.get_vector(0);
         verify_array_elements(&vector, &[10, 20, 30, 40], 1, 4);
+
+        // Normal case with list size = 2.
+        let fsl = FixedSizeListArray::new(
+            buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+            2,
+            Validity::AllValid,
+            3,
+        );
+        let chunk = export_to_chunk(&fsl, 2, 0, 3);
+        assert_eq!(chunk.len(), 3);
+        let vector = chunk.get_vector(0);
+        verify_array_elements(&vector, &[1, 2, 3, 4, 5, 6], 2, 3);
+    }
+
+    #[test]
+    fn test_null_patterns() {
+        // Test various null patterns in a single comprehensive test.
+
+        // Some nulls.
+        let fsl = FixedSizeListArray::new(
+            buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array(),
+            3,
+            Validity::from_iter([true, false, true, true]),
+            4,
+        );
+        let chunk = export_to_chunk(&fsl, 3, 0, 4);
+        assert_eq!(chunk.len(), 4);
+        let vector = chunk.get_vector(0);
+        assert_nulls(&vector, &[true, false, true, true]);
+        verify_array_elements(&vector, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 3, 4);
+
+        // All nulls.
+        let fsl = FixedSizeListArray::new(
+            buffer![0i32; 6].into_array(),
+            2,
+            Validity::from_iter([false, false, false]),
+            3,
+        );
+        let chunk = export_to_chunk(&fsl, 2, 0, 3);
+        assert_eq!(chunk.len(), 3);
+        let vector = chunk.get_vector(0);
+        assert_nulls(&vector, &[false, false, false]);
+
+        // Alternating pattern.
+        let fsl = FixedSizeListArray::new(
+            buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array(),
+            2,
+            Validity::from_iter([false, true, false, true, false]),
+            5,
+        );
+        let chunk = export_to_chunk(&fsl, 2, 0, 5);
+        assert_eq!(chunk.len(), 5);
+        let vector = chunk.get_vector(0);
+        assert_nulls(&vector, &[false, true, false, true, false]);
     }
 
     #[test]
@@ -293,36 +261,20 @@ mod tests {
     }
 
     #[test]
-    fn test_export_nested_fixed_size_list() {
-        // Test nested fixed-size lists: FSL<FSL<i32, 2>, 3>
-        // This represents an array of arrays, where:
-        // - The outer array has 3 elements
-        // - Each element is itself an array of 2 i32 values
-        //
-        // We'll create 2 outer arrays:
-        // Outer array 1: [[1, 2], [3, 4], [5, 6]]
-        // Outer array 2: [[7, 8], [9, 10], [11, 12]]
+    fn test_nested_lists() {
+        // Test nested fixed-size lists with and without nulls.
 
-        // First create the inner FSL with all the flattened elements.
+        // Basic nested case: FSL<FSL<i32, 2>, 3>.
         let inner_fsl = FixedSizeListArray::new(
             buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array(),
             2,
             Validity::AllValid,
-            6, // 6 inner lists total (3 per outer list * 2 outer lists)
+            6,
         );
+        let outer_fsl = FixedSizeListArray::new(inner_fsl.into_array(), 3, Validity::AllValid, 2);
 
-        // Now create the outer FSL that contains the inner FSL.
-        let outer_fsl = FixedSizeListArray::new(
-            inner_fsl.into_array(),
-            3, // outer list_size (3 inner lists per outer list)
-            Validity::AllValid,
-            2, // 2 outer lists
-        );
-
-        // Create the nested array type and export.
         let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
-
         new_exporter(&outer_fsl, &ConversionCache::new(0))
             .unwrap()
             .export(0, 2, &mut chunk.get_vector(0))
@@ -330,52 +282,31 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(chunk.len(), 2);
-
-        // Verify the nested structure.
         let outer_vector = chunk.get_vector(0);
         let inner_vector = outer_vector.array_vector_get_child();
         let elements_vector = inner_vector.array_vector_get_child();
-
-        // The elements should be all 12 integers in order.
         let elements = elements_vector.as_slice_with_len::<i32>(12);
         assert_eq!(elements, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-    }
 
-    #[test]
-    fn test_export_nested_fixed_size_list_with_nulls() {
-        // Test nested FSL with nulls at different levels.
-        // Outer structure: FSL<FSL<i32, 2>, 3> with 3 outer arrays
-        // Outer array 1: [[1, 2], [3, 4], [5, 6]]    - valid
-        // Outer array 2: NULL                         - null outer array
-        // Outer array 3: [[13, 14], NULL, [17, 18]]  - valid outer with null inner
-
-        // Create inner FSL with mixed validity.
+        // Nested with nulls at different levels.
         let inner_fsl = FixedSizeListArray::new(
             buffer![
                 1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
             ]
             .into_array(),
             2,
-            Validity::from_iter([
-                true, true, true, // First outer's inner arrays
-                true, true, true, // Second outer's inner arrays (unused due to outer null)
-                true, false, true, // Third outer's inner arrays (middle one is null)
-            ]),
-            9, // 9 inner lists total
+            Validity::from_iter([true, true, true, true, true, true, true, false, true]),
+            9,
         );
-
-        // Create outer FSL with null in the middle.
         let outer_fsl = FixedSizeListArray::new(
             inner_fsl.into_array(),
-            3, // outer list_size
+            3,
             Validity::from_iter([true, false, true]),
-            3, // 3 outer lists
+            3,
         );
 
-        // Create the nested array type and export.
         let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
-
         new_exporter(&outer_fsl, &ConversionCache::new(0))
             .unwrap()
             .export(0, 3, &mut chunk.get_vector(0))
@@ -383,27 +314,84 @@ mod tests {
         chunk.set_len(3);
 
         assert_eq!(chunk.len(), 3);
-
-        // Verify outer level nullability.
         let outer_vector = chunk.get_vector(0);
         assert_nulls(&outer_vector, &[true, false, true]);
 
-        // Verify inner level structure and nullability.
         let inner_vector = outer_vector.array_vector_get_child();
+        assert!(!inner_vector.row_is_null(6));
+        assert!(inner_vector.row_is_null(7));
+        assert!(!inner_vector.row_is_null(8));
+    }
 
-        // For the third outer array, check its inner null pattern.
-        // Inner arrays are at indices 6, 7, 8 (3rd outer array's children).
-        assert!(!inner_vector.row_is_null(6)); // [13, 14] - valid
-        assert!(inner_vector.row_is_null(7)); // NULL
-        assert!(!inner_vector.row_is_null(8)); // [17, 18] - valid
+    #[test]
+    fn test_child_data_export_with_nulls() {
+        // Regression test: DuckDB's ARRAY type requires child vectors to always contain
+        // the correct number of elements, even when parent arrays are null.
 
-        // Verify all elements are present in storage.
+        // All null lists.
+        let fsl = FixedSizeListArray::new(
+            buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array(),
+            4,
+            Validity::from_iter([false, false]),
+            2,
+        );
+        let chunk = export_to_chunk(&fsl, 4, 0, 2);
+        assert_eq!(chunk.len(), 2);
+        let vector = chunk.get_vector(0);
+        assert_nulls(&vector, &[false, false]);
+        let child_vector = vector.array_vector_get_child();
+        let elements = child_vector.as_slice_with_len::<i32>(8);
+        assert_eq!(elements.len(), 8);
+
+        // Mixed null/valid.
+        let fsl = FixedSizeListArray::new(
+            buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array(),
+            3,
+            Validity::from_iter([true, false, true, false]),
+            4,
+        );
+        let chunk = export_to_chunk(&fsl, 3, 0, 4);
+        assert_eq!(chunk.len(), 4);
+        let vector = chunk.get_vector(0);
+        assert_nulls(&vector, &[true, false, true, false]);
+        let child_vector = vector.array_vector_get_child();
+        let elements = child_vector.as_slice_with_len::<i32>(12);
+        assert_eq!(elements, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    }
+
+    #[test]
+    fn test_nested_fsl_materialization() {
+        // Regression test: Nested FSL export must call flatten() to materialize child vectors.
+        // Without this, DuckDB segfaults when accessing borrowed memory after scan returns.
+
+        let inner_data = buffer![
+            1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+            24,
+        ]
+        .into_array();
+
+        let inner_fsl = FixedSizeListArray::new(inner_data, 4, Validity::AllValid, 6);
+
+        let outer_fsl = FixedSizeListArray::new(inner_fsl.into_array(), 3, Validity::AllValid, 2);
+
+        let outer_array_type = create_nested_array_type(4, 3);
+        let mut chunk = DataChunk::new([outer_array_type]);
+        new_exporter(&outer_fsl, &ConversionCache::new(0))
+            .unwrap()
+            .export(0, 2, &mut chunk.get_vector(0))
+            .unwrap();
+        chunk.set_len(2);
+
+        assert_eq!(chunk.len(), 2);
+        let outer_vector = chunk.get_vector(0);
+        let inner_vector = outer_vector.array_vector_get_child();
         let elements_vector = inner_vector.array_vector_get_child();
-        let elements = elements_vector.as_slice_with_len::<i32>(18);
+        let elements = elements_vector.as_slice_with_len::<i32>(24);
         assert_eq!(
             elements,
             &[
-                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                24
             ]
         );
     }
