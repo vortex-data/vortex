@@ -5,13 +5,14 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::{StreamExt, pin_mut};
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::driver::CoalescedDriver;
+use crate::footer::DeserializeStep;
 use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
@@ -165,78 +166,34 @@ impl VortexOpenOptions<GenericVortexFile> {
             // Make sure we read enough to cover the postscript
             .max(MAX_FOOTER_SIZE as u64 + EOF_SIZE as u64)
             .min(file_size);
-        let mut initial_offset = file_size - initial_read_size;
-        let mut initial_read: ByteBuffer = self
+        let initial_offset = file_size - initial_read_size;
+        let initial_read: ByteBuffer = self
             .dispatched_read(read.clone(), initial_offset..file_size)
             .await?;
 
-        let postscript = self.parse_postscript(&initial_read)?;
+        let mut deserializer = Footer::deserializer(initial_read)
+            .with_size(file_size)
+            .with_some_dtype(self.dtype.clone())
+            .with_array_registry(self.registry.clone())
+            .with_layout_registry(self.layout_registry.clone());
 
-        // If we haven't been provided a DType, we must read one from the file.
-        let dtype_segment = self
-            .dtype
-            .is_none()
-            .then(|| {
-                postscript.dtype.ok_or_else(|| {
-                    vortex_err!(
-                        "Vortex file doesn't embed a DType and none provided to VortexOpenOptions"
-                    )
-                })
-            })
-            .transpose()?;
-
-        // The other postscript segments are required, so now we figure out our the offset that
-        // contains all the required segments.
-        let mut read_more_offset = initial_offset;
-        if let Some(dtype_segment) = &dtype_segment {
-            read_more_offset = read_more_offset.min(dtype_segment.offset);
-        }
-        if let Some(stats_segment) = &postscript.statistics {
-            read_more_offset = read_more_offset.min(stats_segment.offset);
-        }
-        read_more_offset = read_more_offset.min(postscript.layout.offset);
-        read_more_offset = read_more_offset.min(postscript.footer.offset);
-
-        // Read more bytes if necessary.
-        if read_more_offset < initial_offset {
-            log::debug!(
-                "Initial read from {initial_offset} did not cover all footer segments, reading from {read_more_offset}"
-            );
-
-            let mut new_initial_read =
-                ByteBufferMut::with_capacity(usize::try_from(file_size - read_more_offset)?);
-            new_initial_read.extend_from_slice(
-                &self
-                    .dispatched_read(read, read_more_offset..initial_offset)
-                    .await?,
-            );
-            new_initial_read.extend_from_slice(&initial_read);
-
-            initial_offset = read_more_offset;
-            initial_read = new_initial_read.freeze();
-        }
-
-        // Now we read our initial segments.
-        let dtype = dtype_segment
-            .map(|segment| self.parse_dtype(initial_offset, &initial_read, &segment))
-            .transpose()?
-            .unwrap_or_else(|| self.dtype.clone().vortex_expect("DType was provided"));
-        let file_stats = postscript
-            .statistics
-            .map(|segment| self.parse_file_statistics(initial_offset, &initial_read, &segment))
-            .transpose()?;
-        let footer = self.parse_footer(
-            initial_offset,
-            &initial_read,
-            &postscript.footer,
-            &postscript.layout,
-            dtype,
-            file_stats,
-        )?;
+        let footer = loop {
+            match deserializer.deserialize()? {
+                DeserializeStep::NeedMoreData { offset, len } => {
+                    let more_data = self
+                        .dispatched_read(read.clone(), offset..offset + (len as u64))
+                        .await?;
+                    deserializer.prefix_data(more_data);
+                }
+                DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),
+                DeserializeStep::Done(footer) => break Ok::<_, VortexError>(footer),
+            }
+        }?;
 
         // If the initial read happened to cover any segments, then we can populate the
         // segment cache
-        self.populate_initial_segments(initial_offset, &initial_read, &footer);
+        let initial_offset = file_size - (deserializer.buffer().len() as u64);
+        self.populate_initial_segments(initial_offset, deserializer.buffer(), &footer);
 
         Ok(footer)
     }
