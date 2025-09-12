@@ -15,18 +15,17 @@ use vortex_dtype::DType;
 use vortex_error::{
     VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
-use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::{BlockingRuntime, Handle};
+use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
-use vortex_layout::{LayoutContext, LayoutStrategy};
 
 use crate::counting::CountingVortexWrite;
-use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
+use crate::footer::FileStatistics;
 use crate::segments::writer::BufferedSegmentSink;
-use crate::{EOF_SIZE, Footer, MAGIC_BYTES, MAX_POSTSCRIPT_SIZE, VERSION, WriteStrategyBuilder};
+use crate::{Footer, MAGIC_BYTES, WriteStrategyBuilder};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -179,69 +178,32 @@ impl VortexWriteOptions {
 
         let (layout, segment_specs) = layout_fut.await?;
 
-        let dtype_segment = if self.exclude_dtype {
-            None
-        } else {
-            let (buffer, dtype_segment) = write_flatbuffer(&mut position, &dtype)?;
-            write.write_all(buffer).await?;
-            Some(dtype_segment)
-        };
-
-        let layout_ctx = LayoutContext::empty();
-        let (buffer, layout_segment) =
-            write_flatbuffer(&mut position, &layout.flatbuffer_writer(&layout_ctx))?;
-        write.write_all(buffer).await?;
-
-        let (statistics_segment, file_statistics) = if self.file_statistics.is_empty() {
-            (None, None)
-        } else {
-            let file_statistics = FileStatistics(file_stats.stats_sets().into());
-            let (buffer, stats_segment) = write_flatbuffer(&mut position, &file_statistics)?;
-            write.write_all(buffer).await?;
-            (Some(stats_segment), Some(file_statistics))
-        };
-
-        let (buffer, footer_segment) = write_flatbuffer(
-            &mut position,
-            &FooterFlatBufferWriter {
-                ctx: ctx.clone(),
-                layout_ctx,
-                segment_specs: segment_specs.clone(),
+        // Assemble the Footer object now that we have all the segments.
+        let footer = Footer::new(
+            layout.clone(),
+            segment_specs,
+            if self.file_statistics.is_empty() {
+                None
+            } else {
+                Some(FileStatistics(file_stats.stats_sets().into()))
             },
-        )?;
-        write.write_all(buffer).await?;
+            ctx,
+        );
 
-        // Assemble the postscript, and write it manually to avoid any framing.
-        let postscript = Postscript {
-            dtype: dtype_segment,
-            layout: layout_segment,
-            statistics: statistics_segment,
-            footer: footer_segment,
-        };
-        let postscript_buffer = postscript.write_flatbuffer_bytes();
-        if postscript_buffer.len() > MAX_POSTSCRIPT_SIZE as usize {
-            Err(vortex_err!(
-                "Postscript is too large ({} bytes); max postscript size is {}",
-                postscript_buffer.len(),
-                MAX_POSTSCRIPT_SIZE
-            ))?;
+        // Emit the footer buffers and EOF.
+        let footer_buffers = footer
+            .clone()
+            .into_serializer()
+            .with_offset(position)
+            .with_exclude_dtype(self.exclude_dtype)
+            .serialize()?;
+        for buffer in footer_buffers {
+            position += buffer.len() as u64;
+            write.write_all(buffer).await?;
         }
-        position += postscript_buffer.len() as u64;
-
-        let postscript_len = u16::try_from(postscript_buffer.len())
-            .vortex_expect("Postscript already verified to fit into u16");
-        write.write_all(postscript_buffer.into_inner()).await?;
-
-        // And finally, the EOF 8-byte footer.
-        let mut eof = [0u8; EOF_SIZE];
-        eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
-        eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
-        eof[4..8].copy_from_slice(&MAGIC_BYTES);
-        write.write_all(ByteBuffer::copy_from(eof)).await?;
-        position += EOF_SIZE as u64;
 
         Ok(WriteSummary {
-            footer: Footer::new(layout, segment_specs, file_statistics),
+            footer,
             size: position,
         })
     }
@@ -264,25 +226,6 @@ impl VortexWriteOptions {
             bytes_written,
         }
     }
-}
-
-fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
-    offset: &mut u64,
-    flatbuffer: &F,
-) -> VortexResult<(ByteBuffer, PostscriptSegment)> {
-    let buffer = flatbuffer.write_flatbuffer_bytes();
-    let length = u32::try_from(buffer.len())
-        .map_err(|_| vortex_err!("flatbuffer length exceeds maximum u32"))?;
-
-    let segment = PostscriptSegment {
-        offset: *offset,
-        length,
-        alignment: FlatBuffer::alignment(),
-    };
-
-    *offset += u64::from(length);
-
-    Ok((buffer.into_inner(), segment))
 }
 
 /// An async API for writing Vortex files.
