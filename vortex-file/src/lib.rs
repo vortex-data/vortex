@@ -110,7 +110,7 @@ mod writer;
 use std::sync::{Arc, LazyLock};
 
 pub use file::*;
-pub use footer::{Footer, SegmentSpec};
+pub use footer::*;
 pub use forever_constant::*;
 pub use generic::*;
 pub use memory::*;
