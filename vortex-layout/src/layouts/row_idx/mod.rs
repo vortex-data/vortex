@@ -252,7 +252,6 @@ mod tests {
 
     use arrow_buffer::BooleanBuffer;
     use itertools::Itertools;
-
     use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::{ArrayContext, IntoArray as _, ToCanonical};
     use vortex_buffer::buffer;

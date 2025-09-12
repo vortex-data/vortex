@@ -190,7 +190,6 @@ mod tests {
     #[test]
     fn test_vtable_evaluate_fails() {
         use vortex_array::IntoArray;
-
         use vortex_expr::Scope;
 
         let expr = RowIdxExpr;

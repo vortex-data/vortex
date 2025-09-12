@@ -143,9 +143,8 @@ where
 
 #[cfg(test)]
 mod test {
-    use vortex_array::IntoArray as _;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{Array, ToCanonical};
+    use vortex_array::{Array, IntoArray as _, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
