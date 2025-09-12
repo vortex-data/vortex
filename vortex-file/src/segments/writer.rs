@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
@@ -27,9 +28,12 @@ impl BufferedSegmentSink {
         }
     }
 
-    pub fn to_specs(&self) -> Vec<SegmentSpec> {
+    /// Close the sink, returning the segment specs and the final byte offset.
+    pub fn close(self) -> (Arc<[SegmentSpec]>, u64) {
         let specs = self.segment_specs.lock();
-        specs.clone()
+        let specs = Arc::from(specs.clone());
+        let byte_offset = self.byte_offset.load(Ordering::Relaxed);
+        (specs, byte_offset)
     }
 }
 

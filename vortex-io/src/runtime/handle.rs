@@ -26,6 +26,22 @@ impl Handle {
         Self { runtime }
     }
 
+    /// Returns a handle to the current runtime, if such a reasonable choice exists.
+    ///
+    /// For example, if called from within a Tokio context this will return a
+    /// [`crate::runtime::tokio::TokioRuntime`] handle.
+    pub fn find() -> Option<Self> {
+        #[cfg(feature = "tokio")]
+        {
+            use tokio::runtime::Handle as TokioHandle;
+            if TokioHandle::try_current().is_ok() {
+                return Some(crate::runtime::tokio::TokioRuntime::handle())
+            }
+        }
+
+        None
+    }
+
     /// Spawn a new future onto the runtime.
     ///
     /// These futures are expected to not perform expensive CPU work and instead simply schedule
