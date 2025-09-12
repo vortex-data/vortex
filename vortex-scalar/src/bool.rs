@@ -8,7 +8,7 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::{InnerScalarValue, Scalar, ScalarRef, ScalarValue};
 
 /// A scalar value representing a boolean.
 ///
@@ -106,6 +106,20 @@ impl<'a> TryFrom<&'a Scalar> for BoolScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
+        if !matches!(value.dtype(), DType::Bool(_)) {
+            vortex_bail!("Expected bool scalar, found {}", value.dtype())
+        }
+        Ok(Self {
+            dtype: value.dtype(),
+            value: value.value().as_bool()?,
+        })
+    }
+}
+
+impl<'a> TryFrom<&'a ScalarRef<'a>> for BoolScalar<'a> {
+    type Error = VortexError;
+
+    fn try_from(value: &'a ScalarRef<'a>) -> Result<Self, Self::Error> {
         if !matches!(value.dtype(), DType::Bool(_)) {
             vortex_bail!("Expected bool scalar, found {}", value.dtype())
         }

@@ -8,7 +8,7 @@ use num_traits::ToPrimitive as NumToPrimitive;
 use vortex_dtype::{DType, DecimalDType, PType};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
-use crate::{DecimalValue, InnerScalarValue, Scalar, ScalarValue, match_each_decimal_value};
+use crate::{DecimalValue, InnerScalarValue, Scalar, ScalarRef, ScalarValue, match_each_decimal_value};
 
 /// A scalar value representing a decimal number with fixed precision and scale.
 #[derive(Debug, Clone, Copy, Hash)]
@@ -171,6 +171,14 @@ impl<'a> TryFrom<&'a Scalar> for DecimalScalar<'a> {
 
     fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
         DecimalScalar::try_new(scalar.dtype(), scalar.value())
+    }
+}
+
+impl<'a> TryFrom<&'a ScalarRef<'a>> for DecimalScalar<'a> {
+    type Error = VortexError;
+
+    fn try_from(scalar_ref: &'a ScalarRef<'a>) -> Result<Self, Self::Error> {
+        DecimalScalar::try_new(scalar_ref.dtype(), scalar_ref.value())
     }
 }
 

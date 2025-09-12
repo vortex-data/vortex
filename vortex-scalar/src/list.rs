@@ -11,7 +11,7 @@ use vortex_error::{
     VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
 
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::{InnerScalarValue, Scalar, ScalarRef, ScalarValue};
 
 /// A scalar value representing a list or fixed-size list (array) of elements.
 ///
@@ -272,6 +272,23 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
+        let element_dtype = value
+            .dtype()
+            .as_any_size_list_element_opt()
+            .ok_or_else(|| vortex_err!("Expected list scalar, found {}", value.dtype()))?;
+
+        Ok(Self {
+            dtype: value.dtype(),
+            element_dtype,
+            elements: value.value().as_list()?.cloned(),
+        })
+    }
+}
+
+impl<'a> TryFrom<&'a ScalarRef<'a>> for ListScalar<'a> {
+    type Error = VortexError;
+
+    fn try_from(value: &'a ScalarRef<'a>) -> Result<Self, Self::Error> {
         let element_dtype = value
             .dtype()
             .as_any_size_list_element_opt()

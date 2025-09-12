@@ -13,7 +13,7 @@ use vortex_error::{
     VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
 
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::{InnerScalarValue, Scalar, ScalarRef, ScalarValue};
 
 /// A scalar value representing a struct with named fields.
 ///
@@ -74,10 +74,11 @@ impl PartialOrd for StructScalar<'_> {
         match (self.fields(), other.fields()) {
             (Some(lhs), Some(rhs)) => {
                 for (l_s, r_s) in lhs.zip(rhs) {
-                    match l_s.partial_cmp(&r_s)? {
-                        Ordering::Equal => continue,
-                        Ordering::Less => return Some(Ordering::Less),
-                        Ordering::Greater => return Some(Ordering::Greater),
+                    let ord = l_s.partial_cmp(&r_s)?;
+                    if ord.is_eq() {
+                        continue;
+                    } else {
+                        return Some(ord);
                     }
                 }
             }
@@ -172,6 +173,13 @@ impl<'a> StructScalar<'a> {
                 .zip(self.struct_fields().fields())
                 .map(|(v, dtype)| Scalar::new(dtype, v.clone())),
         )
+    }
+
+    /// Returns an iterator of field values and their dtypes without allocating new Scalar objects.
+    /// Returns None if the struct scalar is null.
+    pub fn field_values_with_dtypes(&self) -> Option<impl Iterator<Item = (&ScalarValue, DType)>> {
+        let fields = self.fields?;
+        Some(fields.iter().zip(self.struct_fields().fields()))
     }
 
     pub(crate) fn field_values(&self) -> Option<&[ScalarValue]> {
@@ -305,6 +313,14 @@ impl<'a> TryFrom<&'a Scalar> for StructScalar<'a> {
     }
 }
 
+impl<'a> TryFrom<&'a ScalarRef<'a>> for StructScalar<'a> {
+    type Error = VortexError;
+
+    fn try_from(value: &'a ScalarRef<'a>) -> Result<Self, Self::Error> {
+        Self::try_new(value.dtype(), value.value())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_dtype::PType::I32;
@@ -431,12 +447,56 @@ mod tests {
     }
 
     #[test]
+    fn test_struct_field_values_with_dtypes() {
+        let (_, _, dtype) = setup_types();
+        let f0_val = Scalar::primitive::<i32>(200, Nullability::NonNullable);
+        let f1_val = Scalar::utf8("refs_test", Nullability::NonNullable);
+
+        let scalar = Scalar::struct_(dtype, vec![f0_val, f1_val]);
+
+        // Test field_values_with_dtypes returns (ScalarValue, DType) pairs without allocating new Scalars
+        let struct_scalar = scalar.as_struct();
+        let field_data = struct_scalar
+            .field_values_with_dtypes()
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(field_data.len(), 2);
+
+        // Verify the field values and types are correct
+        let (value0, dtype0) = &field_data[0];
+        let (value1, dtype1) = &field_data[1];
+
+        // Create ScalarRef from the data to test it
+        let scalar_ref0 = ScalarRef::new(dtype0, value0);
+        let scalar_ref1 = ScalarRef::new(dtype1, value1);
+
+        assert_eq!(
+            scalar_ref0.as_primitive().typed_value::<i32>().unwrap(),
+            200
+        );
+        assert_eq!(scalar_ref1.as_utf8().value().unwrap(), "refs_test".into());
+
+        // Verify conversion to scalar works
+        let scalar_from_ref = scalar_ref0.to_scalar();
+        assert_eq!(
+            scalar_from_ref.as_primitive().typed_value::<i32>().unwrap(),
+            200
+        );
+
+        // Test ScalarRef basic functionality
+        assert!(!scalar_ref0.is_null());
+        assert!(scalar_ref0.is_valid());
+        assert_eq!(scalar_ref0.dtype(), dtype0);
+    }
+
+    #[test]
     fn test_struct_null_fields() {
         let (_, _, dtype) = setup_types();
         let null_scalar = Scalar::null(dtype);
 
         assert!(null_scalar.as_struct().is_null());
         assert!(null_scalar.as_struct().fields().is_none());
+        assert!(null_scalar.as_struct().field_values_with_dtypes().is_none());
         assert!(null_scalar.as_struct().field_values().is_none());
     }
 

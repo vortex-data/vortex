@@ -12,7 +12,7 @@ use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_pty
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_err, vortex_panic};
 
 use crate::pvalue::{CoercePValue, PValue};
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::{InnerScalarValue, Scalar, ScalarRef, ScalarValue};
 
 /// A scalar value representing a primitive type.
 ///
@@ -265,6 +265,14 @@ impl<'a> TryFrom<&'a Scalar> for PrimitiveScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
+        Self::try_new(value.dtype(), value.value())
+    }
+}
+
+impl<'a> TryFrom<&'a ScalarRef<'a>> for PrimitiveScalar<'a> {
+    type Error = VortexError;
+
+    fn try_from(value: &'a ScalarRef<'a>) -> Result<Self, Self::Error> {
         Self::try_new(value.dtype(), value.value())
     }
 }

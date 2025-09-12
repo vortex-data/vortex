@@ -9,7 +9,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::{InnerScalarValue, Scalar, ScalarRef, ScalarValue};
 
 /// A scalar value representing binary data.
 ///
@@ -179,6 +179,20 @@ impl<'a> TryFrom<&'a Scalar> for BinaryScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
+        if !matches!(value.dtype(), DType::Binary(_)) {
+            vortex_bail!("Expected binary scalar, found {}", value.dtype())
+        }
+        Ok(Self {
+            dtype: value.dtype(),
+            value: value.value().as_buffer()?,
+        })
+    }
+}
+
+impl<'a> TryFrom<&'a ScalarRef<'a>> for BinaryScalar<'a> {
+    type Error = VortexError;
+
+    fn try_from(value: &'a ScalarRef<'a>) -> Result<Self, Self::Error> {
         if !matches!(value.dtype(), DType::Binary(_)) {
             vortex_bail!("Expected binary scalar, found {}", value.dtype())
         }
