@@ -6,7 +6,6 @@
 use std::path::Path;
 
 use futures::executor::block_on;
-use futures::io::AllowStdIo;
 use vortex::arrays::StructArray;
 use vortex::builders::{ArrayBuilder, DecimalBuilder, VarBinViewBuilder};
 use vortex::dtype::{DType, DecimalDType, Nullability};
@@ -77,7 +76,7 @@ fn main() {
     let mut file = std::fs::File::create(&minimal_path).expect("opening Vortex file");
     VortexWriteOptions::default()
         .blocking::<SingleThreadRuntime>()
-        .write(&mut AllowStdIo::new(file), rows.to_array_iterator())
+        .write(&mut file, rows.to_array_iterator())
         .expect("writing Vortex file");
 
     println!("Wrote Vortex file to {}", minimal_path.display());

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::io;
+use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
@@ -15,9 +17,9 @@ use vortex_dtype::DType;
 use vortex_error::{
     VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
-use vortex_io::VortexWrite;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::{BlockingRuntime, Handle};
+use vortex_io::{IoBuf, VortexWrite};
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
@@ -342,7 +344,7 @@ pub struct BlockingWrite<B: BlockingRuntime> {
 
 impl<B: BlockingRuntime> BlockingWrite<B> {
     /// Write a Vortex file into the given `Write` sink.
-    pub fn write<W: VortexWrite + Unpin>(
+    pub fn write<W: Write + Unpin>(
         self,
         write: W,
         iter: impl ArrayIterator + Send + 'static,
@@ -351,12 +353,12 @@ impl<B: BlockingRuntime> BlockingWrite<B> {
         self.runtime.block_on(async move {
             self.options
                 .with_handle(handle)
-                .write(write, iter.into_array_stream())
+                .write(BlockingWriteAdapter(write), iter.into_array_stream())
                 .await
         })
     }
 
-    pub fn writer<'w, W: VortexWrite + Unpin + 'w>(
+    pub fn writer<'w, W: Write + Unpin + 'w>(
         self,
         write: W,
         dtype: DType,
@@ -365,7 +367,7 @@ impl<B: BlockingRuntime> BlockingWrite<B> {
             writer: self
                 .options
                 .with_handle(self.runtime.handle())
-                .writer(write, dtype),
+                .writer(BlockingWriteAdapter(write), dtype),
             runtime: self.runtime,
         }
     }
@@ -388,6 +390,24 @@ impl<B: BlockingRuntime> BlockingWriter<'_, B> {
 
     pub fn finish(self) -> VortexResult<WriteSummary> {
         self.runtime.block_on(self.writer.finish())
+    }
+}
+
+// TODO(ngates): this blocking API may change, for now we just run blocking I/O inline.
+struct BlockingWriteAdapter<W>(W);
+
+impl<W: Write + Unpin> VortexWrite for BlockingWriteAdapter<W> {
+    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
+        self.0.write_all(buffer.as_slice())?;
+        Ok(buffer)
+    }
+
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+        ready(self.0.flush())
+    }
+
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+        ready(Ok(()))
     }
 }
 

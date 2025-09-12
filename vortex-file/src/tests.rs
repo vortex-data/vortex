@@ -130,6 +130,7 @@ fn test_round_trip_many_types() {
     ])
     .unwrap();
     let mut buf = ByteBufferMut::empty();
+
     VortexWriteOptions::default()
         .blocking::<SingleThreadRuntime>()
         .write(&mut buf, st.to_array_iterator())

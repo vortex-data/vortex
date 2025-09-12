@@ -74,20 +74,7 @@ impl Handle {
         Fut: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        let fut = f(Handle::new(self.runtime.clone()));
-
-        let (send, recv) = oneshot::channel();
-        let abort_handle = self.runtime.spawn(
-            async move {
-                // Task::detach allows the receiver to be dropped, so we ignore send errors.
-                let _ = send.send(fut.await);
-            }
-            .boxed(),
-        );
-        Task {
-            recv,
-            abort_handle: Some(abort_handle),
-        }
+        self.spawn(f(Handle::new(self.runtime.clone())))
     }
 
     /// Spawn a CPU-bound task for execution on the runtime.
