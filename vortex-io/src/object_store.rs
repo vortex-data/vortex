@@ -116,23 +116,24 @@ impl VortexReadAt for ObjectStoreReadAt {
     }
 }
 
-/// Adapter type to write data through a [`ObjectStore`] instace.
+/// Adapter type to write data through a [`ObjectStore`] instance.
 ///
-/// After writing, the caller must make sure to call `shutdonw`, in order to ensure the data is actually persisted.
+/// After writing, the caller must make sure to call `shutdown`, in order to ensure the data is actually persisted.
 pub struct ObjectStoreWriter {
     upload: Box<dyn MultipartUpload>,
     buffer: BytesMut,
     put_result: Option<PutResult>,
 }
 
-const CHUNKS_SIZE: usize = 25 * 1024 * 1024;
+const CHUNK_SIZE: usize = 16 * 1024 * 1024;
+const BUFFER_SIZE: usize = 128 * 1024 * 1024;
 
 impl ObjectStoreWriter {
     pub async fn new(object_store: Arc<dyn ObjectStore>, location: &Path) -> VortexResult<Self> {
         let upload = object_store.put_multipart(location).await?;
         Ok(Self {
             upload,
-            buffer: BytesMut::with_capacity(CHUNKS_SIZE),
+            buffer: BytesMut::with_capacity(CHUNK_SIZE),
             put_result: None,
         })
     }
@@ -147,12 +148,15 @@ impl VortexWrite for ObjectStoreWriter {
         self.buffer.extend_from_slice(buffer.as_slice());
         let parts = FuturesUnordered::new();
 
-        // Split off chunks while buffer is larger than CHUNKS_SIZE
-        while self.buffer.len() > CHUNKS_SIZE {
-            let payload = self.buffer.split_to(CHUNKS_SIZE).freeze();
-            let part_fut = self.upload.put_part(PutPayload::from_bytes(payload));
+        // If the buffer is full
+        if self.buffer.len() > BUFFER_SIZE {
+            // Split off chunks while buffer is larger than CHUNKS_SIZE
+            while self.buffer.len() > CHUNK_SIZE {
+                let payload = self.buffer.split_to(CHUNK_SIZE).freeze();
+                let part_fut = self.upload.put_part(PutPayload::from_bytes(payload));
 
-            parts.push(part_fut);
+                parts.push(part_fut);
+            }
         }
 
         parts.try_collect::<Vec<_>>().await?;
@@ -163,8 +167,8 @@ impl VortexWrite for ObjectStoreWriter {
     async fn flush(&mut self) -> io::Result<()> {
         let parts = FuturesUnordered::new();
 
-        while self.buffer.len() > CHUNKS_SIZE {
-            let payload = self.buffer.split_to(CHUNKS_SIZE).freeze();
+        while self.buffer.len() > CHUNK_SIZE {
+            let payload = self.buffer.split_to(CHUNK_SIZE).freeze();
             let part_fut = self.upload.put_part(PutPayload::from_bytes(payload));
 
             parts.push(part_fut);
