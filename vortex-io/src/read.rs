@@ -5,17 +5,23 @@ use std::future::Future;
 use std::io;
 use std::ops::Range;
 use std::sync::Arc;
-
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexExpect, vortex_err};
+use vortex_error::{vortex_err, VortexExpect};
 use vortex_metrics::{Histogram, Timer, VortexMetrics};
 
-/// A trait for types that support asynchronous reads.
+/// The trait used internally in Vortex for performing read operations.
 ///
-/// References to the type must be safe to [share across threads][Send], but spawned
-/// futures may be `!Send` to support thread-per-core implementations.
+/// ## For Developers
 ///
-/// Readers must be cheaply cloneable to allow for easy sharing across tasks or threads.
+/// While we have left this trait unsealed, it is not recommended that you implement it for
+/// file-like storage. Instead, consider implementing a [`crate::file::ReadSource`] that will
+/// automatically handle coalescing and concurrency for you.
+///
+/// ## Thread Safety
+///
+/// This trait has been marks as `'static`, `Send` and `Sync` due to how we expect to use it
+/// within the Vortex concurrency model. If your I/O backend has more restrictive requirements,
+/// please consider the `crate::file::ReadSource` trait instead that supports `!Send` I/O.
 pub trait VortexReadAt: 'static {
     /// Request an asynchronous positional read. Results will be returned as a [`ByteBuffer`].
     ///

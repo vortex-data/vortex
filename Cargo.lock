@@ -7019,6 +7019,7 @@ dependencies = [
  "anyhow",
  "async-compat",
  "async-stream",
+ "async-trait",
  "blocking",
  "bytes",
  "cfg-if",

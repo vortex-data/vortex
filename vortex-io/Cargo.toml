@@ -19,6 +19,7 @@ all-features = true
 [dependencies]
 async-compat = { workspace = true }
 async-stream = { workspace = true }
+async-trait = { workspace = true }
 blocking = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
