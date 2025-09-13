@@ -56,7 +56,7 @@ vortex-zstd = { workspace = true, optional = true }
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
-vortex-layout = { path = ".", features = ["tokio", "test-harness"] }
+vortex-io = { path = "../vortex-io", features = ["tokio"] }
 
 [features]
 test-harness = []
