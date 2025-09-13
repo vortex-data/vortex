@@ -13,7 +13,7 @@ use tokio::task::spawn_blocking;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexExpect;
 
-use crate::{IoBuf, PerformanceHint, VortexRead, VortexWrite};
+use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 
 /// A cheaply cloneable, readonly file that executes operations
 /// on a tokio blocking threadpool.
@@ -50,7 +50,7 @@ impl Deref for TokioFile {
 }
 
 #[async_trait]
-impl VortexRead for TokioFile {
+impl VortexReadAt for TokioFile {
     #[tracing::instrument(skip_all, fields(range, alignment))]
     async fn read_byte_range(
         &self,
@@ -104,7 +104,7 @@ mod tests {
     use tempfile::NamedTempFile;
     use vortex_buffer::Alignment;
 
-    use crate::{TokioFile, VortexRead};
+    use crate::{TokioFile, VortexReadAt};
 
     #[tokio::test]
     async fn test_shared_file() {

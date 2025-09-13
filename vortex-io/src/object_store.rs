@@ -17,7 +17,7 @@ use std::sync::Arc;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::{IoBuf, PerformanceHint, VortexRead, VortexWrite};
+use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 
 #[derive(Clone)]
 pub struct ObjectStoreReadAt {
@@ -41,7 +41,7 @@ impl ObjectStoreReadAt {
 }
 
 #[async_trait]
-impl VortexRead for ObjectStoreReadAt {
+impl VortexReadAt for ObjectStoreReadAt {
     #[tracing::instrument(skip_all, fields(size = range.end - range.start))]
     async fn read_byte_range(
         &self,

@@ -13,7 +13,7 @@ use itertools::Itertools;
 use linked_hash_set::LinkedHashSet;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_io::{PerformanceHint, VortexRead};
+use vortex_io::{PerformanceHint, VortexReadAt};
 use vortex_layout::segments::{SegmentEvent, SegmentId, SegmentRequest};
 use vortex_metrics::{Counter, VortexMetrics};
 use vortex_utils::aliases::hash_map::HashMap;
@@ -421,7 +421,7 @@ impl CoalescedSegmentRequest {
     }
 
     /// Launch the request, reading the byte range from the provided reader.
-    pub async fn launch<R: VortexRead>(self, read: R) {
+    pub async fn launch<R: VortexReadAt>(self, read: R) {
         let alignment = self.segment_map[*self.requests[0].id() as usize].alignment;
         let byte_range = self.byte_range.clone();
         let buffer = read

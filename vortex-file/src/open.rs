@@ -5,11 +5,12 @@ use std::sync::Arc;
 
 use vortex_array::ArrayRegistry;
 use vortex_dtype::DType;
+use vortex_io::runtime::Handle;
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
 
-use crate::DEFAULT_REGISTRY;
 use crate::footer::Footer;
+use crate::DEFAULT_REGISTRY;
 
 pub trait FileType: Sized {
     type Options;
@@ -17,6 +18,8 @@ pub trait FileType: Sized {
 
 /// Open options for a Vortex file reader.
 pub struct VortexOpenOptions<F: FileType> {
+    /// The handle used by the open file.
+    pub(crate) handle: Option<Handle>,
     /// File-specific options
     pub(crate) options: F::Options,
     /// The registry of array encodings.
@@ -41,6 +44,7 @@ impl<F: FileType> VortexOpenOptions<F> {
     /// access either `VortexOpenOptions::file()` or `VortexOpenOptions::memory()`
     pub(crate) fn new(options: F::Options) -> Self {
         Self {
+            handle: Handle::find(),
             options,
             registry: DEFAULT_REGISTRY.clone(),
             layout_registry: Arc::new(LayoutRegistry::default()),

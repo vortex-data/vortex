@@ -4,18 +4,19 @@
 mod request;
 mod source;
 
+use crate::VortexReadAt;
+use async_trait::async_trait;
+use futures::future::{BoxFuture, Shared};
+use futures::{FutureExt, TryFutureExt};
 pub use request::*;
 pub use source::*;
 use std::fmt;
 use std::fmt::{Debug, Display};
-use std::marker::PhantomData;
+use std::ops::Range;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
-
-use futures::future::{BoxFuture, Shared};
-use futures::{FutureExt, TryFutureExt};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexResult};
 
@@ -42,7 +43,7 @@ use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexResult};
 /// I/O requests will be processed in the order they are `registered`, however coalescing may mean
 /// other registered requests are lumped together into a single I/O operation.
 #[derive(Clone)]
-pub struct FileRead<'rt> {
+pub struct FileRead {
     /// Human-readable descriptor for the file, typically its URI.
     uri: Arc<str>,
     /// A shared future that resolves to the size of the file.
@@ -51,11 +52,9 @@ pub struct FileRead<'rt> {
     events: kanal::Sender<ReadEvent>,
     /// The next read request ID.
     next_id: Arc<AtomicUsize>,
-    /// Lifetime that ties the file handle to the runtime it was opened on.
-    _rt: PhantomData<&'rt ()>,
 }
 
-impl Debug for FileRead<'_> {
+impl Debug for FileRead {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FileHandle")
             .field("uri", &self.uri)
@@ -63,13 +62,13 @@ impl Debug for FileRead<'_> {
     }
 }
 
-impl Display for FileRead<'_> {
+impl Display for FileRead {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.uri)
     }
 }
 
-impl<'rt> FileRead<'rt> {
+impl FileRead {
     pub(crate) fn new(
         uri: Arc<str>,
         size: BoxFuture<'static, VortexResult<u64>>,
@@ -80,7 +79,6 @@ impl<'rt> FileRead<'rt> {
             size: size.map_err(Arc::new).boxed().shared(),
             events: send,
             next_id: Arc::new(AtomicUsize::new(0)),
-            _rt: Default::default(),
         }
     }
 
@@ -90,12 +88,12 @@ impl<'rt> FileRead<'rt> {
     }
 
     /// Returns the size of the file in bytes.
-    pub fn size(&self) -> impl Future<Output = VortexResult<u64>> + Send + 'rt {
+    pub fn size(&self) -> impl Future<Output = VortexResult<u64>> + Send + 'static {
         self.size.clone().map_err(VortexError::from)
     }
 
     /// Submits a read request for the specified byte range and alignment.
-    pub fn read(&self, offset: u64, length: usize, alignment: Alignment) -> ReadFuture<'rt> {
+    pub fn read(&self, offset: u64, length: usize, alignment: Alignment) -> ReadFuture {
         let (send, recv) = oneshot::channel();
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let event = ReadEvent::Request(ReadRequest {
@@ -115,7 +113,6 @@ impl<'rt> FileRead<'rt> {
                 recv,
                 polled: false,
                 events: self.events.clone(),
-                _rt: PhantomData,
             };
         }
 
@@ -124,7 +121,6 @@ impl<'rt> FileRead<'rt> {
             recv,
             polled: false,
             events: self.events.clone(),
-            _rt: PhantomData,
         }
     }
 }
@@ -140,15 +136,14 @@ pub(crate) enum ReadEvent {
 ///
 /// See the documentation for [`FileRead`] for details on coalescing and pre-fetching.
 /// If dropped, the read request will be canceled where possible.
-pub struct ReadFuture<'rt> {
+pub struct ReadFuture {
     id: usize,
     recv: oneshot::Receiver<VortexResult<ByteBuffer>>,
     polled: bool,
     events: kanal::Sender<ReadEvent>,
-    _rt: PhantomData<&'rt ()>,
 }
 
-impl Future for ReadFuture<'_> {
+impl Future for ReadFuture {
     type Output = VortexResult<ByteBuffer>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -167,10 +162,32 @@ impl Future for ReadFuture<'_> {
     }
 }
 
-impl Drop for ReadFuture<'_> {
+impl Drop for ReadFuture {
     fn drop(&mut self) {
         // When the FileHandle is dropped, we can send a shutdown event to the I/O stream.
         // If the I/O stream has already been dropped, this will fail silently.
         let _ = self.events.send(ReadEvent::Dropped(self.id));
+    }
+}
+
+#[async_trait]
+impl VortexReadAt for FileRead {
+    async fn read_byte_range(
+        &self,
+        range: Range<u64>,
+        alignment: Alignment,
+    ) -> std::io::Result<ByteBuffer> {
+        let length = (range.end - range.start) as usize;
+        self.read(range.start, length, alignment)
+            .await
+            .map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::Other, format!("Vortex read error: {e}"))
+            })
+    }
+
+    async fn size(&self) -> std::io::Result<u64> {
+        self.size().await.map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("Vortex read error: {e}"))
+        })
     }
 }

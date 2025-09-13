@@ -23,7 +23,7 @@ use vortex_metrics::{Histogram, Timer, VortexMetrics};
 /// within the Vortex concurrency model. If your I/O backend has more restrictive requirements,
 /// please consider the `crate::file::ReadSource` trait instead that supports `!Send` I/O.
 #[async_trait]
-pub trait VortexRead: 'static + Send + Sync {
+pub trait VortexReadAt: 'static + Send + Sync {
     /// Request an asynchronous positional read. Results will be returned as a [`ByteBuffer`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
@@ -91,7 +91,7 @@ impl PerformanceHint {
 }
 
 #[async_trait]
-impl<T: VortexRead> VortexRead for Arc<T> {
+impl<T: VortexReadAt> VortexReadAt for Arc<T> {
     async fn read_byte_range(
         &self,
         range: Range<u64>,
@@ -110,7 +110,7 @@ impl<T: VortexRead> VortexRead for Arc<T> {
 }
 
 #[async_trait]
-impl VortexRead for ByteBuffer {
+impl VortexReadAt for ByteBuffer {
     async fn read_byte_range(
         &self,
         range: Range<u64>,
@@ -137,13 +137,13 @@ impl VortexRead for ByteBuffer {
 }
 
 #[derive(Clone)]
-pub struct InstrumentedReadAt<T: VortexRead> {
+pub struct InstrumentedReadAt<T: VortexReadAt> {
     read: T,
     sizes: Arc<Histogram>,
     durations: Arc<Timer>,
 }
 
-impl<T: VortexRead> InstrumentedReadAt<T> {
+impl<T: VortexReadAt> InstrumentedReadAt<T> {
     pub fn new(read: T, metrics: &VortexMetrics) -> Self {
         Self {
             read,
@@ -154,7 +154,7 @@ impl<T: VortexRead> InstrumentedReadAt<T> {
 }
 
 #[async_trait]
-impl<T: VortexRead> VortexRead for InstrumentedReadAt<T> {
+impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
     async fn read_byte_range(
         &self,
         range: Range<u64>,

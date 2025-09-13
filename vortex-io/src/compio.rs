@@ -11,7 +11,7 @@ use std::ops::Range;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexExpect;
 
-use crate::VortexRead;
+use crate::VortexReadAt;
 
 /// Compio uses buffer capacity instead of buffer len (that everyone else uses) when reading
 /// to fill a buffer. Since [`ByteBufferMut`] cannot be allocated with a precise capacity,
@@ -48,7 +48,7 @@ unsafe impl IoBufMut for FixedCapacityByteBufferMut {
 }
 
 #[async_trait]
-impl VortexRead for File {
+impl VortexReadAt for File {
     async fn read_byte_range(
         &self,
         range: Range<u64>,
@@ -82,7 +82,7 @@ mod tests {
     use tempfile::NamedTempFile;
     use vortex_buffer::Alignment;
 
-    use crate::VortexRead;
+    use crate::VortexReadAt;
 
     #[cfg_attr(miri, ignore)]
     #[compio::test]

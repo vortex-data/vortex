@@ -106,7 +106,7 @@ impl Handle {
     }
 
     /// Open a file for I/O on this runtime.
-    pub fn open_read<S: IntoReadSource>(&self, source: S) -> VortexResult<FileRead<'_>> {
+    pub fn open_read<S: IntoReadSource>(&self, source: S) -> VortexResult<FileRead> {
         let source = source.into_read_source(self.clone())?;
 
         let (send, recv) = kanal::unbounded();
