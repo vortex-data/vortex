@@ -13,6 +13,7 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};
 use vortex::file::VortexWriteOptions as WriteOptions;
+use vortex::io::VortexWrite;
 use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::stream::ArrayStream;
@@ -67,6 +68,7 @@ pub(crate) unsafe fn write_array_stream(
     RUNTIME.block_on(async {
         let mut file = tokio::fs::File::create(path).await?;
         options.inner.write(&mut file, vortex_stream).await?;
+        file.shutdown().await?;
         Ok(())
     })
 }
