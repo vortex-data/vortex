@@ -3,35 +3,75 @@
 
 use std::sync::Arc;
 
+use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
-use smol::{Executor, block_on};
+use smol::block_on;
 
-use crate::runtime::Handle;
+use crate::runtime::{BlockingRuntime, Executor, Handle};
 
 /// A current thread runtime allows users to explicitly drive Vortex futures from multiple worker
 /// threads that they manage. This is useful in environments where the user already has a thread
 /// pool and wants to integrate Vortex into that pool, for example query engines.
-pub struct CurrentThreadRuntime;
+#[derive(Default)]
+pub struct CurrentThreadRuntime {
+    executor: Arc<smol::Executor<'static>>,
+}
 
-impl CurrentThreadRuntime {
-    /// Drive the given Vortex stream on the underlying current thread runtime.
-    ///
-    /// Note the resulting [`Iterator`] supports [`Clone`] in order to drive the stream from
-    /// multiple threads.
-    pub fn block_on_stream<F, S, R>(f: F) -> impl Iterator<Item = R> + Clone
+impl BlockingRuntime for CurrentThreadRuntime {
+    type BlockingIterator<'a, R: 'a> = CurrentThreadIterator<'a, R>;
+
+    fn handle(&self) -> Handle {
+        let executor: Arc<dyn Executor> = self.executor.clone();
+        Handle::new(Arc::downgrade(&executor))
+    }
+
+    fn block_on<F, Fut, R>(&self, f: F) -> R
+    where
+        F: FnOnce(Handle) -> Fut,
+        Fut: Future<Output = R>,
+    {
+        block_on(self.executor.run(f(self.handle())))
+    }
+
+    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
     where
         F: FnOnce(Handle) -> S,
-        S: Stream<Item = R> + Send + Unpin + 'static,
+        S: Stream<Item = R> + Send + 'a,
+        R: Send + 'a,
+    {
+        CurrentThreadIterator {
+            executor: self.executor.clone(),
+            stream: f(self.handle()).boxed(),
+        }
+    }
+}
+
+impl CurrentThreadRuntime {
+    /// Create a new current thread runtime.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns an iterator wrapper around a stream, blocking the current thread for each item.
+    ///
+    /// ## Multi-threaded Usage
+    ///
+    /// To drive the iterator from multiple threads, simply clone it and call `next()` on each
+    /// clone. Results on each thread are ordered with respect to the stream, but there is no
+    /// ordering guarantee between threads.
+    pub fn block_on_stream_thread_safe<F, S, R>(&self, f: F) -> ThreadSafeIterator<R>
+    where
+        F: FnOnce(Handle) -> S,
+        S: Stream<Item = R> + Send + 'static,
         R: Send + 'static,
     {
-        let executor = Arc::new(Executor::new());
-        let stream = f(Handle::new(executor.clone()));
+        let stream = f(self.handle());
 
         // We create an MPMC result channel and spawn a task to drive the stream and send results.
         // This allows multiple worker threads to drive the executor while all waiting for results
         // on the channel.
         let (result_tx, result_rx) = kanal::bounded_async(1);
-        executor
+        self.executor
             .spawn(async move {
                 futures::pin_mut!(stream);
                 while let Some(item) = stream.next().await {
@@ -44,32 +84,44 @@ impl CurrentThreadRuntime {
             })
             .detach();
 
-        BlockingStream {
-            executor,
+        ThreadSafeIterator {
+            executor: self.executor.clone(),
             results: result_rx,
         }
     }
 }
 
-/// A stream that wraps up the stream with the executor that drives it.
-///
-/// This allows the resulting stream to have a static lifetime.
-struct BlockingStream<T> {
-    executor: Arc<Executor<'static>>,
+/// An iterator that wraps up a stream to drive it using the current thread executor.
+pub struct CurrentThreadIterator<'a, T> {
+    executor: Arc<smol::Executor<'static>>,
+    stream: BoxStream<'a, T>,
+}
+
+impl<T> Iterator for CurrentThreadIterator<'_, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        block_on(self.executor.run(self.stream.next()))
+    }
+}
+
+/// An iterator that drives a stream from multiple threads.
+pub struct ThreadSafeIterator<T> {
+    executor: Arc<smol::Executor<'static>>,
     results: kanal::AsyncReceiver<T>,
 }
 
-// Manually implement Clone since `T` doesn't need to be `Clone`.
-impl<T> Clone for BlockingStream<T> {
+// Manual clone implementation since `T` does not need to be `Clone`.
+impl<T> Clone for ThreadSafeIterator<T> {
     fn clone(&self) -> Self {
-        BlockingStream {
+        Self {
             executor: self.executor.clone(),
             results: self.results.clone(),
         }
     }
 }
 
-impl<T> Iterator for BlockingStream<T> {
+impl<T> Iterator for ThreadSafeIterator<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -92,9 +144,8 @@ mod tests {
 
     #[test]
     fn test_block_on_stream_single_thread() {
-        let mut iter = CurrentThreadRuntime::block_on_stream(|_handle| {
-            stream::iter(vec![1, 2, 3, 4, 5]).boxed()
-        });
+        let mut iter = CurrentThreadRuntime::new()
+            .block_on_stream(|_h| stream::iter(vec![1, 2, 3, 4, 5]).boxed());
 
         assert_eq!(iter.next(), Some(1));
         assert_eq!(iter.next(), Some(2));
@@ -111,9 +162,8 @@ mod tests {
         let items_per_thread = 25;
         let total_items = 100;
 
-        let iter = CurrentThreadRuntime::block_on_stream(move |_handle| {
-            stream::iter(0..total_items).boxed()
-        });
+        let iter = CurrentThreadRuntime::new()
+            .block_on_stream_thread_safe(|_h| stream::iter(0..total_items).boxed());
 
         let barrier = Arc::new(Barrier::new(num_threads));
         let results = Arc::new(Mutex::new(Vec::new()));
@@ -158,9 +208,9 @@ mod tests {
         let num_items = 50;
         let num_threads = 3;
 
-        let iter = CurrentThreadRuntime::block_on_stream(move |handle| {
+        let iter = CurrentThreadRuntime::new().block_on_stream_thread_safe(|h| {
             stream::unfold(0, move |state| {
-                let h = handle.clone();
+                let h = h.clone();
                 async move {
                     if state < num_items {
                         h.spawn_cpu(move || {
@@ -174,7 +224,6 @@ mod tests {
                     }
                 }
             })
-            .boxed()
         });
 
         let collected = Arc::new(Mutex::new(Vec::new()));
@@ -217,8 +266,8 @@ mod tests {
 
     #[test]
     fn test_block_on_stream_async_work() {
-        let iter = CurrentThreadRuntime::block_on_stream(|handle| {
-            stream::unfold((handle, 0), |(h, state)| async move {
+        let iter = CurrentThreadRuntime::new().block_on_stream(|h| {
+            stream::unfold((h, 0), |(h, state)| async move {
                 if state < 10 {
                     let value = h
                         .spawn(async move { futures::future::ready(state * 2).await })
@@ -228,7 +277,6 @@ mod tests {
                     None
                 }
             })
-            .boxed()
         });
 
         let results: Vec<_> = iter.collect();
@@ -240,7 +288,7 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
 
-        let mut iter = CurrentThreadRuntime::block_on_stream(move |_handle| {
+        let mut iter = CurrentThreadRuntime::new().block_on_stream(|_h| {
             stream::unfold(0, move |state| {
                 let c = c.clone();
                 async move {
@@ -269,7 +317,8 @@ mod tests {
     #[test]
     fn test_block_on_stream_interleaved_access() {
         let barrier = Arc::new(Barrier::new(2));
-        let iter = CurrentThreadRuntime::block_on_stream(|_handle| stream::iter(0..20).boxed());
+        let iter = CurrentThreadRuntime::new()
+            .block_on_stream_thread_safe(|_h| stream::iter(0..20).boxed());
 
         let iter1 = iter.clone();
         let iter2 = iter;
@@ -323,9 +372,8 @@ mod tests {
         let num_threads = 10;
         let num_items = 1000;
 
-        let iter = CurrentThreadRuntime::block_on_stream(move |_handle| {
-            stream::iter(0..num_items).boxed()
-        });
+        let iter = CurrentThreadRuntime::new()
+            .block_on_stream_thread_safe(|_h| stream::iter(0..num_items).boxed());
 
         let received = Arc::new(Mutex::new(Vec::new()));
         let barrier = Arc::new(Barrier::new(num_threads));

@@ -2,18 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use futures::future::BoxFuture;
-use smol::Executor;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, IoTask, Runtime};
+use crate::runtime::{AbortHandle, AbortHandleRef, Executor, IoTask};
 
-impl Runtime for Executor<'static> {
+// NOTE(ngates): we implement this for a Weak reference to adhere to the constraint that this
+//  trait should not hold strong references to the underlying runtime.
+impl Executor for smol::Executor<'static> {
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
-        SmolAbortHandle::new_handle(self.spawn(fut))
+        SmolAbortHandle::new_handle(smol::Executor::spawn(self, fut))
     }
 
     fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         // For now, we spawn CPU work back onto the same executor.
-        SmolAbortHandle::new_handle(self.spawn(async move { task() }))
+        SmolAbortHandle::new_handle(smol::Executor::spawn(self, async move { task() }))
     }
 
     fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
@@ -21,7 +22,7 @@ impl Runtime for Executor<'static> {
     }
 
     fn spawn_io(&self, task: IoTask) {
-        self.spawn(task.source.drive_send(task.stream)).detach()
+        smol::Executor::spawn(self, task.source.drive_send(task.stream)).detach()
     }
 }
 

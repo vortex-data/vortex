@@ -12,7 +12,7 @@ use smol::LocalExecutor;
 use vortex_error::vortex_panic;
 
 use crate::runtime::smol::SmolAbortHandle;
-use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Handle, IoTask, Runtime};
+use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Executor, Handle, IoTask};
 
 /// A runtime that drives all work on the current thread.
 ///
@@ -121,7 +121,7 @@ impl Sender {
 /// we cannot just `impl Runtime for LocalExecutor`. Instead, we create channels that the handle
 /// can forward its work into, and we drive the resulting tasks on a [`LocalExecutor`] on the
 /// calling thread.
-impl Runtime for Sender {
+impl Executor for Sender {
     fn spawn(&self, future: BoxFuture<'static, ()>) -> AbortHandleRef {
         let (send, recv) = oneshot::channel();
         if let Err(e) = self.scheduling.send(SpawnAsync {
@@ -172,24 +172,27 @@ impl BlockingRuntime for SingleThreadRuntime {
     type BlockingIterator<'a, R: 'a> = SingleThreadIterator<'a, R>;
 
     fn handle(&self) -> Handle {
-        Handle::new(self.sender.clone())
+        let executor: Arc<dyn Executor> = self.sender.clone();
+        Handle::new(Arc::downgrade(&executor))
     }
 
-    fn block_on<Fut, R>(&self, fut: Fut) -> R
+    fn block_on<F, Fut, R>(&self, f: F) -> R
     where
+        F: FnOnce(Handle) -> Fut,
         Fut: Future<Output = R>,
     {
-        smol::block_on(self.executor.run(fut))
+        smol::block_on(self.executor.run(f(self.handle())))
     }
 
-    fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
+    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
     where
-        S: Stream<Item = R> + Send + Unpin + 'a,
+        F: FnOnce(Handle) -> S,
+        S: Stream<Item = R> + Send + 'a,
         R: Send + 'a,
     {
         SingleThreadIterator {
             executor: self.executor.clone(),
-            stream: stream.boxed_local(),
+            stream: f(self.handle()).boxed_local(),
         }
     }
 }
@@ -203,9 +206,7 @@ where
     F: FnOnce(Handle) -> Fut,
     Fut: Future<Output = R>,
 {
-    let runtime = SingleThreadRuntime::default();
-    let fut = f(runtime.handle());
-    runtime.block_on(fut)
+    SingleThreadRuntime::default().block_on(f)
 }
 
 /// Returns an iterator wrapper around a stream, blocking the current thread for each item.
@@ -215,9 +216,7 @@ where
     S: Stream<Item = R> + Send + Unpin + 'a,
     R: Send + 'a,
 {
-    let runtime = SingleThreadRuntime::default();
-    let stream = f(runtime.handle());
-    runtime.block_on_stream(stream)
+    SingleThreadRuntime::default().block_on_stream(f)
 }
 
 /// A spawn request for a future.
@@ -281,7 +280,7 @@ mod tests {
 
     #[test]
     fn test_drive_simple_future() {
-        let result = SingleThreadRuntime::default().block_on(async { 123 }.boxed_local());
+        let result = SingleThreadRuntime::default().block_on(|_h| async { 123 }.boxed_local());
         assert_eq!(result, 123);
     }
 
