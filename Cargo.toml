@@ -83,7 +83,6 @@ cc = "1.2"
 cfg-if = "1"
 chrono = "0.4.41"
 clap = "4.5"
-compio = { version = "0.16", features = ["io-uring"], default-features = false }
 crossbeam-deque = "0.8.6"
 crossbeam-queue = "0.3.12"
 crossterm = "0.29"
