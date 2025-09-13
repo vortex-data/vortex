@@ -32,15 +32,17 @@ impl Default for SingleThreadRuntime {
 }
 
 struct Sender {
-    scheduling: kanal::Sender<SpawnFuture<'static>>,
-    cpu: kanal::Sender<SpawnCpu<'static>>,
+    scheduling: kanal::Sender<SpawnAsync<'static>>,
+    cpu: kanal::Sender<SpawnSync<'static>>,
+    blocking: kanal::Sender<SpawnSync<'static>>,
     io: kanal::Sender<IoTask>,
 }
 
 impl Sender {
     fn new(local: &Rc<LocalExecutor<'static>>) -> Self {
-        let (scheduling_send, scheduling_recv) = kanal::unbounded::<SpawnFuture>();
-        let (cpu_send, cpu_recv) = kanal::unbounded::<SpawnCpu>();
+        let (scheduling_send, scheduling_recv) = kanal::unbounded::<SpawnAsync>();
+        let (cpu_send, cpu_recv) = kanal::unbounded::<SpawnSync>();
+        let (blocking_send, blocking_recv) = kanal::unbounded::<SpawnSync>();
         let (io_send, io_recv) = kanal::unbounded::<IoTask>();
 
         // We pass weak references to the local executor into the async tasks such that the task's
@@ -68,10 +70,26 @@ impl Sender {
             .spawn(async move {
                 while let Ok(spawn) = cpu_recv.as_async().recv().await {
                     if let Some(local) = weak_local2.upgrade() {
-                        let cpu = spawn.cpu;
+                        let work = spawn.sync;
                         // Ignore send errors since it means the caller immediately detached.
                         let _ = spawn.task_callback.send(SmolAbortHandle::new_handle(
-                            local.spawn(async move { cpu() }),
+                            local.spawn(async move { work() }),
+                        ));
+                    }
+                }
+            })
+            .detach();
+
+        // Drive blocking tasks.
+        let weak_local2 = weak_local.clone();
+        local
+            .spawn(async move {
+                while let Ok(spawn) = blocking_recv.as_async().recv().await {
+                    if let Some(local) = weak_local2.upgrade() {
+                        let work = spawn.sync;
+                        // Ignore send errors since it means the caller immediately detached.
+                        let _ = spawn.task_callback.send(SmolAbortHandle::new_handle(
+                            local.spawn(async move { work() }),
                         ));
                     }
                 }
@@ -93,6 +111,7 @@ impl Sender {
         Self {
             scheduling: scheduling_send,
             cpu: cpu_send,
+            blocking: blocking_send,
             io: io_send,
         }
     }
@@ -105,7 +124,7 @@ impl Sender {
 impl Runtime for Sender {
     fn spawn(&self, future: BoxFuture<'static, ()>) -> AbortHandleRef {
         let (send, recv) = oneshot::channel();
-        if let Err(e) = self.scheduling.send(SpawnFuture {
+        if let Err(e) = self.scheduling.send(SpawnAsync {
             future,
             task_callback: send,
         }) {
@@ -118,8 +137,21 @@ impl Runtime for Sender {
 
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         let (send, recv) = oneshot::channel();
-        if let Err(e) = self.cpu.send(SpawnCpu {
-            cpu,
+        if let Err(e) = self.cpu.send(SpawnSync {
+            sync: cpu,
+            task_callback: send,
+        }) {
+            vortex_panic!("Executor missing: {}", e);
+        }
+        Box::new(LazyAbortHandle {
+            task: Mutex::new(recv),
+        })
+    }
+
+    fn spawn_blocking(&self, work: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        let (send, recv) = oneshot::channel();
+        if let Err(e) = self.blocking.send(SpawnSync {
+            sync: work,
             task_callback: send,
         }) {
             vortex_panic!("Executor missing: {}", e);
@@ -198,14 +230,14 @@ where
 /// we invert the behaviour of abort and drop. Dropping the abort handle results in the task being
 /// detached, whereas dropping the smol::Task results in the task being canceled. This helps avoid
 /// a race where the caller detaches the LazyAbortHandle before the smol::Task has been launched.
-struct SpawnFuture<'rt> {
+struct SpawnAsync<'rt> {
     future: BoxFuture<'rt, ()>,
     task_callback: oneshot::Sender<AbortHandleRef>,
 }
 
-// A spawn request for a CPU job.
-struct SpawnCpu<'rt> {
-    cpu: Box<dyn FnOnce() + Send + 'rt>,
+// A spawn request for a synchronous job.
+struct SpawnSync<'rt> {
+    sync: Box<dyn FnOnce() + Send + 'rt>,
     task_callback: oneshot::Sender<AbortHandleRef>,
 }
 

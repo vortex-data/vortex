@@ -50,6 +50,12 @@ pub(crate) trait Runtime: Send + Sync {
     /// yet started executing.
     fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef;
 
+    /// Spawns a blocking I/O task for execution on the runtime.
+    ///
+    /// The returned `AbortHandle` may be used to optimistically cancel the task if it has not
+    /// yet started executing.
+    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef;
+
     /// Spawns an I/O task for execution on the runtime.
     /// The runtime can choose to invoke the task's `Send` or `!Send` versions.
     ///
