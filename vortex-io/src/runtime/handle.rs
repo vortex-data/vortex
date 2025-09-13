@@ -8,7 +8,7 @@ use std::task::{Context, Poll, ready};
 use futures::{FutureExt, StreamExt};
 use vortex_error::{VortexResult, vortex_panic};
 
-use crate::file::{FileRead, IntoReadSource, IoRequestStream};
+use crate::file::{FileRead, IntoIoSource, IoRequestStream};
 use crate::kanal_ext::KanalExt;
 use crate::runtime::{AbortHandleRef, Executor, IoTask};
 
@@ -135,8 +135,8 @@ impl Handle {
     }
 
     /// Open a file for I/O on this runtime.
-    pub fn open_read<S: IntoReadSource>(&self, source: S) -> VortexResult<FileRead> {
-        let source = source.into_read_source(self.clone())?;
+    pub fn open_read<S: IntoIoSource>(&self, source: S) -> VortexResult<FileRead<'_>> {
+        let source = source.into_io_source(self.clone())?;
 
         let (send, recv) = kanal::unbounded();
 

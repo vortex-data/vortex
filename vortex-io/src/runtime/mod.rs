@@ -23,7 +23,7 @@ pub use blocking::*;
 mod handle;
 pub use handle::*;
 
-use crate::file::ReadSourceRef;
+use crate::file::IoSourceRef;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod current;
@@ -85,12 +85,12 @@ pub(crate) type AbortHandleRef = Box<dyn AbortHandle>;
 // NOTE(ngates): We could in theory make IoSource support as_any if we wanted each runtime to implement the
 // actual read logic themselves? Not sure yet...
 pub(crate) struct IoTask {
-    pub(crate) source: ReadSourceRef,
+    pub(crate) source: IoSourceRef,
     pub(crate) stream: BoxStream<'static, IoRequest>,
 }
 
 impl IoTask {
-    pub(crate) fn new(source: ReadSourceRef, stream: BoxStream<'static, IoRequest>) -> Self {
+    pub(crate) fn new(source: IoSourceRef, stream: BoxStream<'static, IoRequest>) -> Self {
         IoTask { source, stream }
     }
 }
