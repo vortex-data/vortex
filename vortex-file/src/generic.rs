@@ -256,7 +256,7 @@ impl VortexOpenOptions<GenericVortexFile> {
     ) -> VortexResult<VortexFile> {
         use std::path::Path;
 
-        use vortex_io::ObjectStoreReadAt;
+        use vortex_io::file::object_store::ObjectStoreReadSource;
 
         // If the file is local, we much prefer to use TokioFile since object store re-opens the
         // file on every read. This check is a little naive... but we hope that ObjectStore will
@@ -267,10 +267,9 @@ impl VortexOpenOptions<GenericVortexFile> {
             // Local disk is too fast to justify prefetching.
             self.open(local_path).await
         } else {
-            self.open_read_at(ObjectStoreReadAt::new(
+            self.open(ObjectStoreReadSource::new(
                 object_store.clone(),
                 path.into(),
-                None,
             ))
             .await
         }

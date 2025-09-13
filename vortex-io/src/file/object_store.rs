@@ -23,7 +23,7 @@ const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
 const CONCURRENCY: usize = 192; // Number of concurrent requests to allow.
 
 #[cfg(feature = "object_store")]
-pub struct ObjectStoreIo {
+pub struct ObjectStoreReadSource {
     store: Arc<dyn object_store::ObjectStore>,
     path: object_store::path::Path,
     uri: Arc<str>,
@@ -32,7 +32,7 @@ pub struct ObjectStoreIo {
 }
 
 #[cfg(feature = "object_store")]
-impl ObjectStoreIo {
+impl ObjectStoreReadSource {
     pub fn new(store: Arc<dyn object_store::ObjectStore>, path: object_store::path::Path) -> Self {
         let uri = Arc::from(path.to_string());
         Self {
@@ -60,14 +60,14 @@ impl ObjectStoreIo {
     }
 }
 
-impl IntoReadSource for ObjectStoreIo {
+impl IntoReadSource for ObjectStoreReadSource {
     fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
         Ok(Arc::new(ObjectStoreIoSource { io: self, handle }))
     }
 }
 
 struct ObjectStoreIoSource {
-    io: ObjectStoreIo,
+    io: ObjectStoreReadSource,
     handle: Handle,
 }
 
