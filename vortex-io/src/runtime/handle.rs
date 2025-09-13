@@ -8,7 +8,9 @@ use std::task::{ready, Context, Poll};
 use futures::{FutureExt, StreamExt};
 use vortex_error::{vortex_panic, VortexResult};
 
-use crate::file::{FileRead, IntoReadSource, IoRequestStream};
+use crate::file::FileRead;
+use crate::file::IntoReadSource;
+use crate::file::IoRequestStream;
 use crate::kanal_ext::KanalExt;
 use crate::runtime::{AbortHandleRef, IoTask, Runtime};
 

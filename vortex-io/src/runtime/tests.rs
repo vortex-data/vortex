@@ -13,7 +13,8 @@ use tempfile::NamedTempFile;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexResult;
 
-use crate::file::{IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
+use crate::file::IoRequest;
+use crate::file::{IntoReadSource, ReadSource, ReadSourceRef};
 use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;
 use crate::runtime::Handle;

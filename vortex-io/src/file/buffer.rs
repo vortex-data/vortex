@@ -9,7 +9,8 @@ use futures::{FutureExt, StreamExt};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
-use crate::file::{CoalesceWindow, IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
+use crate::file::read::{CoalesceWindow, IntoReadSource, ReadSource, ReadSourceRef};
+use crate::file::IoRequest;
 use crate::runtime::Handle;
 
 impl IntoReadSource for ByteBuffer {

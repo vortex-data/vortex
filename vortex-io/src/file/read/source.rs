@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
+use crate::file::IoRequest;
+use crate::runtime::Handle;
 use futures::future::{BoxFuture, LocalBoxFuture};
 use futures::stream::BoxStream;
 use futures::FutureExt;
+use std::sync::Arc;
 use vortex_error::VortexResult;
-
-use crate::file::request::IoRequest;
-use crate::runtime::Handle;
 
 /// A trait for types that can be opened as an `IoSource`.
 pub trait IntoReadSource {

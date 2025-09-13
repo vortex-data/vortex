@@ -8,8 +8,9 @@ use futures::Stream;
 use pin_project_lite::pin_project;
 use vortex_error::VortexExpect;
 
-use crate::file::request::{CoalescedRequest, IoRequest, ReadRequest, RequestId};
-use crate::file::{CoalesceWindow, ReadEvent};
+use crate::file::read::CoalesceWindow;
+use crate::file::read::ReadEvent;
+use crate::file::read::{CoalescedRequest, IoRequest, ReadRequest, RequestId};
 
 pin_project! {
     /// A stream that performs coalescing and prioritization of I/O requests.
@@ -251,13 +252,14 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use futures::{StreamExt, stream};
+    use futures::{stream, StreamExt};
     use vortex_buffer::{Alignment, ByteBuffer};
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::file::request::ReadRequest;
-    use crate::file::{IoRequestInner, ReadEvent};
+    use crate::file::IoRequestInner;
+    use crate::file::ReadEvent;
+    use crate::file::ReadRequest;
 
     fn create_request(
         id: usize,
