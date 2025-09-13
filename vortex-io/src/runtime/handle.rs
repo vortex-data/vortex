@@ -10,7 +10,7 @@ use vortex_error::{VortexResult, vortex_panic};
 
 use crate::file::{FileRead, IntoReadSource, IoRequestStream};
 use crate::kanal_ext::KanalExt;
-use crate::runtime::{AbortHandleRef, IoTask, Runtime};
+use crate::runtime::{AbortHandleRef, Executor, IoTask};
 
 /// A handle to an active Vortex runtime.
 ///
@@ -18,11 +18,11 @@ use crate::runtime::{AbortHandleRef, IoTask, Runtime};
 /// async tasks or CPU-heavy worker.
 #[derive(Clone)]
 pub struct Handle {
-    runtime: Arc<dyn Runtime>,
+    runtime: Arc<dyn Executor>,
 }
 
 impl Handle {
-    pub(crate) fn new(runtime: Arc<dyn Runtime>) -> Self {
+    pub(crate) fn new(runtime: Arc<dyn Executor>) -> Self {
         Self { runtime }
     }
 

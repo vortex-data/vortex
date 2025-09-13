@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! A Vortex runtime provides an abstract way of scheduling mixed I/O and CPU workloads onto the
+//! various threading models supported by Vortex.
+//!
+//! In the future, it may also include a buffer manager or other shared resources.
+//!
+//! The threading models we currently support are:
+//! * Single-threaded: all work is driven on the current thread.
+//! * Multi-threaded: work is driven on a pool of threads managed by Vortex.
+//! * Worker Pool: work is driven on a pool of threads provided by the caller.
+//! * Tokio: work is driven on a Tokio runtime provided by the caller.
+//!
+
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 
@@ -27,19 +39,8 @@ pub mod wasm;
 #[cfg(test)]
 mod tests;
 
-/// A Vortex runtime provides an abstract way of scheduling mixed I/O and CPU workloads onto the
-/// various threading models supported by Vortex.
-///
-/// In the future, it may also include a buffer manager or other shared resources.
-///
-/// The threading models we currently support are:
-/// * Single-threaded: all work is driven on the current thread.
-/// * Multi-threaded: work is driven on a pool of threads managed by Vortex.
-/// * Worker Pool: work is driven on a pool of threads provided by the caller.
-/// * Tokio: work is driven on a Tokio runtime provided by the caller.
-///
-/// Note: users interact with the [`Handle`] API rather than the [`Runtime`] trait.
-pub(crate) trait Runtime: Send + Sync {
+/// Trait used to abstract over different async runtimes.
+pub(crate) trait Executor: Send + Sync {
     /// Spawns a future to be executed on the runtime.
     ///
     /// The future should continue to be polled in the background by the runtime.

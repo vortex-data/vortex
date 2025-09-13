@@ -5,7 +5,7 @@ use std::sync::{Arc, LazyLock};
 
 use futures::future::BoxFuture;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Handle, IoTask, Runtime};
+use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Executor, Handle, IoTask};
 
 /// A Vortex runtime that drives all work the enclosed Tokio runtime handle.
 pub struct TokioRuntime(Arc<tokio::runtime::Handle>);
@@ -44,7 +44,7 @@ impl From<tokio::runtime::Handle> for Handle {
     }
 }
 
-impl Runtime for tokio::runtime::Handle {
+impl Executor for tokio::runtime::Handle {
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
         Box::new(tokio::runtime::Handle::spawn(self, fut).abort_handle())
     }
@@ -65,7 +65,7 @@ impl Runtime for tokio::runtime::Handle {
 /// A runtime implementation that grabs the current Tokio runtime handle on each call.
 struct CurrentTokioRuntime;
 
-impl Runtime for CurrentTokioRuntime {
+impl Executor for CurrentTokioRuntime {
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
         Box::new(tokio::runtime::Handle::current().spawn(fut).abort_handle())
     }

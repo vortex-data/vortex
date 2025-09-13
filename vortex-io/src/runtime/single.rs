@@ -12,7 +12,7 @@ use smol::LocalExecutor;
 use vortex_error::vortex_panic;
 
 use crate::runtime::smol::SmolAbortHandle;
-use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Handle, IoTask, Runtime};
+use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Executor, Handle, IoTask};
 
 /// A runtime that drives all work on the current thread.
 ///
@@ -121,7 +121,7 @@ impl Sender {
 /// we cannot just `impl Runtime for LocalExecutor`. Instead, we create channels that the handle
 /// can forward its work into, and we drive the resulting tasks on a [`LocalExecutor`] on the
 /// calling thread.
-impl Runtime for Sender {
+impl Executor for Sender {
     fn spawn(&self, future: BoxFuture<'static, ()>) -> AbortHandleRef {
         let (send, recv) = oneshot::channel();
         if let Err(e) = self.scheduling.send(SpawnAsync {
