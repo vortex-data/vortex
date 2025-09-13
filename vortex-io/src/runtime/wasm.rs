@@ -35,6 +35,11 @@ impl Runtime for WasmRuntime {
     fn spawn_io(&self, task: IoTask) {
         spawn_local(task.source.drive_local(task.stream));
     }
+
+    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        spawn_local(async move { task() });
+        Box::new(NoOpAbortHandle)
+    }
 }
 
 struct NoOpAbortHandle;

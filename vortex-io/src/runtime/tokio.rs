@@ -41,6 +41,10 @@ impl Runtime for CurrentTokioRuntime {
         )
     }
 
+    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        Box::new(TokioHandle::current().spawn_blocking(task).abort_handle())
+    }
+
     fn spawn_io(&self, task: IoTask) {
         TokioHandle::current().spawn(task.source.drive_send(task.stream));
     }
@@ -53,6 +57,10 @@ impl Runtime for TokioHandle {
 
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         Box::new(TokioHandle::spawn(self, async move { cpu() }).abort_handle())
+    }
+
+    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        Box::new(TokioHandle::spawn_blocking(self, task).abort_handle())
     }
 
     fn spawn_io(&self, task: IoTask) {

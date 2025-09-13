@@ -6835,7 +6835,6 @@ dependencies = [
  "anyhow",
  "async-compat",
  "async-stream",
- "blocking",
  "bytes",
  "cfg-if",
  "futures",

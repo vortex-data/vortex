@@ -19,7 +19,6 @@ all-features = true
 [dependencies]
 async-compat = { workspace = true }
 async-stream = { workspace = true }
-blocking = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
 futures = { workspace = true, features = ["std", "executor"] }
