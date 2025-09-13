@@ -14,9 +14,9 @@ impl TokioRuntime {
     /// Create a new [`Handle`] that always uses the currently scoped Tokio runtime at the time
     /// each operation is invoked.
     pub fn current() -> Handle {
-        static CURRENT: LazyLock<Arc<CurrentTokioRuntime>> =
+        static CURRENT: LazyLock<Arc<dyn Executor>> =
             LazyLock::new(|| Arc::new(CurrentTokioRuntime));
-        Handle::new(CURRENT.clone())
+        Handle::new(Arc::downgrade(&CURRENT))
     }
 }
 
@@ -29,18 +29,6 @@ impl From<&tokio::runtime::Handle> for TokioRuntime {
 impl From<tokio::runtime::Handle> for TokioRuntime {
     fn from(value: tokio::runtime::Handle) -> Self {
         TokioRuntime(Arc::new(value))
-    }
-}
-
-impl From<&tokio::runtime::Handle> for Handle {
-    fn from(value: &tokio::runtime::Handle) -> Self {
-        Self::from(value.clone())
-    }
-}
-
-impl From<tokio::runtime::Handle> for Handle {
-    fn from(value: tokio::runtime::Handle) -> Self {
-        Handle::new(Arc::new(value))
     }
 }
 
@@ -102,7 +90,8 @@ impl BlockingRuntime for TokioRuntime {
     type BlockingIterator<'a, R: 'a> = TokioBlockingIterator<'a, R>;
 
     fn handle(&self) -> Handle {
-        Handle::new(self.0.clone())
+        let executor: Arc<dyn Executor> = self.0.clone();
+        Handle::new(Arc::downgrade(&executor))
     }
 
     fn block_on<F, Fut, R>(&self, f: F) -> R
@@ -115,7 +104,7 @@ impl BlockingRuntime for TokioRuntime {
             vortex_error::vortex_panic!("block_on cannot be called from within a Tokio runtime");
         }
         let handle = self.0.clone();
-        let fut = f(Handle::new(self.0.clone()));
+        let fut = f(self.handle());
         tokio::task::block_in_place(move || handle.block_on(fut))
     }
 
@@ -160,7 +149,6 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures::FutureExt;
-    use smol::future::block_on;
     use tokio::runtime::Runtime as TokioRt;
 
     use super::*;
@@ -168,18 +156,20 @@ mod tests {
     #[test]
     fn test_spawn_simple_future() {
         let tokio_rt = TokioRt::new().unwrap();
-        let handle = Handle::from(tokio_rt.handle());
-        let result = block_on(handle.spawn(async {
-            let fut = async { 77 };
-            fut.await
-        }));
+        let runtime = TokioRuntime::from(tokio_rt.handle());
+        let result = runtime.block_on(|h| {
+            h.spawn(async {
+                let fut = async { 77 };
+                fut.await
+            })
+        });
         assert_eq!(result, 77);
     }
 
     #[test]
     fn test_spawn_and_abort() {
         let tokio_rt = TokioRt::new().unwrap();
-        let handle = Handle::from(tokio_rt.handle());
+        let runtime = TokioRuntime::from(tokio_rt.handle());
 
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
@@ -191,7 +181,7 @@ mod tests {
             let _ = recv.await;
             c.fetch_add(1, Ordering::SeqCst);
         };
-        let task = handle.spawn(fut.boxed());
+        let task = runtime.handle().spawn(fut.boxed());
         drop(task);
 
         // Now we release the channel to let the future proceed if it wasn't aborted

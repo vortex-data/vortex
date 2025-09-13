@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::task::{Context, Poll, ready};
 
 use futures::{FutureExt, StreamExt};
@@ -14,16 +14,25 @@ use crate::runtime::{AbortHandleRef, Executor, IoTask};
 
 /// A handle to an active Vortex runtime.
 ///
-/// Users should obtain a handle from one of the runtime constructors and use it to spawn new
-/// async tasks or CPU-heavy worker.
+/// Users should obtain a handle from one of the Vortex runtime's and use it to spawn new async
+/// tasks, blocking I/O tasks, CPU-heavy tasks, or to open files for reading or writing.
+///
+/// Note that a [`Handle`] is a weak reference to the underlying runtime. If the associated
+/// runtime has been dropped, then any requests to spawn new tasks will panic.
 #[derive(Clone)]
 pub struct Handle {
-    runtime: Arc<dyn Executor>,
+    runtime: Weak<dyn Executor>,
 }
 
 impl Handle {
-    pub(crate) fn new(runtime: Arc<dyn Executor>) -> Self {
+    pub(crate) fn new(runtime: Weak<dyn Executor>) -> Self {
         Self { runtime }
+    }
+
+    fn runtime(&self) -> Arc<dyn Executor> {
+        self.runtime.upgrade().unwrap_or_else(|| {
+            vortex_panic!("Attempted to use a Handle after its runtime was dropped")
+        })
     }
 
     /// Returns a handle to the current runtime, if such a reasonable choice exists.
@@ -34,8 +43,8 @@ impl Handle {
         #[cfg(feature = "tokio")]
         {
             use tokio::runtime::Handle as TokioHandle;
-            if let Ok(handle) = TokioHandle::try_current() {
-                return Some(handle.into());
+            if TokioHandle::try_current().is_ok() {
+                return Some(crate::runtime::tokio::TokioRuntime::current());
             }
         }
 
@@ -54,7 +63,7 @@ impl Handle {
         R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
-        let abort_handle = self.runtime.spawn(
+        let abort_handle = self.runtime().spawn(
             async move {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
                 let _ = send.send(f.await);
@@ -92,7 +101,7 @@ impl Handle {
         R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
-        let abort_handle = self.runtime.spawn_cpu(Box::new(move || {
+        let abort_handle = self.runtime().spawn_cpu(Box::new(move || {
             // Optimistically avoid the work if the result won't be used.
             if !send.is_closed() {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
@@ -112,7 +121,7 @@ impl Handle {
         R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
-        let abort_handle = self.runtime.spawn_blocking(Box::new(move || {
+        let abort_handle = self.runtime().spawn_blocking(Box::new(move || {
             // Optimistically avoid the work if the result won't be used.
             if !send.is_closed() {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
@@ -139,7 +148,7 @@ impl Handle {
         )
         .boxed();
 
-        self.runtime.clone().spawn_io(IoTask::new(source, stream));
+        self.runtime().spawn_io(IoTask::new(source, stream));
 
         Ok(read)
     }

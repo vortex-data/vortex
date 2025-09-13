@@ -172,7 +172,8 @@ impl BlockingRuntime for SingleThreadRuntime {
     type BlockingIterator<'a, R: 'a> = SingleThreadIterator<'a, R>;
 
     fn handle(&self) -> Handle {
-        Handle::new(self.sender.clone())
+        let executor: Arc<dyn Executor> = self.sender.clone();
+        Handle::new(Arc::downgrade(&executor))
     }
 
     fn block_on<F, Fut, R>(&self, f: F) -> R
