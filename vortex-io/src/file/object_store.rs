@@ -13,7 +13,7 @@ use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource, IoSourceRef};
+use crate::file::{CoalesceWindow, IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
@@ -60,8 +60,8 @@ impl ObjectStoreIo {
     }
 }
 
-impl IntoIoSource for ObjectStoreIo {
-    fn into_io_source(self, handle: Handle) -> VortexResult<IoSourceRef> {
+impl IntoReadSource for ObjectStoreIo {
+    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
         Ok(Arc::new(ObjectStoreIoSource { io: self, handle }))
     }
 }
@@ -72,7 +72,7 @@ struct ObjectStoreIoSource {
 }
 
 #[cfg(feature = "object_store")]
-impl IoSource for ObjectStoreIoSource {
+impl ReadSource for ObjectStoreIoSource {
     fn uri(&self) -> &Arc<str> {
         &self.io.uri
     }

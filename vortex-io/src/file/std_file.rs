@@ -13,7 +13,7 @@ use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource, IoSourceRef};
+use crate::file::{CoalesceWindow, IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
@@ -22,14 +22,14 @@ const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
 };
 const CONCURRENCY: usize = 64;
 
-impl IntoIoSource for PathBuf {
-    fn into_io_source(self, handle: Handle) -> VortexResult<IoSourceRef> {
-        self.as_path().into_io_source(handle)
+impl IntoReadSource for PathBuf {
+    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
+        self.as_path().into_read_source(handle)
     }
 }
 
-impl IntoIoSource for &Path {
-    fn into_io_source(self, _handle: Handle) -> VortexResult<IoSourceRef> {
+impl IntoReadSource for &Path {
+    fn into_read_source(self, _handle: Handle) -> VortexResult<ReadSourceRef> {
         let uri = self.to_string_lossy().to_string().into();
         let file = Arc::new(File::open(self)?);
         Ok(Arc::new(FileIoSource { uri, file }))
@@ -41,7 +41,7 @@ pub(crate) struct FileIoSource {
     file: Arc<File>,
 }
 
-impl IoSource for FileIoSource {
+impl ReadSource for FileIoSource {
     fn uri(&self) -> &Arc<str> {
         &self.uri
     }

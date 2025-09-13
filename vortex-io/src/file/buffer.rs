@@ -7,18 +7,18 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
-use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource, IoSourceRef};
+use crate::file::{CoalesceWindow, IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
 use crate::runtime::Handle;
 
-impl IntoIoSource for ByteBuffer {
-    fn into_io_source(self, _handle: Handle) -> VortexResult<IoSourceRef> {
+impl IntoReadSource for ByteBuffer {
+    fn into_read_source(self, _handle: Handle) -> VortexResult<ReadSourceRef> {
         Ok(Arc::new(self))
     }
 }
 
-impl IoSource for ByteBuffer {
+impl ReadSource for ByteBuffer {
     fn uri(&self) -> &Arc<str> {
         static URI: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from(":in-memory:"));
         &URI

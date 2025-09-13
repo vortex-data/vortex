@@ -5,8 +5,8 @@ mod buffer;
 mod driver;
 #[cfg(feature = "object_store")]
 pub mod object_store;
+mod read;
 mod request;
-mod source;
 #[cfg(not(target_arch = "wasm32"))]
 mod std_file;
 
@@ -14,17 +14,17 @@ use std::fmt;
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::task::{Context, Poll, ready};
+use std::sync::Arc;
+use std::task::{ready, Context, Poll};
 
 pub(crate) use driver::*;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
+pub use read::*;
 pub use request::*;
-pub use source::*;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_err};
+use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexResult};
 
 /// A handle to an open file that can be read using a Vortex runtime.
 ///

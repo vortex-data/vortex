@@ -3,8 +3,8 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
@@ -13,10 +13,10 @@ use tempfile::NamedTempFile;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexResult;
 
-use crate::file::{IntoIoSource, IoRequest, IoSource, IoSourceRef};
-use crate::runtime::Handle;
+use crate::file::{IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
 use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;
+use crate::runtime::Handle;
 
 // Test data
 const TEST_DATA: &[u8] = b"Hello, World! This is test data for FileRead.";
@@ -221,7 +221,7 @@ struct CountingIoSource {
     read_count: Arc<AtomicUsize>,
 }
 
-impl IoSource for CountingIoSource {
+impl ReadSource for CountingIoSource {
     fn uri(&self) -> &Arc<str> {
         static URI: std::sync::LazyLock<Arc<str>> =
             std::sync::LazyLock::new(|| Arc::from("counting://test"));
@@ -265,8 +265,8 @@ impl IoSource for CountingIoSource {
     }
 }
 
-impl IntoIoSource for CountingIoSource {
-    fn into_io_source(self, _handle: Handle) -> VortexResult<IoSourceRef> {
+impl IntoReadSource for CountingIoSource {
+    fn into_read_source(self, _handle: Handle) -> VortexResult<ReadSourceRef> {
         Ok(Arc::new(self))
     }
 }

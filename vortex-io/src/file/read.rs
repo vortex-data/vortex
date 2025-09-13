@@ -3,18 +3,27 @@
 
 use std::sync::Arc;
 
-use futures::FutureExt;
 use futures::future::{BoxFuture, LocalBoxFuture};
 use futures::stream::BoxStream;
+use futures::FutureExt;
 use vortex_error::VortexResult;
 
 use crate::file::request::IoRequest;
 use crate::runtime::Handle;
 
-/// An object-safe trait representing an open file-like I/O object.
-pub trait IoSource: Send + Sync {
+/// A trait for types that can be opened as an `IoSource`.
+pub trait IntoReadSource {
+    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef>;
+}
+
+pub type ReadSourceRef = Arc<dyn ReadSource>;
+
+/// An object-safe trait representing an open file-like I/O object for reading.
+pub trait ReadSource: Send + Sync {
+    /// The URI of this source, for logging and debugging purposes.
     fn uri(&self) -> &Arc<str>;
 
+    /// The coalescing window to use for this source, if any.
     fn coalesce_window(&self) -> Option<CoalesceWindow>;
 
     /// Returns a shared future that resolves to the byte size of the underlying data source.
@@ -35,17 +44,10 @@ pub trait IoSource: Send + Sync {
     }
 }
 
-pub type IoSourceRef = Arc<dyn IoSource>;
-
 #[derive(Clone, Copy, Debug)]
 pub struct CoalesceWindow {
     /// The maximum "empty" distance between two requests to consider them for coalescing.
     pub distance: u64,
     /// The maximum total size spanned by a coalesced request.
     pub max_size: u64,
-}
-
-/// A trait for types that can be opened as an `IoSource`.
-pub trait IntoIoSource {
-    fn into_io_source(self, handle: Handle) -> VortexResult<IoSourceRef>;
 }
