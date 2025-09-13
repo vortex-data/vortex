@@ -8,6 +8,7 @@ use futures::StreamExt;
 use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
@@ -80,13 +81,12 @@ pub async fn exec_convert(flags: Flags) -> anyhow::Result<()> {
         Strategy::Compact => strategy.with_compressor(CompactCompressor::default()),
     };
 
+    let mut file = File::create(output_path).await?;
     VortexWriteOptions::default()
         .with_strategy(strategy.build())
-        .write(
-            &mut File::create(output_path).await?,
-            ArrayStreamAdapter::new(dtype, vortex_stream),
-        )
+        .write(&mut file, ArrayStreamAdapter::new(dtype, vortex_stream))
         .await?;
+    file.shutdown().await?;
 
     Ok(())
 }
