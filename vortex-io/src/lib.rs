@@ -20,8 +20,6 @@ pub use read::*;
 pub use tokio::*;
 pub use write::*;
 
-#[cfg(feature = "compio")]
-mod compio;
 mod dispatcher;
 pub mod file;
 mod io_buf;

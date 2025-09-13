@@ -93,11 +93,33 @@ impl Handle {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        // TODO(ngates): we want a droppable handle for this.
         let (send, recv) = oneshot::channel();
         let abort_handle = self.runtime.spawn_cpu(Box::new(move || {
-            // Task::detach allows the receiver to be dropped, so we ignore send errors.
-            let _ = send.send(f());
+            // Optimistically avoid the work if the result won't be used.
+            if !send.is_closed() {
+                // Task::detach allows the receiver to be dropped, so we ignore send errors.
+                let _ = send.send(f());
+            }
+        }));
+        Task {
+            recv,
+            abort_handle: Some(abort_handle),
+        }
+    }
+
+    /// Spawn a blocking I/O task for execution on the runtime.
+    pub fn spawn_blocking<F, R>(&self, f: F) -> Task<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let (send, recv) = oneshot::channel();
+        let abort_handle = self.runtime.spawn_blocking(Box::new(move || {
+            // Optimistically avoid the work if the result won't be used.
+            if !send.is_closed() {
+                // Task::detach allows the receiver to be dropped, so we ignore send errors.
+                let _ = send.send(f());
+            }
         }));
         Task {
             recv,

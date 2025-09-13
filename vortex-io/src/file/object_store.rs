@@ -6,7 +6,6 @@ use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 
 use async_compat::Compat;
-use blocking::unblock;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt};
@@ -102,6 +101,7 @@ impl ReadSource for ObjectStoreIoSource {
         let self2 = self.clone();
         requests
             .map(move |req| {
+                let handle = self.handle.clone();
                 let store = self.io.store.clone();
                 let path = self.io.path.clone();
 
@@ -131,12 +131,13 @@ impl ReadSource for ObjectStoreIoSource {
                             // The read_exact_at call will either fill the entire buffer or return an error,
                             // ensuring no uninitialized memory is exposed.
                             unsafe { buffer.set_len(len) };
-                            unblock(move || {
-                                file.read_exact_at(&mut buffer, range.start)?;
-                                Ok::<_, io::Error>(buffer)
-                            })
-                            .await
-                            .map_err(io::Error::other)?
+                            handle
+                                .spawn_blocking(move || {
+                                    file.read_exact_at(&mut buffer, range.start)?;
+                                    Ok::<_, io::Error>(buffer)
+                                })
+                                .await
+                                .map_err(io::Error::other)?
                         }
                         object_store::GetResultPayload::Stream(mut byte_stream) => {
                             while let Some(bytes) = byte_stream.next().await {

@@ -16,6 +16,10 @@ impl Runtime for Executor<'static> {
         SmolAbortHandle::new_handle(self.spawn(async move { task() }))
     }
 
+    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        SmolAbortHandle::new_handle(smol::unblock(task))
+    }
+
     fn spawn_io(&self, task: IoTask) {
         self.spawn(task.source.drive_send(task.stream)).detach()
     }

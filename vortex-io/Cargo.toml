@@ -20,10 +20,8 @@ all-features = true
 async-compat = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
-blocking = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
-compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 futures = { workspace = true, features = ["std", "executor"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
@@ -56,7 +54,6 @@ tokio = { workspace = true, features = ["full"] }
 tracing-subscriber = { workspace = true }
 
 [features]
-compio = ["dep:compio", "vortex-buffer/compio"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 tokio = ["tokio/fs", "tokio/rt-multi-thread"]
 

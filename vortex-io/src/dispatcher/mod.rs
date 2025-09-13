@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(feature = "compio")]
-mod compio;
 #[cfg(not(target_arch = "wasm32"))]
 mod tokio;
 #[cfg(target_arch = "wasm32")]
@@ -19,8 +17,6 @@ use vortex_error::{VortexResult, vortex_err};
 
 static SHARED: LazyLock<IoDispatcher> = LazyLock::new(IoDispatcher::new);
 
-#[cfg(feature = "compio")]
-use self::compio::*;
 #[cfg(not(target_arch = "wasm32"))]
 use self::tokio::*;
 #[cfg(target_arch = "wasm32")]
@@ -30,9 +26,6 @@ mod sealed {
     pub trait Sealed {}
 
     impl Sealed for super::IoDispatcher {}
-
-    #[cfg(feature = "compio")]
-    impl Sealed for super::CompioDispatcher {}
 
     #[cfg(not(target_arch = "wasm32"))]
     impl Sealed for super::TokioDispatcher {}
@@ -80,10 +73,8 @@ impl IoDispatcher {
         cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
                 Self(Arc::new(Inner::Wasm(WasmDispatcher::new())))
-            } else if #[cfg(not(feature = "compio"))] {
-                Self(Arc::new(Inner::Tokio(TokioDispatcher::new(4))))
             } else {
-                Self(Arc::new(Inner::Compio(CompioDispatcher::new(4))))
+                Self(Arc::new(Inner::Tokio(TokioDispatcher::new(4))))
             }
         }
     }
@@ -96,11 +87,6 @@ impl IoDispatcher {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn new_tokio(num_thread: usize) -> Self {
         Self(Arc::new(Inner::Tokio(TokioDispatcher::new(num_thread))))
-    }
-
-    #[cfg(feature = "compio")]
-    pub fn new_compio(num_threads: usize) -> Self {
-        Self(Arc::new(Inner::Compio(CompioDispatcher::new(num_threads))))
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -143,8 +129,6 @@ impl<R> Future for JoinHandle<R> {
 enum Inner {
     #[cfg(not(target_arch = "wasm32"))]
     Tokio(TokioDispatcher),
-    #[cfg(feature = "compio")]
-    Compio(CompioDispatcher),
     #[cfg(target_arch = "wasm32")]
     Wasm(WasmDispatcher),
 }
@@ -160,8 +144,6 @@ impl Dispatch for IoDispatcher {
         match self.0.as_ref() {
             #[cfg(not(target_arch = "wasm32"))]
             Inner::Tokio(tokio_dispatch) => tokio_dispatch.dispatch(task),
-            #[cfg(feature = "compio")]
-            Inner::Compio(compio_dispatch) => compio_dispatch.dispatch(task),
             #[cfg(target_arch = "wasm32")]
             Inner::Wasm(wasm_dispatch) => wasm_dispatch.dispatch(task),
         }
@@ -172,8 +154,6 @@ impl Dispatch for IoDispatcher {
             match inner {
                 #[cfg(not(target_arch = "wasm32"))]
                 Inner::Tokio(tokio_dispatch) => tokio_dispatch.shutdown(),
-                #[cfg(feature = "compio")]
-                Inner::Compio(compio_dispatch) => compio_dispatch.shutdown(),
                 #[cfg(target_arch = "wasm32")]
                 Inner::Wasm(wasm_dispatch) => wasm_dispatch.shutdown(),
             }

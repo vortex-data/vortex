@@ -6,7 +6,6 @@ use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use blocking::unblock;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt};
@@ -30,16 +29,17 @@ impl IntoReadSource for PathBuf {
 }
 
 impl IntoReadSource for &Path {
-    fn into_read_source(self, _handle: Handle) -> VortexResult<ReadSourceRef> {
+    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
         let uri = self.to_string_lossy().to_string().into();
         let file = Arc::new(File::open(self)?);
-        Ok(Arc::new(FileIoSource { uri, file }))
+        Ok(Arc::new(FileIoSource { uri, file, handle }))
     }
 }
 
 pub(crate) struct FileIoSource {
     uri: Arc<str>,
     file: Arc<File>,
+    handle: Handle,
 }
 
 impl ReadSource for FileIoSource {
@@ -67,20 +67,22 @@ impl ReadSource for FileIoSource {
         requests
             .map(move |req| {
                 let file = self.file.clone();
+                let handle = self.handle.clone();
                 async move {
                     let offset = req.offset();
                     let len = req.len();
                     let alignment = req.alignment();
 
-                    let result = unblock(move || {
-                        let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-                        unsafe { buffer.set_len(len) };
-                        match file.read_exact_at(&mut buffer, offset) {
-                            Ok(()) => Ok(buffer.freeze()),
-                            Err(e) => Err(VortexError::from(e)),
-                        }
-                    })
-                    .await;
+                    let result = handle
+                        .spawn_blocking(move || {
+                            let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+                            unsafe { buffer.set_len(len) };
+                            match file.read_exact_at(&mut buffer, offset) {
+                                Ok(()) => Ok(buffer.freeze()),
+                                Err(e) => Err(VortexError::from(e)),
+                            }
+                        })
+                        .await;
                     req.resolve(result);
                 }
             })
