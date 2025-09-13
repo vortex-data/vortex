@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
-use smol::{block_on, Executor};
+use smol::{Executor, block_on};
 
 use crate::runtime::{BlockingRuntime, Handle};
 
@@ -133,7 +133,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use futures::{stream, StreamExt};
+    use futures::{StreamExt, stream};
     use parking_lot::Mutex;
 
     use super::*;

@@ -12,8 +12,8 @@ use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::file::read::{CoalesceWindow, IntoReadSource, ReadSource, ReadSourceRef};
 use crate::file::IoRequest;
+use crate::file::read::{CoalesceWindow, IntoReadSource, ReadSource, ReadSourceRef};
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {

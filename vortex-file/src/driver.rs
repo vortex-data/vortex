@@ -12,7 +12,7 @@ use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use linked_hash_set::LinkedHashSet;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
 use vortex_io::{PerformanceHint, VortexReadAt};
 use vortex_layout::segments::{SegmentEvent, SegmentId, SegmentRequest};
 use vortex_metrics::{Counter, VortexMetrics};

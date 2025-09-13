@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use async_trait::async_trait;
 use std::io;
 use std::ops::Range;
 use std::sync::Arc;
+
+use async_trait::async_trait;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_err, VortexExpect};
+use vortex_error::{VortexExpect, vortex_err};
 use vortex_metrics::{Histogram, Timer, VortexMetrics};
 
 /// The trait used internally in Vortex for performing read operations.

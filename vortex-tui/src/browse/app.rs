@@ -10,10 +10,10 @@ use ratatui::widgets::ListState;
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
+use vortex::layout::LayoutRef;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::layout::segments::{SegmentId, SegmentSource};
-use vortex::layout::LayoutRef;
 use vortex::serde::ArrayParts;
 
 use crate::browse::ui::SegmentGridState;

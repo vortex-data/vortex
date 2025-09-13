@@ -4,21 +4,23 @@
 mod request;
 mod source;
 
-use crate::VortexReadAt;
+use std::fmt;
+use std::fmt::{Debug, Display};
+use std::ops::Range;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::task::{Context, Poll, ready};
+
 use async_trait::async_trait;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 pub use request::*;
 pub use source::*;
-use std::fmt;
-use std::fmt::{Debug, Display};
-use std::ops::Range;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::task::{ready, Context, Poll};
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexResult};
+use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_err};
+
+use crate::VortexReadAt;
 
 /// A handle to an open file that can be read using a Vortex runtime.
 ///
@@ -85,11 +87,6 @@ impl FileRead {
     /// The URI of the file.
     pub fn uri(&self) -> &Arc<str> {
         &self.uri
-    }
-
-    /// Returns the size of the file in bytes.
-    pub fn size(&self) -> impl Future<Output = VortexResult<u64>> + Send + 'static {
-        self.size.clone().map_err(VortexError::from)
     }
 
     /// Submits a read request for the specified byte range and alignment.
@@ -177,17 +174,17 @@ impl VortexReadAt for FileRead {
         range: Range<u64>,
         alignment: Alignment,
     ) -> std::io::Result<ByteBuffer> {
-        let length = (range.end - range.start) as usize;
+        let length = usize::try_from(range.end - range.start)
+            .vortex_expect("Read range too large for usize");
         self.read(range.start, length, alignment)
             .await
-            .map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::Other, format!("Vortex read error: {e}"))
-            })
+            .map_err(|e| std::io::Error::other(format!("Vortex read error: {e}")))
     }
 
     async fn size(&self) -> std::io::Result<u64> {
-        self.size().await.map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("Vortex read error: {e}"))
-        })
+        self.size
+            .clone()
+            .await
+            .map_err(|e| std::io::Error::other(format!("Vortex read error: {e}")))
     }
 }

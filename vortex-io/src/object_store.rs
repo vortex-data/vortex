@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::io;
+use std::ops::Range;
+use std::os::unix::prelude::FileExt;
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use bytes::BytesMut;
 use futures::stream::FuturesUnordered;
@@ -10,10 +15,6 @@ use object_store::{
     GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, ObjectStoreScheme,
     PutPayload, PutResult,
 };
-use std::io;
-use std::ops::Range;
-use std::os::unix::prelude::FileExt;
-use std::sync::Arc;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -195,10 +196,10 @@ impl VortexWrite for ObjectStoreWriter {
 mod tests {
     use std::sync::Arc;
 
+    use object_store::ObjectStore;
     use object_store::local::LocalFileSystem;
     use object_store::memory::InMemory;
     use object_store::path::Path;
-    use object_store::ObjectStore;
     use rstest::rstest;
     use tempfile::tempdir;
 

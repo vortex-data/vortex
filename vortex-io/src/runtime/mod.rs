@@ -9,8 +9,9 @@ use crate::file::IoRequest;
 mod blocking;
 pub use blocking::*;
 mod handle;
-use crate::file::ReadSourceRef;
 pub use handle::*;
+
+use crate::file::ReadSourceRef;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod current;

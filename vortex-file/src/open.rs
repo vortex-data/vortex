@@ -9,8 +9,8 @@ use vortex_io::runtime::Handle;
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
 
-use crate::footer::Footer;
 use crate::DEFAULT_REGISTRY;
+use crate::footer::Footer;
 
 pub trait FileType: Sized {
     type Options;

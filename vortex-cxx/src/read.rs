@@ -4,18 +4,18 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use arrow_array::RecordBatchReader;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
-use arrow_array::RecordBatchReader;
 use arrow_schema::{Schema, SchemaRef};
+use vortex::ArrayRef;
 use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::scan::ScanBuilder;
-use vortex::ArrayRef;
 
-use crate::expr::Expr;
 use crate::RUNTIME;
+use crate::expr::Expr;
 
 pub(crate) struct VortexFile {
     inner: vortex::file::VortexFile,

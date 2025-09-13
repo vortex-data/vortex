@@ -3,14 +3,12 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
+use std::task::{Context, Poll, ready};
 
 use futures::{FutureExt, StreamExt};
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 
-use crate::file::FileRead;
-use crate::file::IntoReadSource;
-use crate::file::IoRequestStream;
+use crate::file::{FileRead, IntoReadSource, IoRequestStream};
 use crate::kanal_ext::KanalExt;
 use crate::runtime::{AbortHandleRef, IoTask, Runtime};
 

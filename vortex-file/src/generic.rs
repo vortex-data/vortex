@@ -4,9 +4,9 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::{pin_mut, StreamExt};
+use futures::{StreamExt, pin_mut};
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex_io::file::IntoReadSource;
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
@@ -18,7 +18,7 @@ use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
 };
-use crate::{FileType, Footer, VortexFile, VortexOpenOptions, EOF_SIZE, MAX_POSTSCRIPT_SIZE};
+use crate::{EOF_SIZE, FileType, Footer, MAX_POSTSCRIPT_SIZE, VortexFile, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///

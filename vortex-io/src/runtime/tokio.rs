@@ -3,8 +3,9 @@
 
 use std::sync::{Arc, LazyLock};
 
-use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Handle, IoTask, Runtime};
 use futures::future::BoxFuture;
+
+use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Handle, IoTask, Runtime};
 
 /// A Vortex runtime that drives all work the enclosed Tokio runtime handle.
 pub struct TokioRuntime(Arc<tokio::runtime::Handle>);
@@ -155,13 +156,14 @@ impl<T> Iterator for TokioBlockingIterator<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use super::*;
     use futures::FutureExt;
     use smol::future::block_on;
     use tokio::runtime::Runtime as TokioRt;
+
+    use super::*;
 
     #[test]
     fn test_spawn_simple_future() {
