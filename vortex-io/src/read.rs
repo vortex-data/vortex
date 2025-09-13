@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future::Future;
+use async_trait::async_trait;
 use std::io;
 use std::ops::Range;
 use std::sync::Arc;
@@ -22,7 +22,8 @@ use vortex_metrics::{Histogram, Timer, VortexMetrics};
 /// This trait has been marks as `'static`, `Send` and `Sync` due to how we expect to use it
 /// within the Vortex concurrency model. If your I/O backend has more restrictive requirements,
 /// please consider the `crate::file::ReadSource` trait instead that supports `!Send` I/O.
-pub trait VortexReadAt: 'static {
+#[async_trait]
+pub trait VortexRead: 'static + Send + Sync {
     /// Request an asynchronous positional read. Results will be returned as a [`ByteBuffer`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
@@ -32,11 +33,11 @@ pub trait VortexReadAt: 'static {
     ///
     /// The resultant Future need not be [`Send`], allowing implementations that use thread-per-core
     /// executors.
-    fn read_byte_range(
+    async fn read_byte_range(
         &self,
         range: Range<u64>,
         alignment: Alignment,
-    ) -> impl Future<Output = io::Result<ByteBuffer>>;
+    ) -> io::Result<ByteBuffer>;
 
     // TODO(ngates): the read implementation should be able to hint at its latency/throughput
     //  allowing the caller to make better decisions about how to coalesce reads.
@@ -48,7 +49,7 @@ pub trait VortexReadAt: 'static {
     ///
     /// For a file it will be the size in bytes, for an object in an
     /// `ObjectStore` it will be the `ObjectMeta::size`.
-    fn size(&self) -> impl Future<Output = io::Result<u64>>;
+    async fn size(&self) -> io::Result<u64>;
 }
 
 #[derive(Debug, Clone)]
@@ -89,7 +90,8 @@ impl PerformanceHint {
     }
 }
 
-impl<T: VortexReadAt> VortexReadAt for Arc<T> {
+#[async_trait]
+impl<T: VortexRead> VortexRead for Arc<T> {
     async fn read_byte_range(
         &self,
         range: Range<u64>,
@@ -107,7 +109,8 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
     }
 }
 
-impl VortexReadAt for ByteBuffer {
+#[async_trait]
+impl VortexRead for ByteBuffer {
     async fn read_byte_range(
         &self,
         range: Range<u64>,
@@ -134,13 +137,13 @@ impl VortexReadAt for ByteBuffer {
 }
 
 #[derive(Clone)]
-pub struct InstrumentedReadAt<T: VortexReadAt> {
+pub struct InstrumentedReadAt<T: VortexRead> {
     read: T,
     sizes: Arc<Histogram>,
     durations: Arc<Timer>,
 }
 
-impl<T: VortexReadAt> InstrumentedReadAt<T> {
+impl<T: VortexRead> InstrumentedReadAt<T> {
     pub fn new(read: T, metrics: &VortexMetrics) -> Self {
         Self {
             read,
@@ -150,7 +153,8 @@ impl<T: VortexReadAt> InstrumentedReadAt<T> {
     }
 }
 
-impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
+#[async_trait]
+impl<T: VortexRead> VortexRead for InstrumentedReadAt<T> {
     async fn read_byte_range(
         &self,
         range: Range<u64>,

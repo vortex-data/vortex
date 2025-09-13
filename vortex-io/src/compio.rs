@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::io;
-use std::ops::Range;
-
-use compio::BufResult;
+use async_trait::async_trait;
 use compio::buf::{IoBuf, IoBufMut, SetBufInit};
 use compio::fs::File;
 use compio::io::AsyncReadAtExt;
+use compio::BufResult;
+use std::io;
+use std::ops::Range;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexExpect;
 
-use crate::VortexReadAt;
+use crate::VortexRead;
 
 /// Compio uses buffer capacity instead of buffer len (that everyone else uses) when reading
 /// to fill a buffer. Since [`ByteBufferMut`] cannot be allocated with a precise capacity,
@@ -47,7 +47,8 @@ unsafe impl IoBufMut for FixedCapacityByteBufferMut {
     }
 }
 
-impl VortexReadAt for File {
+#[async_trait]
+impl VortexRead for File {
     async fn read_byte_range(
         &self,
         range: Range<u64>,
@@ -81,7 +82,7 @@ mod tests {
     use tempfile::NamedTempFile;
     use vortex_buffer::Alignment;
 
-    use crate::VortexReadAt;
+    use crate::VortexRead;
 
     #[cfg_attr(miri, ignore)]
     #[compio::test]

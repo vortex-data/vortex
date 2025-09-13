@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use async_trait::async_trait;
 use std::fs::File;
 use std::io;
 use std::ops::{Deref, Range};
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
-
 use tokio::io::AsyncWriteExt;
 use tokio::task::spawn_blocking;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexExpect;
 
-use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
+use crate::{IoBuf, PerformanceHint, VortexRead, VortexWrite};
 
 /// A cheaply cloneable, readonly file that executes operations
 /// on a tokio blocking threadpool.
@@ -49,7 +49,8 @@ impl Deref for TokioFile {
     }
 }
 
-impl VortexReadAt for TokioFile {
+#[async_trait]
+impl VortexRead for TokioFile {
     #[tracing::instrument(skip_all, fields(range, alignment))]
     async fn read_byte_range(
         &self,
@@ -103,7 +104,7 @@ mod tests {
     use tempfile::NamedTempFile;
     use vortex_buffer::Alignment;
 
-    use crate::{TokioFile, VortexReadAt};
+    use crate::{TokioFile, VortexRead};
 
     #[tokio::test]
     async fn test_shared_file() {

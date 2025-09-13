@@ -4,10 +4,10 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::{StreamExt, pin_mut};
+use futures::{pin_mut, StreamExt};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
-use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
+use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexRead};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -17,13 +17,13 @@ use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
 };
-use crate::{EOF_SIZE, FileType, Footer, MAX_POSTSCRIPT_SIZE, VortexFile, VortexOpenOptions};
+use crate::{FileType, Footer, VortexFile, VortexOpenOptions, EOF_SIZE, MAX_POSTSCRIPT_SIZE};
 
 #[cfg(feature = "tokio")]
 static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
     std::sync::LazyLock::new(|| IoDispatcher::new_tokio(1));
 
-/// A type of Vortex file that supports any [`VortexReadAt`] implementation.
+/// A type of Vortex file that supports any [`VortexRead`] implementation.
 ///
 /// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
 // TODO(ngates): rename to TokioVortexFile
@@ -36,7 +36,7 @@ impl FileType for GenericVortexFile {
 impl VortexOpenOptions<GenericVortexFile> {
     const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
-    /// Open a file using the provided [`VortexReadAt`] implementation.
+    /// Open a file using the provided [`VortexRead`] implementation.
     pub fn file() -> Self {
         Self::new(Default::default())
             // Start with an initial in-memory cache of 256MB.
@@ -82,9 +82,9 @@ impl VortexOpenOptions<GenericVortexFile> {
         self.open_read_at(vortex_io::TokioFile::open(read)?).await
     }
 
-    /// Low-level API for opening any [`VortexReadAt`]. Note that the user is responsible for
+    /// Low-level API for opening any [`VortexRead`]. Note that the user is responsible for
     /// ensuring the `VortexReadAt` implementation is compatible with the chosen I/O dispatcher.
-    pub async fn open_read_at<R: VortexReadAt + Send + Sync>(
+    pub async fn open_read_at<R: VortexRead + Send + Sync>(
         self,
         read: R,
     ) -> VortexResult<VortexFile> {
@@ -151,10 +151,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         })
     }
 
-    async fn read_footer<R: VortexReadAt + Send + Sync>(
-        &self,
-        read: Arc<R>,
-    ) -> VortexResult<Footer> {
+    async fn read_footer<R: VortexRead + Send + Sync>(&self, read: Arc<R>) -> VortexResult<Footer> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
             None => self.dispatched_size(read.clone()).await?,
@@ -198,8 +195,8 @@ impl VortexOpenOptions<GenericVortexFile> {
         Ok(footer)
     }
 
-    /// Dispatch a [`VortexReadAt::size`] request onto the configured I/O dispatcher.
-    async fn dispatched_size<R: VortexReadAt + Send + Sync>(
+    /// Dispatch a [`VortexRead::size`] request onto the configured I/O dispatcher.
+    async fn dispatched_size<R: VortexRead + Send + Sync>(
         &self,
         read: Arc<R>,
     ) -> VortexResult<u64> {
@@ -211,7 +208,7 @@ impl VortexOpenOptions<GenericVortexFile> {
     }
 
     /// Dispatch a read onto the configured I/O dispatcher.
-    async fn dispatched_read<R: VortexReadAt + Send + Sync>(
+    async fn dispatched_read<R: VortexRead + Send + Sync>(
         &self,
         read: Arc<R>,
         range: Range<u64>,
