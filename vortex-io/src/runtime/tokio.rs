@@ -3,25 +3,49 @@
 
 use std::sync::{Arc, LazyLock};
 
-use futures::future::BoxFuture;
-use tokio::runtime::Handle as TokioHandle;
-
 use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
+use futures::future::BoxFuture;
 
-/// A Vortex runtime that drives all work the currently scoped Tokio runtime.
-#[allow(dead_code)]
-pub struct TokioRuntime(Arc<TokioHandle>);
+/// A Vortex runtime that drives all work the enclosed Tokio runtime handle.
+pub struct TokioRuntime(Arc<tokio::runtime::Handle>);
 
 impl TokioRuntime {
-    pub fn with(handle: TokioHandle) -> Handle {
-        Handle::new(Arc::new(handle))
-    }
-
-    /// Return the current Tokio runtime handle wrapped in a Vortex handle.
+    /// Create a new [`Handle`] that always uses the currently scoped Tokio runtime at the time
+    /// each operation is invoked.
     pub fn current() -> Handle {
         static CURRENT: LazyLock<Arc<CurrentTokioRuntime>> =
             LazyLock::new(|| Arc::new(CurrentTokioRuntime));
         Handle::new(CURRENT.clone())
+    }
+}
+
+impl From<&tokio::runtime::Handle> for Handle {
+    fn from(value: &tokio::runtime::Handle) -> Self {
+        Self::from(value.clone())
+    }
+}
+
+impl From<tokio::runtime::Handle> for Handle {
+    fn from(value: tokio::runtime::Handle) -> Self {
+        Handle::new(Arc::new(value))
+    }
+}
+
+impl Runtime for tokio::runtime::Handle {
+    fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
+        Box::new(tokio::runtime::Handle::spawn(self, fut).abort_handle())
+    }
+
+    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        Box::new(tokio::runtime::Handle::spawn(self, async move { cpu() }).abort_handle())
+    }
+
+    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        Box::new(tokio::runtime::Handle::spawn_blocking(self, task).abort_handle())
+    }
+
+    fn spawn_io(&self, task: IoTask) {
+        tokio::runtime::Handle::spawn(self, task.source.drive_send(task.stream));
     }
 }
 
@@ -30,41 +54,27 @@ struct CurrentTokioRuntime;
 
 impl Runtime for CurrentTokioRuntime {
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
-        Box::new(TokioHandle::current().spawn(fut).abort_handle())
+        Box::new(tokio::runtime::Handle::current().spawn(fut).abort_handle())
     }
 
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         Box::new(
-            TokioHandle::current()
+            tokio::runtime::Handle::current()
                 .spawn(async move { cpu() })
                 .abort_handle(),
         )
     }
 
     fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        Box::new(TokioHandle::current().spawn_blocking(task).abort_handle())
+        Box::new(
+            tokio::runtime::Handle::current()
+                .spawn_blocking(task)
+                .abort_handle(),
+        )
     }
 
     fn spawn_io(&self, task: IoTask) {
-        TokioHandle::current().spawn(task.source.drive_send(task.stream));
-    }
-}
-
-impl Runtime for TokioHandle {
-    fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
-        Box::new(TokioHandle::spawn(self, fut).abort_handle())
-    }
-
-    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        Box::new(TokioHandle::spawn(self, async move { cpu() }).abort_handle())
-    }
-
-    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        Box::new(TokioHandle::spawn_blocking(self, task).abort_handle())
-    }
-
-    fn spawn_io(&self, task: IoTask) {
-        TokioHandle::spawn(self, task.source.drive_send(task.stream));
+        tokio::runtime::Handle::current().spawn(task.source.drive_send(task.stream));
     }
 }
 
@@ -88,7 +98,7 @@ impl crate::runtime::BlockingRuntime for TokioRuntime {
         Fut: Future<Output = R>,
     {
         // Assert that we're not currently inside the Tokio context.
-        if TokioHandle::try_current().is_ok() {
+        if tokio::runtime::Handle::try_current().is_ok() {
             vortex_error::vortex_panic!("block_on cannot be called from within a Tokio runtime");
         }
         let handle = self.0.clone();
@@ -101,7 +111,7 @@ impl crate::runtime::BlockingRuntime for TokioRuntime {
         R: Send + 'a,
     {
         // Assert that we're not currently inside the Tokio context.
-        if TokioHandle::try_current().is_ok() {
+        if tokio::runtime::Handle::try_current().is_ok() {
             vortex_error::vortex_panic!(
                 "block_on_stream cannot be called from within a Tokio runtime"
             );
@@ -114,7 +124,7 @@ impl crate::runtime::BlockingRuntime for TokioRuntime {
 
 #[cfg(feature = "tokio")]
 pub struct TokioBlockingIterator<'a, T> {
-    handle: Arc<TokioHandle>,
+    handle: Arc<tokio::runtime::Handle>,
     stream: futures::stream::BoxStream<'a, T>,
 }
 
@@ -131,19 +141,18 @@ impl<T> Iterator for TokioBlockingIterator<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use futures::FutureExt;
-    use futures::executor::block_on;
-    use tokio::runtime::Runtime as TokioRt;
+    use std::sync::Arc;
 
     use super::*;
+    use futures::FutureExt;
+    use smol::future::block_on;
+    use tokio::runtime::Runtime as TokioRt;
 
     #[test]
     fn test_spawn_simple_future() {
         let tokio_rt = TokioRt::new().unwrap();
-        let handle = TokioRuntime::with(tokio_rt.handle().clone());
+        let handle = Handle::from(tokio_rt.handle());
         let result = block_on(handle.spawn(async {
             let fut = async { 77 };
             fut.await
@@ -154,7 +163,7 @@ mod tests {
     #[test]
     fn test_spawn_and_abort() {
         let tokio_rt = TokioRt::new().unwrap();
-        let handle = TokioRuntime::with(tokio_rt.handle().clone());
+        let handle = Handle::from(tokio_rt.handle());
 
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();

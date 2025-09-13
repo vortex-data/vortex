@@ -18,8 +18,7 @@ pub mod current;
 pub mod single;
 #[cfg(not(target_arch = "wasm32"))]
 mod smol;
-// TODO(ngates): feature-flag this by Tokio once we add I/O support for runtimes.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "tokio")]
 pub mod tokio;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;

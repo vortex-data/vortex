@@ -1,19 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use async_trait::async_trait;
 use std::fs::File;
 use std::io;
-use std::ops::{Deref, Range};
-use std::os::unix::fs::FileExt;
+use std::ops::Deref;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
-use tokio::task::spawn_blocking;
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex_error::VortexExpect;
 
-use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
+use crate::{IoBuf, VortexWrite};
 
 /// A cheaply cloneable, readonly file that executes operations
 /// on a tokio blocking threadpool.
@@ -48,36 +43,36 @@ impl Deref for TokioFile {
         &self.0
     }
 }
-
-#[async_trait]
-impl VortexReadAt for TokioFile {
-    #[tracing::instrument(skip_all, fields(range, alignment))]
-    async fn read_byte_range(
-        &self,
-        range: Range<u64>,
-        alignment: Alignment,
-    ) -> io::Result<ByteBuffer> {
-        let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
-        let this = self.clone();
-
-        spawn_blocking(move || {
-            let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-            unsafe { buffer.set_len(len) }
-            this.read_exact_at(&mut buffer, range.start)?;
-            Ok(buffer.freeze())
-        })
-        .await?
-    }
-
-    fn performance_hint(&self) -> PerformanceHint {
-        PerformanceHint::local()
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn size(&self) -> io::Result<u64> {
-        self.metadata().map(|metadata| metadata.len())
-    }
-}
+//
+// #[async_trait]
+// impl VortexReadAt for TokioFile {
+//     #[tracing::instrument(skip_all, fields(range, alignment))]
+//     async fn read_byte_range(
+//         &self,
+//         range: Range<u64>,
+//         alignment: Alignment,
+//     ) -> io::Result<ByteBuffer> {
+//         let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
+//         let this = self.clone();
+//
+//         spawn_blocking(move || {
+//             let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+//             unsafe { buffer.set_len(len) }
+//             this.read_exact_at(&mut buffer, range.start)?;
+//             Ok(buffer.freeze())
+//         })
+//         .await?
+//     }
+//
+//     fn performance_hint(&self) -> PerformanceHint {
+//         PerformanceHint::local()
+//     }
+//
+//     #[tracing::instrument(skip_all)]
+//     async fn size(&self) -> io::Result<u64> {
+//         self.metadata().map(|metadata| metadata.len())
+//     }
+// }
 
 impl VortexWrite for tokio::fs::File {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
@@ -102,30 +97,29 @@ mod tests {
     use std::os::unix::fs::FileExt;
 
     use tempfile::NamedTempFile;
-    use vortex_buffer::Alignment;
 
-    use crate::{TokioFile, VortexReadAt};
-
-    #[tokio::test]
-    async fn test_shared_file() {
-        let mut tmpfile = NamedTempFile::new().unwrap();
-        write!(tmpfile, "0123456789").unwrap();
-
-        let shared_file = TokioFile::open(tmpfile.path()).unwrap();
-
-        let first_half = shared_file
-            .read_byte_range(0..5, Alignment::none())
-            .await
-            .unwrap();
-
-        let second_half = shared_file
-            .read_byte_range(5..10, Alignment::none())
-            .await
-            .unwrap();
-
-        assert_eq!(first_half.as_ref(), "01234".as_bytes());
-        assert_eq!(second_half.as_ref(), "56789".as_bytes());
-    }
+    use crate::TokioFile;
+    //
+    // #[tokio::test]
+    // async fn test_shared_file() {
+    //     let mut tmpfile = NamedTempFile::new().unwrap();
+    //     write!(tmpfile, "0123456789").unwrap();
+    //
+    //     let shared_file = TokioFile::open(tmpfile.path()).unwrap();
+    //
+    //     let first_half = shared_file
+    //         .read_byte_range(0..5, Alignment::none())
+    //         .await
+    //         .unwrap();
+    //
+    //     let second_half = shared_file
+    //         .read_byte_range(5..10, Alignment::none())
+    //         .await
+    //         .unwrap();
+    //
+    //     assert_eq!(first_half.as_ref(), "01234".as_bytes());
+    //     assert_eq!(second_half.as_ref(), "56789".as_bytes());
+    // }
 
     #[test]
     fn test_drop_semantics() {

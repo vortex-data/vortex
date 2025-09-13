@@ -68,6 +68,13 @@ impl VortexOpenOptions<GenericVortexFile> {
         self
     }
 
+    /// Open a Vortex file from a path-like source.
+    ///
+    /// See [`Self::open`] for more details.
+    pub async fn open_path<P: AsRef<std::path::Path>>(self, path: P) -> VortexResult<VortexFile> {
+        self.open(path.as_ref()).await
+    }
+
     /// Open a Vortex file using the provided I/O source.
     ///
     /// This is the most common way to open a [`VortexFile`] and tends to provide the best

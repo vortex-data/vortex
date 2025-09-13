@@ -29,6 +29,8 @@ use log::LevelFilter;
 use pyo3_log::{Caching, Logger};
 use tokio::runtime::Runtime;
 use vortex::error::{VortexError, VortexExpect as _};
+use vortex::io::runtime::tokio::TokioRuntime;
+use vortex::io::runtime::Handle;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -38,6 +40,9 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
         .map_err(VortexError::from)
         .vortex_expect("tokio runtime must not fail to start")
 });
+
+static HANDLE: LazyLock<Handle> =
+    LazyLock::new(|| TokioRuntime::new(TOKIO_RUNTIME.handle().clone()));
 
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
 #[pymodule]

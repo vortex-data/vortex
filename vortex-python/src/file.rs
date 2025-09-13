@@ -3,20 +3,6 @@
 
 use std::sync::Arc;
 
-use arrow_array::RecordBatchReader;
-use pyo3::exceptions::PyTypeError;
-use pyo3::prelude::*;
-use pyo3::types::PyList;
-use vortex::compute::cast;
-use vortex::dtype::Nullability::NonNullable;
-use vortex::dtype::{DType, FieldNames, PType};
-use vortex::error::VortexResult;
-use vortex::expr::{ExprRef, root, select};
-use vortex::file::segments::MokaSegmentCache;
-use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::scan::{ScanBuilder, SplitBy};
-use vortex::{ArrayRef, ToCanonical};
-
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
@@ -25,6 +11,19 @@ use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::scan::PyRepeatedScan;
+use arrow_array::RecordBatchReader;
+use pyo3::exceptions::PyTypeError;
+use pyo3::prelude::*;
+use pyo3::types::PyList;
+use vortex::compute::cast;
+use vortex::dtype::Nullability::NonNullable;
+use vortex::dtype::{DType, FieldNames, PType};
+use vortex::error::VortexResult;
+use vortex::expr::{root, select, ExprRef};
+use vortex::file::segments::MokaSegmentCache;
+use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::scan::{ScanBuilder, SplitBy};
+use vortex::{ArrayRef, ToCanonical};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "file")?;
