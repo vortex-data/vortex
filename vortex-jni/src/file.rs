@@ -210,7 +210,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open<'local>(
         let (store, _scheme) = make_object_store(&url, &properties)?;
         let open_file = block_on(
             "VortexOpenOptions.open()",
-            VortexOpenOptions::file()
+            VortexOpenOptions::new()
                 .with_array_registry(Arc::new(SESSION.arrays().clone()))
                 .with_layout_registry(Arc::new(SESSION.layouts().clone()))
                 .open_object_store(&store, url.path()),

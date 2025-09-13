@@ -19,7 +19,7 @@ pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyh
 
 #[inline(never)]
 pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<usize> {
-    let scan = VortexOpenOptions::in_memory().open(buf)?.scan()?;
+    let scan = VortexOpenOptions::new().open_buffer(buf)?.scan()?;
     let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
 
     let iter = scan.into_record_batch_reader_multithread(schema)?;

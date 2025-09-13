@@ -208,7 +208,7 @@ impl VortexInspector {
     }
 
     async fn read_footer(&mut self) -> VortexResult<Footer> {
-        Ok(VortexOpenOptions::file()
+        Ok(VortexOpenOptions::new()
             .open(self.path.as_path())
             .await?
             .footer()

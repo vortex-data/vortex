@@ -94,11 +94,8 @@
 //! buffers, and [cloud storage](vortex_io::ObjectStoreReadAt), can be used as the backing store.
 
 mod counting;
-mod driver;
 mod file;
 mod footer;
-mod generic;
-mod memory;
 mod open;
 mod pruning;
 pub mod segments;
@@ -112,8 +109,6 @@ use std::sync::{Arc, LazyLock};
 pub use file::*;
 pub use footer::*;
 pub use forever_constant::*;
-pub use generic::*;
-pub use memory::*;
 pub use open::*;
 pub use strategy::*;
 use vortex_alp::{ALPEncoding, ALPRDEncoding};

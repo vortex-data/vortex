@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::file::{FileType, Footer, VortexOpenOptions};
+use vortex::file::{Footer, VortexOpenOptions};
 
 use crate::duckdb::ObjectCacheRef;
 
@@ -23,11 +23,11 @@ impl Entry<'_> {
         self.object_cache.put(&self.key, value());
     }
 
-    pub fn apply_to_file<F: FileType>(&self, file: VortexOpenOptions<F>) -> VortexOpenOptions<F> {
+    pub fn apply_to_file(&self, options: VortexOpenOptions) -> VortexOpenOptions {
         if let Some(footer) = self.value {
-            file.with_footer(footer.clone())
+            options.with_footer(footer.clone())
         } else {
-            file
+            options
         }
     }
 }

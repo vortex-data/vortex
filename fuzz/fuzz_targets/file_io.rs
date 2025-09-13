@@ -56,8 +56,8 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .write(&mut full_buff, array_data.to_array_iterator())
         .vortex_unwrap();
 
-    let mut output = VortexOpenOptions::in_memory()
-        .open(full_buff)
+    let mut output = VortexOpenOptions::new()
+        .open_buffer(full_buff)
         .vortex_unwrap()
         .scan()
         .vortex_unwrap()

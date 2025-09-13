@@ -38,7 +38,7 @@ pub async fn taxi_data_parquet() -> Result<PathBuf> {
 
 pub async fn fetch_taxi_data() -> Result<ArrayRef> {
     let vortex_data = taxi_data_vortex().await?;
-    Ok(VortexOpenOptions::file()
+    Ok(VortexOpenOptions::new()
         .open(vortex_data)
         .await?
         .scan()?

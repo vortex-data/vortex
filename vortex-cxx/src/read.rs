@@ -38,7 +38,7 @@ impl VortexFile {
 /// TODO(xinyu): object store (see vortex-ffi)
 pub(crate) fn open_file(path: &str) -> Result<Box<VortexFile>> {
     let file = RUNTIME.block_on(|h| {
-        VortexOpenOptions::file()
+        VortexOpenOptions::new()
             .with_handle(h)
             .open(std::path::Path::new(path))
     })?;

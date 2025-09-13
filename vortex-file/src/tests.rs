@@ -59,8 +59,8 @@ fn test_read_simple() {
         .write(&mut buf, st.to_array_iterator())
         .unwrap();
 
-    let iter = VortexOpenOptions::in_memory()
-        .open(buf)
+    let iter = VortexOpenOptions::new()
+        .open_buffer(buf)
         .unwrap()
         .scan()
         .unwrap()
@@ -136,8 +136,8 @@ fn test_round_trip_many_types() {
         .write(&mut buf, st.to_array_iterator())
         .unwrap();
 
-    let chunks: Vec<_> = VortexOpenOptions::in_memory()
-        .open(buf)
+    let chunks: Vec<_> = VortexOpenOptions::new()
+        .open_buffer(buf)
         .unwrap()
         .scan()
         .unwrap()
@@ -220,7 +220,7 @@ fn test_read_projection() {
         .write(&mut buf, st.to_array_iterator())
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory().open(buf).unwrap();
+    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
     let array = file
         .scan()
         .unwrap()
@@ -291,8 +291,8 @@ fn unequal_batches() {
         .write(&mut buf, st.to_array_iterator())
         .unwrap();
 
-    let iter = VortexOpenOptions::in_memory()
-        .open(buf)
+    let iter = VortexOpenOptions::new()
+        .open_buffer(buf)
         .unwrap()
         .scan()
         .unwrap()
@@ -348,8 +348,8 @@ fn write_chunked() {
         .write(&mut buf, chunked_st.to_array_iterator())
         .unwrap();
 
-    let iter = VortexOpenOptions::in_memory()
-        .open(buf)
+    let iter = VortexOpenOptions::new()
+        .open_buffer(buf)
         .unwrap()
         .scan()
         .unwrap()
@@ -375,7 +375,7 @@ fn test_empty_varbin_array_roundtrip() {
         .write(&mut buf, st.to_array_iterator())
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory().open(buf).unwrap();
+    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
 
     let result = file
         .scan()
@@ -413,8 +413,8 @@ fn filter_string() {
         .write(&mut buf, st.to_array_iterator())
         .unwrap();
 
-    let result: Vec<_> = VortexOpenOptions::in_memory()
-        .open(buf)
+    let result: Vec<_> = VortexOpenOptions::new()
+        .open_buffer(buf)
         .unwrap()
         .scan()
         .unwrap()
@@ -463,8 +463,8 @@ fn filter_or() {
         .write(&mut buf, st.to_array_iterator())
         .unwrap();
 
-    let result: Vec<_> = VortexOpenOptions::in_memory()
-        .open(buf)
+    let result: Vec<_> = VortexOpenOptions::new()
+        .open_buffer(buf)
         .unwrap()
         .scan()
         .unwrap()
@@ -524,8 +524,8 @@ fn filter_and() {
         .write(&mut buf, st.to_array_iterator())
         .unwrap();
 
-    let result: Vec<_> = VortexOpenOptions::in_memory()
-        .open(buf)
+    let result: Vec<_> = VortexOpenOptions::new()
+        .open_buffer(buf)
         .unwrap()
         .scan()
         .unwrap()
@@ -576,7 +576,7 @@ fn test_with_indices_simple() {
         .write(&mut buf, expected_array.to_array_iterator())
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory().open(buf).unwrap();
+    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
 
     // test no indices
     let actual_kept_array = file
@@ -653,7 +653,7 @@ fn test_with_indices_on_two_columns() {
         .write(&mut buf, st.to_array_iterator())
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory().open(buf).unwrap();
+    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
 
     let kept_indices = [0_u64, 3, 7];
     let array = file
@@ -716,7 +716,7 @@ fn test_with_indices_and_with_row_filter_simple() {
         .write(&mut buf, expected_array.to_array_iterator())
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory().open(buf).unwrap();
+    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
 
     let actual_kept_array = file
         .scan()
@@ -816,7 +816,7 @@ fn filter_string_chunked() {
         .write(&mut buf, array.to_array_iterator())
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory().open(buf).unwrap();
+    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
 
     let actual_array = file
         .scan()
@@ -906,7 +906,7 @@ fn test_pruning_with_or() {
         .write(&mut buf, array.to_array_iterator())
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory().open(buf).unwrap();
+    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
 
     let actual_array = file
         .scan()
@@ -987,7 +987,7 @@ fn test_repeated_projection() {
         .write(&mut buf, single_column_array.to_array_iterator())
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory().open(buf).unwrap();
+    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
 
     let actual = file
         .scan()
@@ -1022,7 +1022,7 @@ fn chunked_file() -> VortexResult<VortexFile> {
         .blocking::<SingleThreadRuntime>()
         .write(&mut writer, array.to_array_iterator())?;
     let buffer: Bytes = writer.into();
-    VortexOpenOptions::in_memory().open(buffer)
+    VortexOpenOptions::new().open_buffer(buffer)
 }
 
 #[test]
@@ -1053,12 +1053,12 @@ fn file_excluding_dtype() -> VortexResult<()> {
     let buffer: Bytes = writer.into();
 
     // Fail to open without DType.
-    let vxf = VortexOpenOptions::in_memory().open(buffer.clone());
+    let vxf = VortexOpenOptions::new().open_buffer(buffer.clone());
     assert!(vxf.is_err(), "Opening without DType should fail");
 
-    let vxf = VortexOpenOptions::in_memory()
+    let vxf = VortexOpenOptions::new()
         .with_dtype(dtype.clone())
-        .open(buffer)?;
+        .open_buffer(buffer)?;
     assert_eq!(vxf.dtype(), &dtype);
     assert_eq!(vxf.row_count(), 9);
 
@@ -1113,9 +1113,9 @@ fn round_trip(
         .write(&mut writer, array.to_array_iterator())?;
     let buffer: Bytes = writer.into();
 
-    let vxf = VortexOpenOptions::in_memory()
+    let vxf = VortexOpenOptions::new()
         .with_dtype(array.dtype().clone())
-        .open(buffer)?;
+        .open_buffer(buffer)?;
 
     assert_eq!(vxf.dtype(), array.dtype());
     assert_eq!(vxf.row_count(), array.len() as u64);
@@ -1194,7 +1194,7 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
         .write(&mut buf, st.to_array_stream())
         .await?;
 
-    let file = VortexOpenOptions::in_memory().open(buf)?;
+    let file = VortexOpenOptions::new().open_buffer(buf)?;
     let stream = file.scan().unwrap().into_tokio_array_stream()?;
     let array = stream.read_all().await?;
 
@@ -1215,7 +1215,7 @@ fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
     VortexWriteOptions::default()
         .blocking::<SingleThreadRuntime>()
         .write(&mut buf, array.to_array_iterator())?;
-    let file = VortexOpenOptions::in_memory().open(buf)?;
+    let file = VortexOpenOptions::new().open_buffer(buf)?;
     let read_array = file.scan()?.into_array_iter()?.read_all()?;
 
     let dict = read_array
@@ -1244,7 +1244,7 @@ async fn test_writer_basic_push() -> VortexResult<()> {
 
     assert_eq!(summary.row_count(), 4);
 
-    let file = VortexOpenOptions::in_memory().open(buf)?;
+    let file = VortexOpenOptions::new().open_buffer(buf)?;
     let result = file.scan()?.into_array_iter()?.read_all()?;
 
     assert_eq!(result.len(), 4);
@@ -1274,7 +1274,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
     let summary = writer.finish().await?;
     assert_eq!(summary.row_count(), 9);
 
-    let file = VortexOpenOptions::in_memory().open(buf)?;
+    let file = VortexOpenOptions::new().open_buffer(buf)?;
     let result = file.scan()?.into_array_iter()?.read_all()?;
 
     assert_eq!(result.len(), 9);
@@ -1304,7 +1304,7 @@ async fn test_writer_push_stream() -> VortexResult<()> {
     let summary = writer.finish().await?;
     assert_eq!(summary.row_count(), 6);
 
-    let file = VortexOpenOptions::in_memory().open(buf)?;
+    let file = VortexOpenOptions::new().open_buffer(buf)?;
     let result = file.scan()?.into_array_iter()?.read_all()?;
 
     assert_eq!(result.len(), 6);
@@ -1364,7 +1364,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
     let summary = writer.finish().await?;
     assert_eq!(summary.row_count(), 2);
 
-    let file = VortexOpenOptions::in_memory().open(buf)?;
+    let file = VortexOpenOptions::new().open_buffer(buf)?;
     let result = file.scan()?.into_array_iter()?.read_all()?;
 
     assert_eq!(result.len(), 2);
@@ -1398,7 +1398,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
     let summary = writer.finish().await?;
     assert_eq!(summary.row_count(), 6);
 
-    let file = VortexOpenOptions::in_memory().open(buf)?;
+    let file = VortexOpenOptions::new().open_buffer(buf)?;
     let result = file.scan()?.into_array_iter()?.read_all()?;
 
     assert_eq!(result.len(), 6);
@@ -1434,7 +1434,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
 
     assert_eq!(footer.row_count(), 3);
 
-    let file = VortexOpenOptions::in_memory().open(buf)?;
+    let file = VortexOpenOptions::new().open_buffer(buf)?;
     let result = file.scan()?.into_array_iter()?.read_all()?;
 
     assert_eq!(result.len(), 3);

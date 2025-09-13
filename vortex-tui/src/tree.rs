@@ -8,7 +8,7 @@ use vortex::file::VortexOpenOptions;
 use vortex::stream::ArrayStreamExt;
 
 pub async fn exec_tree(file: impl AsRef<Path>) -> VortexResult<()> {
-    let full = VortexOpenOptions::file()
+    let full = VortexOpenOptions::new()
         .open(file.as_ref())
         .await?
         .scan()?

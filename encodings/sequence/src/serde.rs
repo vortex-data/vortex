@@ -113,7 +113,7 @@ mod tests {
             .await
             .unwrap();
 
-        let file = VortexOpenOptions::file().open("/tmp/abc.vx").await.unwrap();
+        let file = VortexOpenOptions::new().open("/tmp/abc.vx").await.unwrap();
         let array = file
             .scan()
             .unwrap()

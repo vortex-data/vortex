@@ -43,7 +43,7 @@ impl Dataset for TPCHLCommentChunked {
                 .to_string_lossy()
                 .as_ref(),
         )? {
-            let file = VortexOpenOptions::file().open(path?).await?;
+            let file = VortexOpenOptions::new().open(path?).await?;
 
             chunks.extend(
                 file.scan()?

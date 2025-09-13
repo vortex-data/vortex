@@ -42,7 +42,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyo3(signature = (path, *, without_segment_cache = false))]
 pub fn open(path: &str, without_segment_cache: bool) -> PyResult<PyVortexFile> {
     let vxf = RUNTIME.block_on(|h| async move {
-        let mut options = VortexOpenOptions::file();
+        let mut options = VortexOpenOptions::new();
         if without_segment_cache {
             options = options.without_segment_cache();
         } else {

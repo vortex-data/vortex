@@ -178,7 +178,7 @@ impl AppState<'_> {
 
 /// Create an app backed from a file path.
 pub async fn create_file_app<'a>(path: impl AsRef<Path>) -> VortexResult<AppState<'a>> {
-    let vxf = VortexOpenOptions::file().open(path.as_ref()).await?;
+    let vxf = VortexOpenOptions::new().open(path.as_ref()).await?;
 
     let cursor = LayoutCursor::new(vxf.footer().clone(), vxf.segment_source());
 

@@ -158,7 +158,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
-        let mut file = VortexOpenOptions::file();
+        let mut file = VortexOpenOptions::new();
         let mut cache_hit = false;
         if let Some(footer) = session.get_footer(&FileKey {
             location: uri_str.to_string(),

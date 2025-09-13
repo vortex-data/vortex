@@ -7,12 +7,13 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use moka::future::{Cache, CacheBuilder};
 use moka::policy::EvictionPolicy;
+use parking_lot::RwLock;
 use rustc_hash::FxBuildHasher;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 use vortex_metrics::{Counter, VortexMetrics};
-use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::hash_map::HashMap;
 
 /// A cache for storing and retrieving individual segment data.
 #[async_trait]
@@ -69,14 +70,14 @@ impl SegmentCache for MokaSegmentCache {
 
 /// Segment cache containing the initial read segments.
 pub(crate) struct InitialReadSegmentCache {
-    pub(crate) initial: DashMap<SegmentId, ByteBuffer>,
+    pub(crate) initial: RwLock<HashMap<SegmentId, ByteBuffer>>,
     pub(crate) fallback: Arc<dyn SegmentCache>,
 }
 
 #[async_trait]
 impl SegmentCache for InitialReadSegmentCache {
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
-        if let Some(buffer) = self.initial.get(&id) {
+        if let Some(buffer) = self.initial.read().get(&id) {
             return Ok(Some(buffer.clone()));
         }
         self.fallback.get(id).await

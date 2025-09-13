@@ -14,7 +14,7 @@ use url::Url;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
-use vortex::file::{GenericVortexFile, VortexFile, VortexOpenOptions};
+use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
 use vortex::{ArrayRef, ToCanonical};
 
@@ -165,10 +165,7 @@ fn extract_table_filter_expr(
 }
 
 /// Helper function to open a Vortex file from either a local or S3 URL
-async fn open_file(
-    url: Url,
-    options: VortexOpenOptions<GenericVortexFile>,
-) -> VortexResult<VortexFile> {
+async fn open_file(url: Url, options: VortexOpenOptions) -> VortexResult<VortexFile> {
     if url.scheme() == "s3" {
         assert!(url.scheme() == "s3");
         let bucket = url
@@ -228,7 +225,7 @@ impl TableFunction for VortexTableFunction {
         let entry = footer_cache.entry(first_file_url.as_ref());
         let first_file = block_in_place(|| {
             RUNTIME.block_on(async {
-                let options = entry.apply_to_file(VortexOpenOptions::file());
+                let options = entry.apply_to_file(VortexOpenOptions::new());
                 let file = open_file(first_file_url.clone(), options).await?;
                 entry.put_if_absent(|| file.footer().clone());
                 VortexResult::Ok(file)
@@ -334,7 +331,7 @@ impl TableFunction for VortexTableFunction {
                             let entry = cache.entry(path.as_ref());
                             block_in_place(|| {
                                 RUNTIME.block_on(async {
-                                    let options = entry.apply_to_file(VortexOpenOptions::file());
+                                    let options = entry.apply_to_file(VortexOpenOptions::new());
                                     let file = open_file(path.clone(), options).await?;
                                     entry.put_if_absent(|| file.footer().clone());
                                     VortexResult::Ok(file)
