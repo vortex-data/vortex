@@ -13,9 +13,9 @@ pub struct WasmRuntime;
 
 impl WasmRuntime {
     pub fn handle() -> Handle {
-        static RUNTIME: LazyLock<Arc<WasmRuntime>> = LazyLock::new(|| Arc::new(WasmRuntime));
+        static RUNTIME: LazyLock<Arc<dyn Executor>> = LazyLock::new(|| Arc::new(WasmRuntime));
 
-        Handle::new(RUNTIME.clone())
+        Handle::new(Arc::downgrade(&RUNTIME))
     }
 }
 
