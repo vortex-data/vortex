@@ -6928,7 +6928,6 @@ dependencies = [
  "vortex-expr",
  "vortex-flatbuffers",
  "vortex-io",
- "vortex-layout",
  "vortex-mask",
  "vortex-pco",
  "vortex-scalar",
