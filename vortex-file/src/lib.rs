@@ -90,8 +90,6 @@
 //! or without chunking, or completely elide statistics to save space or if they are not needed, for
 //! example if the metadata is being stored in an external index.
 //!
-//! Anything implementing [`VortexReadAt`](vortex_io::VortexReadAt), for example local files, byte
-//! buffers, and [cloud storage](vortex_io::ObjectStoreReadAt), can be used as the backing store.
 
 mod counting;
 mod file;

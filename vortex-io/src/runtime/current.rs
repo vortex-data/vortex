@@ -12,7 +12,7 @@ use crate::runtime::{BlockingRuntime, Executor, Handle};
 /// A current thread runtime allows users to explicitly drive Vortex futures from multiple worker
 /// threads that they manage. This is useful in environments where the user already has a thread
 /// pool and wants to integrate Vortex into that pool, for example query engines.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct CurrentThreadRuntime {
     executor: Arc<smol::Executor<'static>>,
 }
@@ -137,7 +137,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use futures::{StreamExt, stream};
+    use futures::{stream, StreamExt};
     use parking_lot::Mutex;
 
     use super::*;
