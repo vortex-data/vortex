@@ -55,6 +55,20 @@ impl<F: FileType> VortexOpenOptions<F> {
         }
     }
 
+    /// Configure a [`Handle`] to use for opening the file.
+    ///
+    /// **Warning**: it is important that the runtime associated with the handle remains alive
+    /// while the file is being used. If the runtime is dropped, any I/O operations on the
+    /// file will fail.
+    ///
+    /// We tried to enforce this with Rust lifetimes, but sadly Rust async cannot express scoped
+    /// futures in a safe way, so we need static lifetimes for now. If you're interested in the
+    /// details, see [this post](https://without.boats/blog/the-scoped-task-trilemma/).
+    pub fn with_handle(mut self, handle: Handle) -> Self {
+        self.handle = Some(handle);
+        self
+    }
+
     /// Configure a Vortex array registry.
     pub fn with_array_registry(mut self, registry: Arc<ArrayRegistry>) -> Self {
         self.registry = registry;

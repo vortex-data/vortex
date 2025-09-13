@@ -12,7 +12,17 @@ use dtype::*;
 use expr::*;
 use read::*;
 use scalar::*;
+use std::sync::LazyLock;
+use vortex::io::runtime::current::CurrentThreadRuntime;
 use write::*;
+
+/// By default, the C++ API uses a current-thread runtime, providing control of the threading
+/// model to the C++ side.
+///
+// TODO(ngates): in the future, we could expose an API for C++ to spawn threads that can drive
+//  this runtime.
+pub(crate) static RUNTIME: LazyLock<CurrentThreadRuntime> =
+    LazyLock::new(|| CurrentThreadRuntime::new());
 
 #[cxx::bridge(namespace = "vortex::ffi")]
 mod ffi {

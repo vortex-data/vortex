@@ -20,10 +20,6 @@ use crate::segments::{
 };
 use crate::{FileType, Footer, VortexFile, VortexOpenOptions, EOF_SIZE, MAX_POSTSCRIPT_SIZE};
 
-#[cfg(feature = "tokio")]
-static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
-    std::sync::LazyLock::new(|| IoDispatcher::new_tokio(1));
-
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
 /// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
@@ -66,13 +62,6 @@ impl VortexOpenOptions<GenericVortexFile> {
     pub fn with_io_concurrency(mut self, io_concurrency: usize) -> Self {
         self.options.io_concurrency = io_concurrency;
         self
-    }
-
-    /// Open a Vortex file from a path-like source.
-    ///
-    /// See [`Self::open`] for more details.
-    pub async fn open_path<P: AsRef<std::path::Path>>(self, path: P) -> VortexResult<VortexFile> {
-        self.open(path.as_ref()).await
     }
 
     /// Open a Vortex file using the provided I/O source.
@@ -261,16 +250,13 @@ impl VortexOpenOptions<GenericVortexFile> {
 #[cfg(feature = "object_store")]
 impl VortexOpenOptions<GenericVortexFile> {
     pub async fn open_object_store(
-        mut self,
+        self,
         object_store: &Arc<dyn object_store::ObjectStore>,
         path: &str,
     ) -> VortexResult<VortexFile> {
         use std::path::Path;
 
         use vortex_io::ObjectStoreReadAt;
-
-        // Object store _must_ use tokio for I/O.
-        self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
 
         // If the file is local, we much prefer to use TokioFile since object store re-opens the
         // file on every read. This check is a little naive... but we hope that ObjectStore will

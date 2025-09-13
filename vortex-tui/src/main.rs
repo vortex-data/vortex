@@ -8,18 +8,13 @@ mod inspect;
 mod tree;
 
 use std::path::PathBuf;
-use std::sync::LazyLock;
 
 use browse::exec_tui;
 use clap::{CommandFactory, Parser};
-use tokio::runtime::Runtime;
 use tree::exec_tree;
 use vortex::error::VortexExpect;
 
 use crate::inspect::InspectArgs;
-
-static TOKIO_RUNTIME: LazyLock<Runtime> =
-    LazyLock::new(|| Runtime::new().expect("Tokio Runtime::new()"));
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -49,7 +44,8 @@ impl Commands {
     }
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let cli = Cli::parse();
@@ -68,10 +64,10 @@ fn main() -> anyhow::Result<()> {
     }
 
     match cli.command {
-        Commands::Tree { file } => exec_tree(file)?,
-        Commands::Convert(flags) => TOKIO_RUNTIME.block_on(convert::exec_convert(flags))?,
-        Commands::Browse { file } => exec_tui(file)?,
-        Commands::Inspect(args) => inspect::exec_inspect(args)?,
+        Commands::Tree { file } => exec_tree(file).await?,
+        Commands::Convert(flags) => convert::exec_convert(flags).await?,
+        Commands::Browse { file } => exec_tui(file).await?,
+        Commands::Inspect(args) => inspect::exec_inspect(args).await?,
     };
 
     Ok(())

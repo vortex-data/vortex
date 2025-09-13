@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use humansize::{DECIMAL, make_format};
+use humansize::{make_format, DECIMAL};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
@@ -9,6 +9,8 @@ use ratatui::text::Text;
 use ratatui::widgets::{
     Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget, Wrap,
 };
+use tokio::runtime::Handle;
+use tokio::task::block_in_place;
 use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
@@ -16,11 +18,10 @@ use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::pipeline::operators::MaskFuture;
 use vortex::{Array, ArrayRef, ToCanonical};
 
-use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
 
 /// Render the Layouts tab.
-pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
+pub fn render_layouts(app_state: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {
     let [header_area, detail_area] =
         Layout::vertical([Constraint::Length(10), Constraint::Min(1)]).areas(area);
 
@@ -89,7 +90,7 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
 }
 
 /// Render the inner Array for a FlatLayout
-fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
+fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
     let row_count = app.cursor.layout().row_count();
     let reader = app
         .cursor
@@ -97,8 +98,9 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
         .new_reader("".into(), app.vxf.segment_source())
         .vortex_expect("Failed to create reader");
 
-    let array = TOKIO_RUNTIME
-        .block_on(
+    // FIXME(ngates): our TUI app should never perform I/O in the render loop...
+    let array = block_in_place(|| {
+        Handle::current().block_on(
             reader
                 .projection_evaluation(
                     &(0..row_count),
@@ -109,7 +111,8 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
                 )
                 .vortex_expect("Failed to construct projection"),
         )
-        .vortex_expect("Failed to read flat array");
+    })
+    .vortex_expect("Failed to read flat array");
 
     // Show the metadata as JSON. (show count of encoded bytes as well)
     // let metadata_size = array.metadata_bytes().unwrap_or_default().len();

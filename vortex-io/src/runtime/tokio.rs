@@ -3,7 +3,7 @@
 
 use std::sync::{Arc, LazyLock};
 
-use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
+use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Handle, IoTask, Runtime};
 use futures::future::BoxFuture;
 
 /// A Vortex runtime that drives all work the enclosed Tokio runtime handle.
@@ -16,6 +16,18 @@ impl TokioRuntime {
         static CURRENT: LazyLock<Arc<CurrentTokioRuntime>> =
             LazyLock::new(|| Arc::new(CurrentTokioRuntime));
         Handle::new(CURRENT.clone())
+    }
+}
+
+impl From<&tokio::runtime::Handle> for TokioRuntime {
+    fn from(value: &tokio::runtime::Handle) -> Self {
+        Self::from(value.clone())
+    }
+}
+
+impl From<tokio::runtime::Handle> for TokioRuntime {
+    fn from(value: tokio::runtime::Handle) -> Self {
+        TokioRuntime(Arc::new(value))
     }
 }
 
@@ -85,16 +97,16 @@ impl AbortHandle for tokio::task::AbortHandle {
 }
 
 // We depend on Tokio's rt-multi-thread feature for block-in-place
-#[cfg(feature = "tokio")]
-impl crate::runtime::BlockingRuntime for TokioRuntime {
+impl BlockingRuntime for TokioRuntime {
     type BlockingIterator<'a, R: 'a> = TokioBlockingIterator<'a, R>;
 
     fn handle(&self) -> Handle {
         Handle::new(self.0.clone())
     }
 
-    fn block_on<Fut, R>(&self, fut: Fut) -> R
+    fn block_on<F, Fut, R>(&self, f: F) -> R
     where
+        F: FnOnce(Handle) -> Fut,
         Fut: Future<Output = R>,
     {
         // Assert that we're not currently inside the Tokio context.
@@ -102,12 +114,14 @@ impl crate::runtime::BlockingRuntime for TokioRuntime {
             vortex_error::vortex_panic!("block_on cannot be called from within a Tokio runtime");
         }
         let handle = self.0.clone();
+        let fut = f(Handle::new(self.0.clone()));
         tokio::task::block_in_place(move || handle.block_on(fut))
     }
 
-    fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
+    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
     where
-        S: futures::Stream<Item = R> + Send + Unpin + 'a,
+        F: FnOnce(Handle) -> S,
+        S: futures::Stream<Item = R> + Send + 'a,
         R: Send + 'a,
     {
         // Assert that we're not currently inside the Tokio context.
@@ -117,7 +131,7 @@ impl crate::runtime::BlockingRuntime for TokioRuntime {
             );
         }
         let handle = self.0.clone();
-        let stream = Box::pin(stream);
+        let stream = Box::pin(f(self.handle()));
         TokioBlockingIterator { handle, stream }
     }
 }

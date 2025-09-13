@@ -175,21 +175,23 @@ impl BlockingRuntime for SingleThreadRuntime {
         Handle::new(self.sender.clone())
     }
 
-    fn block_on<Fut, R>(&self, fut: Fut) -> R
+    fn block_on<F, Fut, R>(&self, f: F) -> R
     where
+        F: FnOnce(Handle) -> Fut,
         Fut: Future<Output = R>,
     {
-        smol::block_on(self.executor.run(fut))
+        smol::block_on(self.executor.run(f(self.handle())))
     }
 
-    fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
+    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
     where
-        S: Stream<Item = R> + Send + Unpin + 'a,
+        F: FnOnce(Handle) -> S,
+        S: Stream<Item = R> + Send + 'a,
         R: Send + 'a,
     {
         SingleThreadIterator {
             executor: self.executor.clone(),
-            stream: stream.boxed_local(),
+            stream: f(self.handle()).boxed_local(),
         }
     }
 }
@@ -203,9 +205,7 @@ where
     F: FnOnce(Handle) -> Fut,
     Fut: Future<Output = R>,
 {
-    let runtime = SingleThreadRuntime::default();
-    let fut = f(runtime.handle());
-    runtime.block_on(fut)
+    SingleThreadRuntime::default().block_on(f)
 }
 
 /// Returns an iterator wrapper around a stream, blocking the current thread for each item.
@@ -215,9 +215,7 @@ where
     S: Stream<Item = R> + Send + Unpin + 'a,
     R: Send + 'a,
 {
-    let runtime = SingleThreadRuntime::default();
-    let stream = f(runtime.handle());
-    runtime.block_on_stream(stream)
+    SingleThreadRuntime::default().block_on_stream(f)
 }
 
 /// A spawn request for a future.
@@ -271,17 +269,17 @@ impl<T> Iterator for SingleThreadIterator<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use futures::FutureExt;
 
+    use crate::runtime::single::{block_on, SingleThreadRuntime};
     use crate::runtime::BlockingRuntime;
-    use crate::runtime::single::{SingleThreadRuntime, block_on};
 
     #[test]
     fn test_drive_simple_future() {
-        let result = SingleThreadRuntime::default().block_on(async { 123 }.boxed_local());
+        let result = SingleThreadRuntime::default().block_on(|_h| async { 123 }.boxed_local());
         assert_eq!(result, 123);
     }
 

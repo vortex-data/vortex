@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![cfg(feature = "tokio")]
 #![allow(clippy::cast_possible_truncation)]
 
 use std::sync::atomic::{AtomicUsize, Ordering};

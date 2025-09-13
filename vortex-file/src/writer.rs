@@ -3,31 +3,31 @@
 
 use std::io;
 use std::io::Write;
-use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 
-use futures::future::{Fuse, LocalBoxFuture, ready};
-use futures::{FutureExt, StreamExt, TryStreamExt, pin_mut, select};
+use futures::future::{ready, Fuse, LocalBoxFuture};
+use futures::{pin_mut, select, FutureExt, StreamExt, TryStreamExt};
 use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-use vortex_array::stats::{PRUNING_STATS, Stat};
+use vortex_array::stats::{Stat, PRUNING_STATS};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt, SendableArrayStream};
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
 };
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_io::{IoBuf, VortexWrite};
-use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
+use vortex_layout::LayoutStrategy;
 
 use crate::counting::CountingVortexWrite;
 use crate::footer::FileStatistics;
 use crate::segments::writer::BufferedSegmentSink;
-use crate::{Footer, MAGIC_BYTES, WriteStrategyBuilder};
+use crate::{Footer, WriteStrategyBuilder, MAGIC_BYTES};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -349,10 +349,9 @@ impl<B: BlockingRuntime> BlockingWrite<B> {
         write: W,
         iter: impl ArrayIterator + Send + 'static,
     ) -> VortexResult<WriteSummary> {
-        let handle = self.runtime.handle();
-        self.runtime.block_on(async move {
+        self.runtime.block_on(|h| async move {
             self.options
-                .with_handle(handle)
+                .with_handle(h)
                 .write(BlockingWriteAdapter(write), iter.into_array_stream())
                 .await
         })
@@ -381,7 +380,7 @@ pub struct BlockingWriter<'w, B: BlockingRuntime> {
 
 impl<B: BlockingRuntime> BlockingWriter<'_, B> {
     pub fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
-        self.runtime.block_on(self.writer.push(chunk))
+        self.runtime.block_on(|_h| self.writer.push(chunk))
     }
 
     pub fn bytes_written(&self) -> u64 {
@@ -389,7 +388,7 @@ impl<B: BlockingRuntime> BlockingWriter<'_, B> {
     }
 
     pub fn finish(self) -> VortexResult<WriteSummary> {
-        self.runtime.block_on(self.writer.finish())
+        self.runtime.block_on(|_h| self.writer.finish())
     }
 }
 

@@ -4,16 +4,18 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use arrow_array::RecordBatchReader;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use arrow_array::RecordBatchReader;
 use arrow_schema::{Schema, SchemaRef};
-use vortex::ArrayRef;
 use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::scan::ScanBuilder;
+use vortex::ArrayRef;
 
 use crate::expr::Expr;
+use crate::RUNTIME;
 
 pub(crate) struct VortexFile {
     inner: vortex::file::VortexFile,
@@ -35,9 +37,14 @@ impl VortexFile {
 /// File operations - using blocking operations for simplicity
 /// TODO(xinyu): object store (see vortex-ffi)
 pub(crate) fn open_file(path: &str) -> Result<Box<VortexFile>> {
-    let file = VortexOpenOptions::file().open_blocking(std::path::Path::new(path))?;
+    let file = RUNTIME.block_on(|h| {
+        VortexOpenOptions::file()
+            .with_handle(h)
+            .open(std::path::Path::new(path))
+    })?;
     Ok(Box::new(VortexFile { inner: file }))
 }
+
 pub(crate) struct VortexScanBuilder {
     inner: ScanBuilder<ArrayRef>,
     output_schema: Option<SchemaRef>,

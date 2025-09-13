@@ -3,20 +3,18 @@
 
 use std::path::Path;
 
-use app::{AppState, KeyMode, Tab, create_file_app};
+use app::{create_file_app, AppState, KeyMode, Tab};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use ratatui::DefaultTerminal;
 use ratatui::widgets::ListState;
+use ratatui::DefaultTerminal;
 use ui::render_app;
 use vortex::error::{VortexExpect, VortexResult};
-
-use crate::TOKIO_RUNTIME;
 
 mod app;
 mod ui;
 
 // Use the VortexResult and potentially launch a Backtrace.
-fn run(mut terminal: DefaultTerminal, mut app: AppState) -> VortexResult<()> {
+async fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> VortexResult<()> {
     loop {
         terminal.draw(|frame| render_app(&mut app, frame))?;
 
@@ -226,13 +224,13 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
 // TODO: add tui_logger and have a logs tab so we can see the log output from
 //  doing Vortex things.
 
-pub fn exec_tui(file: impl AsRef<Path>) -> VortexResult<()> {
-    let app = TOKIO_RUNTIME.block_on(create_file_app(file))?;
+pub async fn exec_tui(file: impl AsRef<Path>) -> VortexResult<()> {
+    let app = create_file_app(file).await?;
 
     let mut terminal = ratatui::init();
     terminal.clear()?;
 
-    run(terminal, app)?;
+    run(terminal, app).await?;
 
     ratatui::restore();
     Ok(())

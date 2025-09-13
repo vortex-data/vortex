@@ -36,6 +36,12 @@ impl IntoReadSource for &Path {
     }
 }
 
+impl IntoReadSource for &str {
+    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
+        Path::new(self).into_read_source(handle)
+    }
+}
+
 pub(crate) struct FileIoSource {
     uri: Arc<str>,
     file: Arc<File>,

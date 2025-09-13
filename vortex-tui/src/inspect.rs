@@ -10,9 +10,9 @@ use std::sync::Arc;
 use flatbuffers::root;
 use itertools::Itertools;
 use vortex::buffer::{Alignment, ByteBuffer};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex::file::{
-    EOF_SIZE, Footer, MAGIC_BYTES, MAX_POSTSCRIPT_SIZE, VERSION, VortexOpenOptions,
+    Footer, VortexOpenOptions, EOF_SIZE, MAGIC_BYTES, MAX_POSTSCRIPT_SIZE, VERSION,
 };
 use vortex::flatbuffers::footer as fb;
 use vortex::layout::LayoutRef;
@@ -39,7 +39,7 @@ pub enum InspectMode {
     Footer,
 }
 
-pub fn exec_inspect(args: InspectArgs) -> anyhow::Result<()> {
+pub async fn exec_inspect(args: InspectArgs) -> anyhow::Result<()> {
     let mut inspector = VortexInspector::new(args.file.clone())?;
 
     println!("File: {}", args.file.display());
@@ -91,7 +91,7 @@ pub fn exec_inspect(args: InspectArgs) -> anyhow::Result<()> {
                 }
             };
 
-            match inspector.read_footer() {
+            match inspector.read_footer().await {
                 Ok(footer) => FooterSegments(footer).display(),
                 Err(e) => {
                     eprintln!("\nError reading footer segments: {}", e);
@@ -207,9 +207,10 @@ impl VortexInspector {
         })
     }
 
-    fn read_footer(&mut self) -> VortexResult<Footer> {
+    async fn read_footer(&mut self) -> VortexResult<Footer> {
         Ok(VortexOpenOptions::file()
-            .open_blocking(&self.path)?
+            .open(self.path.as_path())
+            .await?
             .footer()
             .clone())
     }
