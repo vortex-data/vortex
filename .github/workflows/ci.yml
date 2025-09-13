@@ -6,9 +6,9 @@ concurrency:
 
 on:
   push:
-    branches: [ "develop" ]
-  pull_request: { }
-  workflow_dispatch: { }
+    branches: ["develop"]
+  pull_request: {}
+  workflow_dispatch: {}
 
 permissions:
   actions: read
@@ -395,7 +395,7 @@ jobs:
   bench-codspeed:
     strategy:
       matrix:
-        shard: [ 1, 2 ]
+        shard: [1, 2]
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on:
