@@ -17,10 +17,10 @@ use crate::file::IoRequest;
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
-    distance: 4 * 1024, // 4 KB
-    max_size: 8 * 1024, // 8 KB
+    distance: 8 * 1024, // KB
+    max_size: 8 * 1024, // KB
 };
-const CONCURRENCY: usize = 64;
+const CONCURRENCY: usize = 8;
 
 impl IntoReadSource for PathBuf {
     fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
@@ -29,10 +29,10 @@ impl IntoReadSource for PathBuf {
 }
 
 impl IntoReadSource for &Path {
-    fn into_read_source(self, _handle: Handle) -> VortexResult<ReadSourceRef> {
+    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
         let uri = self.to_string_lossy().to_string().into();
         let file = Arc::new(File::open(self)?);
-        Ok(Arc::new(FileIoSource { uri, file }))
+        Ok(Arc::new(FileIoSource { uri, file, handle }))
     }
 }
 
@@ -45,6 +45,7 @@ impl IntoReadSource for &str {
 pub(crate) struct FileIoSource {
     uri: Arc<str>,
     file: Arc<File>,
+    handle: Handle,
 }
 
 impl ReadSource for FileIoSource {
@@ -72,23 +73,22 @@ impl ReadSource for FileIoSource {
         requests
             .map(move |req| {
                 let file = self.file.clone();
+                let handle = self.handle.clone();
                 async move {
                     let offset = req.offset();
                     let len = req.len();
                     let alignment = req.alignment();
 
-                    let result = {
-                        // TODO(ngates): we should decide whether to spawn or not.
-                        //  If yes, we should implement more aggressive coalescing.
-                        //  We may choose to spawn based on some measured latency threshold.
-                        // handle.spawn_blocking(move || {
-                        let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-                        unsafe { buffer.set_len(len) };
-                        match file.read_exact_at(&mut buffer, offset) {
-                            Ok(()) => Ok(buffer.freeze()),
-                            Err(e) => Err(VortexError::from(e)),
-                        }
-                    };
+                    let result = handle
+                        .spawn_blocking(move || {
+                            let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+                            unsafe { buffer.set_len(len) };
+                            match file.read_exact_at(&mut buffer, offset) {
+                                Ok(()) => Ok(buffer.freeze()),
+                                Err(e) => Err(VortexError::from(e)),
+                            }
+                        })
+                        .await;
                     req.resolve(result);
                 }
             })

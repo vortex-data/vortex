@@ -28,6 +28,7 @@ itertools = { workspace = true }
 kanal = { workspace = true }
 log = { workspace = true }
 once_cell = { workspace = true, features = ["parking_lot"] }
+oneshot = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 pco = { workspace = true }

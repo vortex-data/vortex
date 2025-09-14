@@ -7,17 +7,16 @@ use std::task::{Context, Poll};
 
 use async_stream::{stream, try_stream};
 use async_trait::async_trait;
-use futures::channel::oneshot;
 use futures::future::BoxFuture;
-use futures::stream::{BoxStream, once};
-use futures::{FutureExt, Stream, StreamExt, TryStreamExt, pin_mut, try_join};
+use futures::stream::{once, BoxStream};
+use futures::{pin_mut, try_join, FutureExt, Stream, StreamExt, TryStreamExt};
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_dict::builders::{dict_encoder, DictConstraints, DictEncoder};
 use vortex_dict::DictEncoding;
-use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 
