@@ -8,7 +8,7 @@ use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::{StreamExt as _, pin_mut};
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_io::runtime::Handle;
 
@@ -22,6 +22,8 @@ use crate::{LayoutRef, LayoutStrategy};
 pub struct RepartitionWriterOptions {
     /// The minimum uncompressed size in bytes for a block.
     pub block_size_minimum: u64,
+    /// The maximum uncompressed size in bytes for a block (soft limit, respects block_len_multiple).
+    pub block_size_maximum: Option<u64>,
     /// The multiple of the number of rows in each block.
     pub block_len_multiple: usize,
 }
@@ -84,7 +86,7 @@ impl LayoutStrategy for RepartitionStrategy {
                     chunks.push_back(sliced);
                     offset = end;
 
-                    if chunks.have_enough() {
+                    if chunks.have_enough() || chunks.is_oversized() {
                         let output_chunks = chunks.collect_exact_blocks()?;
                         assert!(!output_chunks.is_empty());
                         let chunked =
@@ -146,10 +148,19 @@ impl ChunksBuffer {
             && self.row_count >= self.options.block_len_multiple
     }
 
+    fn is_oversized(&self) -> bool {
+        if let Some(max_size) = self.options.block_size_maximum {
+            self.nbytes > max_size && self.row_count >= self.options.block_len_multiple
+        } else {
+            false
+        }
+    }
+
     fn collect_exact_blocks(&mut self) -> VortexResult<Vec<ArrayRef>> {
         let nblocks = self.row_count / self.options.block_len_multiple;
         let mut res = Vec::with_capacity(self.data.len());
         let mut remaining = nblocks * self.options.block_len_multiple;
+
         while remaining > 0 {
             let chunk = self
                 .pop_front()
@@ -163,22 +174,85 @@ impl ChunksBuffer {
                 res.push(left);
                 remaining = 0;
             } else {
-                res.push(chunk);
-                remaining -= len;
+                // Check if this chunk is oversized and needs subdivision
+                if let Some(max_size) = self.options.block_size_maximum {
+                    let chunk_size = chunk.to_canonical().compacted_size();
+                    if chunk_size > max_size && len >= self.options.block_len_multiple {
+                        // Use size-aware subdivision that respects zone boundaries
+                        let subdivided = self.subdivide_chunk_size_aware(chunk, max_size)?;
+                        for subchunk in subdivided {
+                            let subchunk_len = subchunk.len();
+                            if subchunk_len <= remaining {
+                                res.push(subchunk);
+                                remaining -= subchunk_len;
+                            } else {
+                                // This subchunk is too big for the remaining space
+                                let left = subchunk.slice(0..remaining);
+                                let right = subchunk.slice(remaining..subchunk_len);
+                                self.push_front(right);
+                                res.push(left);
+                                remaining = 0;
+                                break;
+                            }
+                        }
+                    } else {
+                        res.push(chunk);
+                        remaining -= len;
+                    }
+                } else {
+                    res.push(chunk);
+                    remaining -= len;
+                }
             }
         }
         Ok(res)
     }
 
+    /// Subdivide a chunk that exceeds the maximum size using size-aware row selection
+    /// while maintaining zone boundary alignment
+    fn subdivide_chunk_size_aware(
+        &self,
+        chunk: ArrayRef,
+        max_size: u64,
+    ) -> VortexResult<Vec<ArrayRef>> {
+        let mut result = Vec::new();
+        let mut offset = 0;
+        let chunk_len = chunk.len();
+
+        while offset < chunk_len {
+            let remaining_chunk = chunk.slice(offset..chunk_len);
+            let canonical_chunk = remaining_chunk.to_canonical();
+
+            let rows_that_fit =
+                canonical_chunk.rows_for_target_size(max_size, self.options.block_len_multiple);
+
+            if rows_that_fit == 0 {
+                // No rows fit, but we need to make progress to avoid infinite loop
+                // Take at least one zone boundary worth of rows
+                let min_rows = self.options.block_len_multiple.min(chunk_len - offset);
+                let subchunk = chunk.slice(offset..offset + min_rows);
+                result.push(subchunk);
+                offset += min_rows;
+            } else {
+                let end = (offset + rows_that_fit).min(chunk_len);
+                let subchunk = chunk.slice(offset..end);
+                result.push(subchunk);
+                offset = end;
+            }
+        }
+
+        Ok(result)
+    }
+
     fn push_back(&mut self, chunk: ArrayRef) {
         self.row_count += chunk.len();
-        self.nbytes += chunk.nbytes();
+        self.nbytes += chunk.to_canonical().compacted_size();
         self.data.push_back(chunk);
     }
 
     fn push_front(&mut self, chunk: ArrayRef) {
         self.row_count += chunk.len();
-        self.nbytes += chunk.nbytes();
+        self.nbytes += chunk.to_canonical().compacted_size();
         self.data.push_front(chunk);
     }
 
@@ -186,7 +260,7 @@ impl ChunksBuffer {
         let res = self.data.pop_front();
         if let Some(chunk) = res.as_ref() {
             self.row_count -= chunk.len();
-            self.nbytes -= chunk.nbytes();
+            self.nbytes -= chunk.to_canonical().compacted_size();
         }
         res
     }

@@ -313,6 +313,81 @@ impl ListArray {
 
         Self::try_new(elements, adjusted_offsets, self.validity.clone())
     }
+
+    /// Calculate the size this array would have after offset reset, without performing the actual
+    /// reset operation.
+    ///
+    /// This returns the size of the sliced elements plus the size of the adjusted offsets array
+    /// plus validity, which matches what `reset_offsets()` would produce but without creating
+    /// new arrays.
+    pub fn compacted_size(&self) -> u64 {
+        let elements_size = self.sliced_elements().nbytes();
+        let offsets_size = self.offsets().nbytes();
+        let validity_size = match &self.validity {
+            Validity::Array(validity_array) => validity_array.nbytes(),
+            _ => 0,
+        };
+
+        elements_size + offsets_size + validity_size
+    }
+
+    /// Find the number of rows that would fit within the target size after compaction.
+    ///
+    /// For list arrays, this estimates the size by examining offset differences and
+    /// respecting zone boundaries.
+    pub fn rows_for_target_size(&self, target_size: u64, zone_size: usize) -> usize {
+        if self.is_empty() || target_size == 0 {
+            return 0;
+        }
+
+        // Rough estimates for per-row overhead
+        let offset_size_per_row = 8u64; // Assuming 64-bit offsets
+        let validity_size_per_row = match &self.validity {
+            Validity::Array(_) => 1, // Rough estimate
+            _ => 0,
+        };
+
+        let mut current_size = 0u64;
+        let mut rows = 0;
+        let max_rows = self.len();
+
+        for row_idx in 0..max_rows {
+            let start_offset = self.offset_at(row_idx);
+            let end_offset = self.offset_at(row_idx + 1);
+            let element_count = end_offset - start_offset;
+
+            // Estimate the size of elements for this list entry
+            // This is a rough estimate since we don't recurse into the elements
+            let elements_size_estimate = if !self.elements().is_empty() {
+                let avg_element_size = self.elements().nbytes() / self.elements().len() as u64;
+                element_count as u64 * avg_element_size
+            } else {
+                0
+            };
+
+            let row_size = offset_size_per_row + validity_size_per_row + elements_size_estimate;
+
+            // Check if adding this row would exceed the target
+            if current_size + row_size > target_size && rows > 0 {
+                break;
+            }
+
+            current_size += row_size;
+            rows += 1;
+
+            // Check zone boundary
+            if rows % zone_size == 0 && current_size > 0 {
+                // We're at a zone boundary, check if the next zone would fit roughly
+                if current_size + (zone_size as u64 * (offset_size_per_row + validity_size_per_row)) > target_size {
+                    break;
+                }
+            }
+        }
+
+        // Snap down to the nearest zone boundary
+        let zones = rows / zone_size;
+        zones * zone_size
+    }
 }
 
 impl ArrayVTable<ListVTable> for ListVTable {

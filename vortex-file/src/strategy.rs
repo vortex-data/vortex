@@ -68,6 +68,7 @@ impl WriteStrategyBuilder {
             compressing,
             RepartitionWriterOptions {
                 block_size_minimum: ONE_MEG,
+                block_size_maximum: Some(8 * ONE_MEG),
                 block_len_multiple: ROW_BLOCK_SIZE,
             },
         );
@@ -101,8 +102,9 @@ impl WriteStrategyBuilder {
         let repartition = RepartitionStrategy::new(
             stats,
             RepartitionWriterOptions {
-                // No minimum block size in bytes
+                // No block size limits in bytes
                 block_size_minimum: 0,
+                block_size_maximum: None,
                 // Always repartition into 8K row blocks
                 block_len_multiple: ROW_BLOCK_SIZE,
             },

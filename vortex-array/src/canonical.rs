@@ -107,6 +107,38 @@ impl Canonical {
             _ => Ok(self.clone()),
         }
     }
+
+    pub fn compacted_size(&self) -> u64 {
+        match self {
+            Canonical::VarBinView(array) => array.compacted_size(),
+            Canonical::List(array) => array.compacted_size(),
+            _ => self.as_ref().nbytes(),
+        }
+    }
+
+    pub fn rows_for_target_size(&self, target_size: u64, zone_size: usize) -> usize {
+        match self {
+            Canonical::VarBinView(array) => array.rows_for_target_size(target_size, zone_size),
+            Canonical::List(array) => array.rows_for_target_size(target_size, zone_size),
+            _ => {
+                let total_size = self.as_ref().nbytes();
+                let total_rows = self.as_ref().len();
+                if total_rows == 0 || total_size == 0 {
+                    return 0;
+                }
+                let avg_size_per_row = total_size / total_rows as u64;
+                let estimated_rows = if avg_size_per_row > 0 {
+                    usize::try_from(target_size / avg_size_per_row).unwrap_or(total_rows)
+                } else {
+                    total_rows
+                };
+
+                // TODO(os): don't take zone_size here
+                let max_zones = estimated_rows / zone_size;
+                (max_zones * zone_size).min(total_rows)
+            }
+        }
+    }
 }
 
 // Unwrap canonical type back down to specialized type.

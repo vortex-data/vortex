@@ -4,6 +4,8 @@
 //! Defines a compaction operation for VarBinViewArrays that evicts unused buffers so they can
 //! be dropped.
 
+use std::mem::size_of;
+
 use vortex_error::VortexResult;
 
 use crate::arrays::VarBinViewArray;
@@ -76,6 +78,93 @@ impl VarBinViewArray {
                 })
                 .sum(),
         }
+    }
+
+    /// Calculate the size this array would have after compaction, without performing the actual
+    /// compaction operation.
+    ///
+    /// This returns the size of the views buffer plus the total size of all actually referenced
+    /// string data (both inlined and outlined), which matches what `compact_buffers()` would
+    /// produce but without the expensive memory allocation and copying.
+    pub fn compacted_size(&self) -> u64 {
+        let views_size = self.views().len() as u64 * size_of::<super::BinaryView>() as u64;
+        let validity_size = match &self.validity() {
+            Validity::Array(validity_array) => validity_array.nbytes(),
+            _ => 0,
+        };
+
+        // Count all string data (both inlined and referenced)
+        let string_data_size = match self.validity() {
+            Validity::AllInvalid => 0u64,
+            _ => self
+                .views()
+                .iter()
+                .enumerate()
+                .map(|(idx, &view)| {
+                    if !self.is_valid(idx) {
+                        0u64
+                    } else {
+                        view.len() as u64
+                    }
+                })
+                .sum(),
+        };
+
+        views_size + validity_size + string_data_size
+    }
+
+    /// Find the number of rows that would fit within the target size after compaction.
+    ///
+    /// This iterates through the views and accumulates the actual string data sizes until
+    /// reaching the target size, while respecting zone boundaries.
+    pub fn rows_for_target_size(&self, target_size: u64, zone_size: usize) -> usize {
+        if self.is_empty() || target_size == 0 {
+            return 0;
+        }
+
+        let view_size_per_row = size_of::<super::BinaryView>() as u64;
+        let validity_size_per_row = match &self.validity() {
+            Validity::Array(_) => 1, // Rough estimate, validity is typically 1 bit per row
+            _ => 0,
+        };
+
+        let mut current_size = 0u64;
+        let mut rows = 0;
+        let max_rows = self.len();
+
+        for (idx, &view) in self.views().iter().enumerate() {
+            if idx >= max_rows {
+                break;
+            }
+
+            // Calculate size for this row
+            let row_size = view_size_per_row + validity_size_per_row + if self.is_valid(idx) {
+                view.len() as u64
+            } else {
+                0
+            };
+
+            // Check if adding this row would exceed the target
+            if current_size + row_size > target_size && rows > 0 {
+                break;
+            }
+
+            current_size += row_size;
+            rows += 1;
+
+            // Check zone boundary - if we're at a zone boundary and have some data, consider stopping
+            if rows % zone_size == 0 && current_size > 0 {
+                // We're at a zone boundary, check if the next zone would fit
+                if current_size + (zone_size as u64 * (view_size_per_row + validity_size_per_row)) > target_size {
+                    // Next zone likely won't fit, stop here
+                    break;
+                }
+            }
+        }
+
+        // Snap down to the nearest zone boundary if we're not already at one
+        let zones = rows / zone_size;
+        zones * zone_size
     }
 }
 
