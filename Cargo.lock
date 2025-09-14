@@ -6549,6 +6549,7 @@ dependencies = [
 name = "vortex-datetime-parts"
 version = "0.1.0"
 dependencies = [
+ "num-traits",
  "prost 0.14.1",
  "rstest",
  "vortex-array",

@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::AsPrimitive;
 use vortex_array::arrays::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::cast;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::{Canonical, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
-use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{DType, PType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, vortex_panic};
-use vortex_scalar::PrimitiveScalar;
 
 use crate::{DateTimePartsArray, DateTimePartsVTable};
 
@@ -57,49 +56,40 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> TemporalArray {
         .map_each(|d| d * 86_400 * divisor);
 
     if let Some(seconds) = array.seconds().as_constant() {
-        let seconds = PrimitiveScalar::try_from(
-            &seconds
-                .cast(&DType::Primitive(PType::I64, NonNullable))
-                .vortex_expect("must cast to i64"),
-        )
-        .vortex_expect("must be a primitive")
-        .typed_value::<i64>()
-        .vortex_expect("non-nullable");
+        let seconds = seconds
+            .as_primitive()
+            .as_::<i64>()
+            .vortex_expect("non-nullable");
         let seconds = seconds * divisor;
         for v in values.iter_mut() {
             *v += seconds;
         }
     } else {
-        let seconds_buf = cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))
-            .vortex_expect("must cast to u32")
-            .to_primitive();
-        for (v, second) in values.iter_mut().zip(seconds_buf.as_slice::<u32>()) {
-            *v += (*second as i64) * divisor;
-        }
+        let seconds_buf = array.seconds().to_primitive();
+        match_each_integer_ptype!(seconds_buf.ptype(), |S| {
+            for (v, second) in values.iter_mut().zip(seconds_buf.as_slice::<S>()) {
+                let second: i64 = second.as_();
+                *v += second * divisor;
+            }
+        });
     }
 
     if let Some(subseconds) = array.subseconds().as_constant() {
-        let subseconds = PrimitiveScalar::try_from(
-            &subseconds
-                .cast(&DType::Primitive(PType::I64, NonNullable))
-                .vortex_expect("must cast to i64"),
-        )
-        .vortex_expect("must be a primitive")
-        .typed_value::<i64>()
-        .vortex_expect("non-nullable");
+        let subseconds = subseconds
+            .as_primitive()
+            .as_::<i64>()
+            .vortex_expect("non-nullable");
         for v in values.iter_mut() {
             *v += subseconds;
         }
     } else {
-        let subsecond_buf = cast(
-            array.subseconds(),
-            &DType::Primitive(PType::I64, NonNullable),
-        )
-        .vortex_expect("must cast to i64")
-        .to_primitive();
-        for (v, subseconds) in values.iter_mut().zip(subsecond_buf.as_slice::<i64>()) {
-            *v += *subseconds;
-        }
+        let subseconds_buf = array.subseconds().to_primitive();
+        match_each_integer_ptype!(subseconds_buf.ptype(), |S| {
+            for (v, subseconds) in values.iter_mut().zip(subseconds_buf.as_slice::<S>()) {
+                let subseconds: i64 = subseconds.as_();
+                *v += subseconds;
+            }
+        });
     }
 
     TemporalArray::new_timestamp(
@@ -127,13 +117,16 @@ mod test {
     #[case(Validity::NonNullable)]
     #[case(Validity::AllValid)]
     #[case(Validity::AllInvalid)]
-    #[case(Validity::from_iter([true, false, true]))]
+    #[case(Validity::from_iter([true, true, false, false, true, true]))]
     fn test_decode_to_temporal(#[case] validity: Validity) {
         let milliseconds = PrimitiveArray::new(
             buffer![
-                86_400i64,            // element with only day component
-                86_400i64 + 1000,     // element with day + second components
+                86_400i64, // element with only day component
+                -86_400i64,
+                86_400i64 + 1000, // element with day + second components
+                -86_400i64 - 1000,
                 86_400i64 + 1000 + 1, // element with day + second + sub-second components
+                -86_400i64 - 1000 - 1
             ],
             validity.clone(),
         );
