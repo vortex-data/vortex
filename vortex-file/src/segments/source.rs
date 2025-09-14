@@ -27,15 +27,13 @@ impl SegmentSource for FileSegmentSource {
         // We eagerly create the read future here assuming the behaviour of [`FileRead`], where
         // coalescing becomes effective prior to the future being polled.
         let maybe_fut = self.segments.get(*id as usize).cloned().map(|spec| {
-            let read = self.read.clone();
-            async move {
-                read.read_byte_range(
+            self.read
+                .clone()
+                .read_byte_range(
                     spec.offset..spec.offset + spec.length as u64,
                     spec.alignment,
                 )
                 .map_err(VortexError::from)
-                .await
-            }
         });
 
         async move {

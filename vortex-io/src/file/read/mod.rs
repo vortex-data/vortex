@@ -169,16 +169,16 @@ impl Drop for ReadFuture {
 
 #[async_trait]
 impl VortexReadAt for FileRead {
-    async fn read_byte_range(
+    fn read_byte_range(
         &self,
         range: Range<u64>,
         alignment: Alignment,
-    ) -> std::io::Result<ByteBuffer> {
+    ) -> BoxFuture<'static, std::io::Result<ByteBuffer>> {
         let length = usize::try_from(range.end - range.start)
             .vortex_expect("Read range too large for usize");
         self.read(range.start, length, alignment)
-            .await
             .map_err(|e| std::io::Error::other(format!("Vortex read error: {e}")))
+            .boxed()
     }
 
     async fn size(&self) -> std::io::Result<u64> {

@@ -12,15 +12,16 @@ use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::file::read::{CoalesceWindow, IntoReadSource, ReadSource, ReadSourceRef};
 use crate::file::IoRequest;
+use crate::file::read::{CoalesceWindow, IntoReadSource, ReadSource, ReadSourceRef};
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
+    // TODO(ngates): these numbers don't make sense if we're using spawn_blocking..
     distance: 8 * 1024, // KB
     max_size: 8 * 1024, // KB
 };
-const CONCURRENCY: usize = 8;
+const CONCURRENCY: usize = 16;
 
 impl IntoReadSource for PathBuf {
     fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
@@ -71,26 +72,23 @@ impl ReadSource for FileIoSource {
         requests: BoxStream<'static, IoRequest>,
     ) -> BoxFuture<'static, ()> {
         requests
-            .map(move |req| {
+            // Amortize the cost of spawn_blocking by batching available requests.
+            // Too much batching, and we reduce concurrency.
+            .ready_chunks(16)
+            .map(move |reqs| {
                 let file = self.file.clone();
-                let handle = self.handle.clone();
-                async move {
-                    let offset = req.offset();
-                    let len = req.len();
-                    let alignment = req.alignment();
-
-                    let result = handle
-                        .spawn_blocking(move || {
-                            let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-                            unsafe { buffer.set_len(len) };
-                            match file.read_exact_at(&mut buffer, offset) {
-                                Ok(()) => Ok(buffer.freeze()),
-                                Err(e) => Err(VortexError::from(e)),
-                            }
+                self.handle.spawn_blocking(move || {
+                    for req in reqs {
+                        let len = req.len();
+                        let offset = req.offset();
+                        let mut buffer = ByteBufferMut::with_capacity_aligned(len, req.alignment());
+                        unsafe { buffer.set_len(len) };
+                        req.resolve(match file.read_exact_at(&mut buffer, offset) {
+                            Ok(()) => Ok(buffer.freeze()),
+                            Err(e) => Err(VortexError::from(e)),
                         })
-                        .await;
-                    req.resolve(result);
-                }
+                    }
+                })
             })
             .buffer_unordered(CONCURRENCY)
             .collect::<()>()

@@ -182,12 +182,12 @@ impl VortexOpenOptions {
     ///
     /// This is a low-level API and we strongly recommend using [`VortexOpenOptions::open`].
     pub async fn open_read_at<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile> {
-        let read = Arc::new(InstrumentedReadAt::new(read, &self.metrics));
+        let read = Arc::new(InstrumentedReadAt::new(Arc::new(read), &self.metrics));
 
         let footer = if let Some(footer) = self.footer {
             footer
         } else {
-            self.read_footer(&read).await?
+            self.read_footer(read.clone()).await?
         };
 
         let segment_cache = Arc::new(SegmentCacheMetrics::new(
@@ -214,7 +214,7 @@ impl VortexOpenOptions {
         })
     }
 
-    async fn read_footer(&self, read: &dyn VortexReadAt) -> VortexResult<Footer> {
+    async fn read_footer(&self, read: Arc<dyn VortexReadAt>) -> VortexResult<Footer> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
             None => read.size().await?,
@@ -227,6 +227,7 @@ impl VortexOpenOptions {
             .min(file_size);
         let initial_offset = file_size - initial_read_size;
         let initial_read: ByteBuffer = read
+            .clone()
             .read_byte_range(initial_offset..file_size, Alignment::none())
             .await?;
 
@@ -240,6 +241,7 @@ impl VortexOpenOptions {
             match deserializer.deserialize()? {
                 DeserializeStep::NeedMoreData { offset, len } => {
                     let more_data = read
+                        .clone()
                         .read_byte_range(offset..offset + (len as u64), Alignment::none())
                         .await?;
                     deserializer.prefix_data(more_data);

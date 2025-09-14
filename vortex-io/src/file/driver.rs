@@ -105,7 +105,7 @@ struct State {
 
 impl State {
     fn on_event(&mut self, event: ReadEvent) {
-        log::trace!("Received ReadEvent: {:?}", event);
+        log::debug!("Received ReadEvent: {:?}", event);
         match event {
             ReadEvent::Request(req) => {
                 self.requests_by_offset.insert((req.offset, req.id));
@@ -119,11 +119,11 @@ impl State {
             ReadEvent::Dropped(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
-                    log::trace!("ReadRequest dropped before poll: {:?}", req);
+                    log::debug!("ReadRequest dropped before poll: {:?}", req);
                 }
                 if let Some(req) = self.polled_requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
-                    log::trace!("ReadRequest dropped after poll: {:?}", req);
+                    log::debug!("ReadRequest dropped after poll: {:?}", req);
                 }
             }
         }
@@ -142,7 +142,7 @@ impl State {
         while let Some((req_id, req)) = self.polled_requests.pop_first() {
             self.requests_by_offset.remove(&(req.offset, req_id));
             if req.callback.is_closed() {
-                log::trace!("Dropping canceled request");
+                log::debug!("Dropping canceled request");
                 continue;
             }
             return Some(req);

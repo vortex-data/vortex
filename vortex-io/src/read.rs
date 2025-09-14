@@ -6,6 +6,8 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::FutureExt;
+use handle::BoxFuture;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, vortex_err};
 use vortex_metrics::{Histogram, Timer, VortexMetrics};
@@ -30,15 +32,23 @@ pub trait VortexReadAt: 'static + Send + Sync {
     /// If the reader does not have the requested number of bytes, the returned Future will complete
     /// with an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof].
     ///
-    /// ## Thread Safety
+    /// This function returns a future with a `'static` lifetime. This allows us to define the
+    /// following semantics:
     ///
-    /// The resultant Future need not be [`Send`], allowing implementations that use thread-per-core
-    /// executors.
-    async fn read_byte_range(
+    /// * The creation of the future hints to the implementation that a read _may_ be required.
+    /// * Polling of the future indicates that the read _is now_ required.
+    /// * Dropping the future indicates that the read is no longer required, and may be cancelled.
+    ///
+    /// Implementations may choose to ignore these semantics, but they allow optimizations such as
+    /// coalescing and cancellation. See [`crate::file::FileRead`] for an example of such an
+    /// implementation.
+    ///
+    // TODO(ngates): split range into (offset, length), and change to return VortexResult.
+    fn read_byte_range(
         &self,
         range: Range<u64>,
         alignment: Alignment,
-    ) -> io::Result<ByteBuffer>;
+    ) -> BoxFuture<'static, io::Result<ByteBuffer>>;
 
     // TODO(ngates): the read implementation should be able to hint at its latency/throughput
     //  allowing the caller to make better decisions about how to coalesce reads.
@@ -92,40 +102,27 @@ impl PerformanceHint {
 }
 
 #[async_trait]
-impl<T: VortexReadAt> VortexReadAt for Arc<T> {
-    async fn read_byte_range(
-        &self,
-        range: Range<u64>,
-        alignment: Alignment,
-    ) -> io::Result<ByteBuffer> {
-        T::read_byte_range(self, range, alignment).await
-    }
-
-    fn performance_hint(&self) -> PerformanceHint {
-        T::performance_hint(self)
-    }
-
-    async fn size(&self) -> io::Result<u64> {
-        T::size(self).await
-    }
-}
-
-#[async_trait]
 impl VortexReadAt for ByteBuffer {
-    async fn read_byte_range(
+    fn read_byte_range(
         &self,
         range: Range<u64>,
         alignment: Alignment,
-    ) -> io::Result<ByteBuffer> {
+    ) -> BoxFuture<'static, io::Result<ByteBuffer>> {
         let start = usize::try_from(range.start).vortex_expect("start too big for usize");
         let end = usize::try_from(range.end).vortex_expect("end too big for usize");
-        if end > self.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                vortex_err!("unexpected eof"),
-            ));
+        let len = self.len();
+        let buffer = self.clone();
+
+        async move {
+            if end > len {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    vortex_err!("unexpected eof"),
+                ));
+            }
+            Ok(buffer.slice_unaligned(start..end).aligned(alignment))
         }
-        Ok(self.clone().slice_unaligned(start..end).aligned(alignment))
+        .boxed()
     }
 
     fn performance_hint(&self) -> PerformanceHint {
@@ -139,13 +136,13 @@ impl VortexReadAt for ByteBuffer {
 
 #[derive(Clone)]
 pub struct InstrumentedReadAt<T: VortexReadAt> {
-    read: T,
+    read: Arc<T>,
     sizes: Arc<Histogram>,
     durations: Arc<Timer>,
 }
 
 impl<T: VortexReadAt> InstrumentedReadAt<T> {
-    pub fn new(read: T, metrics: &VortexMetrics) -> Self {
+    pub fn new(read: Arc<T>, metrics: &VortexMetrics) -> Self {
         Self {
             read,
             sizes: metrics.histogram("vortex.io.read.size"),
@@ -156,25 +153,32 @@ impl<T: VortexReadAt> InstrumentedReadAt<T> {
 
 #[async_trait]
 impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
-    async fn read_byte_range(
+    fn read_byte_range(
         &self,
         range: Range<u64>,
         alignment: Alignment,
-    ) -> io::Result<ByteBuffer> {
-        let _timer = self.durations.time();
-        let size = range.end - range.start;
-        let buf = self.read.read_byte_range(range, alignment).await;
-        let _ = size.try_into().map(|size| self.sizes.update(size));
-        buf
+    ) -> BoxFuture<'static, io::Result<ByteBuffer>> {
+        // Create the future early to preserve the semantics of read_byte_range.
+        let fut = self.read.read_byte_range(range.clone(), alignment);
+        let durations = self.durations.clone();
+        let sizes = self.sizes.clone();
+        async move {
+            let _timer = durations.time();
+            let size = range.end - range.start;
+            let buf = fut.await;
+            let _ = size.try_into().map(|size| sizes.update(size));
+            buf
+        }
+        .boxed()
+    }
+
+    fn performance_hint(&self) -> PerformanceHint {
+        self.read.performance_hint()
     }
 
     #[inline]
     async fn size(&self) -> io::Result<u64> {
         self.read.size().await
-    }
-
-    fn performance_hint(&self) -> PerformanceHint {
-        self.read.performance_hint()
     }
 }
 
