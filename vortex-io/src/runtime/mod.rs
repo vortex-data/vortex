@@ -17,13 +17,12 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 
 use crate::file::IoRequest;
+use crate::file::ReadSourceRef;
 
 mod blocking;
 pub use blocking::*;
 mod handle;
 pub use handle::*;
-
-use crate::file::ReadSourceRef;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod current;
