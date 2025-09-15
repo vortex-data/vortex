@@ -8,11 +8,12 @@ use std::sync::{Arc, atomic};
 use std::task::{Context, Poll};
 
 use futures::channel::{mpsc, oneshot};
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt, TryFutureExt};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_err};
+use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex_utils::aliases::dash_map::{DashMap, Entry};
 
 use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
 
@@ -21,6 +22,7 @@ use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
 /// Also performs de-duplication of requests for the same segment, while tracking when the all
 /// requesters have been dropped.
 pub struct SegmentEvents {
+    pending: DashMap<SegmentId, PendingSegment>,
     events: mpsc::UnboundedSender<SegmentEvent>,
 }
 
@@ -28,7 +30,10 @@ impl SegmentEvents {
     pub fn create() -> (Arc<dyn SegmentSource>, BoxStream<'static, SegmentEvent>) {
         let (send, recv) = mpsc::unbounded();
 
-        let events = Arc::new(Self { events: send });
+        let events = Arc::new(Self {
+            pending: Default::default(),
+            events: send,
+        });
 
         let source = Arc::new(EventsSegmentSource { events });
         let stream = recv.boxed();
@@ -84,9 +89,33 @@ impl SegmentRequest {
 }
 
 impl SegmentEvents {
-    /// Create a segment future for the given segment ID.
-    fn segment_future(self: Arc<Self>, id: SegmentId) -> SegmentEventsFuture {
-        SegmentEventsFuture::new(id, self)
+    /// Get or create a segment future for the given segment ID.
+    fn segment_future(self: Arc<Self>, id: SegmentId) -> Shared<SegmentEventsFuture> {
+        loop {
+            // Loop in case the pending future has no strong references, in which case we clear it
+            // out of the map and create a new one on the next iteration.
+            match self.pending.entry(id) {
+                Entry::Occupied(e) => {
+                    if let Some(fut) = e.get().future() {
+                        return fut;
+                    } else {
+                        log::debug!("Re-requesting dropped segment from segment reader {id}");
+                        e.remove();
+                    }
+                }
+                Entry::Vacant(e) => {
+                    let fut = SegmentEventsFuture::new(id, self.clone()).shared();
+                    // Create a new pending segment with a weak reference to the future.
+                    e.insert(PendingSegment {
+                        id,
+                        fut: fut
+                            .downgrade()
+                            .vortex_expect("cannot fail, only just created"),
+                    });
+                    return fut;
+                }
+            }
+        }
     }
 
     /// Submit a segment event.
@@ -108,6 +137,30 @@ impl SegmentSource for EventsSegmentSource {
             .segment_future(id)
             .map_err(VortexError::from)
             .boxed()
+    }
+}
+
+/// A pending segment returned by the [`SegmentSource`].
+struct PendingSegment {
+    id: SegmentId,
+    /// A weak shared future that we hand out to all requesters. Once all requesters have been
+    /// dropped, typically because their row split has completed (or been pruned), then the weak
+    /// future is no longer upgradable, and the segment can be dropped.
+    fut: WeakShared<SegmentEventsFuture>,
+}
+
+impl Debug for PendingSegment {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingSegment")
+            .field("id", &self.id)
+            .finish()
+    }
+}
+
+impl PendingSegment {
+    /// Create a new future resolving this segment, provided the segment is still alive.
+    fn future(&self) -> Option<Shared<SegmentEventsFuture>> {
+        self.fut.upgrade()
     }
 }
 
