@@ -42,6 +42,7 @@ datafusion = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
+walkdir = { workspace = true }
 
 [lints]
 workspace = true
