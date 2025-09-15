@@ -8,12 +8,12 @@ use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
-use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::{FutureExt, TryFutureExt};
 use tokio::io::AsyncWriteExt;
 use tokio::task::spawn_blocking;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 
@@ -67,6 +67,7 @@ impl VortexReadAt for TokioFile {
                 this.read_exact_at(&mut buffer, offset)?;
                 Ok(buffer.freeze())
             })
+            .map_err(|e| vortex_err!("Join error: {}", e))
             .await?
         }
         .boxed()

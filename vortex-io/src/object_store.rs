@@ -8,7 +8,7 @@ use std::sync::Arc;
 use bytes::BytesMut;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
-use futures::{StreamExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use object_store::path::Path;
 use object_store::{
     GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, ObjectStoreScheme,
@@ -16,7 +16,7 @@ use object_store::{
 };
 use smol::future::FutureExt;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 
@@ -79,6 +79,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                             file.read_exact_at(&mut buffer, offset)?;
                             Ok::<_, VortexError>(buffer)
                         })
+                        .map_err(|e| vortex_err!("Join error: {}", e))
                         .await??
                     }
                     #[cfg(not(feature = "tokio"))]
