@@ -12,8 +12,8 @@ use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::file::IoRequest;
 use crate::file::read::{CoalesceWindow, IntoReadSource, ReadSource, ReadSourceRef};
+use crate::file::IoRequest;
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
@@ -21,7 +21,7 @@ const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
     distance: 8 * 1024, // KB
     max_size: 8 * 1024, // KB
 };
-const CONCURRENCY: usize = 16;
+const CONCURRENCY: usize = 32;
 
 impl IntoReadSource for PathBuf {
     fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
@@ -74,7 +74,7 @@ impl ReadSource for FileIoSource {
         requests
             // Amortize the cost of spawn_blocking by batching available requests.
             // Too much batching, and we reduce concurrency.
-            .ready_chunks(16)
+            .ready_chunks(1)
             .map(move |reqs| {
                 let file = self.file.clone();
                 self.handle.spawn_blocking(move || {

@@ -8,17 +8,18 @@ use std::fmt;
 use std::fmt::{Debug, Display};
 use std::ops::Range;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::task::{Context, Poll, ready};
+use std::sync::Arc;
+use std::task::{ready, Context, Poll};
 
 use async_trait::async_trait;
+use futures::channel::mpsc;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 pub use request::*;
 pub use source::*;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, SharedVortexResult, VortexExpect, VortexResult};
 
 use crate::VortexReadAt;
 
@@ -51,7 +52,7 @@ pub struct FileRead {
     /// A shared future that resolves to the size of the file.
     size: Shared<BoxFuture<'static, SharedVortexResult<u64>>>,
     /// A queue for sending read request events to the I/O stream.
-    events: kanal::Sender<ReadEvent>,
+    events: mpsc::UnboundedSender<ReadEvent>,
     /// The next read request ID.
     next_id: Arc<AtomicUsize>,
 }
@@ -74,7 +75,7 @@ impl FileRead {
     pub(crate) fn new(
         uri: Arc<str>,
         size: BoxFuture<'static, VortexResult<u64>>,
-        send: kanal::Sender<ReadEvent>,
+        send: mpsc::UnboundedSender<ReadEvent>,
     ) -> Self {
         Self {
             uri,
@@ -102,7 +103,7 @@ impl FileRead {
         });
 
         // If we fail to submit the event, we create a ReadFuture that has already failed.
-        if let Err(e) = self.events.send(event) {
+        if let Err(e) = self.events.unbounded_send(event) {
             let (send, recv) = oneshot::channel();
             let _ = send.send(Err(vortex_err!("Failed to submit read request: {e}")));
             return ReadFuture {
@@ -137,7 +138,7 @@ pub struct ReadFuture {
     id: usize,
     recv: oneshot::Receiver<VortexResult<ByteBuffer>>,
     polled: bool,
-    events: kanal::Sender<ReadEvent>,
+    events: mpsc::UnboundedSender<ReadEvent>,
 }
 
 impl Future for ReadFuture {
@@ -147,7 +148,7 @@ impl Future for ReadFuture {
         if !self.polled {
             self.polled = true;
             // Notify the I/O stream that this request has been polled.
-            if let Err(e) = self.events.send(ReadEvent::Polled(self.id)) {
+            if let Err(e) = self.events.unbounded_send(ReadEvent::Polled(self.id)) {
                 return Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}")));
             }
         }
@@ -163,7 +164,7 @@ impl Drop for ReadFuture {
     fn drop(&mut self) {
         // When the FileHandle is dropped, we can send a shutdown event to the I/O stream.
         // If the I/O stream has already been dropped, this will fail silently.
-        let _ = self.events.send(ReadEvent::Dropped(self.id));
+        let _ = self.events.unbounded_send(ReadEvent::Dropped(self.id));
     }
 }
 

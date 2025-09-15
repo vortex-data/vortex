@@ -235,7 +235,7 @@ impl State {
         requests.sort_unstable_by_key(|r| r.offset);
 
         log::debug!(
-            "Coalesced {} requests into range {}-{} (len={})",
+            "Coalesced {} requests into range {}..{} (len={})",
             requests.len(),
             current_start,
             current_end,
@@ -252,7 +252,7 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use futures::{StreamExt, stream};
+    use futures::{stream, StreamExt};
     use vortex_buffer::{Alignment, ByteBuffer};
     use vortex_error::VortexResult;
 
