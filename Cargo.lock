@@ -599,7 +599,7 @@ dependencies = [
  "bitflags",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -962,7 +962,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1592,8 +1592,7 @@ dependencies = [
 [[package]]
 name = "datafusion"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69dfeda1633bf8ec75b068d9f6c27cdc392ffcf5ff83128d5dbab65b73c1fd02"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "arrow-ipc",
@@ -1642,8 +1641,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2848fd1e85e2953116dab9cc2eb109214b0888d7bbd2230e30c07f1794f642c0"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1668,8 +1666,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog-listing"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "051a1634628c2d1296d4e326823e7536640d87a118966cdaff069b68821ad53b"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1691,8 +1688,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "765e4ad4ef7a4500e389a3f1e738791b71ff4c29fd00912c2f541d62b25da096"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "ahash",
  "arrow",
@@ -1715,8 +1711,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common-runtime"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40a2ae8393051ce25d232a6065c4558ab5a535c9637d5373bacfd464ac88ea12"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "futures",
  "log",
@@ -1726,8 +1721,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90cd841a77f378bc1a5c4a1c37345e1885a9203b008203f9f4b3a769729bf330"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1756,8 +1750,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-csv"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77f4a2c64939c6f0dd15b246723a699fa30d59d0133eb36a86e8ff8c6e2a8dc6"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1781,8 +1774,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-json"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11387aaf931b2993ad9273c63ddca33f05aef7d02df9b70fb757429b4b71cdae"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1806,8 +1798,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-parquet"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "028f430c5185120bf806347848b8d8acd9823f4038875b3820eeefa35f2bb4a2"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1838,14 +1829,12 @@ dependencies = [
 [[package]]
 name = "datafusion-doc"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ff336d1d755399753a9e4fbab001180e346fc8bfa063a97f1214b82274c00f8"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 
 [[package]]
 name = "datafusion-execution"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "042ea192757d1b2d7dcf71643e7ff33f6542c7704f00228d8b85b40003fd8e0f"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "dashmap",
@@ -1863,8 +1852,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "025222545d6d7fab71e2ae2b356526a1df67a2872222cbae7535e557a42abd2e"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1884,8 +1872,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr-common"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d5c267104849d5fa6d81cf5ba88f35ecd58727729c5eb84066c25227b644ae2"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -1897,8 +1884,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c620d105aa208fcee45c588765483314eb415f5571cfd6c1bae3a59c5b4d15bb"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "arrow-buffer",
@@ -1922,8 +1908,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35f61d5198a35ed368bf3aacac74f0d0fa33de7a7cb0c57e9f68ab1346d2f952"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "ahash",
  "arrow",
@@ -1943,8 +1928,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate-common"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13efdb17362be39b5024f6da0d977ffe49c0212929ec36eec550e07e2bc7812f"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "ahash",
  "arrow",
@@ -1955,9 +1939,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions-nested"
-version = "49.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27eb3b98a2eb02a8af4ef19cc793cac21fc98d8720b987f15d7d25b8cc875f4d"
+version = "49.0.2"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "arrow-ord",
@@ -1978,8 +1961,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-table"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ecf156589cc21ef59fe39c7a9a841b4a97394549643bbfa88cc44e8588cf8fe5"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1994,8 +1976,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edcb25e3e369f1366ec9a261456e45b5aad6ea1c0c8b4ce546587207c501ed9e"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -2012,8 +1993,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window-common"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8996a8e11174d0bd7c62dc2f316485affc6ae5ffd5b8a68b508137ace2310294"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "datafusion-common",
  "datafusion-physical-expr-common",
@@ -2022,8 +2002,7 @@ dependencies = [
 [[package]]
 name = "datafusion-macros"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95ee8d1be549eb7316f437035f2cec7ec42aba8374096d807c4de006a3b5d78a"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "datafusion-expr",
  "quote",
@@ -2033,8 +2012,7 @@ dependencies = [
 [[package]]
 name = "datafusion-optimizer"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9fa98671458254928af854e5f6c915e66b860a8bde505baea0ff2892deab74d"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "chrono",
@@ -2052,8 +2030,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3515d51531cca5f7b5a6f3ea22742b71bb36fc378b465df124ff9a2fa349b002"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "ahash",
  "arrow",
@@ -2074,8 +2051,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-common"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24485475d9c618a1d33b2a3dad003d946dc7a7bbf0354d125301abc0a5a79e3e"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "ahash",
  "arrow",
@@ -2088,8 +2064,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-optimizer"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9da411a0a64702f941a12af2b979434d14ec5d36c6f49296966b2c7639cbb3a"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -2107,8 +2082,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-plan"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6d168282bb7b54880bb3159f89b51c047db4287f5014d60c3ef4c6e1468212b"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "ahash",
  "arrow",
@@ -2136,9 +2110,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-pruning"
-version = "49.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "391a457b9d23744c53eeb89edd1027424cba100581488d89800ed841182df905"
+version = "49.0.2"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "arrow-schema",
@@ -2155,8 +2128,7 @@ dependencies = [
 [[package]]
 name = "datafusion-session"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "053201c2bb729c7938f85879034df2b5a52cfaba16f1b3b66ab8505c81b2aad3"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "async-trait",
@@ -2179,8 +2151,7 @@ dependencies = [
 [[package]]
 name = "datafusion-sql"
 version = "49.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9082779be8ce4882189b229c0cff4393bd0808282a7194130c9f32159f185e25"
+source = "git+https://github.com/polygon-io/arrow-datafusion?rev=faca92d#faca92de45a5b35e7101c043c90a26f3fce7ed86"
 dependencies = [
  "arrow",
  "bigdecimal",
@@ -2401,7 +2372,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3311,7 +3282,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4843,7 +4814,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5184,7 +5155,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5197,7 +5168,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5826,7 +5797,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.0.8",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7423,7 +7394,7 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0978bf7171b3d90bac376700cb56d606feb40f251a475a5d6634613564460b22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
