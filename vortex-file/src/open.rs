@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 use vortex_array::ArrayRegistry;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex_io::file::IntoReadSource;
 use vortex_io::runtime::Handle;
 use vortex_io::{InstrumentedReadAt, VortexReadAt};
@@ -22,9 +22,9 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
 use crate::segments::{FileSegmentSource, InitialReadSegmentCache};
-use crate::{DeserializeStep, VortexFile, DEFAULT_REGISTRY, EOF_SIZE, MAX_POSTSCRIPT_SIZE};
+use crate::{DEFAULT_REGISTRY, DeserializeStep, EOF_SIZE, MAX_POSTSCRIPT_SIZE, VortexFile};
 
-const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
+const INITIAL_READ_SIZE: usize = 1 << 20; // 1 MB
 
 /// Open options for a Vortex file reader.
 pub struct VortexOpenOptions {
@@ -33,7 +33,7 @@ pub struct VortexOpenOptions {
     /// Cache to use for file segments.
     segment_cache: Arc<dyn SegmentCache>,
     /// The number of bytes to read when parsing the footer.
-    initial_read_size: u64,
+    initial_read_size: usize,
     /// The registry of array encodings.
     registry: Arc<ArrayRegistry>,
     /// The registry of layouts.
@@ -78,7 +78,7 @@ impl VortexOpenOptions {
     }
 
     /// Configure the initial read size for the Vortex file.
-    pub fn with_initial_read_size(mut self, initial_read_size: u64) -> Self {
+    pub fn with_initial_read_size(mut self, initial_read_size: usize) -> Self {
         self.initial_read_size = initial_read_size;
         self
     }
@@ -223,12 +223,15 @@ impl VortexOpenOptions {
             None => read.size().await?,
             Some(file_size) => file_size,
         };
-        let initial_read_size = self
+        let mut initial_read_size = self
             .initial_read_size
             // Make sure we read enough to cover the postscript
-            .max(MAX_POSTSCRIPT_SIZE as u64 + EOF_SIZE as u64)
-            .min(file_size);
-        let initial_offset = file_size - initial_read_size;
+            .max(MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE);
+        if let Ok(file_size) = usize::try_from(file_size) {
+            initial_read_size = initial_read_size.min(file_size);
+        }
+
+        let initial_offset = file_size - initial_read_size as u64;
         let initial_read: ByteBuffer = read
             .clone()
             .read_at(initial_offset, initial_read_size, Alignment::none())
@@ -243,10 +246,7 @@ impl VortexOpenOptions {
         let footer = loop {
             match deserializer.deserialize()? {
                 DeserializeStep::NeedMoreData { offset, len } => {
-                    let more_data = read
-                        .clone()
-                        .read_at(offset..offset + (len as u64), Alignment::none())
-                        .await?;
+                    let more_data = read.clone().read_at(offset, len, Alignment::none()).await?;
                     deserializer.prefix_data(more_data);
                 }
                 DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),

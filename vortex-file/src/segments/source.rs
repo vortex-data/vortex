@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use futures::TryFutureExt;
-use vortex_error::{vortex_err, VortexError};
+use futures::{FutureExt, TryFutureExt};
+use vortex_error::{VortexError, vortex_err};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
@@ -28,10 +28,7 @@ impl SegmentSource for FileSegmentSource {
         let maybe_fut = self.segments.get(*id as usize).cloned().map(|spec| {
             self.read
                 .clone()
-                .read_byte_range(
-                    spec.offset..spec.offset + spec.length as u64,
-                    spec.alignment,
-                )
+                .read_at(spec.offset, spec.length as usize, spec.alignment)
                 .map_err(VortexError::from)
         });
 

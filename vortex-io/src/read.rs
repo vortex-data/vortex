@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use async_trait::async_trait;
-use futures::future::BoxFuture;
-use futures::FutureExt;
 use std::sync::Arc;
+
+use async_trait::async_trait;
+use futures::FutureExt;
+use futures::future::BoxFuture;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_metrics::{Histogram, Timer, VortexMetrics};
 
 /// The read trait used within Vortex.
