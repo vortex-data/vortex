@@ -13,7 +13,6 @@ use vortex_mask::Mask;
 use crate::{SequenceArray, SequenceVTable};
 
 impl TakeKernel for SequenceVTable {
-    #[allow(clippy::cast_possible_truncation)]
     fn take(&self, array: &SequenceArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let is_nullable = indices.dtype().is_nullable();
         let mask = indices.validity_mask();
