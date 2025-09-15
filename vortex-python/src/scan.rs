@@ -8,7 +8,7 @@ use vortex::{Array, ArrayRef};
 
 use crate::iter::PyArrayIterator;
 use crate::scalar::PyScalar;
-use crate::{install_module, RUNTIME};
+use crate::{RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "scan")?;

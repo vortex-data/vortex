@@ -6,22 +6,22 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::{cmp, iter};
 
-use futures::future::BoxFuture;
 use futures::Stream;
+use futures::future::BoxFuture;
 use itertools::Itertools;
 pub use selection::*;
 pub use split_by::*;
-use tasks::{split_exec, TaskContext};
+use tasks::{TaskContext, split_exec};
+use vortex_array::ArrayRef;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::ArrayRef;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed;
-use vortex_expr::{root, ExprRef};
+use vortex_expr::{ExprRef, root};
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
@@ -390,12 +390,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         row_range: Option<Range<u64>>,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         use futures::StreamExt;
-        // Multiply our per-thread concurrency by ~the number of available threads.
-        let concurrency = self.concurrency
-            * std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(1);
-
+        let concurrency = self.concurrency;
         let handle = self.handle.clone();
         Ok(futures::stream::iter(self.execute(row_range)?)
             .map(move |task| handle.spawn(task))
@@ -412,7 +407,7 @@ impl RepeatedScan<ArrayRef> {
     ) -> VortexResult<impl ArrayIterator + 'static> {
         let dtype = self.dtype.clone();
         let stream = self.execute_stream(row_range)?;
-        let iter = runtime.block_on_stream(move |h| stream);
+        let iter = runtime.block_on_stream(move |_h| stream);
         Ok(ArrayIteratorAdapter::new(dtype, iter))
     }
 

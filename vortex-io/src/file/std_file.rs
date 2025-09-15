@@ -16,9 +16,8 @@ use crate::file::{CoalesceWindow, IntoReadSource, IoRequest, ReadSource, ReadSou
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
-    // TODO(ngates): these numbers don't make sense if we're using spawn_blocking..
-    distance: 8 * 1024, // KB
-    max_size: 8 * 1024, // KB
+    distance: 256 * 1024,
+    max_size: 1024 * 1024,
 };
 const CONCURRENCY: usize = 32;
 

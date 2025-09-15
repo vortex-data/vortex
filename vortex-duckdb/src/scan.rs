@@ -1,6 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::max;
+use std::fmt;
+use std::fmt::{Debug, Formatter};
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::task::{Context, Poll};
+
+use async_compat::Compat;
+use futures::stream::{BoxStream, SelectAll};
+use futures::{FutureExt, Stream, StreamExt, stream};
+use itertools::Itertools;
+use num_traits::AsPrimitive;
+use url::Url;
+use vortex::dtype::FieldNames;
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
+use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::current::{CurrentThreadRuntime, ThreadSafeIterator};
+use vortex::{ArrayRef, ToCanonical};
+
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
@@ -10,27 +32,6 @@ use crate::duckdb::{
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
 use crate::utils::object_store::s3_store;
-use async_compat::Compat;
-use futures::stream::{BoxStream, SelectAll};
-use futures::FutureExt;
-use futures::{stream, Stream, StreamExt};
-use itertools::Itertools;
-use num_traits::AsPrimitive;
-use std::cmp::max;
-use std::fmt;
-use std::fmt::{Debug, Formatter};
-use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use url::Url;
-use vortex::dtype::FieldNames;
-use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex::expr::{and, and_collect, col, lit, root, select, ExprRef};
-use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::io::runtime::current::{CurrentThreadRuntime, ThreadSafeIterator};
-use vortex::io::runtime::BlockingRuntime;
-use vortex::{ArrayRef, ToCanonical};
 
 pub struct VortexBindData {
     first_file: VortexFile,
@@ -321,7 +322,7 @@ impl TableFunction for VortexTableFunction {
 
         let handle = bind_data.runtime.handle();
         let first_file = bind_data.first_file.clone();
-        let scan_streams = stream::iter(bind_data.file_urls.clone().into_iter())
+        let scan_streams = stream::iter(bind_data.file_urls.clone())
             .enumerate()
             .map(move |(idx, url)| {
                 let first_file = first_file.clone();
@@ -377,7 +378,7 @@ impl TableFunction for VortexTableFunction {
                     streams: scan_streams.boxed(),
                     streams_finished: false,
                     select_all: Default::default(),
-                    max_concurrency: num_workers * 2,
+                    max_concurrency: num_workers,
                 }),
             batch_id: AtomicU64::new(0),
         })

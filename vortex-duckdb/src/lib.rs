@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::missing_safety_doc)]
-use std::ffi::{c_char, CStr};
+use std::ffi::{CStr, c_char};
 
 // **WARNING end
 use vortex::error::{VortexExpect, VortexResult};
