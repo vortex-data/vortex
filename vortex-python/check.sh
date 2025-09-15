@@ -4,6 +4,9 @@
 
 set -ex -o pipefail
 
+# Ensure all packages are synced.
+uv sync --all-packages
+
 ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
 
 # We do not use uv because: Ray's raylets do not initialize properly inside a Sphinx `doctest` that
