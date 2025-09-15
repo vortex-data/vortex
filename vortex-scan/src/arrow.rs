@@ -4,8 +4,8 @@
 use arrow_array::cast::AsArray;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, DataType, SchemaRef};
-use vortex_array::ArrayRef;
 use vortex_array::arrow::IntoArrowArray;
+use vortex_array::ArrayRef;
 use vortex_error::{VortexError, VortexResult};
 use vortex_io::runtime::BlockingRuntime;
 
@@ -45,7 +45,7 @@ fn to_record_batch(
 }
 
 /// We create an adapter for record batch iterators that supports clone.
-/// This allows us to create thread-safe [`RecordBatchIterator`].
+/// This allows us to create thread-safe [`arrow_array::RecordBatchIterator`].
 #[derive(Clone)]
 pub struct RecordBatchIteratorAdapter<I> {
     iter: I,
@@ -90,9 +90,9 @@ mod tests {
         Array, ArrayRef as ArrowArrayRef, Int32Array, RecordBatch, StringArray, StructArray,
     };
     use arrow_schema::{ArrowError, DataType, Field, Schema};
-    use vortex_array::ArrayRef;
     use vortex_array::arrow::FromArrowArray;
-    use vortex_error::{VortexResult, vortex_err};
+    use vortex_array::ArrayRef;
+    use vortex_error::{vortex_err, VortexResult};
 
     use super::*;
 
