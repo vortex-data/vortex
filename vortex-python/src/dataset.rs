@@ -112,7 +112,7 @@ impl PyVortexDataset {
 
 #[pymethods]
 impl PyVortexDataset {
-    fn schema(self_: PyRef<Self>) -> PyResult<PyObject> {
+    fn schema(self_: PyRef<Self>) -> PyResult<Py<PyAny>> {
         self_.schema.clone().to_pyarrow(self_.py())
     }
 
@@ -141,7 +141,7 @@ impl PyVortexDataset {
         row_filter: Option<&Bound<'_, PyExpr>>,
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let mut scan = self_
             .vxf
             .scan()?

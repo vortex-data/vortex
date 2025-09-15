@@ -41,13 +41,13 @@ pub trait FromPyArrow: Sized {
 /// Create a new PyArrow object from a arrow-rs type.
 pub trait ToPyArrow {
     /// Convert the implemented type into a Python object without consuming it.
-    fn to_pyarrow(&self, py: Python) -> PyResult<PyObject>;
+    fn to_pyarrow(&self, py: Python) -> PyResult<Py<PyAny>>;
 }
 
 /// Convert an arrow-rs type into a PyArrow object.
 pub trait IntoPyArrow {
     /// Convert the implemented type into a Python object while consuming it.
-    fn into_pyarrow(self, py: Python) -> PyResult<PyObject>;
+    fn into_pyarrow(self, py: Python) -> PyResult<Py<PyAny>>;
 }
 
 fn validate_pycapsule(capsule: &Bound<PyCapsule>, name: &str) -> PyResult<()> {
@@ -86,7 +86,7 @@ impl FromPyArrow for DataType {
 }
 
 impl ToPyArrow for DataType {
-    fn to_pyarrow(&self, py: Python) -> PyResult<PyObject> {
+    fn to_pyarrow(&self, py: Python) -> PyResult<Py<PyAny>> {
         let c_schema = FFI_ArrowSchema::try_from(self).map_err(to_py_err)?;
         let module = py.import("pyarrow")?;
         let class = module.getattr("DataType")?;
@@ -114,7 +114,7 @@ impl FromPyArrow for Field {
 }
 
 impl ToPyArrow for Field {
-    fn to_pyarrow(&self, py: Python) -> PyResult<PyObject> {
+    fn to_pyarrow(&self, py: Python) -> PyResult<Py<PyAny>> {
         let c_schema = FFI_ArrowSchema::try_from(self).map_err(to_py_err)?;
         let module = py.import("pyarrow")?;
         let class = module.getattr("Field")?;
@@ -142,7 +142,7 @@ impl FromPyArrow for Schema {
 }
 
 impl ToPyArrow for Schema {
-    fn to_pyarrow(&self, py: Python) -> PyResult<PyObject> {
+    fn to_pyarrow(&self, py: Python) -> PyResult<Py<PyAny>> {
         let c_schema = FFI_ArrowSchema::try_from(self).map_err(to_py_err)?;
         let module = py.import("pyarrow")?;
         let class = module.getattr("Schema")?;
@@ -183,7 +183,7 @@ impl FromPyArrow for ArrayData {
 }
 
 impl ToPyArrow for ArrayData {
-    fn to_pyarrow(&self, py: Python) -> PyResult<PyObject> {
+    fn to_pyarrow(&self, py: Python) -> PyResult<Py<PyAny>> {
         let array = FFI_ArrowArray::new(self);
         let schema = FFI_ArrowSchema::try_from(self.data_type()).map_err(to_py_err)?;
 
@@ -254,7 +254,7 @@ impl FromPyArrow for RecordBatch {
 }
 
 impl ToPyArrow for RecordBatch {
-    fn to_pyarrow(&self, py: Python) -> PyResult<PyObject> {
+    fn to_pyarrow(&self, py: Python) -> PyResult<Py<PyAny>> {
         // Workaround apache/arrow#37669 by returning RecordBatchIterator
         let reader = RecordBatchIterator::new(vec![Ok(self.clone())], self.schema());
         let reader: Box<dyn RecordBatchReader + Send> = Box::new(reader);
@@ -289,7 +289,7 @@ impl FromPyArrow for ArrowArrayStreamReader {
 impl IntoPyArrow for Box<dyn RecordBatchReader + Send> {
     // We can't implement `ToPyArrow` for `T: RecordBatchReader + Send` because
     // there is already a blanket implementation for `T: ToPyArrow`.
-    fn into_pyarrow(self, py: Python) -> PyResult<PyObject> {
+    fn into_pyarrow(self, py: Python) -> PyResult<Py<PyAny>> {
         let mut stream = FFI_ArrowArrayStream::new(self);
 
         let module = py.import("pyarrow")?;
@@ -297,6 +297,6 @@ impl IntoPyArrow for Box<dyn RecordBatchReader + Send> {
         let args = PyTuple::new(py, [&raw mut stream as Py_uintptr_t])?;
         let reader = class.call_method1("_import_from_c", args)?;
 
-        Ok(PyObject::from(reader))
+        Ok(Py::from(reader))
     }
 }

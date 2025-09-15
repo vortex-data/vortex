@@ -120,10 +120,10 @@ impl PyVortexFile {
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
         batch_size: Option<usize>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let vxf = slf.get().vxf.clone();
 
-        let reader = slf.py().allow_threads(|| {
+        let reader = slf.py().detach(|| {
             let mut builder = vxf
                 .scan()?
                 .with_some_filter(expr.map(|e| e.into_inner()))

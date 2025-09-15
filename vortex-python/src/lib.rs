@@ -47,7 +47,7 @@ static RUNTIME: LazyLock<TokioRuntime> =
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
 #[pymodule]
 fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
-    Python::with_gil(|py| -> PyResult<()> {
+    Python::attach(|py| -> PyResult<()> {
         Logger::new(py, Caching::LoggersAndLevels)?
             .filter(LevelFilter::Info)
             .filter_target("my_module::verbose_submodule".to_owned(), LevelFilter::Warn)

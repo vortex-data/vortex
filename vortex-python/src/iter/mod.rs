@@ -74,7 +74,7 @@ impl PyArrayIterator {
 
     /// Returns the next chunk from the iterator.
     fn __next__(&self, py: Python) -> PyResult<Option<PyArrayRef>> {
-        py.allow_threads(|| {
+        py.detach(|| {
             Ok(self
                 .iter
                 .lock()
@@ -88,7 +88,7 @@ impl PyArrayIterator {
     /// Read all chunks into a single :class:`vortex.Array`. If there are multiple chunks,
     /// this will be a :class:`vortex.ChunkedArray`, otherwise it will be a single array.
     fn read_all(&self, py: Python) -> PyResult<PyArrayRef> {
-        let array = py.allow_threads(|| {
+        let array = py.detach(|| {
             if let Some(iter) = self.iter.lock().take() {
                 iter.read_all()
             } else {
@@ -102,7 +102,7 @@ impl PyArrayIterator {
     /// Convert the :class:`vortex.ArrayIterator` into a :class:`pyarrow.RecordBatchReader`.
     ///
     /// Note that this performs the conversion on the current thread.
-    fn to_arrow(slf: Bound<Self>) -> PyResult<PyObject> {
+    fn to_arrow(slf: Bound<Self>) -> PyResult<Py<PyAny>> {
         let schema = Arc::new(slf.get().dtype().to_arrow_schema()?);
         let data_type = DataType::Struct(schema.fields().clone());
 

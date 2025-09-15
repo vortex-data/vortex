@@ -142,7 +142,7 @@ impl PyScalar {
     }
 
     /// Return the scalar value as a Python object.
-    pub fn as_py(&self, py: Python) -> PyResult<PyObject> {
+    pub fn as_py(&self, py: Python) -> PyResult<Py<PyAny>> {
         PyVortex(&self.0).into_pyobject(py).map(|v| v.into())
     }
 }

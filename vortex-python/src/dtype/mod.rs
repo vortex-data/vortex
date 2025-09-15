@@ -21,7 +21,7 @@ pub(crate) use ptype::*;
 use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
 use pyo3::types::PyType;
 use pyo3::{
-    Bound, PyAny, PyClass, PyClassInitializer, PyObject, PyResult, Python, pyclass, pymethods,
+    Bound, Py, PyAny, PyClass, PyClassInitializer, PyResult, Python, pyclass, pymethods,
     wrap_pyfunction,
 };
 use vortex::dtype::DType;
@@ -144,11 +144,11 @@ impl PyDType {
 
 #[pymethods]
 impl PyDType {
-    fn to_arrow_type(&self, py: Python) -> PyResult<PyObject> {
+    fn to_arrow_type(&self, py: Python) -> PyResult<Py<PyAny>> {
         self.0.to_arrow_dtype()?.to_pyarrow(py)
     }
 
-    fn to_arrow_schema(&self, py: Python) -> PyResult<PyObject> {
+    fn to_arrow_schema(&self, py: Python) -> PyResult<Py<PyAny>> {
         self.0.to_arrow_schema()?.to_pyarrow(py)
     }
 

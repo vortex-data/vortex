@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use pyo3::exceptions::PyIndexError;
-use pyo3::{IntoPyObject, PyObject, PyRef, PyResult, pyclass, pymethods};
+use pyo3::{IntoPyObject, Py, PyAny, PyRef, PyResult, pyclass, pymethods};
 use vortex::scalar::ListScalar;
 
 use crate::PyVortex;
@@ -19,7 +19,7 @@ impl ScalarSubclass for PyListScalar {
 #[pymethods]
 impl PyListScalar {
     /// Return the child scalar at the given index.
-    pub fn element(self_: PyRef<'_, Self>, idx: usize) -> PyResult<PyObject> {
+    pub fn element(self_: PyRef<'_, Self>, idx: usize) -> PyResult<Py<PyAny>> {
         let scalar = self_.as_scalar_ref();
         let child = scalar
             .element(idx)
