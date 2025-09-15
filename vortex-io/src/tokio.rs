@@ -3,15 +3,17 @@
 
 use std::fs::File;
 use std::io;
-use std::ops::{Deref, Range};
+use std::ops::Deref;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::future::BoxFuture;
 use tokio::io::AsyncWriteExt;
 use tokio::task::spawn_blocking;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex_error::VortexExpect;
+use vortex_error::{VortexError, VortexResult};
 
 use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 
@@ -50,27 +52,33 @@ impl Deref for TokioFile {
 }
 
 impl VortexReadAt for TokioFile {
-    #[tracing::instrument(skip_all, fields(range, alignment))]
-    async fn read_at(&self, range: Range<u64>, alignment: Alignment) -> io::Result<ByteBuffer> {
-        let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         let this = self.clone();
+        async move {
+            // Wrap in a future so that we don't spawn_blocking until the first poll.
+            spawn_blocking(move || {
+                let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
+                unsafe { buffer.set_len(length) }
+                this.read_exact_at(&mut buffer, offset)?;
+                Ok(buffer.freeze())
+            })
+            .await?
+        }
+        .boxed()
+    }
 
-        spawn_blocking(move || {
-            let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-            unsafe { buffer.set_len(len) }
-            this.read_exact_at(&mut buffer, range.start)?;
-            Ok(buffer.freeze())
-        })
-        .await?
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        let this = self.clone();
+        async move { Ok::<_, VortexError>(this.metadata()?.len()) }.boxed()
     }
 
     fn performance_hint(&self) -> PerformanceHint {
         PerformanceHint::local()
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn size(&self) -> io::Result<u64> {
-        self.metadata().map(|metadata| metadata.len())
     }
 }
 
@@ -108,9 +116,9 @@ mod tests {
 
         let shared_file = TokioFile::open(tmpfile.path()).unwrap();
 
-        let first_half = shared_file.read_at(0..5, Alignment::none()).await.unwrap();
+        let first_half = shared_file.read_at(0, 5, Alignment::none()).await.unwrap();
 
-        let second_half = shared_file.read_at(5..10, Alignment::none()).await.unwrap();
+        let second_half = shared_file.read_at(5, 5, Alignment::none()).await.unwrap();
 
         assert_eq!(first_half.as_ref(), "01234".as_bytes());
         assert_eq!(second_half.as_ref(), "56789".as_bytes());

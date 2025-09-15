@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use futures::future::BoxFuture;
-use futures::FutureExt;
-use std::future::Future;
-use std::io;
-use std::ops::Range;
 use std::sync::Arc;
+
+use futures::FutureExt;
+use futures::future::BoxFuture;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_metrics::{Histogram, Timer, VortexMetrics};
 
 /// The read trait used within Vortex.
@@ -97,6 +95,25 @@ impl PerformanceHint {
     }
 }
 
+impl<R: VortexReadAt> VortexReadAt for Arc<R> {
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        self.as_ref().read_at(offset, length, alignment)
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.as_ref().size()
+    }
+
+    fn performance_hint(&self) -> PerformanceHint {
+        self.as_ref().performance_hint()
+    }
+}
+
 impl VortexReadAt for ByteBuffer {
     fn read_at(
         &self,
@@ -111,8 +128,9 @@ impl VortexReadAt for ByteBuffer {
                 usize::try_from(offset + length as u64).vortex_expect("end too big for usize");
             if end > buffer.len() {
                 vortex_bail!(
-                    "Requested range {} out of bounds for buffer of length {}",
-                    start..end,
+                    "Requested range {}..{} out of bounds for buffer of length {}",
+                    start,
+                    end,
                     buffer.len()
                 );
             }
@@ -121,8 +139,9 @@ impl VortexReadAt for ByteBuffer {
         .boxed()
     }
 
-    async fn size(&self) -> io::Result<u64> {
-        Ok(self.len() as u64)
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        let length = self.len() as u64;
+        async move { Ok(length) }.boxed()
     }
 
     fn performance_hint(&self) -> PerformanceHint {
@@ -132,7 +151,7 @@ impl VortexReadAt for ByteBuffer {
 
 #[derive(Clone)]
 pub struct InstrumentedReadAt<T: VortexReadAt> {
-    read: T,
+    read: Arc<T>,
     sizes: Arc<Histogram>,
     durations: Arc<Timer>,
 }
@@ -140,7 +159,7 @@ pub struct InstrumentedReadAt<T: VortexReadAt> {
 impl<T: VortexReadAt> InstrumentedReadAt<T> {
     pub fn new(read: T, metrics: &VortexMetrics) -> Self {
         Self {
-            read,
+            read: Arc::new(read),
             sizes: metrics.histogram("vortex.io.read.size"),
             durations: metrics.timer("vortex.io.read.duration"),
         }
@@ -148,17 +167,27 @@ impl<T: VortexReadAt> InstrumentedReadAt<T> {
 }
 
 impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
-    async fn read_at(&self, range: Range<u64>, alignment: Alignment) -> io::Result<ByteBuffer> {
-        let _timer = self.durations.time();
-        let size = range.end - range.start;
-        let buf = self.read.read_at(range, alignment).await;
-        let _ = size.try_into().map(|size| self.sizes.update(size));
-        buf
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        let durations = self.durations.clone();
+        let sizes = self.sizes.clone();
+        let read = self.read.clone();
+        async move {
+            let _timer = durations.time();
+            let buf = read.read_at(offset, length, alignment).await;
+            sizes.update(length as i64);
+            buf
+        }
+        .boxed()
     }
 
     #[inline]
-    async fn size(&self) -> io::Result<u64> {
-        self.read.size().await
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.read.size()
     }
 
     fn performance_hint(&self) -> PerformanceHint {
@@ -206,7 +235,7 @@ mod tests {
     async fn test_byte_buffer_read_at() {
         let data = ByteBuffer::from(vec![1, 2, 3, 4, 5]);
 
-        let result = data.read_at(1..4, Alignment::none()).await.unwrap();
+        let result = data.read_at(1, 3, Alignment::none()).await.unwrap();
         assert_eq!(result.as_ref(), &[2, 3, 4]);
     }
 
@@ -214,16 +243,15 @@ mod tests {
     async fn test_byte_buffer_read_out_of_bounds() {
         let data = ByteBuffer::from(vec![1, 2, 3]);
 
-        let result = data.read_at(1..10, Alignment::none()).await;
+        let result = data.read_at(1, 9, Alignment::none()).await;
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
     }
 
     #[tokio::test]
     async fn test_arc_read_at() {
         let data = Arc::new(ByteBuffer::from(vec![1, 2, 3, 4, 5]));
 
-        let result = data.read_at(2..5, Alignment::none()).await.unwrap();
+        let result = data.read_at(2, 3, Alignment::none()).await.unwrap();
         assert_eq!(result.as_ref(), &[3, 4, 5]);
 
         let size = data.size().await.unwrap();

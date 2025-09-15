@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
 use std::sync::Arc;
 
-use futures::{pin_mut, StreamExt};
+use futures::{StreamExt, pin_mut};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
@@ -17,7 +16,7 @@ use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
 };
-use crate::{FileType, Footer, VortexFile, VortexOpenOptions, EOF_SIZE, MAX_POSTSCRIPT_SIZE};
+use crate::{EOF_SIZE, FileType, Footer, MAX_POSTSCRIPT_SIZE, VortexFile, VortexOpenOptions};
 
 #[cfg(feature = "tokio")]
 static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
@@ -34,7 +33,7 @@ impl FileType for GenericVortexFile {
 }
 
 impl VortexOpenOptions<GenericVortexFile> {
-    const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
+    const INITIAL_READ_SIZE: usize = 1 << 20; // 1 MB
 
     /// Open a file using the provided [`VortexReadAt`] implementation.
     pub fn file() -> Self {
@@ -46,7 +45,7 @@ impl VortexOpenOptions<GenericVortexFile> {
     }
 
     /// Configure the initial read size for the Vortex file.
-    pub fn with_initial_read_size(mut self, initial_read_size: u64) -> Self {
+    pub fn with_initial_read_size(mut self, initial_read_size: usize) -> Self {
         self.options.initial_read_size = initial_read_size;
         self
     }
@@ -160,15 +159,18 @@ impl VortexOpenOptions<GenericVortexFile> {
             None => self.dispatched_size(read.clone()).await?,
             Some(file_size) => file_size,
         };
-        let initial_read_size = self
+        let mut initial_read_size = self
             .options
             .initial_read_size
             // Make sure we read enough to cover the postscript
-            .max(MAX_POSTSCRIPT_SIZE as u64 + EOF_SIZE as u64)
-            .min(file_size);
-        let initial_offset = file_size - initial_read_size;
+            .max(MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE);
+        if let Ok(file_size) = usize::try_from(file_size) {
+            initial_read_size = initial_read_size.min(file_size);
+        }
+
+        let initial_offset = file_size - initial_read_size as u64;
         let initial_read: ByteBuffer = self
-            .dispatched_read(read.clone(), initial_offset..file_size)
+            .dispatched_read(read.clone(), initial_offset, initial_read_size)
             .await?;
 
         let mut deserializer = Footer::deserializer(initial_read)
@@ -180,9 +182,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         let footer = loop {
             match deserializer.deserialize()? {
                 DeserializeStep::NeedMoreData { offset, len } => {
-                    let more_data = self
-                        .dispatched_read(read.clone(), offset..offset + (len as u64))
-                        .await?;
+                    let more_data = self.dispatched_read(read.clone(), offset, len).await?;
                     deserializer.prefix_data(more_data);
                 }
                 DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),
@@ -203,24 +203,23 @@ impl VortexOpenOptions<GenericVortexFile> {
         &self,
         read: Arc<R>,
     ) -> VortexResult<u64> {
-        Ok(self
-            .options
+        self.options
             .io_dispatcher
             .dispatch(move || async move { read.size().await })?
-            .await??)
+            .await?
     }
 
     /// Dispatch a read onto the configured I/O dispatcher.
     async fn dispatched_read<R: VortexReadAt + Send + Sync>(
         &self,
         read: Arc<R>,
-        range: Range<u64>,
+        offset: u64,
+        length: usize,
     ) -> VortexResult<ByteBuffer> {
-        Ok(self
-            .options
+        self.options
             .io_dispatcher
-            .dispatch(move || async move { read.read_at(range, Alignment::none()).await })?
-            .await??)
+            .dispatch(move || async move { read.read_at(offset, length, Alignment::none()).await })?
+            .await?
     }
 
     /// Populate segments in the cache that were covered by the initial read.
@@ -285,7 +284,7 @@ impl VortexOpenOptions<GenericVortexFile> {
 
 pub struct GenericFileOptions {
     segment_cache: Arc<dyn SegmentCache>,
-    initial_read_size: u64,
+    initial_read_size: usize,
     initial_read_segments: DashMap<SegmentId, ByteBuffer>,
     /// The number of concurrent I/O requests to spawn.
     /// This should be smaller than execution concurrency for coalescing to occur.
