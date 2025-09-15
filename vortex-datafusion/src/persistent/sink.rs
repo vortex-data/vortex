@@ -12,6 +12,7 @@ use datafusion_common_runtime::{JoinSet, SpawnedTask};
 use datafusion_datasource::file_sink_config::{FileSink, FileSinkConfig};
 use datafusion_datasource::sink::DataSink;
 use datafusion_datasource::write::demux::DemuxedStreamReceiver;
+use datafusion_datasource::write::get_writer_schema;
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
@@ -104,7 +105,8 @@ impl FileSink for VortexSink {
         while let Some((path, rx)) = file_stream_rx.recv().await {
             let row_counter = row_counter.clone();
             let object_store = object_store.clone();
-            let dtype = DType::from_arrow(self.config.output_schema.clone());
+            let writer_schema = get_writer_schema(&self.config);
+            let dtype = DType::from_arrow(writer_schema);
 
             // We need to spawn work because there's a dependency between the different files. If one file has too many batches buffered,
             // the demux task might deadlock itself.
@@ -166,6 +168,7 @@ impl FileSink for VortexSink {
 
 #[cfg(test)]
 mod tests {
+
     use std::sync::Arc;
 
     use arrow_schema::{DataType, Field, Schema};
@@ -178,6 +181,7 @@ mod tests {
     use datafusion_datasource::file_format::format_as_file_type;
     use rstest::rstest;
     use tempfile::TempDir;
+    use walkdir::WalkDir;
 
     use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
 
@@ -367,6 +371,50 @@ mod tests {
             expected_files,
             "Expected {expected_files} files for {entries} values"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_write_partitioned() -> anyhow::Result<()> {
+        let dir = TempDir::new()?;
+        let data_dir = dir.path().to_str().unwrap();
+
+        let factory: VortexFormatFactory = VortexFormatFactory::new();
+        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
+        register_vortex_format_factory(factory, &mut session_state_builder);
+        let session = SessionContext::new_with_state(session_state_builder.build());
+
+        let _ = session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE my_tbl \
+                (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
+                STORED AS vortex \
+                LOCATION '{data_dir}' \
+                PARTITIONED BY (c1);"
+            ))
+            .await?;
+
+        session
+            .sql("INSERT INTO my_tbl (c1, c2) VALUES ('world', 24), ('world', 25), ('hello', 42);")
+            .await?
+            .collect()
+            .await?;
+
+        let table = session.table("my_tbl").await?;
+        assert_eq!(table.count().await?, 3);
+
+        for dir in WalkDir::new(data_dir)
+            .into_iter()
+            .filter_entry(|e| e.path().is_dir())
+        {
+            let dir = dir?;
+            if let Ok(path) = dir.path().strip_prefix(data_dir)
+                && !path.as_os_str().is_empty()
+            {
+                assert!(path.starts_with("c1=hello") || path.starts_with("c1=world"),);
+            }
+        }
 
         Ok(())
     }
