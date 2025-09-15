@@ -102,10 +102,12 @@ impl Hash for StructScalar<'_> {
 }
 
 impl<'a> StructScalar<'a> {
+    #[inline]
     pub(crate) fn try_new(dtype: &'a DType, value: &'a ScalarValue) -> VortexResult<Self> {
         if !matches!(dtype, DType::Struct(..)) {
             vortex_bail!("Expected struct scalar, found {}", dtype)
         }
+
         Ok(Self {
             dtype,
             fields: value.as_list()?,
@@ -285,15 +287,12 @@ impl Scalar {
             }
         }
 
+        let mut value_children = Vec::with_capacity(children.len());
+        value_children.extend(children.into_iter().map(|x| x.into_value()));
+
         Self::new(
             dtype,
-            ScalarValue(InnerScalarValue::List(
-                children
-                    .into_iter()
-                    .map(|x| x.into_value())
-                    .collect_vec()
-                    .into(),
-            )),
+            ScalarValue(InnerScalarValue::List(value_children.into())),
         )
     }
 }

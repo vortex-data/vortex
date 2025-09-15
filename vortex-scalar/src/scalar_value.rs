@@ -149,51 +149,61 @@ impl ScalarValue {
     }
 
     /// Returns true if this is a null value.
+    #[inline]
     pub fn is_null(&self) -> bool {
         self.0.is_null()
     }
 
     /// Returns scalar as a null value
+    #[inline]
     pub(crate) fn as_null(&self) -> VortexResult<()> {
         self.0.as_null()
     }
 
     /// Returns scalar as a boolean value
+    #[inline]
     pub(crate) fn as_bool(&self) -> VortexResult<Option<bool>> {
         self.0.as_bool()
     }
 
     /// Return scalar as a primitive value. PValues don't match dtypes but will be castable to the scalars dtype
+    #[inline]
     pub(crate) fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
         self.0.as_pvalue()
     }
 
     /// Returns scalar as a decimal value
+    #[inline]
     pub(crate) fn as_decimal(&self) -> VortexResult<Option<DecimalValue>> {
         self.0.as_decimal()
     }
 
     /// Returns scalar as a binary buffer
+    #[inline]
     pub(crate) fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
         self.0.as_buffer()
     }
 
     /// Returns scalar as a string buffer
+    #[inline]
     pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
         self.0.as_buffer_string()
     }
 
     /// Returns scalar as a list value
+    #[inline]
     pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
         self.0.as_list()
     }
 }
 
 impl InnerScalarValue {
+    #[inline]
     pub(crate) fn is_null(&self) -> bool {
         matches!(self, InnerScalarValue::Null)
     }
 
+    #[inline]
     pub(crate) fn as_null(&self) -> VortexResult<()> {
         if matches!(self, InnerScalarValue::Null) {
             Ok(())
@@ -202,6 +212,7 @@ impl InnerScalarValue {
         }
     }
 
+    #[inline]
     pub(crate) fn as_bool(&self) -> VortexResult<Option<bool>> {
         match self {
             InnerScalarValue::Null => Ok(None),
@@ -213,6 +224,7 @@ impl InnerScalarValue {
     /// FIXME(ngates): PValues are such a footgun... we should probably remove this.
     ///  But the other accessors can sometimes be useful? e.g. as_buffer. But maybe we just force
     ///  the user to switch over Utf8 and Binary and use the correct Scalar wrapper?
+    #[inline]
     pub(crate) fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
         match self {
             InnerScalarValue::Null => Ok(None),
@@ -221,6 +233,7 @@ impl InnerScalarValue {
         }
     }
 
+    #[inline]
     pub(crate) fn as_decimal(&self) -> VortexResult<Option<DecimalValue>> {
         match self {
             InnerScalarValue::Null => Ok(None),
@@ -238,6 +251,7 @@ impl InnerScalarValue {
         }
     }
 
+    #[inline]
     pub(crate) fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
         match &self {
             InnerScalarValue::Null => Ok(None),
@@ -249,6 +263,7 @@ impl InnerScalarValue {
         }
     }
 
+    #[inline]
     pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
         match &self {
             InnerScalarValue::Null => Ok(None),
@@ -260,6 +275,7 @@ impl InnerScalarValue {
         }
     }
 
+    #[inline]
     pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
         match &self {
             InnerScalarValue::Null => Ok(None),

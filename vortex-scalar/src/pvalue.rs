@@ -414,6 +414,7 @@ pub(super) trait CoercePValue: Sized {
 macro_rules! int_coerce {
     ($T:ty) => {
         impl CoercePValue for $T {
+            #[inline]
             fn coerce(value: PValue) -> VortexResult<Self> {
                 Self::try_from(value)
             }
