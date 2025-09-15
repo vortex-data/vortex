@@ -38,8 +38,8 @@ prost = { workspace = true }
 rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 # Needed to pickup the "js" feature for wasm targets from the workspace configuration
-uuid = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
