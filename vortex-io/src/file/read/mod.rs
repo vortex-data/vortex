@@ -39,7 +39,7 @@ use crate::VortexReadAt;
 /// When a read request is `registered`, it will not itself trigger any I/O, but is eligible to
 /// be coalesced with other requests.
 ///
-/// If a [`ReadFuture`] is dropped, it will be canceled if possible. This depends on the current
+/// If a read future is dropped, it will be canceled if possible. This depends on the current
 /// state of the request, as well as whether the underlying storage system supports cancellation.
 ///
 /// I/O requests will be processed in the order they are `registered`, however coalescing may mean

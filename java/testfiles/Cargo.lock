@@ -905,6 +905,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "handle"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52ed72152641d513a6084a3907bfcba3f35ae2d3335c22ce2242969c25ff8e46"
+
+[[package]]
 name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1215,21 +1221,6 @@ name = "libm"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
-
-[[package]]
-name = "linked-hash-map"
-version = "0.5.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
-
-[[package]]
-name = "linked_hash_set"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bae85b5be22d9843c80e5fc80e9b64c8a3b1f98f867c709956eca3efff4e92e2"
-dependencies = [
- "linked-hash-map",
-]
 
 [[package]]
 name = "linux-raw-sys"
@@ -2541,11 +2532,8 @@ dependencies = [
  "getrandom 0.3.3",
  "itertools",
  "kanal",
- "linked_hash_set",
  "log",
- "moka",
  "parking_lot",
- "rustc-hash",
  "uuid",
  "vortex-alp",
  "vortex-array",
@@ -2602,10 +2590,12 @@ version = "0.1.0"
 dependencies = [
  "async-compat",
  "async-stream",
+ "async-trait",
  "bytes",
  "cfg-if",
  "futures",
  "getrandom 0.3.3",
+ "handle",
  "kanal",
  "log",
  "oneshot",
@@ -2650,13 +2640,17 @@ dependencies = [
  "itertools",
  "kanal",
  "log",
+ "moka",
  "once_cell",
+ "oneshot",
  "parking_lot",
  "paste",
  "pco",
  "pin-project-lite",
  "prost",
+ "rustc-hash",
  "tracing",
+ "uuid",
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",
@@ -2668,6 +2662,7 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-io",
  "vortex-mask",
+ "vortex-metrics",
  "vortex-pco",
  "vortex-scalar",
  "vortex-sequence",

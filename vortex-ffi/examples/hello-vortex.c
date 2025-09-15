@@ -20,11 +20,11 @@ int main(int argc, char *argv[]) {
   }
 
   // Open the file
-  char *path = argv[1];
-  printf("Opening file: %s\n", path);
+  char *uri = argv[1];
+  printf("Opening file: %s\n", uri);
 
   vx_file_open_options open_opts = {
-      .uri = path,
+      .uri = uri,
       .property_keys = NULL,
       .property_vals = NULL,
       .property_len = 0,
@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
 
   const vx_file *file = vx_file_open_reader(&open_opts, session, &error);
   if (error != NULL) {
-    fprintf(stderr, "Failed to open file: %s\n", path);
+    fprintf(stderr, "Failed to open file: %s\n%s", uri, vx_string_ptr(vx_error_get_message(error)));
     vx_error_free(error);
     vx_session_free(session);
     vx_try_shutdown_runtime();
@@ -85,7 +85,7 @@ int main(int argc, char *argv[]) {
         error = NULL;
       }
 
-      // Test struct field count if it's a struct  
+      // Test struct field count if it's a struct
       if (batch_variant == DTYPE_STRUCT) {
         const vx_struct_fields *fields = vx_dtype_struct_dtype(dtype);
         size_t n_fields = vx_struct_fields_nfields(fields);

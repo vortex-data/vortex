@@ -5,7 +5,6 @@
 
 use std::path::Path;
 
-use futures::executor::block_on;
 use vortex::arrays::StructArray;
 use vortex::builders::{ArrayBuilder, DecimalBuilder, VarBinViewBuilder};
 use vortex::dtype::{DType, DecimalDType, Nullability};

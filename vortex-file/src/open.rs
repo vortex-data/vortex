@@ -162,7 +162,7 @@ impl VortexOpenOptions {
     /// whenever possible and file issues if they encounter problems.
     pub async fn open<S: IntoReadSource>(self, source: S) -> VortexResult<VortexFile> {
         let Some(handle) = self.handle.clone() else {
-            vortex_bail!("VortexOpenOptions::handle must be set to open a GenericVortexFile");
+            vortex_bail!("VortexOpenOptions::handle must be set, or else be running inside Tokio");
         };
         self.open_read_at(handle.open_read(source)?).await
     }

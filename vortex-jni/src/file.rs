@@ -17,6 +17,7 @@ use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::{root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::proto::expr as pb;
 use vortex::utils::aliases::hash_map::HashMap;
 
@@ -211,6 +212,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open<'local>(
         let open_file = block_on(
             "VortexOpenOptions.open()",
             VortexOpenOptions::new()
+                .with_handle(TokioRuntime::current())
                 .with_array_registry(Arc::new(SESSION.arrays().clone()))
                 .with_layout_registry(Arc::new(SESSION.layouts().clone()))
                 .open_object_store(&store, url.path()),

@@ -21,6 +21,7 @@ use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::{ExprRef, ExprRegistryExt};
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::proto::expr::Expr;
 use vortex::scan::{ScanBuilder, SplitBy};
 
@@ -158,7 +159,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
-        let mut file = VortexOpenOptions::new();
+        let mut file = VortexOpenOptions::new().with_handle(TokioRuntime::current());
         let mut cache_hit = false;
         if let Some(footer) = session.get_footer(&FileKey {
             location: uri_str.to_string(),
