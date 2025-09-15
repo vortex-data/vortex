@@ -72,6 +72,13 @@ impl VortexSource {
         }
     }
 
+    /// Sets a [`VortexExpr`] as a predicate
+    pub fn with_predicate(&self, predicate: PhysicalExprRef) -> Self {
+        let mut source = self.clone();
+        source.predicate = Some(predicate);
+        source
+    }
+
     /// Sets a [`PhysicalExprAdapterFactory`] for the [`VortexSource`].
     /// Currently, this must be provided in order to filter columns in files that have a different data type from the unified table schema.
     ///
