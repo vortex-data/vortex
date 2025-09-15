@@ -39,6 +39,7 @@ pub enum SearchResult {
 
 impl SearchResult {
     /// Convert search result to an index only if the value have been found
+    #[inline]
     pub fn to_found(self) -> Option<usize> {
         match self {
             Self::Found(i) => Some(i),
@@ -47,6 +48,7 @@ impl SearchResult {
     }
 
     /// Extract index out of search result regardless of whether the value have been found or not
+    #[inline]
     pub fn to_index(self) -> usize {
         match self {
             Self::Found(i) => i,

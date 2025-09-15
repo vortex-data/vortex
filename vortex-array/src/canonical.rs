@@ -111,6 +111,7 @@ impl Canonical {
 
 // Unwrap canonical type back down to specialized type.
 impl Canonical {
+    #[inline]
     pub fn into_null(self) -> NullArray {
         if let Canonical::Null(a) = self {
             a
@@ -119,6 +120,7 @@ impl Canonical {
         }
     }
 
+    #[inline]
     pub fn into_bool(self) -> BoolArray {
         if let Canonical::Bool(a) = self {
             a
@@ -127,6 +129,7 @@ impl Canonical {
         }
     }
 
+    #[inline]
     pub fn into_primitive(self) -> PrimitiveArray {
         if let Canonical::Primitive(a) = self {
             a
@@ -135,6 +138,7 @@ impl Canonical {
         }
     }
 
+    #[inline]
     pub fn into_decimal(self) -> DecimalArray {
         if let Canonical::Decimal(a) = self {
             a
@@ -143,6 +147,7 @@ impl Canonical {
         }
     }
 
+    #[inline]
     pub fn into_varbinview(self) -> VarBinViewArray {
         if let Canonical::VarBinView(a) = self {
             a
@@ -151,6 +156,7 @@ impl Canonical {
         }
     }
 
+    #[inline]
     pub fn into_list(self) -> ListArray {
         if let Canonical::List(a) = self {
             a
@@ -159,6 +165,7 @@ impl Canonical {
         }
     }
 
+    #[inline]
     pub fn into_fixed_size_list(self) -> FixedSizeListArray {
         if let Canonical::FixedSizeList(a) = self {
             a
@@ -167,6 +174,7 @@ impl Canonical {
         }
     }
 
+    #[inline]
     pub fn into_struct(self) -> StructArray {
         if let Canonical::Struct(a) = self {
             a
@@ -175,6 +183,7 @@ impl Canonical {
         }
     }
 
+    #[inline]
     pub fn into_extension(self) -> ExtensionArray {
         if let Canonical::Extension(a) = self {
             a

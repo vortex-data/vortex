@@ -55,6 +55,7 @@ impl<'a> BoolScalar<'a> {
     }
 
     /// Returns the boolean value, or None if null.
+    #[inline]
     pub fn value(&self) -> Option<bool> {
         self.value
     }
