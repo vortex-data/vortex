@@ -1,5 +1,5 @@
 <component name="CopyrightManager">
-  <settings>
+  <settings default="spdx-apache">
     <module2copyright>
       <element module="rust-files" copyright="spdx-apache" />
     </module2copyright>

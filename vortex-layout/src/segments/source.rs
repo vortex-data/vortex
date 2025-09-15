@@ -6,7 +6,6 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
 use crate::segments::SegmentId;
-
 /// Static future resolving to a segment byte buffer.
 pub type SegmentFuture = BoxFuture<'static, VortexResult<ByteBuffer>>;
 
