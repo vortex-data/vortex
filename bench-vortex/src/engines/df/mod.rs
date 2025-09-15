@@ -68,8 +68,10 @@ pub fn get_session_context(disable_datafusion_cache: bool) -> SessionContext {
 
     let factory = VortexFormatFactory::new();
 
+    let mut session_config = SessionConfig::default();
+    session_config = session_config.set_bool("datafusion.execution.parquet.pushdown_filters", true);
     let mut session_state_builder = SessionStateBuilder::new()
-        .with_config(SessionConfig::default())
+        .with_config(session_config)
         .with_runtime_env(rt)
         .with_default_features();
 
