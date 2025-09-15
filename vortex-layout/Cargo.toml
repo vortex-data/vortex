@@ -23,6 +23,7 @@ async-stream = { workspace = true }
 async-trait = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
+# Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 kanal = { workspace = true }
@@ -36,6 +37,8 @@ pin-project-lite = { workspace = true }
 prost = { workspace = true }
 rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
+# Needed to pickup the "js" feature for wasm targets from the workspace configuration
+uuid = { workspace = true }
 tracing = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }

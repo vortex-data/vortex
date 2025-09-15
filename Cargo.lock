@@ -6933,6 +6933,7 @@ dependencies = [
  "rustc-hash",
  "tokio",
  "tracing",
+ "uuid",
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",
