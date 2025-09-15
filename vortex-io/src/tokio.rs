@@ -51,11 +51,7 @@ impl Deref for TokioFile {
 
 impl VortexReadAt for TokioFile {
     #[tracing::instrument(skip_all, fields(range, alignment))]
-    async fn read_byte_range(
-        &self,
-        range: Range<u64>,
-        alignment: Alignment,
-    ) -> io::Result<ByteBuffer> {
+    async fn read_at(&self, range: Range<u64>, alignment: Alignment) -> io::Result<ByteBuffer> {
         let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
         let this = self.clone();
 
@@ -112,15 +108,9 @@ mod tests {
 
         let shared_file = TokioFile::open(tmpfile.path()).unwrap();
 
-        let first_half = shared_file
-            .read_byte_range(0..5, Alignment::none())
-            .await
-            .unwrap();
+        let first_half = shared_file.read_at(0..5, Alignment::none()).await.unwrap();
 
-        let second_half = shared_file
-            .read_byte_range(5..10, Alignment::none())
-            .await
-            .unwrap();
+        let second_half = shared_file.read_at(5..10, Alignment::none()).await.unwrap();
 
         assert_eq!(first_half.as_ref(), "01234".as_bytes());
         assert_eq!(second_half.as_ref(), "56789".as_bytes());

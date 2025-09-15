@@ -4,7 +4,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::{StreamExt, pin_mut};
+use futures::{pin_mut, StreamExt};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
@@ -17,7 +17,7 @@ use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
 };
-use crate::{EOF_SIZE, FileType, Footer, MAX_POSTSCRIPT_SIZE, VortexFile, VortexOpenOptions};
+use crate::{FileType, Footer, VortexFile, VortexOpenOptions, EOF_SIZE, MAX_POSTSCRIPT_SIZE};
 
 #[cfg(feature = "tokio")]
 static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
@@ -219,7 +219,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         Ok(self
             .options
             .io_dispatcher
-            .dispatch(move || async move { read.read_byte_range(range, Alignment::none()).await })?
+            .dispatch(move || async move { read.read_at(range, Alignment::none()).await })?
             .await??)
     }
 

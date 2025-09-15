@@ -42,11 +42,7 @@ impl ObjectStoreReadAt {
 
 impl VortexReadAt for ObjectStoreReadAt {
     #[tracing::instrument(skip_all, fields(size = range.end - range.start))]
-    async fn read_byte_range(
-        &self,
-        range: Range<u64>,
-        alignment: Alignment,
-    ) -> io::Result<ByteBuffer> {
+    async fn read_at(&self, range: Range<u64>, alignment: Alignment) -> io::Result<ByteBuffer> {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
         let len = usize::try_from(range.end - range.start).vortex_expect("Read can't find usize");
@@ -194,10 +190,10 @@ impl VortexWrite for ObjectStoreWriter {
 mod tests {
     use std::sync::Arc;
 
-    use object_store::ObjectStore;
     use object_store::local::LocalFileSystem;
     use object_store::memory::InMemory;
     use object_store::path::Path;
+    use object_store::ObjectStore;
     use rstest::rstest;
     use tempfile::tempdir;
 
