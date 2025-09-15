@@ -15,7 +15,8 @@ use vortex_metrics::{Histogram, Timer, VortexMetrics};
 /// crate to read data from files or object stores.
 ///
 /// It behaves a little differently from a typical async read trait in order to provide us with
-/// some nice additional semantics for use within Vortex. See the [`read_at`] method for details.
+/// some nice additional semantics for use within Vortex. See the [`VortexReadAt::read_at`] method
+/// for details.
 pub trait VortexReadAt: Send + Sync + 'static {
     /// Request an asynchronous positional read. Results will be returned as a [`ByteBuffer`].
     ///
