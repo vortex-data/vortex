@@ -55,22 +55,11 @@ impl LayoutStrategy for RepartitionStrategy {
         eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
-        // TODO(os): spawn stream below like:
-        // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
         let dtype = stream.dtype().clone();
-        let canonical_stream = SequentialStreamAdapter::new(
-            dtype.clone(),
-            stream.map(|chunk| {
-                let (sequence_id, chunk) = chunk?;
-                VortexResult::Ok((sequence_id, chunk.to_canonical().into_array()))
-            }),
-        )
-        .sendable();
-
-        let dtype_clone = dtype.clone();
+        let dtype_clone = stream.dtype().clone();
         let options = self.options.clone();
         let repartitioned_stream = try_stream! {
-            let canonical_stream = canonical_stream.peekable();
+            let canonical_stream = stream.peekable();
             pin_mut!(canonical_stream);
 
             let mut chunks = ChunksBuffer::new(options.clone());
