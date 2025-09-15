@@ -5,8 +5,9 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use futures::FutureExt;
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, WeakShared};
+use futures::{FutureExt, TryFutureExt};
+use parking_lot::Mutex;
 use vortex_array::compute::filter;
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::pipeline::{
@@ -15,8 +16,9 @@ use vortex_array::pipeline::{
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, FieldMask, Nullability};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
+use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
 use vortex_mask::Mask;
 
@@ -36,6 +38,10 @@ pub struct FlatReader {
     layout: FlatLayout,
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
+
+    // We use a weak shared future to avoid submitting multiple read requests for the same
+    // flat layout when used from multiple evaluations.
+    future: Mutex<Option<WeakShared<BoxFuture<'static, SharedVortexResult<ByteBuffer>>>>>,
 }
 
 impl FlatReader {
@@ -48,6 +54,7 @@ impl FlatReader {
             layout,
             name,
             segment_source,
+            future: Mutex::new(None),
         }
     }
 
@@ -58,12 +65,30 @@ impl FlatReader {
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.
         // This is gross... see the function's TODO for a maybe better solution?
-        let segment_fut = self.segment_source.request(self.layout.segment_id());
+        let segment_future = {
+            let mut future = self.future.lock();
+            if let Some(upgraded) = future.as_ref().and_then(|f| f.upgrade()) {
+                upgraded
+            } else {
+                let new_future = self
+                    .segment_source
+                    .request(self.layout.segment_id())
+                    .map_err(Arc::new)
+                    .boxed()
+                    .shared();
+                *future = Some(
+                    new_future
+                        .downgrade()
+                        .vortex_expect("not yet polled to completion"),
+                );
+                new_future
+            }
+        };
 
         let ctx = self.layout.ctx.clone();
         let dtype = self.layout.dtype().clone();
         async move {
-            let segment = segment_fut.await?;
+            let segment = segment_future.await?;
             ArrayParts::try_from(segment)?
                 .decode(&ctx, &dtype, row_count)
                 .map_err(Arc::new)
