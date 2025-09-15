@@ -198,17 +198,15 @@ impl InnerScalarValue {
         if matches!(self, InnerScalarValue::Null) {
             Ok(())
         } else {
-            Err(vortex_err!("Expected a Null scalar, found {:?}", self))
+            Err(vortex_err!("Expected a Null scalar, found {self}"))
         }
     }
 
     pub(crate) fn as_bool(&self) -> VortexResult<Option<bool>> {
-        if matches!(&self, InnerScalarValue::Null) {
-            Ok(None)
-        } else if let InnerScalarValue::Bool(b) = &self {
-            Ok(Some(*b))
-        } else {
-            Err(vortex_err!("Expected a bool scalar, found {:?}", self))
+        match self {
+            InnerScalarValue::Null => Ok(None),
+            InnerScalarValue::Bool(b) => Ok(Some(*b)),
+            other => Err(vortex_err!("Expected a bool scalar, found {other}",)),
         }
     }
 
@@ -216,12 +214,10 @@ impl InnerScalarValue {
     ///  But the other accessors can sometimes be useful? e.g. as_buffer. But maybe we just force
     ///  the user to switch over Utf8 and Binary and use the correct Scalar wrapper?
     pub(crate) fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
-        if matches!(&self, InnerScalarValue::Null) {
-            Ok(None)
-        } else if let InnerScalarValue::Primitive(p) = &self {
-            Ok(Some(*p))
-        } else {
-            Err(vortex_err!("Expected a primitive scalar, found {:?}", self))
+        match self {
+            InnerScalarValue::Null => Ok(None),
+            InnerScalarValue::Primitive(pvalue) => Ok(Some(*pvalue)),
+            other => Err(vortex_err!("Expected a primitive scalar, found {other}")),
         }
     }
 
