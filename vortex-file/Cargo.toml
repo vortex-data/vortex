@@ -27,10 +27,8 @@ itertools = { workspace = true }
 kanal = { workspace = true }
 linked_hash_set = { workspace = true }
 log = { workspace = true }
-moka = { workspace = true, features = ["future"] }
 object_store = { workspace = true, optional = true }
 parking_lot = { workspace = true }
-rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 uuid = { workspace = true }

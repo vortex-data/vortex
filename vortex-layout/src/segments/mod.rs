@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod cache;
+mod shared;
 mod sink;
 mod source;
 
@@ -10,6 +12,8 @@ mod test;
 use std::fmt::Display;
 use std::ops::Deref;
 
+pub use cache::*;
+pub use shared::*;
 pub use sink::*;
 pub use source::*;
 #[cfg(any(test, feature = "test-harness"))]

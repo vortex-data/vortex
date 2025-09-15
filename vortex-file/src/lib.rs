@@ -33,7 +33,6 @@
 //! it can be turned into a stream by calling [`VortexFile::scan`].
 //!
 //! The file manages IO-oriented work and CPU-oriented work on two different underlying runtimes, which are configurable and pluggable with multiple provided implementations (Tokio, Rayon etc.).
-//! It also caches buffers between stages of the scan, saving on duplicate IO. The cache can also be reused between scans of the same file (See [`SegmentCache`](`crate::segments::SegmentCache`)).
 //!
 //! # File Format
 //!
