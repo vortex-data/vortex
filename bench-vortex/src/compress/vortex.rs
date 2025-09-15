@@ -2,11 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::io::Cursor;
-use std::sync::Arc;
 
 use bytes::Bytes;
-use vortex::Array;
+use futures::{StreamExt, pin_mut};
+use vortex::error::VortexExpect;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::{Array, IntoArray};
 
 #[inline(never)]
 pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyhow::Result<u64> {
@@ -20,12 +21,14 @@ pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyh
 #[inline(never)]
 pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<usize> {
     let scan = VortexOpenOptions::new().open_buffer(buf)?.scan()?;
-    let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
 
-    let iter = scan.into_record_batch_reader_multithread(schema)?;
+    let stream = scan.map(|a| Ok(a.to_canonical())).into_stream()?;
+    pin_mut!(stream);
+
     let mut nbytes = 0;
-    for batch in iter {
-        nbytes += batch.unwrap().get_array_memory_size()
+    while let Some(batch) = stream.next().await {
+        let batch = batch?;
+        nbytes += batch.into_array().nbytes();
     }
-    Ok(nbytes)
+    Ok(nbytes.try_into().vortex_expect("nbytes overflow"))
 }

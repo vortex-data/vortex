@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::{cmp, iter};
 
+use futures::Stream;
 use futures::future::BoxFuture;
 use itertools::Itertools;
 pub use multi_scan::*;
@@ -13,7 +14,7 @@ pub use selection::*;
 pub use split_by::*;
 use tasks::{TaskContext, split_exec};
 use vortex_array::ArrayRef;
-use vortex_array::iter::ArrayIterator;
+use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_buffer::Buffer;
@@ -22,7 +23,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{ExprRef, root};
-use vortex_io::runtime::Handle;
+use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
 use vortex_metrics::VortexMetrics;
@@ -31,6 +32,7 @@ use crate::filter::FilterExpr;
 use crate::work_queue::{TaskFactory, WorkStealingQueue};
 use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
 
+pub mod arrow;
 mod filter;
 mod multi_scan;
 pub mod row_mask;
@@ -218,11 +220,20 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self.prepare()?.execute(None)
     }
 
-    /// Returns a [`Stream`](futures::Stream) with tasks spawned onto the scan's [`Handle`].
+    /// Returns a [`Stream`] with tasks spawned onto the scan's [`Handle`].
     pub fn into_stream(
         self,
-    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
+    ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         self.prepare()?.execute_stream(None)
+    }
+
+    /// Returns an [`Iterator`] using the given blocking runtime.
+    pub fn into_iter<B: BlockingRuntime>(
+        self,
+        runtime: B,
+    ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
+        let stream = self.with_handle(runtime.handle()).into_stream()?;
+        Ok(runtime.block_on_stream(|_| stream))
     }
 }
 
@@ -254,6 +265,19 @@ impl ScanBuilder<ArrayRef> {
         let dtype = self.dtype()?;
         let stream = self.into_stream()?;
         Ok(ArrayStreamAdapter::new(dtype, stream))
+    }
+
+    /// Returns an [`ArrayIterator`] using the given blocking runtime.
+    pub fn into_array_iter<B: BlockingRuntime>(
+        self,
+        runtime: &B,
+    ) -> VortexResult<impl ArrayIterator + 'static> {
+        let stream = self.with_handle(runtime.handle()).into_array_stream()?;
+        let dtype = stream.dtype().clone();
+        Ok(ArrayIteratorAdapter::new(
+            dtype,
+            runtime.block_on_stream(|_| stream),
+        ))
     }
 }
 
@@ -370,7 +394,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
     pub fn execute_stream(
         &self,
         row_range: Option<Range<u64>>,
-    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
+    ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         use futures::StreamExt;
         // Multiply our per-thread concurrency by ~the number of available threads.
         let concurrency = self.concurrency

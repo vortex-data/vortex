@@ -30,7 +30,7 @@ use crate::array_iterator::vx_array_iterator;
 use crate::dtype::vx_dtype;
 use crate::error::{try_or_default, vx_error};
 use crate::session::{FileKey, vx_session};
-use crate::{arc_wrapper, get_runtime, to_string_vec};
+use crate::{arc_wrapper, get_runtime, get_vx_runtime, to_string_vec};
 
 arc_wrapper!(
     /// A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.
@@ -265,8 +265,9 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         )?;
 
         let layout_reader = file.layout_reader()?;
-        let mut scan_builder =
-            ScanBuilder::new(layout_reader).with_row_offset(scan_options.row_offset);
+        let mut scan_builder = ScanBuilder::new(layout_reader)
+            .with_handle(TokioRuntime::current())
+            .with_row_offset(scan_options.row_offset);
 
         // Apply options if provided.
         if let Some(projection_expr) = scan_options.projection_expr {
@@ -285,9 +286,9 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
             scan_builder = scan_builder.with_split_by(split_by_value);
         }
 
-        Ok(vx_array_iterator::new(Box::new(
-            scan_builder.into_array_iter()?,
-        )))
+        let iter = scan_builder.into_array_iter(&get_vx_runtime())?;
+
+        Ok(vx_array_iterator::new(Box::new(iter)))
     })
 }
 
