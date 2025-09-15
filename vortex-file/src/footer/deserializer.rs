@@ -266,6 +266,7 @@ impl FooterDeserializer {
     }
 }
 
+#[derive(Debug)]
 pub enum DeserializeStep {
     // The offset and length of additional data needed to continue deserialization.
     NeedMoreData { offset: u64, len: usize },
