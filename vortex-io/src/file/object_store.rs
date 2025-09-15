@@ -12,7 +12,8 @@ use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource, IoSourceRef};
+use crate::file::IoRequest;
+use crate::file::read::{CoalesceWindow, IntoReadSource, ReadSource, ReadSourceRef};
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
@@ -22,7 +23,7 @@ const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
 const CONCURRENCY: usize = 192; // Number of concurrent requests to allow.
 
 #[cfg(feature = "object_store")]
-pub struct ObjectStoreIo {
+pub struct ObjectStoreReadSource {
     store: Arc<dyn object_store::ObjectStore>,
     path: object_store::path::Path,
     uri: Arc<str>,
@@ -31,7 +32,7 @@ pub struct ObjectStoreIo {
 }
 
 #[cfg(feature = "object_store")]
-impl ObjectStoreIo {
+impl ObjectStoreReadSource {
     pub fn new(store: Arc<dyn object_store::ObjectStore>, path: object_store::path::Path) -> Self {
         let uri = Arc::from(path.to_string());
         Self {
@@ -59,19 +60,19 @@ impl ObjectStoreIo {
     }
 }
 
-impl IntoIoSource for ObjectStoreIo {
-    fn into_io_source(self, handle: Handle) -> VortexResult<IoSourceRef> {
+impl IntoReadSource for ObjectStoreReadSource {
+    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
         Ok(Arc::new(ObjectStoreIoSource { io: self, handle }))
     }
 }
 
 struct ObjectStoreIoSource {
-    io: ObjectStoreIo,
+    io: ObjectStoreReadSource,
     handle: Handle,
 }
 
 #[cfg(feature = "object_store")]
-impl IoSource for ObjectStoreIoSource {
+impl ReadSource for ObjectStoreIoSource {
     fn uri(&self) -> &Arc<str> {
         &self.io.uri
     }
