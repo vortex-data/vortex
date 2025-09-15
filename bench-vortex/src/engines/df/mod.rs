@@ -70,6 +70,7 @@ pub fn get_session_context(disable_datafusion_cache: bool) -> SessionContext {
 
     let mut session_config = SessionConfig::default();
     session_config = session_config.set_bool("datafusion.execution.parquet.pushdown_filters", true);
+    session_config = session_config.set_bool("datafusion.execution.parquet.reorder_filters", true);
     let mut session_state_builder = SessionStateBuilder::new()
         .with_config(session_config)
         .with_runtime_env(rt)
