@@ -204,6 +204,8 @@ impl VortexWriteOptions {
             write.write_all(buffer).await?;
         }
 
+        write.flush().await?;
+
         Ok(WriteSummary {
             footer,
             size: position,

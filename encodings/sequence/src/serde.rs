@@ -112,6 +112,7 @@ mod tests {
             .write(&mut file, st.to_array_stream())
             .await
             .unwrap();
+        file.shutdown().await.unwrap();
 
         let file = VortexOpenOptions::new().open("/tmp/abc.vx").await.unwrap();
         let array = file
