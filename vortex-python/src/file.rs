@@ -12,8 +12,8 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, FieldNames, PType};
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, root, select};
-use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::layout::segments::MokaSegmentCache;
 use vortex::scan::{ScanBuilder, SplitBy};
 use vortex::{ArrayRef, ToCanonical};
 

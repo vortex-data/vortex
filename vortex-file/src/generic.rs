@@ -8,15 +8,15 @@ use futures::{StreamExt, pin_mut};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
-use vortex_layout::segments::{SegmentEvents, SegmentId};
+use vortex_layout::segments::{
+    MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
+    SegmentCacheSourceAdapter, SegmentEvents, SegmentId,
+};
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::driver::CoalescedDriver;
 use crate::footer::DeserializeStep;
-use crate::segments::{
-    InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
-    SegmentCacheSourceAdapter,
-};
+use crate::segments::InitialReadSegmentCache;
 use crate::{EOF_SIZE, FileType, Footer, MAX_POSTSCRIPT_SIZE, VortexFile, VortexOpenOptions};
 
 #[cfg(feature = "tokio")]

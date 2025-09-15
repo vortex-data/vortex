@@ -27,12 +27,14 @@ getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 kanal = { workspace = true }
 log = { workspace = true }
+moka = { workspace = true, features = ["future"] }
 once_cell = { workspace = true, features = ["parking_lot"] }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
+rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true }
 vortex-array = { workspace = true }
@@ -46,6 +48,7 @@ vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-metrics = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
