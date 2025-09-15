@@ -7,10 +7,23 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexExpect, vortex_err};
+use vortex_error::{vortex_err, VortexExpect};
 use vortex_metrics::{Histogram, Timer, VortexMetrics};
 
-/// A trait for types that support asynchronous reads.
+/// The read trait used within Vortex.
+///
+/// This trait provides async positional reads to underlying storage and is used by the vortex-file
+/// crate to read data from files or object stores.
+///
+/// It behaves a little differently from a typical async read trait in order to provide us with
+/// some nice additional semantics for use within Vortex.
+///
+/// ## Semantics
+///
+///
+///
+///
+///
 ///
 /// References to the type must be safe to [share across threads][Send], but spawned
 /// futures may be `!Send` to support thread-per-core implementations.
