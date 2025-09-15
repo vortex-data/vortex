@@ -123,7 +123,8 @@ impl TryFromDataFusion<DFOperator> for Operator {
 }
 
 pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> bool {
-    // We currently do not support pushdown of dynamic expressions in DF
+    // We currently do not support pushdown of dynamic expressions in DF.
+    // See issue: https://github.com/vortex-data/vortex/issues/4034
     if is_dynamic_physical_expr(expr) {
         return false;
     }
