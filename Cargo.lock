@@ -6625,6 +6625,7 @@ dependencies = [
  "anyhow",
  "arrow-array",
  "arrow-buffer",
+ "async-compat",
  "bindgen",
  "bitvec",
  "cbindgen",

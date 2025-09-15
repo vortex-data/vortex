@@ -23,6 +23,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
+async-compat = { workspace = true }
 bitvec = { workspace = true }
 futures = { workspace = true }
 glob = { workspace = true }
