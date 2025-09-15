@@ -8,8 +8,9 @@ use futures::Stream;
 use pin_project_lite::pin_project;
 use vortex_error::VortexExpect;
 
-use crate::file::request::{CoalescedRequest, IoRequest, ReadRequest, RequestId};
-use crate::file::{CoalesceWindow, ReadEvent};
+use crate::file::read::{
+    CoalesceWindow, CoalescedRequest, IoRequest, ReadEvent, ReadRequest, RequestId,
+};
 
 pin_project! {
     /// A stream that performs coalescing and prioritization of I/O requests.
@@ -104,7 +105,7 @@ struct State {
 
 impl State {
     fn on_event(&mut self, event: ReadEvent) {
-        log::trace!("Received ReadEvent: {:?}", event);
+        log::debug!("Received ReadEvent: {:?}", event);
         match event {
             ReadEvent::Request(req) => {
                 self.requests_by_offset.insert((req.offset, req.id));
@@ -118,11 +119,11 @@ impl State {
             ReadEvent::Dropped(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
-                    log::trace!("ReadRequest dropped before poll: {:?}", req);
+                    log::debug!("ReadRequest dropped before poll: {:?}", req);
                 }
                 if let Some(req) = self.polled_requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
-                    log::trace!("ReadRequest dropped after poll: {:?}", req);
+                    log::debug!("ReadRequest dropped after poll: {:?}", req);
                 }
             }
         }
@@ -141,7 +142,7 @@ impl State {
         while let Some((req_id, req)) = self.polled_requests.pop_first() {
             self.requests_by_offset.remove(&(req.offset, req_id));
             if req.callback.is_closed() {
-                log::trace!("Dropping canceled request");
+                log::debug!("Dropping canceled request");
                 continue;
             }
             return Some(req);
@@ -234,7 +235,7 @@ impl State {
         requests.sort_unstable_by_key(|r| r.offset);
 
         log::debug!(
-            "Coalesced {} requests into range {}-{} (len={})",
+            "Coalesced {} requests into range {}..{} (len={})",
             requests.len(),
             current_start,
             current_end,
@@ -256,8 +257,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::file::request::ReadRequest;
-    use crate::file::{IoRequestInner, ReadEvent};
+    use crate::file::{IoRequestInner, ReadEvent, ReadRequest};
 
     fn create_request(
         id: usize,

@@ -12,26 +12,34 @@ use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource, IoSourceRef};
+use crate::file::IoRequest;
+use crate::file::read::{CoalesceWindow, IntoReadSource, ReadSource, ReadSourceRef};
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
-    distance: 4 * 1024, // 4 KB
-    max_size: 8 * 1024, // 8 KB
+    // TODO(ngates): these numbers don't make sense if we're using spawn_blocking..
+    distance: 8 * 1024, // KB
+    max_size: 8 * 1024, // KB
 };
-const CONCURRENCY: usize = 64;
+const CONCURRENCY: usize = 32;
 
-impl IntoIoSource for PathBuf {
-    fn into_io_source(self, handle: Handle) -> VortexResult<IoSourceRef> {
-        self.as_path().into_io_source(handle)
+impl IntoReadSource for PathBuf {
+    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
+        self.as_path().into_read_source(handle)
     }
 }
 
-impl IntoIoSource for &Path {
-    fn into_io_source(self, handle: Handle) -> VortexResult<IoSourceRef> {
+impl IntoReadSource for &Path {
+    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
         let uri = self.to_string_lossy().to_string().into();
         let file = Arc::new(File::open(self)?);
         Ok(Arc::new(FileIoSource { uri, file, handle }))
+    }
+}
+
+impl IntoReadSource for &str {
+    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
+        Path::new(self).into_read_source(handle)
     }
 }
 
@@ -41,7 +49,7 @@ pub(crate) struct FileIoSource {
     handle: Handle,
 }
 
-impl IoSource for FileIoSource {
+impl ReadSource for FileIoSource {
     fn uri(&self) -> &Arc<str> {
         &self.uri
     }
@@ -64,26 +72,23 @@ impl IoSource for FileIoSource {
         requests: BoxStream<'static, IoRequest>,
     ) -> BoxFuture<'static, ()> {
         requests
-            .map(move |req| {
+            // Amortize the cost of spawn_blocking by batching available requests.
+            // Too much batching, and we reduce concurrency.
+            .ready_chunks(1)
+            .map(move |reqs| {
                 let file = self.file.clone();
-                let handle = self.handle.clone();
-                async move {
-                    let offset = req.offset();
-                    let len = req.len();
-                    let alignment = req.alignment();
-
-                    let result = handle
-                        .spawn_blocking(move || {
-                            let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-                            unsafe { buffer.set_len(len) };
-                            match file.read_exact_at(&mut buffer, offset) {
-                                Ok(()) => Ok(buffer.freeze()),
-                                Err(e) => Err(VortexError::from(e)),
-                            }
+                self.handle.spawn_blocking(move || {
+                    for req in reqs {
+                        let len = req.len();
+                        let offset = req.offset();
+                        let mut buffer = ByteBufferMut::with_capacity_aligned(len, req.alignment());
+                        unsafe { buffer.set_len(len) };
+                        req.resolve(match file.read_exact_at(&mut buffer, offset) {
+                            Ok(()) => Ok(buffer.freeze()),
+                            Err(e) => Err(VortexError::from(e)),
                         })
-                        .await;
-                    req.resolve(result);
-                }
+                    }
+                })
             })
             .buffer_unordered(CONCURRENCY)
             .collect::<()>()

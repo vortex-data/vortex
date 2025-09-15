@@ -5,11 +5,11 @@ use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::task::{Context, Poll, ready};
 
+use futures::channel::mpsc;
 use futures::{FutureExt, StreamExt};
 use vortex_error::{VortexResult, vortex_panic};
 
-use crate::file::{FileRead, IntoIoSource, IoRequestStream};
-use crate::kanal_ext::KanalExt;
+use crate::file::{FileRead, IntoReadSource, IoRequestStream};
 use crate::runtime::{AbortHandleRef, Executor, IoTask};
 
 /// A handle to an active Vortex runtime.
@@ -135,18 +135,14 @@ impl Handle {
     }
 
     /// Open a file for I/O on this runtime.
-    pub fn open_read<S: IntoIoSource>(&self, source: S) -> VortexResult<FileRead<'_>> {
-        let source = source.into_io_source(self.clone())?;
+    pub fn open_read<S: IntoReadSource>(&self, source: S) -> VortexResult<FileRead> {
+        let source = source.into_read_source(self.clone())?;
 
-        let (send, recv) = kanal::unbounded();
+        let (send, recv) = mpsc::unbounded();
 
         let read = FileRead::new(source.uri().clone(), source.size(), send);
 
-        let stream = IoRequestStream::new(
-            StreamExt::boxed(recv.to_async().into_stream()),
-            source.coalesce_window(),
-        )
-        .boxed();
+        let stream = IoRequestStream::new(StreamExt::boxed(recv), source.coalesce_window()).boxed();
 
         self.runtime().spawn_io(IoTask::new(source, stream));
 
