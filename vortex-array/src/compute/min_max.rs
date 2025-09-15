@@ -22,6 +22,10 @@ static MIN_MAX_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    MIN_MAX_FN.kernels().len()
+}
+
 /// The minimum and maximum non-null values of an array, or None if there are no non-null values.
 ///
 /// The return value dtype is the non-nullable version of the array dtype.

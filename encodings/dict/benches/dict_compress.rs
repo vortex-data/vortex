@@ -6,11 +6,13 @@
 use divan::Bencher;
 use rand::distr::{Distribution, StandardUniform};
 use vortex_array::arrays::{VarBinArray, VarBinViewArray};
+use vortex_array::compute::warm_up_vtables;
 use vortex_dict::builders::dict_encode;
 use vortex_dict::test::{gen_primitive_for_dict, gen_varbin_words};
 use vortex_dtype::NativePType;
 
 fn main() {
+    warm_up_vtables();
     divan::main();
 }
 

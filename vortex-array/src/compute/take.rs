@@ -22,6 +22,10 @@ static TAKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    TAKE_FN.kernels().len() + TAKE_FROM_FN.kernels().len()
+}
+
 /// Creates a new array using the elements from the input `array` indexed by `indices`.
 ///
 /// For example, if we have an `array` `[1, 2, 3, 4, 5]` and `indices` `[4, 2]`, the resulting

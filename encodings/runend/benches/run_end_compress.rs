@@ -7,7 +7,7 @@ use divan::Bencher;
 use itertools::repeat_n;
 use num_traits::PrimInt;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::take;
+use vortex_array::compute::{take, warm_up_vtables};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
@@ -16,6 +16,7 @@ use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 
 fn main() {
+    warm_up_vtables();
     divan::main();
 }
 

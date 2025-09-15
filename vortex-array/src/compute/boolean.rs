@@ -23,6 +23,10 @@ static BOOLEAN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    BOOLEAN_FN.kernels().len()
+}
+
 /// Point-wise logical _and_ between two Boolean arrays.
 ///
 /// This method uses Arrow-style null propagation rather than the Kleene logic semantics. This

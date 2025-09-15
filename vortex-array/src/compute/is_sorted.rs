@@ -23,6 +23,10 @@ static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    IS_SORTED_FN.kernels().len()
+}
+
 pub fn is_sorted(array: &dyn Array) -> VortexResult<Option<bool>> {
     is_sorted_opts(array, false)
 }

@@ -11,7 +11,7 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::filter;
+use vortex_array::compute::{filter, warm_up_vtables};
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Element, Kernel, KernelContext, N, N_WORDS};
@@ -25,6 +25,7 @@ use vortex_mask::Mask;
 static GLOBAL: MiMalloc = MiMalloc;
 
 pub fn main() {
+    warm_up_vtables();
     divan::main();
 }
 

@@ -23,6 +23,10 @@ static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    IS_CONSTANT_FN.kernels().len()
+}
+
 /// Computes whether an array has constant values. If the array's encoding doesn't implement the
 /// relevant VTable, it'll try and canonicalize in order to make a determination.
 ///

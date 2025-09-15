@@ -21,6 +21,10 @@ static NAN_COUNT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    NAN_COUNT_FN.kernels().len()
+}
+
 /// Computes the number of NaN values in the array.
 pub fn nan_count(array: &dyn Array) -> VortexResult<usize> {
     Ok(NAN_COUNT_FN

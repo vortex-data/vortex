@@ -21,6 +21,10 @@ static SUM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    SUM_FN.kernels().len()
+}
+
 /// Sum an array.
 ///
 /// If the sum overflows, a null scalar will be returned.

@@ -19,6 +19,10 @@ static INVERT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    INVERT_FN.kernels().len()
+}
+
 /// Logically invert a boolean array, preserving its validity.
 pub fn invert(array: &dyn Array) -> VortexResult<ArrayRef> {
     INVERT_FN

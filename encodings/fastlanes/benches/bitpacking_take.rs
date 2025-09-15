@@ -10,12 +10,13 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng, rng};
 use vortex_array::IntoArray as _;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::take;
+use vortex_array::compute::{take, warm_up_vtables};
 use vortex_array::validity::Validity;
 use vortex_buffer::{Buffer, buffer};
 use vortex_fastlanes::bitpack_to_best_bit_width;
 
 fn main() {
+    warm_up_vtables();
     divan::main();
 }
 

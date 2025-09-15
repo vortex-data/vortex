@@ -24,6 +24,10 @@ static MASK_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    MASK_FN.kernels().len()
+}
+
 /// Replace values with null where the mask is true.
 ///
 /// The returned array is nullable but otherwise has the same dtype and length as `array`.

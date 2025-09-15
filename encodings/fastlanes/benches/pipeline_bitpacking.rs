@@ -9,7 +9,7 @@ use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_array::compute::filter;
+use vortex_array::compute::{filter, warm_up_vtables};
 use vortex_array::pipeline::{Element, export_canonical_pipeline_expr};
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
@@ -21,6 +21,7 @@ use vortex_mask::Mask;
 static GLOBAL: MiMalloc = MiMalloc;
 
 pub fn main() {
+    warm_up_vtables();
     divan::main();
 }
 

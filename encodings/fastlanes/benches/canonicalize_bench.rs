@@ -6,11 +6,13 @@ use rand::SeedableRng;
 use rand::prelude::StdRng;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
+use vortex_array::compute::warm_up_vtables;
 use vortex_array::{Array, IntoArray};
 use vortex_error::VortexExpect;
 use vortex_fastlanes::test_harness::make_array;
 
 fn main() {
+    warm_up_vtables();
     divan::main();
 }
 

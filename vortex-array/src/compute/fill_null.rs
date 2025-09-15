@@ -20,6 +20,10 @@ static FILL_NULL_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    FILL_NULL_FN.kernels().len()
+}
+
 pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     FILL_NULL_FN
         .invoke(&InvocationArgs {

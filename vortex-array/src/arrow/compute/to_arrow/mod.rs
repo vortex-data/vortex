@@ -33,6 +33,10 @@ static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    TO_ARROW_FN.kernels().len()
+}
+
 /// Convert a Vortex array to an Arrow array with the encoding's preferred `DataType`.
 ///
 /// For example, a `VarBinArray` will be converted to an Arrow `VarBin` array, instead of the

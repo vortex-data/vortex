@@ -25,6 +25,10 @@ static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    FILTER_FN.kernels().len()
+}
+
 /// Keep only the elements for which the corresponding mask value is true.
 ///
 /// # Examples

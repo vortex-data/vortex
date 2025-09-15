@@ -7,11 +7,12 @@ use std::str::from_utf8;
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{ConstantArray, VarBinArray, VarBinViewArray};
-use vortex_array::compute::{Operator, compare};
+use vortex_array::compute::{Operator, compare, warm_up_vtables};
 use vortex_dict::builders::dict_encode;
 use vortex_dict::test::{gen_primitive_for_dict, gen_varbin_words};
 
 fn main() {
+    warm_up_vtables();
     divan::main();
 }
 

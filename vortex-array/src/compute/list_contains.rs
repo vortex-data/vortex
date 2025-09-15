@@ -31,6 +31,10 @@ static LIST_CONTAINS_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    LIST_CONTAINS_FN.kernels().len()
+}
+
 /// Compute a `Bool`-typed array the same length as `array` where elements is `true` if the list
 /// item contains the `value`, `false` otherwise.
 ///

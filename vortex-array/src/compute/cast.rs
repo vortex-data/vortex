@@ -19,6 +19,10 @@ static CAST_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    CAST_FN.kernels().len()
+}
+
 /// Attempt to cast an array to a desired DType.
 ///
 /// Some array support the ability to narrow or upcast.

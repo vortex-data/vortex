@@ -35,6 +35,10 @@ pub static ZIP_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    ZIP_FN.kernels().len()
+}
+
 struct Zip;
 
 impl ComputeFnVTable for Zip {

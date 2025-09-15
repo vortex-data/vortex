@@ -27,6 +27,10 @@ static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    COMPARE_FN.kernels().len()
+}
+
 /// Compares two arrays and returns a new boolean array with the result of the comparison.
 /// Or, returns None if comparison is not supported for these arrays.
 pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> VortexResult<ArrayRef> {

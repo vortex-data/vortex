@@ -25,6 +25,10 @@ static BETWEEN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    BETWEEN_FN.kernels().len()
+}
+
 /// Compute between (a <= x <= b).
 ///
 /// This is an optimized implementation that is equivalent to `(a <= x) AND (x <= b)`.

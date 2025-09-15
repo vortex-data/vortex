@@ -23,6 +23,10 @@ static NUMERIC_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    NUMERIC_FN.kernels().len()
+}
+
 /// Point-wise add two numeric arrays.
 ///
 /// Errs at runtime if the sum would overflow or underflow.

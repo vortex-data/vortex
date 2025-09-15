@@ -8,11 +8,13 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
 use vortex_alp::{ALPFloat, ALPRDFloat, RDEncoder, alp_encode};
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_dtype::NativePType;
 
 fn main() {
+    warm_up_vtables();
     divan::main();
 }
 

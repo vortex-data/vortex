@@ -21,6 +21,10 @@ static LIKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+pub(crate) fn warm_up_vtable() -> usize {
+    LIKE_FN.kernels().len()
+}
+
 /// Perform SQL left LIKE right
 ///
 /// There are two wildcards supported with the LIKE operator:
