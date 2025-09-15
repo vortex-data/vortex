@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Connectors to enable [DataFusion](https://docs.rs/datafusion/latest/datafusion/) to read [`Vortex`](https://docs.rs/crate/vortex/latest) data.
-#![deny(missing_docs)]
 use std::fmt::Debug;
 
 use datafusion_common::stats::Precision as DFPrecision;
