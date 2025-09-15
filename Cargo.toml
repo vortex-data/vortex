@@ -102,7 +102,7 @@ divan = { package = "codspeed-divan-compat", version = "3.0" }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
 erased-serde = "0.4"
-fastlanes = "0.2.1"
+fastlanes = "0.2.2"
 flatbuffers = "25.2.10"
 fsst-rs = "0.5.2"
 futures = { version = "0.3.31", default-features = false }
