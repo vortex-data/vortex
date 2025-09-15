@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::ScanBuilder;
 use arrow_array::cast::AsArray;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, DataType, SchemaRef};
-use vortex_array::ArrayRef;
 use vortex_array::arrow::IntoArrowArray;
+use vortex_array::ArrayRef;
 use vortex_error::{VortexError, VortexResult};
-
-use crate::ScanBuilder;
+use vortex_io::runtime::BlockingRuntime;
 
 impl ScanBuilder<ArrayRef> {
     /// Creates a new thread-safe `RecordBatchReader` from the scan builder.
@@ -99,9 +99,9 @@ mod tests {
         Array, ArrayRef as ArrowArrayRef, Int32Array, RecordBatch, StringArray, StructArray,
     };
     use arrow_schema::{ArrowError, DataType, Field, Schema};
-    use vortex_array::ArrayRef;
     use vortex_array::arrow::FromArrowArray;
-    use vortex_error::{VortexResult, vortex_err};
+    use vortex_array::ArrayRef;
+    use vortex_error::{vortex_err, VortexResult};
 
     use super::*;
 

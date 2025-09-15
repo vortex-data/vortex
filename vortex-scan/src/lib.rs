@@ -406,10 +406,10 @@ impl RepeatedScan<ArrayRef> {
     pub fn execute_array_stream(
         &self,
         row_range: Option<Range<u64>>,
-    ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'static> {
+    ) -> VortexResult<impl ArrayStream + Send + 'static> {
         let dtype = self.dtype.clone();
         let stream = self.execute_stream(row_range)?;
-        Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
+        Ok(ArrayStreamAdapter::new(dtype, stream))
     }
 }
 
