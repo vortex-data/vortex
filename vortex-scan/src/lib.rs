@@ -6,41 +6,35 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::{cmp, iter};
 
-use futures::Stream;
 use futures::future::BoxFuture;
+use futures::Stream;
 use itertools::Itertools;
-pub use multi_scan::*;
 pub use selection::*;
 pub use split_by::*;
-use tasks::{TaskContext, split_exec};
-use vortex_array::ArrayRef;
+use tasks::{split_exec, TaskContext};
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
+use vortex_array::ArrayRef;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::{root, ExprRef};
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
 use vortex_metrics::VortexMetrics;
 
 use crate::filter::FilterExpr;
-use crate::work_queue::{TaskFactory, WorkStealingQueue};
-use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
 
 pub mod arrow;
 mod filter;
-mod multi_scan;
 pub mod row_mask;
 mod selection;
 mod split_by;
 mod tasks;
-mod work_queue;
-mod work_stealing_iter;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
@@ -411,19 +405,15 @@ impl<A: 'static + Send> RepeatedScan<A> {
 }
 
 impl RepeatedScan<ArrayRef> {
-    pub fn execute_array_iter(
+    pub fn execute_array_iter<B: BlockingRuntime>(
         &self,
         row_range: Option<Range<u64>>,
-    ) -> VortexResult<impl ArrayIterator + Send + Clone + 'static> {
+        runtime: &B,
+    ) -> VortexResult<impl ArrayIterator + 'static> {
         let dtype = self.dtype.clone();
-        let tasks = self.execute(row_range)?;
-        let queue = WorkStealingQueue::new([Box::new(move || Ok(tasks)) as TaskFactory<ArrayTask>]);
-
-        Ok(WorkStealingArrayIterator::new(
-            queue,
-            Arc::new(dtype),
-            self.concurrency,
-        ))
+        let stream = self.execute_stream(row_range)?;
+        let iter = runtime.block_on_stream(move |h| stream);
+        Ok(ArrayIteratorAdapter::new(dtype, iter))
     }
 
     pub fn execute_array_stream(
@@ -444,6 +434,3 @@ fn intersect_ranges(left: Option<&Range<u64>>, right: Option<Range<u64>>) -> Opt
         (Some(l), Some(r)) => Some(cmp::max(l.start, r.start)..cmp::min(l.end, r.end)),
     }
 }
-
-#[cfg(test)]
-mod tests;

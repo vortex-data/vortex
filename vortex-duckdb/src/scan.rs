@@ -22,7 +22,7 @@ use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
+use std::task::{Context, Poll};
 use url::Url;
 use vortex::dtype::FieldNames;
 use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -377,7 +377,7 @@ impl TableFunction for VortexTableFunction {
                     streams: scan_streams.boxed(),
                     streams_finished: false,
                     select_all: Default::default(),
-                    max_concurrency: num_workers * 8,
+                    max_concurrency: num_workers * 2,
                 }),
             batch_id: AtomicU64::new(0),
         })
@@ -467,14 +467,20 @@ impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
 
         loop {
             // First, try to pull from the SelectAll of active streams.
-            match ready!(this.select_all.poll_next_unpin(cx)) {
-                None => {
+            match this.select_all.poll_next_unpin(cx) {
+                Poll::Ready(None) => {
                     if this.streams_finished {
                         // All streams are done
                         return Poll::Ready(None);
                     }
                 }
-                Some(result) => return Poll::Ready(Some(result)),
+                Poll::Ready(Some(result)) => return Poll::Ready(Some(result)),
+                Poll::Pending => {
+                    if this.select_all.len() >= this.max_concurrency {
+                        // We have enough active streams, so return Pending for now.
+                        return Poll::Pending;
+                    }
+                }
             }
 
             // If all current streams returned `Poll::Pending`, then we try to fetch the next
