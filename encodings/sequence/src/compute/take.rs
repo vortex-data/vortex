@@ -4,8 +4,10 @@
 use num_traits::cast::NumCast;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter};
+use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
-use vortex_dtype::{NativePType, match_each_native_ptype};
+use vortex_buffer::Buffer;
+use vortex_dtype::{NativePType, Nullability, match_each_native_ptype};
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -38,12 +40,15 @@ fn take<T: NativePType, S: NativePType>(
 ) -> PrimitiveArray {
     match is_valid {
         Some(mask) => {
-            PrimitiveArray::from_option_iter(indices.iter().enumerate().map(|(mask_index, i)| {
-                mask.value(mask_index).then(|| {
+            let buffer = Buffer::from_iter(indices.iter().enumerate().map(|(mask_index, i)| {
+                if mask.value(mask_index) {
                     let i = <S as NumCast>::from::<T>(*i).vortex_expect("all valid indices fit");
                     base + i * mul
-                })
-            }))
+                } else {
+                    S::zero()
+                }
+            }));
+            PrimitiveArray::new(buffer, Validity::from_mask(mask, Nullability::Nullable))
         }
         None => PrimitiveArray::from_iter(indices.iter().map(|i| {
             let i = <S as NumCast>::from::<T>(*i).vortex_expect("all indices fit");
