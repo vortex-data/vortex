@@ -128,16 +128,19 @@ impl DType {
     }
 
     /// Get a new `DType` with [`Nullability::NonNullable`] (but otherwise the same as `self`)
+    #[inline]
     pub fn as_nonnullable(&self) -> Self {
         self.with_nullability(Nullability::NonNullable)
     }
 
     /// Get a new `DType` with [`Nullability::Nullable`] (but otherwise the same as `self`)
+    #[inline]
     pub fn as_nullable(&self) -> Self {
         self.with_nullability(Nullability::Nullable)
     }
 
     /// Get a new DType with the given nullability (but otherwise the same as `self`)
+    #[inline]
     pub fn with_nullability(&self, nullability: Nullability) -> Self {
         match self {
             Null => Null,
@@ -221,16 +224,19 @@ impl DType {
     }
 
     /// Check if `self` is a boolean
+    #[inline]
     pub fn is_boolean(&self) -> bool {
         matches!(self, Bool(_))
     }
 
     /// Check if `self` is a primitive type
+    #[inline]
     pub fn is_primitive(&self) -> bool {
         matches!(self, Primitive(_, _))
     }
 
     /// Returns this [`DType`]'s [`PType`] if it is a primitive type, otherwise panics.
+    #[inline]
     pub fn as_ptype(&self) -> PType {
         if let Primitive(ptype, _) = self {
             *ptype
@@ -240,6 +246,7 @@ impl DType {
     }
 
     /// Check if `self` is an unsigned integer
+    #[inline]
     pub fn is_unsigned_int(&self) -> bool {
         if let Primitive(ptype, _) = self {
             return ptype.is_unsigned_int();
@@ -248,6 +255,7 @@ impl DType {
     }
 
     /// Check if `self` is a signed integer
+    #[inline]
     pub fn is_signed_int(&self) -> bool {
         if let Primitive(ptype, _) = self {
             return ptype.is_signed_int();
@@ -256,6 +264,7 @@ impl DType {
     }
 
     /// Check if `self` is an integer (signed or unsigned)
+    #[inline]
     pub fn is_int(&self) -> bool {
         if let Primitive(ptype, _) = self {
             return ptype.is_int();
@@ -264,6 +273,7 @@ impl DType {
     }
 
     /// Check if `self` is a floating point number
+    #[inline]
     pub fn is_float(&self) -> bool {
         if let Primitive(ptype, _) = self {
             return ptype.is_float();
@@ -272,41 +282,49 @@ impl DType {
     }
 
     /// Check if `self` is a [`DType::Decimal`].
+    #[inline]
     pub fn is_decimal(&self) -> bool {
         matches!(self, Decimal(..))
     }
 
     /// Check if `self` is a [`DType::Utf8`]
+    #[inline]
     pub fn is_utf8(&self) -> bool {
         matches!(self, Utf8(_))
     }
 
     /// Check if `self` is a [`DType::Binary`]
+    #[inline]
     pub fn is_binary(&self) -> bool {
         matches!(self, Binary(_))
     }
 
     /// Check if `self` is a [`DType::List`].
+    #[inline]
     pub fn is_list(&self) -> bool {
         matches!(self, List(_, _))
     }
 
     /// Check if `self` is a [`DType::FixedSizeList`],
+    #[inline]
     pub fn is_fixed_size_list(&self) -> bool {
         matches!(self, FixedSizeList(..))
     }
 
     /// Check if `self` is a [`DType::Struct`]
+    #[inline]
     pub fn is_struct(&self) -> bool {
         matches!(self, Struct(_, _))
     }
 
     /// Check if `self` is a [`DType::Extension`] type
+    #[inline]
     pub fn is_extension(&self) -> bool {
         matches!(self, Extension(_))
     }
 
     /// Check returns the inner decimal type if the dtype is a [`DType::Decimal`].
+    #[inline]
     pub fn as_decimal_opt(&self) -> Option<&DecimalDType> {
         if let Decimal(decimal, _) = self {
             Some(decimal)
@@ -318,6 +336,7 @@ impl DType {
     /// Get the inner element dtype if `self` is a [`DType::List`], otherwise returns `None`.
     ///
     /// Note that this does _not_ return `Some` if `self` is a [`DType::FixedSizeList`].
+    #[inline]
     pub fn as_list_element_opt(&self) -> Option<&Arc<DType>> {
         if let List(edt, _) = self {
             Some(edt)
@@ -330,6 +349,7 @@ impl DType {
     /// `None`.
     ///
     /// Note that this does _not_ return `Some` if `self` is a [`DType::List`].
+    #[inline]
     pub fn as_fixed_size_list_element_opt(&self) -> Option<&Arc<DType>> {
         if let FixedSizeList(edt, ..) = self {
             Some(edt)
@@ -340,6 +360,7 @@ impl DType {
 
     /// Get the inner element dtype if `self` is **either** a [`DType::List`] or a
     /// [`DType::FixedSizeList`], otherwise returns `None`
+    #[inline]
     pub fn as_any_size_list_element_opt(&self) -> Option<&Arc<DType>> {
         if let FixedSizeList(edt, ..) = self {
             Some(edt)
@@ -351,6 +372,7 @@ impl DType {
     }
 
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
+    #[inline]
     pub fn as_struct_fields_opt(&self) -> Option<&StructFields> {
         if let Struct(f, _) = self {
             Some(f)
@@ -365,6 +387,7 @@ impl DType {
     }
 
     /// Convenience method for creating a [`DType::Struct`].
+    #[inline]
     pub fn struct_<I: IntoIterator<Item = (impl Into<FieldName>, impl Into<FieldDType>)>>(
         iter: I,
         nullability: Nullability,
