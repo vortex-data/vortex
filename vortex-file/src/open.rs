@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 use vortex_array::ArrayRegistry;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex_io::file::IntoReadSource;
 use vortex_io::runtime::Handle;
 use vortex_io::{InstrumentedReadAt, VortexReadAt};
@@ -22,7 +22,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
 use crate::segments::{FileSegmentSource, InitialReadSegmentCache};
-use crate::{DeserializeStep, VortexFile, DEFAULT_REGISTRY, EOF_SIZE, MAX_POSTSCRIPT_SIZE};
+use crate::{DEFAULT_REGISTRY, DeserializeStep, EOF_SIZE, MAX_POSTSCRIPT_SIZE, VortexFile};
 
 const INITIAL_READ_SIZE: usize = 1 << 20; // 1 MB
 
