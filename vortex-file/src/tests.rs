@@ -17,17 +17,17 @@ use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, ByteBufferMut, buffer};
+use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dict::{DictEncoding, DictVTable};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
-use vortex_expr::{PackExpr, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
+use vortex_expr::{and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select, PackExpr};
 use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
 
-use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
+use crate::{VortexFile, VortexOpenOptions, VortexWriteOptions, V1_FOOTER_FBS_SIZE, VERSION};
 
 #[test]
 fn test_eof_values() {
@@ -1195,7 +1195,7 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
         .await?;
 
     let file = VortexOpenOptions::new().open_buffer(buf)?;
-    let stream = file.scan().unwrap().into_tokio_array_stream()?;
+    let stream = file.scan().unwrap().into_array_stream()?;
     let array = stream.read_all().await?;
 
     assert_eq!(array.len(), 8);
