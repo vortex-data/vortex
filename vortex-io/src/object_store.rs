@@ -14,7 +14,6 @@ use object_store::{
     GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, ObjectStoreScheme,
     PutPayload, PutResult,
 };
-use smol::future::FutureExt;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
