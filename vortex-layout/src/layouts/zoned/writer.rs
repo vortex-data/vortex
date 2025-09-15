@@ -155,4 +155,8 @@ impl LayoutStrategy for ZonedStrategy {
         )
         .into_layout())
     }
+
+    fn buffered_bytes(&self) -> u64 {
+        self.child.buffered_bytes() + self.stats.buffered_bytes()
+    }
 }

@@ -133,6 +133,11 @@ impl LayoutStrategy for FlatLayoutStrategy {
                 .into_layout(),
         )
     }
+
+    fn buffered_bytes(&self) -> u64 {
+        // FlatLayoutStrategy is a leaf strategy with no child strategies and no buffering
+        0
+    }
 }
 
 #[cfg(test)]

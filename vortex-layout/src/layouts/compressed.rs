@@ -153,4 +153,8 @@ impl LayoutStrategy for CompressingStrategy {
             )
             .await
     }
+
+    fn buffered_bytes(&self) -> u64 {
+        self.child.buffered_bytes()
+    }
 }

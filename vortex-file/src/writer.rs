@@ -222,12 +222,14 @@ impl VortexWriteOptions {
 
         let write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
+        let strategy = self.strategy.clone();
         let future = self.write(write, arrays).boxed_local().fuse();
 
         Writer {
             arrays: Some(arrays_send),
             future,
             bytes_written,
+            strategy,
         }
     }
 }
@@ -240,6 +242,8 @@ pub struct Writer<'w> {
     future: Fuse<LocalBoxFuture<'w, VortexResult<WriteSummary>>>,
     // The bytes written so far.
     bytes_written: Arc<AtomicU64>,
+    // The layout strategy that is being used for the write.
+    strategy: Arc<dyn LayoutStrategy>,
 }
 
 impl Writer<'_> {
@@ -317,6 +321,17 @@ impl Writer<'_> {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Returns the number of bytes currently buffered by the layout writers.
+    pub fn buffered_bytes(&self) -> u64 {
+        self.strategy.buffered_bytes()
+    }
+
+    /// Returns the total number of bytes (written + buffered).
+    /// This provides a more accurate estimate of the final file size.
+    pub fn total_bytes(&self) -> u64 {
+        self.bytes_written() + self.buffered_bytes()
+    }
+
     /// Finish writing the Vortex file, flushing any remaining buffers and returning the
     /// new file's footer.
     pub async fn finish(mut self) -> VortexResult<WriteSummary> {
@@ -387,6 +402,14 @@ impl<B: BlockingRuntime> BlockingWriter<'_, B> {
 
     pub fn bytes_written(&self) -> u64 {
         self.writer.bytes_written()
+    }
+
+    pub fn buffered_bytes(&self) -> u64 {
+        self.writer.buffered_bytes()
+    }
+
+    pub fn total_bytes(&self) -> u64 {
+        self.writer.total_bytes()
     }
 
     pub fn finish(self) -> VortexResult<WriteSummary> {

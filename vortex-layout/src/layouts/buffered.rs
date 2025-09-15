@@ -3,6 +3,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_stream::try_stream;
 use async_trait::async_trait;
@@ -21,6 +22,7 @@ use crate::{LayoutRef, LayoutStrategy};
 pub struct BufferedStrategy {
     child: Arc<dyn LayoutStrategy>,
     buffer_size: u64,
+    buffered_bytes: Arc<AtomicU64>,
 }
 
 impl BufferedStrategy {
@@ -28,6 +30,7 @@ impl BufferedStrategy {
         Self {
             child: Arc::new(child),
             buffer_size,
+            buffered_bytes: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -50,13 +53,16 @@ impl LayoutStrategy for BufferedStrategy {
         // cause deadlocks with other columns that are waiting for us to flush.
         let mut final_flush = eof.split_off();
 
+        let buffered_bytes_counter = self.buffered_bytes.clone();
         let buffered_stream = try_stream! {
             let mut nbytes = 0u64;
             let mut chunks = VecDeque::new();
 
             while let Some(chunk) = stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;
-                nbytes += chunk.nbytes();
+                let chunk_size = chunk.nbytes();
+                nbytes += chunk_size;
+                buffered_bytes_counter.fetch_add(chunk_size, Ordering::Relaxed);
                 chunks.push_back(chunk);
 
                 if nbytes < 2 * buffer_size {
@@ -70,13 +76,17 @@ impl LayoutStrategy for BufferedStrategy {
                     let Some(chunk) = chunks.pop_front() else {
                         break;
                     };
-                    nbytes -= chunk.nbytes();
+                    let chunk_size = chunk.nbytes();
+                    nbytes -= chunk_size;
+                    buffered_bytes_counter.fetch_sub(chunk_size, Ordering::Relaxed);
                     yield (sequence_ptr.advance(), chunk)
                 }
             }
 
             // Now the input stream has ended, flush everything
             while let Some(chunk) = chunks.pop_front() {
+                let chunk_size = chunk.nbytes();
+                buffered_bytes_counter.fetch_sub(chunk_size, Ordering::Relaxed);
                 yield (final_flush.advance(), chunk)
             }
         };
@@ -90,5 +100,9 @@ impl LayoutStrategy for BufferedStrategy {
                 handle,
             )
             .await
+    }
+
+    fn buffered_bytes(&self) -> u64 {
+        self.buffered_bytes.load(Ordering::Relaxed) + self.child.buffered_bytes()
     }
 }

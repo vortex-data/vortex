@@ -184,6 +184,10 @@ impl LayoutStrategy for DictStrategy {
         )
         .into_layout())
     }
+
+    fn buffered_bytes(&self) -> u64 {
+        self.codes.buffered_bytes() + self.values.buffered_bytes() + self.fallback.buffered_bytes()
+    }
 }
 
 enum DictionaryChunk {

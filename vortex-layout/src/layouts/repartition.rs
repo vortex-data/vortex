@@ -122,6 +122,14 @@ impl LayoutStrategy for RepartitionStrategy {
             )
             .await
     }
+
+    fn buffered_bytes(&self) -> u64 {
+        // TODO(os): we should probably add the buffered bytes from this strategy on top,
+        // it is currently better to not add it at all because these buffered arrays are
+        // potentially sliced and uncompressed. They would overestimate the actual bytes
+        // that will end up in the file when flushed.
+        self.child.buffered_bytes()
+    }
 }
 
 struct ChunksBuffer {

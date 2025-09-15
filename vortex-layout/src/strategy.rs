@@ -53,5 +53,14 @@ pub trait LayoutStrategy: 'static + Send + Sync {
         eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef>;
+
+    /// Returns the number of bytes currently buffered by this strategy and any child strategies.
+    ///
+    /// This method allows tracking of data that has been processed by the strategy but not yet
+    /// written to the underlying sink, providing more accurate estimates of final file size
+    /// during write operations.
+    fn buffered_bytes(&self) -> u64 {
+        0
+    }
 }
 // [layout writer]
