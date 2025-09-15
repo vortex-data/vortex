@@ -12,7 +12,7 @@ use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use linked_hash_set::LinkedHashSet;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_io::{PerformanceHint, VortexReadAt};
 use vortex_layout::segments::{SegmentEvent, SegmentId, SegmentRequest};
 use vortex_metrics::{Counter, VortexMetrics};
@@ -424,10 +424,9 @@ impl CoalescedSegmentRequest {
     pub async fn launch<R: VortexReadAt>(self, read: R) {
         let alignment = self.segment_map[*self.requests[0].id() as usize].alignment;
         let byte_range = self.byte_range.clone();
-        let buffer = read
-            .read_byte_range(byte_range, alignment)
-            .await
-            .map_err(VortexError::from);
+        let length =
+            usize::try_from(byte_range.end - byte_range.start).vortex_expect("too big for usize");
+        let buffer = read.read_at(byte_range.start, length, alignment).await;
         self.resolve(buffer)
     }
 }
