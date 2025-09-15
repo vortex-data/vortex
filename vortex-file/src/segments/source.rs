@@ -4,8 +4,7 @@
 use std::sync::Arc;
 
 use futures::TryFutureExt;
-use moka::future::FutureExt;
-use vortex_error::{VortexError, vortex_err};
+use vortex_error::{vortex_err, VortexError};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 

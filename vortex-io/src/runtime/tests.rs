@@ -4,8 +4,8 @@
 #![cfg(feature = "tokio")]
 #![allow(clippy::cast_possible_truncation)]
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
@@ -15,9 +15,10 @@ use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexResult;
 
 use crate::file::{IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
-use crate::runtime::Handle;
 use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;
+use crate::runtime::Handle;
+use crate::VortexReadAt;
 
 // Test data
 const TEST_DATA: &[u8] = b"Hello, World! This is test data for FileRead.";
@@ -37,7 +38,7 @@ fn test_file_read_with_single_thread_runtime() {
 
             // Read a slice
             let result = file_read
-                .read(TEST_OFFSET, TEST_LEN, Alignment::new(1))
+                .read_at(TEST_OFFSET, TEST_LEN, Alignment::new(1))
                 .await
                 .unwrap();
             assert_eq!(
@@ -47,7 +48,7 @@ fn test_file_read_with_single_thread_runtime() {
 
             // Read the entire file
             let full = file_read
-                .read(0, TEST_DATA.len(), Alignment::new(1))
+                .read_at(0, TEST_DATA.len(), Alignment::new(1))
                 .await
                 .unwrap();
             assert_eq!(full.as_slice(), TEST_DATA);
@@ -67,7 +68,7 @@ async fn test_file_read_with_tokio_runtime() {
 
     // Read a slice
     let result = file_read
-        .read(TEST_OFFSET, TEST_LEN, Alignment::new(1))
+        .read_at(TEST_OFFSET, TEST_LEN, Alignment::new(1))
         .await
         .unwrap();
     assert_eq!(
@@ -77,7 +78,7 @@ async fn test_file_read_with_tokio_runtime() {
 
     // Read the entire file
     let full = file_read
-        .read(0, TEST_DATA.len(), Alignment::new(1))
+        .read_at(0, TEST_DATA.len(), Alignment::new(1))
         .await
         .unwrap();
     assert_eq!(full.as_slice(), TEST_DATA);
@@ -103,7 +104,7 @@ fn test_file_read_with_real_file_single_thread() {
 
             // Read a slice
             let result = file_read
-                .read(TEST_OFFSET, TEST_LEN, Alignment::new(1))
+                .read_at(TEST_OFFSET, TEST_LEN, Alignment::new(1))
                 .await
                 .unwrap();
             assert_eq!(
@@ -113,7 +114,7 @@ fn test_file_read_with_real_file_single_thread() {
 
             // Read the entire file
             let full = file_read
-                .read(0, TEST_DATA.len(), Alignment::new(1))
+                .read_at(0, TEST_DATA.len(), Alignment::new(1))
                 .await
                 .unwrap();
             assert_eq!(full.as_slice(), TEST_DATA);
@@ -139,7 +140,7 @@ async fn test_file_read_with_real_file_tokio() {
 
     // Read a slice
     let result = file_read
-        .read(TEST_OFFSET, TEST_LEN, Alignment::new(1))
+        .read_at(TEST_OFFSET, TEST_LEN, Alignment::new(1))
         .await
         .unwrap();
     assert_eq!(
@@ -149,7 +150,7 @@ async fn test_file_read_with_real_file_tokio() {
 
     // Read the entire file
     let full = file_read
-        .read(0, TEST_DATA.len(), Alignment::new(1))
+        .read_at(0, TEST_DATA.len(), Alignment::new(1))
         .await
         .unwrap();
     assert_eq!(full.as_slice(), TEST_DATA);
@@ -167,10 +168,10 @@ async fn test_concurrent_reads() {
 
     // Issue multiple concurrent reads
     let futures = vec![
-        file_read.read(0, 5, Alignment::new(1)),
-        file_read.read(5, 5, Alignment::new(1)),
-        file_read.read(10, 5, Alignment::new(1)),
-        file_read.read(15, 5, Alignment::new(1)),
+        file_read.read_at(0, 5, Alignment::new(1)),
+        file_read.read_at(5, 5, Alignment::new(1)),
+        file_read.read_at(10, 5, Alignment::new(1)),
+        file_read.read_at(15, 5, Alignment::new(1)),
     ];
 
     let results = futures::future::join_all(futures).await;
@@ -285,9 +286,9 @@ async fn test_custom_io_source() {
     let file_read = handle.open_read(source).unwrap();
 
     // Perform several reads
-    let _ = file_read.read(0, 5, Alignment::new(1)).await.unwrap();
-    let _ = file_read.read(5, 5, Alignment::new(1)).await.unwrap();
-    let _ = file_read.read(10, 5, Alignment::new(1)).await.unwrap();
+    let _ = file_read.read_at(0, 5, Alignment::new(1)).await.unwrap();
+    let _ = file_read.read_at(5, 5, Alignment::new(1)).await.unwrap();
+    let _ = file_read.read_at(10, 5, Alignment::new(1)).await.unwrap();
 
     // Check that our custom IoSource was called 3 times
     assert_eq!(read_count.load(Ordering::SeqCst), 3);
@@ -304,11 +305,11 @@ async fn test_read_out_of_bounds() {
     let file_read = handle.open_read(buffer).unwrap();
 
     // Try to read beyond the buffer
-    let result = file_read.read(100, 10, Alignment::new(1)).await;
+    let result = file_read.read_at(100, 10, Alignment::new(1)).await;
     assert!(result.is_err());
 
     // Try to read with length that exceeds buffer
-    let result = file_read.read(40, 20, Alignment::new(1)).await;
+    let result = file_read.read_at(40, 20, Alignment::new(1)).await;
     assert!(result.is_err());
 }
 

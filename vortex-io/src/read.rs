@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::io;
-use std::ops::Range;
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use std::sync::Arc;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_metrics::{Histogram, Timer, VortexMetrics};
@@ -164,7 +161,7 @@ pub struct InstrumentedReadAt<T: VortexReadAt> {
 impl<T: VortexReadAt> InstrumentedReadAt<T> {
     pub fn new(read: Arc<T>, metrics: &VortexMetrics) -> Self {
         Self {
-            read: Arc::new(read),
+            read,
             sizes: metrics.histogram("vortex.io.read.size"),
             durations: metrics.timer("vortex.io.read.duration"),
         }

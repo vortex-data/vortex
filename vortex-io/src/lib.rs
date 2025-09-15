@@ -16,8 +16,6 @@ pub use limit::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
 pub use read::*;
-#[cfg(feature = "tokio")]
-pub use tokio::*;
 pub use write::*;
 
 mod dispatcher;

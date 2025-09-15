@@ -8,21 +8,21 @@ use parking_lot::RwLock;
 use vortex_array::ArrayRegistry;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_io::file::IntoReadSource;
 use vortex_io::runtime::Handle;
 use vortex_io::{InstrumentedReadAt, VortexReadAt};
-use vortex_layout::segments::SegmentId;
+use vortex_layout::segments::{
+    NoOpSegmentCache, SegmentCache, SegmentCacheMetrics, SegmentCacheSourceAdapter, SegmentId,
+    SharedSegmentSource,
+};
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
-use crate::segments::{
-    FileSegmentSource, InitialReadSegmentCache, NoOpSegmentCache, SegmentCache,
-    SegmentCacheMetrics, SegmentCacheSourceAdapter,
-};
-use crate::{DEFAULT_REGISTRY, DeserializeStep, EOF_SIZE, MAX_POSTSCRIPT_SIZE, VortexFile};
+use crate::segments::{FileSegmentSource, InitialReadSegmentCache};
+use crate::{DeserializeStep, VortexFile, DEFAULT_REGISTRY, EOF_SIZE, MAX_POSTSCRIPT_SIZE};
 
 const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
@@ -199,7 +199,10 @@ impl VortexOpenOptions {
         ));
 
         // Create a segment source backed by the VortexReadAt implementation.
-        let segment_source = Arc::new(FileSegmentSource::new(footer.segment_map().clone(), read));
+        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::new(
+            footer.segment_map().clone(),
+            read,
+        )));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
         let segment_source = Arc::new(SegmentCacheSourceAdapter::new(
@@ -228,7 +231,7 @@ impl VortexOpenOptions {
         let initial_offset = file_size - initial_read_size;
         let initial_read: ByteBuffer = read
             .clone()
-            .read_byte_range(initial_offset..file_size, Alignment::none())
+            .read_at(initial_offset, initial_read_size, Alignment::none())
             .await?;
 
         let mut deserializer = Footer::deserializer(initial_read)
@@ -242,7 +245,7 @@ impl VortexOpenOptions {
                 DeserializeStep::NeedMoreData { offset, len } => {
                     let more_data = read
                         .clone()
-                        .read_byte_range(offset..offset + (len as u64), Alignment::none())
+                        .read_at(offset..offset + (len as u64), Alignment::none())
                         .await?;
                     deserializer.prefix_data(more_data);
                 }

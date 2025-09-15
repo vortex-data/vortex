@@ -6,11 +6,10 @@ mod source;
 
 use std::fmt;
 use std::fmt::{Debug, Display};
-use std::ops::Range;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::task::{Context, Poll, ready};
+use std::sync::Arc;
+use std::task::{ready, Context, Poll};
 
 use async_trait::async_trait;
 use futures::channel::mpsc;
@@ -19,7 +18,7 @@ use futures::{FutureExt, TryFutureExt};
 pub use request::*;
 pub use source::*;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexResult};
 
 use crate::VortexReadAt;
 
@@ -89,52 +88,13 @@ impl FileRead {
     pub fn uri(&self) -> &Arc<str> {
         &self.uri
     }
-
-    /// Submits a read request for the specified byte range and alignment.
-    pub fn read(&self, offset: u64, length: usize, alignment: Alignment) -> ReadFuture {
-        let (send, recv) = oneshot::channel();
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let event = ReadEvent::Request(ReadRequest {
-            id,
-            offset,
-            length,
-            alignment,
-            callback: send,
-        });
-
-        // If we fail to submit the event, we create a ReadFuture that has already failed.
-        if let Err(e) = self.events.unbounded_send(event) {
-            let (send, recv) = oneshot::channel();
-            let _ = send.send(Err(vortex_err!("Failed to submit read request: {e}")));
-            return ReadFuture {
-                id,
-                recv,
-                polled: false,
-                events: self.events.clone(),
-            };
-        }
-
-        ReadFuture {
-            id,
-            recv,
-            polled: false,
-            events: self.events.clone(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum ReadEvent {
-    Request(ReadRequest),
-    Polled(RequestId),
-    Dropped(RequestId),
 }
 
 /// A future that resolves a read request from a [`FileRead`].
 ///
 /// See the documentation for [`FileRead`] for details on coalescing and pre-fetching.
 /// If dropped, the read request will be canceled where possible.
-pub struct ReadFuture {
+struct ReadFuture {
     id: usize,
     recv: oneshot::Receiver<VortexResult<ByteBuffer>>,
     polled: bool,
@@ -168,24 +128,46 @@ impl Drop for ReadFuture {
     }
 }
 
+#[derive(Debug)]
+pub(crate) enum ReadEvent {
+    Request(ReadRequest),
+    Polled(RequestId),
+    Dropped(RequestId),
+}
+
 #[async_trait]
 impl VortexReadAt for FileRead {
-    fn read_byte_range(
+    fn read_at(
         &self,
-        range: Range<u64>,
+        offset: u64,
+        length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, std::io::Result<ByteBuffer>> {
-        let length = usize::try_from(range.end - range.start)
-            .vortex_expect("Read range too large for usize");
-        self.read(range.start, length, alignment)
-            .map_err(|e| std::io::Error::other(format!("Vortex read error: {e}")))
-            .boxed()
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        let (send, recv) = oneshot::channel();
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let event = ReadEvent::Request(ReadRequest {
+            id,
+            offset,
+            length,
+            alignment,
+            callback: send,
+        });
+
+        // If we fail to submit the event, we create a future that has failed.
+        if let Err(e) = self.events.unbounded_send(event) {
+            return async move { Err(vortex_err!("Failed to submit read request: {e}")) }.boxed();
+        }
+
+        ReadFuture {
+            id,
+            recv,
+            polled: false,
+            events: self.events.clone(),
+        }
+        .boxed()
     }
 
-    async fn size(&self) -> std::io::Result<u64> {
-        self.size
-            .clone()
-            .await
-            .map_err(|e| std::io::Error::other(format!("Vortex read error: {e}")))
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.size.clone().map_err(VortexError::from).boxed()
     }
 }
