@@ -103,7 +103,7 @@ def test_fixed_size_list_scalar_access():
     assert scalar.element(2) == 3
 
 
-def test_round_trip_preservation():
+def test_fixed_size_list_with_f64_elements():
     """Test that FixedSizeList survives a round trip through Vortex."""
     # Create a complex FixedSizeList array
     pa_type = pa.list_(pa.float64(), 4)
