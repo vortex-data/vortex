@@ -22,7 +22,6 @@ const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
 };
 const CONCURRENCY: usize = 192; // Number of concurrent requests to allow.
 
-#[cfg(feature = "object_store")]
 pub struct ObjectStoreReadSource {
     store: Arc<dyn object_store::ObjectStore>,
     path: object_store::path::Path,
@@ -31,7 +30,6 @@ pub struct ObjectStoreReadSource {
     coalesce_window: Option<CoalesceWindow>,
 }
 
-#[cfg(feature = "object_store")]
 impl ObjectStoreReadSource {
     pub fn new(store: Arc<dyn object_store::ObjectStore>, path: object_store::path::Path) -> Self {
         let uri = Arc::from(path.to_string());
@@ -71,7 +69,6 @@ struct ObjectStoreIoSource {
     handle: Handle,
 }
 
-#[cfg(feature = "object_store")]
 impl ReadSource for ObjectStoreIoSource {
     fn uri(&self) -> &Arc<str> {
         &self.io.uri

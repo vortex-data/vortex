@@ -373,10 +373,6 @@ impl FileFormat for VortexFormat {
         _state: &dyn Session,
         file_scan_config: FileScanConfig,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        if !file_scan_config.table_partition_cols.is_empty() {
-            return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
-        }
-
         if !file_scan_config.output_ordering.is_empty() {
             return not_impl_err!("Vortex doesn't support output ordering");
         }
@@ -400,10 +396,6 @@ impl FileFormat for VortexFormat {
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         if conf.insert_op != InsertOp::Append {
             return not_impl_err!("Overwrites are not implemented yet for Vortex");
-        }
-
-        if !conf.table_partition_cols.is_empty() {
-            return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
 
         let schema = conf.output_schema().clone();
@@ -442,7 +434,8 @@ mod tests {
             .sql(&format!(
                 "CREATE EXTERNAL TABLE my_tbl \
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
-                STORED AS vortex LOCATION '{}'",
+                STORED AS vortex  \
+                LOCATION '{}'",
                 dir.path().to_str().unwrap()
             ))
             .await
@@ -464,7 +457,8 @@ mod tests {
             .sql(&format!(
                 "CREATE EXTERNAL TABLE my_tbl \
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
-                STORED AS vortex LOCATION '{}' \
+                STORED AS vortex \
+                LOCATION '{}' \
                 OPTIONS( segment_cache_size_mb '5' );",
                 dir.path().to_str().unwrap()
             ))

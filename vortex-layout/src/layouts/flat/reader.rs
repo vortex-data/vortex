@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 use vortex_array::compute::filter;
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::pipeline::{
-    export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset, N,
+    N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
 };
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
@@ -19,13 +19,13 @@ use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{is_root, ExprRef, Scope, VortexExprExt};
+use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
 use vortex_mask::Mask;
 
-use crate::layouts::flat::FlatLayout;
-use crate::layouts::SharedArrayFuture;
-use crate::segments::SegmentSource;
 use crate::LayoutReader;
+use crate::layouts::SharedArrayFuture;
+use crate::layouts::flat::FlatLayout;
+use crate::segments::SegmentSource;
 
 /// The threshold of mask density below which we will evaluate the expression only over the
 /// selected rows, and above which we evaluate the expression over all rows and then select
@@ -304,10 +304,10 @@ mod test {
     use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;
 
+    use crate::LayoutStrategy as _;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
-    use crate::LayoutStrategy as _;
 
     #[test]
     fn flat_identity() {

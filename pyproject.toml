@@ -52,6 +52,9 @@ select = ["F", "E", "W", "UP", "I"]
 # Do not auto-fix unused variables. This is really annoying when IntelliJ runs autofix while editing.
 unfixable = ["F841"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["vortex.scan", "vortex.file", "vortex.expr", "vortex.ray", "vortex.type_aliases", "vortex.polars_"]
+
 [tool.pytest.ini_options]
 log_cli = true
 log_cli_level = "INFO"

@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use handle::BoxFuture;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_err, VortexExpect};
+use vortex_error::{VortexExpect, vortex_err};
 use vortex_metrics::{Histogram, Timer, VortexMetrics};
 
 /// The trait used internally in Vortex for performing read operations.
@@ -168,10 +168,10 @@ where
         let durations = self.durations.snapshot();
         log::debug!(
             "Read duration: p50={}ms p95={}ms p99={}ms p999={}ms",
-            durations.value(0.5) as f64 / 1_000_000.0,
-            durations.value(0.95) as f64 / 1_000_000.0,
-            durations.value(0.99) as f64 / 1_000_000.0,
-            durations.value(0.999) as f64 / 1_000_000.0
+            durations.value(0.5) / 1_000_000.0,
+            durations.value(0.95) / 1_000_000.0,
+            durations.value(0.99) / 1_000_000.0,
+            durations.value(0.999) / 1_000_000.0
         );
     }
 }

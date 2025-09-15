@@ -8,9 +8,9 @@ use std::fmt;
 use std::fmt::{Debug, Display};
 use std::ops::Range;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::task::{Context, Poll, ready};
 
 use async_trait::async_trait;
 use futures::channel::mpsc;
@@ -19,7 +19,7 @@ use futures::{FutureExt, TryFutureExt};
 pub use request::*;
 pub use source::*;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_err, SharedVortexResult, VortexExpect, VortexResult};
+use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_err};
 
 use crate::VortexReadAt;
 

@@ -252,7 +252,7 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use futures::{stream, StreamExt};
+    use futures::{StreamExt, stream};
     use vortex_buffer::{Alignment, ByteBuffer};
     use vortex_error::VortexResult;
 
