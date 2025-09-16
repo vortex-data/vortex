@@ -4,8 +4,9 @@
 use arrow_array::cast::AsArray;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, DataType, SchemaRef};
-use vortex_array::arrow::IntoArrowArray;
+use futures::{Stream, StreamExt};
 use vortex_array::ArrayRef;
+use vortex_array::arrow::IntoArrowArray;
 use vortex_error::{VortexError, VortexResult};
 use vortex_io::runtime::BlockingRuntime;
 
@@ -29,6 +30,19 @@ impl ScanBuilder<ArrayRef> {
             .map(move |chunk| to_record_batch(chunk, &data_type));
 
         Ok(RecordBatchIteratorAdapter { iter, schema })
+    }
+
+    pub fn into_record_batch_stream(
+        self,
+        schema: SchemaRef,
+    ) -> VortexResult<impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static> {
+        let data_type = DataType::Struct(schema.fields().clone());
+
+        let stream = self
+            .into_array_stream()?
+            .map(move |chunk| to_record_batch(chunk, &data_type));
+
+        Ok(stream)
     }
 }
 
@@ -90,9 +104,9 @@ mod tests {
         Array, ArrayRef as ArrowArrayRef, Int32Array, RecordBatch, StringArray, StructArray,
     };
     use arrow_schema::{ArrowError, DataType, Field, Schema};
-    use vortex_array::arrow::FromArrowArray;
     use vortex_array::ArrayRef;
-    use vortex_error::{vortex_err, VortexResult};
+    use vortex_array::arrow::FromArrowArray;
+    use vortex_error::{VortexResult, vortex_err};
 
     use super::*;
 

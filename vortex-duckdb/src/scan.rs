@@ -468,6 +468,8 @@ impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
 
         loop {
             // First, try to pull from the SelectAll of active streams.
+            // This means we prefer to complete existing work before starting new work, unless it
+            // all returns Poll::Pending.
             match this.select_all.poll_next_unpin(cx) {
                 Poll::Ready(None) => {
                     if this.streams_finished {
@@ -477,10 +479,7 @@ impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
                 }
                 Poll::Ready(Some(result)) => return Poll::Ready(Some(result)),
                 Poll::Pending => {
-                    if this.select_all.len() >= this.max_concurrency {
-                        // We have enough active streams, so return Pending for now.
-                        return Poll::Pending;
-                    }
+                    // None of the active streams are ready right now.
                 }
             }
 
@@ -490,7 +489,7 @@ impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
             if this.select_all.len() < this.max_concurrency {
                 match Pin::new(&mut this.streams).poll_next(cx) {
                     Poll::Ready(Some(Ok(stream))) => {
-                        // Add the new stream to SelectAll
+                        // Add the new stream to SelectAll, and continue the loop to poll it.
                         this.select_all.push(stream);
                         continue;
                     }
@@ -501,13 +500,20 @@ impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
                     Poll::Ready(None) => {
                         // No more streams available from the source
                         this.streams_finished = true;
-                        continue;
+                        if this.select_all.is_empty() {
+                            // No active streams, so we're done.
+                            return Poll::Ready(None);
+                        }
+                        return Poll::Pending;
                     }
                     Poll::Pending => {
                         // Can't get more streams right now
                         return Poll::Pending;
                     }
                 }
+            } else {
+                // We have enough active streams, so just wait for one of them to yield.
+                return Poll::Pending;
             }
         }
     }
