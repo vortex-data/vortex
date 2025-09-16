@@ -324,6 +324,20 @@ impl FieldDType {
         }
     }
 
+    /// Get the nullability of the `DType`.
+    pub fn nullability(&self) -> Nullability {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.nullability(),
+            FieldDTypeInner::View(view) => view.nullability(),
+        }
+    }
+
+    /// Union the nullability of this `FieldDType` with the other nullability, returning a new `FieldDType`.
+    pub fn union_nullability(&self, other: Nullability) -> Self {
+        let nullability = self.nullability() | other;
+        self.with_nullability(nullability)
+    }
+
     /// Get the `StructFields` if `self` is a struct type, otherwise `None`
     pub fn as_struct_fields_opt(&self) -> Option<StructFields> {
         match &self.inner {

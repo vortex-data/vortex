@@ -9,8 +9,8 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, dtype as fbd};
 
 use crate::{
-    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, StructFields,
-    flatbuffers as fb,
+    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldDType, Nullability, PType,
+    StructFields, flatbuffers as fb,
 };
 
 mod project;
@@ -135,6 +135,86 @@ impl ViewedDType {
     /// Check if this dtype is an extension type
     pub fn is_extension(&self) -> bool {
         matches!(self.flatbuffer().type_type(), fb::Type::Extension)
+    }
+
+    /// Get the nullability of this dtype
+    pub fn nullability(&self) -> Nullability {
+        match self.flatbuffer().type_type() {
+            fb::Type::Null => Nullability::Nullable, // Null is always nullable
+            fb::Type::Bool => {
+                if let Some(bool_fb) = self.flatbuffer().type__as_bool() {
+                    bool_fb.nullable().into()
+                } else {
+                    Nullability::NonNullable
+                }
+            }
+            fb::Type::Primitive => {
+                if let Some(prim_fb) = self.flatbuffer().type__as_primitive() {
+                    prim_fb.nullable().into()
+                } else {
+                    Nullability::NonNullable
+                }
+            }
+            fb::Type::Decimal => {
+                if let Some(dec_fb) = self.flatbuffer().type__as_decimal() {
+                    dec_fb.nullable().into()
+                } else {
+                    Nullability::NonNullable
+                }
+            }
+            fb::Type::Binary => {
+                if let Some(bin_fb) = self.flatbuffer().type__as_binary() {
+                    bin_fb.nullable().into()
+                } else {
+                    Nullability::NonNullable
+                }
+            }
+            fb::Type::Utf8 => {
+                if let Some(utf8_fb) = self.flatbuffer().type__as_utf_8() {
+                    utf8_fb.nullable().into()
+                } else {
+                    Nullability::NonNullable
+                }
+            }
+            fb::Type::List => {
+                if let Some(list_fb) = self.flatbuffer().type__as_list() {
+                    list_fb.nullable().into()
+                } else {
+                    Nullability::NonNullable
+                }
+            }
+            fb::Type::FixedSizeList => {
+                if let Some(fsl_fb) = self.flatbuffer().type__as_fixed_size_list() {
+                    fsl_fb.nullable().into()
+                } else {
+                    Nullability::NonNullable
+                }
+            }
+            fb::Type::Struct_ => {
+                if let Some(struct_fb) = self.flatbuffer().type__as_struct_() {
+                    struct_fb.nullable().into()
+                } else {
+                    Nullability::NonNullable
+                }
+            }
+            fb::Type::Extension => {
+                if let Some(ext_fb) = self.flatbuffer().type__as_extension() {
+                    // For extension types, we need to get the storage dtype's nullability
+                    if let Some(storage_dtype) = ext_fb.storage_dtype() {
+                        let storage_viewed = ViewedDType::from_fb_loc(
+                            storage_dtype._tab.loc(),
+                            self.flatbuffer.clone(),
+                        );
+                        storage_viewed.nullability()
+                    } else {
+                        Nullability::NonNullable
+                    }
+                } else {
+                    Nullability::NonNullable
+                }
+            }
+            _ => Nullability::NonNullable,
+        }
     }
 }
 
