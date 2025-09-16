@@ -315,13 +315,30 @@ impl FieldDType {
     /// Get a new `FieldDType` with the given nullability (but otherwise the same as `self`)
     pub fn with_nullability(&self, nullability: Nullability) -> Self {
         match &self.inner {
-            FieldDTypeInner::Owned(dtype) => {
-                FieldDType::from(dtype.with_nullability(nullability))
-            }
+            FieldDTypeInner::Owned(dtype) => FieldDType::from(dtype.with_nullability(nullability)),
             FieldDTypeInner::View(_) => {
                 // For viewed types, we need to convert to owned first
                 let owned_dtype = self.value().vortex_expect("FieldDType should be valid");
                 FieldDType::from(owned_dtype.with_nullability(nullability))
+            }
+        }
+    }
+
+    /// Get the `StructFields` if `self` is a struct type, otherwise `None`
+    pub fn as_struct_fields_opt(&self) -> Option<StructFields> {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.as_struct_fields_opt().cloned(),
+            FieldDTypeInner::View(view) => {
+                if view.is_struct() {
+                    // For viewed struct types, we need to convert to owned to get StructFields
+                    if let Ok(owned_dtype) = self.value() {
+                        owned_dtype.as_struct_fields_opt().cloned()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             }
         }
     }
