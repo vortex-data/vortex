@@ -12,7 +12,7 @@ use vortex::file::VortexOpenOptions;
 use vortex::{Array, ArrayRef, IntoArray, ToCanonical};
 
 use crate::datasets::Dataset;
-use crate::tpch::tpchgen::{generate_tpch_tables, TpchGenOptions};
+use crate::tpch::tpchgen::{TpchGenOptions, generate_tpch_tables};
 use crate::{Format, IdempotentPath};
 
 pub struct TPCHLCommentChunked;

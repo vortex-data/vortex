@@ -5,22 +5,22 @@ use std::cmp::max;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
 use async_compat::Compat;
 use futures::stream::{BoxStream, SelectAll};
-use futures::{stream, FutureExt, Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt, stream};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
 use vortex::dtype::FieldNames;
-use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex::expr::{and, and_collect, col, lit, root, select, ExprRef};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::io::runtime::current::{CurrentThreadRuntime, ThreadSafeIterator};
 use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::current::{CurrentThreadRuntime, ThreadSafeIterator};
 use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
