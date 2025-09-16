@@ -145,21 +145,21 @@ fn new_array_exporter(
     array: &dyn Array,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    if let Some(array) = array.as_opt::<ConstantVTable>() {
-        return constant::new_exporter(array);
-    }
+    // if let Some(array) = array.as_opt::<ConstantVTable>() {
+    //     return constant::new_exporter(array);
+    // }
 
-    if let Some(array) = array.as_opt::<RunEndVTable>() {
-        return run_end::new_exporter(array, cache);
-    }
+    // if let Some(array) = array.as_opt::<RunEndVTable>() {
+    //     return run_end::new_exporter(array, cache);
+    // }
 
-    if let Some(array) = array.as_opt::<DictVTable>() {
-        return dict::new_exporter(array, cache);
-    }
+    // if let Some(array) = array.as_opt::<DictVTable>() {
+    //     return dict::new_exporter(array, cache);
+    // }
 
-    if let Some(array) = array.as_opt::<SequenceVTable>() {
-        return sequence::new_exporter(array);
-    }
+    // if let Some(array) = array.as_opt::<SequenceVTable>() {
+    //     return sequence::new_exporter(array);
+    // }
 
     // Otherwise, we fall back to canonical
     match array.to_canonical() {
