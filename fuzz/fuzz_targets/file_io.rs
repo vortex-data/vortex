@@ -134,7 +134,11 @@ fn has_nullable_struct(dtype: &DType) -> bool {
     dtype.is_struct() && dtype.is_nullable()
         || dtype
             .as_struct_fields_opt()
-            .map(|sdt| sdt.fields().any(|dtype| has_nullable_struct(&dtype)))
+            .map(|sdt| {
+                sdt.fields().any(|dtype| {
+                    has_nullable_struct(&dtype.value().vortex_expect("must be valid buffer"))
+                })
+            })
             .unwrap_or(false)
         || dtype
             .as_list_element_opt()
@@ -155,7 +159,7 @@ fn has_duplicate_field_names(dtype: &DType) -> bool {
 fn struct_has_duplicate_names(struct_dtype: &StructFields) -> bool {
     HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
         != struct_dtype.names().len()
-        || struct_dtype
-            .fields()
-            .any(|dtype| has_duplicate_field_names(&dtype))
+        || struct_dtype.fields().any(|dtype| {
+            has_duplicate_field_names(&dtype.value().vortex_expect("must be valid buffer"))
+        })
 }

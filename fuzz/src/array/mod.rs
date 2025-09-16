@@ -221,7 +221,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<usize> {
     match dtype {
         DType::Struct(sdt, _) => sdt
             .fields()
-            .map(|child| actions_for_dtype(&child))
+            .map(|child| actions_for_dtype(&child.value().vortex_expect("must be valid buffer")))
             // exclude compare
             .fold(nested_actions.into(), |acc, actions| {
                 acc.intersection(&actions).copied().collect()

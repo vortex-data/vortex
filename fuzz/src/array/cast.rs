@@ -48,7 +48,7 @@ pub enum CastOutcome {
 
 pub fn allowed_casting(from: &DType, to: &DType) -> Option<CastOutcome> {
     // Can cast to include nullability
-    if &from.with_nullability(Nullable) == to {
+    if from.with_nullability(Nullable) == to {
         return Some(CastOutcome::Infallible);
     }
     match (from, to) {
