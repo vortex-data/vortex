@@ -7,6 +7,7 @@ use std::task::{Context, Poll};
 use futures::Stream;
 use pin_project_lite::pin_project;
 use vortex_error::VortexExpect;
+use vortex_metrics::VortexMetrics;
 
 use crate::file::read::{
     CoalesceWindow, CoalescedRequest, IoRequest, ReadEvent, ReadRequest, RequestId,
@@ -34,7 +35,11 @@ pin_project! {
 impl<S> IoRequestStream<S> {
     // FIXME(ngates): split this into coalesce_distance and max_read_size. We should keep
     //  expanding the request by coalesce_distance, but stop if we hit max_read_size.
-    pub(crate) fn new(events: S, coalesce_window: Option<CoalesceWindow>) -> Self
+    pub(crate) fn new(
+        events: S,
+        coalesce_window: Option<CoalesceWindow>,
+        metrics: VortexMetrics,
+    ) -> Self
     where
         S: Stream<Item = ReadEvent> + Unpin + Send + 'static,
     {
@@ -42,7 +47,7 @@ impl<S> IoRequestStream<S> {
             events,
             inner_done: false,
             coalesce_window,
-            state: State::default(),
+            state: State::new(metrics),
         }
     }
 }
@@ -88,7 +93,6 @@ where
 }
 
 /// The state of the I/O request stream.
-#[derive(Default)]
 struct State {
     // Maintains the set of pending requests, ordered by insertion.
     requests: BTreeMap<RequestId, ReadRequest>,
@@ -101,9 +105,21 @@ struct State {
 
     // Spatial index - allows us to find nearby requests for coalescing sorted by offset.
     requests_by_offset: BTreeSet<(u64, RequestId)>,
+
+    // Metrics for tracking I/O request patterns
+    metrics: VortexMetrics,
 }
 
 impl State {
+    fn new(metrics: VortexMetrics) -> Self {
+        Self {
+            requests: BTreeMap::new(),
+            polled_requests: BTreeMap::new(),
+            requests_by_offset: BTreeSet::new(),
+            metrics,
+        }
+    }
+
     fn on_event(&mut self, event: ReadEvent) {
         log::debug!("Received ReadEvent: {:?}", event);
         match event {
@@ -132,8 +148,22 @@ impl State {
     /// Get the next request, if any.
     fn next(&mut self, coalesce_window: Option<&CoalesceWindow>) -> Option<IoRequest> {
         match coalesce_window {
-            None => self.next_uncoalesced().map(IoRequest::new_single),
-            Some(window) => self.next_coalesced(window).map(IoRequest::new_coalesced),
+            None => self.next_uncoalesced().map(|request| {
+                self.metrics.counter("io.requests.individual").inc();
+                IoRequest::new_single(request)
+            }),
+            Some(window) => self.next_coalesced(window).map(|request| {
+                match request.requests.len() {
+                    1 => self.metrics.counter("io.requests.individual").inc(),
+                    num_requests => {
+                        self.metrics.counter("io.requests.coalesced").inc();
+                        self.metrics
+                            .histogram("io.requests.coalesced.num_coalesced")
+                            .update(num_requests as i64);
+                    }
+                };
+                IoRequest::new_coalesced(request)
+            }),
         }
     }
 
@@ -282,7 +312,8 @@ mod tests {
         coalesce_window: Option<CoalesceWindow>,
     ) -> Vec<IoRequest> {
         let event_stream = stream::iter(events);
-        let io_stream = IoRequestStream::new(event_stream, coalesce_window);
+        let metrics = VortexMetrics::default();
+        let io_stream = IoRequestStream::new(event_stream, coalesce_window, metrics);
         io_stream.collect().await
     }
 
@@ -523,5 +554,108 @@ mod tests {
         assert_eq!(outputs.len(), 2);
         assert_eq!(outputs[0].range(), 0..20);
         assert_eq!(outputs[1].range(), 1000..1010);
+    }
+
+    #[tokio::test]
+    async fn test_metrics_tracking() {
+        let (req1, _rx1) = create_request(1, 0, 10);
+        let (req2, _rx2) = create_request(2, 10, 10);
+        let (req3, _rx3) = create_request(3, 1000, 10);
+
+        let events = vec![
+            // First group - will coalesce (2 requests)
+            ReadEvent::Request(req1),
+            ReadEvent::Request(req2),
+            ReadEvent::Polled(1),
+            ReadEvent::Polled(2),
+            // Second group - single request, far away
+            ReadEvent::Request(req3),
+            ReadEvent::Polled(3),
+        ];
+
+        let event_stream = stream::iter(events);
+        let metrics = VortexMetrics::default();
+        let io_stream = IoRequestStream::new(
+            event_stream,
+            Some(CoalesceWindow {
+                distance: 5,
+                max_size: 1024,
+            }),
+            metrics.clone(),
+        );
+
+        let outputs: Vec<IoRequest> = io_stream.collect().await;
+        assert_eq!(outputs.len(), 2);
+
+        let snapshot = metrics.snapshot();
+        let mut individual_count = 0i64;
+        let mut coalesced_operations = 0i64;
+        let mut coalesced_histogram_count = 0u64;
+
+        for (metric_id, metric) in snapshot.iter() {
+            match metric {
+                vortex_metrics::Metric::Counter(counter) => {
+                    if metric_id.name() == "io.requests.individual" {
+                        individual_count = counter.count();
+                    } else if metric_id.name() == "io.requests.coalesced" {
+                        coalesced_operations = counter.count();
+                    }
+                }
+                vortex_metrics::Metric::Histogram(histogram) => {
+                    if metric_id.name() == "io.requests.coalesced.num_coalesced" {
+                        coalesced_histogram_count = histogram.count();
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Should have 1 individual request (req3) and 1 coalesced operation (req1+req2)
+        assert_eq!(individual_count, 1, "Expected 1 individual request");
+        assert_eq!(coalesced_operations, 1, "Expected 1 coalesced operation");
+        assert_eq!(
+            coalesced_histogram_count, 1,
+            "Expected 1 histogram entry for coalesced count"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_metrics_individual_only() {
+        let (req1, _rx1) = create_request(1, 0, 10);
+        let (req2, _rx2) = create_request(2, 100, 10);
+
+        let events = vec![
+            ReadEvent::Request(req1),
+            ReadEvent::Request(req2),
+            ReadEvent::Polled(1),
+            ReadEvent::Polled(2),
+        ];
+
+        let event_stream = stream::iter(events);
+        let metrics = VortexMetrics::default();
+        // No coalescing window - should be individual requests
+        let io_stream = IoRequestStream::new(event_stream, None, metrics.clone());
+
+        let outputs: Vec<IoRequest> = io_stream.collect().await;
+        assert_eq!(outputs.len(), 2);
+
+        // Check metrics
+        let snapshot = metrics.snapshot();
+        let mut individual_count = 0i64;
+        let mut coalesced_operations = 0i64;
+
+        for (metric_id, metric) in snapshot.iter() {
+            if let vortex_metrics::Metric::Counter(counter) = metric {
+                if metric_id.name() == "io.requests.individual" {
+                    individual_count = counter.count();
+                } else if metric_id.name() == "io.requests.coalesced.num_coalesced" {
+                    coalesced_operations = counter.count();
+                }
+            }
+        }
+
+        // Should have 2 individual requests and no coalesced operations
+        assert_eq!(individual_count, 2, "Expected 2 individual requests");
+        assert_eq!(coalesced_operations, 0, "Expected 0 coalesced operations");
     }
 }
