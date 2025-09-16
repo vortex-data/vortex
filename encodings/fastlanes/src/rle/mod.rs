@@ -11,6 +11,7 @@ use vortex_array::vtable::{
     ValidityVTableFromValidityHelper,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
+use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_ensure};
 
@@ -78,8 +79,6 @@ impl RLEArray {
         value_chunks_offsets: &dyn Array,
         validity: Validity,
     ) -> VortexResult<()> {
-        use vortex_dtype::Nullability::NonNullable;
-
         if let Some(validity_length) = validity.maybe_len() {
             vortex_ensure!(
                 validity_length == indices.len(),

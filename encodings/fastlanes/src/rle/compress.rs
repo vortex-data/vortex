@@ -18,9 +18,7 @@ use crate::{FL_CHUNK_SIZE, RLEArray};
 impl RLEArray {
     /// Encodes a primitive array of unsigned integers using FastLanes RLE.
     pub fn encode(array: &PrimitiveArray) -> VortexResult<Self> {
-        vortex_dtype::match_each_unsigned_integer_ptype!(array.ptype(), |T| {
-            rle_encode_typed::<T>(array)
-        })
+        match_each_unsigned_integer_ptype!(array.ptype(), |T| { rle_encode_typed::<T>(array) })
     }
 }
 
@@ -58,11 +56,8 @@ where
 
         // SAFETY:
         // `MaybeUninit<T>` and `T` have the same layout.
-        let rle_vals: &mut [T] = unsafe {
-            std::mem::transmute(
-                &mut values_uninit[value_count_acc..value_count_acc + FL_CHUNK_SIZE],
-            )
-        };
+        let rle_vals: &mut [T] =
+            unsafe { std::mem::transmute(&mut values_uninit[value_count_acc..][..FL_CHUNK_SIZE]) };
 
         // SAFETY:
         // `MaybeUninit<u16>` and `u16` have the same layout.
