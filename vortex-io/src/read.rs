@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::{FutureExt, StreamExt as _};
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_metrics::{Histogram, Timer, VortexMetrics};
+
+use crate::file::{IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
 
 /// The read trait used within Vortex.
 ///
@@ -57,6 +60,57 @@ pub trait VortexReadAt: Send + Sync + 'static {
     // TODO(ngates): this is deprecated, but cannot yet be removed.
     fn performance_hint(&self) -> PerformanceHint {
         PerformanceHint::local()
+    }
+}
+
+pub struct VortexReadAtIsReadSource<T: VortexReadAt + ?Sized> {
+    pub uri: Arc<str>,
+    pub coalesce_window: Option<crate::file::CoalesceWindow>,
+    pub read_at: T,
+}
+
+impl<T: VortexReadAt> IntoReadSource for VortexReadAtIsReadSource<T> {
+    fn into_read_source(self, _handle: crate::runtime::Handle) -> VortexResult<ReadSourceRef> {
+        Ok(Arc::from(self))
+    }
+}
+
+impl<T: VortexReadAt> ReadSource for VortexReadAtIsReadSource<T> {
+    fn uri(&self) -> &Arc<str> {
+        &self.uri
+    }
+
+    fn coalesce_window(&self) -> Option<crate::file::CoalesceWindow> {
+        self.coalesce_window
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.read_at.size()
+    }
+
+    fn drive_send(
+        self: Arc<Self>,
+        mut requests: futures::stream::BoxStream<'static, IoRequest>,
+    ) -> BoxFuture<'static, ()> {
+        async move {
+            while let Some(io_request) = requests.next().await {
+                let r = io_request.range();
+
+                async fn read<T: VortexReadAt>(
+                    read_at: &T,
+                    r: Range<u64>,
+                    alignment: Alignment,
+                ) -> VortexResult<ByteBuffer> {
+                    let length = usize::try_from(r.end - r.start)
+                        .map_err(|_| vortex_err!("io_request length too large for usize"))?;
+                    read_at.read_at(r.start, length, alignment).await
+                }
+
+                let alignment = io_request.alignment();
+                io_request.resolve(read(&self.read_at, r, alignment).await)
+            }
+        }
+        .boxed()
     }
 }
 
