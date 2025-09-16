@@ -15,8 +15,9 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
         let start = range.start;
         let length = range.end - range.start;
 
-        // SAFETY: Slicing preserves all RLE invariants as we're creating a
-        // view into the same underlying data with adjusted offset and length.
+        // SAFETY: Preserves all RLE invariants as we're creating a view into
+        // the same underlying data with adjusted offset, length and sliced
+        // validity.
         unsafe {
             RLEArray::new_unchecked(
                 array.values.clone(),
@@ -32,27 +33,28 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
     }
 
     fn scalar_at(array: &RLEArray, index: usize) -> Scalar {
-        // Slice local index as validity is sliced on `slice`.
+        // In case of `slice`, the validity is sliced when creating a new array.
+        // Therefore, we can use the slice local index when checking for the
+        // scalar's validity.
         if !array.validity.is_valid(index) {
             return Scalar::null(array.dtype.clone());
         }
 
-        let abs_position = array.offset() + index;
-        let chunk_local_index = array.indices().scalar_at(abs_position);
+        let abs_index = array.offset() + index;
+        let chunk_local_index = array.indices().scalar_at(abs_index);
 
         let chunk_local_idx = chunk_local_index
             .as_primitive()
             .as_::<usize>()
             .vortex_expect("Index must not be null");
 
-        let chunk_id = array.chunk_idx(abs_position);
+        let chunk_id = array.chunk_idx(abs_index);
         let value_chunk_offset = array.value_chunk_offset(chunk_id);
-
-        let value_scalar = array
+        let scalar = array
             .values()
             .scalar_at(value_chunk_offset + chunk_local_idx);
 
-        Scalar::new(array.dtype().clone(), value_scalar.into_value())
+        Scalar::new(array.dtype().clone(), scalar.into_value())
     }
 }
 
@@ -61,6 +63,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray};
+    use vortex_buffer::Buffer;
 
     use super::*;
 
@@ -144,6 +147,27 @@ mod tests {
 
         assert!(array.scalar_at(1).is_null());
         assert!(array.scalar_at(4).is_null());
+    }
+
+    #[test]
+    fn test_scalar_at_multiple_chunks() {
+        use vortex_array::{IntoArray, ToCanonical};
+
+        // Test accessing elements around chunk boundaries
+        let values: Buffer<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
+        let expected: Vec<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
+        let array = values.into_array();
+
+        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
+
+        // Access scalars from multiple chunks.
+        for &idx in &[1023, 1024, 1025, 2047, 2048, 2049] {
+            if idx < encoded.len() {
+                let original_value = expected[idx];
+                let encoded_value = encoded.scalar_at(idx).as_primitive().as_::<u16>().unwrap();
+                assert_eq!(original_value, encoded_value, "Mismatch at index {}", idx);
+            }
+        }
     }
 
     #[test]

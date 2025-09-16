@@ -48,11 +48,20 @@ impl VTable for RLEVTable {
 #[derive(Clone, Debug)]
 pub struct RLEArray {
     dtype: DType,
-    /// Unique values from all chunks
+    /// Run value in the dictionary.
     values: ArrayRef,
-    /// Chunk-local indices from all chunks
+    /// Chunk-local indices from all chunks. The start of each chunk is looked up in the `value_chunk_offsets`.
     indices: ArrayRef,
     /// Index start positions of each value chunk.
+    ///
+    /// # Example
+    /// ```
+    /// // Two chunks with their own unique values:
+    /// // Chunk 0: uses values [10, 20] (starts at index 0)
+    /// // Chunk 1: uses values [30, 40] (starts at index 2)
+    /// let values = [10, 20, 30, 40];           // Global values array
+    /// let value_chunk_offsets = [0, 2];        // Chunk 0 starts at 0, Chunk 1 starts at 2
+    /// ```
     value_chunk_offsets: ArrayRef,
     validity: Validity,
     stats_set: ArrayStats,
@@ -108,8 +117,9 @@ impl RLEArray {
     ///
     /// * `values` - Unique values from all chunks
     /// * `indices` - Chunk-local indices from all chunks
-    /// * `value_chunk_offsets` - Index start positions of each value chunk.
-    /// * `validity`
+    /// * `value_chunk_offsets` - Start indices for each value chunk.
+    /// * `validity` - Array validity
+    /// * `length` - Array length
     pub fn try_new(
         values: ArrayRef,
         indices: ArrayRef,
@@ -139,8 +149,8 @@ impl RLEArray {
     /// - `offset + length` does not exceed the length of the indices array
     /// - The `dtype` is consistent with the values array's primitive type and validity nullability
     /// - The `indices` array contains valid indices into chunks of the `values` array
-    /// - The `value_chunk_offsets` array correctly describes chunk boundaries in the values
-    /// - The `validity` array has the same length as the `indices` array
+    /// - The `value_chunk_offsets` array contains valid chunk start offsets
+    /// - The `validity` array has the same length as `length`
     pub unsafe fn new_unchecked(
         values: ArrayRef,
         indices: ArrayRef,
@@ -162,22 +172,18 @@ impl RLEArray {
         }
     }
 
-    /// Get the values array
     pub(crate) fn values(&self) -> &dyn Array {
         &self.values
     }
 
-    /// Get the indices array
     pub(crate) fn indices(&self) -> &dyn Array {
         &self.indices
     }
 
-    /// Get value chunk offsets array
     pub(crate) fn value_chunk_offsets(&self) -> &dyn Array {
         &self.value_chunk_offsets
     }
 
-    /// Get the primitive type of the values
     pub fn ptype(&self) -> PType {
         self.dtype.as_ptype()
     }
@@ -187,7 +193,7 @@ impl RLEArray {
         abs_position & (FL_CHUNK_SIZE - 1) // Equivalent to % 1024
     }
 
-    /// Get the starting offset in the values array for a given chunk.
+    /// Start index offset in the values array for a given chunk.
     #[allow(clippy::expect_used)]
     pub(crate) fn value_chunk_offset(&self, chunk_idx: usize) -> usize {
         self.value_chunk_offsets
@@ -197,12 +203,12 @@ impl RLEArray {
             .expect("index must be of type usize")
     }
 
-    /// Returns the chunk index for an absolute position.
+    /// Returns the chunk index for an absolute scalar index.
     pub(crate) fn chunk_idx(&self, abs_position: usize) -> usize {
         abs_position / FL_CHUNK_SIZE
     }
 
-    /// Get current slice offset
+    /// Index offset into the array
     pub(crate) fn offset(&self) -> usize {
         self.offset
     }

@@ -9,7 +9,7 @@ use vortex_array::{
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
+use vortex_error::{VortexResult, vortex_bail};
 
 use super::RLEEncoding;
 use crate::{RLEArray, RLEVTable};
@@ -72,9 +72,6 @@ impl SerdeVTable<RLEVTable> for RLEVTable {
             usize::try_from(metadata.value_chunk_offsets_len)?,
         )?;
 
-        vortex_ensure!(indices.dtype().nullability() == Nullability::NonNullable);
-        vortex_ensure!(value_chunk_offsets.dtype().nullability() == Nullability::NonNullable);
-
         RLEArray::try_new(values, indices, value_chunk_offsets, validity, len)
     }
 }
@@ -98,7 +95,7 @@ impl VisitorVTable<RLEVTable> for RLEVTable {
     fn visit_children(array: &RLEArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("values", array.values());
         visitor.visit_child("indices", array.indices());
-        visitor.visit_child("value_chunks_offsets", array.value_chunk_offsets());
+        visitor.visit_child("value_chunk_offsets", array.value_chunk_offsets());
         visitor.visit_validity(array.validity(), array.len());
     }
 }

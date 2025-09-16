@@ -31,8 +31,7 @@ pub fn rle_decompress(array: &RLEArray) -> PrimitiveArray {
 
 /// Encodes a primitive array of unsigned integers using FastLanes RLE.
 ///
-/// In case the input array length is % 1024 != 0, the last chunk will be padded.
-/// This allows for decompressing RLE arrays without branching on the chunk size.
+/// In case the input array length is % 1024 != 0, the last chunk is padded.
 fn rle_encode_typed<T>(array: &PrimitiveArray) -> VortexResult<RLEArray>
 where
     T: NativePType + RLE + Clone + Hash + Eq,
@@ -43,13 +42,15 @@ where
     // Allocate capacity up to the next multiple of chunk size.
     let mut values_buf = BufferMut::<T>::with_capacity(len.next_multiple_of(FL_CHUNK_SIZE));
     let mut indices_buf = BufferMut::<u16>::with_capacity(len.next_multiple_of(FL_CHUNK_SIZE));
-    let mut value_chunk_offsets = BufferMut::<u64>::with_capacity(len);
+
+    // Pre-allocate for one offset per chunk.
+    let mut value_chunk_offsets = BufferMut::<u64>::with_capacity(len.div_ceil(FL_CHUNK_SIZE));
 
     let values_uninit = values_buf.spare_capacity_mut();
     let indices_uninit = indices_buf.spare_capacity_mut();
-    let mut value_count_acc = 0; // Value count accumulator.
+    let mut value_count_acc = 0; // Chunk value count prefix sum.
 
-    // Note that the loop iterates the last chunk even if partial.
+    // Note that the loop iterates the last chunk even if smaller than 1024.
     for chunk_start_idx in (0..len).step_by(FL_CHUNK_SIZE) {
         let chunk_end = std::cmp::min(chunk_start_idx + FL_CHUNK_SIZE, len);
         let chunk_len = chunk_end - chunk_start_idx;
@@ -57,12 +58,14 @@ where
 
         // SAFETY:
         // `MaybeUninit<T>` and `T` have the same layout.
-        // `MaybeUninit<u16>` and `u16` have the same layout.
         let rle_vals: &mut [T] = unsafe {
             std::mem::transmute(
                 &mut values_uninit[value_count_acc..value_count_acc + FL_CHUNK_SIZE],
             )
         };
+
+        // SAFETY:
+        // `MaybeUninit<u16>` and `u16` have the same layout.
         let rle_idxs: &mut [u16] = unsafe {
             std::mem::transmute(
                 &mut indices_uninit[chunk_start_idx..chunk_start_idx + FL_CHUNK_SIZE],
@@ -71,8 +74,6 @@ where
 
         // Capture chunk start indices. This is necessary as indices
         // returned from `T::encode` are relative to the chunk.
-        //
-        // The first chunk offset is always 0.
         value_chunk_offsets.push(value_count_acc as u64);
 
         let value_count = if chunk_len == FL_CHUNK_SIZE {
@@ -118,7 +119,6 @@ where
 {
     let values = array.values().as_::<PrimitiveVTable>().as_slice::<T>();
     let indices = array.indices().as_::<PrimitiveVTable>().as_slice::<u16>();
-    let validity_mask = array.validity_mask();
 
     let chunk_start_idx = array.offset / FL_CHUNK_SIZE;
     let chunk_end_idx = (array.offset() + array.len()).div_ceil(FL_CHUNK_SIZE);
@@ -153,7 +153,7 @@ where
 
     let offset_within_chunk = array.offset_in_chunk(array.offset);
 
-    builder.set_validity(validity_mask);
+    builder.set_validity(array.validity_mask());
     builder
         .finish_into_primitive()
         .slice(offset_within_chunk..(offset_within_chunk + array.len()))
@@ -168,7 +168,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_different_types() {
+    fn test_encode_decode() {
         // u8
         let values_u8: Buffer<u8> = [1, 1, 2, 2, 3, 3].iter().copied().collect();
         let array_u8 = values_u8.into_array();
@@ -210,18 +210,6 @@ mod test {
     }
 
     #[test]
-    fn test_encode_decode() {
-        let values: Buffer<u32> = [1, 1, 1, 2, 2, 3, 3, 3, 3].iter().copied().collect();
-        let array = values.into_array();
-
-        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
-        assert_eq!(encoded.values.len(), 3);
-
-        let decoded = encoded.to_primitive(); // Verify round-trip
-        assert_eq!(decoded.as_slice::<u32>(), &[1, 1, 1, 2, 2, 3, 3, 3, 3]);
-    }
-
-    #[test]
     fn test_single_value() {
         let values: Buffer<u16> = vec![42; 2000].into_iter().collect();
         let array = values.into_array();
@@ -257,13 +245,13 @@ mod test {
 
         assert_eq!(encoded.len(), 1500);
         assert_eq!(decoded.as_slice::<u32>(), expected.as_slice());
-        // Should have 2 chunks: 1024 + 476 elements
+        // 2 chunks: 1024 + 476 elements
         assert_eq!(encoded.value_chunk_offsets().len(), 2);
     }
 
     #[test]
-    fn test_multi_chunk() {
-        // Test array that spans exactly 2 chunks (2048 elements)
+    fn test_two_full_chunks() {
+        // Array that spans exactly 2 chunks (2048 elements)
         let values: Buffer<u32> = (0..2048).map(|i| (i / 100) as u32).collect();
         let expected: Vec<u32> = (0..2048).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
@@ -274,24 +262,5 @@ mod test {
         assert_eq!(encoded.len(), 2048);
         assert_eq!(decoded.as_slice::<u32>(), expected.as_slice());
         assert_eq!(encoded.value_chunk_offsets().len(), 2);
-    }
-
-    #[test]
-    fn test_chunk_boundary_access() {
-        // Test accessing elements around chunk boundaries
-        let values: Buffer<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
-        let expected: Vec<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
-        let array = values.into_array();
-
-        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
-
-        // Test access at chunk boundaries
-        for &idx in &[1023, 1024, 1025, 2047, 2048, 2049] {
-            if idx < encoded.len() {
-                let original_value = expected[idx];
-                let encoded_value = encoded.scalar_at(idx).as_primitive().as_::<u16>().unwrap();
-                assert_eq!(original_value, encoded_value, "Mismatch at index {}", idx);
-            }
-        }
     }
 }
