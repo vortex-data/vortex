@@ -90,4 +90,8 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
             .into_layout())
         }
     }
+
+    fn buffered_bytes(&self) -> u64 {
+        self.chunk_strategy.buffered_bytes()
+    }
 }
