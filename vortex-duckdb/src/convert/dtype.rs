@@ -220,9 +220,10 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_ANY => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_VARINT => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_BIGNUM => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_STRING_LITERAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTEGER_LITERAL => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS => todo!(),
         })
     }
 }

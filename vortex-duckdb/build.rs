@@ -3,11 +3,24 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{env, fs};
 
-const DUCKDB_VERSION: &str = "1.3.2";
+use bindgen::Abi;
+use once_cell::sync::Lazy;
+
 const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
+static DUCKDB_VERSION: Lazy<String> = Lazy::new(|| {
+    // Override the DuckDB version via environment variable in case of an extension build.
+    // `DUCKDB_VERSION` is set by the extension build in the `duckdb-vortex` repo.
+    //
+    // This is to ensure that we don't implicitly build against a different DuckDB version during
+    // an extension build which might lead to subtle ABI breaks, e.g. reordering fields in C++ structs.
+    env::var("DUCKDB_VERSION")
+        .unwrap_or_else(|_| "1.4.0".to_owned())
+        .trim_start_matches("v")
+        .to_owned()
+});
 
 fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);

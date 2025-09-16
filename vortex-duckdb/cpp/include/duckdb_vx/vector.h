@@ -5,6 +5,7 @@
 
 #include "duckdb.h"
 #include "duckdb_vx/data.h"
+#include "duckdb_vx/error.h"
 
 #ifdef __cplusplus /* If compiled as C++, use C ABI */
 extern "C" {
