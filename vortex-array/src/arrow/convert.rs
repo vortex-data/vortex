@@ -5,11 +5,11 @@ use std::sync::Arc;
 
 use arrow_array::cast::{AsArray, as_null_array};
 use arrow_array::types::{
-    ByteArrayType, ByteViewType, Date32Type, Date64Type, Decimal128Type, Decimal256Type,
-    Float16Type, Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type,
-    Time32MillisecondType, Time32SecondType, Time64MicrosecondType, Time64NanosecondType,
-    TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType,
-    TimestampSecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
+    ByteArrayType, ByteViewType, Date32Type, Date64Type, Decimal32Type, Decimal64Type,
+    Decimal128Type, Decimal256Type, Float16Type, Float32Type, Float64Type, Int8Type, Int16Type,
+    Int32Type, Int64Type, Time32MillisecondType, Time32SecondType, Time64MicrosecondType,
+    Time64NanosecondType, TimestampMicrosecondType, TimestampMillisecondType,
+    TimestampNanosecondType, TimestampSecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
 use arrow_array::{
     Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray,
@@ -103,6 +103,24 @@ impl_from_arrow_primitive!(UInt64Type);
 impl_from_arrow_primitive!(Float16Type);
 impl_from_arrow_primitive!(Float32Type);
 impl_from_arrow_primitive!(Float64Type);
+
+impl FromArrowArray<&ArrowPrimitiveArray<Decimal32Type>> for ArrayRef {
+    fn from_arrow(array: &ArrowPrimitiveArray<Decimal32Type>, nullable: bool) -> Self {
+        let decimal_type = DecimalDType::new(array.precision(), array.scale());
+        let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
+        let validity = nulls(array.nulls(), nullable);
+        DecimalArray::new(buffer, decimal_type, validity).into_array()
+    }
+}
+
+impl FromArrowArray<&ArrowPrimitiveArray<Decimal64Type>> for ArrayRef {
+    fn from_arrow(array: &ArrowPrimitiveArray<Decimal64Type>, nullable: bool) -> Self {
+        let decimal_type = DecimalDType::new(array.precision(), array.scale());
+        let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
+        let validity = nulls(array.nulls(), nullable);
+        DecimalArray::new(buffer, decimal_type, validity).into_array()
+    }
+}
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
     fn from_arrow(array: &ArrowPrimitiveArray<Decimal128Type>, nullable: bool) -> Self {
@@ -433,6 +451,12 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 }
                 ArrowTimeUnit::Second | ArrowTimeUnit::Millisecond => unreachable!(),
             },
+            DataType::Decimal32(..) => {
+                Self::from_arrow(array.as_primitive::<Decimal32Type>(), nullable)
+            }
+            DataType::Decimal64(..) => {
+                Self::from_arrow(array.as_primitive::<Decimal64Type>(), nullable)
+            }
             DataType::Decimal128(..) => {
                 Self::from_arrow(array.as_primitive::<Decimal128Type>(), nullable)
             }
