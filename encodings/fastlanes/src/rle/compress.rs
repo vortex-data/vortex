@@ -117,8 +117,11 @@ fn rle_decode_typed<T>(array: &RLEArray) -> PrimitiveArray
 where
     T: NativePType + RLE + Clone + Copy,
 {
-    let values = array.values().as_::<PrimitiveVTable>().as_slice::<T>();
-    let indices = array.indices().as_::<PrimitiveVTable>().as_slice::<u16>();
+    let values = array.values().to_primitive();
+    let values = values.as_slice::<T>();
+
+    let indices = array.indices().to_primitive();
+    let indices = indices.as_slice::<u16>();
 
     let chunk_start_idx = array.offset / FL_CHUNK_SIZE;
     let chunk_end_idx = (array.offset() + array.len()).div_ceil(FL_CHUNK_SIZE);
