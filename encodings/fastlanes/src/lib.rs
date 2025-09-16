@@ -6,10 +6,14 @@
 pub use bitpacking::*;
 pub use delta::*;
 pub use r#for::*;
+pub use rle::*;
 
 mod bitpacking;
 mod delta;
 mod r#for;
+mod rle;
+
+pub(crate) const FL_CHUNK_SIZE: usize = 1024;
 
 #[cfg(test)]
 mod test {

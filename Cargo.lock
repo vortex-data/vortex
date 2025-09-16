@@ -6743,6 +6743,7 @@ dependencies = [
  "vortex-fastlanes",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-utils",
 ]
 
 [[package]]

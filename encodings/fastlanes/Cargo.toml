@@ -32,6 +32,7 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-utils = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
@@ -81,5 +82,10 @@ test = false
 
 [[bench]]
 name = "pipeline_bitpacking_kernel"
+harness = false
+test = false
+
+[[bench]]
+name = "pipeline_rle"
 harness = false
 test = false
