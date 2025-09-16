@@ -8,7 +8,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
+use vortex_dtype::{DType, FieldDType, FieldName, FieldNames, StructFields};
 use vortex_error::{
     VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
@@ -37,6 +37,7 @@ impl Display for StructScalar<'_> {
                     .zip_eq(self.struct_fields().fields())
                     .zip_eq(fields.iter())
                     .map(|((name, dtype), value)| {
+                        let dtype = dtype.value().vortex_expect("valid buffer");
                         let val = Scalar::new(dtype, value.clone());
                         format!("{name}: {val}")
                     })
@@ -171,13 +172,17 @@ impl<'a> StructScalar<'a> {
             fields
                 .iter()
                 .zip(self.struct_fields().fields())
-                .map(|(v, dtype)| Scalar::new(dtype, v.clone())),
+                .map(|(v, dtype)| {
+                    Scalar::new(dtype.value().vortex_expect("valid flatbuffer"), v.clone())
+                }),
         )
     }
 
     /// Returns an iterator of field values and their dtypes without allocating new Scalar objects.
     /// Returns None if the struct scalar is null.
-    pub fn field_values_with_dtypes(&self) -> Option<impl Iterator<Item = (&ScalarValue, DType)>> {
+    pub fn field_values_with_dtypes(
+        &self,
+    ) -> Option<impl Iterator<Item = (&ScalarValue, &FieldDType)>> {
         let fields = self.fields?;
         Some(fields.iter().zip(self.struct_fields().fields()))
     }
@@ -285,7 +290,7 @@ impl Scalar {
         }
 
         for (idx, (child, expected_dtype)) in children.iter().zip(field_dtypes).enumerate() {
-            if child.dtype() != &expected_dtype {
+            if expected_dtype != child.dtype() {
                 vortex_panic!(
                     "Field {} expected dtype {} but got {}",
                     idx,
@@ -466,9 +471,12 @@ mod tests {
         let (value0, dtype0) = &field_data[0];
         let (value1, dtype1) = &field_data[1];
 
+        let dtype0 = dtype0.value().unwrap();
+        let dtype1 = dtype1.value().unwrap();
+
         // Create ScalarRef from the data to test it
-        let scalar_ref0 = ScalarRef::new(dtype0, value0);
-        let scalar_ref1 = ScalarRef::new(dtype1, value1);
+        let scalar_ref0 = ScalarRef::new(&dtype0, value0);
+        let scalar_ref1 = ScalarRef::new(&dtype1, value1);
 
         assert_eq!(
             scalar_ref0.as_primitive().typed_value::<i32>().unwrap(),

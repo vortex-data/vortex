@@ -16,6 +16,7 @@ pub use decimal::random_decimal;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType};
+use vortex_error::VortexExpect;
 
 use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
@@ -40,7 +41,7 @@ fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValu
         )))),
         DType::Struct(sdt, _) => Ok(ScalarValue(InnerScalarValue::List(
             sdt.fields()
-                .map(|d| random_scalar_value(u, &d))
+                .map(|d| random_scalar_value(u, &d.value().vortex_expect("valid dtype buffer")))
                 .collect::<Result<Vec<_>>>()?
                 .into(),
         ))),

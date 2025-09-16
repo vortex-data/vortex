@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 
 use crate::field::{Field, FieldPath};
 use crate::proto::dtype as pb;
@@ -105,7 +105,13 @@ impl From<&DType> for pb::DType {
                 }),
                 DType::Struct(s, null) => DtypeType::Struct(pb::Struct {
                     names: s.names().iter().map(|s| s.as_ref().to_string()).collect(),
-                    dtypes: s.fields().map(|d| Self::from(&d)).collect(),
+                    dtypes: s
+                        .fields()
+                        .map(|d| {
+                            let dtype = d.value().vortex_expect("FieldDType should be valid");
+                            Self::from(&dtype)
+                        })
+                        .collect(),
                     nullable: (*null).into(),
                 }),
                 DType::List(edt, null) => DtypeType::List(Box::new(pb::List {

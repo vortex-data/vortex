@@ -455,8 +455,16 @@ impl StructArray {
         let struct_dtype = self.struct_fields().clone();
 
         let names = struct_dtype.names().iter().cloned().chain(once(name));
-        let types = struct_dtype.fields().chain(once(array.dtype().clone()));
-        let new_fields = StructFields::new(names.collect(), types.collect());
+
+        let types = {
+            let mut r = struct_dtype
+                .fields()
+                .map(|f| f.value())
+                .collect::<VortexResult<Vec<_>>>()?;
+            r.push(array.dtype().clone());
+            r
+        };
+        let new_fields = StructFields::new(names.collect(), types);
 
         let mut children = self.fields.clone();
         children.push(array);

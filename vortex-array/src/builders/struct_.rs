@@ -37,7 +37,12 @@ impl StructBuilder {
     ) -> Self {
         let builders = struct_dtype
             .fields()
-            .map(|dt| builder_with_capacity(&dt, capacity))
+            .map(|dt| {
+                builder_with_capacity(
+                    &dt.value().vortex_expect("invalid dtype in struct fields"),
+                    capacity,
+                )
+            })
             .collect();
 
         Self {

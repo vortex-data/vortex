@@ -4,7 +4,7 @@
 use std::fmt::{Display, Formatter};
 use std::ops::BitOr;
 
-/// Whether an instance of a DType can be `null or not
+/// Whether an instance of a DType can be null or not
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Nullability {
     /// Instances of this DType are guaranteed to be non-nullable
@@ -23,6 +23,12 @@ impl Nullability {
             Nullability::NonNullable => "NonNullable",
             Nullability::Nullable => "Nullable",
         }
+    }
+
+    /// Returns whether the nullability instance is nullable
+    #[inline]
+    pub fn is_nullable(&self) -> bool {
+        matches!(self, Self::Nullable)
     }
 }
 

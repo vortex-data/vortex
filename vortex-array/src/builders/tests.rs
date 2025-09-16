@@ -593,7 +593,8 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                     .enumerate()
                     .map(|(j, field_dtype)| {
                         // Create simple values for each field.
-                        match &field_dtype {
+                        let struct_field_dtype = field_dtype.value().unwrap();
+                        match &struct_field_dtype {
                             DType::Primitive(PType::I32, n) => {
                                 Scalar::primitive((i as i32).saturating_add(j as i32), *n)
                             }
@@ -601,7 +602,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                                 Scalar::primitive((i + j) as f64, *n)
                             }
                             DType::Utf8(n) => Scalar::utf8(format!("field_{}", i + j), *n),
-                            _ => Scalar::default_value(field_dtype),
+                            _ => Scalar::default_value(struct_field_dtype),
                         }
                     })
                     .collect();

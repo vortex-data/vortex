@@ -74,7 +74,12 @@ fn swizzle_struct_chunks(
             .collect::<Vec<_>>();
         // SAFETY: field_chunks are extracted from valid StructArrays with matching dtypes.
         // Each chunk's field array is guaranteed to be valid for field_dtype.
-        let field_array = unsafe { ChunkedArray::new_unchecked(field_chunks, field_dtype.clone()) };
+        let field_array = unsafe {
+            ChunkedArray::new_unchecked(
+                field_chunks,
+                field_dtype.value().vortex_expect("valid flatbuffer"),
+            )
+        };
         field_arrays.push(field_array.into_array());
     }
 

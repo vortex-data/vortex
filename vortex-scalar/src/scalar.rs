@@ -6,13 +6,13 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
+use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, FieldDType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use super::*;
 
 /// A reference to a scalar value composed of references to both a [`ScalarValue`] and a logical [`DType`].
-/// 
+///
 /// This type provides similar functionality to [`Scalar`] but without allocating new objects,
 /// making it useful for efficient iteration over struct fields and other scenarios where
 /// you need to work with scalar data without creating new [`Scalar`] instances.
@@ -20,7 +20,7 @@ use super::*;
 pub struct ScalarRef<'a> {
     /// The type of the scalar.
     dtype: &'a DType,
-    
+
     /// The value of the scalar.
     value: &'a ScalarValue,
 }
@@ -403,7 +403,13 @@ impl Scalar {
                 Self::fixed_size_list(edt, elements, nullability)
             }
             DType::Struct(sf, nullability) => {
-                let fields: Vec<_> = sf.fields().map(Scalar::default_value).collect();
+                let fields: Vec<_> = sf
+                    .fields()
+                    .map(|dt| {
+                        let dt = dt.value().vortex_expect("valid buffer");
+                        Scalar::default_value(dt)
+                    })
+                    .collect();
                 Self::struct_(DType::Struct(sf, nullability), fields)
             }
             DType::Extension(dt) => {
@@ -411,6 +417,19 @@ impl Scalar {
                 Self::extension(dt, scalar)
             }
         }
+    }
+
+    /// Create a default scalar value for a given FieldDType without allocating DType when possible.
+    ///
+    /// This method is more efficient than `default_value` when working with FieldDType as it
+    /// avoids unnecessary allocations for simple types by working directly with the flatbuffer
+    /// representation when available.
+    pub fn default_value_field(field_dtype: &FieldDType) -> VortexResult<Self> {
+        if field_dtype.is_nullable() {
+            return Ok(Self::null(field_dtype.value()?));
+        }
+
+        Ok(Self::default_value(field_dtype.value()?))
     }
 }
 

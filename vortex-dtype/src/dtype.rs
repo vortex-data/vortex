@@ -8,7 +8,7 @@ use std::sync::Arc;
 use DType::*;
 use itertools::Itertools;
 use static_assertions::const_assert_eq;
-use vortex_error::vortex_panic;
+use vortex_error::{VortexExpect, vortex_panic};
 
 use crate::decimal::DecimalDType;
 use crate::nullability::Nullability;
@@ -100,6 +100,18 @@ const_assert_eq!(size_of::<DType>(), 16);
 #[cfg(target_arch = "wasm32")]
 const_assert_eq!(size_of::<DType>(), 12);
 
+impl PartialEq<&DType> for DType {
+    fn eq(&self, other: &&DType) -> bool {
+        self == *other
+    }
+}
+
+impl PartialEq<DType> for &DType {
+    fn eq(&self, other: &DType) -> bool {
+        *self == other
+    }
+}
+
 impl DType {
     /// The default `DType` for bytes.
     pub const BYTES: Self = Primitive(PType::U8, Nullability::NonNullable);
@@ -177,7 +189,7 @@ impl DType {
                     && (lhs_dtype
                         .fields()
                         .zip_eq(rhs_dtype.fields())
-                        .all(|(l, r)| l.eq_ignore_nullability(&r)))
+                        .all(|(l, r)| l.eq_ignore_nullability(r)))
             }
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
                 lhs_extdtype.as_ref().eq_ignore_nullability(rhs_extdtype)
@@ -388,7 +400,10 @@ impl Display for DType {
                 sf.names()
                     .iter()
                     .zip(sf.fields())
-                    .map(|(field_null, dt)| format!("{field_null}={dt}"))
+                    .map(|(field_null, dt)| {
+                        let dt = dt.value().vortex_expect("must be valid");
+                        format!("{field_null}={dt}")
+                    })
                     .join(", "),
             ),
             List(edt, null) => write!(f, "list({edt}){null}"),

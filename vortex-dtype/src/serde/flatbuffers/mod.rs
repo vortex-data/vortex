@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, dtype as fbd};
 
 use crate::{
@@ -193,6 +193,97 @@ impl TryFrom<ViewedDType> for DType {
 
 impl FlatBufferRoot for DType {}
 
+impl FlatBufferRoot for ViewedDType {}
+
+impl WriteFlatBuffer for ViewedDType {
+    type Target<'a> = fb::DType<'a>;
+
+    fn write_flatbuffer<'fb>(
+        &self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+    ) -> WIPOffset<Self::Target<'fb>> {
+        let viewed_fb = self.flatbuffer();
+
+        // For simple types, recreate the flatbuffer directly without allocating DType
+        let dtype_union = match viewed_fb.type_type() {
+            fb::Type::Null => fb::Null::create(fbb, &fb::NullArgs {}).as_union_value(),
+            fb::Type::Bool => {
+                let bool_fb = viewed_fb.type__as_bool().vortex_expect("valid flatbuffer");
+                fb::Bool::create(
+                    fbb,
+                    &fb::BoolArgs {
+                        nullable: bool_fb.nullable(),
+                    },
+                )
+                .as_union_value()
+            }
+            fb::Type::Primitive => {
+                let prim_fb = viewed_fb
+                    .type__as_primitive()
+                    .vortex_expect("valid flatbuffer");
+                fb::Primitive::create(
+                    fbb,
+                    &fb::PrimitiveArgs {
+                        ptype: prim_fb.ptype(),
+                        nullable: prim_fb.nullable(),
+                    },
+                )
+                .as_union_value()
+            }
+            fb::Type::Decimal => {
+                let dec_fb = viewed_fb
+                    .type__as_decimal()
+                    .vortex_expect("valid flatbuffer");
+                fb::Decimal::create(
+                    fbb,
+                    &fb::DecimalArgs {
+                        precision: dec_fb.precision(),
+                        scale: dec_fb.scale(),
+                        nullable: dec_fb.nullable(),
+                    },
+                )
+                .as_union_value()
+            }
+            fb::Type::Binary => {
+                let bin_fb = viewed_fb
+                    .type__as_binary()
+                    .vortex_expect("valid flatbuffer");
+                fb::Binary::create(
+                    fbb,
+                    &fb::BinaryArgs {
+                        nullable: bin_fb.nullable(),
+                    },
+                )
+                .as_union_value()
+            }
+            fb::Type::Utf8 => {
+                let utf8_fb = viewed_fb.type__as_utf_8().vortex_expect("valid flatbuffer");
+                fb::Utf8::create(
+                    fbb,
+                    &fb::Utf8Args {
+                        nullable: utf8_fb.nullable(),
+                    },
+                )
+                .as_union_value()
+            }
+            // For complex types, fall back to DType conversion
+            _ => {
+                let dtype = DType::try_from(self.clone())
+                    .vortex_expect("ViewedDType should be convertible to DType");
+                return dtype.write_flatbuffer(fbb);
+            }
+        };
+
+        fb::DType::create(
+            fbb,
+            &fb::DTypeArgs {
+                type_type: viewed_fb.type_type(),
+                type_: Some(dtype_union),
+            },
+        )
+    }
+}
+
 impl WriteFlatBuffer for DType {
     type Target<'a> = fb::DType<'a>;
 
@@ -250,8 +341,9 @@ impl WriteFlatBuffer for DType {
 
                 let dtypes = st
                     .fields()
-                    .map(|dtype| dtype.write_flatbuffer(fbb))
-                    .collect_vec();
+                    .map(|dtype| Ok(dtype.value()?.write_flatbuffer(fbb)))
+                    .collect::<VortexResult<Vec<_>>>()
+                    .vortex_expect("Failed to serialize struct");
                 let dtypes = Some(fbb.create_vector(&dtypes));
 
                 fb::Struct_::create(

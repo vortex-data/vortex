@@ -120,7 +120,8 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                         struct_dtype
                             .fields()
                             .map(|dt| {
-                                let scalar = Scalar::default_value(dt);
+                                let scalar = Scalar::default_value_field(dt)
+                                    .vortex_expect("valid dtype flatbuffer");
                                 ConstantArray::new(scalar, array.len()).into_array()
                             })
                             .collect()

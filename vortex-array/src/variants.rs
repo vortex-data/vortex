@@ -5,7 +5,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use vortex_dtype::{DType, ExtDType, FieldNames, PType};
+use vortex_dtype::{DType, ExtDType, FieldDType, FieldNames, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_scalar::PValue;
 
@@ -159,7 +159,7 @@ impl StructTyped<'_> {
         st.names()
     }
 
-    pub fn dtypes(&self) -> Vec<DType> {
+    pub fn dtypes(&self) -> Vec<&FieldDType> {
         let DType::Struct(st, _) = self.0.dtype() else {
             unreachable!()
         };

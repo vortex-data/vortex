@@ -118,7 +118,7 @@ fn random_array_chunk(
             let first_array = sdt
                 .fields()
                 .next()
-                .map(|d| random_array(u, &d, chunk_len))
+                .map(|d| random_array(u, &d.value().vortex_unwrap(), chunk_len))
                 .transpose()?;
             let resolved_len = first_array
                 .as_ref()
@@ -132,7 +132,7 @@ fn random_array_chunk(
                 .chain(
                     sdt.fields()
                         .skip(1)
-                        .map(|d| random_array(u, &d, Some(resolved_len))),
+                        .map(|d| random_array(u, &d.value().vortex_unwrap(), Some(resolved_len))),
                 )
                 .collect::<Result<Vec<_>>>()?;
             Ok(StructArray::try_new(
