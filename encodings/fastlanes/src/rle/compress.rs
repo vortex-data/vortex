@@ -48,19 +48,14 @@ where
     let indices_uninit = indices_buf.spare_capacity_mut();
     let mut value_count_acc = 0; // Chunk value count prefix sum.
 
-    // Note that the loop iterates the last chunk even if smaller than 1024.
-    for chunk_start_idx in (0..len).step_by(FL_CHUNK_SIZE) {
-        let chunk_end = std::cmp::min(chunk_start_idx + FL_CHUNK_SIZE, len);
-        let chunk_len = chunk_end - chunk_start_idx;
-        let chunk_slice = &values[chunk_start_idx..chunk_end];
+    let mut chunks = values.chunks_exact(FL_CHUNK_SIZE);
 
-        // SAFETY:
-        // `MaybeUninit<T>` and `T` have the same layout.
+    let mut process_chunk = |chunk_start_idx: usize, input: &[T; FL_CHUNK_SIZE]| {
+        // SAFETY: `MaybeUninit<T>` and `T` have the same layout.
         let rle_vals: &mut [T] =
             unsafe { std::mem::transmute(&mut values_uninit[value_count_acc..][..FL_CHUNK_SIZE]) };
 
-        // SAFETY:
-        // `MaybeUninit<u16>` and `u16` have the same layout.
+        // SAFETY: `MaybeUninit<u16>` and `u16` have the same layout.
         let rle_idxs: &mut [u16] = unsafe {
             std::mem::transmute(
                 &mut indices_uninit[chunk_start_idx..chunk_start_idx + FL_CHUNK_SIZE],
@@ -71,26 +66,29 @@ where
         // returned from `T::encode` are relative to the chunk.
         value_chunk_offsets.push(value_count_acc as u64);
 
-        let value_count = if chunk_len == FL_CHUNK_SIZE {
-            T::encode(
-                array_ref![chunk_slice, 0, FL_CHUNK_SIZE],
-                array_mut_ref![rle_vals, 0, FL_CHUNK_SIZE],
-                array_mut_ref![rle_idxs, 0, FL_CHUNK_SIZE],
-            )
-        } else {
-            // Repeat the last value for padding to prevent
-            // accounting for an additional value change.
-            let mut padded_chunk = [values[chunk_end - 1]; FL_CHUNK_SIZE];
-            padded_chunk[..chunk_len].copy_from_slice(chunk_slice);
-
-            T::encode(
-                &padded_chunk,
-                array_mut_ref![rle_vals, 0, FL_CHUNK_SIZE],
-                array_mut_ref![rle_idxs, 0, FL_CHUNK_SIZE],
-            )
-        };
+        let value_count = T::encode(
+            input,
+            array_mut_ref![rle_vals, 0, FL_CHUNK_SIZE],
+            array_mut_ref![rle_idxs, 0, FL_CHUNK_SIZE],
+        );
 
         value_count_acc += value_count;
+    };
+
+    for (chunk_idx, chunk_slice) in chunks.by_ref().enumerate() {
+        process_chunk(
+            chunk_idx * FL_CHUNK_SIZE,
+            array_ref![chunk_slice, 0, FL_CHUNK_SIZE],
+        );
+    }
+
+    let remainder = chunks.remainder();
+    if !remainder.is_empty() {
+        // Repeat the last value for padding to prevent
+        // accounting for an additional value change.
+        let mut padded_chunk = [values[len - 1]; FL_CHUNK_SIZE];
+        padded_chunk[..remainder.len()].copy_from_slice(remainder);
+        process_chunk((len / FL_CHUNK_SIZE) * FL_CHUNK_SIZE, &padded_chunk);
     }
 
     unsafe {
