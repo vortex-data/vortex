@@ -440,7 +440,9 @@ fn canonicalize_sparse_struct(
         None => (
             struct_fields
                 .fields()
-                .map(Scalar::default_value)
+                .map(|dt| {
+                    Scalar::default_value(dt.value().vortex_expect("must be valid dtype buffer"))
+                })
                 .collect::<Vec<_>>(),
             Validity::AllInvalid,
         ),

@@ -58,11 +58,8 @@ impl FileStatsAccumulator {
                 struct_dtype
                     .fields()
                     .map(|field_dtype| {
-                        StatsAccumulator::new(
-                            &field_dtype,
-                            &stats,
-                            max_variable_length_statistics_size,
-                        )
+                        let dtype = field_dtype.value().vortex_expect("valid dtype buffer");
+                        StatsAccumulator::new(&dtype, &stats, max_variable_length_statistics_size)
                     })
                     .collect()
             }

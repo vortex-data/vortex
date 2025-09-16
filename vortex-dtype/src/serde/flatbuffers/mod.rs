@@ -43,6 +43,99 @@ impl ViewedDType {
     fn buffer(&self) -> &FlatBuffer {
         &self.flatbuffer
     }
+
+    /// Check if this dtype is a boolean
+    pub fn is_boolean(&self) -> bool {
+        matches!(self.flatbuffer().type_type(), fb::Type::Bool)
+    }
+
+    /// Check if this dtype is a primitive type
+    pub fn is_primitive(&self) -> bool {
+        matches!(self.flatbuffer().type_type(), fb::Type::Primitive)
+    }
+
+    /// Check if this dtype is an unsigned integer
+    pub fn is_unsigned_int(&self) -> bool {
+        if self.flatbuffer().type_type() == fb::Type::Primitive
+            && let Some(prim_fb) = self.flatbuffer().type__as_primitive()
+            && let Ok(ptype) = PType::try_from(prim_fb.ptype())
+        {
+            return ptype.is_unsigned_int();
+        }
+
+        false
+    }
+
+    /// Check if this dtype is a signed integer
+    pub fn is_signed_int(&self) -> bool {
+        if self.flatbuffer().type_type() == fb::Type::Primitive
+            && let Some(prim_fb) = self.flatbuffer().type__as_primitive()
+            && let Ok(ptype) = PType::try_from(prim_fb.ptype())
+        {
+            return ptype.is_signed_int();
+        }
+
+        false
+    }
+
+    /// Check if this dtype is an integer (signed or unsigned)
+    pub fn is_int(&self) -> bool {
+        if self.flatbuffer().type_type() == fb::Type::Primitive
+            && let Some(prim_fb) = self.flatbuffer().type__as_primitive()
+            && let Ok(ptype) = PType::try_from(prim_fb.ptype())
+        {
+            return ptype.is_int();
+        }
+
+        false
+    }
+
+    /// Check if this dtype is a floating point number
+    pub fn is_float(&self) -> bool {
+        if self.flatbuffer().type_type() == fb::Type::Primitive
+            && let Some(prim_fb) = self.flatbuffer().type__as_primitive()
+            && let Ok(ptype) = PType::try_from(prim_fb.ptype())
+        {
+            return ptype.is_float();
+        }
+
+        false
+    }
+
+    /// Check if this dtype is a decimal
+    pub fn is_decimal(&self) -> bool {
+        matches!(self.flatbuffer().type_type(), fb::Type::Decimal)
+    }
+
+    /// Check if this dtype is a UTF-8 string
+    pub fn is_utf8(&self) -> bool {
+        matches!(self.flatbuffer().type_type(), fb::Type::Utf8)
+    }
+
+    /// Check if this dtype is binary data
+    pub fn is_binary(&self) -> bool {
+        matches!(self.flatbuffer().type_type(), fb::Type::Binary)
+    }
+
+    /// Check if this dtype is a list
+    pub fn is_list(&self) -> bool {
+        matches!(self.flatbuffer().type_type(), fb::Type::List)
+    }
+
+    /// Check if this dtype is a fixed size list
+    pub fn is_fixed_size_list(&self) -> bool {
+        matches!(self.flatbuffer().type_type(), fb::Type::FixedSizeList)
+    }
+
+    /// Check if this dtype is a struct
+    pub fn is_struct(&self) -> bool {
+        matches!(self.flatbuffer().type_type(), fb::Type::Struct_)
+    }
+
+    /// Check if this dtype is an extension type
+    pub fn is_extension(&self) -> bool {
+        matches!(self.flatbuffer().type_type(), fb::Type::Extension)
+    }
 }
 
 impl StructFields {

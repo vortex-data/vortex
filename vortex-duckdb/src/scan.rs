@@ -92,7 +92,7 @@ fn extract_schema_from_vortex_file(
     let mut column_types = Vec::new();
 
     for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
-        let logical_type = LogicalType::try_from(&field_dtype)?;
+        let logical_type = LogicalType::try_from(&field_dtype.value()?)?;
         column_names.push(field_name.to_string());
         column_types.push(logical_type);
     }

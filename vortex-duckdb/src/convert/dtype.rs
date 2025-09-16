@@ -308,7 +308,7 @@ impl TryFrom<&DType> for LogicalType {
             DType::Struct(struct_type, _) => {
                 let child_types: Vec<LogicalType> = struct_type
                     .fields()
-                    .map(|field_dtype| LogicalType::try_from(&field_dtype))
+                    .map(|field_dtype| LogicalType::try_from(&field_dtype.value()?))
                     .collect::<Result<_, _>>()?;
 
                 let child_names: Vec<CString> = struct_type

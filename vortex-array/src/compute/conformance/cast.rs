@@ -218,7 +218,7 @@ fn test_cast_from_extension(array: &dyn Array) {
 
 fn test_cast_allvalid_to_nonnullable_and_back(array: &dyn Array) {
     // Skip if array is null type (special case)
-    if array.dtype() == &DType::Null {
+    if array.dtype() == DType::Null {
         return;
     }
 

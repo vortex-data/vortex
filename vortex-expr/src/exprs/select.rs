@@ -140,6 +140,7 @@ impl VTable for SelectVTable {
                 .cloned()
                 .zip_eq(child_struct_dtype.fields())
                 .filter(|(name, _)| !fields.as_ref().contains(name))
+                .map(|(n, dt)| (n, dt.clone()))
                 .collect(),
         };
 

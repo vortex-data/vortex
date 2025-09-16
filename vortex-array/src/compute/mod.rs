@@ -142,7 +142,7 @@ impl ComputeFn {
 
         let output = self.vtable.invoke(args, &self.kernels.read())?;
 
-        if output.dtype() != &expected_dtype {
+        if output.dtype() != expected_dtype {
             vortex_bail!(
                 "Internal error: compute function {} returned a result of type {} but expected {}\n{}",
                 self.id,

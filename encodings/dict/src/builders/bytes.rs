@@ -150,7 +150,7 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
 
 impl<Code: Unsigned + AsPrimitive<usize> + NativePType> DictEncoder for BytesDictBuilder<Code> {
     fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef> {
-        if &self.dtype != array.dtype() {
+        if self.dtype != array.dtype() {
             vortex_bail!(
                 "Array DType {} does not match builder dtype {}",
                 array.dtype(),

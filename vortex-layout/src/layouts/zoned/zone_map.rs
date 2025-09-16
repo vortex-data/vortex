@@ -39,7 +39,7 @@ impl ZoneMap {
         stats: Arc<[Stat]>,
     ) -> VortexResult<Self> {
         let expected_dtype = Self::dtype_for_stats_table(&column_dtype, &stats);
-        if &expected_dtype != array.dtype() {
+        if expected_dtype != array.dtype() {
             vortex_bail!("Array dtype does not match expected zone map dtype: {expected_dtype}");
         }
 

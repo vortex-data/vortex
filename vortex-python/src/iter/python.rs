@@ -40,7 +40,7 @@ impl Iterator for PythonArrayIterator {
                     .and_then(|array| array.extract::<PyArrayRef>())
                     .map(|pyarray| pyarray.into_inner())
                     .and_then(|array| {
-                        if array.dtype() != &self.dtype {
+                        if array.dtype() != self.dtype {
                             Err(PyTypeError::new_err(format!(
                                 "ArrayIterator dtype mismatch. Expected {:?}, got {:?}",
                                 &self.dtype,

@@ -5,6 +5,7 @@ use std::cmp::max;
 
 use arbitrary::{Result as AResult, Unstructured};
 use vortex_dtype::{DType, FieldName};
+use vortex_error::VortexExpect;
 use vortex_scalar::arbitrary::random_scalar;
 
 use crate::{BinaryExpr, ExprRef, Operator, and_collect, col, lit, pack};
@@ -40,7 +41,11 @@ pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Ex
                     if dtype.is_struct() || dtype.is_list() {
                         None
                     } else {
-                        Some(random_comparison(u, col, &dtype))
+                        Some(random_comparison(
+                            u,
+                            col,
+                            &dtype.value().vortex_expect("valid dtype buffer"),
+                        ))
                     }
                 }
                 Err(e) => Some(Err(e)),

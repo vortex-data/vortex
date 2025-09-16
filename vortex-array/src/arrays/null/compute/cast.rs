@@ -14,7 +14,7 @@ impl CastKernel for NullVTable {
         if !dtype.is_nullable() {
             vortex_bail!("Cannot cast Null to {}", dtype);
         }
-        if dtype == &DType::Null {
+        if dtype == DType::Null {
             return Ok(Some(array.to_array()));
         }
 

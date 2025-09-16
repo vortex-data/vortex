@@ -115,7 +115,7 @@ impl ALPArray {
 
         let expected_type = DType::Primitive(T::PTYPE, encoded.dtype().nullability());
         vortex_ensure!(
-            patches.dtype() == &expected_type,
+            patches.dtype() == expected_type,
             "Expected patches type {expected_type}, actual {}",
             patches.dtype(),
         );

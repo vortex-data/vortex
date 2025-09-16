@@ -211,7 +211,7 @@ impl Scalar {
         let children: Arc<[ScalarValue]> = children
             .into_iter()
             .map(|child| {
-                if child.dtype() != &*element_dtype {
+                if child.dtype() != element_dtype.as_ref() {
                     vortex_panic!(
                         "tried to create list of {} with values of type {}",
                         element_dtype,

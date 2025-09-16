@@ -13,8 +13,7 @@ use vortex_error::{
 use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer};
 
 use crate::flatbuffers::ViewedDType;
-use crate::{DType, FieldName, FieldNames, PType};
-use crate::{Nullability, flatbuffers as fb};
+use crate::{DType, FieldName, FieldNames, Nullability, PType, flatbuffers as fb};
 
 /// DType of a struct's field, either owned or a pointer to an underlying flatbuffer.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -197,6 +196,110 @@ impl FieldDType {
     #[cfg(feature = "arrow")]
     pub fn to_arrow_dtype(&self) -> VortexResult<arrow_schema::DataType> {
         self.value()?.to_arrow_dtype()
+    }
+
+    /// Check if this dtype is a boolean
+    pub fn is_boolean(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_boolean(),
+            FieldDTypeInner::View(view) => view.is_boolean(),
+        }
+    }
+
+    /// Check if this dtype is a primitive type
+    pub fn is_primitive(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_primitive(),
+            FieldDTypeInner::View(view) => view.is_primitive(),
+        }
+    }
+
+    /// Check if this dtype is an unsigned integer
+    pub fn is_unsigned_int(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_unsigned_int(),
+            FieldDTypeInner::View(view) => view.is_unsigned_int(),
+        }
+    }
+
+    /// Check if this dtype is a signed integer
+    pub fn is_signed_int(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_signed_int(),
+            FieldDTypeInner::View(view) => view.is_signed_int(),
+        }
+    }
+
+    /// Check if this dtype is an integer (signed or unsigned)
+    pub fn is_int(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_int(),
+            FieldDTypeInner::View(view) => view.is_int(),
+        }
+    }
+
+    /// Check if this dtype is a floating point number
+    pub fn is_float(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_float(),
+            FieldDTypeInner::View(view) => view.is_float(),
+        }
+    }
+
+    /// Check if this dtype is a decimal
+    pub fn is_decimal(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_decimal(),
+            FieldDTypeInner::View(view) => view.is_decimal(),
+        }
+    }
+
+    /// Check if this dtype is a UTF-8 string
+    pub fn is_utf8(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_utf8(),
+            FieldDTypeInner::View(view) => view.is_utf8(),
+        }
+    }
+
+    /// Check if this dtype is binary data
+    pub fn is_binary(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_binary(),
+            FieldDTypeInner::View(view) => view.is_binary(),
+        }
+    }
+
+    /// Check if this dtype is a list
+    pub fn is_list(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_list(),
+            FieldDTypeInner::View(view) => view.is_list(),
+        }
+    }
+
+    /// Check if this dtype is a fixed size list
+    pub fn is_fixed_size_list(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_fixed_size_list(),
+            FieldDTypeInner::View(view) => view.is_fixed_size_list(),
+        }
+    }
+
+    /// Check if this dtype is a struct
+    pub fn is_struct(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_struct(),
+            FieldDTypeInner::View(view) => view.is_struct(),
+        }
+    }
+
+    /// Check if this dtype is an extension type
+    pub fn is_extension(&self) -> bool {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => dtype.is_extension(),
+            FieldDTypeInner::View(view) => view.is_extension(),
+        }
     }
 }
 
@@ -454,8 +557,8 @@ impl FieldDTypeInner {
             }
             // For complex types, fall back to parsing
             _ => match DType::try_from(viewed.clone()) {
-                Ok(viewed_dt) => owned == &viewed_dt,
-                Err(_) => false,
+                Ok(viewed_dt) => owned == viewed_dt,
+                Err(_) => unreachable!("must be valid dtype buffer"),
             },
         }
     }
@@ -839,17 +942,17 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::RandomState;
+    use std::hash::BuildHasher;
+
+    use flatbuffers::root;
     use itertools::Itertools;
+    use vortex_flatbuffers::{FlatBuffer, WriteFlatBufferExt};
     use vortex_utils::aliases::hash_map::HashMap;
 
     use crate::dtype::DType;
     use crate::serde::flatbuffers::ViewedDType;
     use crate::{FieldDType, FieldNames, Nullability, PType, StructFields};
-    use flatbuffers::root;
-    use std::collections::hash_map::RandomState;
-    use std::hash::BuildHasher;
-    use vortex_flatbuffers::FlatBuffer;
-    use vortex_flatbuffers::WriteFlatBufferExt;
 
     #[test]
     fn nullability() {
@@ -1000,7 +1103,7 @@ mod tests {
         let root_fb = root::<crate::flatbuffers::DType>(&bytes).unwrap();
         let view = ViewedDType::from_fb_loc(root_fb._tab.loc(), FlatBuffer::from(bytes));
 
-        let owned_field = FieldDType::from(dtype.clone());
+        let owned_field = FieldDType::from(dtype);
         let viewed_field = FieldDType::from(view);
 
         // Test equality between owned and viewed

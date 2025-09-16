@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use itertools::Itertools;
 use vortex::dtype::{DType, ExtID, ExtMetadata, Nullability, PType};
+use vortex::error::VortexExpect;
 
 pub trait PythonRepr {
     fn python_repr(&self) -> impl Display;
@@ -68,7 +69,10 @@ impl Display for DTypePythonRepr<'_> {
                 st.names()
                     .iter()
                     .zip(st.fields())
-                    .map(|(n, dt)| format!("\"{}\": {}", n, dt.python_repr()))
+                    .map(|(n, dt)| {
+                        let dt = dt.value().vortex_expect("invalid dtype buffer");
+                        format!("\"{}\": {}", n, dt.python_repr())
+                    })
                     .join(", "),
                 n.python_repr()
             ),

@@ -135,6 +135,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldTypes(
         };
 
         for field_dtype in struct_dtype.fields() {
+            let Ok(field_dtype) = field_dtype.value() else {
+                throw_runtime!("Field DType wasn't a valid DType flatbuffer");
+            };
             let ptr: *mut DType = Box::into_raw(Box::new(field_dtype));
             let boxed = env
                 .call_static_method(

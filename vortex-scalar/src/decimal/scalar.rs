@@ -8,7 +8,9 @@ use num_traits::ToPrimitive as NumToPrimitive;
 use vortex_dtype::{DType, DecimalDType, PType};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
-use crate::{DecimalValue, InnerScalarValue, Scalar, ScalarRef, ScalarValue, match_each_decimal_value};
+use crate::{
+    DecimalValue, InnerScalarValue, Scalar, ScalarRef, ScalarValue, match_each_decimal_value,
+};
 
 /// A scalar value representing a decimal number with fixed precision and scale.
 #[derive(Debug, Clone, Copy, Hash)]

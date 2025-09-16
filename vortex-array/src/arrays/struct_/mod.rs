@@ -331,7 +331,7 @@ impl StructArray {
                 );
             }
 
-            if field.dtype() != &struct_dt {
+            if field.dtype() != struct_dt {
                 vortex_bail!(
                     "Field {} has dtype {} but expected {}",
                     i,
