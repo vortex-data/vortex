@@ -326,12 +326,6 @@ impl Writer<'_> {
         self.strategy.buffered_bytes()
     }
 
-    /// Returns the total number of bytes (written + buffered).
-    /// This provides a more accurate estimate of the final file size.
-    pub fn total_bytes(&self) -> u64 {
-        self.bytes_written() + self.buffered_bytes()
-    }
-
     /// Finish writing the Vortex file, flushing any remaining buffers and returning the
     /// new file's footer.
     pub async fn finish(mut self) -> VortexResult<WriteSummary> {
@@ -406,10 +400,6 @@ impl<B: BlockingRuntime> BlockingWriter<'_, B> {
 
     pub fn buffered_bytes(&self) -> u64 {
         self.writer.buffered_bytes()
-    }
-
-    pub fn total_bytes(&self) -> u64 {
-        self.writer.total_bytes()
     }
 
     pub fn finish(self) -> VortexResult<WriteSummary> {
