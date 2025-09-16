@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{FoRArray, FoRVTable};
 use vortex_array::compute::{IsSortedKernel, IsSortedKernelAdapter, is_sorted, is_strict_sorted};
 use vortex_array::{ToCanonical, register_kernel};
 use vortex_error::VortexResult;
+
+use crate::{FoRArray, FoRVTable};
 
 /// FoR can express sortedness directly on its encoded form.
 ///
@@ -88,7 +89,10 @@ register_kernel!(IsSortedKernelAdapter(FoRVTable).lift());
 
 #[cfg(test)]
 mod test {
-    use vortex_array::{IntoArray, arrays::PrimitiveArray, compute::is_sorted, validity::Validity};
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::is_sorted;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
     use crate::FoRArray;
