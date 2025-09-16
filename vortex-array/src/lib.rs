@@ -31,6 +31,7 @@ mod context;
 mod encoding;
 pub mod iter;
 mod metadata;
+pub mod operator;
 mod partial_ord;
 pub mod patches;
 pub mod pipeline;
