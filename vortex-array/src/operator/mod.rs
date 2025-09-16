@@ -142,6 +142,15 @@ pub trait BatchExecution: Send {
 }
 
 pub trait PipelinedOperator: ArrayOperator {
+    /// Whether this operator works by mutating its first child in-place.
+    ///
+    /// If `true`, the operator is invoked with the first child's input data passed via the
+    /// mutable output view. The node is expected to mutate this data in-place.
+    fn in_place(&self) -> bool {
+        false
+    }
+
+    /// Bind the operator into a [`Kernel`] for pipelined execution.
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
 }
 
