@@ -56,11 +56,8 @@ where
             unsafe { std::mem::transmute(&mut values_uninit[value_count_acc..][..FL_CHUNK_SIZE]) };
 
         // SAFETY: `MaybeUninit<u16>` and `u16` have the same layout.
-        let rle_idxs: &mut [u16] = unsafe {
-            std::mem::transmute(
-                &mut indices_uninit[chunk_start_idx..chunk_start_idx + FL_CHUNK_SIZE],
-            )
-        };
+        let rle_idxs: &mut [u16] =
+            unsafe { std::mem::transmute(&mut indices_uninit[chunk_start_idx..][..FL_CHUNK_SIZE]) };
 
         // Capture chunk start indices. This is necessary as indices
         // returned from `T::encode` are relative to the chunk.
