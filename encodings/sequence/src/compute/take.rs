@@ -40,20 +40,25 @@ fn take<T: NativePType, S: NativePType>(
 ) -> PrimitiveArray {
     match is_valid {
         Some(mask) => {
-            let buffer = Buffer::from_iter(indices.iter().enumerate().map(|(mask_index, i)| {
-                if mask.value(mask_index) {
-                    let i = <S as NumCast>::from::<T>(*i).vortex_expect("all valid indices fit");
-                    base + i * mul
-                } else {
-                    S::zero()
-                }
-            }));
+            let buffer =
+                Buffer::from_trusted_len_iter(indices.iter().enumerate().map(|(mask_index, i)| {
+                    if mask.value(mask_index) {
+                        let i =
+                            <S as NumCast>::from::<T>(*i).vortex_expect("all valid indices fit");
+                        base + i * mul
+                    } else {
+                        S::zero()
+                    }
+                }));
             PrimitiveArray::new(buffer, Validity::from_mask(mask, Nullability::Nullable))
         }
-        None => PrimitiveArray::from_iter(indices.iter().map(|i| {
-            let i = <S as NumCast>::from::<T>(*i).vortex_expect("all indices fit");
-            base + i * mul
-        })),
+        None => PrimitiveArray::new(
+            Buffer::from_trusted_len_iter(indices.iter().map(|i| {
+                let i = <S as NumCast>::from::<T>(*i).vortex_expect("all indices fit");
+                base + i * mul
+            })),
+            Validity::NonNullable,
+        ),
     }
 }
 
