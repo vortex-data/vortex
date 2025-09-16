@@ -12,7 +12,7 @@ pub async fn exec_tree(file: impl AsRef<Path>) -> VortexResult<()> {
         .open(file.as_ref())
         .await?
         .scan()?
-        .into_tokio_array_stream()?
+        .into_array_stream()?
         .read_all()
         .await?;
 

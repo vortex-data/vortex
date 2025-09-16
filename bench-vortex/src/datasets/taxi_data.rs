@@ -9,7 +9,7 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use vortex::ArrayRef;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
-use vortex::iter::ArrayIteratorExt;
+use vortex::stream::ArrayStreamExt;
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
@@ -42,8 +42,9 @@ pub async fn fetch_taxi_data() -> Result<ArrayRef> {
         .open(vortex_data)
         .await?
         .scan()?
-        .into_array_iter_multithread()?
-        .read_all()?)
+        .into_array_stream()?
+        .read_all()
+        .await?)
 }
 
 pub async fn taxi_data_vortex() -> Result<PathBuf> {

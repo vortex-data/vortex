@@ -63,7 +63,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .vortex_unwrap()
         .with_projection(projection_expr.unwrap_or_else(|| root()))
         .with_some_filter(filter_expr)
-        .into_array_iter()
+        .into_array_iter(&SingleThreadRuntime::default())
         .vortex_unwrap()
         .try_collect::<_, Vec<_>, _>()
         .vortex_unwrap();

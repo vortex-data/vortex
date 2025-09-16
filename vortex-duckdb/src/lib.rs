@@ -3,11 +3,7 @@
 
 #![allow(clippy::missing_safety_doc)]
 use std::ffi::{CStr, c_char};
-use std::sync::LazyLock;
 
-// **WARNING begin this includes duckdb-rs, which is required to link in the symbol from libduckdb-sys.
-use tokio::runtime;
-use tokio::runtime::Runtime;
 // **WARNING end
 use vortex::error::{VortexExpect, VortexResult};
 
@@ -72,10 +68,3 @@ pub extern "C" fn vortex_extension_version_rust() -> *const c_char {
     }
     .as_ptr()
 }
-
-static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-    runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .vortex_expect("Cannot start runtime")
-});

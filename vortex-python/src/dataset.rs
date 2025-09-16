@@ -21,7 +21,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrow::{IntoPyArrow, ToPyArrow};
 use crate::expr::PyExpr;
 use crate::object_store_urls::object_store_from_url;
-use crate::{TOKIO_RUNTIME, install_module};
+use crate::{RUNTIME, TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
@@ -57,7 +57,7 @@ pub fn read_array_from_reader(
         scan = scan.with_row_range(l..r);
     }
 
-    scan.into_array_iter_multithread()?.read_all()
+    scan.into_array_iter(&*RUNTIME)?.read_all()
 }
 
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRef> {
@@ -155,7 +155,7 @@ impl PyVortexDataset {
         // TODO(ngates): should we use multi-threaded read or not?
         let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
         let reader: Box<dyn RecordBatchReader + Send> =
-            Box::new(scan.into_record_batch_reader_multithread(schema)?);
+            Box::new(scan.into_record_batch_reader(schema, &*RUNTIME)?);
 
         reader.into_pyarrow(self_.py())
     }
@@ -188,7 +188,7 @@ impl PyVortexDataset {
 
         // TODO(ngates): should we use multi-threaded read or not?
         let n_rows: usize = scan
-            .into_array_iter_multithread()?
+            .into_array_iter(&*RUNTIME)?
             .map_ok(|array| array.len())
             .process_results(|iter| iter.sum())
             .map_err(|err| PyValueError::new_err(format!("vortex error: {}", err)))?;

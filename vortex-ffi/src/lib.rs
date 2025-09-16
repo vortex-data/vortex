@@ -27,6 +27,7 @@ use parking_lot::Mutex;
 use tokio::runtime;
 use tokio::runtime::Runtime;
 use vortex::error::VortexExpect;
+use vortex::io::runtime::tokio::TokioRuntime;
 
 #[cfg(all(feature = "mimalloc", not(miri)))]
 #[global_allocator]
@@ -51,6 +52,10 @@ pub(crate) fn get_runtime() -> Arc<Runtime> {
         *state = Some(runtime.clone());
         runtime
     }
+}
+
+pub(crate) fn get_vx_runtime() -> TokioRuntime {
+    TokioRuntime::from(get_runtime().handle())
 }
 
 /// Attempt to shutdown the runtime by calling `drop` if no other references exist
