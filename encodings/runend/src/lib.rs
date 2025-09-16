@@ -4,6 +4,7 @@
 pub use array::*;
 pub use iter::trimmed_ends_iter;
 
+mod accessor;
 mod array;
 #[cfg(feature = "arrow")]
 mod arrow;

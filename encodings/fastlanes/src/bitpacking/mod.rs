@@ -21,6 +21,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
 
 use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 
+mod accessor;
 mod compress;
 mod compute;
 mod ops;

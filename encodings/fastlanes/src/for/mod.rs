@@ -12,6 +12,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
+mod accessor;
 mod compress;
 mod compute;
 mod ops;
