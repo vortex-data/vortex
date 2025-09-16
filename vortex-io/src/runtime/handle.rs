@@ -140,7 +140,6 @@ impl Handle {
         self.open_read_with_metrics(source, Default::default())
     }
 
-    /// Open a file for I/O on this runtime with custom metrics.
     pub fn open_read_with_metrics<S: IntoReadSource>(
         &self,
         source: S,
