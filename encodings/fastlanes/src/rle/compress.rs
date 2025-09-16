@@ -5,7 +5,7 @@ use std::hash::Hash;
 
 use arrayref::{array_mut_ref, array_ref};
 use fastlanes::RLE;
-use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
