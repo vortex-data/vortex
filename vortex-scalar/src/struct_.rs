@@ -13,7 +13,7 @@ use vortex_error::{
     VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
 
-use crate::{InnerScalarValue, Scalar, ScalarRef, ScalarValue};
+use crate::{InnerScalarValue, Scalar, ScalarValue};
 
 /// A scalar value representing a struct with named fields.
 ///
@@ -318,14 +318,6 @@ impl<'a> TryFrom<&'a Scalar> for StructScalar<'a> {
     }
 }
 
-impl<'a> TryFrom<&'a ScalarRef<'a>> for StructScalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &'a ScalarRef<'a>) -> Result<Self, Self::Error> {
-        Self::try_new(value.dtype(), value.value())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_dtype::PType::I32;
@@ -449,52 +441,6 @@ mod tests {
         assert_eq!(fields.len(), 2);
         assert_eq!(fields[0].as_primitive().typed_value::<i32>().unwrap(), 100);
         assert_eq!(fields[1].as_utf8().value().unwrap(), "test".into());
-    }
-
-    #[test]
-    fn test_struct_field_values_with_dtypes() {
-        let (_, _, dtype) = setup_types();
-        let f0_val = Scalar::primitive::<i32>(200, Nullability::NonNullable);
-        let f1_val = Scalar::utf8("refs_test", Nullability::NonNullable);
-
-        let scalar = Scalar::struct_(dtype, vec![f0_val, f1_val]);
-
-        // Test field_values_with_dtypes returns (ScalarValue, DType) pairs without allocating new Scalars
-        let struct_scalar = scalar.as_struct();
-        let field_data = struct_scalar
-            .field_values_with_dtypes()
-            .unwrap()
-            .collect::<Vec<_>>();
-        assert_eq!(field_data.len(), 2);
-
-        // Verify the field values and types are correct
-        let (value0, dtype0) = &field_data[0];
-        let (value1, dtype1) = &field_data[1];
-
-        let dtype0 = dtype0.value().unwrap();
-        let dtype1 = dtype1.value().unwrap();
-
-        // Create ScalarRef from the data to test it
-        let scalar_ref0 = ScalarRef::new(&dtype0, value0);
-        let scalar_ref1 = ScalarRef::new(&dtype1, value1);
-
-        assert_eq!(
-            scalar_ref0.as_primitive().typed_value::<i32>().unwrap(),
-            200
-        );
-        assert_eq!(scalar_ref1.as_utf8().value().unwrap(), "refs_test".into());
-
-        // Verify conversion to scalar works
-        let scalar_from_ref = scalar_ref0.to_scalar();
-        assert_eq!(
-            scalar_from_ref.as_primitive().typed_value::<i32>().unwrap(),
-            200
-        );
-
-        // Test ScalarRef basic functionality
-        assert!(!scalar_ref0.is_null());
-        assert!(scalar_ref0.is_valid());
-        assert_eq!(scalar_ref0.dtype(), dtype0);
     }
 
     #[test]

@@ -9,7 +9,7 @@ use vortex_dtype::datetime::{TemporalMetadata, is_temporal_ext_type};
 use vortex_dtype::{DType, ExtDType};
 use vortex_error::{VortexError, VortexResult, vortex_bail};
 
-use crate::{Scalar, ScalarRef, ScalarValue};
+use crate::{Scalar, ScalarValue};
 
 /// A scalar value representing an extension type.
 ///
@@ -129,14 +129,6 @@ impl<'a> TryFrom<&'a Scalar> for ExtScalar<'a> {
 
     fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
         ExtScalar::try_new(scalar.dtype(), scalar.value())
-    }
-}
-
-impl<'a> TryFrom<&'a ScalarRef<'a>> for ExtScalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(scalar_ref: &'a ScalarRef<'a>) -> Result<Self, Self::Error> {
-        ExtScalar::try_new(scalar_ref.dtype(), scalar_ref.value())
     }
 }
 
