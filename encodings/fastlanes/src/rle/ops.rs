@@ -62,7 +62,7 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::Buffer;
 
     use super::*;
@@ -151,8 +151,6 @@ mod tests {
 
     #[test]
     fn test_scalar_at_multiple_chunks() {
-        use vortex_array::{IntoArray, ToCanonical};
-
         // Test accessing elements around chunk boundaries
         let values: Buffer<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
         let expected: Vec<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
@@ -235,9 +233,6 @@ mod tests {
 
     #[test]
     fn test_slice_across_chunk_boundaries() {
-        use vortex_array::{IntoArray, ToCanonical};
-        use vortex_buffer::Buffer;
-
         let values: Buffer<u32> = (0..2100).map(|i| (i / 100) as u32).collect();
         let expected: Vec<u32> = (0..2100).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();

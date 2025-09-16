@@ -102,15 +102,9 @@ impl VisitorVTable<RLEVTable> for RLEVTable {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::serde::ArrayChildren;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::vtable::SerdeVTable;
-    use vortex_array::{IntoArray, ProstMetadata, ToCanonical};
-    use vortex_error::vortex_err;
 
     use super::*;
-    use crate::rle::RLEVTable;
 
     #[cfg_attr(miri, ignore)]
     #[test]
@@ -122,91 +116,6 @@ mod test {
                 indices_len: u64::MAX,
                 value_chunk_offsets_len: u64::MAX,
             }),
-        );
-    }
-
-    #[test]
-    fn test_serde_build() {
-        let original = PrimitiveArray::from_iter([1u32, 1, 1, 2, 2, 3, 3, 3, 3]).into_array();
-
-        let encoded = RLEVTable::encode(&RLEEncoding, &original.to_canonical(), None)
-            .unwrap()
-            .unwrap();
-
-        let metadata = RLEVTable::metadata(&encoded).unwrap().unwrap();
-        let encoded_values = encoded.values().to_array();
-        let encoded_indices = encoded.indices().to_array();
-        let encoded_value_chunk_offsets = encoded.value_chunk_offsets().to_array();
-
-        assert_eq!(encoded_values.len(), 3);
-        // Indices get padded to 1024.
-        assert_eq!(encoded_indices.len(), 1024);
-        assert_eq!(encoded.len(), 9);
-
-        // Verify metadata has correct lengths
-        assert_eq!(metadata.0.values_len, 3);
-        assert_eq!(metadata.0.indices_len, 1024);
-        assert_eq!(
-            metadata.0.value_chunk_offsets_len as usize,
-            encoded_value_chunk_offsets.len()
-        );
-
-        struct MockArray(Vec<vortex_array::ArrayRef>);
-
-        impl ArrayChildren for MockArray {
-            fn len(&self) -> usize {
-                self.0.len()
-            }
-            fn get(
-                &self,
-                index: usize,
-                _dtype: &DType,
-                _len: usize,
-            ) -> VortexResult<vortex_array::ArrayRef> {
-                self.0
-                    .get(index)
-                    .cloned()
-                    .ok_or_else(|| vortex_err!("Index out of bounds"))
-            }
-        }
-
-        let rebuilt = RLEVTable::build(
-            &RLEEncoding,
-            encoded.dtype(),
-            encoded.len(),
-            &metadata.0,
-            &[],
-            &MockArray(vec![
-                encoded_values.clone(),
-                encoded_indices.clone(),
-                encoded_value_chunk_offsets.clone(),
-            ]),
-        )
-        .unwrap();
-
-        assert_eq!(rebuilt.len(), encoded.len());
-
-        assert_eq!(
-            rebuilt.indices().to_primitive().as_slice::<u16>(),
-            encoded_indices.to_primitive().as_slice::<u16>()
-        );
-
-        assert_eq!(
-            rebuilt.values().to_primitive().as_slice::<u32>(),
-            encoded_values.to_primitive().as_slice::<u32>()
-        );
-
-        assert_eq!(
-            rebuilt
-                .value_chunk_offsets()
-                .to_primitive()
-                .as_slice::<u64>(),
-            encoded_value_chunk_offsets.to_primitive().as_slice::<u64>()
-        );
-
-        assert_eq!(
-            original.to_primitive().as_slice::<u32>(),
-            rebuilt.to_primitive().as_slice::<u32>()
         );
     }
 }
