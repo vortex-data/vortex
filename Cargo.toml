@@ -59,18 +59,19 @@ anyhow = "1.0.95"
 arbitrary = "1.3.2"
 arcref = "0.2.0"
 arrayref = "0.3.7"
-arrow-arith = "55.2.0"
-arrow-array = "55.2.0"
-arrow-buffer = "55.2.0"
-arrow-cast = "55.2.0"
-arrow-data = "55.2.0"
-arrow-ipc = "55.2.0"
-arrow-ord = "55.2.0"
-arrow-schema = "55.2.0"
-arrow-select = "55.2.0"
-arrow-string = "55.2.0"
+arrow-arith = "56"
+arrow-array = "56"
+arrow-buffer = "56"
+arrow-cast = "56"
+arrow-data = "56"
+arrow-ipc = "56"
+arrow-ord = "56"
+arrow-schema = "56"
+arrow-select = "56"
+arrow-string = "56"
+async-compat = "0.2.5"
 async-stream = "0.3.6"
-async-trait = "0.1.88"
+async-trait = "0.1.89"
 bindgen = "0.72.0"
 bit-vec = "0.8.0"
 bitvec = "1.0.1"
@@ -86,15 +87,16 @@ crossbeam-deque = "0.8.6"
 crossbeam-queue = "0.3.12"
 crossterm = "0.29"
 dashmap = "6.1.0"
-datafusion = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "faca92d", default-features = false }
-datafusion-catalog = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "faca92d" }
-datafusion-common = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "faca92d" }
-datafusion-common-runtime = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "faca92d" }
-datafusion-datasource = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "faca92d", default-features = false }
-datafusion-execution = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "faca92d" }
-datafusion-expr = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "faca92d" }
-datafusion-physical-expr = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "faca92d" }
-datafusion-physical-plan = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "faca92d" }
+datafusion = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d", default-features = false }
+datafusion-catalog = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d" }
+datafusion-common = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d" }
+datafusion-common-runtime = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d" }
+datafusion-datasource = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d", default-features = false }
+datafusion-execution = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d" }
+datafusion-expr = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d" }
+datafusion-physical-expr = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d" }
+datafusion-physical-plan = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d" }
+datafusion-physical-expr-adapter = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d" }
 dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "3.0" }
 dyn-hash = "0.2.0"
@@ -137,7 +139,7 @@ opentelemetry = "0.30.0"
 opentelemetry-otlp = "0.30.0"
 opentelemetry_sdk = "0.30.0"
 parking_lot = { version = "0.12.3", features = ["nightly"] }
-parquet = "55.2.0"
+parquet = "56"
 paste = "1.0.15"
 pco = "0.4.4"
 pin-project = "1.1.5"
@@ -183,17 +185,16 @@ target-lexicon = "0.13"
 tempfile = "3"
 termtree = { version = "0.5" }
 thiserror = "2.0.3"
-tokio = { version = "1.46" }
+tokio = { version = "1.47" }
 tokio-stream = "0.1.17"
 tokio-util = { version = "0.7.16" }
-# replace these with releases
-tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "d849ff430cd52250f6891ed4d5e3adad77bb2698" }
-tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "d849ff430cd52250f6891ed4d5e3adad77bb2698" }
+tpchgen = { version = "2" }
+tpchgen-arrow = { version = "2" }
 tracing = { version = "0.1.41" }
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3.20"
-url = "2.5.4"
-uuid = { version = "1.17", features = ["js"] }
+url = "2.5.7"
+uuid = { version = "1.18", features = ["js"] }
 walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"

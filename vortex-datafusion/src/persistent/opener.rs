@@ -10,9 +10,9 @@ use datafusion_datasource::file_meta::FileMeta;
 use datafusion_datasource::file_stream::{FileOpenFuture, FileOpener};
 use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
 use datafusion_datasource::{FileRange, PartitionedFile};
-use datafusion_physical_expr::schema_rewriter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::{PhysicalExprRef, split_conjunction};
+use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
@@ -215,9 +215,7 @@ impl FileOpener for VortexOpener {
                     ))))
                 })
                 .try_flatten()
-                .map(move |batch| {
-                    batch.and_then(|b| schema_mapping.map_batch(b).map_err(Into::into))
-                })
+                .map(move |batch| batch.and_then(|b| schema_mapping.map_batch(b)))
                 .boxed();
 
             Ok(stream)
@@ -256,7 +254,6 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use datafusion::arrow;
     use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::datatypes::{DataType, Schema};
     use datafusion::arrow::util::pretty::print_batches;
@@ -264,7 +261,7 @@ mod tests {
     use datafusion::datasource::schema_adapter::DefaultSchemaAdapterFactory;
     use datafusion::logical_expr::{col, lit};
     use datafusion::physical_expr::planner::logical2physical;
-    use datafusion::physical_expr::schema_rewriter::DefaultPhysicalExprAdapterFactory;
+    use datafusion::physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
     use datafusion::scalar::ScalarValue;
     use futures::stream::BoxStream;
     use itertools::Itertools;
@@ -335,7 +332,7 @@ mod tests {
     }
 
     async fn count_data(
-        mut stream: BoxStream<'static, Result<RecordBatch, ArrowError>>,
+        mut stream: BoxStream<'static, Result<RecordBatch, DataFusionError>>,
     ) -> anyhow::Result<(usize, usize)> {
         let mut batches = vec![];
 
