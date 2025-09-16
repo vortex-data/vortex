@@ -27,7 +27,7 @@ pub(crate) struct ViewedDType {
 
 impl ViewedDType {
     /// Create a [`ViewedDType`] from a buffer and a flatbuffer location
-    fn from_fb_loc(location: usize, buffer: FlatBuffer) -> Self {
+    pub(crate) fn from_fb_loc(location: usize, buffer: FlatBuffer) -> Self {
         Self {
             flatbuffer: buffer,
             flatbuffer_loc: location,
@@ -35,7 +35,7 @@ impl ViewedDType {
     }
 
     /// The viewed [`fbd::DType`] instance.
-    fn flatbuffer(&self) -> fbd::DType<'_> {
+    pub(crate) fn flatbuffer(&self) -> fbd::DType<'_> {
         unsafe { fbd::DType::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 

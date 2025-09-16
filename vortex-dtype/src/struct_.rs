@@ -6,9 +6,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_error::{
-    VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err, vortex_panic,
-};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err, vortex_panic};
 
 use crate::flatbuffers::ViewedDType;
 use crate::{DType, FieldName, FieldNames, PType};
@@ -57,18 +55,9 @@ impl PartialEq for FieldDTypeInner {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Owned(lhs), Self::Owned(rhs)) => lhs == rhs,
-            (Self::View(lhs), Self::View(rhs)) => {
-                let lhs = DType::try_from(lhs.clone())
-                    .vortex_expect("Failed to parse FieldDType into DType");
-                let rhs = DType::try_from(rhs.clone())
-                    .vortex_expect("Failed to parse FieldDType into DType");
-
-                lhs == rhs
-            }
+            (Self::View(lhs), Self::View(rhs)) => Self::viewed_eq(lhs, rhs),
             (Self::View(view), Self::Owned(owned)) | (Self::Owned(owned), Self::View(view)) => {
-                let view = DType::try_from(view.clone())
-                    .vortex_expect("Failed to parse FieldDType into DType");
-                owned == &view
+                Self::owned_vs_viewed_eq(owned, view)
             }
         }
     }
@@ -81,9 +70,7 @@ impl Hash for FieldDTypeInner {
                 owned.hash(state);
             }
             FieldDTypeInner::View(view) => {
-                let owned = DType::try_from(view.clone())
-                    .vortex_expect("Failed to parse FieldDType into DType");
-                owned.hash(state);
+                Self::viewed_hash(view, state);
             }
         }
     }
@@ -94,6 +81,11 @@ impl FieldDType {
     pub fn value(&self) -> VortexResult<DType> {
         self.inner.value()
     }
+
+    /// Compare two FieldDTypes ignoring nullability without allocating.
+    pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
+        self.inner.eq_ignore_nullability(&other.inner)
+    }
 }
 
 impl FieldDTypeInner {
@@ -102,6 +94,222 @@ impl FieldDTypeInner {
         match &self {
             FieldDTypeInner::Owned(owned) => Ok(owned.clone()),
             FieldDTypeInner::View(view) => DType::try_from(view.clone()),
+        }
+    }
+
+    /// Compare two FieldDTypes ignoring nullability without allocating.
+    fn eq_ignore_nullability(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Owned(lhs), Self::Owned(rhs)) => lhs.eq_ignore_nullability(rhs),
+            (Self::View(lhs), Self::View(rhs)) => Self::viewed_eq_ignore_nullability(lhs, rhs),
+            (Self::View(view), Self::Owned(owned)) | (Self::Owned(owned), Self::View(view)) => {
+                Self::owned_vs_viewed_eq_ignore_nullability(owned, view)
+            }
+        }
+    }
+
+    /// Compare two ViewedDTypes for equality without allocating DType instances.
+    fn viewed_eq(lhs: &ViewedDType, rhs: &ViewedDType) -> bool {
+        use crate::flatbuffers as fb;
+
+        let lhs_fb = lhs.flatbuffer();
+        let rhs_fb = rhs.flatbuffer();
+
+        if lhs_fb.type_type() != rhs_fb.type_type() {
+            return false;
+        }
+
+        match lhs_fb.type_type() {
+            fb::Type::Null => true,
+            fb::Type::Bool => {
+                let lhs_bool = lhs_fb.type__as_bool().unwrap();
+                let rhs_bool = rhs_fb.type__as_bool().unwrap();
+                lhs_bool.nullable() == rhs_bool.nullable()
+            }
+            fb::Type::Primitive => {
+                let lhs_prim = lhs_fb.type__as_primitive().unwrap();
+                let rhs_prim = rhs_fb.type__as_primitive().unwrap();
+                lhs_prim.ptype() == rhs_prim.ptype() && lhs_prim.nullable() == rhs_prim.nullable()
+            }
+            fb::Type::Decimal => {
+                let lhs_dec = lhs_fb.type__as_decimal().unwrap();
+                let rhs_dec = rhs_fb.type__as_decimal().unwrap();
+                lhs_dec.precision() == rhs_dec.precision()
+                    && lhs_dec.scale() == rhs_dec.scale()
+                    && lhs_dec.nullable() == rhs_dec.nullable()
+            }
+            fb::Type::Binary => {
+                let lhs_bin = lhs_fb.type__as_binary().unwrap();
+                let rhs_bin = rhs_fb.type__as_binary().unwrap();
+                lhs_bin.nullable() == rhs_bin.nullable()
+            }
+            fb::Type::Utf8 => {
+                let lhs_utf8 = lhs_fb.type__as_utf_8().unwrap();
+                let rhs_utf8 = rhs_fb.type__as_utf_8().unwrap();
+                lhs_utf8.nullable() == rhs_utf8.nullable()
+            }
+            // For complex types (List, FixedSizeList, Struct, Extension),
+            // fall back to parsing for now to maintain correctness
+            _ => {
+                // Fall back to allocation-based comparison for complex types
+                match (DType::try_from(lhs.clone()), DType::try_from(rhs.clone())) {
+                    (Ok(lhs_dt), Ok(rhs_dt)) => lhs_dt == rhs_dt,
+                    _ => false,
+                }
+            }
+        }
+    }
+
+    /// Compare ViewedDType with owned DType for equality without extra allocations.
+    fn owned_vs_viewed_eq(owned: &DType, viewed: &ViewedDType) -> bool {
+        use crate::flatbuffers as fb;
+
+        let viewed_fb = viewed.flatbuffer();
+
+        match (owned, viewed_fb.type_type()) {
+            (DType::Null, fb::Type::Null) => true,
+            (DType::Bool(owned_null), fb::Type::Bool) => {
+                let viewed_bool = viewed_fb.type__as_bool().unwrap();
+                *owned_null == viewed_bool.nullable().into()
+            }
+            (DType::Primitive(owned_ptype, owned_null), fb::Type::Primitive) => {
+                let viewed_prim = viewed_fb.type__as_primitive().unwrap();
+                *owned_ptype == viewed_prim.ptype().try_into().unwrap_or_else(|_| PType::U8)
+                    && *owned_null == viewed_prim.nullable().into()
+            }
+            (DType::Decimal(owned_dec, owned_null), fb::Type::Decimal) => {
+                let viewed_dec = viewed_fb.type__as_decimal().unwrap();
+                owned_dec.precision() == viewed_dec.precision()
+                    && owned_dec.scale() == viewed_dec.scale()
+                    && *owned_null == viewed_dec.nullable().into()
+            }
+            (DType::Binary(owned_null), fb::Type::Binary) => {
+                let viewed_bin = viewed_fb.type__as_binary().unwrap();
+                *owned_null == viewed_bin.nullable().into()
+            }
+            (DType::Utf8(owned_null), fb::Type::Utf8) => {
+                let viewed_utf8 = viewed_fb.type__as_utf_8().unwrap();
+                *owned_null == viewed_utf8.nullable().into()
+            }
+            // For complex types, fall back to parsing
+            _ => match DType::try_from(viewed.clone()) {
+                Ok(viewed_dt) => owned == &viewed_dt,
+                Err(_) => false,
+            },
+        }
+    }
+
+    /// Compare two ViewedDTypes ignoring nullability without allocating.
+    fn viewed_eq_ignore_nullability(lhs: &ViewedDType, rhs: &ViewedDType) -> bool {
+        use crate::flatbuffers as fb;
+
+        let lhs_fb = lhs.flatbuffer();
+        let rhs_fb = rhs.flatbuffer();
+
+        if lhs_fb.type_type() != rhs_fb.type_type() {
+            return false;
+        }
+
+        match lhs_fb.type_type() {
+            fb::Type::Null => true,
+            fb::Type::Bool => true, // Only type matters, not nullability
+            fb::Type::Primitive => {
+                let lhs_prim = lhs_fb.type__as_primitive().unwrap();
+                let rhs_prim = rhs_fb.type__as_primitive().unwrap();
+                lhs_prim.ptype() == rhs_prim.ptype() // Ignore nullable
+            }
+            fb::Type::Decimal => {
+                let lhs_dec = lhs_fb.type__as_decimal().unwrap();
+                let rhs_dec = rhs_fb.type__as_decimal().unwrap();
+                lhs_dec.precision() == rhs_dec.precision() && lhs_dec.scale() == rhs_dec.scale()
+                // Ignore nullable
+            }
+            fb::Type::Binary => true, // Only type matters
+            fb::Type::Utf8 => true,   // Only type matters
+            // For complex types, fall back to parsing
+            _ => match (DType::try_from(lhs.clone()), DType::try_from(rhs.clone())) {
+                (Ok(lhs_dt), Ok(rhs_dt)) => lhs_dt.eq_ignore_nullability(&rhs_dt),
+                _ => false,
+            },
+        }
+    }
+
+    /// Compare owned DType with ViewedDType ignoring nullability.
+    fn owned_vs_viewed_eq_ignore_nullability(owned: &DType, viewed: &ViewedDType) -> bool {
+        use crate::flatbuffers as fb;
+
+        let viewed_fb = viewed.flatbuffer();
+
+        match (owned, viewed_fb.type_type()) {
+            (DType::Null, fb::Type::Null) => true,
+            (DType::Bool(_), fb::Type::Bool) => true, // Ignore nullability
+            (DType::Primitive(owned_ptype, _), fb::Type::Primitive) => {
+                let viewed_prim = viewed_fb.type__as_primitive().unwrap();
+                *owned_ptype == viewed_prim.ptype().try_into().unwrap_or_else(|_| PType::U8)
+                // Ignore nullability
+            }
+            (DType::Decimal(owned_dec, _), fb::Type::Decimal) => {
+                let viewed_dec = viewed_fb.type__as_decimal().unwrap();
+                owned_dec.precision() == viewed_dec.precision()
+                    && owned_dec.scale() == viewed_dec.scale()
+                // Ignore nullability
+            }
+            (DType::Binary(_), fb::Type::Binary) => true, // Ignore nullability
+            (DType::Utf8(_), fb::Type::Utf8) => true,     // Ignore nullability
+            // For complex types, fall back to parsing
+            _ => match DType::try_from(viewed.clone()) {
+                Ok(viewed_dt) => owned.eq_ignore_nullability(&viewed_dt),
+                Err(_) => false,
+            },
+        }
+    }
+
+    /// Hash a ViewedDType without allocating a DType instance.
+    fn viewed_hash<H: std::hash::Hasher>(viewed: &ViewedDType, state: &mut H) {
+        use crate::Nullability;
+        use crate::flatbuffers as fb;
+
+        let viewed_fb = viewed.flatbuffer();
+        viewed_fb.type_type().hash(state);
+
+        match viewed_fb.type_type() {
+            fb::Type::Null => {} // Nothing additional to hash
+            fb::Type::Bool => {
+                let bool_fb = viewed_fb.type__as_bool().unwrap();
+                let nullability = Nullability::from(bool_fb.nullable());
+                nullability.hash(state);
+            }
+            fb::Type::Primitive => {
+                let prim_fb = viewed_fb.type__as_primitive().unwrap();
+                if let Ok(ptype) = PType::try_from(prim_fb.ptype()) {
+                    ptype.hash(state);
+                }
+                let nullability = Nullability::from(prim_fb.nullable());
+                nullability.hash(state);
+            }
+            fb::Type::Decimal => {
+                let dec_fb = viewed_fb.type__as_decimal().unwrap();
+                dec_fb.precision().hash(state);
+                dec_fb.scale().hash(state);
+                let nullability = Nullability::from(dec_fb.nullable());
+                nullability.hash(state);
+            }
+            fb::Type::Binary => {
+                let bin_fb = viewed_fb.type__as_binary().unwrap();
+                let nullability = Nullability::from(bin_fb.nullable());
+                nullability.hash(state);
+            }
+            fb::Type::Utf8 => {
+                let utf8_fb = viewed_fb.type__as_utf_8().unwrap();
+                let nullability = Nullability::from(utf8_fb.nullable());
+                nullability.hash(state);
+            }
+            // For complex types, fall back to parsing for now
+            _ => {
+                if let Ok(owned_dt) = DType::try_from(viewed.clone()) {
+                    owned_dt.hash(state);
+                }
+            }
         }
     }
 }
@@ -418,7 +626,7 @@ mod test {
     use itertools::Itertools;
 
     use crate::dtype::DType;
-    use crate::{FieldNames, Nullability, PType, StructFields};
+    use crate::{FieldDType, FieldNames, Nullability, PType, StructFields};
 
     #[test]
     fn nullability() {
@@ -541,5 +749,58 @@ mod test {
             nested.to_string(),
             "{id=u64, data={name=utf8, age=i32?, active=bool}?}"
         );
+    }
+
+    #[test]
+    fn test_field_dtype_equality() {
+        // Test owned vs owned
+        let owned1 = FieldDType::from(DType::Primitive(PType::I32, Nullability::Nullable));
+        let owned2 = FieldDType::from(DType::Primitive(PType::I32, Nullability::Nullable));
+        let owned3 = FieldDType::from(DType::Primitive(PType::I64, Nullability::Nullable));
+
+        assert_eq!(owned1, owned2);
+        assert_ne!(owned1, owned3);
+
+        // Test eq_ignore_nullability
+        let nullable = FieldDType::from(DType::Primitive(PType::I32, Nullability::Nullable));
+        let non_nullable = FieldDType::from(DType::Primitive(PType::I32, Nullability::NonNullable));
+
+        assert_ne!(nullable, non_nullable);
+        assert!(nullable.eq_ignore_nullability(&non_nullable));
+    }
+
+    #[test]
+    fn test_field_dtype_viewed_equality() {
+        use crate::serde::flatbuffers::ViewedDType;
+        use flatbuffers::root;
+        use vortex_flatbuffers::FlatBuffer;
+        use vortex_flatbuffers::WriteFlatBufferExt;
+
+        // Create a DType and serialize it to flatbuffer
+        let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        let bytes = dtype.write_flatbuffer_bytes();
+        let root_fb = root::<crate::flatbuffers::DType>(&bytes).unwrap();
+        let view = ViewedDType::from_fb_loc(root_fb._tab.loc(), FlatBuffer::from(bytes));
+
+        let owned_field = FieldDType::from(dtype.clone());
+        let viewed_field = FieldDType::from(view);
+
+        // Test equality between owned and viewed
+        assert_eq!(owned_field, viewed_field);
+        assert_eq!(viewed_field, owned_field);
+
+        // Test hash consistency
+        use std::collections::HashMap;
+        let mut map = HashMap::new();
+        map.insert(owned_field.clone(), "value");
+        assert!(map.contains_key(&viewed_field));
+
+        // Test eq_ignore_nullability
+        let non_null_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let non_null_field = FieldDType::from(non_null_dtype);
+
+        assert_ne!(owned_field, non_null_field);
+        assert!(owned_field.eq_ignore_nullability(&non_null_field));
+        assert!(viewed_field.eq_ignore_nullability(&non_null_field));
     }
 }
