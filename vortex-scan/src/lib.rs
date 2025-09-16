@@ -142,12 +142,26 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// Map each split of the scan. The function will be run on the spawned task.
     pub fn map<B: 'static>(
-        mut self,
+        self,
         map_fn: impl Fn(A) -> VortexResult<B> + 'static + Send + Sync,
     ) -> ScanBuilder<B> {
         let old_map_fn = self.map_fn;
-        self.map_fn = Arc::new(move |a| old_map_fn(a).and_then(|a| map_fn(a)));
-        self
+        ScanBuilder {
+            handle: self.handle,
+            layout_reader: self.layout_reader,
+            projection: self.projection,
+            filter: self.filter,
+            ordered: self.ordered,
+            row_range: self.row_range,
+            selection: self.selection,
+            split_by: self.split_by,
+            concurrency: self.concurrency,
+            metrics: self.metrics,
+            file_stats: self.file_stats,
+            limit: self.limit,
+            row_offset: self.row_offset,
+            map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
+        }
     }
 
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
