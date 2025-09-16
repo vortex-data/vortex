@@ -4,10 +4,10 @@
 use arrow_array::cast::AsArray;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, DataType, SchemaRef};
-use futures::{Stream, StreamExt};
-use vortex_array::ArrayRef;
+use futures::{Stream, TryStreamExt};
 use vortex_array::arrow::IntoArrowArray;
-use vortex_error::{VortexError, VortexResult};
+use vortex_array::ArrayRef;
+use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 
 use crate::ScanBuilder;
@@ -26,8 +26,9 @@ impl ScanBuilder<ArrayRef> {
         let data_type = DataType::Struct(schema.fields().clone());
 
         let iter = self
-            .into_array_iter(runtime)?
-            .map(move |chunk| to_record_batch(chunk, &data_type));
+            .map(move |chunk| to_record_batch(chunk, &data_type))
+            .into_iter(runtime)?
+            .map(|result| result.map_err(|e| ArrowError::ExternalError(Box::new(e))));
 
         Ok(RecordBatchIteratorAdapter { iter, schema })
     }
@@ -39,23 +40,17 @@ impl ScanBuilder<ArrayRef> {
         let data_type = DataType::Struct(schema.fields().clone());
 
         let stream = self
-            .into_array_stream()?
-            .map(move |chunk| to_record_batch(chunk, &data_type));
+            .map(move |chunk| to_record_batch(chunk, &data_type))
+            .into_stream()?
+            .map_err(|e| ArrowError::ExternalError(Box::new(e)));
 
         Ok(stream)
     }
 }
 
-fn to_record_batch(
-    chunk: VortexResult<ArrayRef>,
-    data_type: &DataType,
-) -> Result<RecordBatch, ArrowError> {
-    chunk
-        .and_then(|array| {
-            let arrow = array.into_arrow(data_type)?;
-            Ok::<_, VortexError>(RecordBatch::from(arrow.as_struct().clone()))
-        })
-        .map_err(|e| ArrowError::ExternalError(Box::new(e)))
+fn to_record_batch(chunk: ArrayRef, data_type: &DataType) -> VortexResult<RecordBatch> {
+    let arrow = chunk.into_arrow(data_type)?;
+    Ok(RecordBatch::from(arrow.as_struct().clone()))
 }
 
 /// We create an adapter for record batch iterators that supports clone.
@@ -104,9 +99,9 @@ mod tests {
         Array, ArrayRef as ArrowArrayRef, Int32Array, RecordBatch, StringArray, StructArray,
     };
     use arrow_schema::{ArrowError, DataType, Field, Schema};
-    use vortex_array::ArrayRef;
     use vortex_array::arrow::FromArrowArray;
-    use vortex_error::{VortexResult, vortex_err};
+    use vortex_array::ArrayRef;
+    use vortex_error::VortexResult;
 
     use super::*;
 
@@ -147,7 +142,7 @@ mod tests {
         let schema = create_arrow_schema();
         let data_type = DataType::Struct(schema.fields().clone());
 
-        let result = to_record_batch(Ok(vortex_array), &data_type);
+        let result = to_record_batch(vortex_array, &data_type);
         assert!(result.is_ok());
 
         let batch = result.unwrap();
@@ -171,16 +166,6 @@ mod tests {
         assert!(name_col.is_null(3));
 
         Ok(())
-    }
-
-    #[test]
-    fn test_record_batch_conversion_error() {
-        let error = vortex_err!("test error");
-        let data_type = DataType::Struct(create_arrow_schema().fields().clone());
-
-        let result = to_record_batch(Err(error), &data_type);
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ArrowError::ExternalError(_)));
     }
 
     #[test]

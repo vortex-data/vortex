@@ -6,22 +6,22 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::{cmp, iter};
 
-use futures::Stream;
 use futures::future::BoxFuture;
+use futures::Stream;
 use itertools::Itertools;
 pub use selection::*;
 pub use split_by::*;
-use tasks::{TaskContext, split_exec};
-use vortex_array::ArrayRef;
+use tasks::{split_exec, TaskContext};
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
+use vortex_array::ArrayRef;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::{root, ExprRef};
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
@@ -42,6 +42,8 @@ pub struct ScanBuilder<A> {
     layout_reader: LayoutReaderRef,
     projection: ExprRef,
     filter: Option<ExprRef>,
+    /// Whether the scan needs to return splits in the order they appear in the file.
+    ordered: bool,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
     /// The selection mask to apply to the selected row range.
@@ -82,6 +84,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     pub fn with_projection(mut self, projection: ExprRef) -> Self {
         self.projection = projection;
+        self
+    }
+
+    pub fn with_ordered(mut self, ordered: bool) -> Self {
+        self.ordered = ordered;
         self
     }
 
@@ -135,25 +142,12 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// Map each split of the scan. The function will be run on the spawned task.
     pub fn map<B: 'static>(
-        self,
+        mut self,
         map_fn: impl Fn(A) -> VortexResult<B> + 'static + Send + Sync,
     ) -> ScanBuilder<B> {
         let old_map_fn = self.map_fn;
-        ScanBuilder {
-            handle: self.handle,
-            layout_reader: self.layout_reader,
-            projection: self.projection,
-            filter: self.filter,
-            row_range: self.row_range,
-            selection: self.selection,
-            split_by: self.split_by,
-            concurrency: self.concurrency,
-            map_fn: Arc::new(move |a| map_fn(old_map_fn(a)?)),
-            metrics: self.metrics,
-            file_stats: self.file_stats,
-            limit: self.limit,
-            row_offset: self.row_offset,
-        }
+        self.map_fn = Arc::new(move |a| old_map_fn(a).and_then(|a| map_fn(a)));
+        self
     }
 
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
@@ -194,6 +188,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             layout_reader,
             projection,
             filter,
+            ordered: self.ordered,
             row_range: self.row_range,
             selection: self.selection,
             splits,
@@ -224,7 +219,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Returns an [`Iterator`] using the given blocking runtime.
     pub fn into_iter<B: BlockingRuntime>(
         self,
-        runtime: B,
+        runtime: &B,
     ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
         let stream = self.with_handle(runtime.handle()).into_stream()?;
         Ok(runtime.block_on_stream(|_| stream))
@@ -238,6 +233,7 @@ impl ScanBuilder<ArrayRef> {
             layout_reader,
             projection: root(),
             filter: None,
+            ordered: true,
             row_range: None,
             selection: Default::default(),
             split_by: SplitBy::Layout,
@@ -325,6 +321,7 @@ pub struct RepeatedScan<A: 'static + Send> {
     layout_reader: LayoutReaderRef,
     projection: ExprRef,
     filter: Option<ExprRef>,
+    ordered: bool,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
     /// The selection mask to apply to the selected row range.
@@ -390,12 +387,22 @@ impl<A: 'static + Send> RepeatedScan<A> {
         row_range: Option<Range<u64>>,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         use futures::StreamExt;
-        let concurrency = self.concurrency;
+        let num_workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        let concurrency = self.concurrency * num_workers;
         let handle = self.handle.clone();
-        Ok(futures::stream::iter(self.execute(row_range)?)
-            .map(move |task| handle.spawn(task))
-            .buffered(concurrency)
-            .filter_map(|chunk| async move { chunk.transpose() }))
+
+        let stream =
+            futures::stream::iter(self.execute(row_range)?).map(move |task| handle.spawn(task));
+
+        let stream = if self.ordered {
+            stream.buffered(concurrency).boxed()
+        } else {
+            stream.buffer_unordered(concurrency).boxed()
+        };
+
+        Ok(stream.filter_map(|chunk| async move { chunk.transpose() }))
     }
 }
 

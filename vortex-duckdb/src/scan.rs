@@ -5,22 +5,22 @@ use std::cmp::max;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use async_compat::Compat;
 use futures::stream::{BoxStream, SelectAll};
-use futures::{FutureExt, Stream, StreamExt, stream};
+use futures::{stream, FutureExt, Stream, StreamExt};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
 use vortex::dtype::FieldNames;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
+use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex::expr::{and, and_collect, col, lit, root, select, ExprRef};
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::{CurrentThreadRuntime, ThreadSafeIterator};
+use vortex::io::runtime::BlockingRuntime;
 use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
@@ -359,6 +359,7 @@ impl TableFunction for VortexTableFunction {
                             .with_handle(handle)
                             .with_some_filter(filter_expr)
                             .with_projection(projection_expr)
+                            .with_ordered(false)
                             .map(move |split| Ok((split, conversion_cache.clone())))
                             .into_stream()?
                             .boxed();
@@ -378,7 +379,7 @@ impl TableFunction for VortexTableFunction {
                     streams: scan_streams.boxed(),
                     streams_finished: false,
                     select_all: Default::default(),
-                    max_concurrency: num_workers,
+                    max_concurrency: num_workers * 2,
                 }),
             batch_id: AtomicU64::new(0),
         })

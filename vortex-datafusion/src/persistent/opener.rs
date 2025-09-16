@@ -12,10 +12,10 @@ use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
 use datafusion_datasource::{FileRange, PartitionedFile};
 use datafusion_physical_expr::schema_rewriter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
-use datafusion_physical_expr::{PhysicalExprRef, split_conjunction};
-use futures::{FutureExt, StreamExt, TryStreamExt, stream};
-use object_store::ObjectStore;
+use datafusion_physical_expr::{split_conjunction, PhysicalExprRef};
+use futures::{stream, FutureExt, StreamExt, TryStreamExt};
 use object_store::path::Path;
+use object_store::ObjectStore;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
 use vortex::expr::{root, select};
@@ -182,6 +182,7 @@ impl FileOpener for VortexOpener {
                 .with_metrics(metrics)
                 .with_projection(projection_expr)
                 .with_some_filter(filter)
+                .with_ordered(false)
                 .map(|chunk| chunk.to_struct().into_record_batch())
                 .into_stream()
                 .map_err(|e| {
@@ -268,8 +269,8 @@ mod tests {
     use datafusion::scalar::ScalarValue;
     use futures::stream::BoxStream;
     use itertools::Itertools;
-    use object_store::ObjectMeta;
     use object_store::memory::InMemory;
+    use object_store::ObjectMeta;
     use rstest::rstest;
     use vortex::arrow::FromArrowArray;
     use vortex::file::VortexWriteOptions;
