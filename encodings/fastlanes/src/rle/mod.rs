@@ -56,11 +56,10 @@ pub struct RLEArray {
     ///
     /// # Example
     /// ```
-    /// // Two chunks with their own unique values:
-    /// // Chunk 0: uses values [10, 20] (starts at index 0)
-    /// // Chunk 1: uses values [30, 40] (starts at index 2)
+    /// // Chunk 0: [10, 20] (starts at index 0)
+    /// // Chunk 1: [30, 40] (starts at index 2)
     /// let values = [10, 20, 30, 40];           // Global values array
-    /// let value_chunk_offsets = [0, 2];        // Chunk 0 starts at 0, Chunk 1 starts at 2
+    /// let value_chunk_offsets = [0, 2];        // Chunk 0 starts at index 0, Chunk 1 starts at index2
     /// ```
     value_chunk_offsets: ArrayRef,
     validity: Validity,
