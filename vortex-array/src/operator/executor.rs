@@ -7,6 +7,11 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 
 /// An executor that runs an operator tree.
+///
+/// The executor performs common subtree elimination by creating BatchExecution nodes that hold
+/// shared futures to the underlying execution.
+///
+/// It also finds sub-graphs of pipeline operators and executes them as a [`Pipeline`]
 pub struct Executor {}
 
 impl Executor {
