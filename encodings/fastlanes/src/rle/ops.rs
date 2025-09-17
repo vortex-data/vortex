@@ -150,6 +150,38 @@ mod tests {
     }
 
     #[test]
+    fn test_scalar_at_slice() {
+        let array = fixture::rle_array();
+        let sliced = array.slice(2..6); // [20, 20, 20, 30]
+
+        assert_eq!(sliced.len(), 4);
+        assert_eq!(sliced.scalar_at(0), 20u32.into());
+        assert_eq!(sliced.scalar_at(1), 20u32.into());
+        assert_eq!(sliced.scalar_at(2), 20u32.into());
+        assert_eq!(sliced.scalar_at(3), 30u32.into());
+
+        assert!(!sliced.scalar_at(0).is_null());
+        assert!(!sliced.scalar_at(3).is_null());
+    }
+
+    #[test]
+    fn test_scalar_at_slice_with_nulls() {
+        let array = fixture::rle_array_with_nulls();
+        let sliced = array.slice(2..6); // [20, 20, 20, 30]
+
+        assert_eq!(sliced.len(), 4);
+        assert_eq!(sliced.scalar_at(0), 20u32.into());
+        assert_eq!(sliced.scalar_at(1), 20u32.into());
+        assert_eq!(sliced.scalar_at(2), Scalar::null_typed::<u32>());
+        assert_eq!(sliced.scalar_at(3), 30u32.into());
+
+        assert!(!sliced.scalar_at(0).is_null());
+        assert!(!sliced.scalar_at(1).is_null());
+        assert!(sliced.scalar_at(2).is_null());
+        assert!(!sliced.scalar_at(3).is_null());
+    }
+
+    #[test]
     fn test_scalar_at_multiple_chunks() {
         // Test accessing elements around chunk boundaries
         let values: Buffer<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
@@ -173,6 +205,13 @@ mod tests {
     fn test_scalar_at_out_of_bounds() {
         let array = fixture::rle_array();
         array.scalar_at(1025);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_scalar_at_slice_out_of_bounds() {
+        let array = fixture::rle_array().slice(0..1);
+        array.scalar_at(1);
     }
 
     #[test]
@@ -216,6 +255,17 @@ mod tests {
     fn test_slice_with_nulls() {
         let array = fixture::rle_array_with_nulls();
         let sliced = array.slice(1..4); // [null, 20, 20]
+
+        assert_eq!(sliced.len(), 3);
+        assert!(sliced.scalar_at(0).is_null());
+        assert_eq!(sliced.scalar_at(1), 20u32.into());
+        assert_eq!(sliced.scalar_at(2), 20u32.into());
+    }
+
+    #[test]
+    fn test_slice_decode_with_nulls() {
+        let array = fixture::rle_array_with_nulls();
+        let sliced = array.slice(1..4).to_array().to_primitive(); // [null, 20, 20]
 
         assert_eq!(sliced.len(), 3);
         assert!(sliced.scalar_at(0).is_null());

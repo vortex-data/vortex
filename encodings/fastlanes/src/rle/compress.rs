@@ -6,7 +6,7 @@ use std::hash::Hash;
 use arrayref::{array_mut_ref, array_ref};
 use fastlanes::RLE;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
+use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
@@ -145,12 +145,17 @@ where
     }
 
     let offset_within_chunk = array.offset_in_chunk(array.offset);
+    let primitive_array = builder.finish_into_primitive();
 
-    builder.set_validity(array.validity_mask());
-    builder
-        .finish_into_primitive()
-        .slice(offset_within_chunk..(offset_within_chunk + array.len()))
-        .to_primitive()
+    PrimitiveArray::new(
+        primitive_array
+            .buffer::<T>()
+            .slice(offset_within_chunk..(offset_within_chunk + array.len())),
+        // Validity needs to be set on the sliced array. After decoding but
+        // before slicing the length of the validity array can be smaller than
+        // the primitive array, as RLE decodes in 1024 chunks.
+        array.validity().clone(),
+    )
 }
 
 #[cfg(test)]
