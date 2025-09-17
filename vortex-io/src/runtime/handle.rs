@@ -136,11 +136,7 @@ impl Handle {
     }
 
     /// Open a file for I/O on this runtime.
-    pub fn open_read<S: IntoReadSource>(&self, source: S) -> VortexResult<FileRead> {
-        self.open_read_with_metrics(source, Default::default())
-    }
-
-    pub fn open_read_with_metrics<S: IntoReadSource>(
+    pub fn open_read<S: IntoReadSource>(
         &self,
         source: S,
         metrics: VortexMetrics,
