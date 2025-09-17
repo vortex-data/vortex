@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use num_traits::ToBytes;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
@@ -150,11 +148,11 @@ impl TryFrom<&pb::ScalarValue> for ScalarValue {
             )))),
             Kind::F32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(*v)))),
             Kind::F64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(*v)))),
-            Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
+            Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(
                 BufferString::from(v.clone()),
-            )))),
-            Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(Arc::new(
-                ByteBuffer::from(v.clone()),
+            ))),
+            Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(ByteBuffer::from(
+                v.clone(),
             )))),
             Kind::ListValue(v) => {
                 let mut values = Vec::with_capacity(v.values.len());
@@ -213,7 +211,7 @@ mod tests {
     fn test_buffer() {
         round_trip(Scalar::new(
             DType::Binary(Nullability::Nullable),
-            ScalarValue(InnerScalarValue::Buffer(Arc::new(vec![1, 2, 3].into()))),
+            ScalarValue(InnerScalarValue::Buffer(vec![1, 2, 3].into())),
         ));
     }
 
@@ -221,8 +219,8 @@ mod tests {
     fn test_buffer_string() {
         round_trip(Scalar::new(
             DType::Utf8(Nullability::Nullable),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(
-                BufferString::from("hello".to_string()),
+            ScalarValue(InnerScalarValue::BufferString(BufferString::from(
+                "hello".to_string(),
             ))),
         ));
     }
@@ -426,15 +424,11 @@ mod tests {
             ),
             (
                 "string",
-                ScalarValue(InnerScalarValue::BufferString(Arc::new(
-                    BufferString::from("test"),
-                ))),
+                ScalarValue(InnerScalarValue::BufferString(BufferString::from("test"))),
             ),
             (
                 "bytes",
-                ScalarValue(InnerScalarValue::Buffer(Arc::new(
-                    vec![1, 2, 3, 4, 5].into(),
-                ))),
+                ScalarValue(InnerScalarValue::Buffer(vec![1, 2, 3, 4, 5].into())),
             ),
         ];
 

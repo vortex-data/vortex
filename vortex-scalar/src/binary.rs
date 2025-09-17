@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::{Display, Formatter};
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
@@ -18,7 +17,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 #[derive(Debug, Hash)]
 pub struct BinaryScalar<'a> {
     dtype: &'a DType,
-    value: Option<Arc<ByteBuffer>>,
+    value: Option<ByteBuffer>,
 }
 
 impl Display for BinaryScalar<'_> {
@@ -66,7 +65,7 @@ impl<'a> BinaryScalar<'a> {
         }
         Ok(Self {
             dtype,
-            value: value.as_buffer()?,
+            value: value.as_buffer()?.cloned(),
         })
     }
 
@@ -78,13 +77,13 @@ impl<'a> BinaryScalar<'a> {
 
     /// Returns the binary value as a byte buffer, or None if null.
     pub fn value(&self) -> Option<ByteBuffer> {
-        self.value.as_ref().map(|v| v.as_ref().clone())
+        self.value.clone()
     }
 
     /// Returns a reference to the binary value, or None if null.
     /// This avoids cloning the underlying ByteBuffer.
     pub fn value_ref(&self) -> Option<&ByteBuffer> {
-        self.value.as_ref().map(|v| v.as_ref())
+        self.value.as_ref()
     }
 
     /// Constructs a value at most `max_length` in size that's greater than this value.
@@ -102,7 +101,7 @@ impl<'a> BinaryScalar<'a> {
                     if !overflow {
                         return Some(Self {
                             dtype: self.dtype,
-                            value: Some(Arc::new(sliced_mut.freeze())),
+                            value: Some(sliced_mut.freeze()),
                         });
                     }
                 }
@@ -124,7 +123,7 @@ impl<'a> BinaryScalar<'a> {
             if value.len() > max_length {
                 Self {
                     dtype: self.dtype,
-                    value: Some(Arc::new(value.slice(0..max_length))),
+                    value: Some(value.slice(0..max_length)),
                 }
             } else {
                 Self {
@@ -170,7 +169,7 @@ impl Scalar {
     pub fn binary(buffer: impl Into<ByteBuffer>, nullability: Nullability) -> Self {
         Self::new(
             DType::Binary(nullability),
-            ScalarValue(InnerScalarValue::Buffer(Arc::new(buffer.into()))),
+            ScalarValue(InnerScalarValue::Buffer(buffer.into())),
         )
     }
 }
@@ -184,7 +183,7 @@ impl<'a> TryFrom<&'a Scalar> for BinaryScalar<'a> {
         }
         Ok(Self {
             dtype: value.dtype(),
-            value: value.value().as_buffer()?,
+            value: value.value().as_buffer()?.cloned(),
         })
     }
 }
@@ -242,14 +241,14 @@ impl From<ByteBuffer> for Scalar {
     }
 }
 
-impl From<Arc<ByteBuffer>> for Scalar {
-    fn from(value: Arc<ByteBuffer>) -> Self {
-        Self::new(
-            DType::Binary(Nullability::NonNullable),
-            ScalarValue(InnerScalarValue::Buffer(value)),
-        )
-    }
-}
+// impl From<Arc<ByteBuffer>> for Scalar {
+//     fn from(value: Arc<ByteBuffer>) -> Self {
+//         Self::new(
+//             DType::Binary(Nullability::NonNullable),
+//             ScalarValue(InnerScalarValue::Buffer(value)),
+//         )
+//     }
+// }
 
 impl From<&[u8]> for ScalarValue {
     fn from(value: &[u8]) -> Self {
@@ -259,7 +258,7 @@ impl From<&[u8]> for ScalarValue {
 
 impl From<ByteBuffer> for ScalarValue {
     fn from(value: ByteBuffer) -> Self {
-        ScalarValue(InnerScalarValue::Buffer(Arc::new(value)))
+        ScalarValue(InnerScalarValue::Buffer(value))
     }
 }
 
@@ -541,12 +540,10 @@ mod tests {
 
     #[test]
     fn test_from_arc_bytebuffer() {
-        use std::sync::Arc;
-
         use vortex_buffer::ByteBuffer;
 
         let data = vec![10u8, 20, 30];
-        let buffer = Arc::new(ByteBuffer::from(data.clone()));
+        let buffer = ByteBuffer::from(data.clone());
         let scalar: Scalar = buffer.into();
 
         assert_eq!(

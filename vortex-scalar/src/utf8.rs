@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::{Display, Formatter};
-use std::sync::Arc;
 
 use vortex_buffer::BufferString;
 use vortex_dtype::Nullability::NonNullable;
@@ -18,7 +17,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 #[derive(Debug, Hash, Eq)]
 pub struct Utf8Scalar<'a> {
     dtype: &'a DType,
-    value: Option<Arc<BufferString>>,
+    value: Option<BufferString>,
 }
 
 impl Display for Utf8Scalar<'_> {
@@ -72,13 +71,13 @@ impl<'a> Utf8Scalar<'a> {
 
     /// Returns the string value, or None if null.
     pub fn value(&self) -> Option<BufferString> {
-        self.value.as_ref().map(|v| v.as_ref().clone())
+        self.value.clone()
     }
 
     /// Returns a reference to the string value, or None if null.
     /// This avoids cloning the underlying BufferString.
     pub fn value_ref(&self) -> Option<&BufferString> {
-        self.value.as_ref().map(|v| v.as_ref())
+        self.value.as_ref()
     }
 
     /// Constructs a value at most `max_length` in size that's greater than this value.
@@ -106,9 +105,9 @@ impl<'a> Utf8Scalar<'a> {
                             next_char.encode_utf8(&mut result[idx..]);
                             return Some(Self {
                                 dtype: self.dtype,
-                                value: Some(Arc::new(unsafe {
+                                value: Some(unsafe {
                                     BufferString::new_unchecked(result.freeze())
-                                })),
+                                }),
                             });
                         }
                     }
@@ -136,9 +135,9 @@ impl<'a> Utf8Scalar<'a> {
 
                 Self {
                     dtype: self.dtype,
-                    value: Some(Arc::new(unsafe {
+                    value: Some(unsafe {
                         BufferString::new_unchecked(value.inner().slice(0..utf8_split_pos))
-                    })),
+                    }),
                 }
             } else {
                 Self {
@@ -206,7 +205,7 @@ impl Scalar {
     {
         Ok(Self::new(
             DType::Utf8(nullability),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(str.try_into()?))),
+            ScalarValue(InnerScalarValue::BufferString(str.try_into()?)),
         ))
     }
 }
@@ -245,9 +244,7 @@ impl From<&str> for Scalar {
     fn from(value: &str) -> Self {
         Self::new(
             DType::Utf8(NonNullable),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(
-                value.to_string().into(),
-            ))),
+            ScalarValue(InnerScalarValue::BufferString(value.to_string().into())),
         )
     }
 }
@@ -256,7 +253,7 @@ impl From<String> for Scalar {
     fn from(value: String) -> Self {
         Self::new(
             DType::Utf8(NonNullable),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into()))),
+            ScalarValue(InnerScalarValue::BufferString(value.into())),
         )
     }
 }
@@ -265,19 +262,19 @@ impl From<BufferString> for Scalar {
     fn from(value: BufferString) -> Self {
         Self::new(
             DType::Utf8(NonNullable),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(value))),
-        )
-    }
-}
-
-impl From<Arc<BufferString>> for Scalar {
-    fn from(value: Arc<BufferString>) -> Self {
-        Self::new(
-            DType::Utf8(NonNullable),
             ScalarValue(InnerScalarValue::BufferString(value)),
         )
     }
 }
+
+// impl From<Arc<BufferString>> for Scalar {
+//     fn from(value: Arc<BufferString>) -> Self {
+//         Self::new(
+//             DType::Utf8(NonNullable),
+//             ScalarValue(InnerScalarValue::BufferString(value)),
+//         )
+//     }
+// }
 
 impl<'a> TryFrom<&'a Scalar> for BufferString {
     type Error = VortexError;
@@ -314,21 +311,19 @@ impl TryFrom<Scalar> for Option<BufferString> {
 
 impl From<&str> for ScalarValue {
     fn from(value: &str) -> Self {
-        ScalarValue(InnerScalarValue::BufferString(Arc::new(
-            value.to_string().into(),
-        )))
+        ScalarValue(InnerScalarValue::BufferString(value.to_string().into()))
     }
 }
 
 impl From<String> for ScalarValue {
     fn from(value: String) -> Self {
-        ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into())))
+        ScalarValue(InnerScalarValue::BufferString(value.into()))
     }
 }
 
 impl From<BufferString> for ScalarValue {
     fn from(value: BufferString) -> Self {
-        ScalarValue(InnerScalarValue::BufferString(Arc::new(value)))
+        ScalarValue(InnerScalarValue::BufferString(value))
     }
 }
 
@@ -567,23 +562,6 @@ mod tests {
         use vortex_buffer::BufferString;
 
         let data = BufferString::from("test");
-        let scalar: Scalar = data.into();
-
-        assert_eq!(
-            scalar.dtype(),
-            &vortex_dtype::DType::Utf8(Nullability::NonNullable)
-        );
-        let utf8 = Utf8Scalar::try_from(&scalar).unwrap();
-        assert_eq!(utf8.value().unwrap().as_str(), "test");
-    }
-
-    #[test]
-    fn test_from_arc_buffer_string() {
-        use std::sync::Arc;
-
-        use vortex_buffer::BufferString;
-
-        let data = Arc::new(BufferString::from("test"));
         let scalar: Scalar = data.into();
 
         assert_eq!(

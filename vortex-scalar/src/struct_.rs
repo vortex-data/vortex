@@ -164,7 +164,7 @@ impl<'a> StructScalar<'a> {
     }
 
     /// Returns the fields of the struct scalar, or None if the scalar is null.
-    pub fn fields(&self) -> Option<impl Iterator<Item = Scalar>> {
+    pub fn fields(&self) -> Option<impl ExactSizeIterator<Item = Scalar>> {
         let fields = self.fields?;
         Some(
             fields

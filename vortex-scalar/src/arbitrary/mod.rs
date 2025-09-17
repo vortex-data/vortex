@@ -9,7 +9,6 @@
 mod decimal;
 
 use std::iter;
-use std::sync::Arc;
 
 use arbitrary::{Result, Unstructured};
 pub use decimal::random_decimal;
@@ -32,11 +31,11 @@ fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValu
             u, p,
         )?))),
         DType::Decimal(decimal_type, _) => random_decimal(u, decimal_type),
-        DType::Utf8(_) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
+        DType::Utf8(_) => Ok(ScalarValue(InnerScalarValue::BufferString(
             BufferString::from(u.arbitrary::<String>()?),
-        )))),
-        DType::Binary(_) => Ok(ScalarValue(InnerScalarValue::Buffer(Arc::new(
-            ByteBuffer::from(u.arbitrary::<Vec<u8>>()?),
+        ))),
+        DType::Binary(_) => Ok(ScalarValue(InnerScalarValue::Buffer(ByteBuffer::from(
+            u.arbitrary::<Vec<u8>>()?,
         )))),
         DType::Struct(sdt, _) => Ok(ScalarValue(InnerScalarValue::List(
             sdt.fields()

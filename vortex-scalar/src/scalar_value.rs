@@ -63,8 +63,8 @@ pub(crate) enum InnerScalarValue {
     Bool(bool),
     Primitive(PValue),
     Decimal(DecimalValue),
-    Buffer(Arc<ByteBuffer>),
-    BufferString(Arc<BufferString>),
+    Buffer(ByteBuffer),
+    BufferString(BufferString),
     List(Arc<[ScalarValue]>),
 }
 
@@ -180,13 +180,13 @@ impl ScalarValue {
 
     /// Returns scalar as a binary buffer
     #[inline]
-    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
+    pub(crate) fn as_buffer(&self) -> VortexResult<Option<&ByteBuffer>> {
         self.0.as_buffer()
     }
 
     /// Returns scalar as a string buffer
     #[inline]
-    pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
+    pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<BufferString>> {
         self.0.as_buffer_string()
     }
 
@@ -252,24 +252,20 @@ impl InnerScalarValue {
     }
 
     #[inline]
-    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
+    pub(crate) fn as_buffer(&self) -> VortexResult<Option<&ByteBuffer>> {
         match &self {
             InnerScalarValue::Null => Ok(None),
-            InnerScalarValue::Buffer(b) => Ok(Some(b.clone())),
-            InnerScalarValue::BufferString(b) => {
-                Ok(Some(Arc::new(b.as_ref().clone().into_inner())))
-            }
+            InnerScalarValue::Buffer(b) => Ok(Some(b)),
+            InnerScalarValue::BufferString(b) => Ok(Some(b.inner())),
             _ => Err(vortex_err!("Expected a binary scalar, found {:?}", self)),
         }
     }
 
     #[inline]
-    pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
+    pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<BufferString>> {
         match &self {
             InnerScalarValue::Null => Ok(None),
-            InnerScalarValue::Buffer(b) => {
-                Ok(Some(Arc::new(BufferString::try_from(b.as_ref().clone())?)))
-            }
+            InnerScalarValue::Buffer(b) => Ok(Some(BufferString::try_from(b.clone())?)),
             InnerScalarValue::BufferString(b) => Ok(Some(b.clone())),
             _ => Err(vortex_err!("Expected a string scalar, found {:?}", self)),
         }

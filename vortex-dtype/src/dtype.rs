@@ -173,6 +173,17 @@ impl DType {
                 lhs_size == rhs_size && lhs_dtype.eq_ignore_nullability(rhs_dtype)
             }
             (Struct(lhs_dtype, _), Struct(rhs_dtype, _)) => {
+                let lhs_names = lhs_dtype.names();
+                let rhs_names = rhs_dtype.names();
+
+                if lhs_names.len() != rhs_names.len() {
+                    return false;
+                }
+
+                if lhs_names != rhs_names {
+                    return false;
+                }
+
                 (lhs_dtype.names() == rhs_dtype.names())
                     && (lhs_dtype
                         .fields()
