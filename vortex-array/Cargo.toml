@@ -33,7 +33,6 @@ arrow-string = { workspace = true }
 async-trait = { workspace = true }
 bitvec = { workspace = true }
 cfg-if = { workspace = true }
-dyn-hash = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }

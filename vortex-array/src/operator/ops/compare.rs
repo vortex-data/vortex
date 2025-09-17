@@ -18,7 +18,7 @@ use crate::pipeline::bits::BitView;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext};
 
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct CompareOperator {
     children: [OperatorRef; 2],
     op: Op,

@@ -107,6 +107,14 @@ impl Hash for PrimitiveArray {
     }
 }
 
+impl PartialEq for PrimitiveArray {
+    fn eq(&self, other: &Self) -> bool {
+        self.dtype == other.dtype && self.buffer == other.buffer && self.validity == other.validity
+        // We do not compare stats since they're lazily computed.
+    }
+}
+impl Eq for PrimitiveArray {}
+
 #[derive(Clone, Debug)]
 pub struct PrimitiveEncoding;
 

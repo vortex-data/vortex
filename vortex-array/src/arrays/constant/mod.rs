@@ -14,7 +14,7 @@ use crate::vtable::{
     ArrayVTable, NotSupported, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingId, EncodingRef, IntoArray, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingId, EncodingRef, IntoArray,
 };
 
 mod canonical;
@@ -37,6 +37,14 @@ impl Hash for ConstantArray {
         self.len.hash(state);
     }
 }
+
+impl PartialEq for ConstantArray {
+    fn eq(&self, other: &Self) -> bool {
+        self.scalar == other.scalar && self.len == other.len
+    }
+}
+
+impl Eq for ConstantArray {}
 
 #[derive(Clone, Debug)]
 pub struct ConstantEncoding;

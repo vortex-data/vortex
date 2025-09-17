@@ -18,6 +18,13 @@ pub struct GetItemOperator {
     dtype: DType,
 }
 
+impl PartialEq for GetItemOperator {
+    fn eq(&self, other: &Self) -> bool {
+        self.child.eq(&other.child) && self.field == other.field && self.dtype == other.dtype
+    }
+}
+impl Eq for GetItemOperator {}
+
 impl GetItemOperator {
     pub fn field_name(&self) -> &FieldName {
         &self.field

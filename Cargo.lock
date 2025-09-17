@@ -6396,7 +6396,6 @@ dependencies = [
  "bitvec",
  "cfg-if",
  "codspeed-divan-compat",
- "dyn-hash",
  "enum-iterator",
  "flatbuffers",
  "futures",

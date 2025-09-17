@@ -31,6 +31,14 @@ impl Hash for FilterOperator {
     }
 }
 
+impl PartialEq for FilterOperator {
+    fn eq(&self, other: &Self) -> bool {
+        self.child.eq(&other.child) && std::ptr::eq(self.mask.as_ref(), other.mask.as_ref())
+    }
+}
+
+impl Eq for FilterOperator {}
+
 /// A lazy mask that is either ready or pending computation.
 ///
 /// We distinguish between ready and pending masks so that operators can make use of density

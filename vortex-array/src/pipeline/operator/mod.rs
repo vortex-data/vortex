@@ -20,7 +20,6 @@ use crate::pipeline::{Element, Kernel, KernelContext, N};
 use crate::validity::Validity;
 use crate::Canonical;
 use async_trait::async_trait;
-use dyn_hash::DynHash;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use std::any::Any;
@@ -38,7 +37,7 @@ use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 ///
 /// This operator builds up a DAG of operators that can be executed in a pipelined fashion, as well
 /// as any batch input operators that provide batch data to the pipeline.
-#[derive(Debug, Hash, Clone)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub(crate) struct PipelineOperator {
     root: NodeId,
     dag: Vec<PipelineNode>,
@@ -58,6 +57,15 @@ struct PipelineNode {
     // The IDs of the batch inputs that feed into this node.
     batch_inputs: Vec<BatchId>,
 }
+
+impl PartialEq for PipelineNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.operator.eq(&other.operator)
+            && self.children == other.children
+            && self.batch_inputs == other.batch_inputs
+    }
+}
+impl Eq for PipelineNode {}
 
 impl PipelineOperator {
     /// From the given operator, constructs a `PipelineOperator` as large as possible by
@@ -79,7 +87,7 @@ impl PipelineOperator {
             random_state: &RandomState,
         ) -> NodeId {
             // Compute the hash for this subtree.
-            let subtree_hash = random_state.hash_one(&node as &dyn DynHash);
+            let subtree_hash = random_state.hash_one(&node);
 
             // Check if we've seen this subtree before (sub-expression elimination)
             if let Some(&existing_index) = hash_to_id.get(&subtree_hash) {

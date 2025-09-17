@@ -1,18 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::operator::{BatchBindCtx, BatchExecutionRef, OperatorRef};
+use crate::operator::{BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorRef};
 use crate::pipeline::operator::PipelineOperator;
 use crate::Canonical;
 
-use futures::future::{BoxFuture, WeakShared};
-use futures::FutureExt;
+use async_trait::async_trait;
+use futures::future::{BoxFuture, Shared, WeakShared};
+use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 
-use vortex_error::{vortex_bail, vortex_err, SharedVortexResult, VortexResult};
+use vortex_error::{
+    vortex_bail, vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult,
+};
+use vortex_utils::aliases::hash_map::HashMap;
 
 /// An executor that runs an operator tree.
 ///
@@ -22,7 +25,8 @@ use vortex_error::{vortex_bail, vortex_err, SharedVortexResult, VortexResult};
 /// It also finds sub-graphs of pipeline operators and executes them as a [`Pipeline`]
 #[derive(Default)]
 pub struct Executor {
-    #[allow(dead_code)]
+    /// Cache of shared futures for common subtree elimination.
+    /// We use WeakShared to allow futures to be dropped when no longer needed.
     execution_cache:
         HashMap<OperatorRef, WeakShared<BoxFuture<'static, SharedVortexResult<Canonical>>>>,
 }
@@ -38,6 +42,17 @@ impl Executor {
     }
 
     fn batch_execution(&mut self, operator: &OperatorRef) -> VortexResult<BatchExecutionRef> {
+        // Check if we already have a shared future for this operator
+        if let Some(weak_shared) = self.execution_cache.get(operator) {
+            if let Some(shared) = weak_shared.upgrade() {
+                // Return a SharedBatchExecution that references the existing shared future
+                return Ok(Box::new(SharedBatchExecution(shared)));
+            } else {
+                // If the weak reference is dead, remove it from the cache
+                self.execution_cache.remove(operator);
+            }
+        }
+
         // Attempt to convert the operator into a pipeline operator, if so we use that to execute.
         //
         // The construction of this operator pulls the largest subgraph of nodes that can be
@@ -55,12 +70,19 @@ impl Executor {
             .map_ok(Some)
             .try_collect()?;
 
-        operator
+        let execution = operator
             .as_batch()
             .ok_or_else(|| {
                 vortex_err!("Operator does not support batch execution OR pipelined execution")
             })?
-            .bind(&mut children)
+            .bind(&mut children)?;
+
+        let shared_future = execution.execute().map_err(Arc::new).boxed().shared();
+        self.execution_cache.insert(
+            operator.clone(),
+            shared_future.downgrade().vortex_expect("just created"),
+        );
+        Ok(Box::new(SharedBatchExecution(shared_future)))
     }
 }
 
@@ -75,9 +97,22 @@ impl BatchBindCtx for Vec<Option<BatchExecutionRef>> {
     }
 }
 
+/// A wrapper around a batch execution that makes it available for sharing across nodes within
+/// common subtree elimination.
+struct SharedBatchExecution(Shared<BoxFuture<'static, SharedVortexResult<Canonical>>>);
+
+#[async_trait]
+impl BatchExecution for SharedBatchExecution {
+    async fn execute(self: Box<Self>) -> VortexResult<Canonical> {
+        self.0.await.map_err(VortexError::from)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compute::Operator;
+    use crate::operator::compare::CompareOperator;
     use crate::{IntoArray, ToCanonical};
     use futures::executor::block_on;
     use vortex_buffer::buffer;
@@ -93,6 +128,27 @@ mod tests {
             array.as_slice::<i32>()
         );
     }
+
+    #[test]
+    fn test_pipelined_execution() {
+        let array = buffer![1i32, 2, 3, 4].into_array().to_primitive();
+
+        // The CompareOperator uses pipelined execution
+        let compare = CompareOperator::try_new(
+            Arc::new(array.clone()),
+            Arc::new(array.clone()),
+            Operator::Gt,
+        )
+        .unwrap();
+
+        let mut executor = Executor::default();
+        let result = block_on(executor.execute(compare)).unwrap();
+        assert_eq!(
+            result.into_bool().bool_vec().unwrap(),
+            vec![false, false, false, false]
+        );
+    }
+
     //
     // #[test]
     // fn test_common_subtree_elimination() {

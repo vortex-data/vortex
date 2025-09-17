@@ -41,7 +41,7 @@ impl PipelineVTable<StructVTable> for StructVTable {
 }
 
 /// An operator for a struct array.
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 struct StructOperator {
     dtype: DType,
     len: usize,

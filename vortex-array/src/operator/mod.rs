@@ -30,24 +30,25 @@ mod ops;
 
 use std::any::Any;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use crate::pipeline::Kernel;
 use crate::Canonical;
 use arcref::ArcRef;
 use async_trait::async_trait;
-use dyn_hash::DynHash;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 pub use executor::*;
 pub use ops::*;
+use vortex_utils::dyn_eq::{DynEq, DynHash};
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
 
 /// An operator represents a node in a logical query plan.
-pub trait Operator: 'static + Debug + DynHash + Send + Sync {
+pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     /// The unique identifier for this operator instance.
     fn id(&self) -> OperatorId;
 
@@ -119,7 +120,19 @@ pub trait Operator: 'static + Debug + DynHash + Send + Sync {
     }
 }
 
-dyn_hash::hash_trait_object!(Operator);
+impl Hash for dyn Operator {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        DynHash::dyn_hash(self, state)
+    }
+}
+
+impl PartialEq for dyn Operator {
+    fn eq(&self, other: &Self) -> bool {
+        DynEq::dyn_eq(self, other.as_any())
+    }
+}
+
+impl Eq for dyn Operator {}
 
 /// The default execution mode for an operator is batch mode.
 pub trait BatchOperator: Operator {

@@ -6,3 +6,4 @@
 #![deny(missing_docs)]
 
 pub mod aliases;
+pub mod dyn_eq;
