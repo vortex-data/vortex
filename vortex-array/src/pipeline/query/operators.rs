@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexExpect, VortexResult};
-
-use crate::pipeline::Kernel;
-use crate::pipeline::operators::BindContext;
-use crate::pipeline::query::QueryPlan;
+use crate::operator::BindContext;
 use crate::pipeline::query::buffers::VectorAllocationPlan;
 use crate::pipeline::query::dag::DagNode;
+use crate::pipeline::query::QueryPlan;
 use crate::pipeline::vec::VectorId;
+use crate::pipeline::Kernel;
+use vortex_error::{VortexExpect, VortexResult};
 
 impl QueryPlan<'_> {
     pub(crate) fn bind_operators(

@@ -7,15 +7,14 @@ mod operators;
 mod query_execution;
 mod toposort;
 
-use vortex_error::VortexResult;
-
+use crate::operator::Operator;
 use crate::pipeline::bits::BitView;
-use crate::pipeline::operators::Operator;
 pub use crate::pipeline::query::buffers::VectorAllocationPlan;
 use crate::pipeline::query::dag::DagNode;
 use crate::pipeline::query::query_execution::QueryExecution;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext};
+use vortex_error::VortexResult;
 
 /// The idea of a query-plan is to orchestrate driving a set of operators to completion with
 /// fully optimized resource usage.
@@ -38,8 +37,8 @@ impl<'a> QueryPlan<'a> {
     // TODO(ngates): can we pass the mask in here such that the plan can replace empty nodes?
     pub fn new(plan: &'a dyn Operator) -> VortexResult<Self> {
         // Step 1: Convert the plan tree to a DAG by eliminating common sub-expressions.
-        let (dag_root, dag) = Self::build_dag(plan)?;
-        let node_count = dag.len();
+        let (_dag_root, dag) = Self::build_dag(plan)?;
+        let _node_count = dag.len();
 
         // Step 2: Determine execution order (topological sort)
         let execution_order = Self::topological_sort(&dag)?;
@@ -76,7 +75,7 @@ impl Kernel for QueryExecution {
 
     fn step(
         &mut self,
-        ctx: &KernelContext,
+        _ctx: &KernelContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {

@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{match_each_native_ptype, NativePType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::arrays::ConstantOperator;
 use crate::compute::Operator as BinaryOperator;
@@ -142,100 +142,5 @@ impl Operator for CompareOperator {
                 lhs.scalar.clone(),
             )))
         }
-    }
-}
-
-/// A compare operator for primitive types that compares two vectors element-wise using a binary
-/// operation.
-/// Kernel that performs primitive type comparisons between two input vectors.
-pub struct ComparePrimitiveKernel<T, Op> {
-    lhs: VectorId,
-    rhs: VectorId,
-    _phantom: PhantomData<(T, Op)>,
-}
-
-impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ComparePrimitiveKernel<T, Op> {
-    fn step(
-        &mut self,
-        ctx: &KernelContext,
-        selected: BitView,
-        out: &mut ViewMut,
-    ) -> VortexResult<()> {
-        let lhs_vec = ctx.vector(self.lhs);
-        let lhs = lhs_vec.as_slice::<T>();
-        let rhs_vec = ctx.vector(self.rhs);
-        let rhs = rhs_vec.as_slice::<T>();
-        let bools = out.as_slice_mut::<bool>();
-
-        assert_eq!(
-            lhs.len(),
-            rhs.len(),
-            "LHS and RHS must have the same length"
-        );
-
-        lhs.iter()
-            .zip(rhs.iter())
-            .zip(bools)
-            .for_each(|((lhs, rhs), bool)| *bool = Op::compare(lhs, rhs));
-
-        Ok(())
-    }
-}
-
-pub(crate) trait CompareOp<T> {
-    fn compare(lhs: &T, rhs: &T) -> bool;
-}
-
-/// Equality comparison operation.
-pub struct Eq;
-impl<T: PartialEq> CompareOp<T> for Eq {
-    #[inline(always)]
-    fn compare(lhs: &T, rhs: &T) -> bool {
-        lhs == rhs
-    }
-}
-
-/// Not equal comparison operation.
-pub struct NotEq;
-impl<T: PartialEq> CompareOp<T> for NotEq {
-    #[inline(always)]
-    fn compare(lhs: &T, rhs: &T) -> bool {
-        lhs != rhs
-    }
-}
-
-/// Greater than comparison operation.
-pub struct Gt;
-impl<T: PartialOrd> CompareOp<T> for Gt {
-    #[inline(always)]
-    fn compare(lhs: &T, rhs: &T) -> bool {
-        lhs > rhs
-    }
-}
-
-/// Greater than or equal comparison operation.
-pub struct Gte;
-impl<T: PartialOrd> CompareOp<T> for Gte {
-    #[inline(always)]
-    fn compare(lhs: &T, rhs: &T) -> bool {
-        lhs >= rhs
-    }
-}
-
-/// Less than comparison operation.
-pub struct Lt;
-impl<T: PartialOrd> CompareOp<T> for Lt {
-    #[inline(always)]
-    fn compare(lhs: &T, rhs: &T) -> bool {
-        lhs < rhs
-    }
-}
-
-/// Less than or equal comparison operation.
-pub struct Lte;
-impl<T: PartialOrd> CompareOp<T> for Lte {
-    #[inline(always)]
-    fn compare(lhs: &T, rhs: &T) -> bool {
-        lhs <= rhs
     }
 }

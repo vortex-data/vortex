@@ -3,17 +3,16 @@
 
 use std::hash::BuildHasher;
 
+use crate::operator::{Operator, PipelinedOperator};
+use crate::pipeline::query::QueryPlan;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
-
-use crate::pipeline::Operator;
-use crate::pipeline::query::QueryPlan;
 
 /// A node in our execution DAG
 #[derive(Clone, Debug)]
 pub(crate) struct DagNode<'a> {
     /// The original plan node
-    pub(crate) plan_node: &'a dyn Operator,
+    pub(crate) plan_node: &'a dyn PipelinedOperator,
     /// Indices of children in the DAG
     pub(crate) children: Vec<usize>,
     /// Indices of parents in the DAG (for dependency tracking)
@@ -28,7 +27,7 @@ impl<'a> QueryPlan<'a> {
 
         // Recursive function to build DAG
         fn visit_node<'b>(
-            node: &'b dyn Operator,
+            node: &'b dyn PipelinedOperator,
             dag: &mut Vec<DagNode<'b>>,
             hash_to_index: &mut HashMap<u64, usize>,
             random_state: &RandomState,

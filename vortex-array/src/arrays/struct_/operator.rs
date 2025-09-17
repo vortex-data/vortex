@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::StructArray;
-use crate::operator::ops::getitem::GetItemOperator;
-use crate::operator::{ArrayOperator, BatchBindCtx, BatchExecution, BatchOperator};
+use crate::arrays::{StructArray, StructVTable};
+use crate::operator::getitem::GetItemOperator;
+use crate::operator::{
+    BatchBindCtx, BatchExecution, BatchOperator, Operator, OperatorId, OperatorRef,
+};
 use crate::validity::Validity;
-use crate::{Canonical, IntoArray};
+use crate::vtable::PipelineVTable;
+use crate::{Array, Canonical, IntoArray};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use std::any::Any;
@@ -13,17 +16,40 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
+impl PipelineVTable<StructVTable> for StructVTable {
+    fn to_operator(array: &StructArray) -> VortexResult<Option<OperatorRef>> {
+        let mut children = Vec::with_capacity(array.fields.len());
+        for field in array.fields() {
+            if let Some(operator) = field.to_operator()? {
+                children.push(operator);
+            } else {
+                // If any of the children can't be converted, bail out.
+                return Ok(None);
+            }
+        }
+
+        Ok(Some(Arc::new(StructOperator {
+            dtype: array.dtype().clone(),
+            len: array.len(),
+            children,
+            // validity: array.validity.clone(),
+        })))
+    }
+}
+
 /// An operator for a struct array.
+#[derive(Debug, Hash)]
 struct StructOperator {
     dtype: DType,
     len: usize,
-    children: Vec<Arc<dyn ArrayOperator>>,
-    validity: Validity,
+    children: Vec<OperatorRef>,
+    // FIXME(ngates): validity should be an operator too...
+    // validity: Validity,
 }
 
-impl ArrayOperator for StructOperator {
-    fn id(&self) -> Arc<str> {
-        Arc::from("vortex.struct")
+impl Operator for StructOperator {
+    fn id(&self) -> OperatorId {
+        OperatorId::from("vortex.struct")
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -38,27 +64,20 @@ impl ArrayOperator for StructOperator {
         self.len
     }
 
-    fn children(&self) -> &[Arc<dyn ArrayOperator>] {
+    fn children(&self) -> &[OperatorRef] {
         &self.children
     }
 
-    fn with_children(
-        self: Arc<Self>,
-        children: Vec<Arc<dyn ArrayOperator>>,
-    ) -> VortexResult<Arc<dyn ArrayOperator>> {
+    fn with_children(self: Arc<Self>, children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
         Ok(Arc::new(StructOperator {
             len: self.len,
             dtype: self.dtype.clone(),
-            validity: self.validity.clone(),
+            // validity: self.validity.clone(),
             children,
         }))
     }
 
-    fn optimize(
-        &self,
-        parent: Arc<dyn ArrayOperator>,
-        _child_idx: usize,
-    ) -> VortexResult<Arc<dyn ArrayOperator>> {
+    fn reduce_parent(&self, parent: OperatorRef, _child_idx: usize) -> VortexResult<OperatorRef> {
         // The only real things we know how to push-down are things that exclusively operate on
         // validity, or operate on a single field.
         if let Some(getitem) = parent.as_any().downcast_ref::<GetItemOperator>() {
@@ -92,7 +111,7 @@ impl BatchOperator for StructOperator {
             len: self.len,
             dtype: self.dtype.clone(),
             children,
-            validity: self.validity.clone(),
+            // validity: self.validity.clone(),
         }))
     }
 }
@@ -101,7 +120,7 @@ struct StructExecution {
     len: usize,
     dtype: DType,
     children: Vec<Box<dyn BatchExecution>>,
-    validity: Validity,
+    // validity: Validity,
 }
 
 #[async_trait]
@@ -122,7 +141,8 @@ impl BatchExecution for StructExecution {
                 .clone(),
             children,
             self.len,
-            self.validity,
+            // self.validity,
+            Validity::AllValid,
         );
 
         Ok(Canonical::Struct(array))

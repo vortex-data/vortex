@@ -16,6 +16,7 @@ pub use array::*;
 pub use canonical::*;
 pub use context::*;
 pub use encoding::*;
+pub use mask_future::*;
 pub use metadata::*;
 
 pub mod accessor;
@@ -30,6 +31,7 @@ pub mod compute;
 mod context;
 mod encoding;
 pub mod iter;
+mod mask_future;
 mod metadata;
 pub mod operator;
 mod partial_ord;

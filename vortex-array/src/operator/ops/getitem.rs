@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::operator::ArrayOperator;
+use crate::operator::{Operator, OperatorId, OperatorRef};
 use std::any::Any;
 use std::slice;
 use std::sync::Arc;
@@ -9,8 +9,9 @@ use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexExpect, VortexResult};
 
 /// An operator that extracts a field from a struct array.
+#[derive(Debug, Hash)]
 pub struct GetItemOperator {
-    child: Arc<dyn ArrayOperator>,
+    child: OperatorRef,
     field: FieldName,
     dtype: DType,
 }
@@ -21,9 +22,9 @@ impl GetItemOperator {
     }
 }
 
-impl ArrayOperator for GetItemOperator {
-    fn id(&self) -> Arc<str> {
-        Arc::from("vortex.getitem")
+impl Operator for GetItemOperator {
+    fn id(&self) -> OperatorId {
+        OperatorId::from("vortex.getitem")
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -38,14 +39,11 @@ impl ArrayOperator for GetItemOperator {
         self.child.len()
     }
 
-    fn children(&self) -> &[Arc<dyn ArrayOperator>] {
+    fn children(&self) -> &[OperatorRef] {
         slice::from_ref(&self.child)
     }
 
-    fn with_children(
-        self: Arc<Self>,
-        children: Vec<Arc<dyn ArrayOperator>>,
-    ) -> VortexResult<Arc<dyn ArrayOperator>> {
+    fn with_children(self: Arc<Self>, children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
         Ok(Arc::new(GetItemOperator {
             child: children.into_iter().next().vortex_expect("missing child"),
             field: self.field.clone(),

@@ -3,20 +3,20 @@
 
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
-use crate::Canonical;
 use crate::arrays::{BoolArray, PrimitiveArray};
+use crate::operator::Operator;
 use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
-use crate::pipeline::operators::Operator;
 use crate::pipeline::query::QueryPlan;
 use crate::pipeline::types::Element;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext, N, N_WORDS};
 use crate::validity::Validity;
+use crate::Canonical;
 
 /// Export canonical data from a pipeline kernel with the given mask.
 pub fn export_canonical_pipeline(

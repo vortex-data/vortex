@@ -8,6 +8,7 @@ mod compute;
 mod decode;
 mod encode;
 mod operations;
+mod operator;
 mod serde;
 mod validity;
 mod visitor;
@@ -20,11 +21,11 @@ pub use compute::*;
 pub use decode::*;
 pub use encode::*;
 pub use operations::*;
+pub use operator::*;
 pub use serde::*;
 pub use validity::*;
 pub use visitor::*;
 
-use crate::pipeline::PipelineVTable;
 use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
 
 /// The encoding [`VTable`] encapsulates logic for an Encoding type and associated Array type.

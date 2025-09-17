@@ -7,7 +7,7 @@ use std::ops::Range;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -16,9 +16,10 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use crate::{vtable, Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray};
 
 mod compute;
+mod operator;
 mod serde;
 
 vtable!(Struct);
@@ -34,7 +35,7 @@ impl VTable for StructVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type PipelineVTable = NotSupported;
+    type PipelineVTable = Self;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -531,12 +532,12 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability, PType};
 
-    use crate::IntoArray;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::struct_::StructArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::arrays::{BoolArray, BoolVTable, PrimitiveVTable};
     use crate::validity::Validity;
+    use crate::IntoArray;
 
     #[test]
     fn test_project() {

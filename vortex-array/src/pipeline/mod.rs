@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(unused_variables)]
-#![cfg_attr(vortex_nightly, feature(portable_simd))]
 //! Vortex crate containing vectorized pipeline processing.
 //!
 //! This module contains experiments into pipelined data processing within Vortex.
@@ -37,7 +35,6 @@ pub const N_WORDS: usize = N / usize::BITS as usize;
 use std::cell::RefCell;
 
 pub use canonical::*;
-pub use operators::{Operator, OperatorRef};
 pub use types::*;
 use vec::{VectorId, VectorRef};
 use vortex_error::VortexResult;
@@ -75,7 +72,7 @@ pub trait Kernel {
     /// chunk without needing to perform a full binary search of the ends in each step.
     // TODO(ngates): should this be `skip(n)` instead? Depends if we want to support going
     //  backwards?
-    fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
+    fn seek(&mut self, _chunk_idx: usize) -> VortexResult<()> {
         Ok(())
     }
 
@@ -114,19 +111,5 @@ impl KernelContext {
     /// Get a vector by its ID.
     pub fn vector(&self, vector_id: VectorId) -> VectorRef<'_> {
         VectorRef::new(self.vectors[*vector_id].borrow())
-    }
-}
-
-use crate::vtable::{NotSupported, VTable};
-
-pub trait PipelineVTable<V: VTable> {
-    /// Convert the current array into a [`Operator`].
-    /// Returns `None` if the array cannot be converted to an operator.
-    fn to_operator(array: &V::Array) -> VortexResult<Option<OperatorRef>>;
-}
-
-impl<V: VTable> PipelineVTable<V> for NotSupported {
-    fn to_operator(_array: &V::Array) -> VortexResult<Option<OperatorRef>> {
-        Ok(None)
     }
 }

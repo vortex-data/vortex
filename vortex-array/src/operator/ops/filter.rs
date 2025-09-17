@@ -2,20 +2,31 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::operator::{
-    ArrayOperator, BatchBindCtx, BatchExecution, BatchOperator, PipelinedOperator,
+    BatchBindCtx, BatchExecution, BatchOperator, BindContext, Operator, OperatorId, OperatorRef,
+    PipelinedOperator,
 };
-use crate::pipeline::operators::{BindContext, MaskFuture};
 use crate::pipeline::Kernel;
+use crate::MaskFuture;
 use std::any::Any;
+use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::slice;
 use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
+#[derive(Debug)]
 pub struct FilterOperator {
-    child: Arc<dyn ArrayOperator>,
-    mask: LazyMask,
+    child: OperatorRef,
+    mask: Box<LazyMask>,
+}
+
+impl Hash for FilterOperator {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.child.hash(state);
+        (self.mask.as_ref() as *const LazyMask).hash(state);
+    }
 }
 
 /// A lazy mask that is either ready or pending computation.
@@ -28,9 +39,25 @@ pub enum LazyMask {
     Pending(MaskFuture),
 }
 
-impl ArrayOperator for FilterOperator {
-    fn id(&self) -> Arc<str> {
-        Arc::from("vortex.filter")
+impl Debug for LazyMask {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LazyMask::Ready(mask) => f
+                .debug_tuple("Ready")
+                .field(&format!(
+                    "Mask(len={}, count={})",
+                    mask.len(),
+                    mask.true_count()
+                ))
+                .finish(),
+            LazyMask::Pending(_) => f.debug_tuple("Pending").finish(),
+        }
+    }
+}
+
+impl Operator for FilterOperator {
+    fn id(&self) -> OperatorId {
+        OperatorId::from("vortex.filter")
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -45,14 +72,11 @@ impl ArrayOperator for FilterOperator {
         self.child.len()
     }
 
-    fn children(&self) -> &[Arc<dyn ArrayOperator>] {
+    fn children(&self) -> &[OperatorRef] {
         slice::from_ref(&self.child)
     }
 
-    fn with_children(
-        self: Arc<Self>,
-        children: Vec<Arc<dyn ArrayOperator>>,
-    ) -> VortexResult<Arc<dyn ArrayOperator>> {
+    fn with_children(self: Arc<Self>, children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
         Ok(Arc::new(FilterOperator {
             child: children.into_iter().next().vortex_expect("missing child"),
             mask: self.mask.clone(),
@@ -61,13 +85,13 @@ impl ArrayOperator for FilterOperator {
 }
 
 impl BatchOperator for FilterOperator {
-    fn bind(&self, ctx: &dyn BatchBindCtx) -> VortexResult<Box<dyn BatchExecution>> {
+    fn bind(&self, _ctx: &dyn BatchBindCtx) -> VortexResult<Box<dyn BatchExecution>> {
         todo!()
     }
 }
 
 impl PipelinedOperator for FilterOperator {
-    fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
+    fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
         todo!()
     }
 }

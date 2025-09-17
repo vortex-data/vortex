@@ -2,69 +2,55 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::hash::Hash;
 use std::sync::Arc;
-
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
+use crate::operator::{BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator};
 use crate::pipeline::bits::BitView;
-use crate::pipeline::operators::{BindContext, Operator, OperatorRef};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Element, Kernel, KernelContext, PipelineVTable, VType};
+use crate::pipeline::{Element, Kernel, KernelContext};
+use crate::vtable::PipelineVTable;
 
 impl PipelineVTable<ConstantVTable> for ConstantVTable {
     fn to_operator(array: &ConstantArray) -> VortexResult<Option<OperatorRef>> {
-        Ok(ConstantOperator::maybe_new(array.scalar.clone()).map(|c| Arc::new(c) as OperatorRef))
+        Ok(Some(Arc::new(array.clone())))
     }
 }
 
-/// Pipeline operator for constant arrays that produces the same scalar value for all elements.
-#[derive(Debug, Hash)]
-pub struct ConstantOperator {
-    pub(crate) scalar: Scalar,
-}
-
-impl ConstantOperator {
-    pub fn maybe_new(scalar: Scalar) -> Option<Self> {
-        if scalar.is_null() || !matches!(scalar.dtype(), DType::Bool(_) | DType::Primitive(..)) {
-            None
-        } else {
-            Some(Self { scalar })
-        }
+impl Operator for ConstantArray {
+    fn id(&self) -> OperatorId {
+        self.encoding_id()
     }
 
-    pub fn new(scalar: Scalar) -> Self {
-        Self::maybe_new(scalar).vortex_expect("scalar cannot be null")
-    }
-}
-
-impl Operator for ConstantOperator {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn vtype(&self) -> VType {
-        match self.scalar.dtype() {
-            DType::Bool(_) => VType::Bool,
-            DType::Primitive(p, _) => VType::Primitive(*p),
-            DType::Binary(_) => VType::Binary,
-            _ => todo!(),
-        }
+    fn dtype(&self) -> &DType {
+        self.scalar.dtype()
+    }
+
+    fn len(&self) -> usize {
+        self.len
     }
 
     fn children(&self) -> &[OperatorRef] {
         &[]
     }
 
-    fn with_children(&self, _children: Vec<OperatorRef>) -> OperatorRef {
-        Arc::new(ConstantOperator::new(self.scalar.clone()))
+    fn with_children(self: Arc<Self>, _children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
+        Ok(self)
     }
+}
 
+impl PipelinedOperator for ConstantArray {
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
-        debug_assert!(matches!(self.vtype(), VType::Bool | VType::Primitive(_)));
+        debug_assert!(matches!(
+            self.dtype(),
+            DType::Bool(_) | DType::Primitive(..)
+        ));
         match self.scalar.dtype() {
             DType::Bool(_) => Ok(Box::new(BoolConstantKernel {
                 value: self

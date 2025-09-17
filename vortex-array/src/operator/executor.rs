@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::Operator;
+use crate::operator::Operator;
 use crate::Canonical;
 use std::sync::Arc;
 use vortex_error::VortexResult;
@@ -15,7 +15,7 @@ use vortex_error::VortexResult;
 pub struct Executor {}
 
 impl Executor {
-    pub async fn execute(&mut self, operator: Arc<dyn Operator>) -> VortexResult<Canonical> {
+    pub async fn execute(&mut self, _operator: Arc<dyn Operator>) -> VortexResult<Canonical> {
         todo!()
     }
 }

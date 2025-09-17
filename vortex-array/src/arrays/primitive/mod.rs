@@ -2,19 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 use std::iter;
 
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
+use crate::{vtable, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical};
 
 mod compute;
 mod downcast;
@@ -24,7 +25,7 @@ mod patch;
 mod serde;
 mod top_value;
 
-pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
+pub use compute::{compute_is_constant, IS_CONST_LANE_WIDTH};
 pub use native_value::NativeValue;
 
 use crate::vtable::{
@@ -94,6 +95,15 @@ pub struct PrimitiveArray {
     buffer: ByteBuffer,
     validity: Validity,
     stats_set: ArrayStats,
+}
+
+impl Hash for PrimitiveArray {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dtype.hash(state);
+        self.buffer.hash(state);
+        // FIXME(ngates): self.validity.hash(state);
+        // We do not hash stats since they're lazily computed.
+    }
 }
 
 #[derive(Clone, Debug)]

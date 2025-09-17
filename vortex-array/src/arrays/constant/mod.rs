@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
-pub use compute::ConstantOperator;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_mask::Mask;
@@ -14,7 +14,7 @@ use crate::vtable::{
     ArrayVTable, NotSupported, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingId, EncodingRef, IntoArray, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingId, EncodingRef, IntoArray,
 };
 
 mod canonical;
@@ -29,6 +29,13 @@ pub struct ConstantArray {
     scalar: Scalar,
     len: usize,
     stats_set: ArrayStats,
+}
+
+impl Hash for ConstantArray {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.scalar.hash(state);
+        self.len.hash(state);
+    }
 }
 
 #[derive(Clone, Debug)]

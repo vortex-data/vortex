@@ -4,13 +4,12 @@
 //! Vector allocation strategy for pipelines
 
 use std::cell::RefCell;
-
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::pipeline::query::QueryPlan;
 use crate::pipeline::query::dag::DagNode;
-use crate::pipeline::types::VType;
+use crate::pipeline::query::QueryPlan;
 use crate::pipeline::vec::{Vector, VectorId};
+use crate::pipeline::VType;
 
 #[derive(Debug)]
 pub struct VectorAllocationPlan {
@@ -83,7 +82,7 @@ impl<'a> QueryPlan<'a> {
 
                 let alloc_id = allocations.len();
                 allocations.push(VectorAllocation {
-                    element_type: plan_node.vtype(),
+                    element_type: plan_node.dtype().into(),
                 });
                 OutputTarget::IntermediateVector(alloc_id)
             };

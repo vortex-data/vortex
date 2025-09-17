@@ -28,23 +28,27 @@
 mod executor;
 mod ops;
 
-use crate::pipeline::operators::BindContext;
+pub use ops::*;
+
+use crate::pipeline::vec::VectorId;
 use crate::pipeline::Kernel;
 use crate::Canonical;
+use arcref::ArcRef;
 use async_trait::async_trait;
+use dyn_hash::DynHash;
 use std::any::Any;
+use std::fmt::Debug;
 use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-/// We're hoping to move towards a world in which arrays only have to implement a canonicalize
-/// method. All other operators are performed by wrapping up arrays in new operators and applying
-/// an optimization pass.
-///
-/// This trait will help with the migration to that world.
-pub trait ArrayOperator: 'static + Send + Sync {
+pub type OperatorId = ArcRef<str>;
+pub type OperatorRef = Arc<dyn Operator>;
+
+/// An operator represents a node in a logical query plan.
+pub trait Operator: 'static + Debug + DynHash + Send + Sync {
     /// The unique identifier for this operator instance.
-    fn id(&self) -> Arc<str>;
+    fn id(&self) -> OperatorId;
 
     /// For downcasting.
     fn as_any(&self) -> &dyn Any;
@@ -52,7 +56,7 @@ pub trait ArrayOperator: 'static + Send + Sync {
     /// Returns the [`DType`] of the array produced by this operator.
     fn dtype(&self) -> &DType;
 
-    /// Returns the length of the array.
+    /// Returns the length of the array produced by this operator.
     fn len(&self) -> usize;
 
     /// Returns true if the array is empty.
@@ -61,36 +65,37 @@ pub trait ArrayOperator: 'static + Send + Sync {
         self.len() == 0
     }
 
-    /// The children of this operator in the DAG.
-    fn children(&self) -> &[Arc<dyn ArrayOperator>];
+    // TODO(ngates): add StatsSet
+
+    /// The children of this operator.
+    fn children(&self) -> &[OperatorRef];
 
     /// Create a new instance of this operator with the given children.
     ///
     /// ## Panics
     ///
-    /// Panics if the number or dtypes of children is incorrect.
-    fn with_children(
-        self: Arc<Self>,
-        _children: Vec<Arc<dyn ArrayOperator>>,
-    ) -> VortexResult<Arc<dyn ArrayOperator>>;
+    /// Panics if the number or dtypes of children are incorrect.
+    ///
+    fn with_children(self: Arc<Self>, _children: Vec<OperatorRef>) -> VortexResult<OperatorRef>;
 
-    /// Returns the metadata for this operator.
-    fn metadata(&self) -> &dyn OperatorMetadata {
-        &()
+    /// Whether this operator works by mutating its first child in-place.
+    ///
+    /// If `true`, the operator is invoked with the first child's input data passed via the
+    /// mutable output view. The node is expected to mutate this data in-place.
+    fn in_place(&self) -> bool {
+        false
     }
 
-    /// Called by the `Canonicalizer` to allow each operator to optimize itself when called by
-    /// a given parent operator.
+    /// Attempt to push down a parent operator through this node.
     ///
     /// The `child_idx` parameter indicates which child of the parent this operator occupies.
     ///
     /// For example, if the parent is a binary operator, and this operator is the left child,
     /// then `child_idx` will be 0. If this operator is the right child, then `child_idx` will be 1.
-    fn optimize(
-        &self,
-        parent: Arc<dyn ArrayOperator>,
-        _child_idx: usize,
-    ) -> VortexResult<Arc<dyn ArrayOperator>> {
+    ///
+    /// The returned operator will replace the parent in the tree, therefore a no-op is to return
+    /// the parent unchanged.
+    fn reduce_parent(&self, parent: OperatorRef, _child_idx: usize) -> VortexResult<OperatorRef> {
         Ok(parent)
     }
 
@@ -113,18 +118,10 @@ pub trait ArrayOperator: 'static + Send + Sync {
     }
 }
 
-pub trait OperatorMetadata {
-    fn as_any(&self) -> &dyn Any;
-}
-
-impl OperatorMetadata for () {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
+dyn_hash::hash_trait_object!(Operator);
 
 /// The default execution mode for an operator is batch mode.
-pub trait BatchOperator: ArrayOperator {
+pub trait BatchOperator: Operator {
     fn bind(&self, ctx: &dyn BatchBindCtx) -> VortexResult<Box<dyn BatchExecution>>;
 }
 
@@ -141,7 +138,7 @@ pub trait BatchExecution: Send {
     async fn execute(self: Box<Self>) -> VortexResult<Canonical>;
 }
 
-pub trait PipelinedOperator: ArrayOperator {
+pub trait PipelinedOperator: Operator {
     /// Whether this operator works by mutating its first child in-place.
     ///
     /// If `true`, the operator is invoked with the first child's input data passed via the
@@ -154,7 +151,12 @@ pub trait PipelinedOperator: ArrayOperator {
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
 }
 
-pub trait GpuOperator: ArrayOperator {
+pub trait GpuOperator: Operator {
     // TODO(ngates): no idea what this API looks like.
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
+}
+
+/// The context used when binding an operator for execution.
+pub trait BindContext {
+    fn children(&self) -> &[VectorId];
 }
