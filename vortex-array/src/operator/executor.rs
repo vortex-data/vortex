@@ -39,6 +39,9 @@ impl Executor {
 
     fn batch_execution(&mut self, operator: &OperatorRef) -> VortexResult<BatchExecutionRef> {
         // Attempt to convert the operator into a pipeline operator, if so we use that to execute.
+        //
+        // The construction of this operator pulls the largest subgraph of nodes that can be
+        // executed in a pipelined fashion.
         let operator = match PipelineOperator::new(operator.clone()) {
             None => operator.clone(),
             Some(pipeline_op) => Arc::new(pipeline_op),
