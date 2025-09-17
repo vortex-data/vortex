@@ -6,7 +6,6 @@ mod compare;
 mod is_sorted;
 mod list_contains;
 mod min_max;
-mod take;
 
 #[cfg(test)]
 mod tests {
