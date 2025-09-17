@@ -19,9 +19,8 @@
 //! It is a work-in-progress and is not yet used in production.
 
 pub mod bits;
-mod canonical;
+pub(crate) mod operator;
 pub mod operators;
-pub mod query;
 mod types;
 pub mod vec;
 pub mod view;
@@ -34,14 +33,14 @@ pub const N_WORDS: usize = N / usize::BITS as usize;
 
 use std::cell::RefCell;
 
-pub use canonical::*;
-pub use types::*;
-use vec::{VectorId, VectorRef};
-use vortex_error::VortexResult;
-
 use self::bits::BitView;
 use self::vec::Vector;
 use self::view::ViewMut;
+use crate::operator::{BatchId, VectorId};
+use crate::Canonical;
+pub use types::*;
+use vec::VectorRef;
+use vortex_error::VortexResult;
 
 /// A pipeline provides a push-based way to emit a stream of canonical data.
 ///
@@ -59,7 +58,7 @@ use self::view::ViewMut;
 /// elements should still live in the correct location, it just doesn't matter what their value
 /// is. This will allow, e.g. a validity encoding to tell its children that the values in certain
 /// positions are going to be masked out anyway, so don't bother doing any expensive compute.
-pub trait Kernel {
+pub trait Kernel: Send {
     /// Seek the kernel to a specific chunk offset.
     ///
     /// Note this will be called on all kernels in a pipeline.
@@ -95,21 +94,21 @@ pub trait Kernel {
 }
 
 /// Context passed to kernels during execution, providing access to vectors.
-#[derive(Default)]
 pub struct KernelContext {
-    /// Optional allocation plan for resolving vector IDs
+    /// The allocated vectors for intermediate results.
     pub(crate) vectors: Vec<RefCell<Vector>>,
+    /// The computed batch inputs.
+    pub(crate) batch_inputs: Vec<Canonical>,
 }
 
 impl KernelContext {
-    pub fn new(allocation_plan: Vec<RefCell<Vector>>) -> Self {
-        Self {
-            vectors: allocation_plan,
-        }
-    }
-
     /// Get a vector by its ID.
     pub fn vector(&self, vector_id: VectorId) -> VectorRef<'_> {
-        VectorRef::new(self.vectors[*vector_id].borrow())
+        VectorRef::new(self.vectors[vector_id].borrow())
+    }
+
+    /// Get a batch input by its ID.
+    pub fn batch_input(&self, batch_id: BatchId) -> &Canonical {
+        &self.batch_inputs[batch_id]
     }
 }

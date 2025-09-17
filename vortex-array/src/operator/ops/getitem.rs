@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::operator::{Operator, OperatorId, OperatorRef};
 use std::any::Any;
 use std::slice;
 use std::sync::Arc;
+
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexExpect, VortexResult};
+
+use crate::operator::{Operator, OperatorId, OperatorRef};
 
 /// An operator that extracts a field from a struct array.
 #[derive(Debug, Hash)]

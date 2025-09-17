@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::operator::BatchExecution;
-use crate::Canonical;
 use async_trait::async_trait;
 use vortex_error::VortexResult;
+
+use crate::Canonical;
+use crate::operator::BatchExecution;
 
 pub struct CanonicalExecution(pub Canonical);
 

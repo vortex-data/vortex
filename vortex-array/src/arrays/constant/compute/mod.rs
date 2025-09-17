@@ -16,10 +16,10 @@ mod test {
     use vortex_dtype::half::f16;
     use vortex_scalar::Scalar;
 
+    use crate::IntoArray;
     use crate::arrays::constant::ConstantArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
-    use crate::IntoArray;
 
     #[test]
     fn test_mask_constant() {

@@ -10,7 +10,6 @@ use vortex_mask::Mask;
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::operator::Operator;
 use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
-use crate::pipeline::query::QueryPlan;
 use crate::pipeline::types::Element;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;

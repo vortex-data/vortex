@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use futures::future::try_join_all;
+use vortex_dtype::DType;
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
+
 use crate::arrays::{StructArray, StructVTable};
 use crate::operator::getitem::GetItemOperator;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchOperator, Operator, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
+    OperatorRef,
 };
 use crate::validity::Validity;
 use crate::vtable::PipelineVTable;
 use crate::{Array, Canonical, IntoArray};
-use async_trait::async_trait;
-use futures::future::try_join_all;
-use std::any::Any;
-use std::sync::Arc;
-use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 impl PipelineVTable<StructVTable> for StructVTable {
     fn to_operator(array: &StructArray) -> VortexResult<Option<OperatorRef>> {
@@ -103,9 +106,9 @@ impl Operator for StructOperator {
 }
 
 impl BatchOperator for StructOperator {
-    fn bind(&self, ctx: &dyn BatchBindCtx) -> VortexResult<Box<dyn BatchExecution>> {
+    fn bind(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
         let children = (0..self.children.len())
-            .map(|i| ctx.child(i))
+            .map(|i| ctx.take_child(i))
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(Box::new(StructExecution {
             len: self.len,
@@ -119,7 +122,7 @@ impl BatchOperator for StructOperator {
 struct StructExecution {
     len: usize,
     dtype: DType,
-    children: Vec<Box<dyn BatchExecution>>,
+    children: Vec<BatchExecutionRef>,
     // validity: Validity,
 }
 

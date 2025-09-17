@@ -4,7 +4,7 @@
 use std::fmt::{Debug, Formatter};
 
 use bitvec::prelude::*;
-use vortex_error::{VortexError, vortex_err};
+use vortex_error::{vortex_err, VortexError};
 
 use crate::pipeline::{N, N_WORDS};
 
@@ -378,9 +378,6 @@ mod tests {
 
     #[test]
     fn test_compatibility_with_mask_all_true() {
-        // Create a Mask with all bits set
-        let mask = Mask::new_true(N);
-
         // Create corresponding BitView
         let view = BitView::all_true();
 
@@ -397,9 +394,6 @@ mod tests {
 
     #[test]
     fn test_compatibility_with_mask_all_false() {
-        // Create a Mask with no bits set
-        let mask = Mask::new_false(N);
-
         // Create corresponding BitView
         let view = BitView::all_false();
 
@@ -420,7 +414,6 @@ mod tests {
     fn test_compatibility_with_mask_from_indices() {
         // Create a Mask from specific indices
         let indices = vec![0, 10, 20, 63, 64, 100, 500, 1023];
-        let mask = Mask::from_indices(N, indices.clone());
 
         // Create corresponding BitView
         let mut bits = [0usize; N_WORDS];
@@ -443,7 +436,6 @@ mod tests {
     fn test_compatibility_with_mask_slices() {
         // Create a Mask from slices (ranges)
         let slices = vec![(0, 10), (100, 110), (500, 510)];
-        let mask = Mask::from_slices(N, slices.clone());
 
         // Create corresponding BitView
         let mut bits = [0usize; N_WORDS];

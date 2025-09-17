@@ -28,19 +28,20 @@
 mod executor;
 mod ops;
 
-pub use ops::*;
+use std::any::Any;
+use std::fmt::Debug;
+use std::sync::Arc;
 
-use crate::pipeline::vec::VectorId;
 use crate::pipeline::Kernel;
 use crate::Canonical;
 use arcref::ArcRef;
 use async_trait::async_trait;
 use dyn_hash::DynHash;
-use std::any::Any;
-use std::fmt::Debug;
-use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+
+pub use executor::*;
+pub use ops::*;
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
@@ -122,11 +123,11 @@ dyn_hash::hash_trait_object!(Operator);
 
 /// The default execution mode for an operator is batch mode.
 pub trait BatchOperator: Operator {
-    fn bind(&self, ctx: &dyn BatchBindCtx) -> VortexResult<Box<dyn BatchExecution>>;
+    fn bind(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef>;
 }
 
 pub trait BatchBindCtx {
-    fn child(&self, idx: usize) -> VortexResult<Box<dyn BatchExecution>>;
+    fn take_child(&mut self, idx: usize) -> VortexResult<BatchExecutionRef>;
 }
 
 /// The primary execution trait for operators.
@@ -137,6 +138,8 @@ pub trait BatchBindCtx {
 pub trait BatchExecution: Send {
     async fn execute(self: Box<Self>) -> VortexResult<Canonical>;
 }
+
+pub type BatchExecutionRef = Box<dyn BatchExecution>;
 
 pub trait PipelinedOperator: Operator {
     /// Whether this operator works by mutating its first child in-place.
@@ -149,6 +152,23 @@ pub trait PipelinedOperator: Operator {
 
     /// Bind the operator into a [`Kernel`] for pipelined execution.
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
+
+    /// Returns the pipelined children of this operator.
+    fn pipelined_children(&self) -> Vec<&dyn PipelinedOperator> {
+        self.children()
+            .iter()
+            .filter_map(|child| child.as_pipelined())
+            .collect()
+    }
+
+    /// Returns the non-pipelined children of this operator.
+    fn non_pipelined_children(&self) -> Vec<&dyn Operator> {
+        self.children()
+            .iter()
+            .filter(|child| child.as_pipelined().is_none())
+            .map(|child| child.as_ref())
+            .collect()
+    }
 }
 
 pub trait GpuOperator: Operator {
@@ -156,7 +176,15 @@ pub trait GpuOperator: Operator {
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
 }
 
+/// The ID of the vector to use.
+pub type VectorId = usize;
+
+/// The ID of the batch input to use.
+pub type BatchId = usize;
+
 /// The context used when binding an operator for execution.
 pub trait BindContext {
     fn children(&self) -> &[VectorId];
+
+    fn batch_inputs(&self) -> &[BatchId];
 }

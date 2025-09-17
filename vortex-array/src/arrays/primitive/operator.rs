@@ -11,7 +11,7 @@ use vortex_error::VortexResult;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::operator::canonical::CanonicalExecution;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchOperator, Operator, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecutionRef, BatchOperator, Operator, OperatorId, OperatorRef,
 };
 use crate::validity::Validity;
 use crate::vtable::{PipelineVTable, ValidityHelper};
@@ -53,10 +53,14 @@ impl Operator for PrimitiveArray {
     fn with_children(self: Arc<Self>, _children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
         Ok(self)
     }
+
+    fn as_batch(&self) -> Option<&dyn BatchOperator> {
+        Some(self)
+    }
 }
 
 impl BatchOperator for PrimitiveArray {
-    fn bind(&self, _ctx: &dyn BatchBindCtx) -> VortexResult<Box<dyn BatchExecution>> {
+    fn bind(&self, _ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
         Ok(Box::new(CanonicalExecution(Canonical::Primitive(
             PrimitiveArray::from_byte_buffer(
                 self.buffer.clone(),

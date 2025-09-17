@@ -3,7 +3,8 @@
 
 use std::any::Any;
 use std::sync::Arc;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ConstantArray, ConstantVTable};

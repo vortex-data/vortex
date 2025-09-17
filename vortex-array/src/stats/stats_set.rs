@@ -3,10 +3,10 @@
 
 use std::fmt::Debug;
 
-use enum_iterator::{all, Sequence};
+use enum_iterator::{Sequence, all};
 use num_traits::CheckedAdd;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use super::{

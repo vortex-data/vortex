@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchOperator, BindContext, Operator, OperatorId, OperatorRef,
-    PipelinedOperator,
-};
-use crate::pipeline::Kernel;
-use crate::MaskFuture;
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::slice;
 use std::sync::Arc;
+
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
+
+use crate::operator::{
+    BatchBindCtx, BatchExecutionRef, BatchOperator, BindContext, Operator, OperatorId, OperatorRef,
+    PipelinedOperator,
+};
+use crate::pipeline::Kernel;
+use crate::MaskFuture;
 
 #[derive(Debug)]
 pub struct FilterOperator {
@@ -85,7 +87,7 @@ impl Operator for FilterOperator {
 }
 
 impl BatchOperator for FilterOperator {
-    fn bind(&self, _ctx: &dyn BatchBindCtx) -> VortexResult<Box<dyn BatchExecution>> {
+    fn bind(&self, _ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
         todo!()
     }
 }
