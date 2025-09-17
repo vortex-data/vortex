@@ -127,6 +127,24 @@ impl Vector {
         unsafe { cpp::duckdb_vx_string_vector_add_buffer(self.as_ptr(), data.into_ptr()) }
     }
 
+    pub fn dictionary(
+        &self,
+        dict: &Vector,
+        dictionary_size: usize,
+        sel_vec: &SelectionVector,
+        count: usize,
+    ) {
+        unsafe {
+            cpp::duckdb_vx_vector_dictionary(
+                self.as_ptr(),
+                dict.as_ptr(),
+                dictionary_size as _,
+                sel_vec.as_ptr(),
+                count as _,
+            )
+        }
+    }
+
     /// Assigns the element at the specified index with a string value.
     /// FIXME(ngates): remove this.
     pub fn assign_string_element(&self, idx: usize, value: &CStr) {
