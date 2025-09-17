@@ -64,7 +64,7 @@ fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
         (None, _) => match result_validity {
             Mask::AllTrue(_) => BoolArray::from_bool_buffer(
                 BooleanBuffer::new_unset(codes.len()),
-                Validity::copy_from_array(codes),
+                Validity::copy_from_array(codes).union_nullability(result_nullability),
             )
             .to_canonical(),
             Mask::AllFalse(_) => ConstantArray::new(
@@ -74,8 +74,7 @@ fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
             .to_canonical(),
             Mask::Values(_) => BoolArray::from_bool_buffer(
                 BooleanBuffer::new_unset(codes.len()),
-                Validity::from_mask(result_validity, bool_values.dtype().nullability())
-                    .take(codes)?,
+                Validity::from_mask(result_validity, result_nullability).take(codes)?,
             )
             .to_canonical(),
         },
