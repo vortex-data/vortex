@@ -80,10 +80,7 @@ pub(crate) fn new_exporter(
 
 impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
-        // Copy across the dictionary values.
-        vector.reference(&self.values_vector.lock());
-
-        // Slice with a selection vector from the codes.
+        // Create a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);
         let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
         for (dst, src) in mut_sel_vec.iter_mut().zip(
@@ -94,7 +91,13 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
             *dst = src
         }
 
-        vector.slice_to_dictionary(sel_vec, len);
+        vector.dictionary(
+            &self.values_vector.lock(),
+            self.values_len as usize,
+            &sel_vec,
+            len,
+        );
+
         // Use a unique id to each dictionary data array -- telling duckdb that the dict value vector
         // is the same as reuse the hash in a join.
         vector.set_dictionary_id(format!("{}-{}", self.cache_id, self.value_id));

@@ -63,6 +63,26 @@ impl Vector {
         }
     }
 
+    /// Turn vector into a dictionary vector. In contrast to `slice_to_dictionary` this
+    /// call creates a dictionary that holds a strong reference to its children.
+    pub fn dictionary(
+        &self,
+        dict: &Vector,
+        dictionary_size: usize,
+        sel_vec: &SelectionVector,
+        count: usize,
+    ) {
+        unsafe {
+            cpp::duckdb_vx_vector_dictionary(
+                self.as_ptr(),
+                dict.as_ptr(),
+                dictionary_size as _,
+                sel_vec.as_ptr(),
+                count as _,
+            )
+        }
+    }
+
     // Used to by duckdb to know the dictionary value length (since each vector doesn't know its own
     // length only its capacity).
     pub fn set_dictionary_len(&mut self, len: u32) {

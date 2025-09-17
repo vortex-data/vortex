@@ -14,6 +14,11 @@ extern "C" {
 void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector, duckdb_selection_vector selection_vector,
                                           idx_t selection_vector_length);
 
+/// Turn vector into a dictionary vector. In contrast to `duckdb_vx_vector_slice_to_dictionary` this
+/// call creates a dictionary that holds a strong reference to its children.
+void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector, duckdb_vector ffi_dict, idx_t dictionary_size,
+                                 duckdb_selection_vector ffi_sel_vec, idx_t count);
+
 void duckdb_vx_set_dictionary_vector_id(duckdb_vector dict, const char *id, unsigned int id_len);
 
 void duckdb_vx_set_dictionary_vector_length(duckdb_vector dict, unsigned int len);
