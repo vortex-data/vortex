@@ -194,14 +194,14 @@ impl TryFrom<ViewedDType> for DType {
 impl FlatBufferRoot for DType {}
 
 impl WriteFlatBuffer for DType {
-    type Target<'a> = fb::DType<'a>;
+    type Target<'a> = fb::DTypeRef<'a>;
 
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
         let dtype_union = match self {
-            Self::Null => fb::Null::create(fbb, &fb::NullArgs {}).as_union_value(),
+            Self::Null => fb::Null::create(&mut vortex_flatbuffers::planus::Builder::new()),
             Self::Bool(n) => fb::Bool::create(
                 fbb,
                 &fb::BoolArgs {

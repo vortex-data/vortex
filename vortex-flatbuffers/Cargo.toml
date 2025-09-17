@@ -28,6 +28,8 @@ layout = ["array"]
 
 [dependencies]
 flatbuffers = { workspace = true }
+planus = "1.2.0"
+serde = { workspace = true }
 vortex-buffer = { workspace = true }
 
 [lints]

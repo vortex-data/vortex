@@ -7,6 +7,8 @@
 
 #![deny(missing_docs)]
 
+pub use planus;
+
 #[cfg(feature = "array")]
 #[allow(clippy::all)]
 #[allow(clippy::derive_partial_eq_without_eq)]

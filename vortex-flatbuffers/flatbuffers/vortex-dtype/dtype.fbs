@@ -64,16 +64,16 @@ table Extension {
 }
 
 union Type {
-    Null = 1,
-    Bool = 2,
-    Primitive = 3,
-    Decimal = 4,
-    Utf8 = 5,
-    Binary = 6,
-    Struct_ = 7,
-    List = 8,
-    Extension = 9,
-    FixedSizeList = 10, // This is after `Extension` for backwards compatibility.
+    Null,
+    Bool,
+    Primitive,
+    Decimal,
+    Utf8,
+    Binary,
+    Struct_,
+    List,
+    Extension,
+    FixedSizeList, // This is after `Extension` for backwards compatibility.
 }
 
 table DType {
