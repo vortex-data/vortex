@@ -19,6 +19,7 @@ impl CompareKernel for DictVTable {
         if lhs.values().len() > lhs.codes().len() {
             return Ok(None);
         }
+
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(rhs) = rhs.as_constant() {
             let compare_result = compare(
@@ -26,11 +27,14 @@ impl CompareKernel for DictVTable {
                 ConstantArray::new(rhs, lhs.values().len()).as_ref(),
                 operator,
             )?;
+
             // SAFETY: values len preserved, codes all still point to valid values
-            let arr = unsafe {
+            let result = unsafe {
                 DictArray::new_unchecked(lhs.codes().clone(), compare_result).into_array()
             };
-            return Ok(Some(arr.to_canonical().into_array()));
+
+            // We canonicalize the result because dictionary-encoded bools is dumb.
+            return Ok(Some(result.to_canonical().into_array()));
         }
 
         // It's a little more complex, but we could perform a comparison against the dictionary
