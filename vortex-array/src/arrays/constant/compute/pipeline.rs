@@ -4,7 +4,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ConstantArray, ConstantVTable};
@@ -77,6 +77,14 @@ impl PipelinedOperator for ConstantArray {
                 self.scalar.dtype()
             ),
         }
+    }
+
+    fn vector_children(&self) -> Vec<usize> {
+        vec![]
+    }
+
+    fn batch_children(&self) -> Vec<usize> {
+        vec![]
     }
 }
 

@@ -5,5 +5,3 @@ pub mod canonical;
 pub mod compare;
 pub mod filter;
 pub mod getitem;
-
-pub use canonical::CanonicalExecution;

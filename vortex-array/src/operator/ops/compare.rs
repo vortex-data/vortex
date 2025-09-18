@@ -184,6 +184,14 @@ impl PipelinedOperator for CompareOperator {
             })
         })
     }
+
+    fn vector_children(&self) -> Vec<usize> {
+        vec![0, 1]
+    }
+
+    fn batch_children(&self) -> Vec<usize> {
+        vec![]
+    }
 }
 
 /// A compare operator for primitive types that compares two vectors element-wise using a binary

@@ -104,4 +104,12 @@ impl PipelinedOperator for FilterOperator {
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
         todo!()
     }
+
+    fn vector_children(&self) -> Vec<usize> {
+        vec![0]
+    }
+
+    fn batch_children(&self) -> Vec<usize> {
+        vec![]
+    }
 }

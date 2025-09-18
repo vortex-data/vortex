@@ -3,9 +3,10 @@
 
 mod bind;
 pub mod buffers;
+mod canonical;
 mod toposort;
 
-use crate::arrays::PrimitiveArray;
+use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchId, BatchOperator, Operator, OperatorId,
     OperatorRef,
@@ -13,12 +14,14 @@ use crate::operator::{
 use crate::pipeline::bits::{BitVector, BitView};
 use crate::pipeline::operator::bind::bind_kernels;
 use crate::pipeline::operator::buffers::{allocate_vectors, OutputTarget};
+use crate::pipeline::operator::canonical::CanonicalPipelineOperator;
 use crate::pipeline::operator::toposort::topological_sort;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext, N};
 use crate::validity::Validity;
 use crate::Canonical;
+use arrow_buffer::BooleanBuffer;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
@@ -28,9 +31,9 @@ use std::hash::BuildHasher;
 use std::marker::PhantomData;
 use std::ops::DerefMut;
 use std::sync::Arc;
-use vortex_buffer::BufferMut;
+use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::VortexResult;
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
 /// An operator node used during execution planning to represent a pipelined execution.
@@ -98,16 +101,31 @@ impl PipelineOperator {
             // Process children first (post-order traversal)
             let mut child_indices: Vec<NodeId> = vec![];
             let mut batch_indices: Vec<BatchId> = vec![];
-            for child in node.children() {
-                if child.as_pipelined().is_some() {
-                    let child_id = visit_node(child.clone(), dag, batch, hash_to_id, random_state);
-                    child_indices.push(child_id)
-                } else {
-                    // Otherwise, it's a batch input operator.
-                    let batch_id = batch.len();
-                    batch.push(child.clone());
-                    batch_indices.push(batch_id);
+
+            let node_children = node.children();
+            let pipelined = node.as_pipelined().vortex_expect("must be pipelined");
+
+            // Prepare the pipelined vector children
+            for child_idx in pipelined.vector_children() {
+                let mut child_op = node_children[child_idx].clone();
+
+                if child_op.as_pipelined().is_none() {
+                    // If the child does not support pipelining, we wrap it in an operator that
+                    // loads the batch input and exposes it as a pipelined kernel over the
+                    // resulting canonical array.
+                    child_op = Arc::new(CanonicalPipelineOperator::new(child_op));
                 }
+
+                let child_node_id = visit_node(child_op, dag, batch, hash_to_id, random_state);
+                child_indices.push(child_node_id);
+            }
+
+            // And the batch input children
+            for child_idx in pipelined.batch_children() {
+                let child = node_children[child_idx].clone();
+                let batch_id = batch.len();
+                batch.push(child);
+                batch_indices.push(batch_id);
             }
 
             // Create new DAG node
@@ -211,6 +229,12 @@ impl BatchOperator for PipelineOperator {
         };
 
         match self.dtype() {
+            DType::Bool(_) => Ok(Box::new(BoolPipelineExecution {
+                len: self.len(),
+                batch_inputs,
+                vectors,
+                pipeline,
+            })),
             DType::Primitive(ptype, _) => {
                 match_each_native_ptype!(ptype, |T| {
                     Ok(Box::new(PrimitivePipelineExecution {
@@ -222,8 +246,69 @@ impl BatchOperator for PipelineOperator {
                     }))
                 })
             }
-            _ => todo!("PipelineOperator currently only supports primitive output types"),
+            _ => vortex_bail!(
+                "PipelineOperator currently only supports primitive output types {}",
+                self.dtype()
+            ),
         }
+    }
+}
+
+struct BoolPipelineExecution {
+    len: usize,
+    batch_inputs: Vec<BatchExecutionRef>,
+    vectors: Vec<RefCell<Vector>>,
+    pipeline: Pipeline,
+}
+
+#[async_trait]
+impl BatchExecution for BoolPipelineExecution {
+    async fn execute(mut self: Box<Self>) -> VortexResult<Canonical> {
+        // Execute all batch input operators concurrently.
+        let batch_inputs =
+            try_join_all(self.batch_inputs.into_iter().map(|exec| exec.execute())).await?;
+
+        // Create a kernel context with the batch inputs.
+        let ctx = KernelContext {
+            vectors: self.vectors,
+            batch_inputs,
+        };
+
+        // Allocate the output vector and validity.
+        let len = self.len;
+        let capacity = len.next_multiple_of(N) + N;
+
+        let mut elements = BufferMut::<bool>::with_capacity(capacity);
+        unsafe { elements.set_len(capacity) };
+
+        let mut remaining = len;
+        while remaining >= N {
+            let mut elements_view = ViewMut::new(&mut elements[len - remaining..][..N], None);
+            self.pipeline
+                .step(&ctx, BitView::all_true(), &mut elements_view)?;
+            remaining -= N;
+        }
+
+        if remaining > 0 {
+            let mut elements_view = ViewMut::new(&mut elements[len - remaining..][..N], None);
+            let mask = BitVector::true_until(remaining);
+            self.pipeline
+                .step(&ctx, mask.as_view(), &mut elements_view)?;
+        }
+
+        unsafe { elements.set_len(len) };
+
+        let buffer = ByteBuffer::from_arrow_buffer(
+            BooleanBuffer::from(elements.as_ref()).into_inner(),
+            Alignment::of::<u64>(),
+        );
+
+        Ok(Canonical::Bool(BoolArray::try_new(
+            buffer,
+            0,
+            len,
+            Validity::NonNullable,
+        )?))
     }
 }
 

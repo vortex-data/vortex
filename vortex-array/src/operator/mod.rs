@@ -166,22 +166,11 @@ pub trait PipelinedOperator: Operator {
     /// Bind the operator into a [`Kernel`] for pipelined execution.
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
 
-    /// Returns the pipelined children of this operator.
-    fn pipelined_children(&self) -> Vec<&dyn PipelinedOperator> {
-        self.children()
-            .iter()
-            .filter_map(|child| child.as_pipelined())
-            .collect()
-    }
+    /// Returns the child indices of this operator that are passed to the kernel as input vectors.
+    fn vector_children(&self) -> Vec<usize>;
 
-    /// Returns the non-pipelined children of this operator.
-    fn non_pipelined_children(&self) -> Vec<&dyn Operator> {
-        self.children()
-            .iter()
-            .filter(|child| child.as_pipelined().is_none())
-            .map(|child| child.as_ref())
-            .collect()
-    }
+    /// Returns the child indices of this operator that are passed to the kernel as batch inputs.
+    fn batch_children(&self) -> Vec<usize>;
 }
 
 pub trait GpuOperator: Operator {
