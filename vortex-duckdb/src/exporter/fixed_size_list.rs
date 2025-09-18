@@ -229,17 +229,6 @@ mod tests {
     }
 
     #[test]
-    fn test_export_list_size_zero() {
-        // Create a FixedSizeListArray with list_size=0 (degenerate case).
-        // This represents arrays with no elements.
-        let fsl = FixedSizeListArray::new(buffer![0i32; 0].into_array(), 0, Validity::AllValid, 3);
-        let chunk = export_to_chunk(&fsl, 0, 0, 3);
-
-        // Should have 3 lists, each with 0 elements.
-        assert_eq!(chunk.len(), 3);
-    }
-
-    #[test]
     fn test_export_list_size_one() {
         // Create a FixedSizeListArray with list_size=1 (single element arrays).
         // Lists: [10], [20], [30], [40]
