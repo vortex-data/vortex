@@ -164,7 +164,8 @@ impl VortexOpenOptions {
         let Some(handle) = self.handle.clone() else {
             vortex_bail!("VortexOpenOptions::handle must be set, or else be running inside Tokio");
         };
-        self.open_read_at(handle.open_read(source)?).await
+        let metrics = self.metrics.clone();
+        self.open_read_at(handle.open_read(source, metrics)?).await
     }
 
     /// Open a Vortex file from an in-memory buffer.
