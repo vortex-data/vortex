@@ -154,7 +154,7 @@ mod tests {
         let result = conn.query("SELECT 42").unwrap();
         let chunk = result.into_iter().next().unwrap();
         let vec = chunk.get_vector(0);
-        let slice = vec.as_slice_with_len::<i64>(chunk.len().as_());
+        let slice = vec.as_slice_with_len::<i32>(chunk.len().as_());
 
         assert_eq!(chunk.column_count(), 1);
         assert_eq!(chunk.len(), 1);
