@@ -206,11 +206,11 @@ impl SelectExpr {
     /// For example:
     /// ```rust
     /// # use vortex_expr::root;
-    /// # use vortex_expr::{SelectExpr, SelectField};
+    /// # use vortex_expr::{FieldSelection, SelectExpr};
     /// # use vortex_dtype::FieldNames;
     /// let field_names = FieldNames::from(["a", "b", "c"]);
-    /// let include = SelectExpr::new(SelectField::Include(["a"].into()), root());
-    /// let exclude = SelectExpr::new(SelectField::Exclude(["b", "c"].into()), root());
+    /// let include = SelectExpr::new(FieldSelection::Include(["a"].into()), root());
+    /// let exclude = SelectExpr::new(FieldSelection::Exclude(["b", "c"].into()), root());
     /// assert_eq!(
     ///     &include.as_include(&field_names).unwrap(),
     ///     &exclude.as_include(&field_names).unwrap()
