@@ -79,6 +79,7 @@ impl Operator for FilterOperator {
     }
 
     fn len(&self) -> usize {
+        // FIXME(ngates): this is wrong...
         self.child.len()
     }
 
