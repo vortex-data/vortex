@@ -56,12 +56,13 @@ impl ColumnExporter for FixedSizeListExporter {
 
         let list_size = self.list_size as usize;
 
+        // If all values are null, then we don't need to worry about exporting values (similar to
+        // the primitive exporter).
         // SAFETY: We've asserted that offset + len <= self.validity.len(), which ensures we won't
         // read past the validity mask bounds.
-        unsafe { vector.set_validity(&self.validity, offset, len) };
-
-        // TODO(connor): It may be possible to early return here if the null map is completely null,
-        // similar to how `List` does it.
+        if unsafe { vector.set_validity(&self.validity, offset, len) } {
+            return Ok(());
+        }
 
         // Get the child vector for array elements and export the elements directly.
         let mut elements_vector = vector.array_vector_get_child();
