@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::pipeline::OperatorRef;
+use vortex_array::operator::OperatorRef;
 use vortex_error::VortexResult;
 
 use crate::traversal::{FoldUp, Node, NodeExt, NodeFolder, NodeRewriter, Transformed};

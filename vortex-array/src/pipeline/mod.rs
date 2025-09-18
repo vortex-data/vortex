@@ -31,13 +31,11 @@ pub const N: usize = 1024;
 // Number of usize words needed to store N bits
 pub const N_WORDS: usize = N / usize::BITS as usize;
 
-use std::cell::RefCell;
-
-use self::bits::BitView;
 use self::vec::Vector;
 use self::view::ViewMut;
 use crate::operator::{BatchId, VectorId};
 use crate::Canonical;
+use std::cell::RefCell;
 pub use types::*;
 use vec::VectorRef;
 use vortex_error::VortexResult;
@@ -47,50 +45,12 @@ use vortex_error::VortexResult;
 /// By passing multiple vector computations through the same pipeline, we can amortize
 /// the setup costs (such as DType validation, stats short-circuiting, etc.), and to make better
 /// use of CPU caches by performing all operations while the data is hot.
-///
-/// By passing a mask into the `step` function, we give encodings visibility into the data that
-/// will be read by their parents. Some encodings may choose to decode all `N` elements, and then
-/// set the given selection mask on the output vector. Other encodings may choose to only unpack
-/// the selected elements.
-///
-/// We are considering further adding a `defined` parameter that indicates which elements are
-/// defined and will be interpreted by the parent. This differs from masking, in that undefined
-/// elements should still live in the correct location, it just doesn't matter what their value
-/// is. This will allow, e.g. a validity encoding to tell its children that the values in certain
-/// positions are going to be masked out anyway, so don't bother doing any expensive compute.
 pub trait Kernel: Send {
-    /// Seek the kernel to a specific chunk offset.
-    ///
-    /// Note this will be called on all kernels in a pipeline.
-    ///
-    /// i.e. the resulting row offset is `idx * N`, where `N` is the number of elements in a chunk.
-    ///
-    /// The reason for a separate seek function (vs passing an offset directly to `step`) is that
-    /// it allows the pipeline to optimize for sequential access patterns, which is common in
-    /// many encodings. For example, a run-length encoding can efficiently seek to the start of a
-    /// chunk without needing to perform a full binary search of the ends in each step.
-    // TODO(ngates): should this be `skip(n)` instead? Depends if we want to support going
-    //  backwards?
-    fn seek(&mut self, _chunk_idx: usize) -> VortexResult<()> {
-        Ok(())
-    }
-
     /// Attempts to perform a single step of the pipeline, writing data to the output vector.
-    /// Returns `Poll::Done` if the pipeline is complete, or `Poll::Pending` if buffers are
-    /// required to continue.
     ///
-    /// The `selected` parameter defines which elements of the chunk should be exported, where
-    /// `None` indicates that all elements are selected.
-    ///
-    // TODO(ngates): we could introduce a `defined` parameter to indicate which elements are
-    //  defined and will be interpreted by the parent. This would allow us to skip writing
-    //  elements that are not defined, for example if the parent is a dense null validity encoding.
-    fn step(
-        &mut self,
-        ctx: &KernelContext,
-        selected: BitView,
-        out: &mut ViewMut,
-    ) -> VortexResult<()>;
+    /// All calls to step must write exactly `N` elements to the output vector, except for the
+    /// final call which may write fewer.
+    fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()>;
 }
 
 /// Context passed to kernels during execution, providing access to vectors.

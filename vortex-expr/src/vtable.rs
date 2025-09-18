@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Deref;
 
-use vortex_array::pipeline::OperatorRef;
+use vortex_array::operator::OperatorRef;
 use vortex_array::{ArrayRef, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -127,11 +127,10 @@ macro_rules! vtable {
 
 #[cfg(test)]
 mod tests {
-
     use rstest::{fixture, rstest};
 
     use super::*;
-    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::proto::{deserialize_expr_proto, ExprSerializeProtoExt};
     use crate::*;
 
     #[fixture]

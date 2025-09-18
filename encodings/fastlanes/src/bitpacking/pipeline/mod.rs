@@ -11,10 +11,11 @@ use std::sync::Arc;
 use fastlanes::FastLanes;
 pub use kernel::BitPackedKernel;
 pub use unaligned_kernel::BitPackedUnalignedKernel;
-use vortex_array::pipeline::operators::{BindContext, Operator, OperatorRef};
-use vortex_array::pipeline::{Kernel, PipelineVTable, VType};
+use vortex_array::operator::{LengthBounds, Operator, OperatorId, OperatorRef};
+use vortex_array::pipeline::{Kernel, VType};
+use vortex_array::vtable::PipelineVTable;
 use vortex_buffer::Buffer;
-use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
+use vortex_dtype::{match_each_integer_ptype, DType, PhysicalPType};
 use vortex_error::VortexResult;
 
 use crate::{BitPackedArray, BitPackedVTable};
@@ -37,10 +38,6 @@ impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
 impl Operator for BitPackedArray {
     fn as_any(&self) -> &dyn Any {
         self
-    }
-
-    fn vtype(&self) -> VType {
-        VType::Primitive(self.ptype())
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -77,6 +74,18 @@ impl Operator for BitPackedArray {
             }
         })
     }
+
+    fn id(&self) -> OperatorId {
+        self.encoding_id()
+    }
+
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn length(&self) -> LengthBounds {
+        self.len.into()
+    }
 }
 
 impl Hash for BitPackedArray {
@@ -94,13 +103,13 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::filter;
-    use vortex_array::pipeline::{N, export_canonical_pipeline_expr};
+    use vortex_array::pipeline::{export_canonical_pipeline_expr, N};
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::{FoRArray, bitpack_to_best_bit_width};
+    use crate::{bitpack_to_best_bit_width, FoRArray};
 
     #[test]
     fn test_bitpacking_pipeline() {
@@ -166,7 +175,7 @@ mod tests {
     #[test]
     fn test_bitpacking_offset_with_partial_last_chunk() {
         // Test case: offset + partial last chunk
-        let len = 1030usize; // 1024 + 6 elements 
+        let len = 1030usize; // 1024 + 6 elements
         let offset = 5usize;
 
         let values = (0..len).map(|i| i as i32).collect::<BufferMut<_>>();

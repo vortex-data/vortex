@@ -4,7 +4,6 @@
 use crate::operator::{
     BatchId, BindContext, LengthBounds, Operator, OperatorId, OperatorRef, PipelinedOperator,
 };
-use crate::pipeline::bits::BitView;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext, N};
 use std::any::Any;
@@ -88,6 +87,7 @@ impl PipelinedOperator for CanonicalPipelineOperator {
     }
 }
 
+// FIXME(ngates): we should support canonical inputs to the pipeline to avoid copying.
 struct CanonicalPrimitiveKernel<T> {
     batch_id: BatchId,
     elements: Option<Buffer<T>>,
@@ -95,12 +95,7 @@ struct CanonicalPrimitiveKernel<T> {
 }
 
 impl<T: Element + NativePType> Kernel for CanonicalPrimitiveKernel<T> {
-    fn step(
-        &mut self,
-        ctx: &KernelContext,
-        _selected: BitView,
-        out: &mut ViewMut,
-    ) -> VortexResult<()> {
+    fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
         if self.elements.is_none() {
             let array = ctx.batch_input(self.batch_id).clone().into_primitive();
             self.elements = Some(array.into_buffer());
@@ -112,8 +107,9 @@ impl<T: Element + NativePType> Kernel for CanonicalPrimitiveKernel<T> {
             .vortex_expect("elements not initialized");
 
         let len = (elements.len() - self.offset).min(N);
-        out.as_slice_mut()[..len].copy_from_slice(&elements[self.offset..][..len]);
-
+        out.set_len(len);
+        out.as_slice_mut()
+            .copy_from_slice(&elements[self.offset..][..len]);
         self.offset += len;
 
         Ok(())

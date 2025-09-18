@@ -4,7 +4,7 @@
 mod reduce;
 
 pub use reduce::*;
-use vortex_array::pipeline::OperatorRef;
+use vortex_array::operator::OperatorRef;
 use vortex_error::VortexResult;
 
 use crate::traversal::{FoldUp, NodeFolder};

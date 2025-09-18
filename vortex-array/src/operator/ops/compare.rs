@@ -1,20 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use std::any::Any;
 use std::marker::PhantomData;
 use std::sync::Arc;
-
-use itertools::Itertools;
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::arrays::ConstantArray;
 use crate::compute::Operator as Op;
 use crate::operator::{
     BindContext, LengthBounds, Operator, OperatorId, OperatorRef, PipelinedOperator, VectorId,
 };
-use crate::pipeline::bits::BitView;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext};
 
@@ -53,6 +51,10 @@ impl CompareOperator {
             op,
             dtype,
         }))
+    }
+
+    pub fn op(&self) -> Op {
+        self.op
     }
 }
 
@@ -203,12 +205,7 @@ pub struct ComparePrimitiveKernel<T, Op> {
 }
 
 impl<T: Element + NativePType, Op: CompareOp<T> + Send> Kernel for ComparePrimitiveKernel<T, Op> {
-    fn step(
-        &mut self,
-        ctx: &KernelContext,
-        _selected: BitView,
-        out: &mut ViewMut,
-    ) -> VortexResult<()> {
+    fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
         let lhs_vec = ctx.vector(self.lhs);
         let lhs = lhs_vec.as_slice::<T>();
         let rhs_vec = ctx.vector(self.rhs);
@@ -226,6 +223,8 @@ impl<T: Element + NativePType, Op: CompareOp<T> + Send> Kernel for ComparePrimit
             .zip(bools)
             .for_each(|((lhs, rhs), bool)| *bool = Op::compare(lhs, rhs));
 
+        out.set_len(lhs.len());
+
         Ok(())
     }
 }
@@ -239,23 +238,13 @@ struct ScalarComparePrimitiveKernel<T: Element + NativePType, Op: CompareOp<T>> 
 impl<T: Element + NativePType, Op: CompareOp<T> + Send> Kernel
     for ScalarComparePrimitiveKernel<T, Op>
 {
-    fn seek(&mut self, _chunk_idx: usize) -> VortexResult<()> {
-        // FIXME(ngates): this can't be right...
-        Ok(())
-    }
-
-    fn step(
-        &mut self,
-        ctx: &KernelContext,
-        selected: BitView,
-        out: &mut ViewMut,
-    ) -> VortexResult<()> {
+    fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
         let lhs_vec = ctx.vector(self.lhs);
         let lhs = lhs_vec.as_slice::<T>();
-
         let bools = out.as_slice_mut::<bool>();
 
-        debug_assert_eq!(selected.true_count(), lhs.len());
+        // TODO(ngates): use lhs.len()?
+
         lhs.iter().zip(bools).for_each(|(lhs, bool)| {
             *bool = Op::compare(lhs, &self.rhs);
         });

@@ -7,17 +7,15 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use num_traits::WrappingAdd;
-use vortex_array::Array;
 use vortex_array::compute::Operator as BinaryOperator;
-use vortex_array::pipeline::bits::BitView;
-use vortex_array::pipeline::operators::{
-    BindContext, Operator, OperatorRef, ScalarCompareOperator,
-};
-use vortex_array::pipeline::vec::VectorId;
+use vortex_array::operator::compare::CompareOperator;
+use vortex_array::operator::{LengthBounds, Operator, OperatorId, OperatorRef};
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Element, Kernel, KernelContext, PipelineVTable, VType};
-use vortex_dtype::{NativePType, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_array::pipeline::{Element, Kernel, KernelContext, VType};
+use vortex_array::vtable::PipelineVTable;
+use vortex_array::Array;
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType, PType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{FoRArray, FoRVTable};
@@ -29,6 +27,7 @@ impl PipelineVTable<FoRVTable> for FoRVTable {
         };
         Ok(Some(Arc::new(FoROperator {
             child: [op],
+            dtype: array.dtype().clone(),
             reference: array.reference.clone(),
             ptype: array.ptype(),
             encoded_ptype: array.encoded.dtype().as_ptype(),
@@ -36,10 +35,11 @@ impl PipelineVTable<FoRVTable> for FoRVTable {
     }
 }
 
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct FoROperator {
     child: [OperatorRef; 1],
     reference: Scalar,
+    dtype: DType,
     ptype: PType,
     encoded_ptype: PType,
 }
@@ -47,10 +47,6 @@ pub struct FoROperator {
 impl Operator for FoROperator {
     fn as_any(&self) -> &dyn Any {
         self
-    }
-
-    fn vtype(&self) -> VType {
-        VType::Primitive(self.ptype)
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -93,8 +89,8 @@ impl Operator for FoROperator {
     }
 
     fn reduce_parent(&self, parent: OperatorRef) -> Option<OperatorRef> {
-        let compare = parent.as_any().downcast_ref::<ScalarCompareOperator>()?;
-        if compare.op != BinaryOperator::Eq && compare.op != BinaryOperator::NotEq {
+        let compare = parent.as_any().downcast_ref::<CompareOperator>()?;
+        if compare.op() != BinaryOperator::Eq && compare.op() != BinaryOperator::NotEq {
             return None;
         }
 
@@ -119,6 +115,18 @@ impl Operator for FoROperator {
             new_ref,
         )))
     }
+
+    fn id(&self) -> OperatorId {
+        OperatorId::from("fastlanes.for")
+    }
+
+    fn dtype(&self) -> &DType {
+        &DType::primitive(self.ptype)
+    }
+
+    fn length(&self) -> LengthBounds {
+        todo!()
+    }
 }
 
 // We could replace this with a binaryOp kernel
@@ -133,14 +141,10 @@ where
     T: NativePType + Element + WrappingAdd,
     E: NativePType + Element,
 {
-    fn seek(&mut self, _chunk_idx: usize) -> VortexResult<()> {
-        Ok(())
-    }
-
     fn step(
         &mut self,
         ctx: &KernelContext,
-        _selected: BitView,
+        out: &mut ViewMut,
         out: &mut ViewMut,
     ) -> VortexResult<()> {
         let vec = ctx.vector(self.child);

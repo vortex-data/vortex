@@ -11,7 +11,6 @@ use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchId, BatchOperator, LengthBounds,
     Operator, OperatorId, OperatorRef,
 };
-use crate::pipeline::bits::{BitVector, BitView};
 use crate::pipeline::operator::bind::bind_kernels;
 use crate::pipeline::operator::buffers::{allocate_vectors, OutputTarget};
 use crate::pipeline::operator::canonical::CanonicalPipelineOperator;
@@ -29,7 +28,6 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::hash::BuildHasher;
 use std::marker::PhantomData;
-use std::ops::DerefMut;
 use std::sync::Arc;
 use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
@@ -74,9 +72,7 @@ impl PipelineOperator {
     /// From the given operator, constructs a `PipelineOperator` as large as possible by
     /// traversing children that also support pipelined execution.
     pub fn new(operator: OperatorRef) -> Option<Self> {
-        if operator.as_pipelined().is_none() {
-            return None;
-        }
+        operator.as_pipelined()?;
 
         let mut dag = vec![];
         let mut batch = vec![];
@@ -230,7 +226,7 @@ impl BatchOperator for PipelineOperator {
 
         match self.dtype() {
             DType::Bool(_) => Ok(Box::new(BoolPipelineExecution {
-                len: self.length().max,
+                bounds: self.length(),
                 batch_inputs,
                 vectors,
                 pipeline,
@@ -238,11 +234,11 @@ impl BatchOperator for PipelineOperator {
             DType::Primitive(ptype, _) => {
                 match_each_native_ptype!(ptype, |T| {
                     Ok(Box::new(PrimitivePipelineExecution {
-                        len: self.length().max,
+                        bounds: self.length(),
                         batch_inputs,
                         vectors,
                         pipeline,
-                        phantom_data: PhantomData::<T>::default(),
+                        phantom_data: PhantomData::<T>,
                     }))
                 })
             }
@@ -255,7 +251,7 @@ impl BatchOperator for PipelineOperator {
 }
 
 struct BoolPipelineExecution {
-    len: usize,
+    bounds: LengthBounds,
     batch_inputs: Vec<BatchExecutionRef>,
     vectors: Vec<RefCell<Vector>>,
     pipeline: Pipeline,
@@ -275,28 +271,21 @@ impl BatchExecution for BoolPipelineExecution {
         };
 
         // Allocate the output vector and validity.
-        let len = self.len;
-        let capacity = len.next_multiple_of(N) + N;
-
+        let capacity = self.bounds.max.next_multiple_of(N) + N;
         let mut elements = BufferMut::<bool>::with_capacity(capacity);
         unsafe { elements.set_len(capacity) };
 
-        let mut remaining = len;
-        while remaining >= N {
-            let mut elements_view = ViewMut::new(&mut elements[len - remaining..][..N], None);
-            self.pipeline
-                .step(&ctx, BitView::all_true(), &mut elements_view)?;
-            remaining -= N;
+        // Run the pipeline to completion.
+        let mut output_len = 0;
+        loop {
+            let mut elements_view = ViewMut::new(&mut elements[output_len..][..N], None);
+            self.pipeline.step(&ctx, &mut elements_view)?;
+            output_len += elements_view.len;
+            if elements_view.len < N {
+                break;
+            }
         }
-
-        if remaining > 0 {
-            let mut elements_view = ViewMut::new(&mut elements[len - remaining..][..N], None);
-            let mask = BitVector::true_until(remaining);
-            self.pipeline
-                .step(&ctx, mask.as_view(), &mut elements_view)?;
-        }
-
-        unsafe { elements.set_len(len) };
+        unsafe { elements.set_len(output_len) };
 
         let buffer = ByteBuffer::from_arrow_buffer(
             BooleanBuffer::from(elements.as_ref()).into_inner(),
@@ -306,14 +295,14 @@ impl BatchExecution for BoolPipelineExecution {
         Ok(Canonical::Bool(BoolArray::try_new(
             buffer,
             0,
-            len,
+            output_len,
             Validity::NonNullable,
         )?))
     }
 }
 
 struct PrimitivePipelineExecution<T> {
-    len: usize,
+    bounds: LengthBounds,
     batch_inputs: Vec<BatchExecutionRef>,
     vectors: Vec<RefCell<Vector>>,
     pipeline: Pipeline,
@@ -334,28 +323,21 @@ impl<T: Element + NativePType> BatchExecution for PrimitivePipelineExecution<T> 
         };
 
         // Allocate the output vector and validity.
-        let len = self.len;
-        let capacity = len.next_multiple_of(N) + N;
-
+        let capacity = self.bounds.max.next_multiple_of(N) + N;
         let mut elements = BufferMut::<T>::with_capacity(capacity);
         unsafe { elements.set_len(capacity) };
 
-        let mut remaining = len;
-        while remaining >= N {
-            let mut elements_view = ViewMut::new(&mut elements[len - remaining..][..N], None);
-            self.pipeline
-                .step(&ctx, BitView::all_true(), &mut elements_view)?;
-            remaining -= N;
+        // Run the pipeline to completion.
+        let mut output_len = 0;
+        loop {
+            let mut elements_view = ViewMut::new(&mut elements[output_len..][..N], None);
+            self.pipeline.step(&ctx, &mut elements_view)?;
+            output_len += elements_view.len;
+            if elements_view.len < N {
+                break;
+            }
         }
-
-        if remaining > 0 {
-            let mut elements_view = ViewMut::new(&mut elements[len - remaining..][..N], None);
-            let mask = BitVector::true_until(remaining);
-            self.pipeline
-                .step(&ctx, mask.as_view(), &mut elements_view)?;
-        }
-
-        unsafe { elements.set_len(len) };
+        unsafe { elements.set_len(output_len) };
 
         Ok(Canonical::Primitive(PrimitiveArray::new(
             elements.freeze(),
@@ -371,34 +353,26 @@ struct Pipeline {
 }
 
 impl Kernel for Pipeline {
-    fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
-        self.kernels
-            .iter_mut()
-            .try_for_each(|op| op.seek(chunk_idx))
-    }
-
-    fn step(
-        &mut self,
-        ctx: &KernelContext,
-        _selected: BitView,
-        out: &mut ViewMut,
-    ) -> VortexResult<()> {
+    /// Step the pipeline, returning whether it has completed.
+    fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
         for &node_idx in self.exec_order.iter() {
             let kernel = self.kernels[node_idx].as_mut();
 
             match &self.output_targets[node_idx] {
-                OutputTarget::ExternalOutput => kernel.step(&ctx, _selected, out)?,
+                OutputTarget::ExternalOutput => kernel.step(ctx, out)?,
                 OutputTarget::IntermediateVector(vector_idx) => {
                     let mut vector_ref = ctx.vectors[*vector_idx].borrow_mut();
-                    let result = {
+                    let len = {
                         let mut view = vector_ref.as_view_mut();
-                        kernel.step(&ctx, _selected, &mut view)
+                        kernel.step(ctx, &mut view)?;
+                        view.len
                     };
-                    vector_ref.deref_mut().set_len(_selected.true_count());
-                    result?
+                    // Propagate the length set by the kernel to the vector
+                    vector_ref.set_len(len);
                 }
-            }
+            };
         }
+
         Ok(())
     }
 }

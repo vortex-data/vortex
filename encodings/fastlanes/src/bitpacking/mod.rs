@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Debug;
-
 pub use compress::*;
 use fastlanes::BitPacking;
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::patches::Patches;
@@ -14,10 +14,10 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use vortex_array::{Array, Canonical, EncodingId, EncodingRef, vtable};
+use vortex_array::{vtable, Array, Canonical, EncodingId, EncodingRef};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType, PType};
+use vortex_error::{vortex_bail, vortex_ensure, VortexExpect, VortexResult};
 
 use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 
@@ -66,6 +66,31 @@ pub struct BitPackedArray {
     validity: Validity,
     stats_set: ArrayStats,
 }
+
+impl Hash for BitPackedArray {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.offset.hash(state);
+        self.len.hash(state);
+        self.dtype.hash(state);
+        self.bit_width.hash(state);
+        self.packed.hash(state);
+        self.patches.hash(state);
+        self.validity.hash(state);
+    }
+}
+
+impl PartialEq for BitPackedArray {
+    fn eq(&self, other: &Self) -> bool {
+        self.offset == other.offset
+            && self.len == other.len
+            && self.dtype == other.dtype
+            && self.bit_width == other.bit_width
+            && self.packed == other.packed
+            // && self.patches == other.patches
+            && self.validity == other.validity
+    }
+}
+impl Eq for BitPackedArray {}
 
 #[derive(Clone, Debug)]
 pub struct BitPackedEncoding;

@@ -3,17 +3,16 @@
 
 use std::sync::Arc;
 
-use vortex_array::arrays::{ConstantArray, ConstantOperator};
-use vortex_array::pipeline::OperatorRef;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
-use vortex_dtype::{DType, match_each_float_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{match_each_float_ptype, DType};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
+    vtable, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable,
 };
 
 vtable!(Literal);

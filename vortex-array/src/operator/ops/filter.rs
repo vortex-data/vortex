@@ -39,6 +39,20 @@ impl PartialEq for FilterOperator {
 
 impl Eq for FilterOperator {}
 
+impl FilterOperator {
+    pub fn try_new(child: OperatorRef, mask: LazyMask) -> VortexResult<OperatorRef> {
+        // Attempt to push down the filter through any scalar children.
+        if child.is_scalar() {
+            return child.with_children();
+        }
+
+        Ok(Arc::new(FilterOperator {
+            child,
+            mask: Box::new(mask),
+        }))
+    }
+}
+
 /// A lazy mask that is either ready or pending computation.
 ///
 /// We distinguish between ready and pending masks so that operators can make use of density

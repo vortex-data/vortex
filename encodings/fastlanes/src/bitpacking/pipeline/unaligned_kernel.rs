@@ -83,8 +83,8 @@ where
     #[allow(clippy::unwrap_in_result, clippy::expect_used)]
     fn step(
         &mut self,
-        _ctx: &KernelContext,
-        selected: BitView,
+        ctx: &KernelContext,
+        out: &mut ViewMut,
         physical_out: &mut ViewMut,
     ) -> VortexResult<()> {
         // We re-interpret the output view as the unsigned bitpacked type.
@@ -96,7 +96,7 @@ where
         let chunk_value_offset = self.value_offset as usize;
 
         // We short-circuit full unpacking logic if the mask is sufficiently sparse.
-        if selected.true_count() > 8 {
+        if out.true_count() > 8 {
             let mut output_idx = 0;
 
             // Pre-calculate what we need to do
@@ -154,10 +154,10 @@ where
             self.packed_offset += nvecs * self.packed_stride;
 
             // Set the selection to the given mask, which is a bit array of length N.
-            physical_out.flatten::<<T as PhysicalPType>::Physical>(&selected);
+            physical_out.flatten::<<T as PhysicalPType>::Physical>(&out);
         } else {
             let mut offset = 0;
-            selected.iter_ones(|idx| {
+            out.iter_ones(|idx| {
                 let adjusted_idx = idx + chunk_value_offset;
                 let chunk_idx = adjusted_idx / 1024;
                 let bit_idx = adjusted_idx % 1024;

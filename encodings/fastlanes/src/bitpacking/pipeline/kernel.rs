@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::BitPacking;
-use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Element, Kernel, KernelContext, N};
 use vortex_buffer::Buffer;
@@ -55,8 +54,8 @@ where
 
     fn step(
         &mut self,
-        _ctx: &KernelContext,
-        selected: BitView,
+        ctx: &KernelContext,
+        out: &mut ViewMut,
         physical_out: &mut ViewMut,
     ) -> VortexResult<()> {
         // We re-interpret the output view as the unsigned bitpacked type.
@@ -69,7 +68,7 @@ where
         let nvecs = (N / 1024).min(packed.len() / self.packed_stride);
 
         // We short-circuit full unpacking logic if the mask is sufficiently sparse.
-        if selected.true_count() > 8 {
+        if out.true_count() > 8 {
             for i in 0..nvecs {
                 unsafe {
                     BitPacking::unchecked_unpack(
@@ -83,10 +82,10 @@ where
             self.packed_offset += nvecs * self.packed_stride;
 
             // Set the selection to the given mask, which is a bit array of length N.
-            physical_out.flatten::<<T as PhysicalPType>::Physical>(&selected);
+            physical_out.flatten::<<T as PhysicalPType>::Physical>(&out);
         } else {
             let mut offset = 0;
-            selected.iter_ones(|idx| {
+            out.iter_ones(|idx| {
                 let chunk_idx = idx / 1024;
                 let bit_idx = idx % 1024;
                 // SAFETY: we verify the bounds of the vector during construction.

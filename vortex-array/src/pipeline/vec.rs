@@ -85,6 +85,7 @@ impl Vector {
             elements: self.elements.as_mut_ptr().cast(),
             validity: Some(self.validity.as_view_mut()),
             data: vec![],
+            len: self.len,
             _marker: Default::default(),
         }
     }
