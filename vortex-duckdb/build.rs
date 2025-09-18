@@ -3,7 +3,7 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 use bindgen::Abi;
@@ -149,19 +149,80 @@ fn http_client() -> Result<reqwest::blocking::Client, Box<dyn std::error::Error>
     Ok(client)
 }
 
+fn build_duckdb(duckdb_source_root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let duckdb_repo_dir = duckdb_source_root.join(format!("duckdb-{}", DUCKDB_VERSION.as_str()));
+    let build_dir = duckdb_repo_dir.join("build").join("debug");
+
+    // Build the DuckDB library with ASAN in case `VX_DUCKDB_ASAN=1` is set.
+    let asan_option =
+        if env::var("VX_DUCKDB_ASAN").is_ok_and(|v| matches!(v.as_str(), "1" | "true")) {
+            "0"
+        } else {
+            "1"
+        };
+
+    let output = std::process::Command::new("make")
+        .current_dir(&duckdb_repo_dir)
+        .env("GEN", "ninja")
+        // Run with `ASAN_OPTIONS=detect_container_overflow=0` to skip false positives.
+        .env("DISABLE_SANITIZER", asan_option)
+        .arg("debug")
+        .output()?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to build DuckDB:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
+    }
+
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let target_dir = manifest_dir.parent().unwrap().join("target");
+    let duckdb_library_dir = target_dir.join("duckdb-lib");
+
+    let _ = fs::remove_dir_all(&duckdb_library_dir);
+    fs::create_dir_all(&duckdb_library_dir)?;
+
+    // Copy .dylib and .so files (macOS and Linux).
+    for entry in fs::read_dir(build_dir.join("src"))? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path
+            .extension()
+            .map(|ext| ext == "dylib" || ext == "so")
+            .unwrap_or(false)
+        {
+            let dest = duckdb_library_dir.join(entry.file_name());
+            fs::copy(&path, &dest)?;
+        }
+    }
+
+    Ok(duckdb_library_dir)
+}
+
 fn main() {
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let duckdb_repo = crate_dir.join("duckdb");
-
-    // Download and extract prebuilt DuckDB libraries.
-    let zip_lib_path = download_duckdb_lib_archive().unwrap();
-    let extraced_lib_path = extract_duckdb_libraries(zip_lib_path).unwrap();
 
     // Download, extract and symlink DuckDB source code.
     let zip_source_path = download_duckdb_source_archive().unwrap();
     let extracted_source_path = extract_duckdb_source(zip_source_path).unwrap();
     let _ = fs::remove_dir_all(&duckdb_repo);
     std::os::unix::fs::symlink(&extracted_source_path, &duckdb_repo).unwrap();
+
+    let library_path =
+        // DuckDB debug build is linked in case of `VX_DUCKDB_DEBUG=1`.
+        if env::var("VX_DUCKDB_DEBUG").is_ok_and(|v| matches!(v.as_str(), "1" | "true")) {
+            // Build DuckDB from source.
+            build_duckdb(&extracted_source_path).unwrap()
+        } else {
+            // Download and extract prebuilt DuckDB libraries.
+            let zip_lib_path = download_duckdb_lib_archive().unwrap();
+            extract_duckdb_libraries(zip_lib_path).unwrap()
+        };
 
     // Generate the _imported_ bindings from our C++ code.
     bindgen::Builder::default()
@@ -206,15 +267,11 @@ fn main() {
         .expect("Couldn't write bindings!");
 
     // Link against DuckDB dylib.
-    println!(
-        "cargo:rustc-link-search=native={}",
-        extraced_lib_path.display()
-    );
+    println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
+    println!("cargo:rerun-if-env-changed=VX_DUCKDB_ASAN");
+    println!("cargo:rustc-link-search=native={}", library_path.display());
     println!("cargo:rustc-link-lib=dylib=duckdb");
-    println!(
-        "cargo:rustc-link-arg=-Wl,-rpath,{}",
-        extraced_lib_path.display()
-    );
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", library_path.display());
 
     // Compile our C++ code that exposes additional DuckDB functionality.
     cc::Build::new()
