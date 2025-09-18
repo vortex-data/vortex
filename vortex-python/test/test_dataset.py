@@ -29,8 +29,7 @@ def ds(tmpdir_factory) -> vx.dataset.VortexDataset:  # pyright: ignore[reportUnk
     assert not os.path.exists(fname)  # pyright: ignore[reportUnknownArgumentType]
 
     a = pa.array([record(x) for x in range(1_000_000)])
-    arr = vx.compress(vx.array(a))
-    vx.io.write(arr, str(fname))  # pyright: ignore[reportUnknownArgumentType]
+    vx.io.write(vx.array(a), str(fname))  # pyright: ignore[reportUnknownArgumentType]
     return vx.dataset.VortexDataset.from_path(str(fname))  # pyright: ignore[reportUnknownArgumentType]
 
 
