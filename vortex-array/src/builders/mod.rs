@@ -239,8 +239,11 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
                 ))
             })
         }
-        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(DType::Utf8(*n), capacity)),
-        DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity(
+        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_buffer_deduplication(
+            DType::Utf8(*n),
+            capacity,
+        )),
+        DType::Binary(n) => Box::new(VarBinViewBuilder::with_buffer_deduplication(
             DType::Binary(*n),
             capacity,
         )),

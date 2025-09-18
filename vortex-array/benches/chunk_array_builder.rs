@@ -77,6 +77,25 @@ fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usiz
 }
 
 #[divan::bench(args = BENCH_ARGS)]
+fn chunked_varbinview_deduplicated_canonical_into(
+    bencher: Bencher,
+    (len, chunk_count): (usize, usize),
+) {
+    let chunks = make_string_chunks(false, len, chunk_count);
+
+    bencher
+        .with_inputs(|| chunks.clone())
+        .bench_values(|chunk| {
+            let mut builder = VarBinViewBuilder::with_buffer_deduplication(
+                DType::Utf8(chunk.dtype().nullability()),
+                len * chunk_count,
+            );
+            chunk.append_to_builder(&mut builder);
+            builder.finish()
+        })
+}
+
+#[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(false, len, chunk_count);
 
