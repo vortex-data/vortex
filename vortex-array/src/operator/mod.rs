@@ -25,7 +25,6 @@
 //! different execution resources.
 //!
 
-mod executor;
 mod ops;
 
 use std::any::Any;
@@ -40,7 +39,7 @@ use async_trait::async_trait;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-pub use executor::*;
+pub use crate::executor::*;
 pub use ops::*;
 use vortex_utils::dyn_eq::{DynEq, DynHash};
 

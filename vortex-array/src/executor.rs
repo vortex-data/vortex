@@ -111,11 +111,13 @@ impl BatchExecution for SharedBatchExecution {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compute::Operator;
+    use crate::compute::Operator as Op;
     use crate::operator::compare::CompareOperator;
+    use crate::operator::metrics::MetricsOperator;
     use crate::{IntoArray, ToCanonical};
     use futures::executor::block_on;
     use vortex_buffer::buffer;
+    use vortex_metrics::VortexMetrics;
 
     #[test]
     fn test_basic_execution() {
@@ -131,56 +133,42 @@ mod tests {
 
     #[test]
     fn test_pipelined_execution() {
-        let array = buffer![1i32, 2, 3, 4].into_array().to_primitive();
+        let lhs = buffer![1i32, 2, 3].into_array().to_primitive();
+        let rhs = buffer![3i32, 2, 1].into_array().to_primitive();
 
         // The CompareOperator uses pipelined execution
-        let compare = CompareOperator::try_new(
-            Arc::new(array.clone()),
-            Arc::new(array.clone()),
-            Operator::Gt,
-        )
-        .unwrap();
+        let compare = CompareOperator::try_new(Arc::new(lhs), Arc::new(rhs), Op::Gt).unwrap();
 
         let mut executor = Executor::default();
         let result = block_on(executor.execute(compare)).unwrap();
         assert_eq!(
             result.into_bool().bool_vec().unwrap(),
-            vec![false, false, false, false]
+            vec![false, false, true]
         );
     }
 
-    //
-    // #[test]
-    // fn test_common_subtree_elimination() {
-    //     futures::executor::block_on(async {
-    //         let exec_count = Arc::new(AtomicUsize::new(0));
-    //         let operator = Arc::new(TestOperator {
-    //             id: "shared_op".to_string(),
-    //             value: 123,
-    //             len: 5,
-    //             execution_count: exec_count.clone(),
-    //         }) as OperatorRef;
-    //
-    //         let mut executor = Executor::new();
-    //
-    //         // Execute the same operator twice
-    //         let result1 = executor.execute(operator.clone()).await.unwrap();
-    //         let result2 = executor.execute(operator.clone()).await.unwrap();
-    //
-    //         // Both results should be the same
-    //         if let (Canonical::Primitive(array1), Canonical::Primitive(array2)) = (result1, result2)
-    //         {
-    //             assert_eq!(array1.len(), array2.len());
-    //
-    //             // Verify execution happened only once due to caching
-    //             assert_eq!(
-    //                 exec_count.load(Ordering::SeqCst),
-    //                 1,
-    //                 "Operator should only execute once due to caching"
-    //             );
-    //         } else {
-    //             panic!("Expected Primitive canonical arrays");
-    //         }
-    //     });
-    // }
+    #[test]
+    fn test_common_subtree_elimination() {
+        // We use the same array for lhs and rhs to check we eliminate the common subtree
+        let array = buffer![1i32, 2, 3, 4].into_array().to_primitive();
+        let array = Arc::new(MetricsOperator::new(
+            Arc::new(array),
+            VortexMetrics::default(),
+        ));
+
+        let compare = CompareOperator::try_new(array.clone(), array.clone(), Op::Gt).unwrap();
+        let compare = Arc::new(MetricsOperator::new(compare, VortexMetrics::default()));
+
+        let mut executor = Executor::default();
+        let result = block_on(executor.execute(compare.clone())).unwrap();
+        assert_eq!(
+            result.into_bool().bool_vec().unwrap(),
+            vec![false, false, false, false]
+        );
+
+        // The comparison operator is pipelined, it also only gets executed once
+        assert_eq!(compare.metrics().timer("operator.pipeline.step").count(), 1);
+        // The array only gets executed once due to common subtree elimination
+        assert_eq!(array.metrics().timer("operator.batch.execute").count(), 1);
+    }
 }

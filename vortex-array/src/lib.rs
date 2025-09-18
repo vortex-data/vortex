@@ -30,6 +30,7 @@ mod canonical;
 pub mod compute;
 mod context;
 mod encoding;
+mod executor;
 pub mod iter;
 mod mask_future;
 mod metadata;

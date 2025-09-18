@@ -6427,6 +6427,7 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-io",
  "vortex-mask",
+ "vortex-metrics",
  "vortex-scalar",
  "vortex-utils",
 ]
