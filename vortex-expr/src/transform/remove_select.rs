@@ -29,12 +29,12 @@ fn remove_select_transformer(node: ExprRef, ctx: &DType) -> VortexResult<Transfo
 
             let expr = pack(
                 select
-                    .fields()
+                    .selection()
                     .as_include_names(child_dtype.names())
                     .map_err(|e| {
                         e.with_context(format!(
                             "Select fields {:?} must be a subset of child fields {:?}",
-                            select.fields(),
+                            select.selection(),
                             child_dtype.names()
                         ))
                     })?

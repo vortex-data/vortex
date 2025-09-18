@@ -91,6 +91,7 @@ impl Hash for FieldDTypeInner {
 
 impl FieldDType {
     /// Returns the concrete DType, parsing it from the underlying buffer if necessary.
+    #[inline]
     pub fn value(&self) -> VortexResult<DType> {
         self.inner.value()
     }
