@@ -83,7 +83,7 @@ where
             self.packed_offset += nvecs * self.packed_stride;
 
             // Set the selection to the given mask, which is a bit array of length N.
-            physical_out.select_mask::<<T as PhysicalPType>::Physical>(&selected);
+            physical_out.flatten::<<T as PhysicalPType>::Physical>(&selected);
         } else {
             let mut offset = 0;
             selected.iter_ones(|idx| {

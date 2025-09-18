@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
-use crate::operator::{BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorRef};
+use crate::operator::{BatchBindCtx, BatchExecution, BatchExecutionRef, Operator, OperatorRef};
 use crate::pipeline::operator::PipelineOperator;
 use crate::Canonical;
 
@@ -25,6 +25,10 @@ use vortex_utils::aliases::hash_map::HashMap;
 /// It also finds sub-graphs of pipeline operators and executes them as a [`Pipeline`]
 #[derive(Default)]
 pub struct Executor {
+    /// Cache of operator re-mappings, often used to represent the same operator in common subtree
+    /// elimination.
+    operator_cache: HashMap<OperatorRef, Weak<dyn Operator>>,
+
     /// Cache of shared futures for common subtree elimination.
     /// We use WeakShared to allow futures to be dropped when no longer needed.
     execution_cache:
@@ -39,6 +43,33 @@ impl Executor {
     ) -> BoxFuture<'static, VortexResult<Canonical>> {
         let execution = self.batch_execution(&operator);
         async move { execution?.execute().await }.boxed()
+    }
+
+    /// Assembles an operator by combining pipelineable sub-graphs and creating
+    /// batch execution nodes with shared futures for common subtree elimination.
+    fn make_executable(&mut self, operator: &OperatorRef) -> VortexResult<OperatorRef> {
+        // Check if we already have a shared reference for this operator
+        if let Some(weak_op) = self.operator_cache.get(operator) {
+            if let Some(strong_op) = weak_op.upgrade() {
+                return Ok(strong_op);
+            } else {
+                // If the weak reference is dead, remove it from the cache
+                self.operator_cache.remove(operator);
+            }
+        }
+
+        // Attempt to convert the operator into a pipeline operator, if so we use that to execute.
+        //
+        // The construction of this operator pulls the largest subgraph of nodes that can be
+        // executed in a pipelined fashion.
+        let executable_operator = match PipelineOperator::new(operator.clone()) {
+            None => operator.clone(),
+            Some(pipeline_op) => Arc::new(pipeline_op),
+        };
+
+        self.operator_cache
+            .insert(operator.clone(), Arc::downgrade(&executable_operator));
+        Ok(executable_operator)
     }
 
     fn batch_execution(&mut self, operator: &OperatorRef) -> VortexResult<BatchExecutionRef> {
@@ -160,6 +191,15 @@ mod tests {
         let compare = Arc::new(MetricsOperator::new(compare, VortexMetrics::default()));
 
         let mut executor = Executor::default();
+
+        println!(
+            "{}",
+            executor
+                .make_executable(&(compare.clone() as Arc<dyn Operator>))
+                .unwrap()
+                .tree_display()
+        );
+
         let result = block_on(executor.execute(compare.clone())).unwrap();
         assert_eq!(
             result.into_bool().bool_vec().unwrap(),
@@ -170,5 +210,7 @@ mod tests {
         assert_eq!(compare.metrics().timer("operator.pipeline.step").count(), 1);
         // The array only gets executed once due to common subtree elimination
         assert_eq!(array.metrics().timer("operator.batch.execute").count(), 1);
+
+        assert!(false)
     }
 }

@@ -11,7 +11,7 @@ use vortex_error::VortexResult;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::operator::canonical::CanonicalExecution;
 use crate::operator::{
-    BatchBindCtx, BatchExecutionRef, BatchOperator, Operator, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecutionRef, BatchOperator, LengthBounds, Operator, OperatorId, OperatorRef,
 };
 use crate::validity::Validity;
 use crate::vtable::{PipelineVTable, ValidityHelper};
@@ -42,8 +42,8 @@ impl Operator for PrimitiveArray {
         &self.dtype
     }
 
-    fn len(&self) -> usize {
-        self.buffer.len() / self.dtype.as_ptype().byte_width()
+    fn length(&self) -> LengthBounds {
+        (self.buffer.len() / self.dtype.as_ptype().byte_width()).into()
     }
 
     fn children(&self) -> &[OperatorRef] {

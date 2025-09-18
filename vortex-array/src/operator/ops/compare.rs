@@ -6,13 +6,13 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::ConstantArray;
 use crate::compute::Operator as Op;
 use crate::operator::{
-    BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator, VectorId,
+    BindContext, LengthBounds, Operator, OperatorId, OperatorRef, PipelinedOperator, VectorId,
 };
 use crate::pipeline::bits::BitView;
 use crate::pipeline::view::ViewMut;
@@ -69,9 +69,8 @@ impl Operator for CompareOperator {
         &self.dtype
     }
 
-    fn len(&self) -> usize {
-        debug_assert_eq!(self.children[0].len(), self.children[1].len());
-        self.children[0].len()
+    fn length(&self) -> LengthBounds {
+        self.children[0].length() & self.children[1].length()
     }
 
     fn children(&self) -> &[OperatorRef] {

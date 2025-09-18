@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::operator::{BatchId, BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator};
+use crate::operator::{
+    BatchId, BindContext, LengthBounds, Operator, OperatorId, OperatorRef, PipelinedOperator,
+};
 use crate::pipeline::bits::BitView;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext, N};
@@ -43,8 +45,8 @@ impl Operator for CanonicalPipelineOperator {
         self.child.dtype()
     }
 
-    fn len(&self) -> usize {
-        self.child.len()
+    fn length(&self) -> LengthBounds {
+        self.child.length()
     }
 
     fn children(&self) -> &[OperatorRef] {

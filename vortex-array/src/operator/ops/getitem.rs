@@ -8,13 +8,15 @@ use std::sync::Arc;
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::operator::{Operator, OperatorId, OperatorRef};
+use crate::operator::{LengthBounds, Operator, OperatorId, OperatorRef};
 
 /// An operator that extracts a field from a struct array.
 #[derive(Debug, Hash)]
 pub struct GetItemOperator {
+    // The struct-like child operator.
     child: OperatorRef,
     field: FieldName,
+    // The dtype of the extracted field.
     dtype: DType,
 }
 
@@ -44,8 +46,8 @@ impl Operator for GetItemOperator {
         &self.dtype
     }
 
-    fn len(&self) -> usize {
-        self.child.len()
+    fn length(&self) -> LengthBounds {
+        self.child.length()
     }
 
     fn children(&self) -> &[OperatorRef] {

@@ -12,8 +12,8 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use crate::arrays::{StructArray, StructVTable};
 use crate::operator::getitem::GetItemOperator;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
-    OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
+    OperatorId, OperatorRef,
 };
 use crate::validity::Validity;
 use crate::vtable::PipelineVTable;
@@ -63,8 +63,8 @@ impl Operator for StructOperator {
         &self.dtype
     }
 
-    fn len(&self) -> usize {
-        self.len
+    fn length(&self) -> LengthBounds {
+        self.len.into()
     }
 
     fn children(&self) -> &[OperatorRef] {

@@ -12,8 +12,8 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::operator::{
-    BatchBindCtx, BatchExecutionRef, BatchOperator, BindContext, Operator, OperatorId, OperatorRef,
-    PipelinedOperator,
+    BatchBindCtx, BatchExecutionRef, BatchOperator, BindContext, LengthBounds, Operator,
+    OperatorId, OperatorRef, PipelinedOperator,
 };
 use crate::pipeline::Kernel;
 use crate::MaskFuture;
@@ -78,9 +78,8 @@ impl Operator for FilterOperator {
         self.child.dtype()
     }
 
-    fn len(&self) -> usize {
-        // FIXME(ngates): this is wrong...
-        self.child.len()
+    fn length(&self) -> LengthBounds {
+        self.child.length()
     }
 
     fn children(&self) -> &[OperatorRef] {

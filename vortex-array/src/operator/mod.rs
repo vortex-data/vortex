@@ -11,25 +11,26 @@
 //!
 //! Initial designs for this module involved passing masks down through the physical execution
 //! tree as futures, allowing operators to skip computation for rows that are not needed. We
-//! ultimately decided against this approach and instead introduce `Filter` and `Take` operators
+//! ultimately decided against this approach and instead introduce a `Filter` operator
 //! that can be pushed down in the same way as any other operator.
 //!
-//! The initial design only supported filter workloads, meaning common fused kernels such as
-//! Dict+RLE could not be effectively implemented without an entire parallel execution trait for
-//! random access `take` operations. By introducing `Take` as a first-class operator, we can
-//! support these fused kernels without complicating the execution model.
+//! On the one hand, this means common subtree elimination is much easier, since we know the mask
+//! or identity of the mask future inside the filter operator up-front. On the other hand, it
+//! means that an operator no longer has a known length. In the end state, we will redefine a
+//! Vortex array to be a wrapped around an operator that _does_ have a known length, amongst other
+//! properties (such as non-blocking evaluation).
 //!
 //! We also introduce the idea of an executor that can evaluate an operator tree efficiently. It
 //! supports common subtree elimination, as well as extracting sub-graphs for pipelined and GPU
 //! execution. The executor is also responsible for managing memory and scheduling work across
 //! different execution resources.
-//!
 
 mod ops;
 
 use std::any::Any;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::{BitAnd, BitOr};
 use std::sync::Arc;
 
 use crate::pipeline::Kernel;
@@ -57,14 +58,8 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     /// Returns the [`DType`] of the array produced by this operator.
     fn dtype(&self) -> &DType;
 
-    /// Returns the length of the array produced by this operator.
-    fn len(&self) -> usize;
-
-    /// Returns true if the array is empty.
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
+    /// Returns the (min, max) length bounds of the array produced by this operator.
+    fn length(&self) -> LengthBounds;
 
     // TODO(ngates): add StatsSet
 
@@ -132,6 +127,40 @@ impl PartialEq for dyn Operator {
 }
 
 impl Eq for dyn Operator {}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct LengthBounds {
+    pub min: usize,
+    pub max: usize,
+}
+
+impl From<usize> for LengthBounds {
+    fn from(len: usize) -> Self {
+        LengthBounds { min: len, max: len }
+    }
+}
+
+impl BitAnd for LengthBounds {
+    type Output = LengthBounds;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        LengthBounds {
+            min: self.min.max(rhs.min),
+            max: self.max.min(rhs.max),
+        }
+    }
+}
+
+impl BitOr for LengthBounds {
+    type Output = LengthBounds;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        LengthBounds {
+            min: self.min.min(rhs.min),
+            max: self.max.max(rhs.max),
+        }
+    }
+}
 
 /// The default execution mode for an operator is batch mode.
 pub trait BatchOperator: Operator {

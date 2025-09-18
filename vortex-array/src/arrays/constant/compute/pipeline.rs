@@ -8,7 +8,9 @@ use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::operator::{BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator};
+use crate::operator::{
+    BindContext, LengthBounds, Operator, OperatorId, OperatorRef, PipelinedOperator,
+};
 use crate::pipeline::bits::BitView;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext};
@@ -33,8 +35,8 @@ impl Operator for ConstantArray {
         self.scalar.dtype()
     }
 
-    fn len(&self) -> usize {
-        self.len
+    fn length(&self) -> LengthBounds {
+        self.len.into()
     }
 
     fn children(&self) -> &[OperatorRef] {

@@ -8,8 +8,8 @@ mod toposort;
 
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchId, BatchOperator, Operator, OperatorId,
-    OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchId, BatchOperator, LengthBounds,
+    Operator, OperatorId, OperatorRef,
 };
 use crate::pipeline::bits::{BitVector, BitView};
 use crate::pipeline::operator::bind::bind_kernels;
@@ -186,8 +186,8 @@ impl Operator for PipelineOperator {
         self.root_operator().dtype()
     }
 
-    fn len(&self) -> usize {
-        self.root_operator().len()
+    fn length(&self) -> LengthBounds {
+        self.root_operator().length()
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -230,7 +230,7 @@ impl BatchOperator for PipelineOperator {
 
         match self.dtype() {
             DType::Bool(_) => Ok(Box::new(BoolPipelineExecution {
-                len: self.len(),
+                len: self.length().max,
                 batch_inputs,
                 vectors,
                 pipeline,
@@ -238,7 +238,7 @@ impl BatchOperator for PipelineOperator {
             DType::Primitive(ptype, _) => {
                 match_each_native_ptype!(ptype, |T| {
                     Ok(Box::new(PrimitivePipelineExecution {
-                        len: self.len(),
+                        len: self.length().max,
                         batch_inputs,
                         vectors,
                         pipeline,
