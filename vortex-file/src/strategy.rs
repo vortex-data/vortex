@@ -69,6 +69,7 @@ impl WriteStrategyBuilder {
             RepartitionWriterOptions {
                 block_size_minimum: ONE_MEG,
                 block_len_multiple: ROW_BLOCK_SIZE,
+                canonicalize: true,
             },
         );
 
@@ -105,6 +106,7 @@ impl WriteStrategyBuilder {
                 block_size_minimum: 0,
                 // Always repartition into 8K row blocks
                 block_len_multiple: ROW_BLOCK_SIZE,
+                canonicalize: false,
             },
         );
 
