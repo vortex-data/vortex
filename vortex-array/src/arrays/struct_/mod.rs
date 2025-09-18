@@ -531,12 +531,12 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability, PType};
 
-    use crate::IntoArray;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::struct_::StructArray;
     use crate::arrays::varbin::VarBinArray;
-    use crate::arrays::{BoolArray, BoolVTable, PrimitiveVTable};
+    use crate::arrays::{BoolArray, ConstantArray};
     use crate::validity::Validity;
+    use crate::{Array, IntoArray, ToCanonical};
 
     #[test]
     fn test_project() {
@@ -567,19 +567,12 @@ mod test {
 
         let bools = &struct_b.fields[0];
         assert_eq!(
-            bools
-                .as_::<BoolVTable>()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>(),
+            bools.to_bool().boolean_buffer().iter().collect::<Vec<_>>(),
             vec![true, true, true, false, false]
         );
 
         let prims = &struct_b.fields[1];
-        assert_eq!(
-            prims.as_::<PrimitiveVTable>().as_slice::<i64>(),
-            [0i64, 1, 2, 3, 4]
-        );
+        assert_eq!(prims.to_primitive().as_slice::<i64>(), [0i64, 1, 2, 3, 4]);
     }
 
     #[test]
@@ -600,10 +593,7 @@ mod test {
             removed.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
-        assert_eq!(
-            removed.as_::<PrimitiveVTable>().as_slice::<i64>(),
-            [0i64, 1, 2, 3, 4]
-        );
+        assert_eq!(removed.to_primitive().as_slice::<i64>(), [0i64, 1, 2, 3, 4]);
 
         assert_eq!(struct_a.names(), &["ys"]);
         assert_eq!(struct_a.fields.len(), 1);
@@ -613,9 +603,7 @@ mod test {
             &DType::Primitive(PType::U64, Nullability::NonNullable)
         );
         assert_eq!(
-            struct_a.fields[0]
-                .as_::<PrimitiveVTable>()
-                .as_slice::<u64>(),
+            struct_a.fields[0].to_primitive().as_slice::<u64>(),
             [4u64, 5, 6, 7, 8]
         );
 
@@ -646,22 +634,40 @@ mod test {
         // field_by_name should return the first field with the matching name
         let first_value_field = struct_array.field_by_name("value").unwrap();
         assert_eq!(
-            first_value_field.as_::<PrimitiveVTable>().as_slice::<i32>(),
+            first_value_field.to_primitive().as_slice::<i32>(),
             [1i32, 2, 3] // This is field1, not field3
         );
 
         // Verify field_by_name_opt also returns the first match
         let opt_field = struct_array.field_by_name_opt("value").unwrap();
         assert_eq!(
-            opt_field.as_::<PrimitiveVTable>().as_slice::<i32>(),
+            opt_field.to_primitive().as_slice::<i32>(),
             [1i32, 2, 3] // First "value" field
         );
 
         // Verify the third field (second "value") can be accessed by index
         let third_field = &struct_array.fields()[2];
         assert_eq!(
-            third_field.as_::<PrimitiveVTable>().as_slice::<i32>(),
+            third_field.to_primitive().as_slice::<i32>(),
             [100i32, 200, 300]
         );
+    }
+
+    #[test]
+    fn test_uncompressed_size_in_bytes() {
+        let struct_array = StructArray::new(
+            FieldNames::from(["integers"]),
+            vec![ConstantArray::new(5, 1000).into_array()],
+            1000,
+            Validity::NonNullable,
+        );
+
+        let canonical_size = struct_array.to_canonical().into_array().nbytes();
+        let uncompressed_size = struct_array
+            .statistics()
+            .compute_uncompressed_size_in_bytes();
+
+        assert_eq!(canonical_size, 2);
+        assert_eq!(uncompressed_size, Some(4000));
     }
 }

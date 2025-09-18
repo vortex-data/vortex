@@ -11,6 +11,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use super::{Precision, Stat, StatsProvider, StatsSet, StatsSetIntoIter, TypedStatsSetRef};
 use crate::Array;
+use crate::builders::builder_with_capacity;
 use crate::compute::{
     MinMaxResult, is_constant, is_sorted, is_strict_sorted, min_max, nan_count, sum,
 };
@@ -148,7 +149,12 @@ impl StatsSetRef<'_> {
             Stat::IsSorted => is_sorted(self.dyn_array_ref)?.map(|v| v.into()),
             Stat::IsStrictSorted => is_strict_sorted(self.dyn_array_ref)?.map(|v| v.into()),
             Stat::UncompressedSizeInBytes => {
-                let nbytes = self.dyn_array_ref.to_canonical().as_ref().nbytes();
+                let mut builder =
+                    builder_with_capacity(self.dyn_array_ref.dtype(), self.dyn_array_ref.len());
+                unsafe {
+                    builder.extend_from_array_unchecked(self.dyn_array_ref);
+                }
+                let nbytes = builder.finish().nbytes();
                 self.set(stat, Precision::exact(nbytes));
                 Some(nbytes.into())
             }
