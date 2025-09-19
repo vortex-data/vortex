@@ -64,8 +64,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Compute the return [`DType`] of the expression if evaluated in the given scope.
     fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType>;
 
-    fn operator(_expr: &Self::Expr, _children: Vec<OperatorRef>) -> Option<OperatorRef> {
-        None
+    fn operator(_expr: &Self::Expr, _scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
+        Ok(None)
     }
 }
 

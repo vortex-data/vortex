@@ -121,14 +121,14 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     /// Whether this operator is aligned 1:1 with its child.
     ///
     /// Returns `None` if unknown.
-    fn is_position_preserving(&self, child_idx: usize) -> Option<bool> {
+    fn is_position_preserving(&self, _child_idx: usize) -> Option<bool> {
         None
     }
 
-    /// Whether this operator preserves the nullity of the given position-preserving child.
+    /// Whether this operator preserves the nulls of the given position-preserving child.
     ///
     /// Returns `None` if unknown.
-    fn is_null_preserving(&self, child_idx: usize) -> Option<bool> {
+    fn is_null_preserving(&self, _child_idx: usize) -> Option<bool> {
         None
     }
 

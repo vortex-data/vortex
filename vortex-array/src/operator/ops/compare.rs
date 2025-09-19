@@ -24,11 +24,7 @@ pub struct CompareOperator {
 }
 
 impl CompareOperator {
-    pub fn try_new(
-        lhs: OperatorRef,
-        rhs: OperatorRef,
-        op: Op,
-    ) -> VortexResult<Arc<CompareOperator>> {
+    pub fn try_new(lhs: OperatorRef, rhs: OperatorRef, op: Op) -> VortexResult<CompareOperator> {
         if lhs.dtype() != rhs.dtype() {
             vortex_bail!(
                 "Cannot compare arrays with different dtypes: {} and {}",
@@ -46,11 +42,11 @@ impl CompareOperator {
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
         let dtype = DType::Bool(nullability);
 
-        Ok(Arc::new(CompareOperator {
+        Ok(CompareOperator {
             children: [lhs, rhs],
             op,
             dtype,
-        }))
+        })
     }
 
     pub fn op(&self) -> Op {

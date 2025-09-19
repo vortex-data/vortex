@@ -97,7 +97,7 @@ impl Operator for FilterOperator {
             })
             .collect();
 
-        Ok(Some(self.child.with_children(children)?))
+        Ok(Some(self.child.clone().with_children(children)?))
     }
 }
 

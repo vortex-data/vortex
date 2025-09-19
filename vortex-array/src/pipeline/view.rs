@@ -43,6 +43,7 @@ impl<'a> View<'a> {
         self.len == 0
     }
 
+    // FIXME(ngates): we should return &[T; N]
     pub fn as_slice<T>(&self) -> &'a [T]
     where
         T: Element,

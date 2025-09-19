@@ -6,15 +6,14 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt, try_join};
-use vortex_array::ArrayRef;
-use vortex_array::compute::{MinMaxResult, min_max, take};
-use vortex_array::pipeline::operators::MaskFuture;
+use futures::{try_join, FutureExt, TryFutureExt};
+use vortex_array::compute::{min_max, take, MinMaxResult};
 use vortex_array::stats::Precision;
+use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_expr::{root, ExprRef, Scope};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -196,7 +195,7 @@ impl LayoutReader for DictReader {
             let array = DictArray::try_new(codes, values)?.to_array();
             expr.evaluate(&Scope::new(array))
         }
-        .boxed())
+            .boxed())
     }
 }
 
@@ -207,12 +206,13 @@ mod tests {
     use rstest::rstest;
     use vortex_array::arrays::{StructArray, VarBinArray};
     use vortex_array::arrow::IntoArrowArray;
-    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::validity::Validity;
+    use vortex_array::MaskFuture;
     use vortex_array::{ArrayContext, IntoArray as _};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_expr::{is_null, not, pack, root};
     use vortex_io::runtime::single::block_on;
+
 
     use crate::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -246,7 +246,7 @@ mod tests {
                 ],
                 DType::Utf8(Nullability::Nullable),
             )
-            .to_array();
+                .to_array();
             let array_to_write = array.clone();
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -259,7 +259,7 @@ mod tests {
                         DType::Utf8(Nullability::Nullable),
                         array_to_write.to_array_stream().sequenced(ptr),
                     )
-                    .sendable(),
+                        .sendable(),
                     eof,
                     handle,
                 )
@@ -294,14 +294,14 @@ mod tests {
                         9,
                         Validity::NonNullable,
                     )
-                    .unwrap()
-                    .into_array(),
+                        .unwrap()
+                        .into_array(),
                 ],
                 9,
                 Validity::NonNullable,
             )
-            .unwrap()
-            .into_array();
+                .unwrap()
+                .into_array();
             let actual = actual.into_arrow_preferred().unwrap();
             let expected_arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
             let expected = expected.into_arrow(&expected_arrow_dtype).unwrap();
@@ -348,7 +348,7 @@ mod tests {
                         DType::Utf8(Nullability::Nullable),
                         array.to_array_stream().sequenced(ptr),
                     )
-                    .sendable(),
+                        .sendable(),
                     eof,
                     handle,
                 )
@@ -401,7 +401,7 @@ mod tests {
                 ],
                 DType::Utf8(Nullability::Nullable),
             )
-            .to_array();
+                .to_array();
             let array_to_write = array.clone();
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -414,7 +414,7 @@ mod tests {
                         DType::Utf8(Nullability::Nullable),
                         array_to_write.to_array_stream().sequenced(ptr),
                     )
-                    .sendable(),
+                        .sendable(),
                     eof,
                     handle,
                 )

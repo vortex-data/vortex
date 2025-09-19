@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use humansize::{DECIMAL, make_format};
+use humansize::{make_format, DECIMAL};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
@@ -15,8 +15,7 @@ use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
-use vortex::pipeline::operators::MaskFuture;
-use vortex::{Array, ArrayRef, ToCanonical};
+use vortex::{Array, ArrayRef, MaskFuture, ToCanonical};
 
 use crate::browse::app::{AppState, LayoutCursor};
 

@@ -50,6 +50,11 @@ pub trait Kernel: Send {
     ///
     /// All calls to step must write exactly `N` elements to the output vector, except for the
     /// final call which may write fewer.
+    ///
+    /// TODO(ngates): alternatively, we allow the kernel to write sparse output vectors using a
+    ///  Selection enum of Prefix(n), Masked(Mask), or All. This would allow parent kernels to
+    ///  decide when to flatten the vector. The problem is it becomes ambiguous who is responsible
+    ///  for compacting very sparse vectors.
     fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()>;
 }
 

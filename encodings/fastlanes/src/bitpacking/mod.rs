@@ -74,8 +74,9 @@ impl Hash for BitPackedArray {
         self.dtype.hash(state);
         self.bit_width.hash(state);
         self.packed.hash(state);
-        self.patches.hash(state);
-        self.validity.hash(state);
+        // FIXME(ngates)
+        // self.patches.hash(state);
+        // self.validity.hash(state);
     }
 }
 

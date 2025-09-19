@@ -163,7 +163,8 @@ mod tests {
         let rhs = buffer![3i32, 2, 1].into_array().to_primitive();
 
         // The CompareOperator uses pipelined execution
-        let compare = CompareOperator::try_new(Arc::new(lhs), Arc::new(rhs), Op::Gt).unwrap();
+        let compare =
+            Arc::new(CompareOperator::try_new(Arc::new(lhs), Arc::new(rhs), Op::Gt).unwrap());
 
         let mut executor = Executor::default();
         let result = block_on(executor.execute(compare)).unwrap();
@@ -182,7 +183,8 @@ mod tests {
             VortexMetrics::default(),
         ));
 
-        let compare = CompareOperator::try_new(array.clone(), array.clone(), Op::Gt).unwrap();
+        let compare =
+            Arc::new(CompareOperator::try_new(array.clone(), array.clone(), Op::Gt).unwrap());
         let compare = Arc::new(MetricsOperator::new(compare, VortexMetrics::default()));
 
         let mut executor = Executor::default();

@@ -7,7 +7,7 @@ use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
 use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_io::runtime::Handle;
 use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
@@ -147,9 +147,9 @@ mod tests {
     use arrow_buffer::BooleanBufferBuilder;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::stats::{Precision, Stat, StatsProviderExt};
     use vortex_array::validity::Validity;
+    use vortex_array::MaskFuture;
     use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
@@ -158,10 +158,11 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_mask::AllOr;
 
-    use crate::LayoutStrategy;
+
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::LayoutStrategy;
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.
@@ -281,7 +282,7 @@ mod tests {
                 2,
                 validity,
             )
-            .unwrap();
+                .unwrap();
 
             let ctx = ArrayContext::empty();
 

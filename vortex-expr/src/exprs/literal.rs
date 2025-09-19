@@ -4,7 +4,8 @@
 use std::sync::Arc;
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
+use vortex_array::operator::OperatorRef;
+use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::{match_each_float_ptype, DType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_proto::expr as pb;
@@ -78,10 +79,11 @@ impl VTable for LiteralVTable {
         Ok(expr.value.dtype().clone())
     }
 
-    fn operator(expr: &LiteralExpr, children: Vec<OperatorRef>) -> Option<OperatorRef> {
-        assert!(children.is_empty());
-
-        ConstantOperator::maybe_new(expr.value().clone()).map(|op| Arc::new(op) as OperatorRef)
+    fn operator(expr: &Self::Expr, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
+        Ok(Some(Arc::new(ConstantArray::new(
+            expr.value.clone(),
+            scope.len(),
+        ))))
     }
 }
 

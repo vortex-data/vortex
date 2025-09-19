@@ -5,25 +5,23 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::FutureExt;
 use vortex_array::compute::filter;
-use vortex_array::pipeline::operators::MaskFuture;
-use vortex_array::pipeline::{
-    N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
-};
+use vortex_array::pipeline::N;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
+use vortex_array::MaskFuture;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap as _};
+use vortex_expr::{is_root, ExprRef, Scope, VortexExprExt};
 use vortex_mask::Mask;
 
-use crate::LayoutReader;
-use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
+use crate::LayoutReader;
 
 /// The threshold of mask density below which we will evaluate the expression only over the
 /// selected rows, and above which we evaluate the expression over all rows and then select
@@ -226,7 +224,10 @@ fn try_evaluate_using_operator(
     expr: &ExprRef,
     mask: &Mask,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(operator) = expr.to_operator(array)? else {
+    let Some(scope) = array.to_operator()? else {
+        return Ok(None);
+    };
+    let Some(operator) = expr.operator(&scope)? else {
         return Ok(None);
     };
 
@@ -237,36 +238,38 @@ fn try_evaluate_using_operator(
     ) {
         return Ok(None);
     }
+    //
+    // let result = if row_range.start % N != 0 {
+    //     // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
+    //     // we could do mask offsets instead, but this case is rare, due to split building.
+    //     let array = array.slice(row_range.clone());
+    //     let operator = expr
+    //         .to_operator(array.as_ref())?
+    //         .vortex_expect("already converted");
+    //     export_canonical_pipeline_expr(
+    //         &return_type,
+    //         row_range.end - row_range.start,
+    //         operator.as_ref(),
+    //         mask,
+    //     )?
+    //     .into_array()
+    // } else {
+    //     log::trace!(
+    //         "ArrayEvaluation: export_canonical_pipeline_expr_offset {:?}",
+    //         operator
+    //     );
+    //     export_canonical_pipeline_expr_offset(
+    //         &return_type,
+    //         row_range.start / N,
+    //         row_range.end - row_range.start,
+    //         operator.as_ref(),
+    //         mask,
+    //     )?
+    //     .into_array()
+    // };
+    // Ok(Some(result))
 
-    let result = if row_range.start % N != 0 {
-        // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
-        // we could do mask offsets instead, but this case is rare, due to split building.
-        let array = array.slice(row_range.clone());
-        let operator = expr
-            .to_operator(array.as_ref())?
-            .vortex_expect("already converted");
-        export_canonical_pipeline_expr(
-            &return_type,
-            row_range.end - row_range.start,
-            operator.as_ref(),
-            mask,
-        )?
-        .into_array()
-    } else {
-        log::trace!(
-            "ArrayEvaluation: export_canonical_pipeline_expr_offset {:?}",
-            operator
-        );
-        export_canonical_pipeline_expr_offset(
-            &return_type,
-            row_range.start / N,
-            row_range.end - row_range.start,
-            operator.as_ref(),
-            mask,
-        )?
-        .into_array()
-    };
-    Ok(Some(result))
+    vortex_bail!("Not yet implemented");
 }
 
 #[cfg(test)]
@@ -275,17 +278,17 @@ mod test {
 
     use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::validity::Validity;
+    use vortex_array::MaskFuture;
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;
 
-    use crate::LayoutStrategy as _;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::LayoutStrategy as _;
 
     #[test]
     fn flat_identity() {

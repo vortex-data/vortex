@@ -6,7 +6,6 @@
 //! Users should want to implement [`Node`] and potentially [`NodeContainer`].
 
 mod fold;
-mod operator;
 mod references;
 mod visitor;
 
@@ -19,8 +18,8 @@ pub use references::ReferenceCollector;
 pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
 
-use crate::ExprRef;
 use crate::traversal::fold::NodeFolderContextWrapper;
+use crate::ExprRef;
 
 /// Signal to control a traversal's flow
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -524,8 +523,8 @@ mod tests {
     use crate::traversal::visitor::pre_order_visit_down;
     use crate::traversal::{NodeExt, NodeRewriter, NodeVisitor, Transformed, TraversalOrder};
     use crate::{
-        BinaryExpr, BinaryVTable, ExprRef, GetItemVTable, IntoExpr, LiteralExpr, LiteralVTable,
-        Operator, VortexExpr, col, is_root, root,
+        col, is_root, root, BinaryExpr, BinaryVTable, ExprRef, GetItemVTable,
+        IntoExpr, LiteralExpr, LiteralVTable, Operator, VortexExpr,
     };
 
     #[derive(Default)]

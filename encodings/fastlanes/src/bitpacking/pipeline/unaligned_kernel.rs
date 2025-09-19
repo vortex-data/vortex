@@ -4,7 +4,6 @@
 use std::mem::MaybeUninit;
 
 use fastlanes::BitPacking;
-use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Element, Kernel, KernelContext, N};
 use vortex_buffer::Buffer;
@@ -74,12 +73,6 @@ where
     T: Element,
     <T as PhysicalPType>::Physical: Element,
 {
-    fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
-        let fls_chunk_idx = chunk_idx * (N / 1024);
-        self.packed_offset = fls_chunk_idx * self.packed_stride;
-        Ok(())
-    }
-
     #[allow(clippy::unwrap_in_result, clippy::expect_used)]
     fn step(
         &mut self,
