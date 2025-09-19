@@ -7,12 +7,12 @@ use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
-use crate::arrays::{ListArray, ListVTable, OffsetPType, PrimitiveArray};
+use crate::arrays::{ListArray, ListVTable, PrimitiveArray};
 use crate::builders::{ArrayBuilder, PrimitiveBuilder};
 use crate::compute::{TakeKernel, TakeKernelAdapter, take};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::{Array, ArrayRef, OffsetPType, ToCanonical, register_kernel};
 
 impl TakeKernel for ListVTable {
     fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

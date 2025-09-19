@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
-use num_traits::{AsPrimitive, PrimInt};
-use vortex_dtype::{DType, NativePType, match_each_integer_ptype, match_each_native_ptype};
+use num_traits::AsPrimitive;
+use vortex_dtype::{DType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
 use vortex_scalar::Scalar;
 
@@ -24,7 +24,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, OffsetPType, vtable};
 
 vtable!(List);
 
@@ -114,10 +114,6 @@ pub struct ListArray {
 
 #[derive(Clone, Debug)]
 pub struct ListEncoding;
-
-pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
-
-impl<T> OffsetPType for T where T: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
 
 impl ListArray {
     /// Creates a new [`ListArray`].
