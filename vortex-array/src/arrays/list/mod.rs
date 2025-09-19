@@ -14,6 +14,8 @@ use vortex_dtype::{DType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
 use vortex_scalar::Scalar;
 
+#[cfg(feature = "test-harness")]
+use crate::OffsetPType;
 use crate::arrays::PrimitiveVTable;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
@@ -24,7 +26,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, OffsetPType, vtable};
+use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 
 vtable!(List);
 

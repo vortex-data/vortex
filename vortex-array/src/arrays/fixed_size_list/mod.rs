@@ -83,9 +83,9 @@ pub struct FixedSizeListArray {
 
     /// The validity / null map of the array.
     ///
-    /// Note that this null map refers to the fixed-size list scalars, **not** the elements of the
-    /// _individual_ fixed-size list scalars. The `elements` array will track individual value
-    /// nullability.
+    /// Note that this null map refers to which fixed-size list scalars are null, **not** which
+    /// sub-elements of fixed-size list scalars are null. The `elements` array will track individual
+    /// value nullability.
     validity: Validity,
 
     /// The length of the array.
