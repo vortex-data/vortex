@@ -145,12 +145,12 @@ impl FixedSizeListArray {
         self.list_size
     }
 
-    /// Returns the elements at the given index from the list array.
+    /// Returns the elements of the fixed-size list scalar at the given index of the list array.
     ///
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn fixed_size_list_at(&self, index: usize) -> ArrayRef {
+    pub fn fixed_size_list_elements_at(&self, index: usize) -> ArrayRef {
         debug_assert!(
             index < self.len,
             "index out of bounds: the len is {} but the index is {index}",
