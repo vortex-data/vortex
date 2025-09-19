@@ -378,6 +378,31 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             --verbose
 
+  vortex-duckdb-test:
+    name: "Rust tests (vortex-duckdb)"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c6id.8xlarge
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=vortex-duckdb-test
+    env:
+      VX_DUCKDB_DEBUG: "1"
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v5
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake
+      - uses: ./.github/actions/setup-rust
+      - name: Vortex DuckDB tests
+        run: |
+          cargo test -p vortex-duckdb -- --skip test_vortex_scan_ultra_deep_nesting
+
   build-java:
     name: "Java"
     runs-on: ubuntu-latest
