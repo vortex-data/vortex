@@ -50,5 +50,10 @@ arbitrary = [
     "vortex-scalar/arbitrary",
     "vortex-dtype/arbitrary",
 ]
-serde = ["dep:serde", "vortex-dtype/serde", "vortex-error/serde"]
+serde = [
+    "dep:serde",
+    "vortex-dtype/serde",
+    "vortex-error/serde",
+    "vortex-buffer/serde",
+]
 test-harness = []

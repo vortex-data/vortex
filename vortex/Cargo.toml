@@ -71,6 +71,12 @@ python = ["vortex-error/python"]
 tokio = ["vortex-file/tokio", "vortex-scan/tokio"]
 zstd = ["dep:vortex-zstd", "vortex-file/zstd", "vortex-layout/zstd"]
 pretty = ["vortex-array/table-display"]
+serde = [
+    "vortex-expr/serde",
+    "vortex-dtype/serde",
+    "vortex-buffer/serde",
+    "vortex-error/serde",
+]
 
 [[bench]]
 name = "single_encoding_throughput"
