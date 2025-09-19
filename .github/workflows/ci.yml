@@ -399,9 +399,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build cmake
       - uses: ./.github/actions/setup-rust
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9.98
       - name: Vortex DuckDB tests
         run: |
-          cargo test -p vortex-duckdb -- --skip test_vortex_scan_ultra_deep_nesting
+          cargo nextest run -p vortex-duckdb -- --skip test_vortex_scan_ultra_deep_nesting
 
   build-java:
     name: "Java"
