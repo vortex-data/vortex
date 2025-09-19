@@ -115,6 +115,25 @@ impl BatchExecution for SharedBatchExecution {
     }
 }
 
+pub trait OptimizerRule {
+    fn name(&self) -> &'static str;
+
+    /// Attempts to reduce the given operator by applying this optimization rule.
+    fn optimize(&self, operator: OperatorRef) -> VortexResult<Option<OperatorRef>>;
+
+    /// Returns the order in which this rule should be applied.
+    ///
+    /// If `None`, the rule should handle recursion itself.
+    fn apply_order(&self) -> Option<ApplyOrder> {
+        None
+    }
+}
+
+pub enum ApplyOrder {
+    TopDown,
+    BottomUp,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

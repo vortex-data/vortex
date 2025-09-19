@@ -76,6 +76,19 @@ impl Operator for FilterOperator {
             mask: self.mask.clone(),
         }))
     }
+
+    fn reduce_children(&self) -> VortexResult<Option<OperatorRef>> {
+        // We push down the filter operator to any child that is aligned to the parent.
+        todo!()
+    }
+
+    fn reduce_parent(
+        &self,
+        _parent: OperatorRef,
+        _child_idx: usize,
+    ) -> VortexResult<Option<OperatorRef>> {
+        todo!()
+    }
 }
 
 impl BatchOperator for FilterOperator {

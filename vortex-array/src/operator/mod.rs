@@ -83,6 +83,9 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     ///
     /// For example, if all the children are constant, this function should perform constant
     /// folding and return a constant operator.
+    ///
+    /// This function should typically be implemented only for self-contained optimizations based
+    /// on child properties
     fn reduce_children(&self) -> VortexResult<Option<OperatorRef>> {
         Ok(None)
     }
@@ -90,18 +93,38 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     /// Attempt to push down a parent operator through this node.
     ///
     /// The `child_idx` parameter indicates which child of the parent this operator occupies.
-    ///
     /// For example, if the parent is a binary operator, and this operator is the left child,
     /// then `child_idx` will be 0. If this operator is the right child, then `child_idx` will be 1.
     ///
-    /// The returned operator will replace the parent in the tree, therefore a no-op is to return
-    /// the parent unchanged.
+    /// The returned operator will replace the parent in the tree.
+    ///
+    /// This function should typically be implemented for cross-operator optimizations where the
+    /// child needs to adapt to the parent's requirements
     fn reduce_parent(
         &self,
         _parent: OperatorRef,
         _child_idx: usize,
     ) -> VortexResult<Option<OperatorRef>> {
         Ok(None)
+    }
+
+    // Which fields this operator accesses (for projection pushdown)
+    // fn required_columns(&self) -> Option<Vec<FieldPath>> {
+    //     None
+    // }
+
+    /// Whether this operator is aligned 1:1 with its child.
+    ///
+    /// Returns `None` if unknown.
+    fn is_position_preserving(&self, child_idx: usize) -> Option<bool> {
+        None
+    }
+
+    /// Whether this operator preserves the nullity of the given position-preserving child.
+    ///
+    /// Returns `None` if unknown.
+    fn is_null_preserving(&self, child_idx: usize) -> Option<bool> {
+        None
     }
 
     /// Returns this operator as a [`BatchOperator`] if it supports batch execution.
