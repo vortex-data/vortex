@@ -19,6 +19,49 @@ mod tests;
 mod compute;
 
 /// The canonical encoding for fixed-size list arrays.
+///
+/// A fixed-size list array stores lists where each list has the same number of elements. This is
+/// similar to a 2D array or matrix where the inner dimension is fixed.
+///
+/// ## Data Layout
+///
+/// Unlike [`ListArray`] which uses offsets, `FixedSizeListArray` stores elements contiguously and
+/// uses a fixed `list_size`:
+///
+/// - **Elements array**: A flat array containing all list elements concatenated together
+/// - **List size**: The fixed number of elements in each list
+/// - **Validity**: Optional mask indicating which lists are null
+///
+/// The list at index `i` contains elements from `elements[i * list_size..(i + 1) * list_size]`.
+///
+/// [`ListArray`]: crate::arrays::ListArray
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::{FixedSizeListArray, PrimitiveArray};
+/// use vortex_array::validity::Validity;
+/// use vortex_array::IntoArray;
+/// use vortex_buffer::buffer;
+///
+/// // Create a fixed-size list array representing [[1, 2] [3, 4], [5, 6], [7, 8]]
+/// let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
+/// let list_size = 2;
+///
+/// let fixed_list_array = FixedSizeListArray::new(
+///     elements.into_array(),
+///     list_size,
+///     Validity::NonNullable,
+///     4, // 4 lists
+/// );
+///
+/// assert_eq!(fixed_list_array.len(), 4);
+/// assert_eq!(fixed_list_array.list_size(), 2);
+///
+/// // Access individual lists
+/// let first_list = fixed_list_array.fixed_size_list_elements_at(0);
+/// assert_eq!(first_list.len(), 2);
+/// ```
 #[derive(Clone, Debug)]
 pub struct FixedSizeListArray {
     /// The [`DType`] of the fixed-size list.
