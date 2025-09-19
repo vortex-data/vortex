@@ -617,7 +617,12 @@ mod test {
     fn slice_unaligned() {
         let buf = buffer![0i32, 1, 2, 3, 4].into_byte_buffer();
         // With a regular slice, this would panic. See [`slice_bad_alignment`].
-        buf.slice_unaligned(1..2);
+        let sliced = buf.slice_unaligned(1..2);
+        // Verify the slice has the expected length (1 byte from index 1 to 2).
+        assert_eq!(sliced.len(), 1);
+        // The original buffer has i32 values [0, 1, 2, 3, 4].
+        // In little-endian bytes, 0i32 = [0, 0, 0, 0], so byte at index 1 is 0.
+        assert_eq!(sliced.as_slice(), &[0]);
     }
 
     #[test]

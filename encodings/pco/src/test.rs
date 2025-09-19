@@ -47,7 +47,7 @@ fn test_compress_decompress() {
 }
 
 #[test]
-fn test_compress_decompress_big() {
+fn test_compress_decompress_small() {
     let array = PrimitiveArray::from_option_iter([None, Some(1)]);
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
     assert_eq!(compressed.scalar_at(0), Scalar::null_typed::<i32>());

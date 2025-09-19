@@ -32,7 +32,7 @@ mod tests {
     use crate::ToCanonical;
 
     #[test]
-    fn test_slice_large() {
+    fn test_slice_hundred_elements() {
         let arr = BoolArray::from_iter(std::iter::repeat_n(Some(true), 100));
         let sliced_arr = arr.slice(8..16).to_bool();
         assert_eq!(sliced_arr.len(), 8);
