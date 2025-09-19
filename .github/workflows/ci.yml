@@ -383,7 +383,8 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c6id.8xlarge
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=vortex-duckdb-test
