@@ -22,8 +22,7 @@ pub use vtable::{ListViewEncoding, ListViewVTable};
 #[cfg(test)]
 mod tests;
 
-// TODO(connor)[ListView]: Add compute functions
-// mod compute;
+mod compute;
 
 /// The canonical encoding for variable-length list arrays.
 ///

@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod basic;
 mod cast;
 mod filter;
 mod is_constant;
+mod is_sorted;
 mod mask;
-mod nullability;
-mod slice;
+mod min_max;
 mod take;
-mod validate;
