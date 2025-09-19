@@ -8,6 +8,10 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use vortex_array::compute::filter;
+use vortex_array::executor::Executor;
+use vortex_array::operator::filter::FilterOperator;
+use vortex_array::operator::slice::SliceOperator;
+use vortex_array::operator::OperatorRef;
 use vortex_array::pipeline::N;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
@@ -16,6 +20,7 @@ use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{is_root, ExprRef, Scope, VortexExprExt};
+use vortex_io::runtime::single::block_on;
 use vortex_mask::Mask;
 
 use crate::layouts::flat::FlatLayout;
@@ -125,7 +130,7 @@ impl LayoutReader for FlatReader {
             let mask = mask.await?;
 
             if let Some(array) =
-                try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask)?
+                try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await?
             {
                 let array_mask = array.try_to_mask_fill_null_false()?;
                 let mask = mask.intersect_by_rank(&array_mask);
@@ -192,9 +197,11 @@ impl LayoutReader for FlatReader {
             let mask = mask.await?;
 
             if let Some(array) =
-                try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask)?
+                try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await?
             {
                 return Ok(array);
+            } else {
+                vortex_bail!("Failed to evaluate using operator {}", array.display_tree());
             }
 
             // Slice the array based on the row mask.
@@ -218,16 +225,21 @@ impl LayoutReader for FlatReader {
     }
 }
 
-fn try_evaluate_using_operator(
+async fn try_evaluate_using_operator(
     row_range: Range<usize>,
     array: &ArrayRef,
     expr: &ExprRef,
     mask: &Mask,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(scope) = array.to_operator()? else {
+    let Some(operator) = array.to_operator()? else {
+        vortex_bail!(
+            "ArrayEvaluation: cannot convert array to operator {}",
+            array.display_tree()
+        );
         return Ok(None);
     };
-    let Some(operator) = expr.operator(&scope)? else {
+    let Some(operator) = expr.operator(&operator)? else {
+        vortex_bail!("ArrayEvaluation: cannot convert expr to operator {}", expr);
         return Ok(None);
     };
 
@@ -238,38 +250,16 @@ fn try_evaluate_using_operator(
     ) {
         return Ok(None);
     }
-    //
-    // let result = if row_range.start % N != 0 {
-    //     // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
-    //     // we could do mask offsets instead, but this case is rare, due to split building.
-    //     let array = array.slice(row_range.clone());
-    //     let operator = expr
-    //         .to_operator(array.as_ref())?
-    //         .vortex_expect("already converted");
-    //     export_canonical_pipeline_expr(
-    //         &return_type,
-    //         row_range.end - row_range.start,
-    //         operator.as_ref(),
-    //         mask,
-    //     )?
-    //     .into_array()
-    // } else {
-    //     log::trace!(
-    //         "ArrayEvaluation: export_canonical_pipeline_expr_offset {:?}",
-    //         operator
-    //     );
-    //     export_canonical_pipeline_expr_offset(
-    //         &return_type,
-    //         row_range.start / N,
-    //         row_range.end - row_range.start,
-    //         operator.as_ref(),
-    //         mask,
-    //     )?
-    //     .into_array()
-    // };
-    // Ok(Some(result))
 
-    vortex_bail!("Not yet implemented");
+    let mut operator: OperatorRef = Arc::new(SliceOperator::try_new(operator, row_range)?);
+    if !mask.all_true() {
+        operator = Arc::new(FilterOperator::new(operator, mask.clone()));
+    }
+
+    // TODO(ngates): in the future we should be able to return operators from projection.
+    Ok(Some(
+        Executor::default().execute(operator).await?.into_array(),
+    ))
 }
 
 #[cfg(test)]

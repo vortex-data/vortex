@@ -6,3 +6,4 @@ pub mod compare;
 pub mod filter;
 pub mod getitem;
 pub mod metrics;
+pub mod slice;

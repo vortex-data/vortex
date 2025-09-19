@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::operator::OperatorRef;
 use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
+    vtable, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable,
 };
 
 vtable!(Root);
@@ -64,6 +65,10 @@ impl VTable for RootVTable {
 
     fn return_dtype(_expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         Ok(scope.clone())
+    }
+
+    fn operator(_expr: &Self::Expr, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
+        Ok(Some(scope.clone()))
     }
 }
 

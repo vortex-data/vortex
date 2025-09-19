@@ -76,7 +76,10 @@ impl Executor {
         let execution = operator
             .as_batch()
             .ok_or_else(|| {
-                vortex_err!("Operator does not support batch execution OR pipelined execution")
+                vortex_err!(
+                    "Operator does not support batch execution OR pipelined execution: {:?}",
+                    operator
+                )
             })?
             .bind(&mut children)?;
 

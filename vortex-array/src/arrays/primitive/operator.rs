@@ -5,7 +5,6 @@ use std::any::Any;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
-use log;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -15,18 +14,11 @@ use crate::operator::{
     BatchBindCtx, BatchExecutionRef, BatchOperator, DisplayFormat, Operator, OperatorId,
     OperatorRef,
 };
-use crate::validity::Validity;
-use crate::vtable::{PipelineVTable, ValidityHelper};
+use crate::vtable::PipelineVTable;
 use crate::Canonical;
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
     fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<OperatorRef>> {
-        if !array.validity().all_valid(array.len()) {
-            log::debug!(
-                "PipelineVTable::to_operator is not supported for arrays with invalid values"
-            );
-            return Ok(None);
-        }
         Ok(Some(Arc::new(array.clone())))
     }
 }
@@ -68,11 +60,7 @@ impl Operator for PrimitiveArray {
 impl BatchOperator for PrimitiveArray {
     fn bind(&self, _ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
         Ok(Box::new(CanonicalExecution(Canonical::Primitive(
-            PrimitiveArray::from_byte_buffer(
-                self.buffer.clone(),
-                self.dtype.as_ptype(),
-                Validity::AllValid,
-            ),
+            self.clone(),
         ))))
     }
 }

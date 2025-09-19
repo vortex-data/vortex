@@ -20,7 +20,6 @@
 
 pub mod bits;
 pub(crate) mod operator;
-pub mod operators;
 mod types;
 pub mod vec;
 pub mod view;
@@ -48,8 +47,9 @@ use vortex_error::VortexResult;
 pub trait Kernel: Send {
     /// Attempts to perform a single step of the pipeline, writing data to the output vector.
     ///
-    /// All calls to step must write exactly `N` elements to the output vector, except for the
-    /// final call which may write fewer.
+    /// The output vector is guaranteed to have space for at least `N` elements. The kernel
+    /// may write up to `N` elements to the output vector, and must update the length of the
+    /// output vector to reflect the number of elements written.
     ///
     /// TODO(ngates): alternatively, we allow the kernel to write sparse output vectors using a
     ///  Selection enum of Prefix(n), Masked(Mask), or All. This would allow parent kernels to

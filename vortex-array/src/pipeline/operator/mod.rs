@@ -283,13 +283,12 @@ impl BatchExecution for BoolPipelineExecution {
 
         // Run the pipeline to completion.
         let mut output_len = 0;
-        loop {
+        while output_len < self.len {
             let mut elements_view = ViewMut::new(&mut elements[output_len..][..N], None);
             self.pipeline.step(&ctx, &mut elements_view)?;
             output_len += elements_view.len;
-            if elements_view.len < N {
-                break;
-            }
+            // TODO(ngates): we should call Handle::yield every X iterations to avoid
+            //  starving other tasks in async contexts.
         }
         unsafe { elements.set_len(output_len) };
 
@@ -335,13 +334,10 @@ impl<T: Element + NativePType> BatchExecution for PrimitivePipelineExecution<T> 
 
         // Run the pipeline to completion.
         let mut output_len = 0;
-        loop {
+        while output_len < self.len {
             let mut elements_view = ViewMut::new(&mut elements[output_len..][..N], None);
             self.pipeline.step(&ctx, &mut elements_view)?;
             output_len += elements_view.len;
-            if elements_view.len < N {
-                break;
-            }
         }
         unsafe { elements.set_len(output_len) };
 
@@ -359,7 +355,6 @@ struct Pipeline {
 }
 
 impl Kernel for Pipeline {
-    /// Step the pipeline, returning whether it has completed.
     fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
         for &node_idx in self.exec_order.iter() {
             let kernel = self.kernels[node_idx].as_mut();
