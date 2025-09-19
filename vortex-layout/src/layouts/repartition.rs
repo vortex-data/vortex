@@ -20,8 +20,12 @@ use crate::{LayoutRef, LayoutStrategy};
 
 #[derive(Clone)]
 pub struct RepartitionWriterOptions {
-    /// The minimum uncompressed size in bytes for a block.
-    pub block_size_minimum: u64,
+    /// The minimum uncompressed size in bytes for a block (coalescing threshold).
+    /// Chunks smaller than this will be coalesced with others.
+    pub block_size_min_bound: u64,
+    /// The maximum uncompressed size in bytes for a block (splitting threshold).
+    /// Chunks larger than this will be split using heuristic splitting.
+    pub block_size_max_bound: u64,
     /// The multiple of the number of rows in each block.
     pub block_len_multiple: usize,
     pub canonicalize: bool,
@@ -82,35 +86,51 @@ impl LayoutStrategy for RepartitionStrategy {
             while let Some(chunk) = canonical_stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;
                 let mut sequence_pointer = sequence_id.descend();
-                let mut offset = 0;
-                while offset < chunk.len() {
-                    let end = (offset + options.block_len_multiple).min(chunk.len());
-                    let sliced = chunk.slice(offset..end);
-                    chunks.push_back(sliced);
-                    offset = end;
 
-                    if chunks.have_enough() {
-                        let output_chunks = chunks.collect_exact_blocks()?;
-                        assert!(!output_chunks.is_empty());
-                        let chunked =
-                            ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
-                        if !chunked.is_empty() {
-                            yield (
-                                sequence_pointer.advance(),
-                                chunked.to_canonical().into_array(),
-                            )
+                // Check if we should split this chunk first
+                let chunks_to_process = if chunks.should_split_chunk(&chunk) {
+                    chunks.split_chunk_heuristic(chunk)?
+                } else {
+                    vec![chunk]
+                };
+
+                // Process each chunk (original or split)
+                for chunk_part in chunks_to_process {
+                    let mut offset = 0;
+                    while offset < chunk_part.len() {
+                        let end = (offset + options.block_len_multiple).min(chunk_part.len());
+                        let sliced = chunk_part.slice(offset..end);
+                        chunks.push_back(sliced);
+                        offset = end;
+
+                        if chunks.have_enough() {
+                            let output_chunks = chunks.collect_exact_blocks()?;
+                            assert!(!output_chunks.is_empty());
+                            let chunked =
+                                ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
+                            if !chunked.is_empty() {
+                                let canonical = chunked.to_canonical();
+                                let compacted = canonical.compact()?;
+                                yield (
+                                    sequence_pointer.advance(),
+                                    compacted.into_array(),
+                                )
+                            }
                         }
                     }
                 }
+
                 if canonical_stream.as_mut().peek().await.is_none() {
                     let to_flush = ChunkedArray::try_new(
                         chunks.data.drain(..).collect(),
                         dtype_clone.clone(),
                     )?;
                     if !to_flush.is_empty() {
+                        let canonical = to_flush.to_canonical();
+                        let compacted = canonical.compact()?;
                         yield (
                             sequence_pointer.advance(),
-                            to_flush.to_canonical().into_array(),
+                            compacted.into_array(),
                         )
                     }
                 }
@@ -155,8 +175,49 @@ impl ChunksBuffer {
     }
 
     fn have_enough(&self) -> bool {
-        self.nbytes >= self.options.block_size_minimum
+        self.nbytes >= self.options.block_size_min_bound
             && self.row_count >= self.options.block_len_multiple
+    }
+
+    /// Check if a chunk is too large and should be split based on max bound
+    fn should_split_chunk(&self, chunk: &ArrayRef) -> bool {
+        chunk.nbytes() > self.options.block_size_max_bound
+    }
+
+    /// Split a chunk using heuristic approach based on estimated bytes per row
+    fn split_chunk_heuristic(&self, chunk: ArrayRef) -> VortexResult<Vec<ArrayRef>> {
+        let chunk_nbytes = chunk.nbytes();
+        let chunk_len = chunk.len();
+
+        if chunk_len == 0 || chunk_nbytes <= self.options.block_size_max_bound {
+            return Ok(vec![chunk]);
+        }
+
+        // Estimate bytes per row
+        let bytes_per_row = chunk_nbytes / chunk_len as u64;
+        if bytes_per_row == 0 {
+            return Ok(vec![chunk]); // Avoid division by zero
+        }
+
+        // Calculate how many rows should fit in a target size (use the midpoint between min and max)
+        let target_size =
+            (self.options.block_size_min_bound + self.options.block_size_max_bound) / 2;
+        let estimated_rows_per_chunk = match usize::try_from(target_size / bytes_per_row) {
+            Ok(rows) if rows > 0 => rows,
+            _ => return Ok(vec![chunk]), // Single row is too large or conversion failed
+        };
+
+        // Split into chunks of estimated_rows_per_chunk size
+        let mut result = Vec::new();
+        let mut offset = 0;
+
+        while offset < chunk_len {
+            let end = (offset + estimated_rows_per_chunk).min(chunk_len);
+            result.push(chunk.slice(offset..end));
+            offset = end;
+        }
+
+        Ok(result)
     }
 
     fn collect_exact_blocks(&mut self) -> VortexResult<Vec<ArrayRef>> {

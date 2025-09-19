@@ -63,11 +63,12 @@ impl WriteStrategyBuilder {
             CompressingStrategy::new_btrblocks(buffered, true)
         };
 
-        // 4. prior to compression, coalesce up to a minimum size
+        // 4. prior to compression, coalesce up to target size with splitting for large chunks
         let coalescing = RepartitionStrategy::new(
             compressing,
             RepartitionWriterOptions {
-                block_size_minimum: ONE_MEG,
+                block_size_min_bound: ONE_MEG,     // 1MB minimum - coalesce below this
+                block_size_max_bound: 3 * ONE_MEG, // 3MB maximum - split above this
                 block_len_multiple: ROW_BLOCK_SIZE,
                 canonicalize: true,
             },
@@ -102,8 +103,9 @@ impl WriteStrategyBuilder {
         let repartition = RepartitionStrategy::new(
             stats,
             RepartitionWriterOptions {
-                // No minimum block size in bytes
-                block_size_minimum: 0,
+                // No size limits for first repartition - just split by row count
+                block_size_min_bound: 0,
+                block_size_max_bound: u64::MAX,
                 // Always repartition into 8K row blocks
                 block_len_multiple: ROW_BLOCK_SIZE,
                 canonicalize: false,
