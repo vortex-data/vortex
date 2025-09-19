@@ -37,7 +37,7 @@ fn test_nullable_fsl_with_nulls() {
     );
 
     // Check individual elements of the first list.
-    let first_list = fsl.fixed_size_list_at(0);
+    let first_list = fsl.fixed_size_list_elements_at(0);
     assert_eq!(first_list.scalar_at(0), 1i32.into());
     assert_eq!(first_list.scalar_at(1), 2i32.into());
 
@@ -58,7 +58,7 @@ fn test_nullable_fsl_with_nulls() {
     );
 
     // Check individual elements of the third list.
-    let third_list = fsl.fixed_size_list_at(2);
+    let third_list = fsl.fixed_size_list_elements_at(2);
     assert_eq!(third_list.scalar_at(0), 5i32.into());
     assert_eq!(third_list.scalar_at(1), 6i32.into());
 
@@ -137,7 +137,7 @@ fn test_nullable_elements_and_nullable_lists() {
     );
 
     // Check individual elements of the first list.
-    let first_list = fsl.fixed_size_list_at(0);
+    let first_list = fsl.fixed_size_list_elements_at(0);
     assert_eq!(first_list.scalar_at(0), Some(10u16).into());
     assert_eq!(first_list.scalar_at(1), None::<u16>.into());
 
@@ -158,7 +158,7 @@ fn test_nullable_elements_and_nullable_lists() {
     );
 
     // Check individual elements of the third list.
-    let third_list = fsl.fixed_size_list_at(2);
+    let third_list = fsl.fixed_size_list_elements_at(2);
     assert_eq!(third_list.scalar_at(0), None::<u16>.into());
     assert_eq!(third_list.scalar_at(1), None::<u16>.into());
 }

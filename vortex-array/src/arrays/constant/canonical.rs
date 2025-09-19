@@ -471,7 +471,7 @@ mod tests {
 
         // Check that each list is [10, 20, 30].
         for i in 0..4 {
-            let list = canonical.fixed_size_list_at(i);
+            let list = canonical.fixed_size_list_elements_at(i);
             let list_primitive = list.to_primitive();
             assert_eq!(list_primitive.as_slice::<i32>(), [10, 20, 30]);
         }

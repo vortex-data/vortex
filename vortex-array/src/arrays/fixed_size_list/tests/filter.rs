@@ -62,12 +62,12 @@ fn test_filter_alternating() {
     assert_eq!(filtered_fsl.elements().len(), 4);
 
     // First list should be [1, 2].
-    let first = filtered_fsl.fixed_size_list_at(0);
+    let first = filtered_fsl.fixed_size_list_elements_at(0);
     assert_eq!(first.scalar_at(0), 1i32.into());
     assert_eq!(first.scalar_at(1), 2i32.into());
 
     // Second list should be [5, 6].
-    let second = filtered_fsl.fixed_size_list_at(1);
+    let second = filtered_fsl.fixed_size_list_elements_at(1);
     assert_eq!(second.scalar_at(0), 5i32.into());
     assert_eq!(second.scalar_at(1), 6i32.into());
 }
@@ -86,13 +86,13 @@ fn test_filter_selective() {
     assert_eq!(filtered_fsl.elements().len(), 6);
 
     // First list should be [4.0, 5.0, 6.0].
-    let first = filtered_fsl.fixed_size_list_at(0);
+    let first = filtered_fsl.fixed_size_list_elements_at(0);
     assert_eq!(first.scalar_at(0), 4.0f64.into());
     assert_eq!(first.scalar_at(1), 5.0f64.into());
     assert_eq!(first.scalar_at(2), 6.0f64.into());
 
     // Second list should be [7.0, 8.0, 9.0].
-    let second = filtered_fsl.fixed_size_list_at(1);
+    let second = filtered_fsl.fixed_size_list_elements_at(1);
     assert_eq!(second.scalar_at(0), 7.0f64.into());
     assert_eq!(second.scalar_at(1), 8.0f64.into());
     assert_eq!(second.scalar_at(2), 9.0f64.into());
@@ -126,7 +126,7 @@ fn test_filter_single_element() {
     assert_eq!(filtered_fsl.list_size(), 3);
     assert_eq!(filtered_fsl.elements().len(), 3);
 
-    let first = filtered_fsl.fixed_size_list_at(0);
+    let first = filtered_fsl.fixed_size_list_elements_at(0);
     assert_eq!(first.scalar_at(0), 42i32.into());
     assert_eq!(first.scalar_at(1), 43i32.into());
     assert_eq!(first.scalar_at(2), 44i32.into());
@@ -222,12 +222,12 @@ fn test_filter_with_nulls() {
     assert_eq!(filtered_fsl.list_size(), 2);
 
     // First list should be [1, 2] and valid.
-    let first = filtered_fsl.fixed_size_list_at(0);
+    let first = filtered_fsl.fixed_size_list_elements_at(0);
     assert_eq!(first.scalar_at(0), 1i32.into());
     assert_eq!(first.scalar_at(1), 2i32.into());
 
     // Second list should be [5, 6] and valid.
-    let second = filtered_fsl.fixed_size_list_at(1);
+    let second = filtered_fsl.fixed_size_list_elements_at(1);
     assert_eq!(second.scalar_at(0), 5i32.into());
     assert_eq!(second.scalar_at(1), 6i32.into());
 }
@@ -292,15 +292,15 @@ fn test_filter_nested_fixed_size_lists() {
     assert_eq!(filtered_inner.list_size(), 2);
 
     // Check the actual values.
-    let inner_list_0 = filtered_inner.fixed_size_list_at(0);
+    let inner_list_0 = filtered_inner.fixed_size_list_elements_at(0);
     assert_eq!(inner_list_0.scalar_at(0), 7i32.into());
     assert_eq!(inner_list_0.scalar_at(1), 8i32.into());
 
-    let inner_list_1 = filtered_inner.fixed_size_list_at(1);
+    let inner_list_1 = filtered_inner.fixed_size_list_elements_at(1);
     assert_eq!(inner_list_1.scalar_at(0), 9i32.into());
     assert_eq!(inner_list_1.scalar_at(1), 10i32.into());
 
-    let inner_list_2 = filtered_inner.fixed_size_list_at(2);
+    let inner_list_2 = filtered_inner.fixed_size_list_elements_at(2);
     assert_eq!(inner_list_2.scalar_at(0), 11i32.into());
     assert_eq!(inner_list_2.scalar_at(1), 12i32.into());
 }
@@ -442,7 +442,7 @@ fn test_complex_filter_pattern() {
     // Original indices kept: 0, 1, 3, 6, 7, 8.
     let expected_starts = [0i32, 3, 9, 18, 21, 24];
     for (i, &start) in expected_starts.iter().enumerate() {
-        let list = filtered_fsl.fixed_size_list_at(i);
+        let list = filtered_fsl.fixed_size_list_elements_at(i);
         assert_eq!(list.scalar_at(0), (start).into());
         assert_eq!(list.scalar_at(1), (start + 1).into());
         assert_eq!(list.scalar_at(2), (start + 2).into());
@@ -474,13 +474,13 @@ fn test_filter_large_list_size() {
     assert_eq!(filtered_fsl.elements().len(), 3 * list_size as usize);
 
     // Check that the correct lists were kept (indices 1, 3, 4).
-    let list_0 = filtered_fsl.fixed_size_list_at(0);
+    let list_0 = filtered_fsl.fixed_size_list_elements_at(0);
     assert_eq!(list_0.scalar_at(0), 100i64.into()); // Start of original list 1.
 
-    let list_1 = filtered_fsl.fixed_size_list_at(1);
+    let list_1 = filtered_fsl.fixed_size_list_elements_at(1);
     assert_eq!(list_1.scalar_at(0), 300i64.into()); // Start of original list 3.
 
-    let list_2 = filtered_fsl.fixed_size_list_at(2);
+    let list_2 = filtered_fsl.fixed_size_list_elements_at(2);
     assert_eq!(list_2.scalar_at(0), 400i64.into()); // Start of original list 4.
 }
 
@@ -556,13 +556,13 @@ fn test_mask_expansion_threshold_boundary() {
     assert_eq!(filtered_fsl.elements().len(), 3 * list_size as usize);
 
     // Verify correct elements were kept.
-    let first = filtered_fsl.fixed_size_list_at(0);
+    let first = filtered_fsl.fixed_size_list_elements_at(0);
     assert_eq!(first.scalar_at(0), (5i32 * list_size as i32).into());
 
-    let second = filtered_fsl.fixed_size_list_at(1);
+    let second = filtered_fsl.fixed_size_list_elements_at(1);
     assert_eq!(second.scalar_at(0), (25i32 * list_size as i32).into());
 
-    let third = filtered_fsl.fixed_size_list_at(2);
+    let third = filtered_fsl.fixed_size_list_elements_at(2);
     assert_eq!(third.scalar_at(0), (75i32 * list_size as i32).into());
 
     // Test with list_size == 7 (just below threshold).

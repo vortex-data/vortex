@@ -40,7 +40,8 @@ impl OperationsVTable<FixedSizeListVTable> for FixedSizeListVTable {
     }
 
     fn scalar_at(array: &FixedSizeListArray, index: usize) -> Scalar {
-        let list = array.fixed_size_list_at(index);
+        // By the preconditions we know that the list scalar is not null.
+        let list = array.fixed_size_list_elements_at(index);
         let children_elements: Vec<Scalar> = (0..list.len()).map(|i| list.scalar_at(i)).collect();
 
         debug_assert_eq!(children_elements.len(), array.list_size() as usize);

@@ -321,7 +321,7 @@ fn canonicalize_sparse_fixed_size_list_inner<I: NativePType>(
 
         // Append the patch value, handling null patches by appending defaults.
         if values.validity().is_valid(patch_idx) {
-            let patch_list = values.fixed_size_list_at(patch_idx);
+            let patch_list = values.fixed_size_list_elements_at(patch_idx);
             for i in 0..list_size as usize {
                 builder
                     .append_scalar(&patch_list.scalar_at(i))

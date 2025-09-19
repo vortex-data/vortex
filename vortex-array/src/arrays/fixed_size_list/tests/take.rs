@@ -27,17 +27,17 @@ fn test_take_basic() {
     assert_eq!(result_fsl.list_size(), 2);
 
     // First list should be the original third list [5, 6].
-    let first = result_fsl.fixed_size_list_at(0);
+    let first = result_fsl.fixed_size_list_elements_at(0);
     assert_eq!(first.scalar_at(0), 5i32.into());
     assert_eq!(first.scalar_at(1), 6i32.into());
 
     // Second list should be the original first list [1, 2].
-    let second = result_fsl.fixed_size_list_at(1);
+    let second = result_fsl.fixed_size_list_elements_at(1);
     assert_eq!(second.scalar_at(0), 1i32.into());
     assert_eq!(second.scalar_at(1), 2i32.into());
 
     // Third list should be the original second list [3, 4].
-    let third = result_fsl.fixed_size_list_at(2);
+    let third = result_fsl.fixed_size_list_elements_at(2);
     assert_eq!(third.scalar_at(0), 3i32.into());
     assert_eq!(third.scalar_at(1), 4i32.into());
 }
@@ -92,7 +92,7 @@ fn test_take_single_index() {
     assert_eq!(result_fsl.len(), 1);
     assert_eq!(result_fsl.list_size(), 2);
 
-    let list = result_fsl.fixed_size_list_at(0);
+    let list = result_fsl.fixed_size_list_elements_at(0);
     assert_eq!(list.scalar_at(0), 30i64.into());
     assert_eq!(list.scalar_at(1), 40i64.into());
 }
@@ -112,7 +112,7 @@ fn test_take_with_null_indices() {
 
     // First list should be [3, 4].
     assert!(!result_fsl.scalar_at(0).is_null());
-    let first = result_fsl.fixed_size_list_at(0);
+    let first = result_fsl.fixed_size_list_elements_at(0);
     assert_eq!(first.scalar_at(0), 3i32.into());
     assert_eq!(first.scalar_at(1), 4i32.into());
 
@@ -121,7 +121,7 @@ fn test_take_with_null_indices() {
 
     // Third list should be [1, 2].
     assert!(!result_fsl.scalar_at(2).is_null());
-    let third = result_fsl.fixed_size_list_at(2);
+    let third = result_fsl.fixed_size_list_elements_at(2);
     assert_eq!(third.scalar_at(0), 1i32.into());
     assert_eq!(third.scalar_at(1), 2i32.into());
 }
@@ -244,13 +244,13 @@ fn test_take_large_list_size() {
     assert_eq!(result_fsl.list_size(), 10);
 
     // First list should be [20..30].
-    let first = result_fsl.fixed_size_list_at(0);
+    let first = result_fsl.fixed_size_list_elements_at(0);
     for i in 0..10i32 {
         assert_eq!(first.scalar_at(i as usize), (20 + i).into());
     }
 
     // Second list should be [0..10].
-    let second = result_fsl.fixed_size_list_at(1);
+    let second = result_fsl.fixed_size_list_elements_at(1);
     for i in 0..10i32 {
         assert_eq!(second.scalar_at(i as usize), i.into());
     }
