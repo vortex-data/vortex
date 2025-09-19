@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::operator::{
-    BatchId, BindContext, LengthBounds, Operator, OperatorId, OperatorRef, PipelinedOperator,
+    BatchId, BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator,
 };
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext, N};
@@ -44,8 +44,8 @@ impl Operator for CanonicalPipelineOperator {
         self.child.dtype()
     }
 
-    fn length(&self) -> LengthBounds {
-        self.child.length()
+    fn len(&self) -> usize {
+        self.child.len()
     }
 
     fn children(&self) -> &[OperatorRef] {

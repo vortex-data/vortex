@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use log;
@@ -11,7 +12,8 @@ use vortex_error::VortexResult;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::operator::canonical::CanonicalExecution;
 use crate::operator::{
-    BatchBindCtx, BatchExecutionRef, BatchOperator, LengthBounds, Operator, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecutionRef, BatchOperator, DisplayFormat, Operator, OperatorId,
+    OperatorRef,
 };
 use crate::validity::Validity;
 use crate::vtable::{PipelineVTable, ValidityHelper};
@@ -42,12 +44,16 @@ impl Operator for PrimitiveArray {
         &self.dtype
     }
 
-    fn length(&self) -> LengthBounds {
+    fn len(&self) -> usize {
         (self.buffer.len() / self.dtype.as_ptype().byte_width()).into()
     }
 
     fn children(&self) -> &[OperatorRef] {
         &[]
+    }
+
+    fn fmt_as(&self, _df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "PrimitiveArray(ptype={})", self.ptype())
     }
 
     fn with_children(self: Arc<Self>, _children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {

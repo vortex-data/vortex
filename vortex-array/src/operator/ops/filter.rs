@@ -1,81 +1,51 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::operator::{
+    BatchBindCtx, BatchExecutionRef, BatchOperator, BindContext, Operator, OperatorId, OperatorRef,
+    PipelinedOperator,
+};
+use crate::pipeline::Kernel;
 use std::any::Any;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::slice;
 use std::sync::Arc;
-
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::operator::{
-    BatchBindCtx, BatchExecutionRef, BatchOperator, BindContext, LengthBounds, Operator,
-    OperatorId, OperatorRef, PipelinedOperator,
-};
-use crate::pipeline::Kernel;
-use crate::MaskFuture;
-
 #[derive(Debug)]
 pub struct FilterOperator {
     child: OperatorRef,
-    mask: Box<LazyMask>,
-}
-
-impl Hash for FilterOperator {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.child.hash(state);
-        (self.mask.as_ref() as *const LazyMask).hash(state);
-    }
+    mask: Mask,
 }
 
 impl PartialEq for FilterOperator {
     fn eq(&self, other: &Self) -> bool {
-        self.child.eq(&other.child) && std::ptr::eq(self.mask.as_ref(), other.mask.as_ref())
+        self.child.eq(&other.child) && self.mask.eq(&other.mask)
     }
 }
-
 impl Eq for FilterOperator {}
 
-impl FilterOperator {
-    pub fn try_new(child: OperatorRef, mask: LazyMask) -> VortexResult<OperatorRef> {
-        // Attempt to push down the filter through any scalar children.
-        if child.is_scalar() {
-            return child.with_children();
+impl Hash for FilterOperator {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.child.hash(state);
+        // Hash the discriminant first
+        std::mem::discriminant(&self.mask).hash(state);
+        match &self.mask {
+            Mask::AllTrue(len) => len.hash(state),
+            Mask::AllFalse(len) => len.hash(state),
+            Mask::Values(values) => {
+                Arc::as_ptr(values).hash(state);
+            }
         }
-
-        Ok(Arc::new(FilterOperator {
-            child,
-            mask: Box::new(mask),
-        }))
     }
 }
 
-/// A lazy mask that is either ready or pending computation.
-///
-/// We distinguish between ready and pending masks so that operators can make use of density
-/// statistics when making optimization decisions in the case where the mask is known.
-#[derive(Clone)]
-pub enum LazyMask {
-    Ready(Mask),
-    Pending(MaskFuture),
-}
-
-impl Debug for LazyMask {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LazyMask::Ready(mask) => f
-                .debug_tuple("Ready")
-                .field(&format!(
-                    "Mask(len={}, count={})",
-                    mask.len(),
-                    mask.true_count()
-                ))
-                .finish(),
-            LazyMask::Pending(_) => f.debug_tuple("Pending").finish(),
-        }
+impl FilterOperator {
+    pub fn try_new(child: OperatorRef, mask: Mask) -> VortexResult<OperatorRef> {
+        Ok(Arc::new(FilterOperator { child, mask }))
     }
 }
 
@@ -92,8 +62,8 @@ impl Operator for FilterOperator {
         self.child.dtype()
     }
 
-    fn length(&self) -> LengthBounds {
-        self.child.length()
+    fn len(&self) -> usize {
+        self.mask.true_count()
     }
 
     fn children(&self) -> &[OperatorRef] {

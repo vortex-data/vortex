@@ -83,7 +83,7 @@ impl Operator for BitPackedArray {
         &self.dtype
     }
 
-    fn length(&self) -> LengthBounds {
+    fn len(&self) -> usize {
         self.len.into()
     }
 }

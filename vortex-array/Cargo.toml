@@ -59,6 +59,7 @@ static_assertions = { workspace = true }
 tabled = { workspace = true, optional = true, default-features = false, features = [
     "std",
 ] }
+termtree = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = ["prost"] }
@@ -68,6 +69,7 @@ vortex-metrics = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
+clap = { version = "4.5.47", features = ["derive"] }
 
 [features]
 arbitrary = [

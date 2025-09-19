@@ -8,7 +8,7 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::operator::{
-    BindContext, LengthBounds, Operator, OperatorId, OperatorRef, PipelinedOperator,
+    BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator,
 };
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext, N};
@@ -33,8 +33,8 @@ impl Operator for ConstantArray {
         self.scalar.dtype()
     }
 
-    fn length(&self) -> LengthBounds {
-        self.len.into()
+    fn len(&self) -> usize {
+        self.len
     }
 
     fn children(&self) -> &[OperatorRef] {

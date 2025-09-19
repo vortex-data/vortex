@@ -18,7 +18,7 @@ use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use itertools::Itertools;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexResult};
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {
@@ -119,6 +119,13 @@ pub struct MaskValues {
     // i.e., the fraction of values that are true
     density: f64,
 }
+
+impl PartialEq for MaskValues {
+    fn eq(&self, other: &Self) -> bool {
+        self.true_count == other.true_count && self.buffer == other.buffer
+    }
+}
+impl Eq for MaskValues {}
 
 impl MaskValues {
     /// Returns the length of the mask.

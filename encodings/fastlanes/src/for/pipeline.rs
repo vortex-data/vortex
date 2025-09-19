@@ -9,7 +9,7 @@ use std::sync::Arc;
 use num_traits::WrappingAdd;
 use vortex_array::compute::Operator as BinaryOperator;
 use vortex_array::operator::compare::CompareOperator;
-use vortex_array::operator::{LengthBounds, Operator, OperatorId, OperatorRef};
+use vortex_array::operator::{Operator, OperatorId, OperatorRef};
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Element, Kernel, KernelContext, VType};
 use vortex_array::vtable::PipelineVTable;
@@ -124,7 +124,7 @@ impl Operator for FoROperator {
         &DType::primitive(self.ptype)
     }
 
-    fn length(&self) -> LengthBounds {
+    fn len(&self) -> usize {
         todo!()
     }
 }

@@ -8,7 +8,7 @@ mod toposort;
 
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchId, BatchOperator, LengthBounds,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchId, BatchOperator, DisplayFormat,
     Operator, OperatorId, OperatorRef,
 };
 use crate::pipeline::operator::bind::bind_kernels;
@@ -26,6 +26,7 @@ use futures::future::try_join_all;
 use itertools::Itertools;
 use std::any::Any;
 use std::cell::RefCell;
+use std::fmt::Formatter;
 use std::hash::BuildHasher;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -182,12 +183,17 @@ impl Operator for PipelineOperator {
         self.root_operator().dtype()
     }
 
-    fn length(&self) -> LengthBounds {
-        self.root_operator().length()
+    fn len(&self) -> usize {
+        self.root_operator().len()
     }
 
     fn children(&self) -> &[OperatorRef] {
         &self.batch_inputs
+    }
+
+    fn fmt_as(&self, _df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "PipelineOperator wrapping:\n")?;
+        write!(f, "{}", self.root_operator().display_tree())
     }
 
     fn with_children(self: Arc<Self>, children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
@@ -226,7 +232,7 @@ impl BatchOperator for PipelineOperator {
 
         match self.dtype() {
             DType::Bool(_) => Ok(Box::new(BoolPipelineExecution {
-                bounds: self.length(),
+                len: self.len(),
                 batch_inputs,
                 vectors,
                 pipeline,
@@ -234,7 +240,7 @@ impl BatchOperator for PipelineOperator {
             DType::Primitive(ptype, _) => {
                 match_each_native_ptype!(ptype, |T| {
                     Ok(Box::new(PrimitivePipelineExecution {
-                        bounds: self.length(),
+                        len: self.len(),
                         batch_inputs,
                         vectors,
                         pipeline,
@@ -251,7 +257,7 @@ impl BatchOperator for PipelineOperator {
 }
 
 struct BoolPipelineExecution {
-    bounds: LengthBounds,
+    len: usize,
     batch_inputs: Vec<BatchExecutionRef>,
     vectors: Vec<RefCell<Vector>>,
     pipeline: Pipeline,
@@ -271,7 +277,7 @@ impl BatchExecution for BoolPipelineExecution {
         };
 
         // Allocate the output vector and validity.
-        let capacity = self.bounds.max.next_multiple_of(N) + N;
+        let capacity = self.len.next_multiple_of(N) + N;
         let mut elements = BufferMut::<bool>::with_capacity(capacity);
         unsafe { elements.set_len(capacity) };
 
@@ -302,7 +308,7 @@ impl BatchExecution for BoolPipelineExecution {
 }
 
 struct PrimitivePipelineExecution<T> {
-    bounds: LengthBounds,
+    len: usize,
     batch_inputs: Vec<BatchExecutionRef>,
     vectors: Vec<RefCell<Vector>>,
     pipeline: Pipeline,
@@ -323,7 +329,7 @@ impl<T: Element + NativePType> BatchExecution for PrimitivePipelineExecution<T> 
         };
 
         // Allocate the output vector and validity.
-        let capacity = self.bounds.max.next_multiple_of(N) + N;
+        let capacity = self.len.next_multiple_of(N) + N;
         let mut elements = BufferMut::<T>::with_capacity(capacity);
         unsafe { elements.set_len(capacity) };
 

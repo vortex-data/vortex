@@ -25,12 +25,12 @@
 //! execution. The executor is also responsible for managing memory and scheduling work across
 //! different execution resources.
 
+mod display;
 mod ops;
 
-use std::any::Any;
+use std::any::{type_name, Any};
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::{BitAnd, BitOr};
 use std::sync::Arc;
 
 use crate::pipeline::Kernel;
@@ -39,10 +39,10 @@ use arcref::ArcRef;
 use async_trait::async_trait;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-
-pub use crate::executor::*;
-pub use ops::*;
 use vortex_utils::dyn_eq::{DynEq, DynHash};
+
+pub use display::*;
+pub use ops::*;
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
@@ -59,12 +59,17 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     fn dtype(&self) -> &DType;
 
     /// Returns the (min, max) length bounds of the array produced by this operator.
-    fn length(&self) -> LengthBounds;
+    fn len(&self) -> usize;
 
     // TODO(ngates): add StatsSet
 
     /// The children of this operator.
     fn children(&self) -> &[OperatorRef];
+
+    /// Override the default formatting of this operator.
+    fn fmt_as(&self, _df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", type_name::<Self>())
+    }
 
     /// Create a new instance of this operator with the given children.
     ///
@@ -74,12 +79,12 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     ///
     fn with_children(self: Arc<Self>, _children: Vec<OperatorRef>) -> VortexResult<OperatorRef>;
 
-    /// Whether this operator works by mutating its first child in-place.
+    /// Attempt to optimize this node by analyzing its children.
     ///
-    /// If `true`, the operator is invoked with the first child's input data passed via the
-    /// mutable output view. The node is expected to mutate this data in-place.
-    fn in_place(&self) -> bool {
-        false
+    /// For example, if all the children are constant, this function should perform constant
+    /// folding and return a constant operator.
+    fn reduce_children(&self) -> VortexResult<Option<OperatorRef>> {
+        Ok(None)
     }
 
     /// Attempt to push down a parent operator through this node.
@@ -91,8 +96,12 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     ///
     /// The returned operator will replace the parent in the tree, therefore a no-op is to return
     /// the parent unchanged.
-    fn reduce_parent(&self, parent: OperatorRef, _child_idx: usize) -> VortexResult<OperatorRef> {
-        Ok(parent)
+    fn reduce_parent(
+        &self,
+        _parent: OperatorRef,
+        _child_idx: usize,
+    ) -> VortexResult<Option<OperatorRef>> {
+        Ok(None)
     }
 
     /// Returns this operator as a [`BatchOperator`] if it supports batch execution.
@@ -128,40 +137,6 @@ impl PartialEq for dyn Operator {
 
 impl Eq for dyn Operator {}
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct LengthBounds {
-    pub min: usize,
-    pub max: usize,
-}
-
-impl From<usize> for LengthBounds {
-    fn from(len: usize) -> Self {
-        LengthBounds { min: len, max: len }
-    }
-}
-
-impl BitAnd for LengthBounds {
-    type Output = LengthBounds;
-
-    fn bitand(self, rhs: Self) -> Self::Output {
-        LengthBounds {
-            min: self.min.max(rhs.min),
-            max: self.max.min(rhs.max),
-        }
-    }
-}
-
-impl BitOr for LengthBounds {
-    type Output = LengthBounds;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        LengthBounds {
-            min: self.min.min(rhs.min),
-            max: self.max.max(rhs.max),
-        }
-    }
-}
-
 /// The default execution mode for an operator is batch mode.
 pub trait BatchOperator: Operator {
     fn bind(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef>;
@@ -187,9 +162,10 @@ pub trait PipelinedOperator: Operator {
     ///
     /// If `true`, the operator is invoked with the first child's input data passed via the
     /// mutable output view. The node is expected to mutate this data in-place.
-    fn in_place(&self) -> bool {
-        false
-    }
+    // TODO(ngates): enable this
+    // fn in_place(&self) -> bool {
+    //     false
+    // }
 
     /// Bind the operator into a [`Kernel`] for pipelined execution.
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;

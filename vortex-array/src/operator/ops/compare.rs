@@ -11,7 +11,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use crate::arrays::ConstantArray;
 use crate::compute::Operator as Op;
 use crate::operator::{
-    BindContext, LengthBounds, Operator, OperatorId, OperatorRef, PipelinedOperator, VectorId,
+    BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator, VectorId,
 };
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext};
@@ -71,8 +71,8 @@ impl Operator for CompareOperator {
         &self.dtype
     }
 
-    fn length(&self) -> LengthBounds {
-        self.children[0].length() & self.children[1].length()
+    fn len(&self) -> usize {
+        self.children[0].len() & self.children[1].len()
     }
 
     fn children(&self) -> &[OperatorRef] {

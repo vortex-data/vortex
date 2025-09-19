@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, BindContext, LengthBounds,
-    Operator, OperatorId, OperatorRef, PipelinedOperator,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, BindContext, Operator,
+    OperatorId, OperatorRef, PipelinedOperator,
 };
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext};
@@ -62,8 +62,8 @@ impl Operator for MetricsOperator {
         self.inner.dtype()
     }
 
-    fn length(&self) -> LengthBounds {
-        self.inner.length()
+    fn len(&self) -> usize {
+        self.inner.len()
     }
 
     fn children(&self) -> &[OperatorRef] {

@@ -62,6 +62,9 @@ impl Executor {
             Some(pipeline_op) => Arc::new(pipeline_op),
         };
 
+        log::info!("Executing operator: {}", operator.display_tree());
+        println!("Executing operator: {}", operator.display_tree());
+
         // For each child, create a batch execution that uses the executor to compute it.
         let mut children: Vec<_> = operator
             .children()
@@ -99,6 +102,10 @@ impl BatchBindCtx for Vec<Option<BatchExecutionRef>> {
 
 /// A wrapper around a batch execution that makes it available for sharing across nodes within
 /// common subtree elimination.
+///
+// TODO(ngates): I think we could turn this into a full operator so that the tree display
+//  makes more sense? Currently we just perform CSE during execution, rather than an up-front
+//  optimization.
 struct SharedBatchExecution(Shared<BoxFuture<'static, SharedVortexResult<Canonical>>>);
 
 #[async_trait]

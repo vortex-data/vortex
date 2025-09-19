@@ -12,8 +12,8 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use crate::arrays::{StructArray, StructVTable};
 use crate::operator::getitem::GetItemOperator;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
+    OperatorRef,
 };
 use crate::validity::Validity;
 use crate::vtable::PipelineVTable;
@@ -63,7 +63,7 @@ impl Operator for StructOperator {
         &self.dtype
     }
 
-    fn length(&self) -> LengthBounds {
+    fn len(&self) -> usize {
         self.len.into()
     }
 
@@ -80,7 +80,11 @@ impl Operator for StructOperator {
         }))
     }
 
-    fn reduce_parent(&self, parent: OperatorRef, _child_idx: usize) -> VortexResult<OperatorRef> {
+    fn reduce_parent(
+        &self,
+        parent: OperatorRef,
+        _child_idx: usize,
+    ) -> VortexResult<Option<OperatorRef>> {
         // The only real things we know how to push-down are things that exclusively operate on
         // validity, or operate on a single field.
         if let Some(getitem) = parent.as_any().downcast_ref::<GetItemOperator>() {
@@ -98,10 +102,10 @@ impl Operator for StructOperator {
                 })?;
 
             // FIXME(ngates): intersect validity
-            return Ok(self.children[field_idx].clone());
+            return Ok(Some(self.children[field_idx].clone()));
         }
 
-        Ok(parent)
+        Ok(None)
     }
 }
 
