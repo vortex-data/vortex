@@ -66,6 +66,11 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     /// The children of this operator.
     fn children(&self) -> &[OperatorRef];
 
+    /// The number of children of this operator.
+    fn nchildren(&self) -> usize {
+        self.children().len()
+    }
+
     /// Override the default formatting of this operator.
     fn fmt_as(&self, _df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{:?}", type_name::<Self>())

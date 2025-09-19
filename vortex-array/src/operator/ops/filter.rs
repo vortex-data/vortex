@@ -44,8 +44,13 @@ impl Hash for FilterOperator {
 }
 
 impl FilterOperator {
-    pub fn try_new(child: OperatorRef, mask: Mask) -> VortexResult<OperatorRef> {
-        Ok(Arc::new(FilterOperator { child, mask }))
+    pub fn new(child: OperatorRef, mask: Mask) -> FilterOperator {
+        assert_eq!(
+            child.len(),
+            mask.len(),
+            "Mask length must match child length"
+        );
+        FilterOperator { child, mask }
     }
 }
 
@@ -79,15 +84,20 @@ impl Operator for FilterOperator {
 
     fn reduce_children(&self) -> VortexResult<Option<OperatorRef>> {
         // We push down the filter operator to any child that is aligned to the parent.
-        todo!()
-    }
+        let children = (0..self.nchildren())
+            .map(|i| {
+                let child = self.child.children()[i].clone();
 
-    fn reduce_parent(
-        &self,
-        _parent: OperatorRef,
-        _child_idx: usize,
-    ) -> VortexResult<Option<OperatorRef>> {
-        todo!()
+                if self.child.is_position_preserving(i).unwrap_or_default() {
+                    // Push-down the filter to this child.
+                    Arc::new(FilterOperator::new(child, self.mask.clone()))
+                } else {
+                    child
+                }
+            })
+            .collect();
+
+        Ok(Some(self.child.with_children(children)?))
     }
 }
 
