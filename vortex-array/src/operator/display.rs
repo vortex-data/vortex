@@ -17,6 +17,7 @@ pub enum DisplayFormat {
     Tree,
 }
 
+// TODO(ngates): this is pretty bad right now, and pipelined operators display poorly.
 struct DisplayTreeExpr<'a>(&'a dyn Operator);
 
 impl Display for DisplayTreeExpr<'_> {

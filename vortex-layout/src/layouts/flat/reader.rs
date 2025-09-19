@@ -257,6 +257,10 @@ async fn try_evaluate_using_operator(
     }
 
     // TODO(ngates): in the future we should be able to return operators from projection.
+    let mut executor = Executor::default();
+    println!("Optimizing operator: {}", operator.display_tree());
+    let operator = executor.optimize(operator)?;
+    println!("Executing operator: {}", operator.display_tree());
     Ok(Some(
         Executor::default().execute(operator).await?.into_array(),
     ))
