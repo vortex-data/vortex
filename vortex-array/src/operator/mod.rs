@@ -25,8 +25,13 @@
 //! execution. The executor is also responsible for managing memory and scheduling work across
 //! different execution resources.
 
+pub mod canonical;
+pub mod compare;
 mod display;
-mod ops;
+pub mod filter;
+pub mod getitem;
+pub mod metrics;
+pub mod slice;
 
 use std::any::{type_name, Any};
 use std::fmt::Debug;
@@ -42,7 +47,6 @@ use vortex_error::VortexResult;
 use vortex_utils::dyn_eq::{DynEq, DynHash};
 
 pub use display::*;
-pub use ops::*;
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
