@@ -406,7 +406,7 @@ jobs:
           tool: nextest@0.9.98
       - name: Vortex DuckDB tests
         run: |
-          cargo nextest run -p vortex-duckdb -- --skip test_vortex_scan_ultra_deep_nesting
+          cargo nextest run -p vortex-duckdb
 
   build-java:
     name: "Java"
