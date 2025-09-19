@@ -7,11 +7,9 @@ use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::operator::{
-    BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator,
-};
+use crate::operator::{Operator, OperatorId, OperatorRef};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Element, Kernel, KernelContext, N};
+use crate::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
 use crate::vtable::PipelineVTable;
 
 impl PipelineVTable<ConstantVTable> for ConstantVTable {

@@ -243,14 +243,6 @@ async fn try_evaluate_using_operator(
         return Ok(None);
     };
 
-    let return_type = expr.return_dtype(array.dtype())?;
-    if !matches!(
-        return_type,
-        DType::Primitive(_, Nullability::NonNullable) | DType::Bool(Nullability::NonNullable)
-    ) {
-        return Ok(None);
-    }
-
     let mut operator: OperatorRef = Arc::new(SliceOperator::try_new(operator, row_range)?);
     if !mask.all_true() {
         operator = Arc::new(FilterOperator::new(operator, mask.clone()));

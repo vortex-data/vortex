@@ -15,6 +15,7 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
+mod operator;
 mod ops;
 mod serde;
 #[cfg(test)]

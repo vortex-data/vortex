@@ -195,6 +195,7 @@ url = "2.5.4"
 uuid = { version = "1.17", features = ["js"] }
 walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
+wgpu = { version = "26.0.1" }
 witchcraft-metrics = "1.0.1"
 zip = "5.0.0"
 

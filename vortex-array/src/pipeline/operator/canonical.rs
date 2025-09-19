@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::operator::{
-    BatchId, BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator,
-};
+use crate::operator::{Operator, OperatorId, OperatorRef};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Element, Kernel, KernelContext, N};
+use crate::pipeline::{BatchId, BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
 use std::any::Any;
 use std::sync::Arc;
 use vortex_buffer::Buffer;

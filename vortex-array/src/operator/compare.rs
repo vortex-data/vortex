@@ -10,11 +10,9 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::arrays::ConstantArray;
 use crate::compute::Operator as Op;
-use crate::operator::{
-    BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator, VectorId,
-};
+use crate::operator::{Operator, OperatorId, OperatorRef};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Element, Kernel, KernelContext};
+use crate::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, VectorId};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct CompareOperator {

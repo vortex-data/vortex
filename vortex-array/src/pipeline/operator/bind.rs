@@ -3,10 +3,9 @@
 
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::operator::{BatchId, BindContext, VectorId};
 use crate::pipeline::operator::buffers::VectorAllocationPlan;
 use crate::pipeline::operator::PipelineNode;
-use crate::pipeline::Kernel;
+use crate::pipeline::{BatchId, BindContext, Kernel, VectorId};
 
 pub(crate) fn bind_kernels(
     dag: &[PipelineNode],

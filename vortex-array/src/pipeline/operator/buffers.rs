@@ -5,10 +5,10 @@
 
 use std::cell::RefCell;
 
-use crate::operator::VectorId;
 use crate::pipeline::operator::{NodeId, PipelineNode};
 use crate::pipeline::vec::Vector;
 use crate::pipeline::VType;
+use crate::pipeline::VectorId;
 use vortex_error::{VortexExpect, VortexResult};
 
 #[derive(Debug)]

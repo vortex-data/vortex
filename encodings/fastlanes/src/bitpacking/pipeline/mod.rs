@@ -5,9 +5,9 @@ use std::any::Any;
 use std::sync::Arc;
 
 use fastlanes::{BitPacking, FastLanes};
-use vortex_array::operator::{BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator};
+use vortex_array::operator::{Operator, OperatorId, OperatorRef};
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Element, Kernel, KernelContext, N};
+use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
 use vortex_array::vtable::PipelineVTable;
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_integer_ptype, DType, PhysicalPType};

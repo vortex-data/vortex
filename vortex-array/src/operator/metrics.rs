@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, BindContext, Operator,
-    OperatorId, OperatorRef, PipelinedOperator,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
+    OperatorRef,
 };
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, KernelContext};
+use crate::pipeline::{BindContext, Kernel, KernelContext, PipelinedOperator};
 use crate::Canonical;
 use async_trait::async_trait;
 use std::any::Any;

@@ -7,11 +7,11 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use num_traits::WrappingAdd;
-use vortex_array::operator::{
-    BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator, VectorId,
-};
+use vortex_array::operator::{Operator, OperatorId, OperatorRef};
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Element, Kernel, KernelContext};
+use vortex_array::pipeline::{
+    BindContext, Element, Kernel, KernelContext, PipelinedOperator, VectorId,
+};
 use vortex_array::vtable::PipelineVTable;
 use vortex_array::Array;
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType, PType};

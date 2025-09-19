@@ -8,8 +8,8 @@ mod toposort;
 
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchId, BatchOperator, DisplayFormat,
-    Operator, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, Operator,
+    OperatorId, OperatorRef,
 };
 use crate::pipeline::operator::bind::bind_kernels;
 use crate::pipeline::operator::buffers::{allocate_vectors, OutputTarget};
@@ -17,7 +17,7 @@ use crate::pipeline::operator::canonical::CanonicalPipelineOperator;
 use crate::pipeline::operator::toposort::topological_sort;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Element, Kernel, KernelContext, N};
+use crate::pipeline::{BatchId, Element, Kernel, KernelContext, N};
 use crate::validity::Validity;
 use crate::Canonical;
 use arrow_buffer::BooleanBuffer;

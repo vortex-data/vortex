@@ -32,12 +32,44 @@ pub const N_WORDS: usize = N / usize::BITS as usize;
 
 use self::vec::Vector;
 use self::view::ViewMut;
-use crate::operator::{BatchId, VectorId};
+use crate::operator::Operator;
 use crate::Canonical;
 use std::cell::RefCell;
 pub use types::*;
 use vec::VectorRef;
 use vortex_error::VortexResult;
+
+pub trait PipelinedOperator: Operator {
+    /// Whether this operator works by mutating its first child in-place.
+    ///
+    /// If `true`, the operator is invoked with the first child's input data passed via the
+    /// mutable output view. The node is expected to mutate this data in-place.
+    // TODO(ngates): enable this
+    // fn in_place(&self) -> bool {
+    //     false
+    // }
+
+    /// Bind the operator into a [`Kernel`] for pipelined execution.
+    fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
+
+    /// Returns the child indices of this operator that are passed to the kernel as input vectors.
+    fn vector_children(&self) -> Vec<usize>;
+
+    /// Returns the child indices of this operator that are passed to the kernel as batch inputs.
+    fn batch_children(&self) -> Vec<usize>;
+}
+
+/// The context used when binding an operator for execution.
+pub trait BindContext {
+    fn children(&self) -> &[VectorId];
+
+    fn batch_inputs(&self) -> &[BatchId];
+}
+
+/// The ID of the vector to use.
+pub type VectorId = usize;
+/// The ID of the batch input to use.
+pub type BatchId = usize;
 
 /// A pipeline provides a push-based way to emit a stream of canonical data.
 ///

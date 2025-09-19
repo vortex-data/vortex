@@ -3,8 +3,8 @@
 
 use crate::compute::filter;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator,
-    OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
+    OperatorRef,
 };
 use crate::{Array, Canonical, IntoArray};
 use async_trait::async_trait;
@@ -53,6 +53,10 @@ impl FilterOperator {
             "Mask length must match child length"
         );
         FilterOperator { child, mask }
+    }
+
+    pub fn mask(&self) -> &Mask {
+        &self.mask
     }
 }
 

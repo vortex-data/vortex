@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock};
 
 use fsst::{Compressor, Decompressor, Symbol};
@@ -10,10 +11,10 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
-use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
+use vortex_array::{vtable, Array, ArrayRef, EncodingId, EncodingRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
 vtable!(FSST);
 
@@ -29,7 +30,7 @@ impl VTable for FSSTVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
+    type PipelineVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.fsst")
@@ -53,6 +54,29 @@ pub struct FSSTArray {
     /// Memoized compressor used for push-down of compute by compressing the RHS.
     compressor: Arc<LazyLock<Compressor, Box<dyn Fn() -> Compressor + Send>>>,
 }
+
+impl Hash for FSSTArray {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dtype.hash(state);
+        self.symbols.hash(state);
+        self.symbol_lengths.hash(state);
+        // FIXME
+        // self.codes.hash(state);
+        // self.uncompressed_lengths.hash(state);
+    }
+}
+
+impl PartialEq for FSSTArray {
+    fn eq(&self, other: &Self) -> bool {
+        self.dtype == other.dtype
+            && self.symbols == other.symbols
+            && self.symbol_lengths == other.symbol_lengths
+        // FIXME(ngates): this should be an operator
+        // && self.codes == other.codes
+        // && self.uncompressed_lengths == other.uncompressed_lengths
+    }
+}
+impl Eq for FSSTArray {}
 
 impl Debug for FSSTArray {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

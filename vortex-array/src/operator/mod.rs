@@ -38,7 +38,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use crate::pipeline::Kernel;
+use crate::pipeline::{BindContext, Kernel, PipelinedOperator};
 use crate::Canonical;
 use arcref::ArcRef;
 use async_trait::async_trait;
@@ -153,6 +153,12 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     fn as_gpu(&self) -> Option<&dyn GpuOperator> {
         None
     }
+
+    /// Returns this operator as a [`WebGPUOperator`] if it supports WebGPU execution.
+    #[cfg(feature = "wgpu")]
+    fn as_webgpu(&self) -> Option<&dyn crate::webgpu::WebGpuOperator> {
+        None
+    }
 }
 
 impl Hash for dyn Operator {
@@ -189,40 +195,7 @@ pub trait BatchExecution: Send {
 
 pub type BatchExecutionRef = Box<dyn BatchExecution>;
 
-pub trait PipelinedOperator: Operator {
-    /// Whether this operator works by mutating its first child in-place.
-    ///
-    /// If `true`, the operator is invoked with the first child's input data passed via the
-    /// mutable output view. The node is expected to mutate this data in-place.
-    // TODO(ngates): enable this
-    // fn in_place(&self) -> bool {
-    //     false
-    // }
-
-    /// Bind the operator into a [`Kernel`] for pipelined execution.
-    fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
-
-    /// Returns the child indices of this operator that are passed to the kernel as input vectors.
-    fn vector_children(&self) -> Vec<usize>;
-
-    /// Returns the child indices of this operator that are passed to the kernel as batch inputs.
-    fn batch_children(&self) -> Vec<usize>;
-}
-
 pub trait GpuOperator: Operator {
     // TODO(ngates): no idea what this API looks like.
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
-}
-
-/// The ID of the vector to use.
-pub type VectorId = usize;
-
-/// The ID of the batch input to use.
-pub type BatchId = usize;
-
-/// The context used when binding an operator for execution.
-pub trait BindContext {
-    fn children(&self) -> &[VectorId];
-
-    fn batch_inputs(&self) -> &[BatchId];
 }
