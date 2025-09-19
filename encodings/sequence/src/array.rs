@@ -147,7 +147,7 @@ impl SequenceArray {
         })
     }
 
-    fn index_value(&self, idx: usize) -> PValue {
+    pub(crate) fn index_value(&self, idx: usize) -> PValue {
         assert!(idx < self.length, "index_value({idx}): index out of bounds");
 
         match_each_native_ptype!(self.ptype(), |P| {

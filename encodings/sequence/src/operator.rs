@@ -5,6 +5,7 @@ use crate::{SequenceArray, SequenceVTable};
 use num_traits::{ConstOne, PrimInt};
 use std::any::Any;
 use std::sync::Arc;
+use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::{BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator};
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Element, Kernel, KernelContext, N};
@@ -42,6 +43,26 @@ impl Operator for SequenceArray {
 
     fn with_children(self: Arc<Self>, _children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
         Ok(self)
+    }
+
+    fn reduce_parent(
+        &self,
+        parent: OperatorRef,
+        _child_idx: usize,
+    ) -> VortexResult<Option<OperatorRef>> {
+        // Push down slice
+        if let Some(slice) = parent.as_any().downcast_ref::<SliceOperator>() {
+            let range = slice.range();
+            return Ok(Some(Arc::new(SequenceArray::unchecked_new(
+                self.index_value(range.start),
+                self.multiplier(),
+                self.ptype(),
+                self.dtype().nullability(),
+                range.len(),
+            ))));
+        }
+
+        Ok(None)
     }
 
     fn as_pipelined(&self) -> Option<&dyn PipelinedOperator> {

@@ -38,6 +38,10 @@ impl SliceOperator {
         }
         Ok(SliceOperator { child, range })
     }
+
+    pub fn range(&self) -> &Range<usize> {
+        &self.range
+    }
 }
 
 impl PartialEq for SliceOperator {

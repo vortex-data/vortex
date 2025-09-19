@@ -42,6 +42,10 @@ impl Executor {
     }
 
     fn batch_execution(&mut self, operator: &OperatorRef) -> VortexResult<BatchExecutionRef> {
+        // FIXME(ngates): we should have a separate optimize call that turns the operator tree
+        //  into a DAG by inserting shared CSE nodes, each of which has the ability to construct
+        //  a shared execution future... somehow...
+
         // Check if we already have a shared future for this operator
         if let Some(weak_shared) = self.execution_cache.get(operator) {
             if let Some(shared) = weak_shared.upgrade() {
