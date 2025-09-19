@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::compute::filter;
 use crate::operator::{
-    BindContext, Operator, OperatorId, OperatorRef, PipelinedOperator, VectorId,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator,
+    OperatorId, OperatorRef,
 };
-use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Element, Kernel, KernelContext};
+use crate::{Array, Canonical, IntoArray};
+use async_trait::async_trait;
 use std::any::Any;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::slice;
 use std::sync::Arc;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 #[derive(Debug)]
@@ -111,47 +113,37 @@ impl Operator for FilterOperator {
         Ok(Some(self.child.clone().with_children(children)?))
     }
 
-    fn as_pipelined(&self) -> Option<&dyn PipelinedOperator> {
-        // TODO(ngates): do we decide if we're super sparse that we should be batch executed?
-        //  Seems like a weird place to make that decision though...
+    fn as_batch(&self) -> Option<&dyn BatchOperator> {
         Some(self)
     }
+
+    // fn as_pipelined(&self) -> Option<&dyn PipelinedOperator> {
+    //     TODO(ngates): do we decide if we're super sparse that we should be batch executed?
+    //      Seems like a weird place to make that decision though... Although we do have all the
+    //      information here. Pushdown has already happened, so we know exactly which is faster.
+    // Some(self)
+    // }
 }
 
-impl PipelinedOperator for FilterOperator {
-    fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
-        let child = ctx.children()[0];
-        match self.dtype() {
-            DType::Primitive(ptype, _) => {
-                match_each_native_ptype!(ptype, |T| {
-                    Ok(Box::new(PrimitiveFilterKernel::<T> {
-                        child,
-                        mask: self.mask.clone(),
-                        _marker: std::marker::PhantomData,
-                    }) as Box<dyn Kernel>)
-                })
-            }
-            _ => vortex_bail!("FilterOperator only supports primitive dtypes"),
-        }
-    }
-
-    fn vector_children(&self) -> Vec<usize> {
-        vec![0]
-    }
-
-    fn batch_children(&self) -> Vec<usize> {
-        vec![]
+impl BatchOperator for FilterOperator {
+    fn bind(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
+        Ok(Box::new(FilterExecution {
+            child: ctx.take_child(0)?,
+            mask: self.mask.clone(),
+        }) as BatchExecutionRef)
     }
 }
 
-struct PrimitiveFilterKernel<T> {
-    child: VectorId,
+struct FilterExecution {
+    child: BatchExecutionRef,
     mask: Mask,
-    _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: Element + NativePType> Kernel for PrimitiveFilterKernel<T> {
-    fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
-        todo!()
+#[async_trait]
+impl BatchExecution for FilterExecution {
+    async fn execute(self: Box<Self>) -> VortexResult<Canonical> {
+        let child = self.child.execute().await?;
+        // TODO(ngates): obviously inline all canonical implementations here
+        Ok(filter(child.into_array().as_ref(), &self.mask)?.to_canonical())
     }
 }
