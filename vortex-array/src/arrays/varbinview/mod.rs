@@ -729,7 +729,7 @@ impl CanonicalVTable<VarBinViewVTable> for VarBinViewVTable {
     }
 
     fn append_to_builder(array: &VarBinViewArray, builder: &mut dyn ArrayBuilder) {
-        builder.extend_from_array(array.as_ref())
+        let _ = builder.extend_from_array(array.as_ref());
     }
 }
 

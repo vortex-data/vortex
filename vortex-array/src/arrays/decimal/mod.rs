@@ -321,7 +321,7 @@ impl CanonicalVTable<DecimalVTable> for DecimalVTable {
     }
 
     fn append_to_builder(array: &DecimalArray, builder: &mut dyn ArrayBuilder) {
-        builder.extend_from_array(array.as_ref())
+        let _ = builder.extend_from_array(array.as_ref());
     }
 }
 

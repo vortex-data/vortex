@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::mem::MaybeUninit;
+use std::mem::{MaybeUninit, size_of};
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
@@ -11,8 +11,9 @@ use vortex_mask::Mask;
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
 use crate::arrays::PrimitiveArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, ExtendResult, LazyNullBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
+use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray};
 
 /// The builder for building a [`PrimitiveArray`], parametrized by the `PType`.
@@ -20,6 +21,8 @@ pub struct PrimitiveBuilder<T> {
     dtype: DType,
     values: BufferMut<T>,
     nulls: LazyNullBufferBuilder,
+    size_limit: usize,
+    current_nbytes: usize,
 }
 
 impl<T: NativePType> PrimitiveBuilder<T> {
@@ -30,10 +33,17 @@ impl<T: NativePType> PrimitiveBuilder<T> {
 
     /// Creates a new `PrimitiveBuilder` with the given `capacity`.
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
+        Self::with_capacity_and_limit(nullability, capacity, usize::MAX)
+    }
+
+    /// Creates a new `PrimitiveBuilder` with the given `capacity` and `size_limit`.
+    pub fn with_capacity_and_limit(nullability: Nullability, capacity: usize, size_limit: usize) -> Self {
         Self {
             values: BufferMut::with_capacity(capacity),
             nulls: LazyNullBufferBuilder::new(capacity),
             dtype: DType::Primitive(T::PTYPE, nullability),
+            size_limit,
+            current_nbytes: 0,
         }
     }
 
@@ -41,6 +51,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     pub fn append_value(&mut self, value: T) {
         self.values.push(value);
         self.nulls.append_non_null();
+        let bytes_added = size_of::<T>() + 1 / 8; // value + validity bit
+        self.current_nbytes += bytes_added;
     }
 
     /// Returns the raw primitive values in this builder as a slice.
@@ -127,14 +139,22 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.values.len()
     }
 
+    fn nbytes(&self) -> usize {
+        self.current_nbytes
+    }
+
     fn append_zeros(&mut self, n: usize) {
         self.values.push_n(T::default(), n);
         self.nulls.append_n_non_nulls(n);
+        let bytes_added = n * (size_of::<T>() + 1 / 8); // values + validity bits
+        self.current_nbytes += bytes_added;
     }
 
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.values.push_n(T::default(), n);
         self.nulls.append_n_nulls(n);
+        let bytes_added = n * (size_of::<T>() + 1 / 8); // values + validity bits
+        self.current_nbytes += bytes_added;
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
@@ -154,7 +174,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<ExtendResult> {
         let array = array.to_primitive();
 
         // This should be checked in `extend_from_array` but we can check it again.
@@ -164,8 +184,36 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
             "Cannot extend from array with different ptype"
         );
 
-        self.values.extend_from_slice(array.as_slice::<T>());
-        self.nulls.append_validity_mask(array.validity_mask());
+        let mut elements_consumed = 0;
+        let mut bytes_consumed = 0;
+        let element_size = size_of::<T>() + 1 / 8; // value + validity bit
+
+        let values_slice = array.as_slice::<T>();
+        let validity = array.validity();
+
+        // Process elements one by one until we hit the size limit
+        for i in 0..array.len() {
+            // Check if adding this element would exceed the size limit
+            if self.current_nbytes + element_size > self.size_limit {
+                break; // Stop here, return partial result
+            }
+
+            // Add this element
+            self.values.push(values_slice[i]);
+
+            if validity.is_valid(i) {
+                self.nulls.append_non_null();
+            } else {
+                self.nulls.append_null();
+            }
+
+            // Update counters
+            elements_consumed += 1;
+            bytes_consumed += element_size;
+            self.current_nbytes += element_size;
+        }
+
+        Ok(ExtendResult::new(bytes_consumed, elements_consumed))
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {

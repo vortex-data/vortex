@@ -152,7 +152,7 @@ impl StatsSetRef<'_> {
                 let mut builder =
                     builder_with_capacity(self.dyn_array_ref.dtype(), self.dyn_array_ref.len());
                 unsafe {
-                    builder.extend_from_array_unchecked(self.dyn_array_ref);
+                    let _ = builder.extend_from_array_unchecked(self.dyn_array_ref)?;
                 }
                 let nbytes = builder.finish().nbytes();
                 self.set(stat, Precision::exact(nbytes));

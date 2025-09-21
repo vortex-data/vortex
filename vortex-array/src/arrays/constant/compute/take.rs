@@ -41,7 +41,7 @@ impl TakeKernel for ConstantVTable {
 
                 let mut result_builder =
                     builder_with_capacity(&array.dtype().as_nullable(), indices.len());
-                result_builder.extend_from_array(&arr);
+                let _ = result_builder.extend_from_array(&arr)?;
                 result_builder.set_validity(Mask::from_buffer(v.clone()));
                 Ok(result_builder.finish())
             }

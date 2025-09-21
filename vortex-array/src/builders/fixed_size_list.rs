@@ -11,7 +11,7 @@ use vortex_scalar::{ListScalar, Scalar};
 
 use crate::arrays::FixedSizeListArray;
 use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, builder_with_capacity,
+    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, ExtendResult, LazyNullBufferBuilder, builder_with_capacity,
 };
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
@@ -163,6 +163,11 @@ impl ArrayBuilder for FixedSizeListBuilder {
         self.nulls.len()
     }
 
+    fn nbytes(&self) -> usize {
+        // TODO: Implement proper size calculation for FixedSizeListBuilder
+        self.elements_builder.nbytes() + (self.nulls.len() + 7) / 8
+    }
+
     /// We define the "zero" value of a fixed-size list of size `m` to be a list of `m` zero values
     /// (where "zero value" is defined by the element [`DType`]).
     ///
@@ -202,19 +207,23 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<ExtendResult> {
         let fsl = array.to_fixed_size_list();
         if fsl.is_empty() {
-            return;
+            return Ok(ExtendResult::empty());
         }
 
         let new_elements = fsl.elements();
 
         self.elements_builder
             .ensure_capacity(self.elements_len() + new_elements.len());
-        self.elements_builder.extend_from_array(new_elements);
+        let element_result = self.elements_builder.extend_from_array(new_elements)?;
 
         self.nulls.append_validity_mask(array.validity_mask());
+
+        // TODO: Implement proper size calculation for FixedSizeListBuilder
+        let estimated_bytes = element_result.bytes_consumed + (array.len() + 7) / 8;
+        Ok(ExtendResult::complete(estimated_bytes, array.len()))
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -558,8 +567,8 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
 
         let source_array = source.into_array();
-        builder.extend_from_array(&source_array);
-        builder.extend_from_array(&source_array);
+        let _ = builder.extend_from_array(&source_array);
+        let _ = builder.extend_from_array(&source_array);
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
@@ -597,8 +606,8 @@ mod tests {
 
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 0, Nullable, 0);
 
-        builder.extend_from_array(&source1.into_array());
-        builder.extend_from_array(&source2.into_array());
+        let _ = builder.extend_from_array(&source1.into_array());
+        let _ = builder.extend_from_array(&source2.into_array());
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
@@ -642,7 +651,7 @@ mod tests {
             .unwrap();
 
         // Extend with empty array (should be no-op).
-        builder.extend_from_array(&source.into_array());
+        let _ = builder.extend_from_array(&source.into_array());
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1);
@@ -679,7 +688,7 @@ mod tests {
             Validity::AllValid,
             1,
         );
-        builder.extend_from_array(&source.into_array());
+        let _ = builder.extend_from_array(&source.into_array());
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);

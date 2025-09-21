@@ -12,7 +12,7 @@ use vortex_scalar::{ListScalar, Scalar};
 
 use crate::arrays::{ListArray, OffsetPType};
 use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, PrimitiveBuilder,
+    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, ExtendResult, LazyNullBufferBuilder, PrimitiveBuilder,
     builder_with_capacity,
 };
 use crate::canonical::{Canonical, ToCanonical};
@@ -152,6 +152,11 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         self.nulls.len()
     }
 
+    fn nbytes(&self) -> usize {
+        // TODO: Implement proper size calculation for ListBuilder
+        self.value_builder.nbytes() + self.index_builder.nbytes() + (self.nulls.len() + 7) / 8
+    }
+
     fn append_zeros(&mut self, n: usize) {
         let curr_len = self.value_builder.len();
         for _ in 0..n {
@@ -186,10 +191,10 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         self.append_value(list_scalar)
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<ExtendResult> {
         let list = array.to_list();
         if list.is_empty() {
-            return;
+            return Ok(ExtendResult::empty());
         }
 
         let n_already_added_values = self.value_builder.len();
@@ -227,9 +232,13 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         let non_junk_values = elements.slice(n_leading_junk_values..last_offset);
 
         self.nulls.append_validity_mask(array.validity_mask());
-        self.index_builder.extend_from_array(&offsets_into_builder);
+        let index_result = self.index_builder.extend_from_array(&offsets_into_builder)?;
         self.value_builder.ensure_capacity(non_junk_values.len());
-        self.value_builder.extend_from_array(&non_junk_values);
+        let value_result = self.value_builder.extend_from_array(&non_junk_values)?;
+
+        // TODO: Implement proper size calculation for ListBuilder
+        let estimated_bytes = index_result.bytes_consumed + value_result.bytes_consumed + (array.len() + 7) / 8;
+        Ok(ExtendResult::complete(estimated_bytes, array.len()))
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {

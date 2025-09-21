@@ -39,6 +39,46 @@ use crate::arrays::smallest_storage_type;
 use crate::canonical::Canonical;
 use crate::{Array, ArrayRef};
 
+/// Result of extending an array builder with elements from another array.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "ExtendResult must be checked to ensure all elements were consumed"]
+pub struct ExtendResult {
+    /// Number of bytes consumed from the source array.
+    pub bytes_consumed: usize,
+    /// Number of elements consumed from the source array.
+    pub elements_consumed: usize,
+}
+
+impl ExtendResult {
+    /// Returns true if all elements from the array were consumed.
+    pub fn is_complete(&self, array: &dyn Array) -> bool {
+        self.elements_consumed == array.len()
+    }
+
+    /// Returns true if no elements were consumed (e.g., due to insufficient space).
+    pub fn is_empty(&self) -> bool {
+        self.elements_consumed == 0
+    }
+
+    /// Creates a new ExtendResult.
+    pub fn new(bytes_consumed: usize, elements_consumed: usize) -> Self {
+        Self {
+            bytes_consumed,
+            elements_consumed,
+        }
+    }
+
+    /// Creates an ExtendResult representing complete consumption.
+    pub fn complete(bytes_consumed: usize, elements_consumed: usize) -> Self {
+        Self::new(bytes_consumed, elements_consumed)
+    }
+
+    /// Creates an ExtendResult representing no consumption.
+    pub fn empty() -> Self {
+        Self::new(0, 0)
+    }
+}
+
 mod lazy_null_builder;
 use lazy_null_builder::LazyNullBufferBuilder;
 
@@ -82,6 +122,12 @@ pub trait ArrayBuilder: Send {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns the current size of the builder in bytes.
+    ///
+    /// This represents the approximate memory usage if the builder were finished
+    /// and converted into an array.
+    fn nbytes(&self) -> usize;
 
     /// Append a "zero" value to the array.
     ///
@@ -150,12 +196,16 @@ pub trait ArrayBuilder: Send {
     ///
     /// The array that must have an equal [`DType`] to the array builder's `DType` (with nullability
     /// superset semantics).
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array);
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<ExtendResult>;
 
     /// Extends the array with the provided array, canonicalizing if necessary.
     ///
+    /// Returns an [`ExtendResult`] indicating how many bytes and elements were consumed
+    /// from the source array. If size limits prevent consuming the entire array,
+    /// fewer elements may be consumed than the array's length.
+    ///
     /// Implementors must validate that the passed in [`Array`] has the correct [`DType`].
-    fn extend_from_array(&mut self, array: &dyn Array) {
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<ExtendResult> {
         if !self.dtype().eq_with_nullability_superset(array.dtype()) {
             vortex_panic!(
                 "tried to extend a builder with `DType` {} with an array with `DType {}",
@@ -222,16 +272,22 @@ pub trait ArrayBuilder: Send {
 /// assert_eq!(strings.scalar_at(3), "d".into());
 /// ```
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
+    builder_with_capacity_and_limit(dtype, capacity, usize::MAX)
+}
+
+/// Construct a new canonical builder with size limit for the given [`DType`].
+pub fn builder_with_capacity_and_limit(dtype: &DType, capacity: usize, size_limit: usize) -> Box<dyn ArrayBuilder> {
     match dtype {
         DType::Null => Box::new(NullBuilder::new()),
-        DType::Bool(n) => Box::new(BoolBuilder::with_capacity(*n, capacity)),
+        DType::Bool(n) => Box::new(BoolBuilder::with_capacity_and_limit(*n, capacity, size_limit)),
         DType::Primitive(ptype, n) => {
             match_each_native_ptype!(ptype, |P| {
-                Box::new(PrimitiveBuilder::<P>::with_capacity(*n, capacity))
+                Box::new(PrimitiveBuilder::<P>::with_capacity_and_limit(*n, capacity, size_limit))
             })
         }
         DType::Decimal(decimal_type, n) => {
             match_each_decimal_value_type!(smallest_storage_type(decimal_type), |D| {
+                // TODO: Add size limit support to DecimalBuilder
                 Box::new(DecimalBuilder::with_capacity::<D>(
                     capacity,
                     *decimal_type,
@@ -239,26 +295,37 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
                 ))
             })
         }
-        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(DType::Utf8(*n), capacity)),
-        DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity(
+        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity_and_limit(DType::Utf8(*n), capacity, size_limit)),
+        DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity_and_limit(
             DType::Binary(*n),
             capacity,
+            size_limit,
         )),
-        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
-            struct_dtype.clone(),
-            *n,
-            capacity,
-        )),
-        DType::List(dtype, n) => Box::new(ListBuilder::<u64>::with_capacity(
-            dtype.clone(),
-            *n,
-            capacity,
-        )),
-        DType::FixedSizeList(elem_dtype, list_size, null) => Box::new(
-            FixedSizeListBuilder::with_capacity(elem_dtype.clone(), *list_size, *null, capacity),
-        ),
+        DType::Struct(struct_dtype, n) => {
+            // TODO: Add size limit support to StructBuilder
+            Box::new(StructBuilder::with_capacity(
+                struct_dtype.clone(),
+                *n,
+                capacity,
+            ))
+        }
+        DType::List(dtype, n) => {
+            // TODO: Add size limit support to ListBuilder
+            Box::new(ListBuilder::<u64>::with_capacity(
+                dtype.clone(),
+                *n,
+                capacity,
+            ))
+        }
+        DType::FixedSizeList(elem_dtype, list_size, null) => {
+            // TODO: Add size limit support to FixedSizeListBuilder
+            Box::new(FixedSizeListBuilder::with_capacity(elem_dtype.clone(), *list_size, *null, capacity))
+        }
         DType::Extension(ext_dtype) => {
+            // TODO: Add size limit support to ExtensionBuilder
             Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
         }
     }
 }
+
+

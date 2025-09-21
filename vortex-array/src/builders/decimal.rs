@@ -13,7 +13,7 @@ use vortex_scalar::{
 };
 
 use crate::arrays::DecimalArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, ExtendResult, LazyNullBufferBuilder};
 use crate::canonical::Canonical;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
@@ -149,6 +149,11 @@ impl ArrayBuilder for DecimalBuilder {
         self.values.len()
     }
 
+    fn nbytes(&self) -> usize {
+        // TODO: Implement proper size calculation for DecimalBuilder
+        self.values.len() * 16 + (self.nulls.len() + 7) / 8
+    }
+
     fn append_zeros(&mut self, n: usize) {
         self.values.push_n(0, n);
         self.nulls.append_n_non_nulls(n);
@@ -177,8 +182,11 @@ impl ArrayBuilder for DecimalBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<ExtendResult> {
         let decimal_array = array.to_decimal();
+
+        // TODO: Implement proper size checking for DecimalBuilder
+        let estimated_bytes = array.len() * 16 + (array.len() + 7) / 8;
 
         match_each_decimal_value_type!(decimal_array.values_type(), |D| {
             // Extends the values buffer from another buffer of type D where D can be coerced to the
@@ -189,6 +197,8 @@ impl ArrayBuilder for DecimalBuilder {
 
         self.nulls
             .append_validity_mask(decimal_array.validity_mask());
+
+        Ok(ExtendResult::complete(estimated_bytes, array.len()))
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -290,7 +300,7 @@ mod tests {
         let i8s = i8s.finish();
 
         let mut i128s = DecimalBuilder::new::<i128>(2, 1, false.into());
-        i128s.extend_from_array(&i8s);
+        let _ = i128s.extend_from_array(&i8s);
         let i128s = i128s.finish();
 
         for i in 0..i8s.len() {

@@ -29,7 +29,8 @@ impl CanonicalVTable<FSSTVTable> for FSSTVTable {
 
     fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            return builder.extend_from_array(&array.to_canonical().into_array());
+            let _ = builder.extend_from_array(&array.to_canonical().into_array());
+            return;
         };
 
         // Decompress the whole block of data into a new buffer, and create some views

@@ -10,7 +10,7 @@ use vortex_mask::Mask;
 use vortex_scalar::{BoolScalar, Scalar};
 
 use crate::arrays::BoolArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, ExtendResult, LazyNullBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -18,6 +18,7 @@ pub struct BoolBuilder {
     dtype: DType,
     inner: BooleanBufferBuilder,
     nulls: LazyNullBufferBuilder,
+    size_limit: usize,
 }
 
 impl BoolBuilder {
@@ -26,10 +27,15 @@ impl BoolBuilder {
     }
 
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
+        Self::with_capacity_and_limit(nullability, capacity, usize::MAX)
+    }
+
+    pub fn with_capacity_and_limit(nullability: Nullability, capacity: usize, size_limit: usize) -> Self {
         Self {
             inner: BooleanBufferBuilder::new(capacity),
             nulls: LazyNullBufferBuilder::new(capacity),
             dtype: DType::Bool(nullability),
+            size_limit,
         }
     }
 
@@ -78,6 +84,13 @@ impl ArrayBuilder for BoolBuilder {
         self.inner.len()
     }
 
+    fn nbytes(&self) -> usize {
+        // Boolean array size: capacity bits / 8 + validity bits / 8
+        let bool_bytes = (self.inner.len() + 7) / 8;
+        let validity_bytes = (self.nulls.len() + 7) / 8;
+        bool_bytes + validity_bytes
+    }
+
     fn append_zeros(&mut self, n: usize) {
         self.append_values(false, n)
     }
@@ -104,11 +117,22 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<ExtendResult> {
         let bool_array = array.to_bool();
+
+        // Calculate the estimated size this operation would add
+        let estimated_bytes = (array.len() + 7) / 8 + (array.len() + 7) / 8; // bool data + validity
+
+        // Check if we have space for the entire array
+        let current_size = self.nbytes();
+        if current_size + estimated_bytes > self.size_limit {
+            return Ok(ExtendResult::empty());
+        }
 
         self.inner.append_buffer(bool_array.boolean_buffer());
         self.nulls.append_validity_mask(bool_array.validity_mask());
+
+        Ok(ExtendResult::complete(estimated_bytes, array.len()))
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {

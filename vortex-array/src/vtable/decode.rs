@@ -21,6 +21,6 @@ pub trait CanonicalVTable<V: VTable> {
     /// - The length of the builder is incremented by the length of the input array.
     fn append_to_builder(array: &V::Array, builder: &mut dyn ArrayBuilder) {
         let canonical = Self::canonicalize(array);
-        builder.extend_from_array(canonical.as_ref())
+        let _ = builder.extend_from_array(canonical.as_ref());
     }
 }

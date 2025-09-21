@@ -10,7 +10,7 @@ use vortex_mask::Mask;
 use vortex_scalar::{ExtScalar, Scalar};
 
 use crate::arrays::ExtensionArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, builder_with_capacity};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, ExtendResult, builder_with_capacity};
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -72,6 +72,10 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.len()
     }
 
+    fn nbytes(&self) -> usize {
+        self.storage.nbytes()
+    }
+
     fn append_zeros(&mut self, n: usize) {
         self.storage.append_zeros(n)
     }
@@ -92,7 +96,7 @@ impl ArrayBuilder for ExtensionBuilder {
         self.append_value(ext_scalar)
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<ExtendResult> {
         let ext_array = array.to_extension();
         self.storage.extend_from_array(ext_array.storage())
     }

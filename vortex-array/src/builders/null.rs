@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::NullArray;
-use crate::builders::ArrayBuilder;
+use crate::builders::{ArrayBuilder, ExtendResult};
 use crate::canonical::Canonical;
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -47,6 +47,10 @@ impl ArrayBuilder for NullBuilder {
         self.length
     }
 
+    fn nbytes(&self) -> usize {
+        0 // Null arrays have no data
+    }
+
     fn append_zeros(&mut self, n: usize) {
         self.length += n;
     }
@@ -67,8 +71,9 @@ impl ArrayBuilder for NullBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<ExtendResult> {
         self.append_nulls(array.len());
+        Ok(ExtendResult::complete(0, array.len()))
     }
 
     fn ensure_capacity(&mut self, _capacity: usize) {}

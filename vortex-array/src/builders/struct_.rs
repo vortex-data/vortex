@@ -11,7 +11,7 @@ use vortex_scalar::{Scalar, StructScalar};
 
 use crate::arrays::StructArray;
 use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, builder_with_capacity,
+    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, ExtendResult, LazyNullBufferBuilder, builder_with_capacity,
 };
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
@@ -127,6 +127,11 @@ impl ArrayBuilder for StructBuilder {
         self.nulls.len()
     }
 
+    fn nbytes(&self) -> usize {
+        // TODO: Implement proper size calculation for StructBuilder
+        self.builders.iter().map(|child| child.nbytes()).sum::<usize>() + (self.nulls.len() + 7) / 8
+    }
+
     fn append_zeros(&mut self, n: usize) {
         self.builders
             .iter_mut()
@@ -155,17 +160,23 @@ impl ArrayBuilder for StructBuilder {
         self.append_value(struct_scalar)
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<ExtendResult> {
         let array = array.to_struct();
 
+        let mut total_bytes = 0;
         for (a, builder) in (0..array.struct_fields().nfields())
             .map(|i| &array.fields()[i])
             .zip_eq(self.builders.iter_mut())
         {
-            a.append_to_builder(builder.as_mut());
+            let result = builder.extend_from_array(a)?;
+            total_bytes += result.bytes_consumed;
         }
 
         self.nulls.append_validity_mask(array.validity_mask());
+
+        // TODO: Implement proper size calculation for StructBuilder
+        let estimated_bytes = total_bytes + (array.len() + 7) / 8;
+        Ok(ExtendResult::complete(estimated_bytes, array.len()))
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {

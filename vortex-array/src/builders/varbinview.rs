@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::cmp::max;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
@@ -13,8 +14,9 @@ use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use crate::arrays::{BinaryView, VarBinViewArray};
-use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
+use crate::builders::{ArrayBuilder, ExtendResult, LazyNullBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
+use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray};
 
 /// The builder for building a [`VarBinViewArray`].
@@ -24,6 +26,8 @@ pub struct VarBinViewBuilder {
     nulls: LazyNullBufferBuilder,
     completed: CompletedBuffers,
     in_progress: ByteBufferMut,
+    size_limit: usize,
+    current_nbytes: usize,
 }
 
 impl VarBinViewBuilder {
@@ -31,7 +35,11 @@ impl VarBinViewBuilder {
     const BLOCK_SIZE: u32 = 8 * 8 * 1024;
 
     pub fn with_capacity(dtype: DType, capacity: usize) -> Self {
-        Self::new(dtype, capacity, Default::default())
+        Self::new(dtype, capacity, Default::default(), usize::MAX)
+    }
+
+    pub fn with_capacity_and_limit(dtype: DType, capacity: usize, size_limit: usize) -> Self {
+        Self::new(dtype, capacity, Default::default(), size_limit)
     }
 
     pub fn with_buffer_deduplication(dtype: DType, capacity: usize) -> Self {
@@ -39,10 +47,20 @@ impl VarBinViewBuilder {
             dtype,
             capacity,
             CompletedBuffers::Deduplicated(Default::default()),
+            usize::MAX,
         )
     }
 
-    fn new(dtype: DType, capacity: usize, completed: CompletedBuffers) -> Self {
+    pub fn with_buffer_deduplication_and_limit(dtype: DType, capacity: usize, size_limit: usize) -> Self {
+        Self::new(
+            dtype,
+            capacity,
+            CompletedBuffers::Deduplicated(Default::default()),
+            size_limit,
+        )
+    }
+
+    fn new(dtype: DType, capacity: usize, completed: CompletedBuffers, size_limit: usize) -> Self {
         assert!(
             matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
             "VarBinViewBuilder DType must be Utf8 or Binary."
@@ -53,33 +71,41 @@ impl VarBinViewBuilder {
             completed,
             in_progress: ByteBufferMut::empty(),
             dtype,
+            size_limit,
+            current_nbytes: 0,
         }
     }
 
     fn append_value_view(&mut self, value: &[u8]) {
         let length =
             u32::try_from(value.len()).vortex_expect("cannot have a single string >2^32 in length");
-        if length <= 12 {
-            self.views_builder.push(BinaryView::make_view(value, 0, 0));
-            return;
-        }
 
-        let required_cap = self.in_progress.len() + value.len();
-        if self.in_progress.capacity() < required_cap {
-            self.flush_in_progress();
-            let to_reserve = max(value.len(), VarBinViewBuilder::BLOCK_SIZE as usize);
-            self.in_progress.reserve(to_reserve);
+        let bytes_added = if length <= 12 {
+            // Inlined view - only adds view size
+            self.views_builder.push(BinaryView::make_view(value, 0, 0));
+            size_of::<BinaryView>() + 1 / 8 // view + validity bit
+        } else {
+            // Non-inlined view - adds view + data
+            let required_cap = self.in_progress.len() + value.len();
+            if self.in_progress.capacity() < required_cap {
+                self.flush_in_progress();
+                let to_reserve = max(value.len(), VarBinViewBuilder::BLOCK_SIZE as usize);
+                self.in_progress.reserve(to_reserve);
+            };
+
+            let offset = u32::try_from(self.in_progress.len()).vortex_expect("too many buffers");
+            self.in_progress.extend_from_slice(value);
+            let view = BinaryView::make_view(
+                value,
+                // buffer offset
+                self.completed.len(),
+                offset,
+            );
+            self.views_builder.push(view);
+            size_of::<BinaryView>() + value.len() + 1 / 8 // view + data + validity bit
         };
 
-        let offset = u32::try_from(self.in_progress.len()).vortex_expect("too many buffers");
-        self.in_progress.extend_from_slice(value);
-        let view = BinaryView::make_view(
-            value,
-            // buffer offset
-            self.completed.len(),
-            offset,
-        );
-        self.views_builder.push(view);
+        self.update_size(bytes_added);
     }
 
     /// Appends a value to the builder.
@@ -109,6 +135,27 @@ impl VarBinViewBuilder {
         self.completed.len()
     }
 
+    /// Calculates the estimated size of adding a single element at the given index.
+    fn estimate_element_size(&self, array: &VarBinViewArray, index: usize) -> usize {
+        let view = &array.views()[index];
+        let view_size = size_of::<BinaryView>();
+        let validity_size = 1; // 1 bit, rounded up
+
+        if view.is_inlined() {
+            // Inlined views don't add buffer data
+            view_size + validity_size / 8
+        } else {
+            // Non-inlined views add buffer data
+            let data_size = view.len() as usize;
+            view_size + data_size + validity_size / 8
+        }
+    }
+
+    /// Updates the cached size when adding elements.
+    fn update_size(&mut self, bytes_added: usize) {
+        self.current_nbytes += bytes_added;
+    }
+
     // Pushes an array of values into the buffer, where the buffers are sections of a
     // VarBinView and the views are the BinaryView's of the VarBinView *already with their*
     // buffers adjusted.
@@ -122,7 +169,17 @@ impl VarBinViewBuilder {
         buffer: &[ByteBuffer],
         views: &Buffer<BinaryView>,
         validity_mask: Mask,
-    ) {
+    ) -> VortexResult<ExtendResult> {
+        // Calculate the estimated size this operation would add
+        let estimated_bytes = buffer.iter().map(|buf| buf.len()).sum::<usize>()
+            + views.len() * size_of::<BinaryView>()
+            + validity_mask.len() / 8; // Approximate validity size
+
+        // Check if we have space for the entire operation
+        if self.current_nbytes + estimated_bytes > self.size_limit {
+            return Ok(ExtendResult::empty());
+        }
+
         self.flush_in_progress();
 
         let expected_completed_len = self.completed.len() as usize + buffer.len();
@@ -135,7 +192,12 @@ impl VarBinViewBuilder {
         self.views_builder.extend_trusted(views.iter().copied());
         self.push_only_validity_mask(validity_mask);
 
-        debug_assert_eq!(self.nulls.len(), self.views_builder.len())
+        debug_assert_eq!(self.nulls.len(), self.views_builder.len());
+
+        // Update cached size
+        self.update_size(estimated_bytes);
+
+        Ok(ExtendResult::complete(estimated_bytes, views.len()))
     }
 
     /// Finishes the builder directly into a [`VarBinViewArray`].
@@ -168,6 +230,58 @@ impl VarBinViewBuilder {
     fn push_only_validity_mask(&mut self, validity_mask: Mask) {
         self.nulls.append_validity_mask(validity_mask);
     }
+
+    fn extend_from_array_element_by_element(&mut self, array: &VarBinViewArray) -> VortexResult<ExtendResult> {
+        let mut elements_consumed = 0;
+        let mut bytes_consumed = 0;
+
+        // Process elements one by one until we hit the size limit
+        for i in 0..array.len() {
+            let element_size = self.estimate_element_size(array, i);
+
+            // Check if adding this element would exceed the size limit
+            if self.current_nbytes + element_size > self.size_limit {
+                break; // Stop here, return partial result
+            }
+
+            // Add this element
+            let view = &array.views()[i];
+
+            // Handle validity for both inlined and non-inlined cases
+            if array.validity().is_valid(i) {
+                if view.is_inlined() {
+                    // Inlined view - just add the view
+                    self.views_builder.push(*view);
+                    self.nulls.append_non_null();
+                } else {
+                    // Non-inlined view - need to copy buffer data
+                    let view_ref = view.as_view();
+                    let buffer_idx = view_ref.buffer_index() as usize;
+                    let source_buffer = &array.buffers()[buffer_idx];
+                    let range = view_ref.to_range();
+                    let data = &source_buffer.as_slice()[range];
+
+                    // Add the data using our append_value logic
+                    self.append_value(data);
+                }
+            } else {
+                // Null element - use empty view for inlined, or append null
+                if view.is_inlined() {
+                    self.views_builder.push(*view);  // Keep the inlined view as is
+                    self.nulls.append_null();
+                } else {
+                    self.append_null();
+                }
+            }
+
+            // Update counters
+            bytes_consumed += element_size;
+            elements_consumed += 1;
+            self.update_size(element_size);
+        }
+
+        Ok(ExtendResult::new(bytes_consumed, elements_consumed))
+    }
 }
 
 impl ArrayBuilder for VarBinViewBuilder {
@@ -187,14 +301,24 @@ impl ArrayBuilder for VarBinViewBuilder {
         self.nulls.len()
     }
 
+    fn nbytes(&self) -> usize {
+        self.current_nbytes
+    }
+
     fn append_zeros(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
         self.nulls.append_n_non_nulls(n);
+        // Empty views are inlined, so just view + validity
+        let bytes_added = n * (size_of::<BinaryView>() + 1 / 8);
+        self.update_size(bytes_added);
     }
 
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
         self.nulls.append_n_nulls(n);
+        // Null views are inlined empty views, so just view + validity
+        let bytes_added = n * (size_of::<BinaryView>() + 1 / 8);
+        self.update_size(bytes_added);
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
@@ -229,32 +353,31 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<ExtendResult> {
         let array = array.to_varbinview();
-        self.flush_in_progress();
 
-        let new_indices = self.completed.extend_from_slice(array.buffers());
+        // First, try the bulk approach for efficiency and buffer preservation
+        let bulk_result = self.push_buffer_and_adjusted_views(
+            array.buffers(),
+            array.views(),
+            array.validity_mask(),
+        )?;
 
-        match new_indices {
-            NewIndices::ConstantOffset(offset) => {
-                self.views_builder
-                    .extend_trusted(array.views().iter().map(|view| view.offset_view(offset)));
-            }
-            NewIndices::LookupArray(lookup) => {
-                self.views_builder
-                    .extend_trusted(array.views().iter().map(|view| {
-                        if view.is_inlined() {
-                            *view
-                        } else {
-                            let new_buffer_idx = lookup[view.as_view().buffer_index() as usize];
-                            view.with_buffer_idx(new_buffer_idx)
-                        }
-                    }));
-            }
+        // If bulk approach succeeded (consumed everything), return it
+        if bulk_result.elements_consumed == array.len() {
+            return Ok(bulk_result);
         }
 
-        self.push_only_validity_mask(array.validity_mask());
+        // If bulk approach returned empty (no space), fall back to element-by-element
+        if bulk_result.is_empty() {
+            return self.extend_from_array_element_by_element(&array);
+        }
+
+        // If we got a partial result from bulk approach, this shouldn't happen
+        // since push_buffer_and_adjusted_views is all-or-nothing, but handle it
+        Ok(bulk_result)
     }
+
 
     fn ensure_capacity(&mut self, capacity: usize) {
         if capacity > self.views_builder.capacity() {
@@ -296,6 +419,13 @@ impl CompletedBuffers {
         match self {
             Self::Default(buffers) => buffers.len() as u32,
             Self::Deduplicated(buffers) => buffers.len(),
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &ByteBuffer> {
+        match self {
+            Self::Default(buffers) => buffers.iter(),
+            Self::Deduplicated(buffers) => buffers.buffers.iter(),
         }
     }
 
@@ -458,7 +588,7 @@ mod tests {
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_value("Hello1");
-        builder.extend_from_array(&array);
+        let _ = builder.extend_from_array(&array);
         builder.append_nulls(2);
         builder.append_value("Hello3");
 
