@@ -1,32 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::AddAssign;
-
-use arrow_buffer::BooleanBufferBuilder;
-use num_traits::AsPrimitive;
-use vortex_buffer::BufferMut;
-use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::{Mask, MaskIter};
+use vortex_mask::Mask;
 
-use crate::arrays::{ListViewArray, ListViewVTable, PrimitiveArray};
-use crate::compute::{FilterKernel, FilterKernelAdapter, filter};
-use crate::validity::Validity;
+use crate::arrays::{ListViewArray, ListViewVTable};
+use crate::compute::{self, FilterKernel, FilterKernelAdapter};
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
-
-/// Density threshold for choosing between indices and slices iteration for the selection mask.
-///
-/// When the mask density is below this threshold, we use indices iteration; otherwise, we use
-/// slices iteration. Note that both paths build a BooleanBuffer for the element mask.
-const LISTVIEW_SELECTION_MASK_DENSITY_THRESHOLD: f64 = 0.1;
+use crate::{Array, ArrayRef, Canonical, IntoArray, register_kernel};
 
 impl FilterKernel for ListViewVTable {
     fn filter(&self, array: &ListViewArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
         let elements = array.elements();
-        let offsets = array.offsets().to_primitive();
-        let sizes = array.sizes().to_primitive();
+        let offsets = array.offsets();
+        let sizes = array.sizes();
 
         let new_validity = array.validity().filter(selection_mask)?;
         debug_assert!(
@@ -35,29 +22,19 @@ impl FilterKernel for ListViewVTable {
                 .is_none_or(|len| len == selection_mask.true_count())
         );
 
-        let (new_elements, new_offsets, new_sizes) =
-            match_each_integer_ptype!(offsets.ptype(), |O| {
-                match_each_integer_ptype!(sizes.ptype(), |S| {
-                    compute_filtered_elements_and_arrays::<O, S>(
-                        elements.as_ref(),
-                        offsets.as_slice::<O>(),
-                        sizes.as_slice::<S>(),
-                        selection_mask,
-                    )?
-                })
-            });
+        let (new_elements, new_offsets, new_sizes) = compute_filtered_elements_and_arrays(
+            elements.as_ref(),
+            offsets.as_ref(),
+            sizes.as_ref(),
+            selection_mask,
+        )?;
 
-        // SAFETY: Filter operation maintains all ListViewArray invariants:
-        // - Offsets and sizes have the same length (both filtered by selection_mask).
-        // - Elements are properly filtered to match the new offsets and sizes.
+        // SAFETY: Filter operation maintains all `ListViewArray` invariants:
+        // - Offsets and sizes are derived from existing valid child arrays.
+        // - Offsets and sizes have the same length (both filtered by `selection_mask`).
         // - Validity matches the filtered array's nullability.
         Ok(unsafe {
-            ListViewArray::new_unchecked(
-                new_elements,
-                new_offsets.into_array(),
-                new_sizes.into_array(),
-                new_validity,
-            )
+            ListViewArray::new_unchecked(new_elements, new_offsets, new_sizes, new_validity)
         }
         .into_array())
     }
@@ -65,96 +42,90 @@ impl FilterKernel for ListViewVTable {
 
 register_kernel!(FilterKernelAdapter(ListViewVTable).lift());
 
-/// Given a selection filter mask, computes new offsets, sizes, and an element array for a
-/// ListView array's child elements array.
-fn compute_filtered_elements_and_arrays<
-    O: NativePType + AsPrimitive<usize> + AddAssign,
-    S: NativePType + AsPrimitive<usize>,
->(
+/// Filters a [`ListViewArray`] by pushing down the filter into the `offsets` and `sizes`.
+///
+/// This implementation optimizes for read performance by simply reusing the existing `elements`
+/// array. Unlike `ListArray` and `FixedSizeListArray` (which must maintain contiguous, in-order
+/// elements), `ListView` allows non-contiguous and out-of-order lists, enabling us to simply slice
+/// the elements and adjust offsets.
+///
+/// # Example
+///
+/// ```text
+/// Input:
+///   elements = [X, X, X, a, b, Z, Z, Z, c, d, e, f, g, h, i, j, k, Y, Y]
+///   Lists: #0=[i,j,k] (offset=11, size=3)
+///          #1=[a,b] (offset=3, size=2)
+///          #2=[X,X,X] (offset=0, size=3) - unused data at start
+///          #3=[Z,Z,Z] (offset=5, size=3) - unused data in middle
+///          #4=[Y,Y] (offset=17, size=2) - unused data at end
+///          #5=[c,d,e,f] (offset=8, size=4)
+///          #6=[g,h] (offset=12, size=2) - overlaps with #0's range
+///
+/// Filter: [true, true, false, false, false, true, false] (keep #0, #1, #5; skip others)
+///
+/// Result:
+///   elements = [a, b, Z, Z, Z, c, d, e, f, g, h, i, j, k] (slice from 3..17, trimming X's and Y's)
+///   offsets = [8, 0, 5] (adjusted: 11-3=8, 3-3=0, 8-3=5)
+///   sizes = [3, 2, 4] (unchanged)
+///
+/// Note: Elements at indices 0,1,2 (X,X,X) and 17,18 (Y,Y) are trimmed from ends.
+/// Elements Z,Z,Z at indices 5,6,7 are kept even though list #3 is not selected,
+/// because they fall within the range [3..17] between the first and last used elements.
+/// This shows the slice trims unused ends but preserves gaps in the middle for performance.
+/// ```
+fn compute_filtered_elements_and_arrays(
     elements: &dyn Array,
-    offsets: &[O],
-    sizes: &[S],
+    offsets: &dyn Array,
+    sizes: &dyn Array,
     selection_mask: &Mask,
-) -> VortexResult<(ArrayRef, PrimitiveArray, PrimitiveArray)> {
-    let values = selection_mask
-        .values()
-        .vortex_expect("`AllTrue` and `AllFalse` are handled by filter entry point");
-    let true_count = selection_mask.true_count();
+) -> VortexResult<(ArrayRef, ArrayRef, ArrayRef)> {
+    // Step 1: Filter the offsets and sizes arrays.
+    let filtered_offsets = compute::filter(offsets, selection_mask)?;
+    let filtered_sizes = compute::filter(sizes, selection_mask)?;
 
-    let mut new_offsets = BufferMut::<O>::with_capacity(true_count);
-    let mut new_sizes = BufferMut::<S>::with_capacity(true_count);
-    let mut new_mask_builder = BooleanBufferBuilder::new(elements.len());
-    let mut next_offset: O = O::zero(); // Offsets always start at zero for filtered arrays.
-
-    // Choose the optimal iteration strategy based on selection mask density.
-    match values.threshold_iter(LISTVIEW_SELECTION_MASK_DENSITY_THRESHOLD) {
-        MaskIter::Slices(slices) => {
-            // Dense iteration: process ranges of consecutive selected lists.
-            for &(start, end) in slices {
-                // This represents `start - end` lists in the final array.
-                for i in start..end {
-                    let list_offset = offsets[i].as_();
-                    let list_size = sizes[i].as_();
-
-                    // Mark elements as selected based on this list's range.
-                    if list_size > 0 {
-                        // Fill false values before this list's elements.
-                        if list_offset > new_mask_builder.len() {
-                            new_mask_builder.append_n(list_offset - new_mask_builder.len(), false);
-                        }
-                        // Mark this list's elements as true.
-                        new_mask_builder.append_n(list_size, true);
-                    }
-
-                    // Add the new offset and size.
-                    new_offsets.push(next_offset);
-                    new_sizes.push(sizes[i]);
-                    next_offset += O::from(sizes[i]).vortex_expect("size fits in O");
-                }
-            }
-
-            // Remove any trailing elements.
-            if new_mask_builder.len() < elements.len() {
-                new_mask_builder.append_n(elements.len() - new_mask_builder.len(), false);
-            }
-        }
-        MaskIter::Indices(indices) => {
-            // Sparse iteration: process individual selected lists.
-            let mut last_elem_end: usize = 0;
-
-            for &idx in indices {
-                let list_offset = offsets[idx].as_();
-                let list_size = sizes[idx].as_();
-
-                // Fill false values up to the start of this list.
-                if list_offset > last_elem_end {
-                    new_mask_builder.append_n(list_offset - last_elem_end, false);
-                }
-                // Keep the elements in this list.
-                if list_size > 0 {
-                    new_mask_builder.append_n(list_size, true);
-                    last_elem_end = list_offset + list_size;
-                }
-
-                // Add the new offset and size.
-                new_offsets.push(next_offset);
-                new_sizes.push(sizes[idx]);
-                next_offset += O::from(sizes[idx]).vortex_expect("size fits in O");
-            }
-
-            // For sparse iteration, handle any gap after the last processed element.
-            if last_elem_end < elements.len() {
-                new_mask_builder.append_n(elements.len() - last_elem_end, false);
-            }
-        }
+    // Step 2: Find the range of elements used by selected lists.
+    // If there are no filtered offsets, return empty arrays.
+    if filtered_offsets.is_empty() {
+        debug_assert!(filtered_sizes.is_empty());
+        let empty_elements = Canonical::empty(elements.dtype()).into_array();
+        return Ok((empty_elements, filtered_offsets, filtered_sizes));
     }
 
-    // Allow the child array to filter themselves.
-    // The `Mask` can determine the best representation based on the buffer's density.
-    let new_elements = filter(elements, &Mask::from_buffer(new_mask_builder.finish()))?;
+    // From here on, we are guaranteed that the filtered `offsets` and `sizes` are both non-nullable
+    // and also non-empty.
 
-    let new_offsets = PrimitiveArray::new(new_offsets, Validity::NonNullable);
-    let new_sizes = PrimitiveArray::new(new_sizes, Validity::NonNullable);
+    // TODO(connor)[ListView]: Figure out if truncating the `elements` is worth it.
 
-    Ok((new_elements, new_offsets, new_sizes))
+    // Get min offset and maximum end index from the filtered offsets + sizes.
+    let min_offset_scalar = compute::min_max(&filtered_offsets)?
+        .vortex_expect("offsets cannot be null or empty here")
+        .min;
+
+    let list_ends = compute::add(&filtered_offsets, &filtered_sizes)
+        .vortex_expect("`offset + size` somehow overflowed");
+    let max_end_scalar = compute::min_max(&list_ends)?
+        .vortex_expect("offsets cannot be null or empty here")
+        .max;
+
+    // Step 3: Slice elements array to only include the used range.
+    let min_offset = min_offset_scalar
+        .as_primitive()
+        .as_::<usize>()
+        .vortex_expect("offset cannot be null");
+    let max_end = max_end_scalar
+        .as_primitive()
+        .as_::<usize>()
+        .vortex_expect("end index cannot be null");
+
+    let sliced_elements = elements.slice(min_offset..max_end);
+
+    // Step 4: Adjust offsets by subtracting min_offset if necessary.
+    let adjusted_offsets = if min_offset > 0 {
+        compute::sub_scalar(&filtered_offsets, min_offset_scalar)?
+    } else {
+        filtered_offsets
+    };
+
+    Ok((sliced_elements, adjusted_offsets, filtered_sizes))
 }

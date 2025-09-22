@@ -14,7 +14,7 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 /// When the mask density is below this threshold, we use indices. Otherwise, we use slices.
 ///
 /// Note that this is somewhat arbitrarily chosen...
-const FSL_MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.1;
+const FSL_MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 
 /// Filter implementation for [`FixedSizeListArray`].
 ///

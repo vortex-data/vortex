@@ -16,11 +16,12 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
-/// Density threshold for choosing between indices and slices iteration for the selection mask.
+/// Density threshold for choosing between indices and slices representation when expanding masks.
 ///
-/// When the mask density is below this threshold, we use indices iteration; otherwise, we use
-/// slices iteration. Note that both paths build a BooleanBuffer for the element mask.
-const LIST_SELECTION_MASK_DENSITY_THRESHOLD: f64 = 0.1;
+/// When the mask density is below this threshold, we use indices. Otherwise, we use slices.
+///
+/// Note that this is somewhat arbitrarily chosen...
+const LIST_SELECTION_MASK_DENSITY_THRESHOLD: f64 = 0.05;
 
 impl FilterKernel for ListVTable {
     fn filter(&self, array: &ListArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
@@ -57,6 +58,10 @@ register_kernel!(FilterKernelAdapter(ListVTable).lift());
 
 /// Given a selection filter mask, computes new offsets and an element array for a list array's
 /// child elements array.
+///
+/// Note that unlike `ListViewArray`, we **must** push the filter down into our child `elements`
+/// array because our output array must have lists that are contiguous (something that
+/// `ListViewArray` can get away with because it additionally stores a `sizes` child array).
 fn compute_filtered_elements_and_offsets<O: NativePType + AsPrimitive<usize> + AddAssign>(
     elements: &dyn Array,
     offsets: &[O],
@@ -78,15 +83,12 @@ fn compute_filtered_elements_and_offsets<O: NativePType + AsPrimitive<usize> + A
         MaskIter::Slices(slices) => {
             // Dense iteration: process ranges of consecutive selected lists.
             for &(start, end) in slices {
-                // This represents `start - end` lists in the final array.
+                // Optimization: for dense ranges, we can process the elements mask more efficiently.
                 let elems_start = offsets[start].as_();
                 let elems_end = offsets[end].as_();
-                let elems_len = elems_end - elems_start;
 
-                // Remove any unnecessary elements before the start of the `start` list.
-                new_mask_builder.append_n(elems_start - new_mask_builder.len(), false);
-                // Keep the elements that _are_ in the list.
-                new_mask_builder.append_n(elems_len, true);
+                // Process the entire range of elements at once.
+                process_element_range(elems_start, elems_end, &mut new_mask_builder);
 
                 // Add the offsets for each list in this range.
                 for i in start..end {
@@ -95,40 +97,27 @@ fn compute_filtered_elements_and_offsets<O: NativePType + AsPrimitive<usize> + A
                     new_offsets.push(next_offset);
                 }
             }
-
-            // Remove any trailing elements.
-            if new_mask_builder.len() < elements.len() {
-                new_mask_builder.append_n(elements.len() - new_mask_builder.len(), false);
-            }
         }
         MaskIter::Indices(indices) => {
             // Sparse iteration: process individual selected lists.
-            let mut last_elem_end: usize = 0;
-
             for &idx in indices {
                 let list_start = offsets[idx].as_();
                 let list_end = offsets[idx + 1].as_();
-                let list_len = list_end - list_start;
 
-                // Fill false values up to the start of this list.
-                if list_start > last_elem_end {
-                    new_mask_builder.append_n(list_start - last_elem_end, false);
-                }
-                // Keep the elements in this list.
-                new_mask_builder.append_n(list_len, true);
-                last_elem_end = list_end;
+                // Process the elements for this list.
+                process_element_range(list_start, list_end, &mut new_mask_builder);
 
                 // Add the offset for this list.
                 let offset_len = offsets[idx + 1] - offsets[idx];
                 next_offset += offset_len;
                 new_offsets.push(next_offset);
             }
-
-            // For sparse iteration, handle any gap after the last processed element.
-            if last_elem_end < elements.len() {
-                new_mask_builder.append_n(elements.len() - last_elem_end, false);
-            }
         }
+    }
+
+    // Fill any trailing elements.
+    if new_mask_builder.len() < elements.len() {
+        new_mask_builder.append_n(elements.len() - new_mask_builder.len(), false);
     }
 
     // Allow the child array to filter themselves.
@@ -138,4 +127,23 @@ fn compute_filtered_elements_and_offsets<O: NativePType + AsPrimitive<usize> + A
     let new_offsets = PrimitiveArray::new(new_offsets, Validity::NonNullable);
 
     Ok((new_elements, new_offsets))
+}
+
+/// Process a range of elements for filtering.
+fn process_element_range(
+    elems_start: usize,
+    elems_end: usize,
+    new_mask_builder: &mut BooleanBufferBuilder,
+) {
+    let elems_len = elems_end - elems_start;
+
+    // Only process if there are elements to mark.
+    if elems_len > 0 {
+        // Fill any gaps before this range.
+        if elems_start > new_mask_builder.len() {
+            new_mask_builder.append_n(elems_start - new_mask_builder.len(), false);
+        }
+        // Keep all elements in this range.
+        new_mask_builder.append_n(elems_len, true);
+    }
 }

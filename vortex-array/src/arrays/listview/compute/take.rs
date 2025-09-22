@@ -1,202 +1,125 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBufferBuilder;
-use num_traits::PrimInt;
-use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
-use vortex_mask::Mask;
+use vortex_error::{VortexExpect, VortexResult};
 
-use crate::arrays::{ListViewArray, ListViewVTable, PrimitiveArray};
-use crate::builders::{ArrayBuilder, PrimitiveBuilder};
-use crate::compute::{TakeKernel, TakeKernelAdapter, take};
-use crate::validity::Validity;
+use crate::arrays::{ListViewArray, ListViewVTable};
+use crate::compute::{self, TakeKernel, TakeKernelAdapter};
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, OffsetPType, ToCanonical, register_kernel};
+use crate::{Array, ArrayRef, Canonical, IntoArray, register_kernel};
 
 impl TakeKernel for ListViewVTable {
-    #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &ListViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive();
-        let offsets = array.offsets().to_primitive();
-        let sizes = array.sizes().to_primitive();
+        let elements = array.elements();
+        let offsets = array.offsets();
+        let sizes = array.sizes();
 
-        match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
-            match_each_integer_ptype!(sizes.dtype().as_ptype(), |S| {
-                match_each_integer_ptype!(indices.ptype(), |I| {
-                    _take::<I, O, S>(
-                        array,
-                        offsets.as_slice::<O>(),
-                        sizes.as_slice::<S>(),
-                        &indices,
-                        array.validity_mask(),
-                        indices.validity_mask(),
-                    )
-                })
-            })
-        })
+        // Compute the new validity by combining the array's validity with the indices' validity.
+        let new_validity = array.validity().take(indices)?;
+
+        let (new_elements, new_offsets, new_sizes) = compute_taken_elements_and_arrays(
+            elements.as_ref(),
+            offsets.as_ref(),
+            sizes.as_ref(),
+            indices,
+        )?;
+
+        // SAFETY: Take operation maintains all `ListViewArray` invariants:
+        // - Offsets and sizes are derived from existing valid child arrays.
+        // - Offsets and sizes have the same length (both taken with same `indices`).
+        // - Validity correctly reflects the combination of array and indices validity.
+        Ok(unsafe {
+            ListViewArray::new_unchecked(new_elements, new_offsets, new_sizes, new_validity)
+        }
+        .into_array())
     }
 }
 
 register_kernel!(TakeKernelAdapter(ListViewVTable).lift());
 
-fn _take<I: NativePType, O: OffsetPType + NativePType + PrimInt, S: NativePType + PrimInt>(
-    array: &ListViewArray,
-    offsets: &[O],
-    sizes: &[S],
-    indices_array: &PrimitiveArray,
-    data_validity: Mask,
-    indices_validity_mask: Mask,
-) -> VortexResult<ArrayRef> {
-    let indices: &[I] = indices_array.as_slice::<I>();
+/// Takes a [`ListViewArray`] by pushing down the `take` indices into the `offsets` and `sizes`.
+///
+/// This implementation optimizes for read performance by simply reusing the existing `elements`
+/// array. Unlike `ListArray` and `FixedSizeListArray` (which must maintain contiguous, in-order
+/// elements), `ListView` allows non-contiguous and out-of-order lists, enabling us to simply slice
+/// the elements and adjust offsets.
+///
+/// # Example
+///
+/// ```text
+/// Input:
+///   elements = [X, X, X, a, b, Z, Z, Z, c, d, e, f, g, h, i, j, k, Y, Y]
+///   Lists: #0=[i,j,k] (offset=11, size=3)
+///          #1=[a,b] (offset=3, size=2)
+///          #2=[X,X,X] (offset=0, size=3) - will not be taken
+///          #3=[Z,Z,Z] (offset=5, size=3) - will not be taken
+///          #4=[Y,Y] (offset=17, size=2) - will not be taken
+///          #5=[c,d,e,f] (offset=8, size=4)
+///          #6=[g,h] (offset=12, size=2) - will not be taken
+///
+/// Take indices: [0, 1, 5] (keep lists #0, #1, #5)
+///
+/// Result:
+///   elements = [a, b, Z, Z, Z, c, d, e, f, g, h, i, j, k] (slice from 3..14)
+///   offsets = [8, 0, 5] (adjusted: 11-3=8, 3-3=0, 8-3=5)
+///   sizes = [3, 2, 4] (unchanged)
+///
+/// Note: Elements Z,Z,Z at indices 5,6,7 are kept even though they're not referenced,
+/// because they fall within the range [3..14] between the first and last used elements.
+/// This tradeoff avoids the cost of rebuilding the elements array.
+/// ```
+fn compute_taken_elements_and_arrays(
+    elements: &dyn Array,
+    offsets: &dyn Array,
+    sizes: &dyn Array,
+    indices: &dyn Array,
+) -> VortexResult<(ArrayRef, ArrayRef, ArrayRef)> {
+    // Step 1: Take the offsets and sizes arrays at the requested indices.
+    let taken_offsets = compute::take(offsets, indices)?;
+    let taken_sizes = compute::take(sizes, indices)?;
 
-    if !indices_validity_mask.all_true() || !data_validity.all_true() {
-        return _take_nullable::<I, O, S>(
-            array,
-            offsets,
-            sizes,
-            indices,
-            data_validity,
-            indices_validity_mask,
-        );
+    // Step 2: Find the range of elements used by the taken lists.
+    // If there are no taken offsets, return empty arrays.
+    if taken_offsets.is_empty() {
+        debug_assert!(taken_sizes.is_empty());
+        let empty_elements = Canonical::empty(elements.dtype()).into_array();
+        return Ok((empty_elements, taken_offsets, taken_sizes));
     }
 
-    let mut new_offsets =
-        PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, indices.len());
-    let mut new_sizes =
-        PrimitiveBuilder::<S>::with_capacity(Nullability::NonNullable, indices.len());
-    let mut elements_to_take =
-        PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, 2 * indices.len());
+    // From here on, we are guaranteed that the taken `offsets` and `sizes` are both non-nullable
+    // and also non-empty.
 
-    let mut current_offset = O::zero();
+    // TODO(connor)[ListView]: Figure out if truncating the `elements` is worth it.
 
-    for &data_idx in indices {
-        let data_idx = data_idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
+    // Get min offset and maximum end index from the taken offsets + sizes.
+    let min_offset_scalar = compute::min_max(&taken_offsets)?
+        .vortex_expect("offsets cannot be null or empty here")
+        .min;
 
-        let start = offsets[data_idx];
-        let size = sizes[data_idx];
+    let list_ends = compute::add(&taken_offsets, &taken_sizes)
+        .vortex_expect("`offset + size` somehow overflowed");
+    let max_end_scalar = compute::min_max(&list_ends)?
+        .vortex_expect("offsets cannot be null or empty here")
+        .max;
 
-        // Build the elements to take from the original elements array.
-        let size_usize = size
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert size to usize: {}", size));
+    // Step 3: Slice elements array to only include the used range.
+    let min_offset = min_offset_scalar
+        .as_primitive()
+        .as_::<usize>()
+        .vortex_expect("offset cannot be null");
+    let max_end = max_end_scalar
+        .as_primitive()
+        .as_::<usize>()
+        .vortex_expect("end index cannot be null");
 
-        elements_to_take.ensure_capacity(elements_to_take.len() + size_usize);
-        for i in 0..size_usize {
-            elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < size"));
-        }
+    let sliced_elements = elements.slice(min_offset..max_end);
 
-        // Update the new offsets and sizes arrays.
-        new_offsets.append_value(current_offset);
-        new_sizes.append_value(size);
-        current_offset = current_offset + O::from(size).vortex_expect("size fits in O");
-    }
+    // Step 4: Adjust offsets by subtracting min_offset if necessary.
+    let adjusted_offsets = if min_offset > 0 {
+        compute::sub_scalar(&taken_offsets, min_offset_scalar)?
+    } else {
+        taken_offsets
+    };
 
-    let elements_to_take = elements_to_take.finish();
-    let new_offsets = new_offsets.finish();
-    let new_sizes = new_sizes.finish();
-
-    let new_elements = take(array.elements(), elements_to_take.as_ref())?;
-
-    // SAFETY: The arrays maintain the ListView invariants:
-    // - Offsets and sizes have the same length as indices.
-    // - Elements are properly taken based on offsets and sizes.
-    // - Validity matches the original array's validity combined with indices validity.
-    Ok(unsafe {
-        ListViewArray::new_unchecked(
-            new_elements,
-            new_offsets.to_array(),
-            new_sizes.to_array(),
-            indices_array
-                .validity()
-                .clone()
-                .and(array.validity().clone()),
-        )
-    }
-    .to_array())
-}
-
-fn _take_nullable<
-    I: NativePType,
-    O: OffsetPType + NativePType + PrimInt,
-    S: NativePType + PrimInt,
->(
-    array: &ListViewArray,
-    offsets: &[O],
-    sizes: &[S],
-    indices: &[I],
-    data_validity: Mask,
-    indices_validity: Mask,
-) -> VortexResult<ArrayRef> {
-    let mut new_offsets =
-        PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, indices.len());
-    let mut new_sizes =
-        PrimitiveBuilder::<S>::with_capacity(Nullability::NonNullable, indices.len());
-    let mut elements_to_take =
-        PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, 2 * indices.len());
-
-    let mut current_offset = O::zero();
-    let mut new_validity = BooleanBufferBuilder::new(indices.len());
-
-    for (idx, data_idx) in indices.iter().enumerate() {
-        if !indices_validity.value(idx) {
-            // Index is null, so the output at this position is null.
-            new_offsets.append_value(current_offset);
-            new_sizes.append_zero();
-            new_validity.append(false);
-            continue;
-        }
-
-        let data_idx = data_idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
-
-        if data_validity.value(data_idx) {
-            // Both index and data are valid.
-            let start = offsets[data_idx];
-            let size = sizes[data_idx];
-
-            let size_usize = size
-                .to_usize()
-                .unwrap_or_else(|| vortex_panic!("Failed to convert size to usize: {}", size));
-
-            elements_to_take.ensure_capacity(elements_to_take.len() + size_usize);
-            for i in 0..size_usize {
-                elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < size"));
-            }
-
-            new_offsets.append_value(current_offset);
-            new_sizes.append_value(size);
-            current_offset = current_offset + O::from(size).vortex_expect("size fits in O");
-            new_validity.append(true);
-        } else {
-            // Data at the index is null.
-            new_offsets.append_value(current_offset);
-            new_sizes.append_zero();
-            new_validity.append(false);
-        }
-    }
-
-    let elements_to_take = elements_to_take.finish();
-    let new_offsets = new_offsets.finish();
-    let new_sizes = new_sizes.finish();
-    let new_elements = take(array.elements(), elements_to_take.as_ref())?;
-
-    let new_validity: Validity = Validity::from(new_validity.finish());
-
-    // SAFETY: The arrays maintain the ListView invariants:
-    // - Offsets and sizes have the same length as indices.
-    // - Elements are properly taken based on offsets and sizes.
-    // - Validity correctly reflects null positions.
-    Ok(unsafe {
-        ListViewArray::new_unchecked(
-            new_elements,
-            new_offsets.to_array(),
-            new_sizes.to_array(),
-            new_validity,
-        )
-    }
-    .to_array())
+    Ok((sliced_elements, adjusted_offsets, taken_sizes))
 }

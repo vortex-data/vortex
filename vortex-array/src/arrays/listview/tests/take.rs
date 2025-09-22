@@ -39,17 +39,25 @@ fn test_take_simple() {
     assert_eq!(result.len(), 3);
     let result_list = result.to_listview();
 
-    // First taken list should be [3, 4] (index 1).
-    assert_eq!(result_list.offset_at(0), 0);
+    // First taken list should be [3, 4] (originally index 1).
     assert_eq!(result_list.size_at(0), 2);
+    let list0 = result_list.list_elements_at(0);
+    assert_eq!(list0.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 3);
+    assert_eq!(list0.scalar_at(1).as_primitive().as_::<i32>().unwrap(), 4);
 
-    // Second taken list should be [0, 1, 2] (index 0).
-    assert_eq!(result_list.offset_at(1), 2);
+    // Second taken list should be [0, 1, 2] (originally index 0).
     assert_eq!(result_list.size_at(1), 3);
+    let list1 = result_list.list_elements_at(1);
+    assert_eq!(list1.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 0);
+    assert_eq!(list1.scalar_at(1).as_primitive().as_::<i32>().unwrap(), 1);
+    assert_eq!(list1.scalar_at(2).as_primitive().as_::<i32>().unwrap(), 2);
 
-    // Third taken list should be [5, 6, 7] (index 2).
-    assert_eq!(result_list.offset_at(2), 5);
+    // Third taken list should be [5, 6, 7] (originally index 2).
     assert_eq!(result_list.size_at(2), 3);
+    let list2 = result_list.list_elements_at(2);
+    assert_eq!(list2.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 5);
+    assert_eq!(list2.scalar_at(1).as_primitive().as_::<i32>().unwrap(), 6);
+    assert_eq!(list2.scalar_at(2).as_primitive().as_::<i32>().unwrap(), 7);
 }
 
 #[test]
@@ -71,8 +79,10 @@ fn test_take_nullable() {
 
     // First result should be valid [10, 20].
     assert!(result_list.is_valid(0));
-    assert_eq!(result_list.offset_at(0), 0);
     assert_eq!(result_list.size_at(0), 2);
+    let list0 = result_list.list_elements_at(0);
+    assert_eq!(list0.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 10);
+    assert_eq!(list0.scalar_at(1).as_primitive().as_::<i32>().unwrap(), 20);
 
     // Second result should be null (null index).
     assert!(result_list.is_invalid(1));
@@ -99,21 +109,30 @@ fn test_take_out_of_order_offsets() {
     let result_list = result.to_listview();
 
     // Check that the taken lists maintain their content despite out-of-order offsets.
-    // Index 3 points to offset 0, size 2: [0, 1].
-    assert_eq!(result_list.offset_at(0), 0);
+    // Index 3 (offset 0, size 2): [0, 1].
     assert_eq!(result_list.size_at(0), 2);
+    let list0 = result_list.list_elements_at(0);
+    assert_eq!(list0.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 0);
+    assert_eq!(list0.scalar_at(1).as_primitive().as_::<i32>().unwrap(), 1);
 
-    // Index 1 points to offset 2, size 2: [2, 3].
-    assert_eq!(result_list.offset_at(1), 2);
+    // Index 1 (offset 2, size 2): [2, 3].
     assert_eq!(result_list.size_at(1), 2);
+    let list1 = result_list.list_elements_at(1);
+    assert_eq!(list1.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 2);
+    assert_eq!(list1.scalar_at(1).as_primitive().as_::<i32>().unwrap(), 3);
 
-    // Index 0 points to offset 5, size 3: [5, 6, 7].
-    assert_eq!(result_list.offset_at(2), 4);
+    // Index 0 (offset 5, size 3): [5, 6, 7].
     assert_eq!(result_list.size_at(2), 3);
+    let list2 = result_list.list_elements_at(2);
+    assert_eq!(list2.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 5);
+    assert_eq!(list2.scalar_at(1).as_primitive().as_::<i32>().unwrap(), 6);
+    assert_eq!(list2.scalar_at(2).as_primitive().as_::<i32>().unwrap(), 7);
 
-    // Index 2 points to offset 8, size 2: [8, 9].
-    assert_eq!(result_list.offset_at(3), 7);
+    // Index 2 (offset 8, size 2): [8, 9].
     assert_eq!(result_list.size_at(3), 2);
+    let list3 = result_list.list_elements_at(3);
+    assert_eq!(list3.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 8);
+    assert_eq!(list3.scalar_at(1).as_primitive().as_::<i32>().unwrap(), 9);
 }
 
 #[rstest]
@@ -212,8 +231,8 @@ fn test_take_with_large_indices() {
     let elements = buffer![0i32..100].into_array();
 
     // Create 20 lists with varying offsets and sizes.
-    let offsets = PrimitiveArray::from_iter((0..20).map(|i| i * 3)).to_array();
-    let sizes = PrimitiveArray::from_iter((0..20).map(|i| ((i % 4) + 1) as u32)).to_array();
+    let offsets = PrimitiveArray::from_iter((0..20).map(|i| i * 3)).into_array();
+    let sizes = PrimitiveArray::from_iter((0..20).map(|i| (i % 4) + 1)).into_array();
 
     let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
         .unwrap()

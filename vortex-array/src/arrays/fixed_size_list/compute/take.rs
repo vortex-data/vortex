@@ -14,7 +14,9 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 /// Take implementation for [`FixedSizeListArray`].
 ///
-/// Expands list indices into element indices and pushes them down to the child elements array.
+/// Unlike `ListView`, `FixedSizeListArray` must rebuild the elements array because it requires
+/// that elements start at offset 0 and be perfectly packed without gaps. We expand list indices
+/// into element indices and push them down to the child elements array.
 impl TakeKernel for FixedSizeListVTable {
     fn take(&self, array: &FixedSizeListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {

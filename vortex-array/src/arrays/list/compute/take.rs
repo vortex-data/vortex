@@ -14,6 +14,11 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, OffsetPType, ToCanonical, register_kernel};
 
+/// Take implementation for [`ListArray`].
+///
+/// Unlike `ListView`, `ListArray` must rebuild the elements array to maintain its invariant
+/// that lists are stored contiguously and in-order (`offset[i+1] >= offset[i]`). Taking
+/// non-contiguous indices would violate this requirement.
 impl TakeKernel for ListVTable {
     fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive();
