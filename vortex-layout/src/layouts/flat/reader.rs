@@ -35,7 +35,7 @@ use crate::LayoutReader;
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
 /// While we develop operator-based evaluation, we can enable it via an environment variable.
-const USE_OPERATOR_EVAL: LazyLock<bool> = LazyLock::new(|| {
+static USE_OPERATOR_EVAL: LazyLock<bool> = LazyLock::new(|| {
     env::var("VORTEX_USE_OPERATOR_EVAL")
         .ok()
         .is_some_and(|v| v == "1")

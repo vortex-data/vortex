@@ -64,22 +64,22 @@ name = "compute_between"
 harness = false
 required-features = ["test-harness"]
 
-#[[bench]]
-#name = "pipeline_bitpacking"
-#harness = false
-#test = false
-#
-#[[bench]]
-#name = "pipeline_for"
-#harness = false
-#test = false
-#
-#[[bench]]
-#name = "pipeline_bitpacking_compare_scalar"
-#harness = false
-#test = false
-#
-#[[bench]]
-#name = "pipeline_bitpacking_kernel"
-#harness = false
-#test = false
+[[bench]]
+name = "pipeline_bitpacking"
+harness = false
+test = false
+
+[[bench]]
+name = "pipeline_for"
+harness = false
+test = false
+
+[[bench]]
+name = "pipeline_bitpacking_compare_scalar"
+harness = false
+test = false
+
+[[bench]]
+name = "pipeline_bitpacking_kernel"
+harness = false
+test = false

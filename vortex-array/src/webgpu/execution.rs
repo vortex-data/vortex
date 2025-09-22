@@ -3,7 +3,7 @@
 
 use std::mem::size_of;
 use std::sync::LazyLock;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use wgpu::{
     Backends, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
     BindingType, BufferBindingType, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
@@ -166,7 +166,9 @@ impl WebGpuExecutor {
             compute_pass.set_bind_group(0, &bind_group, &[]);
 
             // Dispatch with ceiling division to handle all elements
-            let workgroups = (data.len() as u32).div_ceil(64); // 64 is the workgroup size
+            let workgroups = u32::try_from(data.len())
+                .vortex_expect("data too large")
+                .div_ceil(64); // 64 is the workgroup size
             compute_pass.dispatch_workgroups(workgroups, 1, 1);
         }
 
@@ -192,12 +194,13 @@ impl WebGpuExecutor {
         // Note: In a real implementation, we'd read back the results from the staging buffer
         // For now, just ensure the GPU work is submitted
 
-        println!(
+        log::info!(
             "WebGPU kernel executed: subtracted {} from each element on {:?}",
-            subtract_value, self.device
+            subtract_value,
+            self.device
         );
-        println!("Original data: {:?}", data);
-        println!(
+        log::info!("Original data: {:?}", data);
+        log::info!(
             "Expected result: {:?}",
             data.iter().map(|x| x - subtract_value).collect::<Vec<_>>()
         );

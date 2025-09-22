@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -35,13 +35,23 @@ impl PipelineVTable<FoRVTable> for FoRVTable {
     }
 }
 
-#[derive(Debug, Hash)]
+#[derive(Debug)]
 pub struct FoROperator {
     child: OperatorRef,
     reference: Scalar,
     dtype: DType,
     ptype: PType,
     encoded_ptype: PType,
+}
+
+impl Hash for FoROperator {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.child.hash(state);
+        self.reference.hash(state);
+        self.dtype.hash(state);
+        self.ptype.hash(state);
+        self.encoded_ptype.hash(state);
+    }
 }
 
 impl PartialEq for FoROperator {

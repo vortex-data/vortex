@@ -13,7 +13,7 @@ use futures::future::try_join_all;
 use itertools::Itertools;
 use std::any::Any;
 use std::fmt::Formatter;
-use std::hash::BuildHasher;
+use std::hash::{BuildHasher, Hash};
 use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -30,7 +30,7 @@ pub(crate) struct WebGpuSubgraphOperator {
 
 type NodeId = usize;
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct GpuNode {
     /// The operator at this node.
     operator: OperatorRef,
@@ -41,15 +41,6 @@ struct GpuNode {
     /// The IDs of the batch inputs that feed into this node.
     batch_inputs: Vec<BatchId>,
 }
-
-impl PartialEq for GpuNode {
-    fn eq(&self, other: &Self) -> bool {
-        self.operator.eq(&other.operator)
-            && self.children == other.children
-            && self.batch_inputs == other.batch_inputs
-    }
-}
-impl Eq for GpuNode {}
 
 impl WebGpuSubgraphOperator {
     /// From the given operator, constructs a `WebGpuOperator` as large as possible by
