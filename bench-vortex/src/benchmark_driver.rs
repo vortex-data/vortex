@@ -198,7 +198,11 @@ fn execute_queries<B: Benchmark>(
 
                     runs.push(duration);
                     row_count.inspect(|rc| {
-                        assert_eq!(*rc, current_row_count, "each row count must match")
+                        assert_eq!(
+                            *rc, current_row_count,
+                            "Row count mismatch between iterations for query {}: previous => {} rows vs. current => {} rows",
+                            query_idx, *rc, current_row_count
+                        )
                     });
                     row_count = Some(current_row_count);
                 }
