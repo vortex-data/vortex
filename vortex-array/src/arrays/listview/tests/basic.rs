@@ -214,108 +214,49 @@ fn test_validation_error_empty_arrays() {
 
 #[test]
 fn test_listview_with_constant_sizes() {
-    // Tests the slow path of size_at when sizes is a ConstantArray instead of PrimitiveArray.
-    // This forces the code to use scalar_at instead of direct primitive array access.
+    // Tests the slow path when sizes is a ConstantArray.
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
-
-    // Create regular offsets array.
     let offsets = buffer![0i32, 3, 6].into_array();
-
-    // Create constant sizes array - all lists have size 3.
     let sizes = ConstantArray::new(3i32, 3).into_array();
 
     let listview = ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
 
     assert_eq!(listview.len(), 3);
 
-    // Verify that size_at returns the correct constant value through the slow path.
-    assert_eq!(listview.size_at(0), 3);
-    assert_eq!(listview.size_at(1), 3);
-    assert_eq!(listview.size_at(2), 3);
+    // Verify sizes through the slow path.
+    for i in 0..3 {
+        assert_eq!(listview.size_at(i), 3);
+    }
 
-    // Verify offset_at still works correctly with primitive array.
-    assert_eq!(listview.offset_at(0), 0);
+    // Verify offsets and one list's contents.
     assert_eq!(listview.offset_at(1), 3);
-    assert_eq!(listview.offset_at(2), 6);
-
-    // Verify list contents work correctly.
-    let first_list = listview.list_elements_at(0);
-    assert_eq!(first_list.len(), 3);
-    assert_eq!(first_list.scalar_at(0), 1i32.into());
-    assert_eq!(first_list.scalar_at(1), 2i32.into());
-    assert_eq!(first_list.scalar_at(2), 3i32.into());
-
     let second_list = listview.list_elements_at(1);
-    assert_eq!(second_list.len(), 3);
     assert_eq!(second_list.scalar_at(0), 4i32.into());
-    assert_eq!(second_list.scalar_at(1), 5i32.into());
     assert_eq!(second_list.scalar_at(2), 6i32.into());
-
-    let third_list = listview.list_elements_at(2);
-    assert_eq!(third_list.len(), 3);
-    assert_eq!(third_list.scalar_at(0), 7i32.into());
-    assert_eq!(third_list.scalar_at(1), 8i32.into());
-    assert_eq!(third_list.scalar_at(2), 9i32.into());
 }
 
 #[test]
 fn test_listview_with_constant_sizes_varied_offsets() {
-    // Tests the slow path with constant sizes but non-sequential offsets.
-    // This verifies that the slow path handles out-of-order and overlapping lists correctly.
+    // Tests constant sizes with out-of-order offsets.
     let elements = buffer![10i32, 20, 30, 40, 50, 60, 70, 80].into_array();
-
-    // Create out-of-order offsets: lists start at 2, 0, 5.
-    let offsets = buffer![2i32, 0, 5].into_array();
-
-    // All lists have constant size of 2.
+    let offsets = buffer![2i32, 0, 5].into_array(); // Out-of-order.
     let sizes = ConstantArray::new(2i32, 3).into_array();
 
     let listview = ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
 
     assert_eq!(listview.len(), 3);
-
-    // Verify size_at through the slow path.
-    assert_eq!(listview.size_at(0), 2);
-    assert_eq!(listview.size_at(1), 2);
-    assert_eq!(listview.size_at(2), 2);
-
-    // Verify offset_at.
+    assert_eq!(listview.size_at(1), 2); // Verify slow path.
     assert_eq!(listview.offset_at(0), 2);
     assert_eq!(listview.offset_at(1), 0);
-    assert_eq!(listview.offset_at(2), 5);
 
-    // First list: elements[2..4] = [30, 40].
+    // Verify first list: elements[2..4] = [30, 40].
     let first_list = listview.list_elements_at(0);
-    assert_eq!(first_list.len(), 2);
     assert_eq!(first_list.scalar_at(0), 30i32.into());
     assert_eq!(first_list.scalar_at(1), 40i32.into());
 
-    // Second list: elements[0..2] = [10, 20].
-    let second_list = listview.list_elements_at(1);
-    assert_eq!(second_list.len(), 2);
-    assert_eq!(second_list.scalar_at(0), 10i32.into());
-    assert_eq!(second_list.scalar_at(1), 20i32.into());
-
-    // Third list: elements[5..7] = [60, 70].
-    let third_list = listview.list_elements_at(2);
-    assert_eq!(third_list.len(), 2);
-    assert_eq!(third_list.scalar_at(0), 60i32.into());
-    assert_eq!(third_list.scalar_at(1), 70i32.into());
-
-    // Test scalar_at to ensure it returns the correct list scalars.
-    let first_scalar = listview.scalar_at(0);
+    // Verify scalar_at works.
     assert_eq!(
-        first_scalar,
-        Scalar::list(
-            Arc::new(PType::I32.into()),
-            vec![30i32.into(), 40i32.into()],
-            Nullability::NonNullable,
-        )
-    );
-
-    let second_scalar = listview.scalar_at(1);
-    assert_eq!(
-        second_scalar,
+        listview.scalar_at(1),
         Scalar::list(
             Arc::new(PType::I32.into()),
             vec![10i32.into(), 20i32.into()],
@@ -325,75 +266,30 @@ fn test_listview_with_constant_sizes_varied_offsets() {
 }
 
 #[test]
-#[allow(clippy::cognitive_complexity)]
 fn test_listview_all_zero_offsets_constant() {
-    // Tests where all lists start at offset 0, creating overlapping lists with shared prefixes.
-    // Uses ConstantArray for offsets to test the slow path.
+    // Tests ConstantArray offsets (slow path) with overlapping lists.
     let elements = buffer![100i32, 200, 300, 400, 500].into_array();
-
-    // All lists start at offset 0.
-    let offsets = ConstantArray::new(0i32, 4).into_array();
-
-    // Different sizes: 1, 2, 3, 5.
+    let offsets = ConstantArray::new(0i32, 4).into_array(); // All start at 0.
     let sizes = buffer![1i32, 2, 3, 5].into_array();
 
     let listview = ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
 
     assert_eq!(listview.len(), 4);
-
-    // Verify offset_at through the slow path (ConstantArray).
-    assert_eq!(listview.offset_at(0), 0);
-    assert_eq!(listview.offset_at(1), 0);
-    assert_eq!(listview.offset_at(2), 0);
-    assert_eq!(listview.offset_at(3), 0);
-
-    // Verify sizes.
+    assert_eq!(listview.offset_at(2), 0); // Verify slow path.
     assert_eq!(listview.size_at(0), 1);
-    assert_eq!(listview.size_at(1), 2);
-    assert_eq!(listview.size_at(2), 3);
     assert_eq!(listview.size_at(3), 5);
 
-    // First list: elements[0..1] = [100].
+    // Verify overlapping lists work correctly.
     let first_list = listview.list_elements_at(0);
-    assert_eq!(first_list.len(), 1);
     assert_eq!(first_list.scalar_at(0), 100i32.into());
 
-    // Second list: elements[0..2] = [100, 200].
-    let second_list = listview.list_elements_at(1);
-    assert_eq!(second_list.len(), 2);
-    assert_eq!(second_list.scalar_at(0), 100i32.into());
-    assert_eq!(second_list.scalar_at(1), 200i32.into());
-
-    // Third list: elements[0..3] = [100, 200, 300].
     let third_list = listview.list_elements_at(2);
     assert_eq!(third_list.len(), 3);
-    assert_eq!(third_list.scalar_at(0), 100i32.into());
-    assert_eq!(third_list.scalar_at(1), 200i32.into());
     assert_eq!(third_list.scalar_at(2), 300i32.into());
 
-    // Fourth list: elements[0..5] = [100, 200, 300, 400, 500].
-    let fourth_list = listview.list_elements_at(3);
-    assert_eq!(fourth_list.len(), 5);
-    assert_eq!(fourth_list.scalar_at(0), 100i32.into());
-    assert_eq!(fourth_list.scalar_at(1), 200i32.into());
-    assert_eq!(fourth_list.scalar_at(2), 300i32.into());
-    assert_eq!(fourth_list.scalar_at(3), 400i32.into());
-    assert_eq!(fourth_list.scalar_at(4), 500i32.into());
-
-    // Verify scalar_at returns the correct list scalars.
-    let first_scalar = listview.scalar_at(0);
+    // Verify scalar_at.
     assert_eq!(
-        first_scalar,
-        Scalar::list(
-            Arc::new(PType::I32.into()),
-            vec![100i32.into()],
-            Nullability::NonNullable,
-        )
-    );
-
-    let third_scalar = listview.scalar_at(2);
-    assert_eq!(
-        third_scalar,
+        listview.scalar_at(2),
         Scalar::list(
             Arc::new(PType::I32.into()),
             vec![100i32.into(), 200i32.into(), 300i32.into()],

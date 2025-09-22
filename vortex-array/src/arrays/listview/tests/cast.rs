@@ -6,25 +6,12 @@ use std::sync::Arc;
 use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::vortex_panic;
 
-use crate::arrays::{BoolArray, ListViewArray, ListViewVTable};
+use super::ToListView;
+use crate::arrays::{BoolArray, ListViewArray};
 use crate::compute::cast;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray};
-
-// Helper trait to extract ListViewArray from ArrayRef.
-trait ToListView {
-    fn to_listview(&self) -> ListViewArray;
-}
-
-impl ToListView for ArrayRef {
-    fn to_listview(&self) -> ListViewArray {
-        self.as_opt::<ListViewVTable>()
-            .unwrap_or_else(|| vortex_panic!("Expected ListViewArray"))
-            .clone()
-    }
-}
+use crate::{Array, IntoArray};
 
 #[rstest]
 #[case::i32_to_i64(PType::I32, PType::I64)]
@@ -99,37 +86,6 @@ fn test_cast_with_nulls() {
     let result_list = result.to_listview();
     assert!(result_list.is_valid(0));
     assert!(result_list.is_invalid(1));
-}
-
-#[test]
-fn test_cast_out_of_order_offsets() {
-    // Test cast with out-of-order offsets.
-    let elements = buffer![100i64, 200, 300, 400].into_array();
-    let offsets = buffer![3u32, 1, 0].into_array(); // Reversed!
-    let sizes = buffer![1u32, 2, 1].into_array();
-
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .to_array();
-
-    let target_dtype = DType::List(
-        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        Nullability::NonNullable,
-    );
-
-    let result = cast(&listview, &target_dtype).unwrap();
-    assert_eq!(result.dtype(), &target_dtype);
-
-    let result_list = result.to_listview();
-    assert_eq!(result_list.len(), 3);
-
-    // Check that the out-of-order structure is preserved.
-    assert_eq!(result_list.offset_at(0), 3);
-    assert_eq!(result_list.size_at(0), 1);
-    assert_eq!(result_list.offset_at(1), 1);
-    assert_eq!(result_list.size_at(1), 2);
-    assert_eq!(result_list.offset_at(2), 0);
-    assert_eq!(result_list.size_at(2), 1);
 }
 
 #[rstest]

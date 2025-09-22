@@ -21,7 +21,7 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 /// When the mask density is below this threshold, we use indices. Otherwise, we use slices.
 ///
 /// Note that this is somewhat arbitrarily chosen...
-const LIST_SELECTION_MASK_DENSITY_THRESHOLD: f64 = 0.05;
+const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 
 impl FilterKernel for ListVTable {
     fn filter(&self, array: &ListArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
@@ -79,7 +79,7 @@ fn compute_filtered_elements_and_offsets<O: NativePType + AsPrimitive<usize> + A
     new_offsets.push(next_offset);
 
     // Choose the optimal iteration strategy based on selection mask density.
-    match values.threshold_iter(LIST_SELECTION_MASK_DENSITY_THRESHOLD) {
+    match values.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD) {
         MaskIter::Slices(slices) => {
             // Dense iteration: process ranges of consecutive selected lists.
             for &(start, end) in slices {

@@ -15,10 +15,9 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 /// `sizes` arrays and reuse the original `elements` array. This works because `ListView` (unlike
 /// `List`) allows non-contiguous and out-of-order lists.
 ///
-/// We don't slice the `elements` array because: (1) it would require computing min/max offsets
-/// and adjusting all offsets accordingly, adding CPU overhead; (2) the `elements` array is already
-/// `Arc`'d, so keeping the full reference has virtually no memory overhead; and (3) it keeps the
-/// implementation simple and maintainable.
+/// We don't slice the `elements` array because it would require computing min/max offsets and
+/// adjusting all offsets accordingly, which is not really worth the small potential memory we would
+/// be able to get back.
 ///
 /// The trade-off is that we may keep unreferenced elements in memory, but this is acceptable since
 /// we're optimizing for read performance and the data isn't being copied.

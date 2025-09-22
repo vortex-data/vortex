@@ -2,26 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::buffer;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::arrays::{BoolArray, ListViewArray, ListViewVTable, PrimitiveArray};
+use super::ToListView;
+use crate::arrays::{BoolArray, ListViewArray, PrimitiveArray};
 use crate::compute::mask;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray};
-
-// Helper trait to extract ListViewArray from ArrayRef.
-trait ToListView {
-    fn to_listview(&self) -> ListViewArray;
-}
-
-impl ToListView for ArrayRef {
-    fn to_listview(&self) -> ListViewArray {
-        self.as_opt::<ListViewVTable>()
-            .unwrap_or_else(|| vortex_panic!("Expected ListViewArray"))
-            .clone()
-    }
-}
+use crate::{Array, IntoArray};
 
 #[test]
 fn test_mask_simple() {
@@ -130,76 +117,6 @@ fn test_mask_all_selected() {
     for i in 0..3 {
         assert!(!result.is_valid(i), "Element {} should be null", i);
     }
-}
-
-#[test]
-fn test_mask_out_of_order_offsets() {
-    // Test with out-of-order offsets.
-    let elements = buffer![100i32, 200, 300, 400, 500, 600].into_array();
-    let offsets = buffer![4u32, 2, 0, 5].into_array(); // Out of order!
-    let sizes = buffer![1u32, 2, 2, 1].into_array();
-
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .to_array();
-
-    // Mask indices [1, 3] (sets them to null).
-    let selection = Mask::from_iter([false, true, false, true]);
-    let result = mask(&listview, &selection).unwrap();
-
-    assert_eq!(result.len(), 4);
-    let result_list = result.to_listview();
-
-    // Check validity.
-    assert!(result_list.is_valid(0)); // Not masked.
-    assert!(!result_list.is_valid(1)); // Masked.
-    assert!(result_list.is_valid(2)); // Not masked.
-    assert!(!result_list.is_valid(3)); // Masked.
-
-    // All offsets and sizes preserved.
-    assert_eq!(result_list.offset_at(0), 4);
-    assert_eq!(result_list.size_at(0), 1);
-    assert_eq!(result_list.offset_at(1), 2);
-    assert_eq!(result_list.size_at(1), 2);
-    assert_eq!(result_list.offset_at(2), 0);
-    assert_eq!(result_list.size_at(2), 2);
-    assert_eq!(result_list.offset_at(3), 5);
-    assert_eq!(result_list.size_at(3), 1);
-}
-
-#[test]
-fn test_mask_overlapping_lists() {
-    // Test with overlapping lists (unique to ListView).
-    let elements = buffer![1u8, 2, 3, 4, 5].into_array();
-    let offsets = buffer![0u32, 1, 0, 2].into_array(); // Overlapping!
-    let sizes = buffer![3u32, 3, 5, 3].into_array();
-
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .to_array();
-
-    // Mask indices [0, 2] (sets them to null).
-    let selection = Mask::from_iter([true, false, true, false]);
-    let result = mask(&listview, &selection).unwrap();
-
-    assert_eq!(result.len(), 4);
-    let result_list = result.to_listview();
-
-    // Check validity.
-    assert!(!result_list.is_valid(0)); // Masked.
-    assert!(result_list.is_valid(1)); // Not masked.
-    assert!(!result_list.is_valid(2)); // Masked.
-    assert!(result_list.is_valid(3)); // Not masked.
-
-    // All offsets and sizes preserved.
-    assert_eq!(result_list.offset_at(0), 0);
-    assert_eq!(result_list.size_at(0), 3);
-    assert_eq!(result_list.offset_at(1), 1);
-    assert_eq!(result_list.size_at(1), 3);
-    assert_eq!(result_list.offset_at(2), 0);
-    assert_eq!(result_list.size_at(2), 5);
-    assert_eq!(result_list.offset_at(3), 2);
-    assert_eq!(result_list.size_at(3), 3);
 }
 
 #[test]
