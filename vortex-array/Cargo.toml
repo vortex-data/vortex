@@ -68,7 +68,6 @@ vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
-wgpu = { workspace = true, optional = true }
 
 [features]
 arbitrary = [
@@ -79,7 +78,6 @@ arbitrary = [
 canonical_counter = []
 table-display = ["dep:tabled"]
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
-webgpu = ["dep:wgpu"]
 
 [dev-dependencies]
 arrow-cast = { workspace = true }

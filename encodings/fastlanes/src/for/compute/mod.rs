@@ -4,6 +4,7 @@
 mod cast;
 mod compare;
 mod is_constant;
+mod is_sorted;
 
 use vortex_array::compute::{
     FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,

@@ -17,6 +17,15 @@ extern "C" void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector,
     vector->Slice(*sel_vec, selection_vector_length);
 }
 
+extern "C" void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector, duckdb_vector ffi_dict,
+                                            idx_t dictionary_size, duckdb_selection_vector ffi_sel_vec,
+                                            idx_t count) {
+    auto vector = reinterpret_cast<Vector *>(ffi_vector);
+    auto dict = reinterpret_cast<Vector *>(ffi_dict);
+    auto sel_vec = reinterpret_cast<SelectionVector *>(ffi_sel_vec);
+    vector->Dictionary(*dict, dictionary_size, *sel_vec, count);
+}
+
 extern "C" void duckdb_vx_set_dictionary_vector_id(duckdb_vector dict, const char *id, unsigned int id_len) {
     auto ddict = reinterpret_cast<duckdb::Vector *>(dict);
     DictionaryVector::SetDictionaryId(*ddict, std::string(id, id_len));

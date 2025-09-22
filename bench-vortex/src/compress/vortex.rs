@@ -5,6 +5,7 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use futures::{StreamExt, pin_mut};
 use vortex::Array;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 
@@ -22,10 +23,12 @@ pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<usize> {
     let scan = VortexOpenOptions::new().open_buffer(buf)?.scan()?;
     let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
 
-    let iter = scan.into_record_batch_reader_multithread(schema)?;
+    let stream = scan.into_record_batch_stream(schema)?;
+    pin_mut!(stream);
+
     let mut nbytes = 0;
-    for batch in iter {
-        nbytes += batch.unwrap().get_array_memory_size()
+    while let Some(batch) = stream.next().await {
+        nbytes += batch?.get_array_memory_size()
     }
     Ok(nbytes)
 }

@@ -68,9 +68,7 @@ impl DuckDBCtx {
     }
 
     pub fn open_and_setup_database(path: Option<PathBuf>) -> Result<(Database, Connection)> {
-        let mut config = Config::new().vortex_expect("failed to create duckdb config");
-        // enable parquet metadata cache for all benchmark runs
-        config.set("parquet_metadata_cache", "true")?;
+        let config = Config::new().vortex_expect("failed to create duckdb config");
 
         let db = match path {
             Some(path) => Database::open_with_config(path, config),
@@ -78,6 +76,17 @@ impl DuckDBCtx {
         }?;
         let connection = db.connect()?;
         vortex_duckdb::register_table_functions(&connection)?;
+
+        // Enable Parquet metadata cache for all benchmark runs.
+        //
+        // `parquet_metadata_cache` is an extension-specific option that's
+        // only available after the Parquet extension is loaded. The Parquet
+        // extension is loaded after the connection is established.
+        //
+        // Passing the option to `open_with_config` before leads to
+        // "Invalid Input Error: The following options were not recognized:
+        // parquet_metadata_cache" when running DuckDB in debug mode.
+        connection.query("SET parquet_metadata_cache = true")?;
 
         Ok((db, connection))
     }

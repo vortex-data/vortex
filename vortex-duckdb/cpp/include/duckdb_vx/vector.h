@@ -10,9 +10,21 @@
 extern "C" {
 #endif
 
-/// Slice to a dictionary vector.
+/// Slice the vector to a new dictionary vector, using the current vector's values and
+/// the provided selection vector.
+///
+/// A dictionary slice holds a strong reference to all memory it uses.
 void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector, duckdb_selection_vector selection_vector,
                                           idx_t selection_vector_length);
+
+/// Creates a dictionary vector for a given values vector and selection vector.
+///
+/// A dictionary holds a strong reference to all memory it uses.
+///
+/// `dictionary` differs from `slice_to_dictionary` in that it initializes hash caching:
+/// https://github.com/duckdb/duckdb/blob/0dcf633f603a629981d089202f93b9080cb1a3e9/src/common/types/vector.cpp#L293
+void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector, duckdb_vector ffi_dict, idx_t dictionary_size,
+                                 duckdb_selection_vector ffi_sel_vec, idx_t count);
 
 void duckdb_vx_set_dictionary_vector_id(duckdb_vector dict, const char *id, unsigned int id_len);
 

@@ -164,7 +164,8 @@ impl VortexOpenOptions {
         let Some(handle) = self.handle.clone() else {
             vortex_bail!("VortexOpenOptions::handle must be set, or else be running inside Tokio");
         };
-        self.open_read_at(handle.open_read(source)?).await
+        let metrics = self.metrics.clone();
+        self.open_read_at(handle.open_read(source, metrics)?).await
     }
 
     /// Open a Vortex file from an in-memory buffer.
@@ -295,24 +296,12 @@ impl VortexOpenOptions {
         object_store: &Arc<dyn object_store::ObjectStore>,
         path: &str,
     ) -> VortexResult<VortexFile> {
-        use std::path::Path;
-
         use vortex_io::file::object_store::ObjectStoreReadSource;
 
-        // If the file is local, we much prefer to use TokioFile since object store re-opens the
-        // file on every read. This check is a little naive... but we hope that ObjectStore will
-        // soon expose the scheme in a way that we can check more thoroughly.
-        // See: https://github.com/apache/arrow-rs-object-store/issues/259
-        let local_path = Path::new("/").join(path);
-        if local_path.exists() {
-            // Local disk is too fast to justify prefetching.
-            self.open(local_path).await
-        } else {
-            self.open(ObjectStoreReadSource::new(
-                object_store.clone(),
-                path.into(),
-            ))
-            .await
-        }
+        self.open(ObjectStoreReadSource::new(
+            object_store.clone(),
+            path.into(),
+        ))
+        .await
     }
 }

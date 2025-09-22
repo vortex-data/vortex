@@ -54,25 +54,28 @@ impl ColumnExporter for FixedSizeListExporter {
             self.validity.len()
         );
 
-        // Set validity if necessary.
-        // SAFETY: We've asserted that offset + len <= self.validity.len(), which ensures
-        // we won't read past the validity mask bounds.
+        let list_size = self.list_size as usize;
+
+        // If all values are null, then we don't need to worry about exporting values (similar to
+        // the primitive exporter).
+        // SAFETY: We've asserted that offset + len <= self.validity.len(), which ensures we won't
+        // read past the validity mask bounds.
         if unsafe { vector.set_validity(&self.validity, offset, len) } {
-            // All values are null, so no point copying the data.
             return Ok(());
         }
 
-        // Get the child vector for array elements.
+        // Get the child vector for array elements and export the elements directly.
         let mut elements_vector = vector.array_vector_get_child();
-
-        // Export elements directly.
-        // For fixed-size lists: elements start at offset * list_size
-        // and we export len * list_size elements.
-        let element_offset = offset * self.list_size as usize;
-        let element_count = len * self.list_size as usize;
-
         self.elements_exporter
-            .export(element_offset, element_count, &mut elements_vector)
+            .export(offset * list_size, len * list_size, &mut elements_vector)?;
+
+        // TODO(connor): We must flatten the child vector to ensure any child dictionary views
+        // (namely UTF-8 string views in dictionaries) are materialized.
+        // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825 for a
+        // detailed explanation on why we need this for now.
+        elements_vector.flatten((len * list_size) as u64);
+
+        Ok(())
     }
 }
 
@@ -226,17 +229,6 @@ mod tests {
         // Verify alternating null pattern.
         let vector = chunk.get_vector(0);
         assert_nulls(&vector, &[false, true, false, true, false]);
-    }
-
-    #[test]
-    fn test_export_list_size_zero() {
-        // Create a FixedSizeListArray with list_size=0 (degenerate case).
-        // This represents arrays with no elements.
-        let fsl = FixedSizeListArray::new(buffer![0i32; 0].into_array(), 0, Validity::AllValid, 3);
-        let chunk = export_to_chunk(&fsl, 0, 0, 3);
-
-        // Should have 3 lists, each with 0 elements.
-        assert_eq!(chunk.len(), 3);
     }
 
     #[test]

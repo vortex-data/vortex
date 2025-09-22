@@ -6,6 +6,7 @@ use std::sync::Arc;
 use arrow_schema::{DataType, Schema};
 use datafusion_expr::Operator as DFOperator;
 use datafusion_physical_expr::{PhysicalExpr, PhysicalExprRef};
+use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::expressions as df_expr;
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{BinaryExpr, ExprRef, LikeExpr, Operator, and, get_item, lit, root};
@@ -122,6 +123,12 @@ impl TryFromDataFusion<DFOperator> for Operator {
 }
 
 pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> bool {
+    // We currently do not support pushdown of dynamic expressions in DF.
+    // See issue: https://github.com/vortex-data/vortex/issues/4034
+    if is_dynamic_physical_expr(expr) {
+        return false;
+    }
+
     let expr = expr.as_any();
     if let Some(binary) = expr.downcast_ref::<df_expr::BinaryExpr>() {
         can_binary_be_pushed_down(binary, schema)

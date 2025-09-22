@@ -310,8 +310,8 @@ mod tests {
 
         let list_array = list.to_list();
 
-        assert_eq!(list_array.elements_at(0).len(), 3);
-        assert_eq!(list_array.elements_at(1).len(), 3);
+        assert_eq!(list_array.list_elements_at(0).len(), 3);
+        assert_eq!(list_array.list_elements_at(1).len(), 3);
     }
 
     #[test]
@@ -362,9 +362,9 @@ mod tests {
 
         let list_array = list.to_list();
 
-        assert_eq!(list_array.elements_at(0).len(), 3);
-        assert_eq!(list_array.elements_at(1).len(), 0);
-        assert_eq!(list_array.elements_at(2).len(), 3);
+        assert_eq!(list_array.list_elements_at(0).len(), 3);
+        assert_eq!(list_array.list_elements_at(1).len(), 0);
+        assert_eq!(list_array.list_elements_at(2).len(), 3);
     }
 
     fn test_extend_builder_gen<O: OffsetPType>() {

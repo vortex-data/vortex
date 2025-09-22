@@ -42,14 +42,18 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::VarBinViewVTable;
     use crate::arrow::IntoArrowArray;
-    use crate::builders::{ArrayBuilder as _, VarBinViewBuilder};
+    use crate::builders::{ArrayBuilder as _, BufferGrowthStrategy, VarBinViewBuilder};
     use crate::compute::zip;
 
     #[test]
     fn test_varbinview_zip() {
         let if_true = {
-            let mut builder =
-                VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 10);
+            let mut builder = VarBinViewBuilder::new(
+                DType::Utf8(Nullability::NonNullable),
+                10,
+                Default::default(),
+                BufferGrowthStrategy::fixed(64 * 1024),
+            );
             for _ in 0..100 {
                 builder.append_value("Hello");
                 builder.append_value("Hello this is a long string that won't be inlined.");
@@ -58,8 +62,12 @@ mod tests {
         };
 
         let if_false = {
-            let mut builder =
-                VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 10);
+            let mut builder = VarBinViewBuilder::new(
+                DType::Utf8(Nullability::NonNullable),
+                10,
+                Default::default(),
+                BufferGrowthStrategy::fixed(64 * 1024),
+            );
             for _ in 0..100 {
                 builder.append_value("Hello2");
                 builder.append_value("Hello2 this is a long string that won't be inlined.");

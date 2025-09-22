@@ -26,17 +26,17 @@ com.google.code.gson:gson:2.10.1 (1 constraints: 590c9905)
 
 com.google.crypto.tink:tink:1.9.0 (1 constraints: 33113dee)
 
-com.google.errorprone:error_prone_annotations:2.36.0 (1 constraints: 4d0a49bf)
+com.google.errorprone:error_prone_annotations:2.41.0 (1 constraints: 490a3ebf)
 
 com.google.flatbuffers:flatbuffers-java:25.2.10 (2 constraints: a51a6972)
 
 com.google.guava:failureaccess:1.0.3 (2 constraints: 1b0f8086)
 
-com.google.guava:guava:33.4.8-jre (2 constraints: 6d152bd7)
+com.google.guava:guava:33.5.0-jre (2 constraints: 6615ddd5)
 
 com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava (2 constraints: 692a93df)
 
-com.google.j2objc:j2objc-annotations:3.0.0 (1 constraints: 150aeab4)
+com.google.j2objc:j2objc-annotations:3.1 (1 constraints: b809f1a0)
 
 com.google.protobuf:protobuf-java:4.32.1 (2 constraints: a3119f02)
 

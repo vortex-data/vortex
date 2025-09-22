@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::cmp::max;
 use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
@@ -24,14 +23,12 @@ pub struct VarBinViewBuilder {
     nulls: LazyNullBufferBuilder,
     completed: CompletedBuffers,
     in_progress: ByteBufferMut,
+    growth_strategy: BufferGrowthStrategy,
 }
 
 impl VarBinViewBuilder {
-    // TODO(joe): add a block growth strategy, from arrow
-    const BLOCK_SIZE: u32 = 8 * 8 * 1024;
-
     pub fn with_capacity(dtype: DType, capacity: usize) -> Self {
-        Self::new(dtype, capacity, Default::default())
+        Self::new(dtype, capacity, Default::default(), Default::default())
     }
 
     pub fn with_buffer_deduplication(dtype: DType, capacity: usize) -> Self {
@@ -39,10 +36,16 @@ impl VarBinViewBuilder {
             dtype,
             capacity,
             CompletedBuffers::Deduplicated(Default::default()),
+            Default::default(),
         )
     }
 
-    fn new(dtype: DType, capacity: usize, completed: CompletedBuffers) -> Self {
+    pub fn new(
+        dtype: DType,
+        capacity: usize,
+        completed: CompletedBuffers,
+        growth_strategy: BufferGrowthStrategy,
+    ) -> Self {
         assert!(
             matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
             "VarBinViewBuilder DType must be Utf8 or Binary."
@@ -53,6 +56,7 @@ impl VarBinViewBuilder {
             completed,
             in_progress: ByteBufferMut::empty(),
             dtype,
+            growth_strategy,
         }
     }
 
@@ -67,7 +71,8 @@ impl VarBinViewBuilder {
         let required_cap = self.in_progress.len() + value.len();
         if self.in_progress.capacity() < required_cap {
             self.flush_in_progress();
-            let to_reserve = max(value.len(), VarBinViewBuilder::BLOCK_SIZE as usize);
+            let next_buffer_size = self.growth_strategy.next_size() as usize;
+            let to_reserve = next_buffer_size.max(value.len());
             self.in_progress.reserve(to_reserve);
         };
 
@@ -278,7 +283,7 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 }
 
-enum CompletedBuffers {
+pub enum CompletedBuffers {
     Default(Vec<ByteBuffer>),
     Deduplicated(DeduplicatedBuffers),
 }
@@ -339,7 +344,7 @@ enum NewIndices {
 }
 
 #[derive(Default)]
-struct DeduplicatedBuffers {
+pub struct DeduplicatedBuffers {
     buffers: Vec<ByteBuffer>,
     buffer_to_idx: HashMap<BufferId, u32>,
 }
@@ -393,6 +398,53 @@ impl BufferId {
         Self {
             ptr: slice.as_ptr() as usize,
             len: slice.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum BufferGrowthStrategy {
+    /// Use a fixed buffer size for all allocations.
+    Fixed { size: u32 },
+    /// Use exponential growth starting from initial_size, doubling until max_size.
+    Exponential { current_size: u32, max_size: u32 },
+}
+
+impl Default for BufferGrowthStrategy {
+    fn default() -> Self {
+        Self::Exponential {
+            current_size: 4 * 1024,    // 4KB starting size
+            max_size: 2 * 1024 * 1024, // 2MB max size
+        }
+    }
+}
+
+impl BufferGrowthStrategy {
+    pub fn fixed(size: u32) -> Self {
+        Self::Fixed { size }
+    }
+
+    pub fn exponential(initial_size: u32, max_size: u32) -> Self {
+        Self::Exponential {
+            current_size: initial_size,
+            max_size,
+        }
+    }
+
+    /// Returns the next buffer size to allocate and updates internal state.
+    pub fn next_size(&mut self) -> u32 {
+        match self {
+            Self::Fixed { size } => *size,
+            Self::Exponential {
+                current_size,
+                max_size,
+            } => {
+                let result = *current_size;
+                if *current_size < *max_size {
+                    *current_size = current_size.saturating_mul(2).min(*max_size);
+                }
+                result
+            }
         }
     }
 }
@@ -582,5 +634,54 @@ mod tests {
             VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 10);
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
+    }
+
+    #[test]
+    fn test_buffer_growth_strategies() {
+        use super::BufferGrowthStrategy;
+
+        // Test Fixed strategy
+        let mut strategy = BufferGrowthStrategy::fixed(1024);
+
+        // Should always return the fixed size
+        assert_eq!(strategy.next_size(), 1024);
+        assert_eq!(strategy.next_size(), 1024);
+        assert_eq!(strategy.next_size(), 1024);
+
+        // Test Exponential strategy
+        let mut strategy = BufferGrowthStrategy::exponential(1024, 8192);
+
+        // Should double each time until hitting max_size
+        assert_eq!(strategy.next_size(), 1024); // First: 1024
+        assert_eq!(strategy.next_size(), 2048); // Second: 2048
+        assert_eq!(strategy.next_size(), 4096); // Third: 4096
+        assert_eq!(strategy.next_size(), 8192); // Fourth: 8192 (max)
+        assert_eq!(strategy.next_size(), 8192); // Fifth: 8192 (capped)
+    }
+
+    #[test]
+    fn test_large_value_allocation() {
+        use super::{BufferGrowthStrategy, VarBinViewBuilder};
+
+        let mut builder = VarBinViewBuilder::new(
+            DType::Binary(Nullability::Nullable),
+            10,
+            Default::default(),
+            BufferGrowthStrategy::exponential(1024, 4096),
+        );
+
+        // Create a value larger than max_size
+        let large_value = vec![0u8; 8192];
+
+        // Should successfully append the large value
+        builder.append_value(&large_value);
+
+        let array = builder.finish_into_varbinview();
+        assert_eq!(array.len(), 1);
+
+        // Verify the value was stored correctly
+        let retrieved = array.scalar_at(0).as_binary().value().unwrap();
+        assert_eq!(retrieved.len(), 8192);
+        assert_eq!(retrieved.as_slice(), &large_value);
     }
 }

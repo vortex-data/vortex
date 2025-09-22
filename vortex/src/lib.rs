@@ -41,7 +41,7 @@ pub mod encodings {
 mod test {
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::iter::ArrayIteratorExt;
+    use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{ArrayRef, IntoArray, ToCanonical};
@@ -129,8 +129,9 @@ mod test {
             .await?
             .scan()?
             .with_filter(gt(root(), lit(2u64)))
-            .into_array_iter()?
-            .read_all()?;
+            .into_array_stream()?
+            .read_all()
+            .await?;
 
         assert_eq!(array.len(), 2);
 
@@ -163,8 +164,9 @@ mod test {
             .open("example_compact.vortex")
             .await?
             .scan()?
-            .into_array_iter()?
-            .read_all()?;
+            .into_array_stream()?
+            .read_all()
+            .await?;
 
         assert_eq!(recovered_array.len(), array.len());
         let recovered_primitive = recovered_array.to_primitive();

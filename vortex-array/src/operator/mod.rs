@@ -164,12 +164,6 @@ pub trait Operator: 'static + Send + Sync + Debug + DynEq + DynHash {
     fn as_pipelined(&self) -> Option<&dyn PipelinedOperator> {
         None
     }
-
-    /// Returns this operator as a [`WebGpuOperator`] if it supports GPU execution.
-    #[cfg(feature = "webgpu")]
-    fn as_webgpu(&self) -> Option<&dyn crate::webgpu::WebGpuOperator> {
-        None
-    }
 }
 
 impl Hash for dyn Operator {

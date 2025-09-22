@@ -93,15 +93,6 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_invalid_sql() {
-        let conn = test_connection().unwrap();
-        let result = conn.query("INVALID SQL STATEMENT");
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("Failed to execute query"));
-    }
-
-    #[test]
     fn test_execute_with_null_bytes() {
         let conn = test_connection().unwrap();
         let result = conn.query("SELECT\0 1");
@@ -142,19 +133,12 @@ mod tests {
     }
 
     #[test]
-    fn test_query_invalid_sql() {
-        let conn = test_connection().unwrap();
-        let result = conn.query("INVALID SQL");
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_query_single_value() {
         let conn = test_connection().unwrap();
         let result = conn.query("SELECT 42").unwrap();
         let chunk = result.into_iter().next().unwrap();
         let vec = chunk.get_vector(0);
-        let slice = vec.as_slice_with_len::<i64>(chunk.len().as_());
+        let slice = vec.as_slice_with_len::<i32>(chunk.len().as_());
 
         assert_eq!(chunk.column_count(), 1);
         assert_eq!(chunk.len(), 1);

@@ -6,13 +6,13 @@ use std::iter;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
     ChunkedArray, ConstantArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
     VarBinViewArray,
 };
-use vortex_array::iter::ArrayIteratorExt;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::validity::Validity;
@@ -23,23 +23,22 @@ use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
 use vortex_expr::{PackExpr, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
-use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
 
 use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
 
-#[test]
-fn test_eof_values() {
+#[tokio::test]
+async fn test_eof_values() {
     // this test exists as a reminder to think about whether we should increment the version
     // when we change the footer
     assert_eq!(VERSION, 1);
     assert_eq!(V1_FOOTER_FBS_SIZE, 32);
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn test_read_simple() {
+async fn test_read_simple() {
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
@@ -55,21 +54,22 @@ fn test_read_simple() {
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, st.to_array_iterator())
+        .write(&mut buf, st.to_array_stream())
+        .await
         .unwrap();
 
-    let iter = VortexOpenOptions::new()
+    let stream = VortexOpenOptions::new()
         .open_buffer(buf)
         .unwrap()
         .scan()
         .unwrap()
-        .into_array_iter()
+        .into_array_stream()
         .unwrap();
+    pin_mut!(stream);
 
     let mut row_count = 0;
 
-    for array in iter {
+    while let Some(array) = stream.next().await {
         let array = array.unwrap();
         row_count += array.len();
     }
@@ -77,9 +77,9 @@ fn test_read_simple() {
     assert_eq!(row_count, 8);
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn test_round_trip_many_types() {
+async fn test_round_trip_many_types() {
     let strings = VarBinArray::from(vec!["ab", "foo", "bar"]).into_array();
 
     let numbers = buffer![1u32, 2, 3].into_array();
@@ -132,8 +132,8 @@ fn test_round_trip_many_types() {
     let mut buf = ByteBufferMut::empty();
 
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, st.to_array_iterator())
+        .write(&mut buf, st.to_array_stream())
+        .await
         .unwrap();
 
     let chunks: Vec<_> = VortexOpenOptions::new()
@@ -141,9 +141,10 @@ fn test_round_trip_many_types() {
         .unwrap()
         .scan()
         .unwrap()
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .try_collect()
+        .await
         .unwrap();
 
     let read = ChunkedArray::try_new(chunks, st.dtype().clone()).unwrap();
@@ -151,9 +152,9 @@ fn test_round_trip_many_types() {
     assert_eq!(read.len(), 3);
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn test_read_simple_with_spawn() {
+async fn test_read_simple_with_spawn() {
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
@@ -186,16 +187,16 @@ fn test_read_simple_with_spawn() {
 
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, st.to_array_iterator())
+        .write(&mut buf, st.to_array_stream())
+        .await
         .unwrap();
 
     assert!(!buf.is_empty());
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn test_read_projection() {
+async fn test_read_projection() {
     let strings_expected = ["ab", "foo", "bar", "baz", "ab", "foo", "bar", "baz"];
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(strings_expected[..4].to_vec()).into_array(),
@@ -216,8 +217,8 @@ fn test_read_projection() {
 
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, st.to_array_iterator())
+        .write(&mut buf, st.to_array_stream())
+        .await
         .unwrap();
 
     let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
@@ -225,9 +226,10 @@ fn test_read_projection() {
         .scan()
         .unwrap()
         .with_projection(select(["strings"], root()))
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap();
 
     assert_eq!(
@@ -251,9 +253,10 @@ fn test_read_projection() {
         .scan()
         .unwrap()
         .with_projection(select(["numbers"], root()))
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap();
 
     assert_eq!(
@@ -269,9 +272,9 @@ fn test_read_projection() {
     assert_eq!(actual, numbers_expected);
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn unequal_batches() {
+async fn unequal_batches() {
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(vec!["ab", "foo", "bar", "bob"]).into_array(),
         VarBinArray::from(vec!["baz", "ab", "foo", "bar", "baz", "alice"]).into_array(),
@@ -287,21 +290,22 @@ fn unequal_batches() {
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, st.to_array_iterator())
+        .write(&mut buf, st.to_array_stream())
+        .await
         .unwrap();
 
-    let iter = VortexOpenOptions::new()
+    let stream = VortexOpenOptions::new()
         .open_buffer(buf)
         .unwrap()
         .scan()
         .unwrap()
-        .into_array_iter()
+        .into_array_stream()
         .unwrap();
+    pin_mut!(stream);
 
     let mut item_count = 0;
 
-    for array in iter {
+    while let Some(array) = stream.next().await {
         let array = array.unwrap();
         item_count += array.len();
 
@@ -315,9 +319,9 @@ fn unequal_batches() {
     assert_eq!(item_count, 10);
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn write_chunked() {
+async fn write_chunked() {
     let strings = VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array();
     let string_dtype = strings.dtype().clone();
     let strings_chunked = ChunkedArray::try_new(iter::repeat_n(strings, 4).collect(), string_dtype)
@@ -344,35 +348,37 @@ fn write_chunked() {
         .into_array();
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, chunked_st.to_array_iterator())
+        .write(&mut buf, chunked_st.to_array_stream())
+        .await
         .unwrap();
 
-    let iter = VortexOpenOptions::new()
+    let stream = VortexOpenOptions::new()
         .open_buffer(buf)
         .unwrap()
         .scan()
         .unwrap()
-        .into_array_iter()
+        .into_array_stream()
         .unwrap();
+    pin_mut!(stream);
+
     let mut array_len: usize = 0;
-    for array in iter {
+    while let Some(array) = stream.next().await {
         array_len += array.unwrap().len();
     }
     assert_eq!(array_len, 48);
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn test_empty_varbin_array_roundtrip() {
+async fn test_empty_varbin_array_roundtrip() {
     let empty = VarBinArray::from(Vec::<&str>::new()).into_array();
 
     let st = StructArray::from_fields(&[("a", empty)]).unwrap();
 
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, st.to_array_iterator())
+        .write(&mut buf, st.to_array_stream())
+        .await
         .unwrap();
 
     let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
@@ -380,18 +386,19 @@ fn test_empty_varbin_array_roundtrip() {
     let result = file
         .scan()
         .unwrap()
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap();
 
     assert_eq!(result.len(), 0);
     assert_eq!(result.dtype(), st.dtype());
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn filter_string() {
+async fn filter_string() {
     let names_orig = VarBinArray::from_iter(
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
@@ -409,8 +416,8 @@ fn filter_string() {
     .into_array();
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, st.to_array_iterator())
+        .write(&mut buf, st.to_array_stream())
+        .await
         .unwrap();
 
     let result: Vec<_> = VortexOpenOptions::new()
@@ -419,9 +426,10 @@ fn filter_string() {
         .scan()
         .unwrap()
         .with_filter(eq(get_item("name", root()), lit("Joseph")))
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .try_collect()
+        .await
         .unwrap();
 
     assert_eq!(result.len(), 1);
@@ -440,9 +448,9 @@ fn filter_string() {
     assert_eq!(ages.to_primitive().as_slice::<i32>(), vec![25]);
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn filter_or() {
+async fn filter_or() {
     let names = VarBinArray::from_iter(
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
@@ -459,8 +467,8 @@ fn filter_or() {
 
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, st.to_array_iterator())
+        .write(&mut buf, st.to_array_stream())
+        .await
         .unwrap();
 
     let result: Vec<_> = VortexOpenOptions::new()
@@ -475,9 +483,10 @@ fn filter_or() {
                 lt_eq(get_item("age", root()), lit(30)),
             ),
         ))
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .try_collect()
+        .await
         .unwrap();
 
     assert_eq!(result.len(), 1);
@@ -501,9 +510,9 @@ fn filter_or() {
     );
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn filter_and() {
+async fn filter_and() {
     let names = VarBinArray::from_iter(
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
@@ -520,8 +529,8 @@ fn filter_and() {
 
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, st.to_array_iterator())
+        .write(&mut buf, st.to_array_stream())
+        .await
         .unwrap();
 
     let result: Vec<_> = VortexOpenOptions::new()
@@ -533,9 +542,10 @@ fn filter_and() {
             gt(get_item("age", root()), lit(21)),
             lt_eq(get_item("age", root()), lit(33)),
         ))
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .try_collect()
+        .await
         .unwrap();
 
     assert_eq!(result.len(), 1);
@@ -553,9 +563,9 @@ fn filter_and() {
     assert_eq!(ages.to_primitive().as_slice::<i32>(), vec![25, 31]);
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn test_with_indices_simple() {
+async fn test_with_indices_simple() {
     let expected_numbers_split: Vec<Buffer<i16>> = (0..5).map(|_| (0_i16..100).collect()).collect();
     let expected_array = StructArray::from_fields(&[(
         "numbers",
@@ -572,8 +582,8 @@ fn test_with_indices_simple() {
 
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, expected_array.to_array_iterator())
+        .write(&mut buf, expected_array.to_array_stream())
+        .await
         .unwrap();
 
     let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
@@ -583,9 +593,10 @@ fn test_with_indices_simple() {
         .scan()
         .unwrap()
         .with_row_indices(Buffer::<u64>::empty())
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap()
         .to_struct();
 
@@ -598,9 +609,10 @@ fn test_with_indices_simple() {
         .scan()
         .unwrap()
         .with_row_indices(Buffer::from_iter(kept_indices))
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap()
         .to_struct();
     let actual_kept_numbers_array = actual_kept_array.fields()[0].to_primitive();
@@ -618,9 +630,10 @@ fn test_with_indices_simple() {
         .scan()
         .unwrap()
         .with_row_indices((0u64..500).collect::<Buffer<_>>())
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap()
         .to_struct();
     let actual_numbers_array = actual_array.fields()[0].to_primitive();
@@ -629,9 +642,9 @@ fn test_with_indices_simple() {
     assert_eq!(expected_numbers, actual_numbers);
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn test_with_indices_on_two_columns() {
+async fn test_with_indices_on_two_columns() {
     let strings_expected = ["ab", "foo", "bar", "baz", "ab", "foo", "bar", "baz"];
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(strings_expected[..4].to_vec()).into_array(),
@@ -649,8 +662,8 @@ fn test_with_indices_on_two_columns() {
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, st.to_array_iterator())
+        .write(&mut buf, st.to_array_stream())
+        .await
         .unwrap();
 
     let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
@@ -660,9 +673,10 @@ fn test_with_indices_on_two_columns() {
         .scan()
         .unwrap()
         .with_row_indices(Buffer::from_iter(kept_indices))
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap()
         .to_struct()
         .to_struct();
@@ -693,9 +707,9 @@ fn test_with_indices_on_two_columns() {
     );
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn test_with_indices_and_with_row_filter_simple() {
+async fn test_with_indices_and_with_row_filter_simple() {
     let expected_numbers_split: Vec<Buffer<i16>> = (0..5).map(|_| (0_i16..100).collect()).collect();
     let expected_array = StructArray::from_fields(&[(
         "numbers",
@@ -712,8 +726,8 @@ fn test_with_indices_and_with_row_filter_simple() {
 
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, expected_array.to_array_iterator())
+        .write(&mut buf, expected_array.to_array_stream())
+        .await
         .unwrap();
 
     let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
@@ -723,9 +737,10 @@ fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
         .with_row_indices(Buffer::empty())
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap()
         .to_struct();
 
@@ -739,9 +754,10 @@ fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
         .with_row_indices(Buffer::from_iter(kept_indices))
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap()
         .to_struct();
 
@@ -762,9 +778,10 @@ fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
         .with_row_indices((0..500).collect::<Buffer<_>>())
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap()
         .to_struct();
 
@@ -781,9 +798,9 @@ fn test_with_indices_and_with_row_filter_simple() {
     );
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn filter_string_chunked() {
+async fn filter_string_chunked() {
     let name_chunk1 =
         VarBinViewArray::from_iter_nullable_str([Some("Joseph"), Some("James"), Some("Angela")])
             .into_array();
@@ -812,8 +829,8 @@ fn filter_string_chunked() {
 
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, array.to_array_iterator())
+        .write(&mut buf, array.to_array_stream())
+        .await
         .unwrap();
 
     let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
@@ -822,9 +839,10 @@ fn filter_string_chunked() {
         .scan()
         .unwrap()
         .with_filter(eq(get_item("name", root()), lit("Joseph")))
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap()
         .to_struct();
 
@@ -844,9 +862,9 @@ fn filter_string_chunked() {
     assert_eq!(ages.to_primitive().as_slice::<i32>(), vec![25]);
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(miri, ignore)]
-fn test_pruning_with_or() {
+async fn test_pruning_with_or() {
     let letter_chunk1 = VarBinViewArray::from_iter_nullable_str([
         Some("A".to_owned()),
         Some("B".to_owned()),
@@ -902,8 +920,8 @@ fn test_pruning_with_or() {
 
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, array.to_array_iterator())
+        .write(&mut buf, array.to_array_stream())
+        .await
         .unwrap();
 
     let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
@@ -915,9 +933,10 @@ fn test_pruning_with_or() {
             lt_eq(get_item("letter", root()), lit("J")),
             lt(get_item("number", root()), lit(25)),
         ))
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap()
         .to_struct();
 
@@ -965,8 +984,8 @@ fn test_pruning_with_or() {
     );
 }
 
-#[test]
-fn test_repeated_projection() {
+#[tokio::test]
+async fn test_repeated_projection() {
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
@@ -983,8 +1002,8 @@ fn test_repeated_projection() {
 
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, single_column_array.to_array_iterator())
+        .write(&mut buf, single_column_array.to_array_stream())
+        .await
         .unwrap();
 
     let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
@@ -993,9 +1012,10 @@ fn test_repeated_projection() {
         .scan()
         .unwrap()
         .with_projection(select(["strings", "strings"], root()))
-        .into_array_iter()
+        .into_array_stream()
         .unwrap()
         .read_all()
+        .await
         .unwrap()
         .to_struct();
 
@@ -1009,7 +1029,7 @@ fn test_repeated_projection() {
     );
 }
 
-fn chunked_file() -> VortexResult<VortexFile> {
+async fn chunked_file() -> VortexResult<VortexFile> {
     let array = ChunkedArray::from_iter([
         buffer![0, 1, 2].into_array(),
         buffer![3, 4, 5].into_array(),
@@ -1019,24 +1039,29 @@ fn chunked_file() -> VortexResult<VortexFile> {
 
     let mut writer = vec![];
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut writer, array.to_array_iterator())?;
+        .write(&mut writer, array.to_array_stream())
+        .await?;
     let buffer: Bytes = writer.into();
     VortexOpenOptions::new().open_buffer(buffer)
 }
 
-#[test]
-fn basic_file_roundtrip() -> VortexResult<()> {
-    let vxf = chunked_file()?;
-    let result = vxf.scan()?.into_array_iter()?.read_all()?.to_primitive();
+#[tokio::test]
+async fn basic_file_roundtrip() -> VortexResult<()> {
+    let vxf = chunked_file().await?;
+    let result = vxf
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?
+        .to_primitive();
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
 
     Ok(())
 }
 
-#[test]
-fn file_excluding_dtype() -> VortexResult<()> {
+#[tokio::test]
+async fn file_excluding_dtype() -> VortexResult<()> {
     let array = ChunkedArray::from_iter([
         buffer![0, 1, 2].into_array(),
         buffer![3, 4, 5].into_array(),
@@ -1048,8 +1073,8 @@ fn file_excluding_dtype() -> VortexResult<()> {
     let mut writer = vec![];
     VortexWriteOptions::default()
         .exclude_dtype()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut writer, array.to_array_iterator())?;
+        .write(&mut writer, array.to_array_stream())
+        .await?;
     let buffer: Bytes = writer.into();
 
     // Fail to open without DType.
@@ -1065,14 +1090,15 @@ fn file_excluding_dtype() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn file_take() -> VortexResult<()> {
-    let vxf = chunked_file()?;
+#[tokio::test]
+async fn file_take() -> VortexResult<()> {
+    let vxf = chunked_file().await?;
     let result = vxf
         .scan()?
         .with_row_indices(buffer![0, 1, 8])
-        .into_array_iter()?
-        .read_all()?
+        .into_array_stream()?
+        .read_all()
+        .await?
         .to_primitive();
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 8]);
@@ -1080,11 +1106,11 @@ fn file_take() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
+#[tokio::test]
 #[should_panic(
     expected = "FileStatsAccumulator temporarily does not support nullable top-level structs"
 )]
-fn write_nullable_top_level_struct() {
+async fn write_nullable_top_level_struct() {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
 
     let array = StructArray::try_new(
@@ -1098,19 +1124,19 @@ fn write_nullable_top_level_struct() {
 
     let mut writer = vec![];
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut writer, array.to_array_iterator())
+        .write(&mut writer, array.to_array_stream())
+        .await
         .unwrap();
 }
 
-fn round_trip(
+async fn round_trip(
     array: &dyn Array,
     f: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
 ) -> VortexResult<ArrayRef> {
     let mut writer = vec![];
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut writer, array.to_array_iterator())?;
+        .write(&mut writer, array.to_array_stream())
+        .await?;
     let buffer: Bytes = writer.into();
 
     let vxf = VortexOpenOptions::new()
@@ -1120,11 +1146,11 @@ fn round_trip(
     assert_eq!(vxf.dtype(), array.dtype());
     assert_eq!(vxf.row_count(), array.len() as u64);
 
-    f(vxf.scan()?)?.into_array_iter()?.read_all()
+    f(vxf.scan()?)?.into_array_stream()?.read_all().await
 }
 
-#[test]
-fn write_nullable_nested_struct() -> VortexResult<()> {
+#[tokio::test]
+async fn write_nullable_nested_struct() -> VortexResult<()> {
     let nested_dtype = DType::struct_(
         [(
             "nested_field",
@@ -1143,7 +1169,7 @@ fn write_nullable_nested_struct() -> VortexResult<()> {
     )?
     .into_array();
 
-    let result = round_trip(&array, Ok)?.to_struct();
+    let result = round_trip(&array, Ok).await?.to_struct();
 
     assert_eq!(result.len(), 3);
     assert_eq!(result.fields().len(), 1);
@@ -1157,8 +1183,8 @@ fn write_nullable_nested_struct() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn scan_empty_fields() -> VortexResult<()> {
+#[tokio::test]
+async fn scan_empty_fields() -> VortexResult<()> {
     let array = (0..10000).collect::<PrimitiveArray>();
 
     let result = round_trip(array.as_ref(), |scan| {
@@ -1167,7 +1193,8 @@ fn scan_empty_fields() -> VortexResult<()> {
             vec![],
             Nullability::Nullable,
         )?))
-    })?;
+    })
+    .await?;
 
     assert_eq!(result.len(), array.len());
 
@@ -1195,7 +1222,7 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
         .await?;
 
     let file = VortexOpenOptions::new().open_buffer(buf)?;
-    let stream = file.scan().unwrap().into_tokio_array_stream()?;
+    let stream = file.scan().unwrap().into_array_stream()?;
     let array = stream.read_all().await?;
 
     assert_eq!(array.len(), 8);
@@ -1203,8 +1230,8 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
+#[tokio::test]
+async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
     let num_vals = 2048;
     let mut values = Vec::<i64>::with_capacity(num_vals);
     values.extend(iter::repeat_n(0, num_vals / 2));
@@ -1213,10 +1240,10 @@ fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
     let array = PrimitiveArray::from_iter(values).into_array();
     let mut buf = Vec::new();
     VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
-        .write(&mut buf, array.to_array_iterator())?;
+        .write(&mut buf, array.to_array_stream())
+        .await?;
     let file = VortexOpenOptions::new().open_buffer(buf)?;
-    let read_array = file.scan()?.into_array_iter()?.read_all()?;
+    let read_array = file.scan()?.into_array_stream()?.read_all().await?;
 
     let dict = read_array
         .as_opt::<DictVTable>()
@@ -1245,7 +1272,7 @@ async fn test_writer_basic_push() -> VortexResult<()> {
     assert_eq!(summary.row_count(), 4);
 
     let file = VortexOpenOptions::new().open_buffer(buf)?;
-    let result = file.scan()?.into_array_iter()?.read_all()?;
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 4);
     assert_eq!(result.dtype(), &dtype);
@@ -1275,7 +1302,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
     assert_eq!(summary.row_count(), 9);
 
     let file = VortexOpenOptions::new().open_buffer(buf)?;
-    let result = file.scan()?.into_array_iter()?.read_all()?;
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 9);
     let numbers = result.to_struct().field_by_name("numbers")?.to_primitive();
@@ -1305,7 +1332,7 @@ async fn test_writer_push_stream() -> VortexResult<()> {
     assert_eq!(summary.row_count(), 6);
 
     let file = VortexOpenOptions::new().open_buffer(buf)?;
-    let result = file.scan()?.into_array_iter()?.read_all()?;
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
     let numbers = result.to_struct().field_by_name("numbers")?.to_primitive();
@@ -1365,7 +1392,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
     assert_eq!(summary.row_count(), 2);
 
     let file = VortexOpenOptions::new().open_buffer(buf)?;
-    let result = file.scan()?.into_array_iter()?.read_all()?;
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 2);
     let numbers = result.to_struct().field_by_name("numbers")?.to_primitive();
@@ -1399,7 +1426,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
     assert_eq!(summary.row_count(), 6);
 
     let file = VortexOpenOptions::new().open_buffer(buf)?;
-    let result = file.scan()?.into_array_iter()?.read_all()?;
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
     let numbers = result.to_struct().field_by_name("numbers")?.to_primitive();
@@ -1435,7 +1462,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     assert_eq!(footer.row_count(), 3);
 
     let file = VortexOpenOptions::new().open_buffer(buf)?;
-    let result = file.scan()?.into_array_iter()?.read_all()?;
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 3);
     assert_eq!(result.dtype(), &dtype);

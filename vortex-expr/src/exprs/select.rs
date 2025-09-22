@@ -15,7 +15,7 @@ use crate::field::DisplayFieldNames;
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum SelectField {
+pub enum FieldSelection {
     Include(FieldNames),
     Exclude(FieldNames),
 }
@@ -25,13 +25,13 @@ vtable!(Select);
 #[derive(Debug, Clone, Hash, Eq)]
 #[allow(clippy::derived_hash_with_manual_eq)]
 pub struct SelectExpr {
-    fields: SelectField,
+    selection: FieldSelection,
     child: ExprRef,
 }
 
 impl PartialEq for SelectExpr {
     fn eq(&self, other: &Self) -> bool {
-        self.fields == other.fields && self.child.eq(&other.child)
+        self.selection == other.selection && self.child.eq(&other.child)
     }
 }
 
@@ -52,13 +52,13 @@ impl VTable for SelectVTable {
 
     fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
         let names = expr
-            .fields()
-            .fields()
+            .selection()
+            .field_names()
             .iter()
             .map(|f| f.to_string())
             .collect_vec();
 
-        let opts = if expr.fields().is_include() {
+        let opts = if expr.selection().is_include() {
             Opts::Include(ProtoFieldNames { names })
         } else {
             Opts::Exclude(ProtoFieldNames { names })
@@ -73,7 +73,7 @@ impl VTable for SelectVTable {
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
         Ok(SelectExpr {
-            fields: expr.fields.clone(),
+            selection: expr.selection.clone(),
             child: children[0].clone(),
         })
     }
@@ -89,10 +89,10 @@ impl VTable for SelectVTable {
 
         let fields = match metadata.opts.as_ref() {
             Some(opts) => match opts {
-                Opts::Include(field_names) => SelectField::Include(FieldNames::from_iter(
+                Opts::Include(field_names) => FieldSelection::Include(FieldNames::from_iter(
                     field_names.names.iter().map(|s| s.as_str()),
                 )),
-                Opts::Exclude(field_names) => SelectField::Exclude(FieldNames::from_iter(
+                Opts::Exclude(field_names) => FieldSelection::Exclude(FieldNames::from_iter(
                     field_names.names.iter().map(|s| s.as_str()),
                 )),
             },
@@ -106,14 +106,17 @@ impl VTable for SelectVTable {
             .next()
             .vortex_expect("number of children validated to be one");
 
-        Ok(SelectExpr { fields, child })
+        Ok(SelectExpr {
+            selection: fields,
+            child,
+        })
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
         let batch = expr.child.unchecked_evaluate(scope)?.to_struct();
-        Ok(match &expr.fields {
-            SelectField::Include(f) => batch.project(f.as_ref()),
-            SelectField::Exclude(names) => {
+        Ok(match &expr.selection {
+            FieldSelection::Include(f) => batch.project(f.as_ref()),
+            FieldSelection::Exclude(names) => {
                 let included_names = batch
                     .names()
                     .iter()
@@ -132,9 +135,9 @@ impl VTable for SelectVTable {
             .as_struct_fields_opt()
             .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
 
-        let projected = match &expr.fields {
-            SelectField::Include(fields) => child_struct_dtype.project(fields.as_ref())?,
-            SelectField::Exclude(fields) => child_struct_dtype
+        let projected = match &expr.selection {
+            FieldSelection::Include(fields) => child_struct_dtype.project(fields.as_ref())?,
+            FieldSelection::Exclude(fields) => child_struct_dtype
                 .names()
                 .iter()
                 .cloned()
@@ -154,8 +157,8 @@ impl VTable for SelectVTable {
 /// # use vortex_expr::{select, root};
 /// let expr = select(["name", "age"], root());
 /// ```
-pub fn select(fields: impl Into<FieldNames>, child: ExprRef) -> ExprRef {
-    SelectExpr::include_expr(fields.into(), child)
+pub fn select(field_names: impl Into<FieldNames>, child: ExprRef) -> ExprRef {
+    SelectExpr::include_expr(field_names.into(), child)
 }
 
 /// Creates an expression that excludes specific fields from an array.
@@ -171,24 +174,27 @@ pub fn select_exclude(fields: impl Into<FieldNames>, child: ExprRef) -> ExprRef 
 }
 
 impl SelectExpr {
-    pub fn new(fields: SelectField, child: ExprRef) -> Self {
-        Self { fields, child }
+    pub fn new(fields: FieldSelection, child: ExprRef) -> Self {
+        Self {
+            selection: fields,
+            child,
+        }
     }
 
-    pub fn new_expr(fields: SelectField, child: ExprRef) -> ExprRef {
+    pub fn new_expr(fields: FieldSelection, child: ExprRef) -> ExprRef {
         Self::new(fields, child).into_expr()
     }
 
     pub fn include_expr(columns: FieldNames, child: ExprRef) -> ExprRef {
-        Self::new(SelectField::Include(columns), child).into_expr()
+        Self::new(FieldSelection::Include(columns), child).into_expr()
     }
 
     pub fn exclude_expr(columns: FieldNames, child: ExprRef) -> ExprRef {
-        Self::new(SelectField::Exclude(columns), child).into_expr()
+        Self::new(FieldSelection::Exclude(columns), child).into_expr()
     }
 
-    pub fn fields(&self) -> &SelectField {
-        &self.fields
+    pub fn selection(&self) -> &FieldSelection {
+        &self.selection
     }
 
     pub fn child(&self) -> &ExprRef {
@@ -200,11 +206,11 @@ impl SelectExpr {
     /// For example:
     /// ```rust
     /// # use vortex_expr::root;
-    /// # use vortex_expr::{SelectExpr, SelectField};
+    /// # use vortex_expr::{FieldSelection, SelectExpr};
     /// # use vortex_dtype::FieldNames;
     /// let field_names = FieldNames::from(["a", "b", "c"]);
-    /// let include = SelectExpr::new(SelectField::Include(["a"].into()), root());
-    /// let exclude = SelectExpr::new(SelectField::Exclude(["b", "c"].into()), root());
+    /// let include = SelectExpr::new(FieldSelection::Include(["a"].into()), root());
+    /// let exclude = SelectExpr::new(FieldSelection::Exclude(["b", "c"].into()), root());
     /// assert_eq!(
     ///     &include.as_include(&field_names).unwrap(),
     ///     &exclude.as_include(&field_names).unwrap()
@@ -212,14 +218,14 @@ impl SelectExpr {
     /// ```
     pub fn as_include(&self, field_names: &FieldNames) -> VortexResult<ExprRef> {
         Ok(Self::new(
-            SelectField::Include(self.fields.as_include_names(field_names)?),
+            FieldSelection::Include(self.selection.as_include_names(field_names)?),
             self.child.clone(),
         )
         .into_expr())
     }
 }
 
-impl SelectField {
+impl FieldSelection {
     pub fn include(columns: FieldNames) -> Self {
         assert_eq!(columns.iter().unique().collect_vec().len(), columns.len());
         Self::Include(columns)
@@ -238,15 +244,15 @@ impl SelectField {
         matches!(self, Self::Exclude(_))
     }
 
-    pub fn fields(&self) -> &FieldNames {
-        let (SelectField::Include(fields) | SelectField::Exclude(fields)) = self;
+    pub fn field_names(&self) -> &FieldNames {
+        let (FieldSelection::Include(fields) | FieldSelection::Exclude(fields)) = self;
 
         fields
     }
 
     pub fn as_include_names(&self, field_names: &FieldNames) -> VortexResult<FieldNames> {
         if self
-            .fields()
+            .field_names()
             .iter()
             .any(|f| !field_names.iter().contains(f))
         {
@@ -257,8 +263,8 @@ impl SelectField {
             );
         }
         match self {
-            SelectField::Include(fields) => Ok(fields.clone()),
-            SelectField::Exclude(exc_fields) => Ok(field_names
+            FieldSelection::Include(fields) => Ok(fields.clone()),
+            FieldSelection::Exclude(exc_fields) => Ok(field_names
                 .iter()
                 .filter(|f| !exc_fields.iter().contains(f))
                 .cloned()
@@ -267,11 +273,11 @@ impl SelectField {
     }
 }
 
-impl Display for SelectField {
+impl Display for FieldSelection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SelectField::Include(fields) => write!(f, "{{{}}}", DisplayFieldNames(fields)),
-            SelectField::Exclude(fields) => write!(f, "~{{{}}}", DisplayFieldNames(fields)),
+            FieldSelection::Include(fields) => write!(f, "{{{}}}", DisplayFieldNames(fields)),
+            FieldSelection::Exclude(fields) => write!(f, "~{{{}}}", DisplayFieldNames(fields)),
         }
     }
 }
@@ -280,16 +286,21 @@ impl DisplayAs for SelectExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match df {
             DisplayFormat::Compact => {
-                write!(f, "{}{}", self.child, self.fields)
+                write!(f, "{}{}", self.child, self.selection)
             }
             DisplayFormat::Tree => {
-                let field_type = if self.fields.is_include() {
+                let field_type = if self.selection.is_include() {
                     "include"
                 } else {
                     "exclude"
                 };
 
-                write!(f, "Select({}): {}", field_type, self.fields().fields())
+                write!(
+                    f,
+                    "Select({}): {}",
+                    field_type,
+                    self.selection().field_names()
+                )
             }
         }
     }
@@ -310,7 +321,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
-    use crate::{Scope, SelectExpr, SelectField, root, select, select_exclude, test_harness};
+    use crate::{FieldSelection, Scope, SelectExpr, root, select, select_exclude, test_harness};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -393,8 +404,8 @@ mod tests {
     #[test]
     fn test_as_include_names() {
         let field_names = FieldNames::from(["a", "b", "c"]);
-        let include = SelectExpr::new(SelectField::Include(["a"].into()), root());
-        let exclude = SelectExpr::new(SelectField::Exclude(["b", "c"].into()), root());
+        let include = SelectExpr::new(FieldSelection::Include(["a"].into()), root());
+        let exclude = SelectExpr::new(FieldSelection::Exclude(["b", "c"].into()), root());
         assert_eq!(
             &include.as_include(&field_names).unwrap(),
             &exclude.as_include(&field_names).unwrap()

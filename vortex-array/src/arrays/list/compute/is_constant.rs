@@ -192,7 +192,7 @@ mod tests {
         (0..101).map(|i| (i * 2) as u32).collect(),
         false
     )]
-    fn test_large_list_is_constant(
+    fn test_list_is_constant_with_threshold(
         #[case] elements: Vec<i32>,
         #[case] offsets: Vec<u32>,
         #[case] expected: bool,

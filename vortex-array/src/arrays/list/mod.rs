@@ -97,10 +97,10 @@ impl VTable for ListVTable {
 /// assert_eq!(list_array.len(), 3);
 ///
 /// // Access individual lists
-/// let first_list = list_array.elements_at(0);
+/// let first_list = list_array.list_elements_at(0);
 /// assert_eq!(first_list.len(), 2); // [1, 2]
 ///
-/// let third_list = list_array.elements_at(2);
+/// let third_list = list_array.list_elements_at(2);
 /// assert!(third_list.is_empty()); // []
 /// ```
 #[derive(Clone, Debug)]
@@ -280,14 +280,17 @@ impl ListArray {
             })
     }
 
-    /// Returns the elements at the given index from the list array.
-    pub fn elements_at(&self, index: usize) -> ArrayRef {
+    /// Returns the elements of the list scalar at the given index of the list array.
+    pub fn list_elements_at(&self, index: usize) -> ArrayRef {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
         self.elements().slice(start..end)
     }
 
-    /// Returns elements of the list array referenced by the offsets array
+    /// Returns elements of the list array referenced by the offsets array.
+    ///
+    /// This is useful for discarding any potentially unused parts of the underlying `elements`
+    /// child array.
     pub fn sliced_elements(&self) -> ArrayRef {
         let start = self.offset_at(0);
         let end = self.offset_at(self.len());
@@ -304,7 +307,8 @@ impl ListArray {
         &self.elements
     }
 
-    /// Create a copy of this array by adjusting offsets to start at 0 and removing elements not referenced by the offsets
+    /// Create a copy of this array by adjusting `offsets` to start at `0` and removing elements not
+    /// referenced by the `offsets`.
     pub fn reset_offsets(&self) -> VortexResult<Self> {
         let elements = self.sliced_elements();
         let offsets = self.offsets();
@@ -340,11 +344,12 @@ impl OperationsVTable<ListVTable> for ListVTable {
     }
 
     fn scalar_at(array: &ListArray, index: usize) -> Scalar {
-        let elem = array.elements_at(index);
-        let scalars: Vec<Scalar> = (0..elem.len()).map(|i| elem.scalar_at(i)).collect();
+        // By the preconditions we know that the list scalar is not null.
+        let elems = array.list_elements_at(index);
+        let scalars: Vec<Scalar> = (0..elems.len()).map(|i| elems.scalar_at(i)).collect();
 
         Scalar::list(
-            Arc::new(elem.dtype().clone()),
+            Arc::new(elems.dtype().clone()),
             scalars,
             array.dtype().nullability(),
         )

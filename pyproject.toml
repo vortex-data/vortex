@@ -13,12 +13,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["dummy"] # Required for workspace project
 
-[tool.uv]
-managed = true
-required-version = ">=0.8.0"
+[dependency-groups]
 # Currently, all dev dependencies live in the root since uv doesn't have transitive dev dependencies.
 #  See: https://github.com/astral-sh/uv/issues/7541
-dev-dependencies = [
+dev = [
     "basedpyright>=1.31",
     "duckdb>=1.1.2",
     "ipython>=8.26.0",
@@ -35,6 +33,11 @@ dev-dependencies = [
     "ray>=2.48",
     "pytest-benchmark>=5.1.0",
 ]
+
+[tool.uv]
+managed = true
+required-version = ">=0.8.0"
+
 
 [tool.uv.workspace]
 members = ["vortex-python", "docs"]

@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use tokio::fs::File;
 use vortex::ArrayRef;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
-use vortex::iter::ArrayIteratorExt;
+use vortex::stream::ArrayStreamExt;
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
@@ -74,7 +74,8 @@ impl Dataset for DownloadableDataset {
             .open(vortex.as_path())
             .await?
             .scan()?
-            .into_array_iter_multithread()?
-            .read_all()?)
+            .into_array_stream()?
+            .read_all()
+            .await?)
     }
 }

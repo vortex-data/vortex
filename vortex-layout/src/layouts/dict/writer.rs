@@ -30,19 +30,33 @@ use crate::sequence::{
 use crate::{IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren};
 
 #[derive(Clone)]
-pub struct DictLayoutOptions {
-    pub constraints: DictConstraints,
+pub struct DictLayoutConstraints {
+    pub max_bytes: usize,
+    // Dict layout codes currently only support u16 codes
+    pub max_len: u16,
 }
 
-impl Default for DictLayoutOptions {
-    fn default() -> Self {
-        Self {
-            constraints: DictConstraints {
-                max_bytes: 1024 * 1024,
-                max_len: u16::MAX as usize,
-            },
+impl From<DictLayoutConstraints> for DictConstraints {
+    fn from(value: DictLayoutConstraints) -> Self {
+        DictConstraints {
+            max_bytes: value.max_bytes,
+            max_len: value.max_len as usize,
         }
     }
+}
+
+impl Default for DictLayoutConstraints {
+    fn default() -> Self {
+        Self {
+            max_bytes: 1024 * 1024,
+            max_len: u16::MAX,
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct DictLayoutOptions {
+    pub constraints: DictLayoutConstraints,
 }
 
 /// A layout strategy that encodes chunk into values and codes, if found
@@ -117,7 +131,7 @@ impl LayoutStrategy for DictStrategy {
         // 1. from a chunk stream, create a stream that yields codes
         // followed by a single value chunk when dict constraints are hit.
         // (a1, a2) -> (code(c1), code(c2), values(v1), code(c3), ...)
-        let dict_stream = dict_encode_stream(stream, options.constraints);
+        let dict_stream = dict_encode_stream(stream, options.constraints.into());
 
         // Wrap up the dict stream to yield pairs of (codes_stream, values_future).
         // Each of these pairs becomes a child dict layout.

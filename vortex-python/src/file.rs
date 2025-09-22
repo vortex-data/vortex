@@ -87,7 +87,7 @@ impl PyVortexFile {
         )?;
 
         Ok(PyArrayIterator::new(Box::new(
-            builder.into_array_iter_multithread()?,
+            builder.into_array_iter(&*RUNTIME)?,
         )))
     }
 
@@ -134,7 +134,7 @@ impl PyVortexFile {
             }
 
             let schema = Arc::new(builder.dtype()?.to_arrow_schema()?);
-            builder.into_record_batch_reader_multithread(schema)
+            builder.into_record_batch_reader(schema, &*RUNTIME)
         })?;
 
         let rbr: Box<dyn RecordBatchReader + Send> = Box::new(reader);
@@ -167,6 +167,7 @@ impl PyVortexFile {
         let mut builder = self
             .vxf
             .scan()?
+            .with_handle(RUNTIME.handle())
             .with_some_filter(expr)
             .with_projection(projection.unwrap_or_else(root));
 

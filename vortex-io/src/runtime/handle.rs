@@ -8,6 +8,7 @@ use std::task::{Context, Poll, ready};
 use futures::channel::mpsc;
 use futures::{FutureExt, StreamExt};
 use vortex_error::{VortexResult, vortex_panic};
+use vortex_metrics::VortexMetrics;
 
 use crate::file::{FileRead, IntoReadSource, IoRequestStream};
 use crate::runtime::{AbortHandleRef, Executor, IoTask};
@@ -135,14 +136,19 @@ impl Handle {
     }
 
     /// Open a file for I/O on this runtime.
-    pub fn open_read<S: IntoReadSource>(&self, source: S) -> VortexResult<FileRead> {
+    pub fn open_read<S: IntoReadSource>(
+        &self,
+        source: S,
+        metrics: VortexMetrics,
+    ) -> VortexResult<FileRead> {
         let source = source.into_read_source(self.clone())?;
 
         let (send, recv) = mpsc::unbounded();
 
         let read = FileRead::new(source.uri().clone(), source.size(), send);
 
-        let stream = IoRequestStream::new(StreamExt::boxed(recv), source.coalesce_window()).boxed();
+        let stream =
+            IoRequestStream::new(StreamExt::boxed(recv), source.coalesce_window(), metrics).boxed();
 
         self.runtime().spawn_io(IoTask::new(source, stream));
 

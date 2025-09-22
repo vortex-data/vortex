@@ -17,7 +17,7 @@ use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
-use vortex::iter::ArrayIteratorExt;
+use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, IntoArray};
 
@@ -42,8 +42,9 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::
         .await?
         .scan()?
         .with_row_indices(indices)
-        .into_array_iter_multithread()?
-        .read_all()?
+        .into_array_stream()?
+        .read_all()
+        .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.
         .to_canonical()
         .into_array())

@@ -12,10 +12,10 @@ use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_datasource::schema_adapter::{DefaultSchemaAdapterFactory, SchemaAdapterFactory};
-use datafusion_physical_expr::schema_rewriter::{
+use datafusion_physical_expr::{PhysicalExprRef, conjunction};
+use datafusion_physical_expr_adapter::{
     DefaultPhysicalExprAdapterFactory, PhysicalExprAdapterFactory,
 };
-use datafusion_physical_expr::{PhysicalExprRef, conjunction};
 use datafusion_physical_plan::filter_pushdown::{
     FilterPushdownPropagation, PushedDown, PushedDownPredicate,
 };

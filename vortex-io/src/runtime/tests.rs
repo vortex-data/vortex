@@ -34,7 +34,7 @@ fn test_file_read_with_single_thread_runtime() {
     let result = block_on(|handle| {
         async move {
             let buffer = ByteBuffer::from(TEST_DATA.to_vec());
-            let file_read = handle.open_read(buffer).unwrap();
+            let file_read = handle.open_read(buffer, Default::default()).unwrap();
 
             // Read a slice
             let result = file_read
@@ -64,7 +64,7 @@ fn test_file_read_with_single_thread_runtime() {
 async fn test_file_read_with_tokio_runtime() {
     let handle = TokioRuntime::current();
     let buffer = ByteBuffer::from(TEST_DATA.to_vec());
-    let file_read = handle.open_read(buffer).unwrap();
+    let file_read = handle.open_read(buffer, Default::default()).unwrap();
 
     // Read a slice
     let result = file_read
@@ -100,7 +100,9 @@ fn test_file_read_with_real_file_single_thread() {
             temp_file.flush().unwrap();
 
             // Open and read the file
-            let file_read = handle.open_read(temp_file.path()).unwrap();
+            let file_read = handle
+                .open_read(temp_file.path(), Default::default())
+                .unwrap();
 
             // Read a slice
             let result = file_read
@@ -136,7 +138,9 @@ async fn test_file_read_with_real_file_tokio() {
     temp_file.flush().unwrap();
 
     let handle = TokioRuntime::current();
-    let file_read = handle.open_read(temp_file.path()).unwrap();
+    let file_read = handle
+        .open_read(temp_file.path(), Default::default())
+        .unwrap();
 
     // Read a slice
     let result = file_read
@@ -164,7 +168,7 @@ async fn test_file_read_with_real_file_tokio() {
 async fn test_concurrent_reads() {
     let handle = TokioRuntime::current();
     let buffer = ByteBuffer::from(TEST_DATA.to_vec());
-    let file_read = handle.open_read(buffer).unwrap();
+    let file_read = handle.open_read(buffer, Default::default()).unwrap();
 
     // Issue multiple concurrent reads
     let futures = vec![
@@ -283,7 +287,7 @@ async fn test_custom_io_source() {
         read_count: read_count.clone(),
     };
 
-    let file_read = handle.open_read(source).unwrap();
+    let file_read = handle.open_read(source, Default::default()).unwrap();
 
     // Perform several reads
     let _ = file_read.read_at(0, 5, Alignment::new(1)).await.unwrap();
@@ -302,7 +306,7 @@ async fn test_custom_io_source() {
 async fn test_read_out_of_bounds() {
     let handle = TokioRuntime::current();
     let buffer = ByteBuffer::from(TEST_DATA.to_vec());
-    let file_read = handle.open_read(buffer).unwrap();
+    let file_read = handle.open_read(buffer, Default::default()).unwrap();
 
     // Try to read beyond the buffer
     let result = file_read.read_at(100, 10, Alignment::new(1)).await;

@@ -63,6 +63,8 @@ mod debug;
 mod macros;
 #[cfg(feature = "memmap2")]
 mod memmap2;
+#[cfg(feature = "serde")]
+mod serde;
 mod string;
 mod trusted_len;
 
