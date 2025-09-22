@@ -230,7 +230,7 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMaxBinaryStatsBuilder<T
     }
 
     fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
-        let (value, truncated) = upper_bound::<T>(value, self.max_value_length)?;
+        let (value, truncated) = upper_bound(T::from_scalar(&value)?, self.max_value_length);
 
         if let Some(upper_bound) = value {
             self.values.append_scalar(&upper_bound)?;
@@ -263,7 +263,7 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T
     }
 
     fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
-        let (value, truncated) = lower_bound::<T>(value, self.max_value_length)?;
+        let (value, truncated) = lower_bound(T::from_scalar(&value)?, self.max_value_length);
         self.values.append_scalar(&value)?;
         self.is_truncated.append_value(truncated);
         Ok(())
@@ -285,26 +285,18 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T
     }
 }
 
-pub fn lower_bound<T: ScalarTruncation>(
-    value: Scalar,
-    max_length: usize,
-) -> VortexResult<(Scalar, bool)> {
-    let trunc = T::from_scalar(&value)?;
-    if trunc.len().unwrap_or(0) > max_length {
-        Ok((trunc.lower_bound(max_length).into_scalar(), true))
+pub fn lower_bound(value: impl ScalarTruncation, max_length: usize) -> (Scalar, bool) {
+    if value.len().unwrap_or(0) > max_length {
+        (value.lower_bound(max_length).into_scalar(), true)
     } else {
-        Ok((trunc.into_scalar(), false))
+        (value.into_scalar(), false)
     }
 }
 
-pub fn upper_bound<T: ScalarTruncation>(
-    value: Scalar,
-    max_length: usize,
-) -> VortexResult<(Option<Scalar>, bool)> {
-    let trunc = T::from_scalar(&value)?;
-    if trunc.len().unwrap_or(0) > max_length {
-        Ok((trunc.upper_bound(max_length).map(|v| v.into_scalar()), true))
+pub fn upper_bound(value: impl ScalarTruncation, max_length: usize) -> (Option<Scalar>, bool) {
+    if value.len().unwrap_or(0) > max_length {
+        (value.upper_bound(max_length).map(|v| v.into_scalar()), true)
     } else {
-        Ok((Some(trunc.into_scalar()), false))
+        (Some(value.into_scalar()), false)
     }
 }

@@ -9,7 +9,10 @@ use parking_lot::RwLock;
 use vortex_error::{VortexError, VortexResult, vortex_panic};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use super::{Precision, Stat, StatsProvider, StatsSet, StatsSetIntoIter, TypedStatsSetRef};
+use super::{
+    MutTypedStatsSetRef, Precision, Stat, StatsProvider, StatsSet, StatsSetIntoIter,
+    TypedStatsSetRef,
+};
 use crate::Array;
 use crate::builders::builder_with_capacity;
 use crate::compute::{
@@ -101,6 +104,15 @@ impl StatsSetRef<'_> {
                 .inner
                 .read()
                 .as_typed_ref(self.dyn_array_ref.dtype()),
+        )
+    }
+
+    pub fn with_mut_typed_stats_set<U, F: FnOnce(MutTypedStatsSetRef) -> U>(&self, apply: F) -> U {
+        apply(
+            self.array_stats
+                .inner
+                .write()
+                .as_mut_typed_ref(self.dyn_array_ref.dtype()),
         )
     }
 
@@ -210,10 +222,6 @@ impl StatsSetRef<'_> {
 
     pub fn clear(&self, stat: Stat) {
         self.array_stats.clear(stat);
-    }
-
-    pub fn retain(&self, stats: &[Stat]) {
-        self.array_stats.retain(stats);
     }
 
     pub fn compute_min<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
