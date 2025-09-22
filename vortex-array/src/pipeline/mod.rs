@@ -40,10 +40,10 @@ use vec::VectorRef;
 use vortex_error::VortexResult;
 
 pub trait PipelinedOperator: Operator {
-    /// Whether this operator works by mutating its first child in-place.
-    ///
-    /// If `true`, the operator is invoked with the first child's input data passed via the
-    /// mutable output view. The node is expected to mutate this data in-place.
+    // Whether this operator works by mutating its first child in-place.
+    //
+    // If `true`, the operator is invoked with the first child's input data passed via the
+    // mutable output view. The node is expected to mutate this data in-place.
     // TODO(ngates): enable this
     // fn in_place(&self) -> bool {
     //     false

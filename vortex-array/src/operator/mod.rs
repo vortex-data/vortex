@@ -32,6 +32,7 @@ pub mod filter;
 pub mod getitem;
 mod hash;
 pub mod metrics;
+mod optimize;
 pub mod slice;
 
 use std::any::{type_name, Any};
@@ -72,10 +73,15 @@ pub trait Operator: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Returns the [`DType`] of the array produced by this operator.
     fn dtype(&self) -> &DType;
 
-    /// FIXME: Returns the (min, max) length bounds of the array produced by this operator.
+    /// Returns the number of rows produced by this operator.
     fn len(&self) -> usize;
 
-    // TODO(ngates): add StatsSet
+    /// Returns whether this operator produces zero rows.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    // TODO(ngates): add StatsSet?
 
     /// The children of this operator.
     fn children(&self) -> &[OperatorRef];
@@ -87,7 +93,7 @@ pub trait Operator: 'static + Send + Sync + Debug + DynEq + DynHash {
 
     /// Override the default formatting of this operator.
     fn fmt_as(&self, _df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", type_name::<Self>())
+        write!(f, "{}", type_name::<Self>())
     }
 
     /// Create a new instance of this operator with the given children.

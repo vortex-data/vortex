@@ -27,7 +27,7 @@ use itertools::Itertools;
 use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::Formatter;
-use std::hash::BuildHasher;
+use std::hash::{BuildHasher, Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
@@ -48,7 +48,7 @@ pub(crate) struct PipelineOperator {
 
 type NodeId = usize;
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 struct PipelineNode {
     // The operator at this node.
     operator: OperatorRef,
@@ -58,6 +58,14 @@ struct PipelineNode {
     parents: Vec<NodeId>,
     // The IDs of the batch inputs that feed into this node.
     batch_inputs: Vec<BatchId>,
+}
+
+impl Hash for PipelineNode {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.operator.hash(state);
+        self.children.hash(state);
+        self.batch_inputs.hash(state);
+    }
 }
 
 impl PartialEq for PipelineNode {

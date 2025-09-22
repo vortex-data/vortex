@@ -9,12 +9,13 @@ use crate::{Array, Canonical, IntoArray};
 use async_trait::async_trait;
 use itertools::Itertools;
 use std::any::Any;
+use std::hash::Hash;
 use std::ops::Range;
 use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct SliceOperator {
     child: OperatorRef,
     range: Range<usize>,
@@ -41,6 +42,13 @@ impl SliceOperator {
 
     pub fn range(&self) -> &Range<usize> {
         &self.range
+    }
+}
+
+impl Hash for SliceOperator {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.child.hash(state);
+        self.range.hash(state);
     }
 }
 

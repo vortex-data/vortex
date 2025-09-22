@@ -104,19 +104,19 @@ impl WebGpuExecutor {
 
         // Example usage: Create buffers and execute the kernel
         let data = vec![10i32, 20, 30, 40, 50];
-        let data_size = (data.len() * size_of::<i32>()) as u64;
+        let data_size = (data.len() * size_of::<i32>()) as usize;
 
         // Create data buffer with initial values
         let data_buffer = self.device.create_buffer(&BufferDescriptor {
             label: Some("data_buffer"),
-            size: data_size,
+            size: data_size as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
 
         // Write initial data
         let data_bytes =
-            unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data_size as usize) };
+            unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data_size) };
         self.queue.write_buffer(&data_buffer, 0, data_bytes);
 
         // Create uniform buffer for subtract value
@@ -178,7 +178,7 @@ impl WebGpuExecutor {
         // For demonstration: Read back the results
         let staging_buffer = self.device.create_buffer(&BufferDescriptor {
             label: Some("staging_buffer"),
-            size: data_size,
+            size: data_size as u64,
             usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -188,7 +188,7 @@ impl WebGpuExecutor {
             .create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("copy_encoder"),
             });
-        encoder.copy_buffer_to_buffer(&data_buffer, 0, &staging_buffer, 0, data_size);
+        encoder.copy_buffer_to_buffer(&data_buffer, 0, &staging_buffer, 0, data_size as u64);
         self.queue.submit(std::iter::once(encoder.finish()));
 
         // Note: In a real implementation, we'd read back the results from the staging buffer

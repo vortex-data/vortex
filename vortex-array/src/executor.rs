@@ -41,27 +41,6 @@ impl Executor {
         async move { execution?.execute().await }.boxed()
     }
 
-    /// Returns an optimized version of the operator tree.
-    pub fn optimize(&mut self, operator: OperatorRef) -> VortexResult<OperatorRef> {
-        let children = operator
-            .children()
-            .iter()
-            .map(|child| self.optimize(child.clone()))
-            .try_collect()?;
-
-        let mut operator = operator.with_children(children)?;
-        operator = operator.reduce_children()?.unwrap_or(operator);
-
-        let parent = operator.clone();
-        for (idx, child) in operator.children().iter().enumerate() {
-            if let Some(new_operator) = child.reduce_parent(parent.clone(), idx)? {
-                return Ok(new_operator);
-            }
-        }
-
-        Ok(operator)
-    }
-
     fn batch_execution(&mut self, operator: &OperatorRef) -> VortexResult<BatchExecutionRef> {
         // FIXME(ngates): we should have a separate optimize call that turns the operator tree
         //  into a DAG by inserting shared CSE nodes, each of which has the ability to construct

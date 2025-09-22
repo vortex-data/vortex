@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(dead_code)]
+
 mod execution;
 pub(crate) mod input;
 pub(crate) mod operator;

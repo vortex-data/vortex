@@ -5,15 +5,22 @@ use crate::operator::{Operator, OperatorId, OperatorRef};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{BatchId, BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
 use std::any::Any;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 /// An operator that exports a child operator's data in canonical pipelined form.
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct PipelineInputOperator {
     child: OperatorRef,
+}
+
+impl Hash for PipelineInputOperator {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.child.hash(state);
+    }
 }
 
 impl PartialEq for PipelineInputOperator {

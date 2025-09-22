@@ -124,6 +124,7 @@ macro_rules! match_each_compare_op {
 }
 
 impl PipelinedOperator for CompareOperator {
+    #[allow(clippy::cognitive_complexity)]
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
         debug_assert_eq!(self.children[0].dtype(), self.children[1].dtype());
 
