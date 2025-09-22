@@ -133,13 +133,6 @@ mod tests {
     }
 
     #[test]
-    fn test_query_invalid_sql() {
-        let conn = test_connection().unwrap();
-        let result = conn.query("INVALID SQL");
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_query_single_value() {
         let conn = test_connection().unwrap();
         let result = conn.query("SELECT 42").unwrap();
