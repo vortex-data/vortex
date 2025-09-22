@@ -47,8 +47,7 @@ pub mod test_harness;
 pub mod validity;
 pub mod variants;
 pub mod vtable;
-#[cfg(feature = "vulkano")]
-pub mod vulkan;
+#[cfg(feature = "webgpu")]
 pub mod webgpu;
 
 pub mod flatbuffers {

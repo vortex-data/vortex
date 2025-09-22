@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
+use std::env;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
@@ -34,6 +35,11 @@ use crate::LayoutReader;
 // TODO(ngates): more experimentation is needed, and this should probably be dynamic based on the
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
+
+/// While we develop operator-based evaluation, we can enable it via an environment variable.
+const USE_OPERATOR_EVAL: bool = env::var("VORTEX_USE_OPERATOR_EVAL")
+    .ok()
+    .is_some_and(|v| v == "1");
 
 pub struct FlatReader {
     layout: FlatLayout,
@@ -196,12 +202,8 @@ impl LayoutReader for FlatReader {
             let mut array = array.clone().await?;
             let mask = mask.await?;
 
-            if let Some(array) =
-                try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await?
-            {
-                return Ok(array);
-            } else {
-                vortex_bail!("Failed to evaluate using operator {}", array.display_tree());
+            if USE_OPERATOR_EVAL {
+                return try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await;
             }
 
             // Slice the array based on the row mask.
@@ -230,17 +232,15 @@ async fn try_evaluate_using_operator(
     array: &ArrayRef,
     expr: &ExprRef,
     mask: &Mask,
-) -> VortexResult<Option<ArrayRef>> {
+) -> VortexResult<ArrayRef> {
     let Some(operator) = array.to_operator()? else {
         vortex_bail!(
             "ArrayEvaluation: cannot convert array to operator {}",
             array.display_tree()
         );
-        return Ok(None);
     };
     let Some(operator) = expr.operator(&operator)? else {
         vortex_bail!("ArrayEvaluation: cannot convert expr to operator {}", expr);
-        return Ok(None);
     };
 
     let mut operator: OperatorRef = Arc::new(SliceOperator::try_new(operator, row_range)?);
@@ -253,9 +253,7 @@ async fn try_evaluate_using_operator(
     println!("Optimizing operator: {}", operator.display_tree());
     let operator = executor.optimize(operator)?;
     println!("Executing operator: {}", operator.display_tree());
-    Ok(Some(
-        Executor::default().execute(operator).await?.into_array(),
-    ))
+    Ok(Executor::default().execute(operator).await?.into_array())
 }
 
 #[cfg(test)]

@@ -64,14 +64,11 @@ vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = ["prost"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
-vortex-io = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
-
-wgpu = { workspace = true }
-vulkano = { version = "0.35.2", optional = true }
+wgpu = { workspace = true, optional = true }
 
 [features]
 arbitrary = [
@@ -82,7 +79,7 @@ arbitrary = [
 canonical_counter = []
 table-display = ["dep:tabled"]
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
-vulkano = ["dep:vulkano"]
+webgpu = ["dep:webgpu"]
 
 [dev-dependencies]
 arrow-cast = { workspace = true }

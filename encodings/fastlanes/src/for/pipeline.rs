@@ -171,6 +171,7 @@ where
 {
     fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
         let vec = ctx.vector(self.child);
+
         let values = unsafe { std::mem::transmute::<&[E], &[T]>(vec.as_slice::<E>()) };
         let out = out.as_slice_mut::<T>();
 

@@ -46,7 +46,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_utils::dyn_eq::{DynEq, DynHash};
 
-use crate::webgpu::WebGpuOperator;
 pub use display::*;
 
 pub type OperatorId = ArcRef<str>;
@@ -74,7 +73,7 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     /// Returns the [`DType`] of the array produced by this operator.
     fn dtype(&self) -> &DType;
 
-    /// Returns the (min, max) length bounds of the array produced by this operator.
+    /// FIXME: Returns the (min, max) length bounds of the array produced by this operator.
     fn len(&self) -> usize;
 
     // TODO(ngates): add StatsSet
@@ -162,13 +161,7 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     }
 
     /// Returns this operator as a [`WebGpuOperator`] if it supports GPU execution.
-    fn as_webgpu(&self) -> Option<&dyn WebGpuOperator> {
-        None
-    }
-
-    /// Returns this operator as a [`VulkanOperator`] if it supports Vulkan execution.
-    #[cfg(feature = "vulkano")]
-    fn as_vulkan(&self) -> Option<&dyn crate::vulkan::VulkanOperator> {
+    fn as_webgpu(&self) -> Option<&dyn crate::webgpu::WebGpuOperator> {
         None
     }
 }

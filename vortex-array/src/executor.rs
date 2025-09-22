@@ -42,8 +42,6 @@ impl Executor {
     }
 
     /// Returns an optimized version of the operator tree.
-    ///
-    /// FIXME(ngates): we should perform CSE here, rather than during execution.
     pub fn optimize(&mut self, operator: OperatorRef) -> VortexResult<OperatorRef> {
         let children = operator
             .children()

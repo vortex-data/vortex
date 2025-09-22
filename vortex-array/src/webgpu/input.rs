@@ -28,7 +28,7 @@ impl std::hash::Hash for WebGpuInputOperator {
 
 impl PartialEq for WebGpuInputOperator {
     fn eq(&self, other: &Self) -> bool {
-        self.inner == other.inner
+        self.inner.eq(&other.inner)
     }
 }
 
