@@ -64,8 +64,8 @@ vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = ["prost"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
-vortex-metrics = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-metrics = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
 wgpu = { workspace = true, optional = true }
