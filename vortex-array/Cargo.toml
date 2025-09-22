@@ -82,6 +82,7 @@ test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 [dev-dependencies]
 arrow-cast = { workspace = true }
 divan = { workspace = true }
+futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness"] }
 

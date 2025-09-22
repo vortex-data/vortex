@@ -10,7 +10,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::validity::Validity;
 
-/// A wrapper type to implement `Hash` by the semantics of [`Operator::hash_operator`].
+/// A wrapper type to implement [`Hash`] using the semantics defined by
+/// [`crate::operator::Operator`].
 pub struct OperatorHash<T>(pub T);
 
 impl<T> Hash for OperatorHash<&Buffer<T>> {

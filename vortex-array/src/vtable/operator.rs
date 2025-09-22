@@ -7,7 +7,7 @@ use crate::operator::OperatorRef;
 use crate::vtable::{NotSupported, VTable};
 
 pub trait PipelineVTable<V: VTable> {
-    /// Convert the current array into a [`Operator`].
+    /// Convert the current array into a [`OperatorRef`].
     /// Returns `None` if the array cannot be converted to an operator.
     fn to_operator(array: &V::Array) -> VortexResult<Option<OperatorRef>>;
 }
