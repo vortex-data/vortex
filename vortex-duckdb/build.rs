@@ -150,6 +150,14 @@ fn http_client() -> Result<reqwest::blocking::Client, Box<dyn std::error::Error>
 }
 
 fn build_duckdb(duckdb_source_root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    if std::process::Command::new("ninja")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return Err("'ninja' is required to build DuckDB.".into());
+    }
+
     let duckdb_repo_dir = duckdb_source_root.join(format!("duckdb-{}", DUCKDB_VERSION.as_str()));
     let build_dir = duckdb_repo_dir.join("build").join("debug");
 
