@@ -6,8 +6,8 @@ use std::fmt::Debug;
 pub(crate) use compute::compute_min_max;
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_ensure, vortex_err, VortexExpect as _, VortexResult, VortexUnwrap as _};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap as _, vortex_ensure, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::varbin::builder::VarBinBuilder;
@@ -16,7 +16,7 @@ use crate::validity::Validity;
 use crate::vtable::{
     ArrayVTable, NotSupported, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
 };
-use crate::{vtable, Array, ArrayRef, EncodingId, EncodingRef, ToCanonical};
+use crate::{Array, ArrayRef, EncodingId, EncodingRef, ToCanonical, vtable};
 
 mod accessor;
 pub mod builder;
@@ -415,7 +415,7 @@ pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
 #[cfg(test)]
 mod test {
     use rstest::{fixture, rstest};
-    use vortex_buffer::{buffer, Buffer};
+    use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::{DType, Nullability};
 
     use crate::arrays::varbin::VarBinArray;

@@ -14,10 +14,10 @@ use std::ops::{Deref, DerefMut};
 
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 
+use crate::pipeline::N;
 use crate::pipeline::bits::BitVector;
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::{View, ViewMut};
-use crate::pipeline::N;
 
 /// A vector contains fixed-size owned data in canonical form.
 #[derive(Debug)]

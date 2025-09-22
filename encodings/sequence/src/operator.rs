@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{SequenceArray, SequenceVTable};
-use num_traits::{ConstOne, PrimInt};
 use std::any::Any;
 use std::sync::Arc;
+
+use num_traits::{ConstOne, PrimInt};
+use vortex_array::Array;
 use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::{Operator, OperatorId, OperatorRef};
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
+use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
 use vortex_array::vtable::PipelineVTable;
-use vortex_array::Array;
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
+use vortex_error::{VortexResult, vortex_err};
+
+use crate::{SequenceArray, SequenceVTable};
 
 impl PipelineVTable<SequenceVTable> for SequenceVTable {
     fn to_operator(array: &SequenceArray) -> VortexResult<Option<OperatorRef>> {

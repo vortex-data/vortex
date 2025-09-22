@@ -7,17 +7,16 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use bit_vec::BitVec;
-use futures::future::{ok, BoxFuture};
 use futures::FutureExt;
-use vortex_array::ArrayRef;
-use vortex_array::MaskFuture;
+use futures::future::{BoxFuture, ok};
+use vortex_array::{ArrayRef, MaskFuture};
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_layout::LayoutReader;
 use vortex_mask::Mask;
 
-use crate::filter::FilterExpr;
 use crate::Selection;
+use crate::filter::FilterExpr;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 

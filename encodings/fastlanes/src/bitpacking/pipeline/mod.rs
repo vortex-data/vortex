@@ -8,10 +8,10 @@ use std::sync::Arc;
 use fastlanes::{BitPacking, FastLanes};
 use vortex_array::operator::{Operator, OperatorHash, OperatorId, OperatorRef};
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
+use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
 use vortex_array::vtable::PipelineVTable;
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_integer_ptype, DType, PhysicalPType};
+use vortex_dtype::{DType, PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 
 use crate::{BitPackedArray, BitPackedVTable};

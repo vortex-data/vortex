@@ -5,17 +5,17 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::{add, and_kleene, compare, or_kleene, sub};
-use vortex_array::operator::compare::CompareOperator;
 use vortex_array::operator::OperatorRef;
-use vortex_array::{compute, ArrayRef, DeserializeMetadata, ProstMetadata};
+use vortex_array::operator::compare::CompareOperator;
+use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, compute};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    lit, vtable, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator,
-    Scope, StatsCatalog, VTable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, StatsCatalog,
+    VTable, lit, vtable,
 };
 
 vtable!(Binary);
@@ -532,8 +532,8 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
 
     use crate::{
-        and, and_collect, and_collect_right, col, eq, gt, gt_eq, lit, lt, lt_eq, not_eq,
-        or, test_harness, VortexExpr,
+        VortexExpr, and, and_collect, and_collect_right, col, eq, gt, gt_eq, lit, lt, lt_eq,
+        not_eq, or, test_harness,
     };
 
     #[test]

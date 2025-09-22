@@ -11,20 +11,19 @@ use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use vortex_array::stats::Precision;
-use vortex_array::MaskFuture;
-use vortex_array::{ArrayRef, ToCanonical};
+use vortex_array::{ArrayRef, MaskFuture, ToCanonical};
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{root, ExprRef};
+use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::layouts::zoned::ZonedLayout;
-use crate::segments::SegmentSource;
 use crate::LayoutReader;
+use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::segments::SegmentSource;
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
@@ -347,8 +346,7 @@ mod test {
 
     use rstest::{fixture, rstest};
     use vortex_array::arrays::ChunkedArray;
-    use vortex_array::MaskFuture;
-    use vortex_array::{ArrayContext, IntoArray, ToCanonical};
+    use vortex_array::{ArrayContext, IntoArray, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;

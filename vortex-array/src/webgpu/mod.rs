@@ -7,9 +7,10 @@ mod execution;
 pub(crate) mod input;
 pub(crate) mod operator;
 
-use crate::operator::Operator;
-use crate::Canonical;
 use vortex_error::VortexResult;
+
+use crate::Canonical;
+use crate::operator::Operator;
 
 /// Trait for operators that can be executed on WebGpu.
 pub trait WebGpuOperator: Operator {

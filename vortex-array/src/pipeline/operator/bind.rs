@@ -3,8 +3,8 @@
 
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::pipeline::operator::buffers::VectorAllocationPlan;
 use crate::pipeline::operator::PipelineNode;
+use crate::pipeline::operator::buffers::VectorAllocationPlan;
 use crate::pipeline::{BatchId, BindContext, Kernel, VectorId};
 
 pub(crate) fn bind_kernels(

@@ -12,7 +12,6 @@ mod serde;
 pub use array::{SequenceArray, SequenceEncoding, SequenceVTable};
 pub use compress::sequence_encode;
 
-
 // TODO(joe): hook up to the compressor
 // TODO(joe): support comparisons with other operators
 // TODO(joe): support list in expr pushdown

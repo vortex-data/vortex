@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use async_trait::async_trait;
-use futures::try_join;
-use itertools::Itertools;
 use std::any::Any;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::Arc;
-use vortex_array::compute::{between as between_compute, BetweenOptions, StrictComparison};
+
+use async_trait::async_trait;
+use futures::try_join;
+use itertools::Itertools;
+use vortex_array::compute::{BetweenOptions, StrictComparison, between as between_compute};
 use vortex_array::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
     OperatorRef,
@@ -16,12 +17,12 @@ use vortex_array::operator::{
 use vortex_array::{Array, ArrayRef, Canonical, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    vtable, AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable,
+    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
 };
 
 vtable!(Between);

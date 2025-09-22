@@ -35,21 +35,21 @@ pub mod metrics;
 mod optimize;
 pub mod slice;
 
-use std::any::{type_name, Any};
+use std::any::{Any, type_name};
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use crate::pipeline::PipelinedOperator;
-use crate::Canonical;
 use arcref::ArcRef;
 use async_trait::async_trait;
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
-
 pub use display::*;
 pub use hash::*;
+use vortex_dtype::DType;
+use vortex_error::VortexResult;
 use vortex_utils::dyn_eq::{DynEq, DynHash};
+
+use crate::Canonical;
+use crate::pipeline::PipelinedOperator;
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;

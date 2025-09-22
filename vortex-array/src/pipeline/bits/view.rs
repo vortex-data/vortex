@@ -4,7 +4,7 @@
 use std::fmt::{Debug, Formatter};
 
 use bitvec::prelude::*;
-use vortex_error::{vortex_err, VortexError};
+use vortex_error::{VortexError, vortex_err};
 
 use crate::pipeline::{N, N_WORDS};
 

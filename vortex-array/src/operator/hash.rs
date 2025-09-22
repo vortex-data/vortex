@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::validity::Validity;
-use crate::ArrayRef;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
+
+use crate::ArrayRef;
+use crate::validity::Validity;
 
 /// A wrapper type to implement `Hash` by the semantics of [`Operator::hash_operator`].
 pub struct OperatorHash<T>(pub T);

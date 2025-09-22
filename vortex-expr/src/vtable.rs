@@ -130,7 +130,7 @@ mod tests {
     use rstest::{fixture, rstest};
 
     use super::*;
-    use crate::proto::{deserialize_expr_proto, ExprSerializeProtoExt};
+    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
     use crate::*;
 
     #[fixture]

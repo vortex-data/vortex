@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+use std::hash::Hash;
+use std::ops::Range;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use itertools::Itertools;
+use vortex_dtype::DType;
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
     OperatorRef,
 };
 use crate::{Array, Canonical, IntoArray};
-use async_trait::async_trait;
-use itertools::Itertools;
-use std::any::Any;
-use std::hash::Hash;
-use std::ops::Range;
-use std::sync::Arc;
-use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 
 #[derive(Debug, Clone)]
 pub struct SliceOperator {

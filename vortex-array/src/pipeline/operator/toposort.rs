@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::operator::{NodeId, PipelineNode};
 use std::collections::VecDeque;
-use vortex_error::{vortex_bail, VortexResult};
+
+use vortex_error::{VortexResult, vortex_bail};
+
+use crate::pipeline::operator::{NodeId, PipelineNode};
 
 /// Topological sort for execution order
 pub(super) fn topological_sort(dag: &[PipelineNode]) -> VortexResult<Vec<NodeId>> {

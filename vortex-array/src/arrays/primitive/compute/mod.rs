@@ -19,9 +19,9 @@ pub use is_constant::*;
 mod tests {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::consistency::test_array_consistency;
-    use crate::IntoArray;
 
     #[rstest]
     // Basic primitive arrays

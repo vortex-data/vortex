@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
+use std::slice;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_mask::Mask;
+
 use crate::compute::filter;
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
     OperatorRef,
 };
 use crate::{Array, Canonical, IntoArray};
-use async_trait::async_trait;
-use std::any::Any;
-use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
-use std::slice;
-use std::sync::Arc;
-use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::Mask;
 
 #[derive(Debug)]
 pub struct FilterOperator {

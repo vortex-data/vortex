@@ -7,19 +7,19 @@ use std::sync::{Arc, LazyLock};
 
 use arrow_array::RecordBatch;
 use datafusion::datasource::provider::DefaultTableFactory;
+use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
 use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::execution::SessionStateBuilder;
 use datafusion::physical_plan::collect;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_common::GetExt;
-use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use datafusion_physical_plan::ExecutionPlan;
+use datafusion_physical_plan::display::DisplayableExecutionPlan;
+use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
-use object_store::ObjectStore;
 use url::Url;
 use vortex_datafusion::VortexFormatFactory;
 

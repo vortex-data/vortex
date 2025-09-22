@@ -5,11 +5,11 @@ use vortex_array::operator::OperatorRef;
 use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    vtable, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
 };
 
 vtable!(Root);

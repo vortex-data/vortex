@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::operator::Operator;
-use itertools::Itertools;
 use std::fmt;
 use std::fmt::{Display, Formatter};
+
+use itertools::Itertools;
+
+use crate::operator::Operator;
 
 impl dyn Operator + '_ {
     pub fn display_tree(&self) -> impl Display {

@@ -4,8 +4,8 @@
 use async_trait::async_trait;
 use vortex_error::VortexResult;
 
-use crate::operator::BatchExecution;
 use crate::Canonical;
+use crate::operator::BatchExecution;
 
 pub struct CanonicalExecution(pub Canonical);
 

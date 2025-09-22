@@ -6,34 +6,36 @@ pub mod buffers;
 mod input;
 mod toposort;
 
-use crate::arrays::{BoolArray, PrimitiveArray};
-use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, Operator,
-    OperatorId, OperatorRef,
-};
-use crate::pipeline::operator::bind::bind_kernels;
-use crate::pipeline::operator::buffers::{allocate_vectors, OutputTarget};
-use crate::pipeline::operator::input::PipelineInputOperator;
-use crate::pipeline::operator::toposort::topological_sort;
-use crate::pipeline::vec::Vector;
-use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BatchId, Element, Kernel, KernelContext, N};
-use crate::validity::Validity;
-use crate::Canonical;
-use arrow_buffer::BooleanBuffer;
-use async_trait::async_trait;
-use futures::future::try_join_all;
-use itertools::Itertools;
 use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::Formatter;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
+
+use arrow_buffer::BooleanBuffer;
+use async_trait::async_trait;
+use futures::future::try_join_all;
+use itertools::Itertools;
 use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
+
+use crate::Canonical;
+use crate::arrays::{BoolArray, PrimitiveArray};
+use crate::operator::{
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, Operator,
+    OperatorId, OperatorRef,
+};
+use crate::pipeline::operator::bind::bind_kernels;
+use crate::pipeline::operator::buffers::{OutputTarget, allocate_vectors};
+use crate::pipeline::operator::input::PipelineInputOperator;
+use crate::pipeline::operator::toposort::topological_sort;
+use crate::pipeline::vec::Vector;
+use crate::pipeline::view::ViewMut;
+use crate::pipeline::{BatchId, Element, Kernel, KernelContext, N};
+use crate::validity::Validity;
 
 /// An operator node used during execution planning to represent a pipelined execution.
 ///

@@ -30,14 +30,16 @@ pub const N: usize = 1024;
 // Number of usize words needed to store N bits
 pub const N_WORDS: usize = N / usize::BITS as usize;
 
-use self::vec::Vector;
-use self::view::ViewMut;
-use crate::operator::Operator;
-use crate::Canonical;
 use std::cell::RefCell;
+
 pub use types::*;
 use vec::VectorRef;
 use vortex_error::VortexResult;
+
+use self::vec::Vector;
+use self::view::ViewMut;
+use crate::Canonical;
+use crate::operator::Operator;
 
 pub trait PipelinedOperator: Operator {
     // Whether this operator works by mutating its first child in-place.

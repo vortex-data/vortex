@@ -1,23 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+use std::fmt::Formatter;
+use std::hash::{BuildHasher, Hash, Hasher};
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use futures::future::try_join_all;
+use itertools::Itertools;
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_utils::aliases::hash_map::{HashMap, RandomState};
+
+use crate::Canonical;
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, Operator,
     OperatorId, OperatorRef,
 };
 use crate::webgpu::input::WebGpuInputOperator;
 use crate::webgpu::{BatchId, GpuBindContext, GpuBufferId, GpuExecutionContext, GpuKernel};
-use crate::Canonical;
-use async_trait::async_trait;
-use futures::future::try_join_all;
-use itertools::Itertools;
-use std::any::Any;
-use std::fmt::Formatter;
-use std::hash::{BuildHasher, Hash, Hasher};
-use std::sync::Arc;
-use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
 /// An operator that collapses a subgraph of WebGpu-capable operators into a single WebGpu operator
 /// for batch execution.

@@ -3,7 +3,8 @@
 
 use std::mem::size_of;
 use std::sync::LazyLock;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use wgpu::{
     Backends, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
     BindingType, BufferBindingType, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
@@ -239,9 +240,10 @@ fn get_instance() -> Instance {
 
 #[cfg(test)]
 mod test {
-    use crate::webgpu::execution::WebGpuExecutor;
     use futures::executor::block_on;
     use vortex_error::VortexResult;
+
+    use crate::webgpu::execution::WebGpuExecutor;
 
     #[test]
     // #[ignore] // Ignore by default since it requires GPU hardware

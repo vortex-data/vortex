@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::operator::{Operator, OperatorRef};
-use itertools::Itertools;
 use std::sync::Arc;
+
+use itertools::Itertools;
 use vortex_error::VortexResult;
+
+use crate::operator::{Operator, OperatorRef};
 
 impl dyn Operator + '_ {
     /// Optimize the operator tree rooted at this operator by applying local

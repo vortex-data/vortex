@@ -3,19 +3,18 @@
 
 use std::sync::Arc;
 
-use crate::operator::{BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorRef};
-use crate::pipeline::operator::PipelineOperator;
-use crate::Canonical;
-
 use async_trait::async_trait;
 use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
-
 use vortex_error::{
-    vortex_bail, vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult,
+    SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err,
 };
 use vortex_utils::aliases::hash_map::HashMap;
+
+use crate::Canonical;
+use crate::operator::{BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorRef};
+use crate::pipeline::operator::PipelineOperator;
 
 /// An executor that runs an operator tree.
 ///
@@ -143,14 +142,15 @@ pub enum ApplyOrder {
 
 #[cfg(test)]
 mod tests {
+    use futures::executor::block_on;
+    use vortex_buffer::buffer;
+    use vortex_metrics::VortexMetrics;
+
     use super::*;
     use crate::compute::Operator as Op;
     use crate::operator::compare::CompareOperator;
     use crate::operator::metrics::MetricsOperator;
     use crate::{IntoArray, ToCanonical};
-    use futures::executor::block_on;
-    use vortex_buffer::buffer;
-    use vortex_metrics::VortexMetrics;
 
     #[test]
     fn test_basic_execution() {

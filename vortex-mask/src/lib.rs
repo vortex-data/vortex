@@ -18,7 +18,7 @@ use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use itertools::Itertools;
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {

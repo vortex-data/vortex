@@ -9,6 +9,7 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
+use crate::Canonical;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::operator::canonical::CanonicalExecution;
 use crate::operator::{
@@ -16,7 +17,6 @@ use crate::operator::{
     OperatorId, OperatorRef,
 };
 use crate::vtable::PipelineVTable;
-use crate::Canonical;
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
     fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<OperatorRef>> {
