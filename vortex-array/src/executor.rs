@@ -21,7 +21,7 @@ use crate::pipeline::operator::PipelineOperator;
 /// The executor performs common subtree elimination by creating BatchExecution nodes that hold
 /// shared futures to the underlying execution.
 ///
-/// It also finds sub-graphs of pipeline operators and executes them as a [`PipelineOperator`]
+/// It also finds sub-graphs of pipeline operators and executes them as a pipeline.
 #[derive(Default)]
 pub struct Executor {
     /// Cache of shared futures for common subtree elimination.
