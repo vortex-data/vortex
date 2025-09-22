@@ -12,24 +12,24 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 /// An operator that exports a child operator's data in canonical pipelined form.
 #[derive(Debug, Clone, Hash)]
-pub struct CanonicalPipelineOperator {
+pub struct PipelineInputOperator {
     child: OperatorRef,
 }
 
-impl PartialEq for CanonicalPipelineOperator {
+impl PartialEq for PipelineInputOperator {
     fn eq(&self, other: &Self) -> bool {
         self.child.eq(&other.child)
     }
 }
-impl Eq for CanonicalPipelineOperator {}
+impl Eq for PipelineInputOperator {}
 
-impl CanonicalPipelineOperator {
+impl PipelineInputOperator {
     pub(super) fn new(child: OperatorRef) -> Self {
         Self { child }
     }
 }
 
-impl Operator for CanonicalPipelineOperator {
+impl Operator for PipelineInputOperator {
     fn id(&self) -> OperatorId {
         OperatorId::from("vortex.pipeline.canonical")
     }
@@ -51,7 +51,7 @@ impl Operator for CanonicalPipelineOperator {
     }
 
     fn with_children(self: Arc<Self>, children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
-        Ok(Arc::new(CanonicalPipelineOperator {
+        Ok(Arc::new(PipelineInputOperator {
             child: children.into_iter().next().vortex_expect("missing child"),
         }))
     }
@@ -61,7 +61,7 @@ impl Operator for CanonicalPipelineOperator {
     }
 }
 
-impl PipelinedOperator for CanonicalPipelineOperator {
+impl PipelinedOperator for PipelineInputOperator {
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
         let batch_id = ctx.batch_inputs()[0];
         if let DType::Primitive(ptype, _) = self.dtype() {

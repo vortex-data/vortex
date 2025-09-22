@@ -60,7 +60,6 @@ tabled = { workspace = true, optional = true, default-features = false, features
     "std",
 ] }
 termtree = { workspace = true }
-wgpu = { workspace = true, optional = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = ["prost"] }
@@ -70,7 +69,9 @@ vortex-metrics = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
-clap = { version = "4.5.47", features = ["derive"] }
+
+wgpu = { workspace = true }
+vulkano = { version = "0.35.2", optional = true }
 
 [features]
 arbitrary = [
@@ -81,7 +82,7 @@ arbitrary = [
 canonical_counter = []
 table-display = ["dep:tabled"]
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
-wgpu = ["dep:wgpu"]
+vulkano = ["dep:vulkano"]
 
 [dev-dependencies]
 arrow-cast = { workspace = true }

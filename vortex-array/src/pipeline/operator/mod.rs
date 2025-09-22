@@ -3,7 +3,7 @@
 
 mod bind;
 pub mod buffers;
-mod canonical;
+mod input;
 mod toposort;
 
 use crate::arrays::{BoolArray, PrimitiveArray};
@@ -13,7 +13,7 @@ use crate::operator::{
 };
 use crate::pipeline::operator::bind::bind_kernels;
 use crate::pipeline::operator::buffers::{allocate_vectors, OutputTarget};
-use crate::pipeline::operator::canonical::CanonicalPipelineOperator;
+use crate::pipeline::operator::input::PipelineInputOperator;
 use crate::pipeline::operator::toposort::topological_sort;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
@@ -110,7 +110,7 @@ impl PipelineOperator {
                     // If the child does not support pipelining, we wrap it in an operator that
                     // loads the batch input and exposes it as a pipelined kernel over the
                     // resulting canonical array.
-                    child_op = Arc::new(CanonicalPipelineOperator::new(child_op));
+                    child_op = Arc::new(PipelineInputOperator::new(child_op));
                 }
 
                 let child_node_id = visit_node(child_op, dag, batch, hash_to_id, random_state);

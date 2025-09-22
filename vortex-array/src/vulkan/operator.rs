@@ -5,8 +5,8 @@ use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, Operator,
     OperatorId, OperatorRef,
 };
-use crate::webgpu::input::WebGpuInputOperator;
-use crate::webgpu::{BatchId, GpuBindContext, GpuBufferId, GpuExecutionContext, GpuKernel};
+use crate::vulkan::input::VulkanInputOperator;
+use crate::vulkan::{BatchId, GpuBindContext, GpuBufferId, GpuExecutionContext, GpuKernel};
 use crate::Canonical;
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -19,10 +19,10 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
-/// An operator that collapses a subgraph of WebGpu-capable operators into a single WebGpu operator
+/// An operator that collapses a subgraph of Vulkan-capable operators into a single Vulkan operator
 /// for batch execution.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub(crate) struct WebGpuSubgraphOperator {
+pub(crate) struct VulkanSubgraphOperator {
     root: NodeId,
     dag: Vec<GpuNode>,
     batch_inputs: Vec<OperatorRef>,
@@ -51,11 +51,11 @@ impl PartialEq for GpuNode {
 }
 impl Eq for GpuNode {}
 
-impl WebGpuSubgraphOperator {
-    /// From the given operator, constructs a `WebGpuOperator` as large as possible by
-    /// traversing children that also support WebGpu execution.
+impl VulkanSubgraphOperator {
+    /// From the given operator, constructs a `VulkanOperator` as large as possible by
+    /// traversing children that also support Vulkan execution.
     pub fn new(operator: OperatorRef) -> Option<Self> {
-        operator.as_webgpu()?;
+        operator.as_vulkan()?;
 
         let mut dag = vec![];
         let mut batch = vec![];
@@ -82,16 +82,16 @@ impl WebGpuSubgraphOperator {
             let mut batch_indices: Vec<BatchId> = vec![];
 
             let node_children = node.children();
-            let webgpu = node.as_webgpu().vortex_expect("must support webgpu");
+            let vulkan = node.as_vulkan().vortex_expect("must support vulkan");
 
             // Prepare the GPU children
-            for child_idx in webgpu.gpu_children() {
+            for child_idx in vulkan.gpu_children() {
                 let mut child_op = node_children[child_idx].clone();
 
-                if child_op.as_webgpu().is_none() {
-                    // If the child does not support WebGpu, we wrap it in an operator that
+                if child_op.as_vulkan().is_none() {
+                    // If the child does not support Vulkan, we wrap it in an operator that
                     // loads the batch input and exposes it as a GPU input array.
-                    child_op = Arc::new(WebGpuInputOperator::new(child_op));
+                    child_op = Arc::new(VulkanInputOperator::new(child_op));
                 }
 
                 let child_node_id = visit_node(child_op, dag, batch, hash_to_id, random_state);
@@ -99,7 +99,7 @@ impl WebGpuSubgraphOperator {
             }
 
             // And the batch input children
-            for child_idx in webgpu.batch_children() {
+            for child_idx in vulkan.batch_children() {
                 let child = node_children[child_idx].clone();
                 let batch_id = batch.len();
                 batch.push(child);
@@ -139,7 +139,7 @@ impl WebGpuSubgraphOperator {
             }
         }
 
-        Some(WebGpuSubgraphOperator {
+        Some(VulkanSubgraphOperator {
             root: root_index,
             dag,
             batch_inputs: batch,
@@ -151,9 +151,9 @@ impl WebGpuSubgraphOperator {
     }
 }
 
-impl Operator for WebGpuSubgraphOperator {
+impl Operator for VulkanSubgraphOperator {
     fn id(&self) -> OperatorId {
-        OperatorId::from("vortex.webgpu")
+        OperatorId::from("vortex.vulkan")
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -173,7 +173,7 @@ impl Operator for WebGpuSubgraphOperator {
     }
 
     fn fmt_as(&self, _df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "WebGpuOperator wrapping:\n")?;
+        write!(f, "VulkanOperator wrapping:\n")?;
         write!(f, "{}", self.root_operator().display_tree())
     }
 
@@ -188,7 +188,7 @@ impl Operator for WebGpuSubgraphOperator {
     }
 }
 
-impl BatchOperator for WebGpuSubgraphOperator {
+impl BatchOperator for VulkanSubgraphOperator {
     fn bind(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
         // Compute the topological sort of the DAG
         let exec_order = topological_sort(&self.dag)?;
@@ -204,7 +204,7 @@ impl BatchOperator for WebGpuSubgraphOperator {
             .map(|i| ctx.take_child(i))
             .try_collect()?;
 
-        Ok(Box::new(WebGpuExecution {
+        Ok(Box::new(VulkanExecution {
             len: self.len(),
             dtype: self.dtype().clone(),
             batch_inputs,
@@ -215,7 +215,7 @@ impl BatchOperator for WebGpuSubgraphOperator {
     }
 }
 
-struct WebGpuExecution {
+struct VulkanExecution {
     len: usize,
     dtype: DType,
     batch_inputs: Vec<BatchExecutionRef>,
@@ -225,7 +225,7 @@ struct WebGpuExecution {
 }
 
 #[async_trait]
-impl BatchExecution for WebGpuExecution {
+impl BatchExecution for VulkanExecution {
     async fn execute(mut self: Box<Self>) -> VortexResult<Canonical> {
         // Execute all batch input operators concurrently.
         let batch_inputs =
@@ -234,7 +234,7 @@ impl BatchExecution for WebGpuExecution {
         // Create a GPU execution context with the batch inputs.
         let ctx = GpuExecutionContext { batch_inputs };
 
-        // TODO: Initialize WebGpu resources (device, queue, etc.)
+        // TODO: Initialize Vulkan resources (device, queue, etc.)
 
         // Execute kernels in topological order
         for &node_idx in &self.exec_order {
@@ -244,7 +244,7 @@ impl BatchExecution for WebGpuExecution {
 
         // TODO: Read back the final result from GPU and convert to Canonical array
 
-        vortex_bail!("WebGpu execution not yet implemented")
+        vortex_bail!("Vulkan execution not yet implemented")
     }
 }
 
@@ -282,10 +282,10 @@ fn bind_gpu_kernels(
             batch_inputs: &node.batch_inputs,
         };
 
-        let webgpu = node.operator.as_webgpu().ok_or_else(|| {
-            vortex_error::vortex_err!("Operator does not support WebGpu execution")
+        let vulkan = node.operator.as_vulkan().ok_or_else(|| {
+            vortex_error::vortex_err!("Operator does not support Vulkan execution")
         })?;
-        kernels.push(webgpu.bind_gpu(&bind_context)?);
+        kernels.push(vulkan.bind_gpu(&bind_context)?);
     }
     Ok(kernels)
 }

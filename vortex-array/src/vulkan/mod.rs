@@ -9,9 +9,9 @@ use crate::operator::Operator;
 use crate::Canonical;
 use vortex_error::VortexResult;
 
-/// Trait for operators that can be executed on WebGpu.
-pub trait WebGpuOperator: Operator {
-    /// Bind the operator into a WebGpu kernel for GPU execution.
+/// Trait for operators that can be executed on Vulkan.
+pub trait VulkanOperator: Operator {
+    /// Bind the operator into a Vulkan kernel for GPU execution.
     fn bind_gpu(&self, ctx: &dyn GpuBindContext) -> VortexResult<Box<dyn GpuKernel>>;
 
     /// Returns the child indices of this operator that are passed to the kernel as input buffers.
@@ -32,17 +32,17 @@ pub type GpuBufferId = usize;
 /// The ID of the batch input to use.
 pub type BatchId = usize;
 
-/// A GPU kernel that can be executed on WebGpu.
+/// A GPU kernel that can be executed on Vulkan.
 pub trait GpuKernel: Send {
     /// Execute the kernel on the GPU and return the result.
     ///
-    /// TODO: Add actual WebGpu execution context here
+    /// TODO: Add actual Vulkan execution context here
     fn execute(&mut self, ctx: &GpuExecutionContext) -> VortexResult<()>;
 }
 
 /// Context passed to GPU kernels during execution.
 pub struct GpuExecutionContext {
-    /// Placeholder for WebGpu device, queue, etc.
-    /// TODO: Add actual WebGpu resources here
+    /// Placeholder for Vulkan device, queue, etc.
+    /// TODO: Add actual Vulkan resources here
     pub(crate) batch_inputs: Vec<Canonical>,
 }

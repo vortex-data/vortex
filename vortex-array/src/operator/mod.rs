@@ -35,7 +35,7 @@ pub mod slice;
 
 use std::any::{type_name, Any};
 use std::fmt::Debug;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use crate::pipeline::{BindContext, Kernel, PipelinedOperator};
@@ -46,6 +46,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_utils::dyn_eq::{DynEq, DynHash};
 
+use crate::webgpu::WebGpuOperator;
 pub use display::*;
 
 pub type OperatorId = ArcRef<str>;
@@ -58,6 +59,17 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
 
     /// For downcasting.
     fn as_any(&self) -> &dyn Any;
+
+    /// A logical hash used to represent the compute this operator performs, excluding any data
+    /// such as buffer contents or statistics.
+    ///
+    // NOTE(ngates): it was architecturally easier (and more performant) to not have two symmetric
+    //  tree structures, one to represent compute and one containing data. Instead, we use a single
+    //  tree structure of `dyn Operator` nodes with a logical hash to represent compute.
+    fn logical_hash(&self, _hasher: &mut dyn Hasher) {
+        // Not sure if this is right..
+        todo!()
+    }
 
     /// Returns the [`DType`] of the array produced by this operator.
     fn dtype(&self) -> &DType;
@@ -149,20 +161,20 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
         None
     }
 
-    /// Returns this operator as a [`GpuOperator`] if it supports GPU execution.
-    fn as_gpu(&self) -> Option<&dyn GpuOperator> {
+    /// Returns this operator as a [`WebGpuOperator`] if it supports GPU execution.
+    fn as_webgpu(&self) -> Option<&dyn WebGpuOperator> {
         None
     }
 
-    /// Returns this operator as a [`WebGPUOperator`] if it supports WebGPU execution.
-    #[cfg(feature = "wgpu")]
-    fn as_webgpu(&self) -> Option<&dyn crate::webgpu::WebGpuOperator> {
+    /// Returns this operator as a [`VulkanOperator`] if it supports Vulkan execution.
+    #[cfg(feature = "vulkano")]
+    fn as_vulkan(&self) -> Option<&dyn crate::vulkan::VulkanOperator> {
         None
     }
 }
 
 impl Hash for dyn Operator {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         DynHash::dyn_hash(self, state)
     }
 }
@@ -186,16 +198,10 @@ pub trait BatchBindCtx {
 
 /// The primary execution trait for operators.
 ///
-/// Alternatively, or additionally, operators may choose to implement [`PipelinedOperator`] and
-/// [`GpuOperator`] to support pipelined and GPU execution modes.
+/// Alternatively, or additionally, operators may choose to implement [`PipelinedOperator`].
 #[async_trait]
 pub trait BatchExecution: Send {
     async fn execute(self: Box<Self>) -> VortexResult<Canonical>;
 }
 
 pub type BatchExecutionRef = Box<dyn BatchExecution>;
-
-pub trait GpuOperator: Operator {
-    // TODO(ngates): no idea what this API looks like.
-    fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
-}
