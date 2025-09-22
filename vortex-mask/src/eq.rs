@@ -17,6 +17,7 @@ impl PartialEq for Mask {
         self.boolean_buffer() == other.boolean_buffer()
     }
 }
+
 impl Eq for Mask {}
 
 #[cfg(test)]

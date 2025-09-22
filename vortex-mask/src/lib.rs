@@ -120,13 +120,6 @@ pub struct MaskValues {
     density: f64,
 }
 
-impl PartialEq for MaskValues {
-    fn eq(&self, other: &Self) -> bool {
-        self.true_count == other.true_count && self.buffer == other.buffer
-    }
-}
-impl Eq for MaskValues {}
-
 impl MaskValues {
     /// Returns the length of the mask.
     #[inline]
