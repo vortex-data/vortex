@@ -1,4 +1,4 @@
-# RFC 0001: Operators
+# Array Operators
 
 This RFC proposes to turn Vortex arrays into logical query plans to support multiple modes of execution. Compute
 functions become arrays, and expressions disappear in favor of serialized arrays with placeholder values.
