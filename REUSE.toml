@@ -6,6 +6,12 @@ path = "docs/**"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# RFCs are licensed under CC-BY-4.0.
+[[annotations]]
+path = "rfcs/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # BtrBlocks diagram is licensed under CC-BY-4.0.
 [[annotations]]
 path = "vortex-btrblocks/decision-tree.*"
