@@ -4,7 +4,6 @@
 pub use compress::*;
 use fastlanes::BitPacking;
 use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::patches::Patches;
@@ -66,32 +65,6 @@ pub struct BitPackedArray {
     validity: Validity,
     stats_set: ArrayStats,
 }
-
-impl Hash for BitPackedArray {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.offset.hash(state);
-        self.len.hash(state);
-        self.dtype.hash(state);
-        self.bit_width.hash(state);
-        self.packed.hash(state);
-        // FIXME(ngates)
-        // self.patches.hash(state);
-        // self.validity.hash(state);
-    }
-}
-
-impl PartialEq for BitPackedArray {
-    fn eq(&self, other: &Self) -> bool {
-        self.offset == other.offset
-            && self.len == other.len
-            && self.dtype == other.dtype
-            && self.bit_width == other.bit_width
-            && self.packed == other.packed
-            // && self.patches == other.patches
-            && self.validity == other.validity
-    }
-}
-impl Eq for BitPackedArray {}
 
 #[derive(Clone, Debug)]
 pub struct BitPackedEncoding;

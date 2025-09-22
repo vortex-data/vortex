@@ -3,6 +3,7 @@
 
 use itertools::Itertools;
 use std::any::Any;
+use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};

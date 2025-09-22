@@ -30,6 +30,7 @@ pub mod compare;
 mod display;
 pub mod filter;
 pub mod getitem;
+mod hash;
 pub mod metrics;
 pub mod slice;
 
@@ -38,37 +39,35 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use crate::pipeline::{BindContext, Kernel, PipelinedOperator};
+use crate::pipeline::PipelinedOperator;
 use crate::Canonical;
 use arcref::ArcRef;
 use async_trait::async_trait;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_utils::dyn_eq::{DynEq, DynHash};
 
 pub use display::*;
+pub use hash::*;
+use vortex_utils::dyn_eq::{DynEq, DynHash};
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
 
 /// An operator represents a node in a logical query plan.
-pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
+///
+/// ## Hash + Equality
+///
+/// Operators must implement `Hash` and `Eq` in order to have `DynHash` and `DynEq` implemented.
+/// The semantics of these traits are slightly different from the usual Rust traits, in that it is
+/// acceptable to compare or hash large data buffers by pointer rather than by value. This is
+/// because operators are typically used in contexts where they are shared by reference, and
+/// deep equality or hashing would be too expensive.
+pub trait Operator: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// The unique identifier for this operator instance.
     fn id(&self) -> OperatorId;
 
     /// For downcasting.
     fn as_any(&self) -> &dyn Any;
-
-    /// A logical hash used to represent the compute this operator performs, excluding any data
-    /// such as buffer contents or statistics.
-    ///
-    // NOTE(ngates): it was architecturally easier (and more performant) to not have two symmetric
-    //  tree structures, one to represent compute and one containing data. Instead, we use a single
-    //  tree structure of `dyn Operator` nodes with a logical hash to represent compute.
-    fn logical_hash(&self, _hasher: &mut dyn Hasher) {
-        // Not sure if this is right..
-        todo!()
-    }
 
     /// Returns the [`DType`] of the array produced by this operator.
     fn dtype(&self) -> &DType;
@@ -161,6 +160,7 @@ pub trait Operator: 'static + Debug + DynEq + DynHash + Send + Sync {
     }
 
     /// Returns this operator as a [`WebGpuOperator`] if it supports GPU execution.
+    #[cfg(feature = "webgpu")]
     fn as_webgpu(&self) -> Option<&dyn crate::webgpu::WebGpuOperator> {
         None
     }

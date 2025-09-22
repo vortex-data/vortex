@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -41,7 +42,7 @@ impl PipelineVTable<StructVTable> for StructVTable {
 }
 
 /// An operator for a struct array.
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug)]
 struct StructOperator {
     dtype: DType,
     len: usize,
@@ -49,6 +50,30 @@ struct StructOperator {
     // FIXME(ngates): validity should be an operator too...
     // validity: Validity,
 }
+
+impl Hash for StructOperator {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dtype.hash(state);
+        self.len.hash(state);
+        for child in &self.children {
+            child.dyn_hash(state);
+        }
+    }
+}
+
+impl PartialEq for StructOperator {
+    fn eq(&self, other: &Self) -> bool {
+        self.dtype == other.dtype
+            && self.len == other.len
+            && self.children.len() == other.children.len()
+            && self
+                .children
+                .iter()
+                .zip(other.children.iter())
+                .all(|(a, b)| a.dyn_eq(b.as_any()))
+    }
+}
+impl Eq for StructOperator {}
 
 impl Operator for StructOperator {
     fn id(&self) -> OperatorId {
@@ -64,7 +89,7 @@ impl Operator for StructOperator {
     }
 
     fn len(&self) -> usize {
-        self.len.into()
+        self.len
     }
 
     fn children(&self) -> &[OperatorRef] {

@@ -173,7 +173,7 @@ impl Operator for WebGpuSubgraphOperator {
     }
 
     fn fmt_as(&self, _df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "WebGpuOperator wrapping:\n")?;
+        writeln!(f, "WebGpuOperator wrapping:")?;
         write!(f, "{}", self.root_operator().display_tree())
     }
 

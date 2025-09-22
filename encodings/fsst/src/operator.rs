@@ -10,8 +10,8 @@ use vortex_array::compute::filter;
 use vortex_array::operator::filter::FilterOperator;
 use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
-    OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorHash,
+    OperatorId, OperatorRef,
 };
 use vortex_array::vtable::PipelineVTable;
 use vortex_array::{Array, Canonical};
@@ -24,6 +24,28 @@ impl PipelineVTable<FSSTVTable> for FSSTVTable {
         Ok(Some(Arc::new(array.clone())))
     }
 }
+
+impl Hash for FSSTArray {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dtype().hash(state);
+        OperatorHash(self.symbols()).hash(state);
+        OperatorHash(self.symbol_lengths()).hash(state);
+        self.codes().hash(state);
+        OperatorHash(self.uncompressed_lengths()).hash(state);
+    }
+}
+
+impl PartialEq for FSSTArray {
+    fn eq(&self, other: &Self) -> bool {
+        self.dtype() == other.dtype()
+            && OperatorHash(self.symbols()) == OperatorHash(other.symbols())
+            && OperatorHash(self.symbol_lengths()) == OperatorHash(other.symbol_lengths())
+            && self.codes() == other.codes()
+            && OperatorHash(self.uncompressed_lengths())
+                == OperatorHash(other.uncompressed_lengths())
+    }
+}
+impl Eq for FSSTArray {}
 
 impl Operator for FSSTArray {
     fn id(&self) -> OperatorId {
@@ -99,7 +121,7 @@ impl BatchExecution for FSSTExecution {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct FilteredFSSTOperator {
     array: FSSTArray,
     mask: Mask,
@@ -108,10 +130,16 @@ pub struct FilteredFSSTOperator {
 impl Hash for FilteredFSSTOperator {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.array.hash(state);
-        // FIXME
-        // self.mask.hash(state);
+        OperatorHash(&self.mask).hash(state);
     }
 }
+
+impl PartialEq for FilteredFSSTOperator {
+    fn eq(&self, other: &Self) -> bool {
+        self.array == other.array && OperatorHash(&self.mask) == OperatorHash(&other.mask)
+    }
+}
+impl Eq for FilteredFSSTOperator {}
 
 impl Operator for FilteredFSSTOperator {
     fn id(&self) -> OperatorId {

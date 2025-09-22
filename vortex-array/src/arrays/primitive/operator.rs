@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::fmt::Formatter;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use vortex_dtype::DType;
@@ -11,8 +12,8 @@ use vortex_error::VortexResult;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::operator::canonical::CanonicalExecution;
 use crate::operator::{
-    BatchBindCtx, BatchExecutionRef, BatchOperator, DisplayFormat, Operator, OperatorId,
-    OperatorRef,
+    BatchBindCtx, BatchExecutionRef, BatchOperator, DisplayFormat, Operator, OperatorHash,
+    OperatorId, OperatorRef,
 };
 use crate::vtable::PipelineVTable;
 use crate::Canonical;
@@ -22,6 +23,24 @@ impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
         Ok(Some(Arc::new(array.clone())))
     }
 }
+
+impl Hash for PrimitiveArray {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dtype.hash(state);
+        OperatorHash(&self.buffer).hash(state);
+        OperatorHash(&self.validity).hash(state);
+    }
+}
+
+impl PartialEq for PrimitiveArray {
+    fn eq(&self, other: &Self) -> bool {
+        self.dtype == other.dtype
+            && OperatorHash(&self.buffer) == OperatorHash(&other.buffer)
+            && OperatorHash(&self.validity) == OperatorHash(&other.validity)
+    }
+}
+
+impl Eq for PrimitiveArray {}
 
 impl Operator for PrimitiveArray {
     fn id(&self) -> OperatorId {
@@ -37,7 +56,7 @@ impl Operator for PrimitiveArray {
     }
 
     fn len(&self) -> usize {
-        (self.buffer.len() / self.dtype.as_ptype().byte_width()).into()
+        self.buffer.len() / self.dtype.as_ptype().byte_width()
     }
 
     fn children(&self) -> &[OperatorRef] {

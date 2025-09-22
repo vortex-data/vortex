@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::env;
 use std::ops::{BitAnd, Range};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -13,15 +13,13 @@ use vortex_array::executor::Executor;
 use vortex_array::operator::filter::FilterOperator;
 use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::OperatorRef;
-use vortex_array::pipeline::N;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_array::MaskFuture;
 use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldMask, Nullability};
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{is_root, ExprRef, Scope, VortexExprExt};
-use vortex_io::runtime::single::block_on;
+use vortex_expr::{is_root, ExprRef, Scope};
 use vortex_mask::Mask;
 
 use crate::layouts::flat::FlatLayout;
@@ -37,9 +35,11 @@ use crate::LayoutReader;
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
 /// While we develop operator-based evaluation, we can enable it via an environment variable.
-const USE_OPERATOR_EVAL: bool = env::var("VORTEX_USE_OPERATOR_EVAL")
-    .ok()
-    .is_some_and(|v| v == "1");
+const USE_OPERATOR_EVAL: LazyLock<bool> = LazyLock::new(|| {
+    env::var("VORTEX_USE_OPERATOR_EVAL")
+        .ok()
+        .is_some_and(|v| v == "1")
+});
 
 pub struct FlatReader {
     layout: FlatLayout,
@@ -135,9 +135,9 @@ impl LayoutReader for FlatReader {
             let mut array = array.clone().await?;
             let mask = mask.await?;
 
-            if let Some(array) =
-                try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await?
-            {
+            if *USE_OPERATOR_EVAL {
+                let array =
+                    try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await?;
                 let array_mask = array.try_to_mask_fill_null_false()?;
                 let mask = mask.intersect_by_rank(&array_mask);
                 return Ok(mask);
@@ -202,7 +202,7 @@ impl LayoutReader for FlatReader {
             let mut array = array.clone().await?;
             let mask = mask.await?;
 
-            if USE_OPERATOR_EVAL {
+            if *USE_OPERATOR_EVAL {
                 return try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await;
             }
 

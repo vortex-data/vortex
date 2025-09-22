@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
 use std::iter;
 
 mod accessor;
@@ -97,23 +96,6 @@ pub struct PrimitiveArray {
     validity: Validity,
     stats_set: ArrayStats,
 }
-
-impl Hash for PrimitiveArray {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.dtype.hash(state);
-        self.buffer.hash(state);
-        // FIXME(ngates): self.validity.hash(state);
-        // We do not hash stats since they're lazily computed.
-    }
-}
-
-impl PartialEq for PrimitiveArray {
-    fn eq(&self, other: &Self) -> bool {
-        self.dtype == other.dtype && self.buffer == other.buffer && self.validity == other.validity
-        // We do not compare stats since they're lazily computed.
-    }
-}
-impl Eq for PrimitiveArray {}
 
 #[derive(Clone, Debug)]
 pub struct PrimitiveEncoding;

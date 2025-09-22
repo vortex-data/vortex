@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use fastlanes::{BitPacking, FastLanes};
-use vortex_array::operator::{Operator, OperatorId, OperatorRef};
+use vortex_array::operator::{Operator, OperatorHash, OperatorId, OperatorRef};
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
 use vortex_array::vtable::PipelineVTable;
@@ -34,6 +35,31 @@ impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
     }
 }
 
+impl Hash for BitPackedArray {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.offset.hash(state);
+        self.len.hash(state);
+        self.dtype.hash(state);
+        self.bit_width.hash(state);
+        OperatorHash(&self.packed).hash(state);
+        // We don't care about patches because they're not yet supported by the operator.
+        // OperatorHash(&self.patches).hash(state);
+        OperatorHash(&self.validity).hash(state);
+    }
+}
+
+impl PartialEq for BitPackedArray {
+    fn eq(&self, other: &Self) -> bool {
+        self.offset == other.offset
+            && self.len == other.len
+            && self.dtype == other.dtype
+            && self.bit_width == other.bit_width
+            && OperatorHash(&self.packed) == OperatorHash(&other.packed)
+            && OperatorHash(&self.validity) == OperatorHash(&other.validity)
+    }
+}
+impl Eq for BitPackedArray {}
+
 impl Operator for BitPackedArray {
     fn id(&self) -> OperatorId {
         self.encoding_id()
@@ -48,7 +74,7 @@ impl Operator for BitPackedArray {
     }
 
     fn len(&self) -> usize {
-        self.len.into()
+        self.len
     }
 
     fn children(&self) -> &[OperatorRef] {

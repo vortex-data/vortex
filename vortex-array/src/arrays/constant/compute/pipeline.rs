@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
@@ -17,6 +18,20 @@ impl PipelineVTable<ConstantVTable> for ConstantVTable {
         Ok(Some(Arc::new(array.clone())))
     }
 }
+
+impl Hash for ConstantArray {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.scalar.hash(state);
+        self.len.hash(state);
+    }
+}
+
+impl PartialEq for ConstantArray {
+    fn eq(&self, other: &Self) -> bool {
+        self.scalar == other.scalar && self.len == other.len
+    }
+}
+impl Eq for ConstantArray {}
 
 impl Operator for ConstantArray {
     fn id(&self) -> OperatorId {

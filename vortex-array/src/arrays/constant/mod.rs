@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
 use vortex_buffer::ByteBufferMut;
@@ -30,21 +29,6 @@ pub struct ConstantArray {
     len: usize,
     stats_set: ArrayStats,
 }
-
-impl Hash for ConstantArray {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.scalar.hash(state);
-        self.len.hash(state);
-    }
-}
-
-impl PartialEq for ConstantArray {
-    fn eq(&self, other: &Self) -> bool {
-        self.scalar == other.scalar && self.len == other.len
-    }
-}
-
-impl Eq for ConstantArray {}
 
 #[derive(Clone, Debug)]
 pub struct ConstantEncoding;

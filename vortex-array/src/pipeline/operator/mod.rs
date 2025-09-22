@@ -192,7 +192,7 @@ impl Operator for PipelineOperator {
     }
 
     fn fmt_as(&self, _df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "PipelineOperator wrapping:\n")?;
+        writeln!(f, "PipelineOperator wrapping:")?;
         write!(f, "{}", self.root_operator().display_tree())
     }
 

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::{Debug, Formatter};
-use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock};
 
 use fsst::{Compressor, Decompressor, Symbol};
@@ -54,29 +53,6 @@ pub struct FSSTArray {
     /// Memoized compressor used for push-down of compute by compressing the RHS.
     compressor: Arc<LazyLock<Compressor, Box<dyn Fn() -> Compressor + Send>>>,
 }
-
-impl Hash for FSSTArray {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.dtype.hash(state);
-        self.symbols.hash(state);
-        self.symbol_lengths.hash(state);
-        // FIXME
-        // self.codes.hash(state);
-        // self.uncompressed_lengths.hash(state);
-    }
-}
-
-impl PartialEq for FSSTArray {
-    fn eq(&self, other: &Self) -> bool {
-        self.dtype == other.dtype
-            && self.symbols == other.symbols
-            && self.symbol_lengths == other.symbol_lengths
-        // FIXME(ngates): this should be an operator
-        // && self.codes == other.codes
-        // && self.uncompressed_lengths == other.uncompressed_lengths
-    }
-}
-impl Eq for FSSTArray {}
 
 impl Debug for FSSTArray {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

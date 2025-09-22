@@ -79,7 +79,7 @@ arbitrary = [
 canonical_counter = []
 table-display = ["dep:tabled"]
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
-webgpu = ["dep:webgpu"]
+webgpu = ["dep:wgpu"]
 
 [dev-dependencies]
 arrow-cast = { workspace = true }

@@ -130,7 +130,7 @@ impl WebGpuExecutor {
 
         // Write subtract value
         let subtract_bytes =
-            unsafe { std::slice::from_raw_parts(&subtract_value as *const i32 as *const u8, 4) };
+            unsafe { std::slice::from_raw_parts(&raw const subtract_value as *const u8, 4) };
         self.queue.write_buffer(&uniform_buffer, 0, subtract_bytes);
 
         // Create bind group
@@ -166,7 +166,7 @@ impl WebGpuExecutor {
             compute_pass.set_bind_group(0, &bind_group, &[]);
 
             // Dispatch with ceiling division to handle all elements
-            let workgroups = (data.len() as u32 + 63) / 64; // 64 is the workgroup size
+            let workgroups = (data.len() as u32).div_ceil(64); // 64 is the workgroup size
             compute_pass.dispatch_workgroups(workgroups, 1, 1);
         }
 

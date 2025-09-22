@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::hash::{Hash, Hasher};
 use std::slice;
 use std::sync::Arc;
 
@@ -11,7 +12,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use crate::operator::{Operator, OperatorId, OperatorRef};
 
 /// An operator that extracts a field from a struct array.
-#[derive(Debug, Hash)]
+#[derive(Debug)]
 pub struct GetItemOperator {
     // The struct-like child operator.
     child: OperatorRef,
@@ -20,6 +21,13 @@ pub struct GetItemOperator {
     dtype: DType,
 }
 
+impl Hash for GetItemOperator {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.child.dyn_hash(state);
+        self.field.hash(state);
+        self.dtype.hash(state);
+    }
+}
 impl PartialEq for GetItemOperator {
     fn eq(&self, other: &Self) -> bool {
         self.child.eq(&other.child) && self.field == other.field && self.dtype == other.dtype

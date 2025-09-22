@@ -6,6 +6,7 @@ use futures::try_join;
 use itertools::Itertools;
 use std::any::Any;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::sync::Arc;
 use vortex_array::compute::{between as between_compute, BetweenOptions, StrictComparison};
 use vortex_array::operator::{
@@ -238,19 +239,12 @@ pub fn between(arr: ExprRef, lower: ExprRef, upper: ExprRef, options: BetweenOpt
     BetweenExpr::new(arr, lower, upper, options).into_expr()
 }
 
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct BetweenOperator {
     children: [OperatorRef; 3],
     dtype: DType,
     options: BetweenOptions,
 }
-
-impl PartialEq for BetweenOperator {
-    fn eq(&self, other: &Self) -> bool {
-        self.children.as_slice().eq(other.children.as_slice()) && self.options == other.options
-    }
-}
-impl Eq for BetweenOperator {}
 
 impl Operator for BetweenOperator {
     fn id(&self) -> OperatorId {
