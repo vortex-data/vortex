@@ -7,13 +7,13 @@ use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::arrays::{
     BinaryView, BoolArray, BooleanBuffer, ConstantArray, FixedSizeListArray, ListArray, NullArray,
-    OffsetPType, PrimitiveArray, StructArray, VarBinViewArray, smallest_storage_type,
+    PrimitiveArray, StructArray, VarBinViewArray, smallest_storage_type,
 };
 use vortex_array::builders::{ArrayBuilder, DecimalBuilder, ListBuilder, builder_with_capacity};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray as _, ToCanonical as _};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray as _, OffsetPType, ToCanonical as _};
 use vortex_buffer::{Buffer, BufferMut, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
     DType, DecimalDType, NativePType, Nullability, StructFields, match_each_integer_ptype,

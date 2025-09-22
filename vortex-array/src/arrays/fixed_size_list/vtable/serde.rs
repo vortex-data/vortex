@@ -32,8 +32,12 @@ impl SerdeVTable<FixedSizeListVTable> for FixedSizeListVTable {
     ) -> VortexResult<FixedSizeListArray> {
         vortex_ensure!(
             buffers.is_empty(),
-            "`FixedSizeListVTable::build` got some buffers"
+            "`FixedSizeListVTable::build` expects no buffers"
         );
+
+        let DType::FixedSizeList(element_dtype, list_size, _) = &dtype else {
+            vortex_bail!("Expected `DType::FixedSizeList`, got {:?}", dtype);
+        };
 
         let validity = {
             if children.len() > 2 {
@@ -47,10 +51,6 @@ impl SerdeVTable<FixedSizeListVTable> for FixedSizeListVTable {
                 debug_assert_eq!(children.len(), 1);
                 Validity::from(dtype.nullability())
             }
-        };
-
-        let DType::FixedSizeList(element_dtype, list_size, _) = &dtype else {
-            vortex_bail!("Expected `DType::FixedSizeList`, got {:?}", dtype);
         };
 
         let num_elements = len * (*list_size as usize);

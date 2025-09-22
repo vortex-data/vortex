@@ -17,6 +17,7 @@ pub use canonical::*;
 pub use context::*;
 pub use encoding::*;
 pub use metadata::*;
+pub use offset::*;
 
 pub mod accessor;
 #[doc(hidden)]
@@ -31,6 +32,7 @@ mod context;
 mod encoding;
 pub mod iter;
 mod metadata;
+mod offset;
 mod partial_ord;
 pub mod patches;
 pub mod pipeline;

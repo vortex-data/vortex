@@ -10,14 +10,14 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vorte
 use vortex_mask::Mask;
 use vortex_scalar::{ListScalar, Scalar};
 
-use crate::arrays::{ListArray, OffsetPType};
+use crate::arrays::ListArray;
 use crate::builders::{
     ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, PrimitiveBuilder,
     builder_with_capacity,
 };
 use crate::canonical::{Canonical, ToCanonical};
 use crate::compute::{add_scalar, cast, sub_scalar};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, OffsetPType};
 
 /// The builder for building a [`ListArray`], parametrized by the `PType` of the offsets buffer.
 pub struct ListBuilder<O: NativePType> {
@@ -263,12 +263,12 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::array::Array;
-    use crate::arrays::{ChunkedArray, ListArray, OffsetPType};
+    use crate::arrays::{ChunkedArray, ListArray};
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{IntoArray as _, ToCanonical};
+    use crate::{IntoArray as _, OffsetPType, ToCanonical};
 
     #[test]
     fn test_empty() {
