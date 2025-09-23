@@ -97,6 +97,7 @@ datafusion-expr = { git = "https://github.com/polygon-io/arrow-datafusion", rev 
 datafusion-physical-expr = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d" }
 datafusion-physical-plan = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d" }
 datafusion-physical-expr-adapter = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d" }
+datafusion-physical-expr-common = { git = "https://github.com/polygon-io/arrow-datafusion", rev = "5a85b7d" }
 dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "3.0" }
 dyn-hash = "0.2.0"
