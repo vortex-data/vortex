@@ -109,3 +109,11 @@ harness = false
 [[bench]]
 name = "chunk_array_builder"
 harness = false
+
+[[bench]]
+name = "take"
+harness = false
+
+[[bench]]
+name = "scalar_at"
+harness = false
