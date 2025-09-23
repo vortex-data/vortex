@@ -27,6 +27,7 @@ use crate::{
     estimate_compression_ratio_with_sampling,
 };
 
+/// [`Compressor`] for signed and unsigned integers.
 pub struct IntCompressor;
 
 impl Compressor for IntCompressor {
@@ -57,7 +58,7 @@ impl Compressor for IntCompressor {
 }
 
 impl IntCompressor {
-    pub fn compress_no_dict(
+    pub(crate) fn compress_no_dict(
         array: &PrimitiveArray,
         is_sample: bool,
         allowed_cascading: usize,

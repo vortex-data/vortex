@@ -119,6 +119,7 @@ impl_from_typed!(i16, ErasedStats::I16);
 impl_from_typed!(i32, ErasedStats::I32);
 impl_from_typed!(i64, ErasedStats::I64);
 
+/// Array of integers and relevant stats for compression.
 #[derive(Clone, Debug)]
 pub struct IntegerStats {
     pub(super) src: PrimitiveArray,
