@@ -47,6 +47,7 @@ pub(crate) struct PipelineOperator {
     root: NodeId,
     dag: Vec<PipelineNode>,
     batch_inputs: Vec<OperatorRef>,
+    row_selection: RowSelection,
 }
 
 impl OperatorHash for PipelineOperator {
@@ -117,7 +118,9 @@ impl PipelineOperator {
     /// From the given operator, constructs a `PipelineOperator` as large as possible by
     /// traversing children that also support pipelined execution.
     pub fn new(operator: OperatorRef) -> Option<Self> {
-        operator.as_pipelined()?;
+        // Each pipeline requires all nodes to have the same row selection. Whenever the row
+        // selection changes, we must start a new pipeline.
+        let row_selection = operator.as_pipelined()?.row_selection();
 
         let mut dag = vec![];
         let mut batch = vec![];
@@ -125,6 +128,7 @@ impl PipelineOperator {
 
         fn visit_node(
             node: OperatorRef,
+            row_selection: RowSelection,
             dag: &mut Vec<PipelineNode>,
             batch: &mut Vec<OperatorRef>,
             hash_to_id: &mut HashMap<u64, NodeId>,
@@ -150,14 +154,24 @@ impl PipelineOperator {
             for child_idx in pipelined.vector_children() {
                 let mut child_op = node_children[child_idx].clone();
 
-                if child_op.as_pipelined().is_none() {
-                    // If the child does not support pipelining, we wrap it in an operator that
-                    // loads the batch input and exposes it as a pipelined kernel over the
-                    // resulting canonical array.
+                if child_op
+                    .as_pipelined()
+                    .is_none_or(|op| op.row_selection() != row_selection)
+                {
+                    // If the child supports pipelining and has the same row selection, we can
+                    // include it in our pipeline. Otherwise, we need to stop the pipeline here and
+                    // treat this child as a batch input.
                     child_op = Arc::new(PipelineInputOperator::new(child_op));
                 }
 
-                let child_node_id = visit_node(child_op, dag, batch, hash_to_id, random_state);
+                let child_node_id = visit_node(
+                    child_op,
+                    row_selection.clone(),
+                    dag,
+                    batch,
+                    hash_to_id,
+                    random_state,
+                );
                 child_indices.push(child_node_id);
             }
 
@@ -188,6 +202,7 @@ impl PipelineOperator {
         let random_state = RandomState::default();
         let root_index = visit_node(
             operator,
+            row_selection.clone(),
             &mut dag,
             &mut batch,
             &mut hash_to_id,
@@ -202,10 +217,16 @@ impl PipelineOperator {
             }
         }
 
+        // If our row selection includes an input mask, we push it as an additional child.
+        if let RowSelection::MaskOperator(mask_op) = &row_selection {
+            batch.push(mask_op.clone());
+        }
+
         Some(PipelineOperator {
             root: root_index,
             dag,
             batch_inputs: batch,
+            row_selection,
         })
     }
 
@@ -276,7 +297,7 @@ impl BatchOperator for PipelineOperator {
 
         // We know that the entire pipeline has the same row selection. So we must decide what
         // to do with it.
-        match &pipeline.row_selection {
+        match &self.row_selection {
             RowSelection::Domain(len) => {
                 // The pipeline contains "leaf" nodes that create their own rows from data buffers.
                 // In this case, we must step the pipeline for `len / N` iterations to produce
@@ -290,7 +311,7 @@ impl BatchOperator for PipelineOperator {
 
                 todo!()
             }
-            RowSelection::MaskOperator(operator) => {
+            RowSelection::MaskOperator(_) => {
                 // The pipeline operators over a selection of rows from its external vectorized
                 // inputs. We report this operator as an additional child so we can await the mask
                 // prior to executing the pipeline. Once we have the mask, we only need to step
@@ -339,8 +360,14 @@ impl BatchOperator for PipelineOperator {
     }
 }
 
+enum LenProvider {
+    FromBatchInput(BatchId),
+    Fixed(usize),
+    Mask,
+}
+
 struct BoolPipelineExecution {
-    row_selection: RowSelection,
+    len: LenProvider,
     batch_inputs: Vec<BatchExecutionRef>,
     vectors: Vec<RefCell<Vector>>,
     pipeline: Pipeline,
@@ -350,7 +377,24 @@ struct BoolPipelineExecution {
 impl BatchExecution for BoolPipelineExecution {
     async fn execute(mut self: Box<Self>) -> VortexResult<Canonical> {
         // Execute all batch input operators concurrently with the row selection.
-        let batch_inputs = try_join_all(self.batch_inputs.into_iter().map(|exec| exec.execute()));
+        let batch_inputs =
+            try_join_all(self.batch_inputs.into_iter().map(|exec| exec.execute())).await?;
+
+        let mut mask = None;
+        let len = match &self.len {
+            LenProvider::FromBatchInput(batch_id) => batch_inputs[*batch_id].as_ref().len(),
+            LenProvider::Fixed(len) => *len,
+            LenProvider::Mask => {
+                let selection_mask = batch_inputs
+                    .last()
+                    .vortex_expect("mask batch input missing")
+                    .as_ref()
+                    .try_to_mask_fill_null_false()?;
+                let len = selection_mask.true_count();
+                mask = Some(selection_mask);
+                len
+            }
+        };
 
         // Create a kernel context with the batch inputs.
         let ctx = KernelContext {
@@ -359,20 +403,21 @@ impl BatchExecution for BoolPipelineExecution {
         };
 
         // Allocate the output vector and validity.
-        let capacity = self.len.next_multiple_of(N) + N;
+        let capacity = len.next_multiple_of(N) + N;
         let mut elements = BufferMut::<bool>::with_capacity(capacity);
         unsafe { elements.set_len(capacity) };
 
         // Run the operator to completion.
-        let mut output_len = 0;
-        while output_len < self.len {
-            let mut elements_view = ViewMut::new(&mut elements[output_len..][..N], None);
+        let mut position = 0;
+        while position < len {
+            let mut elements_view = ViewMut::new(&mut elements[position..][..N], None);
             self.pipeline.step(&ctx, &mut elements_view)?;
-            output_len += elements_view.len;
+            position += elements_view.len;
             // TODO(ngates): we should call Handle::yield every X iterations to avoid
             //  starving other tasks in async contexts.
         }
-        unsafe { elements.set_len(output_len) };
+        assert_eq!(position, len);
+        unsafe { elements.set_len(position) };
 
         let buffer = ByteBuffer::from_arrow_buffer(
             BooleanBuffer::from(elements.as_ref()).into_inner(),
@@ -382,17 +427,14 @@ impl BatchExecution for BoolPipelineExecution {
         Ok(Canonical::Bool(BoolArray::try_new(
             buffer,
             0,
-            output_len,
+            position,
             Validity::NonNullable,
         )?))
     }
 }
 
 struct PrimitivePipelineExecution<T> {
-    // FIXME(ngates): we either need a length, or we need to know which batch input we should
-    //  derive the length from.
-    len: Option<usize>,
-
+    len: LenProvider,
     batch_inputs: Vec<BatchExecutionRef>,
     vectors: Vec<RefCell<Vector>>,
     pipeline: Pipeline,
@@ -406,10 +448,10 @@ impl<T: Element + NativePType> BatchExecution for PrimitivePipelineExecution<T> 
         let batch_inputs =
             try_join_all(self.batch_inputs.into_iter().map(|exec| exec.execute())).await?;
 
-        // We figure out the length if we haven't already.
+        // We figure out the length of the output.
         let len = match &self.len {
-            None => {}
-            Some(l) => l,
+            LenProvider::FromBatchInput(batch_id) => batch_inputs[*batch_id].as_ref().len(),
+            LenProvider::Fixed(len) => *len,
         };
 
         // Create a kernel context with the batch inputs.
@@ -419,18 +461,19 @@ impl<T: Element + NativePType> BatchExecution for PrimitivePipelineExecution<T> 
         };
 
         // Allocate the output vector and validity.
-        let capacity = self.len.next_multiple_of(N) + N;
+        let capacity = len.next_multiple_of(N) + N;
         let mut elements = BufferMut::<T>::with_capacity(capacity);
         unsafe { elements.set_len(capacity) };
 
         // Run the operator to completion.
-        let mut output_len = 0;
-        while output_len < self.len {
-            let mut elements_view = ViewMut::new(&mut elements[output_len..][..N], None);
+        let mut position = 0;
+        while position < len {
+            let mut elements_view = ViewMut::new(&mut elements[position..][..N], None);
             self.pipeline.step(&ctx, &mut elements_view)?;
-            output_len += elements_view.len;
+            position += elements_view.len;
         }
-        unsafe { elements.set_len(output_len) };
+        assert_eq!(position, len);
+        unsafe { elements.set_len(len) };
 
         Ok(Canonical::Primitive(PrimitiveArray::new(
             elements.freeze(),
@@ -440,7 +483,7 @@ impl<T: Element + NativePType> BatchExecution for PrimitivePipelineExecution<T> 
 }
 
 struct PrimitiveFilteredPipelineExecution<T> {
-    row_selection: RowSelection,
+    mask: BatchId,
     batch_inputs: Vec<BatchExecutionRef>,
     vectors: Vec<RefCell<Vector>>,
     pipeline: Pipeline,
@@ -482,7 +525,6 @@ impl<T: Element + NativePType> BatchExecution for PrimitiveFilteredPipelineExecu
 }
 
 struct Pipeline {
-    row_selection: RowSelection,
     kernels: Vec<Box<dyn Kernel>>,
     exec_order: Vec<NodeId>,
     output_targets: Vec<OutputTarget>,
