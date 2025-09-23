@@ -63,17 +63,15 @@ impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
         nullability: Nullability,
         capacity: usize,
     ) -> Self {
-        // TODO(connor): This doesn't check that the actual logical value of `sizes` fits inside
-        // offsets. For example, `u32` does not fit inside `i32`.
-
-        // Validate that size type fits within offset type.
+        // Validate that size type's maximum value fits within offset type's maximum value.
+        // Since offsets are non-negative, we only need to check max values.
         assert!(
-            S::PTYPE.byte_width() <= O::PTYPE.byte_width(),
-            "Size type {:?} ({}B) must fit within offset type {:?} ({}B)",
+            S::max_offset() <= O::max_offset(),
+            "Size type {:?} (max offset {}) must fit within offset type {:?} (max offset {})",
             S::PTYPE,
-            S::PTYPE.byte_width(),
+            S::max_offset(),
             O::PTYPE,
-            O::PTYPE.byte_width()
+            O::max_offset()
         );
 
         // We arbitrarily choose 2 times the number of list scalars for the capacity of the elements
@@ -149,7 +147,7 @@ impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
     /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of
     /// the outer `FixedSizeList`.
     pub fn element_dtype(&self) -> &DType {
-        let DType::FixedSizeList(element_dtype, ..) = &self.dtype else {
+        let DType::List(element_dtype, ..) = &self.dtype else {
             vortex_panic!("`ListViewBuilder` has an incorrect dtype: {}", self.dtype);
         };
 
@@ -401,10 +399,10 @@ mod tests {
         assert_eq!(listview2.len(), 5);
 
         // Verify the values: [0], [10], [20], [30], [40].
-        for i in 0..5 {
-            let list = listview2.list_elements_at(i);
+        for i in 0..5i32 {
+            let list = listview2.list_elements_at(i as usize);
             assert_eq!(list.len(), 1);
-            assert_eq!(list.scalar_at(0), (i as i32 * 10).into());
+            assert_eq!(list.scalar_at(0), (i * 10).into());
         }
     }
 
@@ -526,7 +524,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Size type I32 (4B) must fit within offset type I16 (2B)")]
+    #[should_panic(
+        expected = "Size type I32 (max offset 2147483647) must fit within offset type I16 (max offset 32767)"
+    )]
     fn test_error_invalid_type_combination() {
         let dtype: Arc<DType> = Arc::new(I32.into());
         // This should panic because i32 (4 bytes) cannot fit within i16 (2 bytes).

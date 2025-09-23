@@ -210,17 +210,19 @@ impl ListViewArray {
         );
 
         // Check that the size type can fit within the offset type to prevent overflows.
-        let offset_ptype = offsets.dtype().as_ptype();
         let size_ptype = sizes.dtype().as_ptype();
-        vortex_ensure!(
-            size_ptype.byte_width() <= offset_ptype.byte_width(),
-            "size type {:?} must fit within offset type {:?}",
-            size_ptype,
-            offset_ptype
-        );
+        let offset_ptype = offsets.dtype().as_ptype();
+        let size_max = sizes.dtype().as_ptype().max_value_as_u64();
+        let offset_max = offsets.dtype().as_ptype().max_value_as_u64();
 
-        // TODO(connor): This doesn't check that the actual logical value of `sizes` fits inside
-        // offsets. For example, `u32` does not fit inside `i32`.
+        vortex_ensure!(
+            size_max <= offset_max,
+            "size type {:?} (max {}) must fit within offset type {:?} (max {})",
+            size_ptype,
+            size_max,
+            offset_ptype,
+            offset_max
+        );
 
         // Validate the `offsets` and `sizes` arrays.
         match_each_integer_ptype!(offset_ptype, |O| {
