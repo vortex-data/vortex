@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod dictionary;
+pub(crate) mod dictionary;
 mod stats;
 
 use vortex_alp::{ALPArray, ALPEncoding, ALPVTable, RDEncoder};
@@ -11,7 +11,7 @@ use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
-use self::stats::FloatStats;
+pub use self::stats::FloatStats;
 use crate::float::dictionary::dictionary_encode;
 use crate::integer::{IntCompressor, IntegerStats};
 use crate::patches::compress_patches;

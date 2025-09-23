@@ -17,6 +17,7 @@ use crate::{
     estimate_compression_ratio_with_sampling, integer,
 };
 
+/// Array of variable-length byte arrays, and relevant stats for compression.
 #[derive(Clone, Debug)]
 pub struct StringStats {
     src: VarBinViewArray,

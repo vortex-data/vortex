@@ -43,7 +43,7 @@ impl_from_typed!(f16, ErasedDistinctValues::F16);
 impl_from_typed!(f32, ErasedDistinctValues::F32);
 impl_from_typed!(f64, ErasedDistinctValues::F64);
 
-// We want to allow not rebuilding all of the stats every time.
+/// Array of floating-point numbers and relevant stats for compression.
 #[derive(Debug, Clone)]
 pub struct FloatStats {
     pub(super) src: PrimitiveArray,
