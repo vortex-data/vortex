@@ -305,7 +305,7 @@ impl Operator for BetweenOperator {
         }))
     }
 
-    fn is_position_preserving(&self, _child_idx: usize) -> Option<bool> {
+    fn is_selection_target(&self, _child_idx: usize) -> Option<bool> {
         // All children are position preserving.
         Some(true)
     }

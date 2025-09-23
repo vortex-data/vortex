@@ -39,7 +39,7 @@ impl PipelineInputOperator {
 
 impl Operator for PipelineInputOperator {
     fn id(&self) -> OperatorId {
-        OperatorId::from("vortex.pipeline.canonical")
+        OperatorId::from("vortex.operator.canonical")
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -93,7 +93,7 @@ impl PipelinedOperator for PipelineInputOperator {
     }
 }
 
-// FIXME(ngates): we should support canonical inputs to the pipeline to avoid copying.
+// FIXME(ngates): we should support canonical inputs to the operator to avoid copying.
 struct CanonicalPrimitiveKernel<T> {
     batch_id: BatchId,
     elements: Option<Buffer<T>>,

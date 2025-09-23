@@ -21,7 +21,7 @@ use crate::pipeline::operator::PipelineOperator;
 /// The executor performs common subtree elimination by creating BatchExecution nodes that hold
 /// shared futures to the underlying execution.
 ///
-/// It also finds sub-graphs of pipeline operators and executes them as a pipeline.
+/// It also finds sub-graphs of operator operators and executes them as a operator.
 #[derive(Default)]
 pub struct Executor {
     /// Cache of shared futures for common subtree elimination.
@@ -59,7 +59,7 @@ impl Executor {
             }
         }
 
-        // Attempt to convert the operator into a pipeline operator, if so we use that to execute.
+        // Attempt to convert the operator into a operator operator, if so we use that to execute.
         //
         // The construction of this operator pulls the largest subgraph of nodes that can be
         // executed in a pipelined fashion.
@@ -186,7 +186,7 @@ mod tests {
         );
 
         // The comparison operator is pipelined, it also only gets executed once
-        assert_eq!(compare.metrics().timer("operator.pipeline.step").count(), 1);
+        assert_eq!(compare.metrics().timer("operator.operator.step").count(), 1);
         // The array only gets executed once due to common subtree elimination
         assert_eq!(array.metrics().timer("operator.batch.execute").count(), 1);
     }

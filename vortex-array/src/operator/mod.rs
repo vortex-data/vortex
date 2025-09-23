@@ -123,17 +123,17 @@ pub trait Operator: 'static + Send + Sync + Debug + DynOperatorHash + DynOperato
         Ok(None)
     }
 
-    /// Whether this operator is aligned 1:1 with its child.
+    /// Return `true` if the given child is considered to be a selection target.
     ///
-    /// Returns `None` if unknown.
-    fn is_position_preserving(&self, _child_idx: usize) -> Option<bool> {
-        None
-    }
-
-    /// Whether this operator preserves the nulls of the given position-preserving child.
+    /// The definition of this is such that pushing a selection operator down to all selection
+    /// targets will result in the same output as a selection on this operator.
     ///
-    /// Returns `None` if unknown.
-    fn is_null_preserving(&self, _child_idx: usize) -> Option<bool> {
+    /// For example, `select(Op, mask) == Op(select(child, mask), ...)` for all children that are
+    /// selection targets.
+    ///
+    /// If any child index returns `None`, then selection pushdown is not possible.
+    /// If all children return `Some(false)`, then selection pushdown is not possible.
+    fn is_selection_target(&self, _child_idx: usize) -> Option<bool> {
         None
     }
 

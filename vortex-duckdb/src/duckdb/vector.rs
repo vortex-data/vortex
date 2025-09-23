@@ -95,7 +95,7 @@ impl Vector {
         unsafe { cpp::duckdb_vx_set_dictionary_vector_length(self.as_ptr(), len) }
     }
 
-    // A pipeline-scoped id to assert dictionary vector value uniqueness
+    // A operator-scoped id to assert dictionary vector value uniqueness
     pub fn set_dictionary_id(&mut self, dict_id: String) {
         let dict_id = CString::new(dict_id)
             .map_err(|e| vortex_err!("cstr creation error {e}"))

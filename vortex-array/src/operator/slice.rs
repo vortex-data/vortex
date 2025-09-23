@@ -99,7 +99,7 @@ impl Operator for SliceOperator {
             .map(|i| {
                 let child = self.child.children()[i].clone();
 
-                if self.child.is_position_preserving(i).unwrap_or_default() {
+                if self.child.is_selection_target(i).unwrap_or_default() {
                     // Push-down the filter to this child.
                     Ok::<_, VortexError>(Arc::new(SliceOperator::try_new(
                         child,

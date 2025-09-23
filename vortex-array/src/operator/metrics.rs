@@ -117,7 +117,7 @@ impl PipelinedOperator for MetricsOperator {
             .as_pipelined()
             .vortex_expect("checked")
             .bind(ctx)?;
-        let timer = self.metrics.timer("operator.pipeline.step");
+        let timer = self.metrics.timer("operator.operator.step");
         Ok(Box::new(MetricsKernel { inner, timer }))
     }
 

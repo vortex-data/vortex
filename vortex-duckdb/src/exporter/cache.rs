@@ -16,7 +16,7 @@ use crate::duckdb::Vector;
 #[derive(Default)]
 pub struct ConversionCache {
     pub values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
-    // A value which must be unique for a given DuckDB pipeline.
+    // A value which must be unique for a given DuckDB operator.
     instance_id: u64,
 }
 

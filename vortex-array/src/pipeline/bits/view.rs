@@ -13,7 +13,7 @@ use crate::pipeline::{N, N_WORDS};
 /// Internally, it uses a [`BitArray`] to store the bits, but this crate has some
 /// performance foot-guns in cases where we can lean on better assumptions, and therefore we wrap
 /// it up for use within Vortex.
-/// Read-only view into a bit array for selection masking in pipeline operations.
+/// Read-only view into a bit array for selection masking in operator operations.
 #[derive(Clone, Copy)]
 pub struct BitView<'a> {
     bits: &'a BitArray<[usize; N_WORDS], Lsb0>,

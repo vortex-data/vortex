@@ -153,9 +153,9 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
     -> VortexResult<Option<Output>>;
 
-    /// Convert the array to a pipeline operator if supported by the encoding.
+    /// Convert the array to a operator operator if supported by the encoding.
     ///
-    /// Returns `None` if the encoding does not support pipeline operations.
+    /// Returns `None` if the encoding does not support operator operations.
     fn to_operator(&self) -> VortexResult<Option<OperatorRef>>;
 }
 

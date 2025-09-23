@@ -338,7 +338,7 @@ impl<T: PartialOrd> CompareOp<T> for Lte {
 //     use vortex_scalar::Scalar;
 //
 //     use crate::arrays::PrimitiveArray;
-//     use crate::pipeline::bits::BitView;
+//     use crate::operator::bits::BitView;
 //
 //     #[test]
 //     fn test_scalar_compare_stacked_on_primitive() {
@@ -357,7 +357,7 @@ impl<T: PartialOrd> CompareOp<T> for Lte {
 //
 //         // Create query plan from the stacked operators
 //         let plan = QueryPlan::new(scalar_compare_op.as_ref()).unwrap();
-//         let mut pipeline = plan.executable_plan().unwrap();
+//         let mut operator = plan.executable_plan().unwrap();
 //
 //         // Create all-true mask for simplicity
 //         let mask_data = [usize::MAX; N_WORDS];
@@ -368,8 +368,8 @@ impl<T: PartialOrd> CompareOp<T> for Lte {
 //         unsafe { output.set_len(N) };
 //         let mut output_view = ViewMut::new(&mut output[..], None);
 //
-//         // Execute the pipeline
-//         let result = pipeline._step(mask_view, &mut output_view);
+//         // Execute the operator
+//         let result = operator._step(mask_view, &mut output_view);
 //         assert!(result.is_ok());
 //
 //         // Verify results: values 0-10 should be false, values 11-15 should be true
@@ -400,7 +400,7 @@ impl<T: PartialOrd> CompareOp<T> for Lte {
 //         ));
 //
 //         let plan = QueryPlan::new(eq_op.as_ref()).unwrap();
-//         let mut pipeline = plan.executable_plan().unwrap();
+//         let mut operator = plan.executable_plan().unwrap();
 //
 //         let mask_data = [usize::MAX; N_WORDS];
 //         let mask_view = BitView::new(&mask_data);
@@ -409,7 +409,7 @@ impl<T: PartialOrd> CompareOp<T> for Lte {
 //         unsafe { output.set_len(N) };
 //         let mut output_view = ViewMut::new(&mut output[..], None);
 //
-//         let result = pipeline._step(mask_view, &mut output_view);
+//         let result = operator._step(mask_view, &mut output_view);
 //         assert!(result.is_ok());
 //
 //         // Only position 3 should be true
@@ -441,7 +441,7 @@ impl<T: PartialOrd> CompareOp<T> for Lte {
 //         ));
 //
 //         let plan = QueryPlan::new(lt_op.as_ref()).unwrap();
-//         let mut pipeline = plan.executable_plan().unwrap();
+//         let mut operator = plan.executable_plan().unwrap();
 //
 //         let mask_data = [usize::MAX; N_WORDS];
 //         let mask_view = BitView::new(&mask_data);
@@ -450,7 +450,7 @@ impl<T: PartialOrd> CompareOp<T> for Lte {
 //         unsafe { output.set_len(N) };
 //         let mut output_view = ViewMut::new(&mut output[..], None);
 //
-//         let result = pipeline._step(mask_view, &mut output_view);
+//         let result = operator._step(mask_view, &mut output_view);
 //         assert!(result.is_ok());
 //
 //         // Values 0.5, 1.5, 2.5 should be < 3.5 (true), 3.5+ should be false

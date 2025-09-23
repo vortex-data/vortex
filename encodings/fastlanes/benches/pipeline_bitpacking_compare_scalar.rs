@@ -72,9 +72,9 @@ pub fn eval<T: NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64)
         });
 }
 
-// TODO(ngates): bring back benchmarks once pipeline API is stable.
+// TODO(ngates): bring back benchmarks once operator API is stable.
 // #[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
-// pub fn pipeline<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64) {
+// pub fn operator<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64) {
 //     let mut rng = StdRng::seed_from_u64(0);
 //     let values = (0..100_000)
 //         .map(|_| T::from(rng.random_range(10..100)).unwrap())

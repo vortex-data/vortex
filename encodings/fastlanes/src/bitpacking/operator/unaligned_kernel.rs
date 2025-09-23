@@ -74,12 +74,7 @@ where
     <T as PhysicalPType>::Physical: Element,
 {
     #[allow(clippy::unwrap_in_result, clippy::expect_used)]
-    fn step(
-        &mut self,
-        ctx: &KernelContext,
-        out: &mut ViewMut,
-        physical_out: &mut ViewMut,
-    ) -> VortexResult<()> {
+    fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
         // We re-interpret the output view as the unsigned bitpacked type.
         physical_out.reinterpret_as::<<T as PhysicalPType>::Physical>();
 
@@ -88,96 +83,66 @@ where
 
         let chunk_value_offset = self.value_offset as usize;
 
-        // We short-circuit full unpacking logic if the mask is sufficiently sparse.
-        if out.true_count() > 8 {
-            let mut output_idx = 0;
+        let mut output_idx = 0;
 
-            // Pre-calculate what we need to do
-            let first_chunk_needs_slicing = chunk_value_offset > 0;
-            let elements_from_first_chunk = (1024 - chunk_value_offset).min(elements.len());
+        // Pre-calculate what we need to do
+        let first_chunk_needs_slicing = chunk_value_offset > 0;
+        let elements_from_first_chunk = (1024 - chunk_value_offset).min(elements.len());
 
-            let elements_after_first = elements.len() - elements_from_first_chunk;
-            let full_chunks_count = elements_after_first / 1024;
-            let final_chunk_size = elements_after_first % 1024;
-            let final_chunk_needs_slicing = final_chunk_size > 0;
+        let elements_after_first = elements.len() - elements_from_first_chunk;
+        let full_chunks_count = elements_after_first / 1024;
+        let final_chunk_size = elements_after_first % 1024;
+        let final_chunk_needs_slicing = final_chunk_size > 0;
 
-            let total_chunks_needed = 1 + full_chunks_count + (final_chunk_needs_slicing as usize);
-            let available_chunks = packed.len() / self.packed_stride;
-            let actual_chunks_to_process = total_chunks_needed.min(available_chunks);
+        let total_chunks_needed = 1 + full_chunks_count + (final_chunk_needs_slicing as usize);
+        let available_chunks = packed.len() / self.packed_stride;
+        let actual_chunks_to_process = total_chunks_needed.min(available_chunks);
 
-            // Part 1: Handle first sliced chunk (if there's a value_offset)
-            if actual_chunks_to_process > 0 {
-                Self::unpack_sliced_chunk(
-                    self.width,
-                    &packed[0..self.packed_stride],
-                    &mut self.temp_buffer,
-                    &mut elements[output_idx..output_idx + elements_from_first_chunk],
-                    chunk_value_offset,
-                );
-                output_idx += elements_from_first_chunk;
-            }
-
-            // Part 2: Handle all non-sliced full chunks (for loop)
-            let last_full_chunk_idx = full_chunks_count + 1;
-
-            for packed_idx in 1..last_full_chunk_idx.min(actual_chunks_to_process) {
-                unsafe {
-                    BitPacking::unchecked_unpack(
-                        self.width,
-                        &packed[(packed_idx * self.packed_stride)..][..self.packed_stride],
-                        &mut elements[output_idx..output_idx + 1024],
-                    );
-                }
-                output_idx += 1024;
-            }
-
-            // Part 3: Handle final sliced chunk (if needed)
-            if last_full_chunk_idx < actual_chunks_to_process {
-                Self::unpack_sliced_chunk(
-                    self.width,
-                    &packed[(last_full_chunk_idx * self.packed_stride)..][..self.packed_stride],
-                    &mut self.temp_buffer,
-                    &mut elements[output_idx..output_idx + final_chunk_size],
-                    0,
-                );
-            }
-
-            let nvecs = (first_chunk_needs_slicing as usize) + full_chunks_count;
-
-            self.packed_offset += nvecs * self.packed_stride;
-
-            // Set the selection to the given mask, which is a bit array of length N.
-            physical_out.flatten::<<T as PhysicalPType>::Physical>(&out);
-        } else {
-            let mut offset = 0;
-            out.iter_ones(|idx| {
-                let adjusted_idx = idx + chunk_value_offset;
-                let chunk_idx = adjusted_idx / 1024;
-                let bit_idx = adjusted_idx % 1024;
-
-                let start_idx = chunk_idx * self.packed_stride;
-                if start_idx + self.packed_stride <= packed.len() {
-                    unsafe {
-                        *elements.get_unchecked_mut(offset) = BitPacking::unchecked_unpack_single(
-                            self.width,
-                            &packed[start_idx..start_idx + self.packed_stride],
-                            bit_idx,
-                        );
-                    }
-                } else {
-                    // Not enough packed data - set to default value
-                    elements[offset] = Default::default();
-                }
-                offset += 1;
-            });
-
-            let elements_needed = elements.len() + chunk_value_offset;
-            let chunks_needed = elements_needed.div_ceil(1024);
-            let nvecs = chunks_needed
-                .min(packed.len() / self.packed_stride)
-                .min(N / 1024);
-            self.packed_offset += nvecs * self.packed_stride;
+        // Part 1: Handle first sliced chunk (if there's a value_offset)
+        if actual_chunks_to_process > 0 {
+            Self::unpack_sliced_chunk(
+                self.width,
+                &packed[0..self.packed_stride],
+                &mut self.temp_buffer,
+                &mut elements[output_idx..output_idx + elements_from_first_chunk],
+                chunk_value_offset,
+            );
+            output_idx += elements_from_first_chunk;
         }
+
+        // Part 2: Handle all non-sliced full chunks (for loop)
+        let last_full_chunk_idx = full_chunks_count + 1;
+
+        for packed_idx in 1..last_full_chunk_idx.min(actual_chunks_to_process) {
+            unsafe {
+                BitPacking::unchecked_unpack(
+                    self.width,
+                    &packed[(packed_idx * self.packed_stride)..][..self.packed_stride],
+                    // TODO(ngates): elements only has 1024 values...? We cannot slice further
+                    //  than that?
+                    &mut elements[output_idx..output_idx + 1024],
+                );
+            }
+            output_idx += 1024;
+        }
+
+        // Part 3: Handle final sliced chunk (if needed)
+        if last_full_chunk_idx < actual_chunks_to_process {
+            Self::unpack_sliced_chunk(
+                self.width,
+                &packed[(last_full_chunk_idx * self.packed_stride)..][..self.packed_stride],
+                &mut self.temp_buffer,
+                &mut elements[output_idx..output_idx + final_chunk_size],
+                0,
+            );
+        }
+
+        let nvecs = (first_chunk_needs_slicing as usize) + full_chunks_count;
+
+        self.packed_offset += nvecs * self.packed_stride;
+
+        // Set the selection to the given mask, which is a bit array of length N.
+        physical_out.flatten::<<T as PhysicalPType>::Physical>(&out);
 
         physical_out.reinterpret_as::<T>();
 

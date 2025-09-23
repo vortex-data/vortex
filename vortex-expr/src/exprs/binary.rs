@@ -118,7 +118,9 @@ impl VTable for BinaryVTable {
         let Some(rhs) = expr.rhs.operator(scope)? else {
             return Ok(None);
         };
-        let op: compute::Operator = expr.operator.try_into()?;
+        let Ok(op): VortexResult<compute::Operator> = expr.operator.try_into() else {
+            return Ok(None);
+        };
         Ok(Some(Arc::new(CompareOperator::try_new(lhs, rhs, op)?)))
     }
 }

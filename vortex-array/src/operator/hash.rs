@@ -14,6 +14,9 @@ use crate::validity::Validity;
 
 /// A hash trait for operators that loosens the semantics to permit pointer-based hashing for
 /// data objects such as buffers.
+///
+/// Note that since this trait can use pointer hashing, the hash is only valid for the lifetime of
+/// the object.
 pub trait OperatorHash {
     fn operator_hash<H: Hasher>(&self, state: &mut H);
 }

@@ -67,7 +67,7 @@ pub fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fract
         .bench_values(|mask| filter(array.to_canonical().as_ref(), &mask).unwrap());
 }
 
-// TODO(ngates): bring back benchmarks once pipeline API is stable.
+// TODO(ngates): bring back benchmarks once operator API is stable.
 // #[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]
 // pub fn decompress_bitpacking_pipeline_filter<T: Element + NativePType>(
 //     bencher: Bencher,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Vortex crate containing vectorized pipeline processing.
+//! Vortex crate containing vectorized operator processing.
 //!
 //! This module contains experiments into pipelined data processing within Vortex.
 //!
@@ -24,7 +24,7 @@ mod types;
 pub mod vec;
 pub mod view;
 
-/// The number of elements in each step of a Vortex evaluation pipeline.
+/// The number of elements in each step of a Vortex evaluation operator.
 pub const N: usize = 1024;
 
 // Number of usize words needed to store N bits
@@ -73,13 +73,13 @@ pub type VectorId = usize;
 /// The ID of the batch input to use.
 pub type BatchId = usize;
 
-/// A pipeline provides a push-based way to emit a stream of canonical data.
+/// A operator provides a push-based way to emit a stream of canonical data.
 ///
-/// By passing multiple vector computations through the same pipeline, we can amortize
+/// By passing multiple vector computations through the same operator, we can amortize
 /// the setup costs (such as DType validation, stats short-circuiting, etc.), and to make better
 /// use of CPU caches by performing all operations while the data is hot.
 pub trait Kernel: Send {
-    /// Attempts to perform a single step of the pipeline, writing data to the output vector.
+    /// Attempts to perform a single step of the operator, writing data to the output vector.
     ///
     /// The output vector is guaranteed to have space for at least `N` elements. The kernel
     /// may write up to `N` elements to the output vector, and must update the length of the

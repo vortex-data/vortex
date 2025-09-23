@@ -82,25 +82,35 @@ impl Operator for FilterOperator {
     }
 
     fn reduce_children(&self) -> VortexResult<Option<OperatorRef>> {
-        // If none of the children are position-preserving, we cannot push down the filter.
-        if !self
+        // We need selection target information to be defined for all children.
+        let Some(selection_targets): Option<Vec<_>> = self
             .child
             .children()
             .iter()
             .enumerate()
-            .any(|(i, child)| child.is_position_preserving(i).unwrap_or_default())
-        {
+            .map(|(i, child)| child.is_selection_target(i))
+            .collect()
+        else {
+            return Ok(None);
+        };
+
+        // Selection is defined to be false for all children, so we cannot push down the
+        // filter.
+        if selection_targets.iter().all(|s| !s) {
             return Ok(None);
         }
 
-        // We push down the filter operator to any child that is aligned to the parent.
-        let children = (0..self.child.nchildren())
-            .map(|i| {
-                let child = self.child.children()[i].clone();
-
-                if child.is_position_preserving(i).unwrap_or_default() {
+        // Otherwise, we push down the filter to all children that are selection targets.
+        let children = self
+            .child
+            .children()
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, child)| {
+                if selection_targets[i] {
                     // Push-down the filter to this child.
-                    Arc::new(FilterOperator::new(child, self.mask.clone()))
+                    Arc::new(FilterOperator::new(child, self.mask.clone())) as OperatorRef
                 } else {
                     child
                 }

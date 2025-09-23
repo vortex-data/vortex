@@ -64,7 +64,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Can be disabled by assigning to the [`NotSupported`] type.
     type SerdeVTable: SerdeVTable<Self>;
     /// Optionally enable the [`PipelineVTable`] for this encoding. This allows it to partake in
-    /// pipeline operations.
+    /// operator operations.
     type PipelineVTable: PipelineVTable<Self>;
 
     /// Returns the ID of the encoding.

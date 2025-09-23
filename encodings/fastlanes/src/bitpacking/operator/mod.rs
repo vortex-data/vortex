@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod aligned_kernel;
+// mod unaligned_kernel;
+
 use std::any::Any;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use fastlanes::{BitPacking, FastLanes};
+use fastlanes::FastLanes;
 use vortex_array::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
-use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
+use vortex_array::pipeline::{BindContext, Kernel, PipelinedOperator};
 use vortex_array::vtable::PipelineVTable;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 
+use crate::operator::aligned_kernel::BitPackedKernel;
 use crate::{BitPackedArray, BitPackedVTable};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
@@ -95,13 +98,24 @@ impl PipelinedOperator for BitPackedArray {
                 self.packed.clone().into_byte_buffer(),
             );
 
-            assert_eq!(self.offset, 0, "Offset handling not implemented yet");
-            Ok(Box::new(BitPackedKernel::<T> {
-                width: self.bit_width as usize,
-                packed_stride,
-                buffer,
-                packed_offset: 0,
-            }) as Box<dyn Kernel>)
+            if self.offset == 0 {
+                Ok(Box::new(BitPackedKernel::<T>::new(
+                    self.bit_width as usize,
+                    packed_stride,
+                    buffer,
+                    0,
+                )) as Box<dyn Kernel>)
+            } else {
+                // TODO(ngates): the unaligned kernel needs fixing for the non-masked API
+                // Ok(Box::new(BitPackedUnalignedKernel::<T>::new(
+                //     self.bit_width as usize,
+                //     packed_stride,
+                //     buffer,
+                //     0,
+                //     self.offset,
+                // )) as Box<dyn Kernel>)
+                unreachable!("Offset must be zero")
+            }
         })
     }
 
@@ -114,50 +128,6 @@ impl PipelinedOperator for BitPackedArray {
     }
 }
 
-// TODO(ngates): we should try putting the const bit width as a generic here, to avoid
-//  a switch in the fastlanes library on every invocation of `unchecked_unpack`.
-#[derive(Clone)]
-pub struct BitPackedKernel<T: PhysicalPType<Physical: BitPacking>> {
-    width: usize,
-    packed_stride: usize,
-
-    buffer: Buffer<<T as PhysicalPType>::Physical>,
-    packed_offset: usize,
-}
-
-impl<T> Kernel for BitPackedKernel<T>
-where
-    T: PhysicalPType<Physical: BitPacking>,
-    T: Element,
-    <T as PhysicalPType>::Physical: Element,
-{
-    fn step(&mut self, _ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
-        // We re-interpret the output view as the unsigned bitpacked type.
-        out.reinterpret_as::<<T as PhysicalPType>::Physical>();
-
-        let elements = out.as_slice_mut::<<T as PhysicalPType>::Physical>();
-        let packed = &self.buffer.as_slice()[self.packed_offset..];
-
-        // We compute the number of FastLanes vectors that we have remaining.
-        let nvecs = (N / 1024).min(packed.len() / self.packed_stride);
-
-        // We short-circuit full unpacking logic if the mask is sufficiently sparse.
-        for i in 0..nvecs {
-            unsafe {
-                BitPacking::unchecked_unpack(
-                    self.width,
-                    &packed[(i * self.packed_stride)..][..self.packed_stride],
-                    &mut elements[(i * 1024)..],
-                );
-            }
-        }
-        self.packed_offset += nvecs * self.packed_stride;
-
-        out.reinterpret_as::<T>();
-
-        Ok(())
-    }
-}
 //
 // #[cfg(test)]
 // mod tests {
@@ -166,7 +136,7 @@ where
 //     use rand::{Rng, SeedableRng};
 //     use vortex_array::arrays::PrimitiveArray;
 //     use vortex_array::compute::filter;
-//     use vortex_array::pipeline::{export_canonical_pipeline_expr, N};
+//     use vortex_array::operator::{export_canonical_pipeline_expr, N};
 //     use vortex_array::{IntoArray, ToCanonical};
 //     use vortex_buffer::BufferMut;
 //     use vortex_mask::Mask;

@@ -40,7 +40,7 @@ use crate::validity::Validity;
 /// An operator node used during execution planning to represent a pipelined execution.
 ///
 /// This operator builds up a DAG of operators that can be executed in a pipelined fashion, as well
-/// as any batch input operators that provide batch data to the pipeline.
+/// as any batch input operators that provide batch data to the operator.
 #[derive(Clone, Debug)]
 pub(crate) struct PipelineOperator {
     root: NodeId,
@@ -215,7 +215,7 @@ impl PipelineOperator {
 
 impl Operator for PipelineOperator {
     fn id(&self) -> OperatorId {
-        OperatorId::from("vortex.pipeline")
+        OperatorId::from("vortex.operator")
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -324,7 +324,7 @@ impl BatchExecution for BoolPipelineExecution {
         let mut elements = BufferMut::<bool>::with_capacity(capacity);
         unsafe { elements.set_len(capacity) };
 
-        // Run the pipeline to completion.
+        // Run the operator to completion.
         let mut output_len = 0;
         while output_len < self.len {
             let mut elements_view = ViewMut::new(&mut elements[output_len..][..N], None);
@@ -375,7 +375,7 @@ impl<T: Element + NativePType> BatchExecution for PrimitivePipelineExecution<T> 
         let mut elements = BufferMut::<T>::with_capacity(capacity);
         unsafe { elements.set_len(capacity) };
 
-        // Run the pipeline to completion.
+        // Run the operator to completion.
         let mut output_len = 0;
         while output_len < self.len {
             let mut elements_view = ViewMut::new(&mut elements[output_len..][..N], None);

@@ -67,7 +67,7 @@ pub fn decompress_for_early_filter<T: NativePType>(bencher: Bencher, fraction_ke
         .bench_local_values(|mask| filter(array.as_ref(), &mask).unwrap().to_canonical());
 }
 
-// TODO(ngates): bring back benchmarks once pipeline API is stable.
+// TODO(ngates): bring back benchmarks once operator API is stable.
 // #[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]
 // #[allow(dead_code)]
 // pub fn decompress_for_pipeline_plan_filter<T: Element + NativePType>(
