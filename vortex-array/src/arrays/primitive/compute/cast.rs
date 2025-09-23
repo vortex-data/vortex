@@ -66,7 +66,7 @@ fn cast<F: NativePType, T: NativePType>(array: &[F], mask: Mask) -> VortexResult
         }
         AllOr::None => Ok(Buffer::zeroed(array.len())),
         AllOr::Some(b) => {
-            //
+            // TODO(robert): Depending on density of the buffer might be better to prefill Buffer and only write valid values
             let mut buffer = BufferMut::with_capacity(array.len());
             for (item, valid) in array.iter().zip(b.iter()) {
                 if valid {
