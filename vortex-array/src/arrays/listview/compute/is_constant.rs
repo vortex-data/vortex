@@ -18,7 +18,7 @@ impl IsConstantKernel for ListViewVTable {
         // - All elements are valid (no nulls)
 
         // First check if all list sizes are constant.
-        if !array.sizes.is_constant() {
+        if !array.sizes.is_constant_opts(opts.cost) {
             return Ok(Some(false));
         }
 

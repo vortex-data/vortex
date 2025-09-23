@@ -23,13 +23,21 @@ fn test_take_basic() {
     let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 
-    assert_eq!(result_fsl.len(), 3);
-    assert_eq!(result_fsl.list_size(), 2);
+    assert_eq!(result_fsl.len(), 3, "Wrong number of lists after take");
+    assert_eq!(result_fsl.list_size(), 2, "list_size should be preserved");
 
     // First list should be the original third list [5, 6].
     let first = result_fsl.fixed_size_list_elements_at(0);
-    assert_eq!(first.scalar_at(0), 5i32.into());
-    assert_eq!(first.scalar_at(1), 6i32.into());
+    assert_eq!(
+        first.scalar_at(0),
+        5i32.into(),
+        "Wrong value at [2][0] after take"
+    );
+    assert_eq!(
+        first.scalar_at(1),
+        6i32.into(),
+        "Wrong value at [2][1] after take"
+    );
 
     // Second list should be the original first list [1, 2].
     let second = result_fsl.fixed_size_list_elements_at(1);

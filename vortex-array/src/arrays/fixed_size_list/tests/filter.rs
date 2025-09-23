@@ -192,7 +192,7 @@ fn test_filter_degenerate_list_size_zero(
     let mask = Mask::from(BooleanBuffer::from(mask_values));
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
 
-    assert_eq!(filtered.len(), expected_len);
+    assert_eq!(filtered.len(), expected_len, "Degenerate FSL filter failed");
 
     if expect_constant_array {
         // Should return a ConstantArray of nulls when all are invalid.
@@ -202,8 +202,12 @@ fn test_filter_degenerate_list_size_zero(
         }
     } else {
         let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-        assert_eq!(filtered_fsl.list_size(), 0);
-        assert_eq!(filtered_fsl.elements().len(), 0);
+        assert_eq!(filtered_fsl.list_size(), 0, "list_size should remain 0");
+        assert_eq!(
+            filtered_fsl.elements().len(),
+            0,
+            "no elements expected for list_size=0"
+        );
     }
 }
 
@@ -218,8 +222,12 @@ fn test_filter_with_nulls() {
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
     let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
 
-    assert_eq!(filtered_fsl.len(), 2);
-    assert_eq!(filtered_fsl.list_size(), 2);
+    assert_eq!(
+        filtered_fsl.len(),
+        2,
+        "Expected lists after filtering out null"
+    );
+    assert_eq!(filtered_fsl.list_size(), 2, "list_size should be preserved");
 
     // First list should be [1, 2] and valid.
     let first = filtered_fsl.fixed_size_list_elements_at(0);
@@ -244,9 +252,19 @@ fn test_filter_all_null_array() {
 
     // This should return a ConstantArray of nulls.
     let filtered_const = filtered.as_::<ConstantVTable>();
-    assert_eq!(filtered_const.len(), 2);
-    assert!(filtered_const.scalar_at(0).is_null());
-    assert!(filtered_const.scalar_at(1).is_null());
+    assert_eq!(
+        filtered_const.len(),
+        2,
+        "All-null FSL should produce ConstantArray"
+    );
+    assert!(
+        filtered_const.scalar_at(0).is_null(),
+        "Expected null at index 0"
+    );
+    assert!(
+        filtered_const.scalar_at(1).is_null(),
+        "Expected null at index 1"
+    );
 }
 
 #[test]
