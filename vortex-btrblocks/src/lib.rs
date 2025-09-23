@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Vortex's [BtrBlocks]-inspired compressor.
+//!
+//! [BtrBlocks]: https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf
+
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -127,7 +131,7 @@ pub struct SchemeTree {
     pub children: Vec<SchemeTree>,
 }
 
-pub fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
+fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
     compressor: &T,
     stats: &T::StatsType,
     is_sample: bool,

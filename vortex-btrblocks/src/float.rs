@@ -24,6 +24,7 @@ pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
 
 impl<T> FloatScheme for T where T: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
 
+/// [`Compressor`] for floating-point numbers.
 pub struct FloatCompressor;
 
 impl Compressor for FloatCompressor {

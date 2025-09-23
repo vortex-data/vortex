@@ -27,6 +27,7 @@ use crate::{
     estimate_compression_ratio_with_sampling,
 };
 
+/// [`Compressor`] for signed and unsigned integers.
 pub struct IntCompressor;
 
 impl Compressor for IntCompressor {

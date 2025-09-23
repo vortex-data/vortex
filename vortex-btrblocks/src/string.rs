@@ -76,6 +76,7 @@ impl CompressorStats for StringStats {
     }
 }
 
+/// [`Compressor`] for strings.
 pub struct StringCompressor;
 
 impl Compressor for StringCompressor {
