@@ -5,22 +5,21 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{ListScalar, Scalar};
 
-use crate::arrays::ListArray;
+use crate::arrays::{ListArray, list_view_from_list};
 use crate::builders::{
     ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, PrimitiveBuilder,
     builder_with_capacity,
 };
 use crate::canonical::{Canonical, ToCanonical};
-use crate::compute::{add_scalar, cast, sub_scalar};
 use crate::{Array, ArrayRef, IntoArray, OffsetPType};
 
 /// The builder for building a [`ListArray`], parametrized by the `PType` of the offsets buffer.
-pub struct ListBuilder<O: NativePType> {
+pub struct ListBuilder<O: OffsetPType> {
     dtype: DType,
     /// The values of the list.
     value_builder: Box<dyn ArrayBuilder>,
@@ -187,49 +186,35 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        let list = array.to_list();
+        let list = array.to_listview();
         if list.is_empty() {
             return;
         }
 
-        let n_already_added_values = self.value_builder.len();
-        let Some(n_already_added_values) = O::from_usize(n_already_added_values) else {
-            vortex_panic!(
-                "cannot convert length {} to type {:?}",
-                n_already_added_values,
-                O::PTYPE
-            )
-        };
-
-        let offsets = list.offsets();
+        // For `ListViewArray`, we need to handle offsets and sizes differently
+        //` ListViewArray` has n offsets and n sizes, not n+1 offsets like `ListArray`
         let elements = list.elements();
 
-        let index_dtype = self.index_builder.dtype();
-
-        let n_leading_junk_values_scalar = offsets
-            .scalar_at(0)
-            .cast(index_dtype)
-            .vortex_expect("Must cast to index dtype");
-        let n_leading_junk_values =
-            usize::try_from(&n_leading_junk_values_scalar).vortex_expect("Offset must be a usize");
-
-        let casted_offsets = cast(&offsets.slice(1..offsets.len()), index_dtype)
-            .vortex_expect("Offsets must be an index dtype");
-        let offsets_without_leading_junk =
-            sub_scalar(&casted_offsets, n_leading_junk_values_scalar)
-                .vortex_expect("Offsets must be able to subtract leading offset");
-        let offsets_into_builder =
-            add_scalar(&offsets_without_leading_junk, n_already_added_values.into())
-                .vortex_expect("Offsets must be able to add existing values offsets");
-
-        let last_offset = offsets.scalar_at(offsets.len() - 1);
-        let last_offset = usize::try_from(&last_offset).vortex_expect("Offset must be a usize");
-        let non_junk_values = elements.slice(n_leading_junk_values..last_offset);
-
+        // Append validity information.
         self.nulls.append_validity_mask(array.validity_mask());
-        self.index_builder.extend_from_array(&offsets_into_builder);
-        self.value_builder.ensure_capacity(non_junk_values.len());
-        self.value_builder.extend_from_array(&non_junk_values);
+
+        // We need to append each list individually, converting from `ListViewArray` format
+        // to the `ListArray` format that `ListBuilder` expects.
+        for i in 0..list.len() {
+            let offset = list.offset_at(i);
+            let size = list.size_at(i);
+
+            // Append the elements for this list.
+            if size > 0 {
+                let list_elements = elements.slice(offset..offset + size);
+                self.value_builder.extend_from_array(&list_elements);
+            }
+
+            // Update the index with the new position.
+            let new_offset =
+                O::from_usize(self.value_builder.len()).vortex_expect("Failed to convert offset");
+            self.index_builder.append_value(new_offset);
+        }
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -248,7 +233,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn finish_into_canonical(&mut self) -> Canonical {
-        Canonical::List(self.finish_into_list())
+        Canonical::List(list_view_from_list(self.finish_into_list()))
     }
 }
 
@@ -308,7 +293,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 2);
 
-        let list_array = list.to_list();
+        let list_array = list.to_listview();
 
         assert_eq!(list_array.list_elements_at(0).len(), 3);
         assert_eq!(list_array.list_elements_at(1).len(), 3);
@@ -360,7 +345,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 3);
 
-        let list_array = list.to_list();
+        let list_array = list.to_listview();
 
         assert_eq!(list_array.list_elements_at(0).len(), 3);
         assert_eq!(list_array.list_elements_at(1).len(), 0);
@@ -395,9 +380,9 @@ mod tests {
             Arc::new(DType::Primitive(I32, NonNullable)),
         )
         .unwrap()
-        .to_list();
+        .to_listview();
 
-        let actual = builder.finish_into_canonical().into_list();
+        let actual = builder.finish_into_canonical().into_listview();
 
         assert_eq!(
             actual.elements().to_primitive().as_slice::<i32>(),
@@ -449,7 +434,7 @@ mod tests {
             DType::List(Arc::new(DType::Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().to_list();
+        let canon_values = chunked_list.unwrap().to_listview();
 
         assert_eq!(
             one_trailing_unused_element.scalar_at(0),

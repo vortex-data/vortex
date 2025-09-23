@@ -10,7 +10,7 @@ use vortex_dtype::{
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_err};
 
 use crate::arrays::{ListArray, PrimitiveVTable};
-use crate::builders::PrimitiveBuilder;
+use crate::builders::{ArrayBuilder, ListViewBuilder, PrimitiveBuilder};
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -319,6 +319,34 @@ impl ListViewArray {
     pub fn elements(&self) -> &ArrayRef {
         &self.elements
     }
+
+    /// Rebuilds a [`ListViewArray`], deduplicating all data and cleaning up garbage data.
+    ///
+    /// This is useful when the `elements` child array of the [`ListViewArray`] might have
+    /// overlapping, duplicate, and garbage data, and we want to have fully unshuffled data.
+    pub fn rebuild_listview(&self) -> ListViewArray {
+        let element_dtype = self
+            .dtype()
+            .as_list_element_opt()
+            .vortex_expect("somehow had a canonical list that was not a list");
+
+        let offsets_ptype = self.offsets().dtype().as_ptype();
+        let sizes_ptype = self.sizes().dtype().as_ptype();
+
+        match_each_integer_ptype!(offsets_ptype, |O| {
+            match_each_integer_ptype!(sizes_ptype, |S| {
+                let mut builder = ListViewBuilder::<O, S>::with_capacity(
+                    element_dtype.clone(),
+                    self.dtype().nullability(),
+                    self.elements().len(),
+                    self.len(),
+                );
+
+                builder.extend_from_array(self.as_ref());
+                builder.finish_into_listview()
+            })
+        })
+    }
 }
 
 /// Helper function to validate `offsets` and `sizes` with specific types.
@@ -366,23 +394,9 @@ where
 /// Create a [`ListViewArray`] from a [`ListArray`](crate::arrays::ListArray) by computing `sizes`
 /// from `offsets`.
 pub fn list_view_from_list(list: ListArray) -> ListViewArray {
-    // TODO(connor)[ListView]: Create a version of `Canonical::empty` for `ListView`. It might
-    // also be worth specializing that for all canonical encodings.
     // If the list is empty, create an empty `ListView` with the same offset dtype as the input.
     if list.is_empty() {
-        let empty_offsets = Canonical::empty(list.offsets().dtype()).into_array();
-        let empty_sizes = Canonical::empty(list.offsets().dtype()).into_array();
-        let empty_validity = list.validity().clone();
-
-        // SAFETY: Everything is empty so all the variants are satisfied.
-        return unsafe {
-            ListViewArray::new_unchecked(
-                list.elements().clone(),
-                empty_offsets,
-                empty_sizes,
-                empty_validity,
-            )
-        };
+        return Canonical::empty(list.dtype()).into_listview();
     }
 
     let len = list.len();

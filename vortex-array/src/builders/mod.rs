@@ -264,9 +264,10 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             *n,
             capacity,
         )),
-        DType::List(dtype, n) => Box::new(ListBuilder::<u64>::with_capacity(
+        DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity(
             dtype.clone(),
             *n,
+            2 * capacity, // Arbitrarily choose 2 times the `offsets` capacity here.
             capacity,
         )),
         DType::FixedSizeList(elem_dtype, list_size, null) => Box::new(

@@ -127,7 +127,10 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
             | DataType::Timestamp(..) => DType::Extension(Arc::new(
                 make_temporal_ext_dtype(data_type).with_nullability(nullability),
             )),
-            DataType::List(e) | DataType::LargeList(e) => {
+            DataType::List(e)
+            | DataType::LargeList(e)
+            | DataType::ListView(e)
+            | DataType::LargeListView(e) => {
                 DType::List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
             DataType::FixedSizeList(e, size) => DType::FixedSizeList(

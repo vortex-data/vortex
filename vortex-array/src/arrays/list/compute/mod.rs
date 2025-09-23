@@ -7,6 +7,10 @@ mod is_constant;
 mod mask;
 mod take;
 
+// Note that there is also a `list_contains` kernel located in the file
+// `vortex-array/src/compute/list_contains.rs` (it is there because other non-canonical encodings
+// can implement this kernel).
+
 use vortex_error::VortexResult;
 
 use crate::arrays::{ListArray, ListVTable};

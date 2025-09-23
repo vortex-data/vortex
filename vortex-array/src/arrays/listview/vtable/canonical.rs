@@ -6,7 +6,7 @@ use crate::arrays::{ListViewArray, ListViewVTable};
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<ListViewVTable> for ListViewVTable {
-    fn canonicalize(_array: &ListViewArray) -> Canonical {
-        unimplemented!("TODO(connor)[ListView]: ListViewArray canonicalization")
+    fn canonicalize(array: &ListViewArray) -> Canonical {
+        Canonical::List(array.clone())
     }
 }

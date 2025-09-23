@@ -14,7 +14,7 @@ use arrow_array::types::{
 use arrow_array::{
     Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray,
     FixedSizeListArray as ArrowFixedSizeListArray, GenericByteArray, GenericByteViewArray,
-    GenericListArray, NullArray as ArrowNullArray, OffsetSizeTrait,
+    GenericListArray, GenericListViewArray, NullArray as ArrowNullArray, OffsetSizeTrait,
     PrimitiveArray as ArrowPrimitiveArray, RecordBatch, StructArray as ArrowStructArray,
     make_array,
 };
@@ -29,8 +29,8 @@ use vortex_error::{VortexExpect as _, vortex_panic};
 use vortex_scalar::i256;
 
 use crate::arrays::{
-    BoolArray, DecimalArray, FixedSizeListArray, ListArray, NullArray, PrimitiveArray, StructArray,
-    TemporalArray, VarBinArray, VarBinViewArray,
+    BoolArray, DecimalArray, FixedSizeListArray, ListArray, ListViewArray, NullArray,
+    PrimitiveArray, StructArray, TemporalArray, VarBinArray, VarBinViewArray,
 };
 use crate::arrow::FromArrowArray;
 use crate::validity::Validity;
@@ -333,7 +333,7 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
 
 impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for ArrayRef {
     fn from_arrow(value: &GenericListArray<O>, nullable: bool) -> Self {
-        // Extract the validity of the underlying element array
+        // Extract the validity of the underlying element array.
         let elem_nullable = match value.data_type() {
             DataType::List(field) => field.is_nullable(),
             DataType::LargeList(field) => field.is_nullable(),
@@ -341,11 +341,31 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for 
         };
         ListArray::try_new(
             Self::from_arrow(value.values().as_ref(), elem_nullable),
-            // offsets are always non-nullable
+            // `offsets` are always non-nullable.
             value.offsets().clone().into_array(),
             nulls(value.nulls(), nullable),
         )
         .vortex_expect("Failed to convert Arrow ListArray to Vortex ListArray")
+        .into_array()
+    }
+}
+
+impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListViewArray<O>> for ArrayRef {
+    fn from_arrow(array: &GenericListViewArray<O>, nullable: bool) -> Self {
+        // Extract the validity of the underlying element array.
+        let elem_nullable = match array.data_type() {
+            DataType::ListView(field) => field.is_nullable(),
+            DataType::LargeListView(field) => field.is_nullable(),
+            dt => vortex_panic!("Invalid data type for ListViewArray: {dt}"),
+        };
+        ListViewArray::try_new(
+            Self::from_arrow(array.values().as_ref(), elem_nullable),
+            // `offsets` and `sizes` are always non-nullable.
+            array.offsets().clone().into_array(),
+            array.sizes().clone().into_array(),
+            nulls(array.nulls(), nullable),
+        )
+        .vortex_expect("Failed to convert Arrow ListViewArray to Vortex ListViewArray")
         .into_array()
     }
 }
@@ -415,6 +435,8 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::Struct(_) => Self::from_arrow(array.as_struct(), nullable),
             DataType::List(_) => Self::from_arrow(array.as_list::<i32>(), nullable),
             DataType::LargeList(_) => Self::from_arrow(array.as_list::<i64>(), nullable),
+            DataType::ListView(_) => Self::from_arrow(array.as_list_view::<i32>(), nullable),
+            DataType::LargeListView(_) => Self::from_arrow(array.as_list_view::<i64>(), nullable),
             DataType::FixedSizeList(..) => Self::from_arrow(array.as_fixed_size_list(), nullable),
             DataType::Null => Self::from_arrow(as_null_array(array), nullable),
             DataType::Timestamp(u, _) => match u {
@@ -490,8 +512,9 @@ mod tests {
     };
     use arrow_array::types::{ArrowPrimitiveType, Float16Type};
     use arrow_array::{
-        Array as ArrowArray, BinaryArray, BooleanArray, Date32Array, Date64Array, Float32Array,
-        Float64Array, Int8Array, Int16Array, Int32Array, Int64Array, LargeBinaryArray,
+        Array as ArrowArray, BinaryArray, BooleanArray, Date32Array, Date64Array,
+        FixedSizeListArray as ArrowFixedSizeListArray, Float32Array, Float64Array,
+        GenericListViewArray, Int8Array, Int16Array, Int32Array, Int64Array, LargeBinaryArray,
         LargeStringArray, NullArray, RecordBatch, StringArray, StructArray, Time32MillisecondArray,
         Time32SecondArray, Time64MicrosecondArray, Time64NanosecondArray,
         TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
@@ -503,8 +526,8 @@ mod tests {
     use vortex_dtype::{DType, ExtDType, Nullability, PType};
 
     use crate::arrays::{
-        DecimalVTable, ListVTable, PrimitiveVTable, StructVTable, TemporalArray, VarBinVTable,
-        VarBinViewVTable,
+        DecimalVTable, FixedSizeListVTable, ListVTable, ListViewVTable, PrimitiveVTable,
+        StructVTable, TemporalArray, VarBinVTable, VarBinViewVTable,
     };
     use crate::arrow::FromArrowArray as _;
     use crate::{ArrayRef, IntoArray};
@@ -1297,6 +1320,161 @@ mod tests {
             .as_::<PrimitiveVTable>();
         assert_eq!(offsets_array_non_null.len(), 3); // n+1 offsets for n lists
         assert_eq!(offsets_array_non_null.ptype(), PType::I64); // Large lists use I64 offsets
+    }
+
+    #[test]
+    fn test_fixed_size_list_array_conversion() {
+        // Create elements for the fixed-size lists
+        let values = Int32Array::from(vec![
+            Some(1),
+            Some(2),
+            Some(3), // First list
+            Some(4),
+            None,
+            Some(6), // Second list (with null element)
+            Some(7),
+            Some(8),
+            Some(9), // Third list
+            Some(10),
+            Some(11),
+            Some(12), // Fourth list
+        ]);
+
+        // Create a FixedSizeListArray with list_size=3
+        let field = Arc::new(Field::new("item", DataType::Int32, true));
+        let arrow_array =
+            ArrowFixedSizeListArray::try_new(field.clone(), 3, Arc::new(values), None).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, false);
+
+        assert_eq!(vortex_array.len(), 4);
+
+        // Verify metadata - should be FixedSizeListArray with correct list size
+        let fsl_vortex_array = vortex_array.as_::<FixedSizeListVTable>();
+        assert_eq!(fsl_vortex_array.list_size(), 3);
+        assert_eq!(fsl_vortex_array.elements().len(), 12); // 4 lists * 3 elements
+
+        // Test nullable fixed-size list
+        let values_nullable = Int32Array::from(vec![
+            Some(1),
+            Some(2),
+            Some(3), // First list
+            Some(4),
+            None,
+            Some(6), // Second list (will be null)
+            Some(7),
+            Some(8),
+            Some(9), // Third list
+        ]);
+
+        // Create nulls buffer - second list is null
+        let null_buffer =
+            arrow_buffer::NullBuffer::new(BooleanBuffer::from(vec![true, false, true]));
+
+        let arrow_array_nullable = ArrowFixedSizeListArray::try_new(
+            field,
+            3,
+            Arc::new(values_nullable),
+            Some(null_buffer),
+        )
+        .unwrap();
+        let vortex_array_nullable = ArrayRef::from_arrow(&arrow_array_nullable, true);
+
+        assert_eq!(vortex_array_nullable.len(), 3);
+
+        // Verify metadata for nullable array
+        let fsl_vortex_array_nullable = vortex_array_nullable.as_::<FixedSizeListVTable>();
+        assert_eq!(fsl_vortex_array_nullable.list_size(), 3);
+        assert_eq!(fsl_vortex_array_nullable.elements().len(), 9); // 3 lists * 3 elements
+    }
+
+    #[test]
+    fn test_list_view_array_conversion() {
+        // Create values array for the lists
+        let values = Int32Array::from(vec![
+            Some(1),
+            Some(2),
+            Some(3), // First list [1, 2, 3]
+            Some(4),
+            Some(5), // Second list [4, 5]
+            Some(6), // Third list [6]
+            Some(7),
+            Some(8),
+            Some(9),
+            Some(10), // Fourth list [7, 8, 9, 10]
+        ]);
+
+        // Create offsets and sizes for ListView
+        let offsets = ScalarBuffer::from(vec![0i32, 3, 5, 6]);
+        let sizes = ScalarBuffer::from(vec![3i32, 2, 1, 4]);
+
+        let field = Arc::new(Field::new("item", DataType::Int32, true));
+        let arrow_array = GenericListViewArray::try_new(
+            field.clone(),
+            offsets.clone(),
+            sizes.clone(),
+            Arc::new(values.clone()),
+            None,
+        )
+        .unwrap();
+
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, false);
+        assert_eq!(vortex_array.len(), 4);
+
+        // Verify metadata - should be ListViewArray with correct offsets and sizes
+        let list_view_vortex_array = vortex_array.as_::<ListViewVTable>();
+        let offsets_array = list_view_vortex_array.offsets().as_::<PrimitiveVTable>();
+        let sizes_array = list_view_vortex_array.sizes().as_::<PrimitiveVTable>();
+
+        assert_eq!(offsets_array.len(), 4);
+        assert_eq!(offsets_array.ptype(), PType::I32);
+        assert_eq!(sizes_array.len(), 4);
+        assert_eq!(sizes_array.ptype(), PType::I32);
+
+        // Test nullable ListView
+        let null_buffer =
+            arrow_buffer::NullBuffer::new(BooleanBuffer::from(vec![true, false, true, true]));
+
+        let arrow_array_nullable = GenericListViewArray::try_new(
+            field.clone(),
+            offsets,
+            sizes,
+            Arc::new(values.clone()),
+            Some(null_buffer),
+        )
+        .unwrap();
+
+        let vortex_array_nullable = ArrayRef::from_arrow(&arrow_array_nullable, true);
+        assert_eq!(vortex_array_nullable.len(), 4);
+
+        // Test LargeListView (i64 offsets and sizes)
+        let large_offsets = ScalarBuffer::from(vec![0i64, 3, 5, 6]);
+        let large_sizes = ScalarBuffer::from(vec![3i64, 2, 1, 4]);
+
+        let large_arrow_array = GenericListViewArray::try_new(
+            field,
+            large_offsets,
+            large_sizes,
+            Arc::new(values),
+            None,
+        )
+        .unwrap();
+
+        let large_vortex_array = ArrayRef::from_arrow(&large_arrow_array, false);
+        assert_eq!(large_vortex_array.len(), 4);
+
+        // Verify metadata for large ListView
+        let large_list_view_vortex_array = large_vortex_array.as_::<ListViewVTable>();
+        let large_offsets_array = large_list_view_vortex_array
+            .offsets()
+            .as_::<PrimitiveVTable>();
+        let large_sizes_array = large_list_view_vortex_array
+            .sizes()
+            .as_::<PrimitiveVTable>();
+
+        assert_eq!(large_offsets_array.len(), 4);
+        assert_eq!(large_offsets_array.ptype(), PType::I64); // Large ListView uses I64 offsets
+        assert_eq!(large_sizes_array.len(), 4);
+        assert_eq!(large_sizes_array.ptype(), PType::I64); // Large ListView uses I64 sizes
     }
 
     // Test null array conversions

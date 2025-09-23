@@ -3,14 +3,12 @@
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    BoolArray, DecimalArray, FixedSizeListArray, ListArray, PrimitiveArray, StructArray,
+    BoolArray, DecimalArray, FixedSizeListArray, ListViewArray, PrimitiveArray, StructArray,
     VarBinViewArray,
 };
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_dtype::{
-    DType, NativePType, Nullability, match_each_integer_ptype, match_each_native_ptype,
-};
+use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_scalar::match_each_decimal_value_type;
 
@@ -68,24 +66,14 @@ pub fn slice_canonical_array(
             .map(|a| a.into_array())
         }
         DType::List(..) => {
-            let list_array = array.to_list();
-            let offsets =
-                slice_canonical_array(list_array.offsets(), start, stop + 1)?.to_primitive();
+            let list_array = array.to_listview();
 
-            let (start, end) = match_each_integer_ptype!(offsets.ptype(), |P| {
-                let offset_slice = offsets.as_slice::<P>();
-                (
-                    usize::try_from(offset_slice[0])?,
-                    usize::try_from(offset_slice[offsets.len() - 1])?,
-                )
-            });
+            let offsets = slice_canonical_array(list_array.offsets(), start, stop)?;
+            let sizes = slice_canonical_array(list_array.sizes(), start, stop)?;
 
-            let elements = slice_canonical_array(list_array.elements(), start, end)?;
-            let offsets = match_each_integer_ptype!(offsets.ptype(), |P| {
-                shift_offsets(offsets.as_slice::<P>())
-            })
-            .into_array();
-            ListArray::try_new(elements, offsets, validity).map(|a| a.into_array())
+            // Since the list view elements can be stored out of order, we cannot slice it.
+            ListViewArray::try_new(list_array.elements().clone(), offsets, sizes, validity)
+                .map(|a| a.into_array())
         }
         DType::FixedSizeList(..) => {
             let fsl_array = array.to_fixed_size_list();
@@ -113,18 +101,4 @@ pub fn slice_canonical_array(
             unreachable!("DType {d} not supported for fuzzing")
         }
     }
-}
-
-fn shift_offsets<O: NativePType>(offsets: &[O]) -> PrimitiveArray {
-    if offsets.is_empty() {
-        return PrimitiveArray::empty::<O>(Nullability::NonNullable);
-    }
-    let start = offsets[0];
-    PrimitiveArray::from_iter(
-        offsets
-            .iter()
-            .copied()
-            .map(|o| o - start)
-            .collect::<Vec<_>>(),
-    )
 }

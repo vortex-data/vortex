@@ -14,6 +14,8 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, OffsetPType, ToCanonical, register_kernel};
 
+// TODO(connor)[ListView]: Should `take` on a `ListArray` return a `ListViewArray` instead?
+
 /// Take implementation for [`ListArray`].
 ///
 /// Unlike `ListView`, `ListArray` must rebuild the elements array to maintain its invariant
@@ -215,7 +217,7 @@ mod test {
             )
         );
 
-        let result = result.to_list();
+        let result = result.to_listview();
 
         assert_eq!(result.len(), 4);
 
@@ -295,7 +297,7 @@ mod test {
             )
         );
 
-        let result = result.to_list();
+        let result = result.to_listview();
 
         assert_eq!(result.len(), 3);
 

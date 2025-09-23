@@ -8,13 +8,12 @@ use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_mask::Mask;
 
-use super::ToListView;
 use super::common::{create_basic_listview, create_large_listview, create_nullable_listview};
 use crate::arrays::{BoolArray, ConstantArray, ListViewArray, ListViewVTable};
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::{cast, is_constant, mask};
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
+use crate::{Array, IntoArray, ToCanonical};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Slice tests
@@ -174,7 +173,7 @@ fn test_slice_edge_cases(
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// Constant tests
+// Cast tests
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[rstest]
@@ -450,6 +449,10 @@ fn test_constant_repeated_same_lists() {
     assert_eq!(is_constant(&listview).unwrap(), Some(true));
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Mask tests
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 // Conformance tests for common mask scenarios.
 #[rstest]
 #[case::basic(create_basic_listview())]
@@ -458,8 +461,6 @@ fn test_constant_repeated_same_lists() {
 fn test_mask_listview_conformance(#[case] listview: ListViewArray) {
     test_mask_conformance(listview.as_ref());
 }
-
-// ListView-specific tests that aren't covered by conformance.
 
 #[test]
 fn test_mask_preserves_structure() {

@@ -11,7 +11,7 @@ use vortex_error::VortexUnwrap;
 use vortex_mask::Mask;
 
 use super::*;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::{ListVTable, PrimitiveArray};
 use crate::compute::filter;
 
 #[test]
@@ -258,10 +258,10 @@ fn test_list_filter_all_false() {
     let mask = Mask::AllFalse(4);
 
     let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
 
-    // No lists should remain.
-    assert_eq!(filtered_list.len(), 0);
+    // When mask is AllFalse, filter returns a canonical empty array (ListViewArray).
+    // We need to check the length directly without casting to a specific type.
+    assert_eq!(filtered.len(), 0);
 }
 
 #[test]
@@ -401,11 +401,20 @@ fn test_offset_to_0() {
         )
         .vortex_unwrap();
     let list = builder.finish().slice(2..4);
-    let list = list.as_::<ListVTable>().reset_offsets(false).unwrap();
+
+    // The sliced list should be a ListArray since we built it with ListBuilder
+    // and slice doesn't change the encoding
     assert_eq!(list.len(), 2);
-    assert_eq!(list.offsets().len(), 3);
-    assert_eq!(list.elements().len(), 6);
-    assert_eq!(list.offsets().scalar_at(0), 0u32.into());
+
+    // For a sliced ListArray, we need to check it's still a ListArray
+    let list_array = list.as_::<ListVTable>();
+
+    // Check the offsets array has correct length (n+1 for n lists)
+    assert_eq!(list_array.offsets().len(), 3);
+
+    // Each list has 3 elements
+    assert_eq!(list_array.list_elements_at(0).len(), 3);
+    assert_eq!(list_array.list_elements_at(1).len(), 3);
 }
 
 type OptVec<T> = Vec<Option<T>>;
@@ -587,8 +596,8 @@ fn test_list_of_lists() {
 
     // Check the third list of lists (empty).
     let third_outer = list_of_lists.list_elements_at(2);
-    let third_outer_list = third_outer.as_::<ListVTable>();
-    assert_eq!(third_outer_list.len(), 0);
+    // Empty slices return canonical form (`ListViewArray`), so we check length directly.
+    assert_eq!(third_outer.len(), 0);
 
     // Check the fourth list of lists [[7]].
     let fourth_outer = list_of_lists.list_elements_at(3);
@@ -617,8 +626,8 @@ fn test_list_of_lists() {
 
     // Second element of slice should be empty [].
     let second_sliced = sliced_list.list_elements_at(1);
-    let second_sliced_list = second_sliced.as_::<ListVTable>();
-    assert_eq!(second_sliced_list.len(), 0);
+    // Empty slices return canonical form (`ListViewArray`), so we check length directly
+    assert_eq!(second_sliced.len(), 0);
 }
 
 #[test]

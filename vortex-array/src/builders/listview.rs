@@ -17,7 +17,7 @@ use vortex_scalar::{ListScalar, Scalar};
 
 use super::lazy_null_builder::LazyNullBufferBuilder;
 use crate::array::{Array, ArrayRef, IntoArray};
-use crate::arrays::{ListViewArray, list_view_from_list};
+use crate::arrays::ListViewArray;
 use crate::builders::{
     ArrayBuilder, DEFAULT_BUILDER_CAPACITY, PrimitiveBuilder, builder_with_capacity,
 };
@@ -50,7 +50,14 @@ pub struct ListViewBuilder<O: OffsetPType, S: OffsetPType> {
 impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
     /// Creates a new `ListViewBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
-        Self::with_capacity(element_dtype, nullability, DEFAULT_BUILDER_CAPACITY)
+        Self::with_capacity(
+            element_dtype,
+            nullability,
+            // We arbitrarily choose 2 times the number of list scalars for the capacity of the
+            // elements builder since we cannot know this ahead of time.
+            DEFAULT_BUILDER_CAPACITY * 2,
+            DEFAULT_BUILDER_CAPACITY,
+        )
     }
 
     /// Create a new builder with a custom value builder.
@@ -61,6 +68,7 @@ impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
     pub fn with_capacity(
         element_dtype: Arc<DType>,
         nullability: Nullability,
+        elements_capacity: usize,
         capacity: usize,
     ) -> Self {
         // Validate that size type's maximum value fits within offset type's maximum value.
@@ -74,9 +82,6 @@ impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
             O::max_offset()
         );
 
-        // We arbitrarily choose 2 times the number of list scalars for the capacity of the elements
-        // builder since we cannot know this ahead of time.
-        let elements_capacity = capacity * 2;
         let elements_builder = builder_with_capacity(&element_dtype, elements_capacity);
 
         let offsets_builder =
@@ -131,7 +136,7 @@ impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
     }
 
     /// Finishes the builder directly into a [`ListViewArray`].
-    fn finish_into_listview(&mut self) -> ListViewArray {
+    pub fn finish_into_listview(&mut self) -> ListViewArray {
         debug_assert_eq!(self.offsets_builder.len(), self.sizes_builder.len());
         debug_assert_eq!(self.offsets_builder.len(), self.nulls.len());
 
@@ -223,13 +228,10 @@ impl<O: OffsetPType, S: OffsetPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        let list_array = array.to_list();
-        if list_array.is_empty() {
+        let listview_array = array.to_listview();
+        if listview_array.is_empty() {
             return;
         }
-
-        // TODO(connor)[ListView]: fix this after list view is canonical
-        let listview_array = list_view_from_list(list_array);
 
         // We assume the worst case scenario, where the list view array is stored completely out of
         // order, with many out-of-order offsets, and lots of garbage data. Thus, we simply iterate
@@ -259,8 +261,7 @@ impl<O: OffsetPType, S: OffsetPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     fn finish_into_canonical(&mut self) -> Canonical {
-        // TODO(connor)[ListView]: fix this after list view is canonical
-        unimplemented!("TODO(connor)[ListView]: fix this after list view is canonical")
+        Canonical::List(self.finish_into_listview())
     }
 }
 
@@ -283,7 +284,7 @@ mod tests {
     #[test]
     fn test_empty() {
         let mut builder =
-            ListViewBuilder::<u32, u32>::with_capacity(Arc::new(I32.into()), NonNullable, 0);
+            ListViewBuilder::<u32, u32>::with_capacity(Arc::new(I32.into()), NonNullable, 0, 0);
 
         let listview = builder.finish();
         assert_eq!(listview.len(), 0);
@@ -292,7 +293,7 @@ mod tests {
     #[test]
     fn test_basic_append_and_nulls() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), Nullable, 0);
+        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), Nullable, 0, 0);
 
         // Append a regular list.
         builder
@@ -349,7 +350,8 @@ mod tests {
     fn test_different_offset_size_types() {
         // Test u32 offsets with u8 sizes.
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListViewBuilder::<u32, u8>::with_capacity(dtype.clone(), NonNullable, 0);
+        let mut builder =
+            ListViewBuilder::<u32, u8>::with_capacity(dtype.clone(), NonNullable, 0, 0);
 
         builder
             .append_value(
@@ -385,7 +387,7 @@ mod tests {
         // Test u64 offsets with u16 sizes.
         let dtype2: Arc<DType> = Arc::new(I32.into());
         let mut builder2 =
-            ListViewBuilder::<u64, u16>::with_capacity(dtype2.clone(), NonNullable, 0);
+            ListViewBuilder::<u64, u16>::with_capacity(dtype2.clone(), NonNullable, 0, 0);
 
         for i in 0..5 {
             builder2
@@ -409,7 +411,7 @@ mod tests {
     #[test]
     fn test_builder_trait_methods() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), Nullable, 0);
+        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), Nullable, 0, 0);
 
         // Test append_zeros (creates empty lists).
         builder.append_zeros(2);
@@ -455,7 +457,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), Nullable, 0);
+        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), Nullable, 0, 0);
 
         // Add initial data.
         builder
@@ -506,7 +508,8 @@ mod tests {
     #[test]
     fn test_error_append_null_to_non_nullable() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), NonNullable, 0);
+        let mut builder =
+            ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), NonNullable, 0, 0);
 
         // Create a null list with nullable type (since Scalar::null requires nullable type).
         let null_scalar = Scalar::null(DType::List(dtype, Nullable));
@@ -530,6 +533,6 @@ mod tests {
     fn test_error_invalid_type_combination() {
         let dtype: Arc<DType> = Arc::new(I32.into());
         // This should panic because i32 (4 bytes) cannot fit within i16 (2 bytes).
-        let _builder = ListViewBuilder::<i16, i32>::with_capacity(dtype, NonNullable, 0);
+        let _builder = ListViewBuilder::<i16, i32>::with_capacity(dtype, NonNullable, 0, 0);
     }
 }

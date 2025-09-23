@@ -6,8 +6,8 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::arrays::{
-    BinaryView, BoolArray, BooleanBuffer, ConstantArray, FixedSizeListArray, ListArray, NullArray,
-    PrimitiveArray, StructArray, VarBinViewArray, smallest_storage_type,
+    BinaryView, BoolArray, BooleanBuffer, ConstantArray, FixedSizeListArray, ListViewArray,
+    NullArray, PrimitiveArray, StructArray, VarBinViewArray, smallest_storage_type,
 };
 use vortex_array::builders::{ArrayBuilder, DecimalBuilder, ListBuilder, builder_with_capacity};
 use vortex_array::patches::Patches;
@@ -120,7 +120,12 @@ fn list_scalar_to_singleton_list_array(scalar: ListScalar) -> Option<ArrayRef> {
     let n = elements.len();
     Some(
         unsafe {
-            ListArray::new_unchecked(elements, buffer![0_u64, n as u64].into_array(), validity)
+            ListViewArray::new_unchecked(
+                elements,
+                buffer![0_u64].into_array(),
+                buffer![n as u64].into_array(),
+                validity,
+            )
         }
         .into_array(),
     )
@@ -154,7 +159,7 @@ fn canonicalize_sparse_lists(
     }
 
     let indices = resolved_patches.indices().to_primitive();
-    let values = resolved_patches.values().to_list();
+    let values = resolved_patches.values().to_listview();
     let fill_value = array.fill_scalar().as_list();
 
     let n_filled = array.len() - resolved_patches.num_patches();
@@ -179,7 +184,7 @@ fn canonicalize_sparse_lists(
 
 fn canonicalize_sparse_lists_inner<I: NativePType, SmallestViableOffsetType: OffsetPType>(
     indices: &[I],
-    values: ListArray,
+    values: ListViewArray,
     fill_value: ListScalar,
     values_dtype: Arc<DType>,
     len: usize,
@@ -189,18 +194,23 @@ fn canonicalize_sparse_lists_inner<I: NativePType, SmallestViableOffsetType: Off
     let Some(fill_value_array) = list_scalar_to_singleton_list_array(fill_value) else {
         let sparse_list_elements = values.elements().clone();
         let sparse_list_offsets = values.offsets().to_primitive();
+        let sparse_list_sizes = values.sizes().to_primitive();
         match_each_integer_ptype!(sparse_list_offsets.ptype(), |SparseValuesOffsetType| {
-            let sparse_list_offsets = sparse_list_offsets.as_slice::<SparseValuesOffsetType>();
-            // If the values are a small slice of a large array, their offsets may not fit in
-            // SmallestViableOffsetType. We avoid a copy by reusing values.elements(), but we
-            // therefore must use the offset type of values.offsets().
-            return canonicalize_sparse_lists_inner_with_null_fill_value(
-                indices,
-                sparse_list_elements,
-                sparse_list_offsets,
-                len,
-                validity,
-            );
+            match_each_integer_ptype!(sparse_list_sizes.ptype(), |SparseValuesSizeType| {
+                let sparse_list_offsets = sparse_list_offsets.as_slice::<SparseValuesOffsetType>();
+                let sparse_list_sizes = sparse_list_sizes.as_slice::<SparseValuesSizeType>();
+                // If the values are a small slice of a large array, their offsets may not fit in
+                // SmallestViableOffsetType. We avoid a copy by reusing values.elements(), but we
+                // therefore must use the offset type of values.offsets().
+                return canonicalize_sparse_lists_inner_with_null_fill_value(
+                    indices,
+                    sparse_list_elements,
+                    sparse_list_offsets,
+                    sparse_list_sizes,
+                    len,
+                    validity,
+                );
+            });
         });
     };
 
@@ -230,39 +240,60 @@ fn canonicalize_sparse_lists_inner<I: NativePType, SmallestViableOffsetType: Off
     builder.finish_into_canonical()
 }
 
-fn canonicalize_sparse_lists_inner_with_null_fill_value<I: NativePType, O: OffsetPType>(
+fn canonicalize_sparse_lists_inner_with_null_fill_value<
+    I: NativePType,
+    O: OffsetPType,
+    S: OffsetPType,
+>(
     indices: &[I],
     elements: ArrayRef,
     offsets: &[O],
+    sizes: &[S],
     len: usize,
     validity: Validity,
 ) -> Canonical {
     assert!(indices.len() < len + 1);
-    let mut dense_offsets = BufferMut::with_capacity(len + 1);
+    let mut dense_offsets = BufferMut::<O>::with_capacity(len);
+    let mut dense_sizes = BufferMut::<S>::with_capacity(len);
 
-    // We cannot use zero because elements may have leading junk values (e.g. the result of a slice).
-    dense_offsets.push(offsets[0]);
     let mut dense_last_set_index = 0_usize;
-    for (sparse_start_index, dense_start_index) in indices.iter().enumerate() {
-        let sparse_end_index = sparse_start_index + 1;
-        let dense_start_index = (*dense_start_index)
+    let mut last_valid_offset = if !offsets.is_empty() {
+        offsets[0]
+    } else {
+        O::zero()
+    };
+
+    for (sparse_index, dense_index_value) in indices.iter().enumerate() {
+        let dense_index = (*dense_index_value)
             .to_usize()
             .vortex_expect("index must fit in usize");
-        let dense_end_index = dense_start_index + 1;
 
-        for _ in (dense_last_set_index + 1)..dense_end_index {
-            // For each null list, copy-forward the old index. These empty lists are masked by the validity.
-            dense_offsets.push(dense_offsets[dense_last_set_index]);
+        // Fill gaps before this index with null lists (zero size, reuse last offset)
+        for _ in dense_last_set_index..dense_index {
+            dense_offsets.push(last_valid_offset);
+            dense_sizes.push(S::zero());
         }
-        dense_offsets.push(offsets[sparse_end_index]);
-        dense_last_set_index = dense_end_index;
+
+        // Add the actual list at this position
+        dense_offsets.push(offsets[sparse_index]);
+        dense_sizes.push(sizes[sparse_index]);
+        last_valid_offset = offsets[sparse_index];
+        dense_last_set_index = dense_index + 1;
     }
-    for _ in (dense_last_set_index + 1)..len {
-        // For each null list, copy-forward the old index. These empty lists are masked by the validity.
-        dense_offsets.push(dense_offsets[dense_last_set_index]);
+
+    // Fill any remaining positions with null lists
+    for _ in dense_last_set_index..len {
+        dense_offsets.push(last_valid_offset);
+        dense_sizes.push(S::zero());
     }
+
     Canonical::List(unsafe {
-        ListArray::new_unchecked(elements, dense_offsets.into_array(), validity)
+        ListViewArray::new_unchecked(
+            elements,
+            PrimitiveArray::new(dense_offsets.freeze(), Validity::NonNullable).into_array(),
+            PrimitiveArray::new(dense_sizes.freeze(), Validity::NonNullable).into_array(),
+            validity,
+        )
     })
 }
 
@@ -1144,8 +1175,10 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
+        // Note that the preferred arrow list representation is `List` (not `ListView`).
+        let arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
+        let actual = actual.into_arrow(&arrow_dtype).unwrap();
+        let expected = expected.into_arrow(&arrow_dtype).unwrap();
 
         assert_eq!(actual.data_type(), expected.data_type());
         assert_eq!(&actual, &expected);
@@ -1177,8 +1210,10 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
+        // Note that the preferred arrow list representation is `List` (not `ListView`).
+        let arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
+        let actual = actual.into_arrow(&arrow_dtype).unwrap();
+        let expected = expected.into_arrow(&arrow_dtype).unwrap();
 
         assert_eq!(actual.data_type(), expected.data_type());
         assert_eq!(&actual, &expected);
@@ -1207,8 +1242,10 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
+        // Note that the preferred arrow list representation is `List` (not `ListView`).
+        let arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
+        let actual = actual.into_arrow(&arrow_dtype).unwrap();
+        let expected = expected.into_arrow(&arrow_dtype).unwrap();
 
         assert_eq!(actual.data_type(), expected.data_type());
         assert_eq!(&actual, &expected);
@@ -1510,12 +1547,14 @@ mod test {
         .into_array();
 
         assert_eq!(
-            actual.to_list().offsets().dtype(),
+            actual.to_listview().offsets().dtype(),
             &DType::Primitive(PType::U16, NonNullable)
         );
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
+        // Note that the preferred arrow list representation is `List` (not `ListView`).
+        let arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
+        let actual = actual.into_arrow(&arrow_dtype).unwrap();
+        let expected = expected.into_arrow(&arrow_dtype).unwrap();
 
         assert_eq!(actual.data_type(), expected.data_type());
         assert_eq!(&actual, &expected);

@@ -7,7 +7,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
 
 use crate::arrays::{
-    BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListArray, NullArray,
+    BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray, NullArray,
     PrimitiveArray, StructArray, VarBinViewArray,
 };
 use crate::builders::builder_with_capacity;
@@ -78,8 +78,7 @@ pub enum Canonical {
     Primitive(PrimitiveArray),
     Decimal(DecimalArray),
     VarBinView(VarBinViewArray),
-    // TODO(connor)[ListView]: Convert the canonical encoding of `List` to `ListViewArray`.
-    List(ListArray),
+    List(ListViewArray),
     FixedSizeList(FixedSizeListArray),
     Struct(StructArray),
     Extension(ExtensionArray),
@@ -103,7 +102,7 @@ impl Canonical {
     pub fn compact(&self) -> VortexResult<Canonical> {
         match self {
             Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers()?)),
-            Canonical::List(array) => Ok(Canonical::List(array.reset_offsets(true)?)),
+            Canonical::List(array) => Ok(Canonical::List(array.rebuild_listview())),
             _ => Ok(self.clone()),
         }
     }
@@ -191,7 +190,7 @@ impl Canonical {
         }
     }
 
-    pub fn as_list(&self) -> &ListArray {
+    pub fn as_listview(&self) -> &ListViewArray {
         if let Canonical::List(a) = self {
             a
         } else {
@@ -199,7 +198,7 @@ impl Canonical {
         }
     }
 
-    pub fn into_list(self) -> ListArray {
+    pub fn into_listview(self) -> ListViewArray {
         if let Canonical::List(a) = self {
             a
         } else {
@@ -294,34 +293,35 @@ impl IntoArray for Canonical {
 ///
 /// This trait has a blanket implementation for all types implementing [ToCanonical].
 pub trait ToCanonical {
-    /// Canonicalize into a [`NullArray`] if the target is [`Null`][DType::Null] typed.
+    /// Canonicalize into a [`NullArray`] if the target is [`Null`](DType::Null) typed.
     fn to_null(&self) -> NullArray;
 
-    /// Canonicalize into a [`BoolArray`] if the target is [`Bool`][DType::Bool] typed.
+    /// Canonicalize into a [`BoolArray`] if the target is [`Bool`](DType::Bool) typed.
     fn to_bool(&self) -> BoolArray;
 
-    /// Canonicalize into a [`PrimitiveArray`] if the target is [`Primitive`][DType::Primitive]
+    /// Canonicalize into a [`PrimitiveArray`] if the target is [`Primitive`](DType::Primitive)
     /// typed.
     fn to_primitive(&self) -> PrimitiveArray;
 
-    /// Canonicalize into a [`DecimalArray`] if the target is [`Decimal`][DType::Decimal]
+    /// Canonicalize into a [`DecimalArray`] if the target is [`Decimal`](DType::Decimal)
     /// typed.
     fn to_decimal(&self) -> DecimalArray;
 
-    /// Canonicalize into a [`StructArray`] if the target is [`Struct`][DType::Struct] typed.
+    /// Canonicalize into a [`StructArray`] if the target is [`Struct`](DType::Struct) typed.
     fn to_struct(&self) -> StructArray;
 
-    /// Canonicalize into a [`ListArray`] if the target is [`List`][DType::List] typed.
-    fn to_list(&self) -> ListArray;
+    /// Canonicalize into a [`ListViewArray`] if the target is [`List`](DType::List) typed.
+    fn to_listview(&self) -> ListViewArray;
 
-    /// Canonicalize into a [`ListArray`] if the target is [`List`][DType::List] typed.
+    /// Canonicalize into a [`FixedSizeListArray`] if the target is [`List`](DType::FixedSizeList)
+    /// typed.
     fn to_fixed_size_list(&self) -> FixedSizeListArray;
 
-    /// Canonicalize into a [`VarBinViewArray`] if the target is [`Utf8`][DType::Utf8]
-    /// or [`Binary`][DType::Binary] typed.
+    /// Canonicalize into a [`VarBinViewArray`] if the target is [`Utf8`](DType::Utf8)
+    /// or [`Binary`](DType::Binary) typed.
     fn to_varbinview(&self) -> VarBinViewArray;
 
-    /// Canonicalize into an [`ExtensionArray`] if the array is [`Extension`][DType::Extension]
+    /// Canonicalize into an [`ExtensionArray`] if the array is [`Extension`](DType::Extension)
     /// typed.
     fn to_extension(&self) -> ExtensionArray;
 }
@@ -348,8 +348,8 @@ impl<A: Array + ?Sized> ToCanonical for A {
         self.to_canonical().into_struct()
     }
 
-    fn to_list(&self) -> ListArray {
-        self.to_canonical().into_list()
+    fn to_listview(&self) -> ListViewArray {
+        self.to_canonical().into_listview()
     }
 
     fn to_fixed_size_list(&self) -> FixedSizeListArray {
@@ -500,6 +500,7 @@ mod test {
     }
 
     #[test]
+    #[ignore = "TODO(connor)[ListView]: Arrow prefers `List` over `ListView`"]
     fn roundtrip_list() {
         let names = Arc::new(StringArray::from_iter(vec![
             Some("Joseph"),

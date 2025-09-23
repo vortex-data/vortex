@@ -16,7 +16,7 @@ use vortex_scalar::Scalar;
 
 #[cfg(feature = "test-harness")]
 use crate::OffsetPType;
-use crate::arrays::PrimitiveVTable;
+use crate::arrays::{PrimitiveVTable, list_view_from_list};
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{min_max, sub_scalar};
@@ -360,7 +360,7 @@ impl OperationsVTable<ListVTable> for ListVTable {
 
 impl CanonicalVTable<ListVTable> for ListVTable {
     fn canonicalize(array: &ListArray) -> Canonical {
-        Canonical::List(array.clone())
+        Canonical::List(list_view_from_list(array.clone()))
     }
 }
 
