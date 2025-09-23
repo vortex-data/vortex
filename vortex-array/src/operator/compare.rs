@@ -7,14 +7,16 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::arrays::ConstantArray;
 use crate::compute::Operator as Op;
-use crate::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
+use crate::operator::{LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, VectorId};
+use crate::pipeline::{
+    BindContext, Element, Kernel, KernelContext, PipelinedOperator, RowSelection, VectorId,
+};
 
 #[derive(Debug)]
 pub struct CompareOperator {
@@ -87,8 +89,8 @@ impl Operator for CompareOperator {
         &self.dtype
     }
 
-    fn len(&self) -> usize {
-        self.children[0].len() & self.children[1].len()
+    fn bounds(&self) -> LengthBounds {
+        self.children[0].bounds() & self.children[1].bounds()
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -109,6 +111,17 @@ impl Operator for CompareOperator {
     }
 
     fn as_pipelined(&self) -> Option<&dyn PipelinedOperator> {
+        // If both children support pipelining, but have different row selections, then we cannot
+        // pipeline without an alignment step (which we currently do not support).
+        if let Some((left, right)) = self.children[0]
+            .as_pipelined()
+            .zip(self.children[1].as_pipelined())
+        {
+            if left.row_selection() != right.row_selection() {
+                return None;
+            }
+        }
+
         Some(self)
     }
 }
@@ -145,6 +158,14 @@ macro_rules! match_each_compare_op {
 }
 
 impl PipelinedOperator for CompareOperator {
+    fn row_selection(&self) -> RowSelection {
+        // We checked in [`Operator::as_pipelined`] that both children have the same row selection.
+        self.children[0]
+            .as_pipelined()
+            .vortex_expect("checked")
+            .row_selection()
+    }
+
     #[allow(clippy::cognitive_complexity)]
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
         debug_assert_eq!(self.children[0].dtype(), self.children[1].dtype());

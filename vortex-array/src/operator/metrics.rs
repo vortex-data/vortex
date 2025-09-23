@@ -11,13 +11,13 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_metrics::{Timer, VortexMetrics};
 
-use crate::Canonical;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
-    OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
+    OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BindContext, Kernel, KernelContext, PipelinedOperator};
+use crate::pipeline::{BindContext, Kernel, KernelContext, PipelinedOperator, RowSelection};
+use crate::Canonical;
 
 /// An operator that wraps another operator and records metrics about its execution.
 #[derive(Debug)]
@@ -64,8 +64,8 @@ impl Operator for MetricsOperator {
         self.inner.dtype()
     }
 
-    fn len(&self) -> usize {
-        self.inner.len()
+    fn bounds(&self) -> LengthBounds {
+        self.inner.bounds()
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -111,6 +111,13 @@ impl BatchExecution for MetricsBatchExecution {
 }
 
 impl PipelinedOperator for MetricsOperator {
+    fn row_selection(&self) -> RowSelection {
+        self.inner
+            .as_pipelined()
+            .vortex_expect("checked")
+            .row_selection()
+    }
+
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
         let inner = self
             .inner

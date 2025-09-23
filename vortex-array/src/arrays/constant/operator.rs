@@ -5,13 +5,15 @@ use std::any::Any;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
+use crate::operator::{LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
+use crate::pipeline::{
+    BindContext, Element, Kernel, KernelContext, PipelinedOperator, RowSelection, N,
+};
 use crate::vtable::PipelineVTable;
 
 impl PipelineVTable<ConstantVTable> for ConstantVTable {
@@ -46,8 +48,8 @@ impl Operator for ConstantArray {
         self.scalar.dtype()
     }
 
-    fn len(&self) -> usize {
-        self.len
+    fn bounds(&self) -> LengthBounds {
+        self.len.into()
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -60,6 +62,10 @@ impl Operator for ConstantArray {
 }
 
 impl PipelinedOperator for ConstantArray {
+    fn row_selection(&self) -> RowSelection {
+        RowSelection::Domain(self.len)
+    }
+
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
         debug_assert!(matches!(
             self.dtype(),

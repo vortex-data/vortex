@@ -10,8 +10,8 @@ use vortex_array::compute::filter;
 use vortex_array::operator::filter::FilterOperator;
 use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
-    OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
+    OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
 use vortex_array::vtable::PipelineVTable;
 use vortex_array::{Array, Canonical};
@@ -62,7 +62,7 @@ impl Operator for FSSTArray {
         Array::dtype(self.as_ref())
     }
 
-    fn len(&self) -> usize {
+    fn bounds(&self) -> LengthBounds {
         Array::len(self.as_ref())
     }
 
@@ -155,7 +155,7 @@ impl Operator for FilteredFSSTOperator {
         self.array.dtype()
     }
 
-    fn len(&self) -> usize {
+    fn bounds(&self) -> LengthBounds {
         self.mask.len()
     }
 

@@ -6,14 +6,18 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use num_traits::{ConstOne, PrimInt};
-use vortex_array::Array;
 use vortex_array::operator::slice::SliceOperator;
-use vortex_array::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
+use vortex_array::operator::{
+    LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
+};
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
+use vortex_array::pipeline::{
+    BindContext, Element, Kernel, KernelContext, PipelinedOperator, RowSelection, N,
+};
 use vortex_array::vtable::PipelineVTable;
-use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_array::Array;
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
+use vortex_error::{vortex_err, VortexResult};
 
 use crate::{SequenceArray, SequenceVTable};
 
@@ -28,7 +32,7 @@ impl OperatorHash for SequenceArray {
         self.base().hash(state);
         self.multiplier().hash(state);
         self.dtype().hash(state);
-        self.len().hash(state);
+        self.bounds().hash(state);
     }
 }
 
@@ -37,7 +41,7 @@ impl OperatorEq for SequenceArray {
         self.base() == other.base()
             && self.multiplier() == other.multiplier()
             && self.dtype() == other.dtype()
-            && self.len() == other.len()
+            && self.bounds() == other.bounds()
     }
 }
 
@@ -54,7 +58,7 @@ impl Operator for SequenceArray {
         Array::dtype(self.as_ref())
     }
 
-    fn len(&self) -> usize {
+    fn bounds(&self) -> LengthBounds {
         Array::len(self.as_ref())
     }
 
@@ -92,6 +96,10 @@ impl Operator for SequenceArray {
 }
 
 impl PipelinedOperator for SequenceArray {
+    fn row_selection(&self) -> RowSelection {
+        RowSelection::Domain(self.as_ref().len())
+    }
+
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
         Ok(match_each_integer_ptype!(self.ptype(), |T| {
             if self.multiplier().as_primitive::<T>() == <T as ConstOne>::ONE {

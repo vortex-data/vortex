@@ -17,25 +17,26 @@ use arrow_buffer::BooleanBuffer;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
+use tabled::row;
 use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
-use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
-use crate::Canonical;
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, LengthBounds,
+    Operator, OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
 };
 use crate::pipeline::operator::bind::bind_kernels;
-use crate::pipeline::operator::buffers::{OutputTarget, allocate_vectors};
+use crate::pipeline::operator::buffers::{allocate_vectors, OutputTarget};
 use crate::pipeline::operator::input::PipelineInputOperator;
 use crate::pipeline::operator::toposort::topological_sort;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BatchId, Element, Kernel, KernelContext, N};
+use crate::pipeline::{BatchId, Element, Kernel, KernelContext, RowSelection, N};
 use crate::validity::Validity;
+use crate::Canonical;
 
 /// An operator node used during execution planning to represent a pipelined execution.
 ///
@@ -226,8 +227,8 @@ impl Operator for PipelineOperator {
         self.root_operator().dtype()
     }
 
-    fn len(&self) -> usize {
-        self.root_operator().len()
+    fn bounds(&self) -> LengthBounds {
+        self.root_operator().bounds()
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -273,17 +274,56 @@ impl BatchOperator for PipelineOperator {
             output_targets: allocation_plan.output_targets,
         };
 
+        // We know that the entire pipeline has the same row selection. So we must decide what
+        // to do with it.
+        match &pipeline.row_selection {
+            RowSelection::Domain(len) => {
+                // The pipeline contains "leaf" nodes that create their own rows from data buffers.
+                // In this case, we must step the pipeline for `len / N` iterations to produce
+                // the output array.
+                todo!()
+            }
+            RowSelection::All => {
+                // The pipeline selects all rows from its external vectorized inputs. These inputs
+                // are wrapped up as `PipelineInputOperator`s in the DAG, so we will know their
+                // row count after awaiting the pipeline's inputs.
+
+                todo!()
+            }
+            RowSelection::MaskOperator(operator) => {
+                // The pipeline operators over a selection of rows from its external vectorized
+                // inputs. We report this operator as an additional child so we can await the mask
+                // prior to executing the pipeline. Once we have the mask, we only need to step
+                // the pipeline for the non-empty chunks of the mask.
+                //
+                // Each kernel in the pipeline will decide for a given chunk whether to process all
+                // elements, or iterate only the selected elements.
+                //
+                // The result of each kernel should still be written into the original output
+                // position.
+                todo!()
+            }
+        }
+
         match self.dtype() {
-            DType::Bool(Nullability::NonNullable) => Ok(Box::new(BoolPipelineExecution {
-                len: self.len(),
-                batch_inputs,
-                vectors,
-                pipeline,
-            })),
+            // DType::Bool(Nullability::NonNullable) => Ok(Box::new(BoolPipelineExecution {
+            //     row_selection: self
+            //         .root_operator()
+            //         .as_pipelined()
+            //         .vortex_expect("checked")
+            //         .row_selection(),
+            //     batch_inputs,
+            //     vectors,
+            //     pipeline,
+            // })),
             DType::Primitive(ptype, Nullability::NonNullable) => {
                 match_each_native_ptype!(ptype, |T| {
                     Ok(Box::new(PrimitivePipelineExecution {
-                        len: self.len(),
+                        row_selection: self
+                            .root_operator()
+                            .as_pipelined()
+                            .vortex_expect("checked")
+                            .row_selection(),
                         batch_inputs,
                         vectors,
                         pipeline,
@@ -300,7 +340,7 @@ impl BatchOperator for PipelineOperator {
 }
 
 struct BoolPipelineExecution {
-    len: usize,
+    row_selection: RowSelection,
     batch_inputs: Vec<BatchExecutionRef>,
     vectors: Vec<RefCell<Vector>>,
     pipeline: Pipeline,
@@ -309,9 +349,8 @@ struct BoolPipelineExecution {
 #[async_trait]
 impl BatchExecution for BoolPipelineExecution {
     async fn execute(mut self: Box<Self>) -> VortexResult<Canonical> {
-        // Execute all batch input operators concurrently.
-        let batch_inputs =
-            try_join_all(self.batch_inputs.into_iter().map(|exec| exec.execute())).await?;
+        // Execute all batch input operators concurrently with the row selection.
+        let batch_inputs = try_join_all(self.batch_inputs.into_iter().map(|exec| exec.execute()));
 
         // Create a kernel context with the batch inputs.
         let ctx = KernelContext {
@@ -350,7 +389,10 @@ impl BatchExecution for BoolPipelineExecution {
 }
 
 struct PrimitivePipelineExecution<T> {
-    len: usize,
+    // FIXME(ngates): we either need a length, or we need to know which batch input we should
+    //  derive the length from.
+    len: Option<usize>,
+
     batch_inputs: Vec<BatchExecutionRef>,
     vectors: Vec<RefCell<Vector>>,
     pipeline: Pipeline,
@@ -359,6 +401,54 @@ struct PrimitivePipelineExecution<T> {
 
 #[async_trait]
 impl<T: Element + NativePType> BatchExecution for PrimitivePipelineExecution<T> {
+    async fn execute(mut self: Box<Self>) -> VortexResult<Canonical> {
+        // Execute all batch input operators concurrently.
+        let batch_inputs =
+            try_join_all(self.batch_inputs.into_iter().map(|exec| exec.execute())).await?;
+
+        // We figure out the length if we haven't already.
+        let len = match &self.len {
+            None => {}
+            Some(l) => l,
+        };
+
+        // Create a kernel context with the batch inputs.
+        let ctx = KernelContext {
+            vectors: self.vectors,
+            batch_inputs,
+        };
+
+        // Allocate the output vector and validity.
+        let capacity = self.len.next_multiple_of(N) + N;
+        let mut elements = BufferMut::<T>::with_capacity(capacity);
+        unsafe { elements.set_len(capacity) };
+
+        // Run the operator to completion.
+        let mut output_len = 0;
+        while output_len < self.len {
+            let mut elements_view = ViewMut::new(&mut elements[output_len..][..N], None);
+            self.pipeline.step(&ctx, &mut elements_view)?;
+            output_len += elements_view.len;
+        }
+        unsafe { elements.set_len(output_len) };
+
+        Ok(Canonical::Primitive(PrimitiveArray::new(
+            elements.freeze(),
+            Validity::NonNullable,
+        )))
+    }
+}
+
+struct PrimitiveFilteredPipelineExecution<T> {
+    row_selection: RowSelection,
+    batch_inputs: Vec<BatchExecutionRef>,
+    vectors: Vec<RefCell<Vector>>,
+    pipeline: Pipeline,
+    phantom_data: PhantomData<T>,
+}
+
+#[async_trait]
+impl<T: Element + NativePType> BatchExecution for PrimitiveFilteredPipelineExecution<T> {
     async fn execute(mut self: Box<Self>) -> VortexResult<Canonical> {
         // Execute all batch input operators concurrently.
         let batch_inputs =
@@ -392,6 +482,7 @@ impl<T: Element + NativePType> BatchExecution for PrimitivePipelineExecution<T> 
 }
 
 struct Pipeline {
+    row_selection: RowSelection,
     kernels: Vec<Box<dyn Kernel>>,
     exec_order: Vec<NodeId>,
     output_targets: Vec<OutputTarget>,

@@ -14,8 +14,8 @@ use vortex_mask::Mask;
 
 use crate::compute::filter;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
-    OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
+    OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
 use crate::{Array, Canonical, IntoArray};
 
@@ -40,10 +40,9 @@ impl OperatorHash for FilterOperator {
 
 impl FilterOperator {
     pub fn new(child: OperatorRef, mask: Mask) -> FilterOperator {
-        assert_eq!(
-            child.len(),
-            mask.len(),
-            "Mask length must match child length"
+        assert!(
+            child.bounds().contains(mask.len()),
+            "Mask length must be within child bounds"
         );
         FilterOperator { child, mask }
     }
@@ -66,8 +65,8 @@ impl Operator for FilterOperator {
         self.child.dtype()
     }
 
-    fn len(&self) -> usize {
-        self.mask.true_count()
+    fn bounds(&self) -> LengthBounds {
+        self.mask.true_count().into()
     }
 
     fn children(&self) -> &[OperatorRef] {

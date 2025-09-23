@@ -20,9 +20,21 @@
 
 pub mod bits;
 pub(crate) mod operator;
+pub mod row_selection;
 mod types;
 pub mod vec;
 pub mod view;
+
+pub use row_selection::*;
+pub use types::*;
+
+use self::vec::Vector;
+use self::view::ViewMut;
+use crate::operator::Operator;
+use crate::Canonical;
+use std::cell::RefCell;
+use vec::VectorRef;
+use vortex_error::VortexResult;
 
 /// The number of elements in each step of a Vortex evaluation operator.
 pub const N: usize = 1024;
@@ -30,18 +42,10 @@ pub const N: usize = 1024;
 // Number of usize words needed to store N bits
 pub const N_WORDS: usize = N / usize::BITS as usize;
 
-use std::cell::RefCell;
-
-pub use types::*;
-use vec::VectorRef;
-use vortex_error::VortexResult;
-
-use self::vec::Vector;
-use self::view::ViewMut;
-use crate::Canonical;
-use crate::operator::Operator;
-
 pub trait PipelinedOperator: Operator {
+    /// Defines the row selection of this pipeline operator.
+    fn row_selection(&self) -> RowSelection;
+
     // Whether this operator works by mutating its first child in-place.
     //
     // If `true`, the operator is invoked with the first child's input data passed via the
