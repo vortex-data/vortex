@@ -13,7 +13,7 @@ use crate::pipeline::{N, N_WORDS};
 /// Internally, it uses a [`BitArray`] to store the bits, but this crate has some
 /// performance foot-guns in cases where we can lean on better assumptions, and therefore we wrap
 /// it up for use within Vortex.
-/// Read-only view into a bit array for selection masking in pipeline operations.
+/// Read-only view into a bit array for selection masking in operator operations.
 #[derive(Clone, Copy)]
 pub struct BitView<'a> {
     bits: &'a BitArray<[usize; N_WORDS], Lsb0>,
@@ -378,9 +378,6 @@ mod tests {
 
     #[test]
     fn test_compatibility_with_mask_all_true() {
-        // Create a Mask with all bits set
-        let mask = Mask::new_true(N);
-
         // Create corresponding BitView
         let view = BitView::all_true();
 
@@ -397,9 +394,6 @@ mod tests {
 
     #[test]
     fn test_compatibility_with_mask_all_false() {
-        // Create a Mask with no bits set
-        let mask = Mask::new_false(N);
-
         // Create corresponding BitView
         let view = BitView::all_false();
 
@@ -420,7 +414,6 @@ mod tests {
     fn test_compatibility_with_mask_from_indices() {
         // Create a Mask from specific indices
         let indices = vec![0, 10, 20, 63, 64, 100, 500, 1023];
-        let mask = Mask::from_indices(N, indices.clone());
 
         // Create corresponding BitView
         let mut bits = [0usize; N_WORDS];
@@ -443,7 +436,6 @@ mod tests {
     fn test_compatibility_with_mask_slices() {
         // Create a Mask from slices (ranges)
         let slices = vec![(0, 10), (100, 110), (500, 510)];
-        let mask = Mask::from_slices(N, slices.clone());
 
         // Create corresponding BitView
         let mut bits = [0usize; N_WORDS];

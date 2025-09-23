@@ -22,6 +22,7 @@ mod accessor;
 pub mod builder;
 mod canonical;
 mod compute;
+mod operator;
 mod ops;
 mod serde;
 

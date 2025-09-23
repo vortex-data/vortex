@@ -19,6 +19,7 @@ use crate::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical
 mod compute;
 mod downcast;
 mod native_value;
+mod operator;
 mod ops;
 mod patch;
 mod serde;

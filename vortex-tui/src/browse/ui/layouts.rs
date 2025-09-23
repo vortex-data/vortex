@@ -18,8 +18,7 @@ use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
-use vortex::pipeline::operators::MaskFuture;
-use vortex::{Array, ArrayRef, ToCanonical};
+use vortex::{Array, ArrayRef, MaskFuture, ToCanonical};
 
 use crate::browse::app::{AppState, LayoutCursor};
 

@@ -3,7 +3,6 @@
 
 use std::ops::Range;
 
-pub use compute::ConstantOperator;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_mask::Mask;
@@ -20,6 +19,7 @@ use crate::{
 mod canonical;
 mod compute;
 mod encode;
+mod operator;
 mod serde;
 
 vtable!(Constant);

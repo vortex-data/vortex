@@ -19,18 +19,6 @@ use crate::pipeline::bits::BitVector;
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::{View, ViewMut};
 
-/// Identifier for a vector in the pipeline execution context.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VectorId(pub(crate) usize);
-
-impl Deref for VectorId {
-    type Target = usize;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 /// A vector contains fixed-size owned data in canonical form.
 #[derive(Debug)]
 pub struct Vector {
@@ -97,6 +85,7 @@ impl Vector {
             elements: self.elements.as_mut_ptr().cast(),
             validity: Some(self.validity.as_view_mut()),
             data: vec![],
+            len: self.len,
             _marker: Default::default(),
         }
     }

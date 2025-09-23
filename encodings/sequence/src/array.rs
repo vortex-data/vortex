@@ -127,7 +127,7 @@ impl SequenceArray {
         })
     }
 
-    fn index_value(&self, idx: usize) -> PValue {
+    pub(crate) fn index_value(&self, idx: usize) -> PValue {
         assert!(idx < self.length, "index_value({idx}): index out of bounds");
 
         match_each_native_ptype!(self.ptype(), |P| {
@@ -144,10 +144,6 @@ impl SequenceArray {
         Self::try_last(self.base, self.multiplier, self.ptype(), self.length)
             .vortex_expect("validated array")
     }
-
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
-    }
 }
 
 impl VTable for SequenceVTable {
@@ -162,7 +158,7 @@ impl VTable for SequenceVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
+    type PipelineVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.sequence")

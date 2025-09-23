@@ -120,7 +120,6 @@ jiff = "0.2.0"
 kanal = "0.1.1"
 lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
-linked_hash_set = "0.1.5"
 log = { version = "0.4.21" }
 loom = { version = "0.7", features = ["checkpoint"] }
 memmap2 = "0.9.5"

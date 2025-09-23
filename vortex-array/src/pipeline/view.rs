@@ -43,6 +43,7 @@ impl<'a> View<'a> {
         self.len == 0
     }
 
+    // FIXME(ngates): we should return &[T; N]
     pub fn as_slice<T>(&self) -> &'a [T]
     where
         T: Element,
@@ -84,6 +85,9 @@ pub struct ViewMut<'a> {
     #[allow(dead_code)]
     pub(super) data: Vec<ByteBuffer>,
 
+    /// The length of the prefix slice containing valid values.
+    pub(super) len: usize,
+
     /// Marker defining the lifetime of the contents of the vector.
     pub(super) _marker: std::marker::PhantomData<&'a mut ()>,
 }
@@ -96,6 +100,7 @@ impl<'a> ViewMut<'a> {
             elements: elements.as_mut_ptr().cast(),
             validity,
             data: vec![],
+            len: N,
             _marker: Default::default(),
         }
     }
@@ -117,14 +122,14 @@ impl<'a> ViewMut<'a> {
     #[inline(always)]
     pub fn as_slice<E: Element>(&self) -> &'a [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), N) }
+        unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), self.len) }
     }
 
     /// Returns a mutable slice of the elements in the vector, allowing for modification.
     #[inline(always)]
     pub fn as_slice_mut<E: Element>(&mut self) -> &'a mut [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), N) }
+        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), self.len) }
     }
 
     /// Access the validity mask of the vector.
@@ -141,6 +146,11 @@ impl<'a> ViewMut<'a> {
 
     pub fn add_buffer(&mut self, buffer: ByteBuffer) {
         self.data.push(buffer);
+    }
+
+    pub fn set_len(&mut self, len: usize) {
+        assert!(len <= N, "Length cannot exceed the capacity of the vector");
+        self.len = len;
     }
 
     /// Flatten the view by bringing the selected elements of the mask to the beginning of
@@ -207,5 +217,7 @@ impl<'a> ViewMut<'a> {
                 });
             }
         }
+
+        self.len = mask.true_count();
     }
 }

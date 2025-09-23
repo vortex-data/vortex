@@ -380,7 +380,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             }
         };
 
-        // Create a task that executes the full scan pipeline for each split.
+        // Create a task that executes the full scan operator for each split.
         let mut limit = self.limit;
         let split_tasks = splits_iter
             .tuple_windows()

@@ -19,7 +19,7 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     ///
     /// This trait uses the `#[async_trait]` attribute to denote that trait objects of this type
     /// can be `Box`ed or `Arc`ed and shared around. Commonly, these strategies are composed to
-    /// form a pipeline of operations, each of which modifies the chunk stream in some way before
+    /// form a operator of operations, each of which modifies the chunk stream in some way before
     /// passing the data on to a downstream writer.
     ///
     /// # Sequencing and EOF

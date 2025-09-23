@@ -4,7 +4,8 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PType};
+use vortex_dtype::{DType, NativePType, PType};
+use vortex_error::vortex_panic;
 
 use crate::arrays::BinaryView;
 
@@ -81,5 +82,17 @@ canonical_ptype!(f64);
 impl Element for BinaryView {
     fn vtype() -> VType {
         VType::Binary
+    }
+}
+
+impl From<&DType> for VType {
+    fn from(value: &DType) -> Self {
+        match value {
+            DType::Bool(_) => VType::Bool,
+            DType::Primitive(ptype, _) => VType::Primitive(*ptype),
+            DType::Utf8(_) => VType::Binary,
+            DType::Binary(_) => VType::Binary,
+            _ => vortex_panic!("Unsupported dtype for VType: {}", value),
+        }
     }
 }

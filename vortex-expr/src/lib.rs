@@ -26,7 +26,6 @@ mod encoding;
 mod exprs;
 mod field;
 pub mod forms;
-mod operator;
 pub mod proto;
 pub mod pruning;
 mod registry;
@@ -48,7 +47,6 @@ pub use list_contains::*;
 pub use literal::*;
 pub use merge::*;
 pub use not::*;
-pub use operator::*;
 pub use operators::*;
 pub use pack::*;
 pub use registry::*;
@@ -56,7 +54,7 @@ pub use root::*;
 pub use scope::*;
 pub use scope_vars::*;
 pub use select::*;
-use vortex_array::pipeline::OperatorRef;
+use vortex_array::operator::OperatorRef;
 use vortex_array::{Array, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
@@ -114,7 +112,7 @@ pub trait VortexExpr:
     /// [`VortexExpr::evaluate`](./trait.VortexExpr.html#method.evaluate).
     fn return_dtype(&self, scope: &DType) -> VortexResult<DType>;
 
-    fn operator(&self, _children: Vec<OperatorRef>) -> Option<OperatorRef>;
+    fn operator(&self, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>>;
 }
 
 dyn_hash::hash_trait_object!(VortexExpr);
@@ -225,10 +223,6 @@ impl Display for dyn VortexExpr + '_ {
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
     fn field_references(&self) -> HashSet<FieldName>;
-
-    fn to_operator(&self, root: &dyn Array) -> VortexResult<Option<OperatorRef>>;
-
-    fn to_operator_unoptimized(&self, root: &dyn Array) -> VortexResult<Option<OperatorRef>>;
 }
 
 impl VortexExprExt for ExprRef {
@@ -237,21 +231,6 @@ impl VortexExprExt for ExprRef {
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
         collector.into_fields()
-    }
-
-    fn to_operator(&self, root: &dyn Array) -> VortexResult<Option<OperatorRef>> {
-        let Some(operator) = self.to_operator_unoptimized(root)? else {
-            return Ok(None);
-        };
-        reduce_up(operator).map(Some)
-    }
-
-    fn to_operator_unoptimized(&self, root: &dyn Array) -> VortexResult<Option<OperatorRef>> {
-        let Some(root_op) = root.to_operator()? else {
-            return Ok(None);
-        };
-        let mut converter = ExprOperatorConverter::new(root_op);
-        self.clone().fold(&mut converter).map(|op| op.value())
     }
 }
 
@@ -299,8 +278,8 @@ impl<V: VTable> VortexExpr for ExprAdapter<V> {
         V::return_dtype(&self.0, scope)
     }
 
-    fn operator(&self, children: Vec<OperatorRef>) -> Option<OperatorRef> {
-        V::operator(&self.0, children)
+    fn operator(&self, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
+        V::operator(&self.0, scope)
     }
 }
 
@@ -409,7 +388,6 @@ impl Hash for ExactExpr {
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
-
     use vortex_dtype::{DType, Nullability, PType, StructFields};
 
     pub fn struct_dtype() -> DType {
