@@ -11,9 +11,13 @@ mod array;
 pub mod compute;
 mod convert;
 mod datum;
+mod iter;
 mod record_batch;
 
+pub use array::*;
+pub(crate) use compute::warm_up_vtable;
 pub use datum::*;
+pub use iter::*;
 
 use crate::arrow::compute::ToArrowOptions;
 

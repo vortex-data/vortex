@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use num_traits::cast::FromPrimitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -11,8 +13,10 @@ use vortex_array::vtable::{
 use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
 };
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype, match_each_native_ptype};
+use vortex_buffer::BufferMut;
+use vortex_dtype::{
+    DType, NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
+};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{PValue, Scalar, ScalarValue};
@@ -33,9 +37,16 @@ impl SequenceArray {
     pub fn typed_new<T: NativePType + Into<PValue>>(
         base: T,
         multiplier: T,
+        nullability: Nullability,
         length: usize,
     ) -> VortexResult<Self> {
-        Self::new(base.into(), multiplier.into(), T::PTYPE, length)
+        Self::new(
+            base.into(),
+            multiplier.into(),
+            T::PTYPE,
+            nullability,
+            length,
+        )
     }
 
     /// Constructs a sequence array using two integer values (with the same ptype).
@@ -43,6 +54,7 @@ impl SequenceArray {
         base: PValue,
         multiplier: PValue,
         ptype: PType,
+        nullability: Nullability,
         length: usize,
     ) -> VortexResult<Self> {
         if !ptype.is_int() {
@@ -51,21 +63,27 @@ impl SequenceArray {
 
         Self::try_last(base, multiplier, ptype, length).map_err(|e| {
             e.with_context(format!(
-                "final value not expressible, base = {:?}, multiplier = {:?}, len = {} ",
-                base, multiplier, length
+                "final value not expressible, base = {base:?}, multiplier = {multiplier:?}, len = {length} ",
             ))
         })?;
 
-        Ok(Self::unchecked_new(base, multiplier, ptype, length))
+        Ok(Self::unchecked_new(
+            base,
+            multiplier,
+            ptype,
+            nullability,
+            length,
+        ))
     }
 
     pub(crate) fn unchecked_new(
         base: PValue,
         multiplier: PValue,
         ptype: PType,
+        nullability: Nullability,
         length: usize,
     ) -> Self {
-        let dtype = DType::Primitive(ptype, NonNullable);
+        let dtype = DType::Primitive(ptype, nullability);
         Self {
             base,
             multiplier,
@@ -88,7 +106,7 @@ impl SequenceArray {
         self.multiplier
     }
 
-    fn try_last(
+    pub(crate) fn try_last(
         base: PValue,
         multiplier: PValue,
         ptype: PType,
@@ -98,8 +116,8 @@ impl SequenceArray {
             let len_t = <P>::from_usize(length - 1)
                 .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
 
-            let base = base.as_primitive::<P>()?;
-            let multiplier = multiplier.as_primitive::<P>()?;
+            let base = base.as_primitive::<P>();
+            let multiplier = multiplier.as_primitive::<P>();
 
             let last = len_t
                 .checked_mul(multiplier)
@@ -109,16 +127,15 @@ impl SequenceArray {
         })
     }
 
-    fn index_value(&self, idx: usize) -> VortexResult<PValue> {
-        if idx > self.length {
-            vortex_bail!("out of bounds")
-        }
+    pub(crate) fn index_value(&self, idx: usize) -> PValue {
+        assert!(idx < self.length, "index_value({idx}): index out of bounds");
+
         match_each_native_ptype!(self.ptype(), |P| {
-            let base = self.base.as_primitive::<P>()?;
-            let multiplier = self.multiplier.as_primitive::<P>()?;
+            let base = self.base.as_primitive::<P>();
+            let multiplier = self.multiplier.as_primitive::<P>();
             let value = base + (multiplier * <P>::from_usize(idx).vortex_expect("must fit"));
 
-            Ok(PValue::from(value))
+            PValue::from(value)
         })
     }
 
@@ -141,6 +158,7 @@ impl VTable for SequenceVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
+    type PipelineVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.sequence")
@@ -166,55 +184,56 @@ impl ArrayVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl CanonicalVTable<SequenceVTable> for SequenceVTable {
-    fn canonicalize(array: &SequenceArray) -> VortexResult<Canonical> {
+    fn canonicalize(array: &SequenceArray) -> Canonical {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
-            let base = array.base().as_primitive::<P>()?;
-            let multiplier = array.multiplier().as_primitive::<P>()?;
-            PrimitiveArray::from_iter(
+            let base = array.base().as_primitive::<P>();
+            let multiplier = array.multiplier().as_primitive::<P>();
+            let values = BufferMut::from_iter(
                 (0..array.len())
                     .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
-            )
+            );
+            PrimitiveArray::new(values, array.dtype.nullability().into())
         });
 
-        Ok(Canonical::Primitive(prim))
+        Canonical::Primitive(prim)
     }
 }
 
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
-    fn slice(array: &SequenceArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(SequenceArray::unchecked_new(
-            array.index_value(start)?,
+    fn slice(array: &SequenceArray, range: Range<usize>) -> ArrayRef {
+        SequenceArray::unchecked_new(
+            array.index_value(range.start),
             array.multiplier,
             array.ptype(),
-            stop - start,
+            array.dtype().nullability(),
+            range.len(),
         )
-        .to_array())
+        .to_array()
     }
 
-    fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
-        // Ok(Scalar::from(array.index_value(index)))
-        Ok(Scalar::new(
+    fn scalar_at(array: &SequenceArray, index: usize) -> Scalar {
+        Scalar::new(
             array.dtype().clone(),
-            ScalarValue::from(array.index_value(index)?),
-        ))
+            ScalarValue::from(array.index_value(index)),
+        )
     }
 }
 
 impl ValidityVTable<SequenceVTable> for SequenceVTable {
-    fn is_valid(_array: &SequenceArray, _index: usize) -> VortexResult<bool> {
-        Ok(true)
+    fn is_valid(_array: &SequenceArray, _index: usize) -> bool {
+        true
     }
 
-    fn all_valid(_array: &SequenceArray) -> VortexResult<bool> {
-        Ok(true)
+    fn all_valid(_array: &SequenceArray) -> bool {
+        true
     }
 
-    fn all_invalid(_array: &SequenceArray) -> VortexResult<bool> {
-        Ok(false)
+    fn all_invalid(_array: &SequenceArray) -> bool {
+        false
     }
 
-    fn validity_mask(array: &SequenceArray) -> VortexResult<Mask> {
-        Ok(Mask::AllTrue(array.len()))
+    fn validity_mask(array: &SequenceArray) -> Mask {
+        Mask::AllTrue(array.len())
     }
 }
 
@@ -231,52 +250,44 @@ pub struct SequenceEncoding;
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_dtype::Nullability;
     use vortex_scalar::{Scalar, ScalarValue};
 
     use crate::array::SequenceArray;
 
     #[test]
     fn test_sequence_canonical() {
-        let arr = SequenceArray::typed_new(2i64, 3, 4).unwrap();
+        let arr = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4).unwrap();
 
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i64 + i * 3));
 
         assert_eq!(
-            arr.to_canonical()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i64>(),
+            arr.to_primitive().as_slice::<i64>(),
             canon.as_slice::<i64>()
         )
     }
 
     #[test]
     fn test_sequence_slice_canonical() {
-        let arr = SequenceArray::typed_new(2i64, 3, 4)
+        let arr = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .slice(2, 3)
-            .unwrap();
+            .slice(2..3);
 
         let canon = PrimitiveArray::from_iter((2..3).map(|i| 2i64 + i * 3));
 
         assert_eq!(
-            arr.to_canonical()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i64>(),
+            arr.to_primitive().as_slice::<i64>(),
             canon.as_slice::<i64>()
         )
     }
 
     #[test]
     fn test_sequence_scalar_at() {
-        let scalar = SequenceArray::typed_new(2i64, 3, 4)
+        let scalar = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .scalar_at(2)
-            .unwrap();
+            .scalar_at(2);
 
         assert_eq!(
             scalar,
@@ -286,13 +297,13 @@ mod tests {
 
     #[test]
     fn test_sequence_min_max() {
-        assert!(SequenceArray::typed_new(-127i8, -1i8, 2).is_ok());
-        assert!(SequenceArray::typed_new(126i8, -1i8, 2).is_ok());
+        assert!(SequenceArray::typed_new(-127i8, -1i8, Nullability::NonNullable, 2).is_ok());
+        assert!(SequenceArray::typed_new(126i8, -1i8, Nullability::NonNullable, 2).is_ok());
     }
 
     #[test]
     fn test_sequence_too_big() {
-        assert!(SequenceArray::typed_new(127i8, 1i8, 2).is_err());
-        assert!(SequenceArray::typed_new(-128i8, -1i8, 2).is_err());
+        assert!(SequenceArray::typed_new(127i8, 1i8, Nullability::NonNullable, 2).is_err());
+        assert!(SequenceArray::typed_new(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
     }
 }

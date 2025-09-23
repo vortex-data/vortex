@@ -61,7 +61,7 @@ public final class JNIArray implements Array {
 
     @Override
     public DType getDataType() {
-        return new JNIDType(NativeArrayMethods.getDataType(pointer.getAsLong()), false);
+        return new JNIDType(NativeArrayMethods.getDataType(pointer.getAsLong()));
     }
 
     @Override

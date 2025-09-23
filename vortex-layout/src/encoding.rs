@@ -5,7 +5,7 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 
 use arcref::ArcRef;
-use vortex_array::DeserializeMetadata;
+use vortex_array::{ArrayContext, DeserializeMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
@@ -27,6 +27,7 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
         metadata: &[u8],
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
+        ctx: ArrayContext,
     ) -> VortexResult<LayoutRef>;
 }
 
@@ -49,9 +50,18 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
         metadata: &[u8],
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
+        ctx: ArrayContext,
     ) -> VortexResult<LayoutRef> {
         let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
-        let layout = V::build(&self.0, dtype, row_count, &metadata, segment_ids, children)?;
+        let layout = V::build(
+            &self.0,
+            dtype,
+            row_count,
+            &metadata,
+            segment_ids,
+            children,
+            ctx,
+        )?;
 
         // Validate that the builder function returned the expected values.
         if layout.row_count() != row_count {

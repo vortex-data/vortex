@@ -20,6 +20,23 @@ use crate::arrow::array::{ArrowArray, ArrowVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
 
+static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("to_arrow".into(), ArcRef::new_ref(&ToArrow));
+
+    // Register the kernels we ship ourselves
+    compute.register_kernel(ArcRef::new_ref(&canonical::ToArrowCanonical));
+    compute.register_kernel(ArcRef::new_ref(&temporal::ToArrowTemporal));
+
+    for kernel in inventory::iter::<ToArrowKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+pub(crate) fn warm_up_vtable() -> usize {
+    TO_ARROW_FN.kernels().len()
+}
+
 /// Convert a Vortex array to an Arrow array with the encoding's preferred `DataType`.
 ///
 /// For example, a `VarBinArray` will be converted to an Arrow `VarBin` array, instead of the
@@ -53,14 +70,14 @@ pub fn to_arrow_opts(array: &dyn Array, options: &ToArrowOptions) -> VortexResul
         .inner()
         .clone();
 
-    if let Some(arrow_type) = &options.arrow_type {
-        if arrow.data_type() != arrow_type {
-            vortex_bail!(
-                "Arrow array type mismatch: expected {:?}, got {:?}",
-                &options.arrow_type,
-                arrow.data_type()
-            );
-        }
+    if let Some(arrow_type) = &options.arrow_type
+        && arrow.data_type() != arrow_type
+    {
+        vortex_bail!(
+            "Arrow array type mismatch: expected {:?}, got {:?}",
+            &options.arrow_type,
+            arrow.data_type()
+        );
     }
 
     Ok(arrow)
@@ -98,7 +115,7 @@ impl ComputeFnVTable for ToArrow {
 
         // Fall back to canonicalizing and then converting.
         if !array.is_canonical() {
-            let canonical_array = array.to_canonical()?;
+            let canonical_array = array.to_canonical();
             let arrow_array = to_arrow_opts(
                 canonical_array.as_ref(),
                 &ToArrowOptions {
@@ -133,19 +150,6 @@ impl ComputeFnVTable for ToArrow {
         false
     }
 }
-
-pub static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("to_arrow".into(), ArcRef::new_ref(&ToArrow));
-
-    // Register the kernels we ship ourselves
-    compute.register_kernel(ArcRef::new_ref(&canonical::ToArrowCanonical));
-    compute.register_kernel(ArcRef::new_ref(&temporal::ToArrowTemporal));
-
-    for kernel in inventory::iter::<ToArrowKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 pub struct ToArrowArgs<'a> {
     array: &'a dyn Array,

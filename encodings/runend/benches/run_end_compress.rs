@@ -7,7 +7,7 @@ use divan::Bencher;
 use itertools::repeat_n;
 use num_traits::PrimInt;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::take;
+use vortex_array::compute::{take, warm_up_vtables};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
@@ -16,6 +16,7 @@ use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 
 fn main() {
+    warm_up_vtables();
     divan::main();
 }
 
@@ -26,6 +27,18 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (10_000, 4),
     (10_000, 16),
     (10_000, 256),
+    (10_000, 1024),
+    (100_000, 4),
+    (100_000, 16),
+    (100_000, 256),
+    (100_000, 1024),
+    (100_000, 4096),
+    (1_000_000, 4),
+    (1_000_000, 16),
+    (1_000_000, 256),
+    (1_000_000, 1024),
+    (1_000_000, 4096),
+    (1_000_000, 8192),
 ];
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -33,38 +46,34 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
         (0..length)
             .step_by(run_step)
-            .enumerate()
-            .flat_map(|(idx, x)| repeat_n(idx as u64, x))
+            .flat_map(|idx| repeat_n(idx as u64, run_step))
             .collect::<Buffer<_>>(),
         Validity::NonNullable,
     );
 
     bencher
         .with_inputs(|| values.clone())
-        .bench_refs(|values| runend_encode(values).unwrap());
+        .bench_refs(|values| runend_encode(values));
 }
 
 #[divan::bench(types = [u8, u16, u32, u64], args = BENCH_ARGS)]
 fn decompress<T: NativePType + PrimInt>(bencher: Bencher, (length, run_step): (usize, usize)) {
-    let values = PrimitiveArray::new(
-        (0..length)
-            .step_by(run_step)
-            .enumerate()
-            .flat_map(|(idx, x)| {
-                repeat_n(
-                    T::from(idx % T::max_value().to_usize().unwrap()).unwrap(),
-                    x,
-                )
-            })
-            .collect::<Buffer<_>>(),
-        Validity::NonNullable,
-    );
-    let (ends, values) = runend_encode(&values).unwrap();
-    let runend_array = RunEndArray::try_new(ends.into_array(), values).unwrap();
+    let ends = (0..=length)
+        .step_by(run_step)
+        .map(|x| x as u64)
+        .collect::<Buffer<_>>()
+        .into_array();
+
+    let values = (0..ends.len())
+        .map(|x| T::from(x % T::max_value().to_usize().unwrap()).unwrap())
+        .collect::<Buffer<_>>()
+        .into_array();
+
+    let run_end_array = RunEndArray::new(ends, values);
 
     bencher
-        .with_inputs(|| runend_array.to_array())
-        .bench_values(|array| array.to_canonical().unwrap());
+        .with_inputs(|| run_end_array.to_array())
+        .bench_values(|array| array.to_canonical());
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -73,14 +82,13 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
         (0..length)
             .step_by(run_step)
-            .enumerate()
-            .flat_map(|(idx, x)| repeat_n(idx as u64, x))
+            .flat_map(|idx| repeat_n(idx as u64, run_step))
             .collect::<Buffer<_>>(),
         Validity::NonNullable,
     );
 
     let source_array = PrimitiveArray::from_iter(0..(length as i32)).into_array();
-    let (ends, values) = runend_encode(&values).unwrap();
+    let (ends, values) = runend_encode(&values);
     let runend_array = RunEndArray::try_new(ends.into_array(), values).unwrap();
 
     bencher

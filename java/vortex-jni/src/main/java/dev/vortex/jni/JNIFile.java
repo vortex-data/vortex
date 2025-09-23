@@ -21,7 +21,7 @@ public final class JNIFile implements File {
 
     @Override
     public DType getDType() {
-        return new JNIDType(NativeFileMethods.dtype(pointer.getAsLong()), false);
+        return new JNIDType(NativeFileMethods.dtype(pointer.getAsLong()));
     }
 
     @Override

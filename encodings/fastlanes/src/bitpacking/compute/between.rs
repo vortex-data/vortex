@@ -20,7 +20,7 @@ impl BetweenKernel for BitPackedVTable {
         };
 
         between(
-            &array.clone().to_canonical()?.into_array(),
+            &array.clone().to_canonical().into_array(),
             lower,
             upper,
             options,

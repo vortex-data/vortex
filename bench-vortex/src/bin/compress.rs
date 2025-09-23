@@ -5,16 +5,17 @@ use std::fs::File;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
 
-use bench_vortex::compress::bench::{CompressMeasurements, benchmark_compress};
+use bench_vortex::compress::bench::{CompressMeasurements, CompressOp, benchmark_compress};
 use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
 use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLCommentChunked};
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
+use bench_vortex::downloadable_dataset::DownloadableDataset;
 use bench_vortex::public_bi::PBI_DATASETS;
 use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, Target, default_env_filter, setup_logger};
+use bench_vortex::{Engine, Format, Target, setup_logging_and_tracing};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -32,27 +33,31 @@ struct Args {
     verbose: bool,
     #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
     formats: Vec<Format>,
+    #[arg(long, value_enum, default_values_t = vec![CompressOp::Compress, CompressOp::Decompress])]
+    ops: Vec<CompressOp>,
     #[arg(long)]
     datasets: Option<String>,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(short)]
     output_path: Option<PathBuf>,
+    #[arg(long)]
+    tracing: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let filter = default_env_filter(args.verbose);
-    setup_logger(filter);
+    setup_logging_and_tracing(args.verbose, args.tracing)?;
 
-    let runtime = new_tokio_runtime(args.threads);
+    let runtime = new_tokio_runtime(args.threads)?;
 
     compress(
         runtime,
         args.iterations,
         args.datasets.map(|d| Regex::new(&d)).transpose()?,
         args.formats,
+        args.ops,
         args.display_format,
         &args.output_path,
     )
@@ -63,6 +68,7 @@ fn compress(
     iterations: usize,
     datasets_filter: Option<Regex>,
     formats: Vec<Format>,
+    ops: Vec<CompressOp>,
     display_format: DisplayFormat,
     output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
@@ -94,24 +100,38 @@ fn compress(
         // YaleLanguages, // 4th column looks like integer but also contains Y
         &TPCHLCommentChunked,
         &TPCHLCommentCanonical,
+        &DownloadableDataset::RPlace,
+        &DownloadableDataset::AirQuality,
     ]
     .into_iter()
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
     .filter(|d| {
-        datasets_filter.is_none()
-            || datasets_filter
-                .as_ref()
-                .is_some_and(|ds| ds.is_match(d.name()))
+        if let Some(filter) = datasets_filter.as_ref() {
+            filter.is_match(d.name())
+        } else {
+            // These download data from pcodec's public bucket, presumably creating egress charges for
+            // pcodec. As such, we do not run in CI.
+            d.name() != "airquality" && d.name() != "rplace"
+        }
     })
     .collect();
 
-    let progress = ProgressBar::new((datasets.len() * formats.len() * 2) as u64);
+    let progress = ProgressBar::new((datasets.len() * formats.len() * ops.len()) as u64);
 
     let measurements = datasets
         .into_iter()
         .map(|dataset_handle| {
-            benchmark_compress(&runtime, &progress, &formats, iterations, dataset_handle)
+            benchmark_compress(
+                &runtime,
+                &progress,
+                &formats,
+                &ops,
+                iterations,
+                dataset_handle,
+            )
         })
+        .try_collect::<_, Vec<_>, _>()?
+        .into_iter()
         .collect::<CompressMeasurements>();
 
     progress.finish();

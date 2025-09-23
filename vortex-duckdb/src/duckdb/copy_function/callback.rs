@@ -4,8 +4,8 @@
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_ulong, c_void};
 
-use bitvec::macros::internal::funty::Fundamental;
 use itertools::Itertools;
+use num_traits::AsPrimitive;
 use vortex::error::VortexExpect;
 
 use crate::cpp;
@@ -14,7 +14,7 @@ use crate::cpp::{
 };
 use crate::duckdb::{CopyFunction, Data, DataChunk, LogicalType, try_or, try_or_null};
 
-pub(crate) unsafe extern "C" fn bind_callback<T: CopyFunction>(
+pub(crate) unsafe extern "C-unwind" fn bind_callback<T: CopyFunction>(
     // TODO(joe): pass this into T::bind(..)
     _input: duckdb_vx_copy_func_bind_input,
     column_names: *const *const c_char,
@@ -23,21 +23,19 @@ pub(crate) unsafe extern "C" fn bind_callback<T: CopyFunction>(
     column_type_count: c_ulong,
     error_out: *mut duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
-    let column_names =
-        unsafe { std::slice::from_raw_parts(column_names, column_name_count.as_usize()) }
-            .iter()
-            .map(|name| {
-                unsafe { CStr::from_ptr(name.cast()) }
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect_vec();
+    let column_names = unsafe { std::slice::from_raw_parts(column_names, column_name_count.as_()) }
+        .iter()
+        .map(|name| {
+            unsafe { CStr::from_ptr(name.cast()) }
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect_vec();
 
-    let column_types =
-        unsafe { std::slice::from_raw_parts(column_types, column_type_count.as_usize()) }
-            .iter()
-            .map(|c| unsafe { LogicalType::borrow(c.cast()) })
-            .collect_vec();
+    let column_types = unsafe { std::slice::from_raw_parts(column_types, column_type_count.as_()) }
+        .iter()
+        .map(|c| unsafe { LogicalType::borrow(c.cast()) })
+        .collect_vec();
 
     try_or_null(error_out, || {
         let bind_data = T::bind(column_names, column_types)?;
@@ -45,7 +43,7 @@ pub(crate) unsafe extern "C" fn bind_callback<T: CopyFunction>(
     })
 }
 
-pub(crate) unsafe extern "C" fn global_callback<T: CopyFunction>(
+pub(crate) unsafe extern "C-unwind" fn global_callback<T: CopyFunction>(
     bind_data: *const c_void,
     file_path: *const c_char,
     error_out: *mut duckdb_vx_error,
@@ -61,7 +59,7 @@ pub(crate) unsafe extern "C" fn global_callback<T: CopyFunction>(
     })
 }
 
-pub(crate) unsafe extern "C" fn local_callback<T: CopyFunction>(
+pub(crate) unsafe extern "C-unwind" fn local_callback<T: CopyFunction>(
     bind_data: *const c_void,
     error_out: *mut duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
@@ -73,7 +71,7 @@ pub(crate) unsafe extern "C" fn local_callback<T: CopyFunction>(
     })
 }
 
-pub(crate) unsafe extern "C" fn copy_to_sink_callback<T: CopyFunction>(
+pub(crate) unsafe extern "C-unwind" fn copy_to_sink_callback<T: CopyFunction>(
     bind_data: *const c_void,
     global_data: *mut c_void,
     local_data: *mut c_void,
@@ -95,7 +93,7 @@ pub(crate) unsafe extern "C" fn copy_to_sink_callback<T: CopyFunction>(
     })
 }
 
-pub(crate) unsafe extern "C" fn copy_to_finalize_callback<T: CopyFunction>(
+pub(crate) unsafe extern "C-unwind" fn copy_to_finalize_callback<T: CopyFunction>(
     bind_data: *const c_void,
     global_data: *mut c_void,
     error_out: *mut duckdb_vx_error,

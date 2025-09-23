@@ -19,6 +19,18 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
+static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("compare".into(), ArcRef::new_ref(&Compare));
+    for kernel in inventory::iter::<CompareKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+pub(crate) fn warm_up_vtable() -> usize {
+    COMPARE_FN.kernels().len()
+}
+
 /// Compares two arrays and returns a new boolean array with the result of the comparison.
 /// Or, returns None if comparison is not supported for these arrays.
 pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> VortexResult<ArrayRef> {
@@ -30,13 +42,19 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
         .unwrap_array()
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
 pub enum Operator {
+    /// Equality (`=`)
     Eq,
+    /// Inequality (`!=`)
     NotEq,
+    /// Greater than (`>`)
     Gt,
+    /// Greater than or equal (`>=`)
     Gte,
+    /// Less than (`<`)
     Lt,
+    /// Less than or equal (`<=`)
     Lte,
 }
 
@@ -109,14 +127,6 @@ impl<V: VTable + CompareKernel> Kernel for CompareKernelAdapter<V> {
         Ok(V::compare(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
     }
 }
-
-pub static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("compare".into(), ArcRef::new_ref(&Compare));
-    for kernel in inventory::iter::<CompareKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct Compare;
 
@@ -301,7 +311,7 @@ fn arrow_compare(
         Operator::Lt => cmp::lt(&lhs, &rhs)?,
         Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
     };
-    from_arrow_array_with_len(&array, left.len(), nullable)
+    Ok(from_arrow_array_with_len(&array, left.len(), nullable))
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
@@ -334,52 +344,46 @@ mod tests {
 
     #[test]
     fn test_bool_basic_comparisons() {
-        let arr = BoolArray::new(
+        let arr = BoolArray::from_bool_buffer(
             BooleanBuffer::from_iter([true, true, false, true, false]),
             Validity::from_iter([false, true, true, true, true]),
         );
 
         let matches = compare(arr.as_ref(), arr.as_ref(), Operator::Eq)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         assert_eq!(to_int_indices(matches).unwrap(), [1u64, 2, 3, 4]);
 
         let matches = compare(arr.as_ref(), arr.as_ref(), Operator::NotEq)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches).unwrap(), empty);
 
-        let other = BoolArray::new(
+        let other = BoolArray::from_bool_buffer(
             BooleanBuffer::from_iter([false, false, false, true, true]),
             Validity::from_iter([false, true, true, true, true]),
         );
 
         let matches = compare(arr.as_ref(), other.as_ref(), Operator::Lte)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
         let matches = compare(arr.as_ref(), other.as_ref(), Operator::Lt)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
 
         let matches = compare(other.as_ref(), arr.as_ref(), Operator::Gte)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
         let matches = compare(other.as_ref(), arr.as_ref(), Operator::Gt)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
     }
 
@@ -420,9 +424,6 @@ mod tests {
     #[case(VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array())]
     fn arrow_compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
         let res = compare(&left, &right, Operator::Eq).unwrap();
-        assert_eq!(
-            res.to_bool().unwrap().boolean_buffer().count_set_bits(),
-            left.len()
-        );
+        assert_eq!(res.to_bool().boolean_buffer().count_set_bits(), left.len());
     }
 }

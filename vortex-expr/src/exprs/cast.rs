@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
-
 use vortex_array::compute::cast as compute_cast;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Cast);
 
 #[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, Eq)]
 pub struct CastExpr {
     target: DType,
     child: ExprRef,
@@ -82,7 +81,13 @@ impl VTable for CastVTable {
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
         let array = expr.child.evaluate(scope)?;
-        compute_cast(&array, &expr.target)
+        compute_cast(&array, &expr.target).map_err(|e| {
+            e.with_context(format!(
+                "Failed to cast array of dtype {} to {}",
+                array.dtype(),
+                expr.target
+            ))
+        })
     }
 
     fn return_dtype(expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
@@ -94,16 +99,36 @@ impl CastExpr {
     pub fn new(child: ExprRef, target: DType) -> Self {
         Self { target, child }
     }
+
+    pub fn new_expr(child: ExprRef, target: DType) -> ExprRef {
+        Self::new(child, target).into_expr()
+    }
 }
 
-impl Display for CastExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cast({}, {})", self.child, self.target)
+impl DisplayAs for CastExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "cast({}, {})", self.child, self.target)
+            }
+            DisplayFormat::Tree => {
+                write!(f, "Cast(target: {})", self.target)
+            }
+        }
     }
 }
 
 impl AnalysisExpr for CastExpr {}
 
+/// Creates an expression that casts values to a target data type.
+///
+/// Converts the input expression's values to the specified target type.
+///
+/// ```rust
+/// # use vortex_dtype::{DType, Nullability, PType};
+/// # use vortex_expr::{cast, root};
+/// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
+/// ```
 pub fn cast(child: ExprRef, target: DType) -> ExprRef {
     CastExpr::new(child, target).into_expr()
 }
@@ -153,5 +178,17 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
+    }
+
+    #[test]
+    fn test_display() {
+        let expr = cast(
+            get_item("value", root()),
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        );
+        assert_eq!(expr.to_string(), "cast($.value, i64)");
+
+        let expr2 = cast(root(), DType::Bool(Nullability::Nullable));
+        assert_eq!(expr2.to_string(), "cast($, bool?)");
     }
 }

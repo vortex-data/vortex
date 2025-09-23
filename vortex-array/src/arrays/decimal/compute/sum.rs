@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{DecimalValue, Scalar, match_each_decimal_value_type};
 
@@ -12,8 +12,9 @@ use crate::register_kernel;
 macro_rules! sum_decimal {
     ($ty:ty, $values:expr) => {{
         let mut sum: $ty = <$ty>::default();
-        for v in $values {
-            sum = num_traits::CheckedAdd::checked_add(&sum, &v).expect("overflow");
+        for v in $values.iter() {
+            sum = num_traits::CheckedAdd::checked_add(&sum, v)
+                .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?;
         }
         sum
     }};
@@ -23,7 +24,8 @@ macro_rules! sum_decimal {
         let mut sum: $ty = <$ty>::default();
         for (v, valid) in $values.iter().zip_eq($validity.iter()) {
             if valid {
-                sum = num_traits::CheckedAdd::checked_add(&sum, &v).expect("overflow");
+                sum = num_traits::CheckedAdd::checked_add(&sum, v)
+                    .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?
             }
         }
         sum
@@ -33,9 +35,9 @@ macro_rules! sum_decimal {
 impl SumKernel for DecimalVTable {
     fn sum(&self, array: &DecimalArray) -> VortexResult<Scalar> {
         let decimal_dtype = array.decimal_dtype();
-        let nullability = array.dtype.nullability();
+        let nullability = array.dtype().nullability();
 
-        match array.validity_mask()? {
+        match array.validity_mask() {
             Mask::AllFalse(_) => {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
             }

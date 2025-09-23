@@ -2,12 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
+use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexError, vortex_bail};
 use vortex_flatbuffers::{ReadFlatBuffer, WriteFlatBuffer, array as fba};
 use vortex_scalar::ScalarValue;
 
-use super::traits::{StatsProvider, StatsProviderExt};
-use crate::stats::{Precision, Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet, StatsSetRef};
+
+impl WriteFlatBuffer for StatsSetRef<'_> {
+    type Target<'t> = fba::ArrayStats<'t>;
+
+    /// All statistics written must be exact
+    fn write_flatbuffer<'fb>(
+        &self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+    ) -> WIPOffset<Self::Target<'fb>> {
+        self.with_typed_stats_set(|stats_set| stats_set.values.write_flatbuffer(fbb))
+    }
+}
 
 impl WriteFlatBuffer for StatsSet {
     type Target<'t> = fba::ArrayStats<'t>;
@@ -19,28 +31,28 @@ impl WriteFlatBuffer for StatsSet {
     ) -> WIPOffset<Self::Target<'fb>> {
         let (min_precision, min) = self
             .get(Stat::Min)
-            .map(|sum| {
+            .map(|min| {
                 (
-                    if sum.is_exact() {
+                    if min.is_exact() {
                         fba::Precision::Exact
                     } else {
                         fba::Precision::Inexact
                     },
-                    Some(fbb.create_vector(&sum.into_inner().to_protobytes::<Vec<u8>>())),
+                    Some(fbb.create_vector(&min.into_inner().to_protobytes::<Vec<u8>>())),
                 )
             })
             .unwrap_or_else(|| (fba::Precision::Inexact, None));
 
         let (max_precision, max) = self
             .get(Stat::Max)
-            .map(|sum| {
+            .map(|max| {
                 (
-                    if sum.is_exact() {
+                    if max.is_exact() {
                         fba::Precision::Exact
                     } else {
                         fba::Precision::Inexact
                     },
-                    Some(fbb.create_vector(&sum.into_inner().to_protobytes::<Vec<u8>>())),
+                    Some(fbb.create_vector(&max.into_inner().to_protobytes::<Vec<u8>>())),
                 )
             })
             .unwrap_or_else(|| (fba::Precision::Inexact, None));
@@ -57,22 +69,22 @@ impl WriteFlatBuffer for StatsSet {
             max_precision,
             sum,
             is_sorted: self
-                .get_as::<bool>(Stat::IsSorted)
+                .get_as::<bool>(Stat::IsSorted, &DType::Bool(Nullability::NonNullable))
                 .and_then(Precision::as_exact),
             is_strict_sorted: self
-                .get_as::<bool>(Stat::IsStrictSorted)
+                .get_as::<bool>(Stat::IsStrictSorted, &DType::Bool(Nullability::NonNullable))
                 .and_then(Precision::as_exact),
             is_constant: self
-                .get_as::<bool>(Stat::IsConstant)
+                .get_as::<bool>(Stat::IsConstant, &DType::Bool(Nullability::NonNullable))
                 .and_then(Precision::as_exact),
             null_count: self
-                .get_as::<u64>(Stat::NullCount)
+                .get_as::<u64>(Stat::NullCount, &PType::U64.into())
                 .and_then(Precision::as_exact),
             uncompressed_size_in_bytes: self
-                .get_as::<u64>(Stat::UncompressedSizeInBytes)
+                .get_as::<u64>(Stat::UncompressedSizeInBytes, &PType::U64.into())
                 .and_then(Precision::as_exact),
             nan_count: self
-                .get_as::<u64>(Stat::NaNCount)
+                .get_as::<u64>(Stat::NaNCount, &PType::U64.into())
                 .and_then(Precision::as_exact),
         };
 

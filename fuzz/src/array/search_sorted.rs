@@ -4,6 +4,7 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
 
+use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::search_sorted::{IndexOrd, SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ToCanonical};
@@ -53,8 +54,8 @@ pub fn search_sorted_canonical_array(
 ) -> VortexResult<SearchResult> {
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.to_bool()?;
-            let validity = bool_array.validity_mask()?.to_boolean_buffer();
+            let bool_array = array.to_bool();
+            let validity = bool_array.validity_mask().to_boolean_buffer();
             let opt_values = bool_array
                 .boolean_buffer()
                 .iter()
@@ -65,8 +66,8 @@ pub fn search_sorted_canonical_array(
             Ok(SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side))
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.to_primitive()?;
-            let validity = primitive_array.validity_mask()?.to_boolean_buffer();
+            let primitive_array = array.to_primitive();
+            let validity = primitive_array.validity_mask().to_boolean_buffer();
             match_each_native_ptype!(p, |P| {
                 let opt_values = primitive_array
                     .as_slice::<P>()
@@ -80,8 +81,8 @@ pub fn search_sorted_canonical_array(
             })
         }
         DType::Decimal(d, _) => {
-            let decimal_array = array.to_decimal()?;
-            let validity = decimal_array.validity_mask()?.to_boolean_buffer();
+            let decimal_array = array.to_decimal();
+            let validity = decimal_array.validity_mask().to_boolean_buffer();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
                 let opt_values = buf
@@ -105,7 +106,7 @@ pub fn search_sorted_canonical_array(
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.to_varbinview()?;
+            let utf8 = array.to_varbinview();
             let opt_values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             let to_find = if matches!(array.dtype(), DType::Utf8(_)) {
@@ -115,16 +116,8 @@ pub fn search_sorted_canonical_array(
             };
             Ok(SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side))
         }
-        DType::Struct(..) => {
-            let scalar_vals = (0..array.len())
-                .map(|i| array.scalar_at(i))
-                .collect::<VortexResult<Vec<_>>>()?;
-            Ok(scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side))
-        }
-        DType::List(..) => {
-            let scalar_vals = (0..array.len())
-                .map(|i| array.scalar_at(i))
-                .collect::<VortexResult<Vec<_>>>()?;
+        DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
+            let scalar_vals = (0..array.len()).map(|i| array.scalar_at(i)).collect_vec();
             Ok(scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side))
         }
         d @ (DType::Null | DType::Extension(_)) => {

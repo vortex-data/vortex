@@ -7,9 +7,9 @@ use std::fs::File;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
 
+use crate::Target;
 use crate::display::{DisplayFormat, print_measurements_json, render_table};
-use crate::measurements::QueryMeasurement;
-use crate::{Target, default_env_filter};
+use crate::measurements::{MemoryMeasurement, QueryMeasurement};
 
 /// Common benchmark configuration
 #[derive(Debug, Clone)]
@@ -22,48 +22,6 @@ pub struct BenchmarkConfig {
     pub disable_datafusion_cache: bool,
     pub queries: Option<Vec<usize>>,
     pub output_path: Option<PathBuf>,
-}
-
-/// Initialize logging/tracing for a benchmark
-pub fn setup_logging_and_tracing(
-    verbose: bool,
-    trace_file: &str,
-) -> anyhow::Result<Option<tracing_chrome::FlushGuard>> {
-    let filter = default_env_filter(verbose);
-
-    #[cfg(not(feature = "tracing"))]
-    {
-        let _ = trace_file; // Suppress unused warning
-        crate::setup_logger(filter);
-        Ok(None)
-    }
-
-    #[cfg(feature = "tracing")]
-    {
-        use std::io::IsTerminal;
-
-        use tracing_subscriber::prelude::*;
-
-        let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
-            .include_args(true)
-            .trace_style(tracing_chrome::TraceStyle::Async)
-            .file(trace_file)
-            .build();
-
-        let fmt_layer = tracing_subscriber::fmt::layer()
-            .with_writer(std::io::stderr)
-            .with_level(true)
-            .with_line_number(true)
-            .with_ansi(std::io::stderr().is_terminal());
-
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(layer)
-            .with(fmt_layer)
-            .init();
-
-        Ok(Some(guard))
-    }
 }
 
 /// Print benchmark results
@@ -83,6 +41,19 @@ pub fn print_results(
     match display_format {
         DisplayFormat::Table => render_table(&mut writer, query_measurements, targets),
         DisplayFormat::GhJson => print_measurements_json(&mut writer, query_measurements),
+    }
+}
+
+/// Print memory usage
+pub fn print_memory_usage(
+    memory_measurements: Vec<MemoryMeasurement>,
+    display_format: &DisplayFormat,
+    targets: &[Target],
+) -> anyhow::Result<()> {
+    let mut writer = Box::new(stdout()) as Box<dyn Write>;
+    match display_format {
+        DisplayFormat::Table => render_table(&mut writer, memory_measurements, targets),
+        DisplayFormat::GhJson => print_measurements_json(&mut writer, memory_measurements),
     }
 }
 

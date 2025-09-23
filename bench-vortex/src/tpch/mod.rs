@@ -8,18 +8,15 @@ use std::sync::Arc;
 use anyhow::bail;
 use arrow_schema::Schema;
 use datafusion::datasource::MemTable;
-use datafusion::prelude::{CsvReadOptions, SessionContext};
+use datafusion::prelude::SessionContext;
 use glob::Pattern;
 use url::Url;
-use vortex::arrays::ChunkedArray;
-use vortex::arrow::FromArrowArray;
-use vortex::{ArrayRef, IntoArray};
 
 use crate::{BenchmarkDataset, datasets};
 
 pub mod dbgen;
-pub mod duckdb;
 pub mod schema;
+pub mod tpch_benchmark;
 pub mod tpchgen;
 
 use vortex::error::VortexExpect;
@@ -35,34 +32,6 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
     // by "$NAME.parquet".
     0, 4, 100, 10, 5, 5, 1, 4, 2, 175, 20, 0, 2, 46, 1, 1, 27840, 1, 100, 1, 1804, 100, 7,
 ];
-
-pub mod named_locks {
-    use std::future::Future;
-    use std::sync::{Arc, LazyLock};
-
-    use tokio::sync::Mutex;
-    use vortex::utils::aliases::hash_map::HashMap;
-
-    type NamedLocksMap = LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
-    static NAMED_LOCKS: NamedLocksMap = LazyLock::new(|| Mutex::new(HashMap::new()));
-
-    pub async fn get(name: String) -> Arc<Mutex<()>> {
-        let named_locks = &mut *NAMED_LOCKS.lock().await;
-        let mutex: &Arc<Mutex<()>> = named_locks
-            .entry(name)
-            .or_insert_with(|| Arc::new(Mutex::new(())));
-        mutex.clone()
-    }
-
-    pub async fn with_lock<F, T, E>(name: String, f: impl FnOnce() -> F) -> Result<T, E>
-    where
-        F: Future<Output = Result<T, E>>,
-    {
-        let lock = get(name).await;
-        let _guard = lock.lock().await;
-        f().await
-    }
-}
 
 pub async fn register_arrow(
     session: &SessionContext,
@@ -118,30 +87,16 @@ pub async fn register_vortex_file(
     datasets::file::register_vortex_files(session, table_name, file, glob, schema, dataset).await
 }
 
-/// Load a table as an uncompressed Vortex array.
-pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema) -> ArrayRef {
-    // Create a local session to load the CSV file from the path.
-    let path = data_dir.as_ref().join(name).with_extension("csv");
-    let record_batches = SessionContext::new()
-        .read_csv(
-            path.to_str().unwrap(),
-            CsvReadOptions::default()
-                .delimiter(b'|')
-                .has_header(false)
-                .file_extension("csv")
-                .schema(schema),
-        )
+pub async fn register_vortex_compact_file(
+    session: &SessionContext,
+    table_name: &str,
+    file: &Url,
+    glob: Option<Pattern>,
+    schema: Option<Schema>,
+    dataset: &BenchmarkDataset,
+) -> anyhow::Result<()> {
+    datasets::file::register_vortex_compact_files(session, table_name, file, glob, schema, dataset)
         .await
-        .unwrap()
-        .collect()
-        .await
-        .unwrap();
-
-    let chunks = record_batches
-        .into_iter()
-        .map(|batch| ArrayRef::from_arrow(batch, false));
-
-    ChunkedArray::from_iter(chunks).into_array()
 }
 
 pub fn tpch_queries() -> impl Iterator<Item = (usize, String)> {

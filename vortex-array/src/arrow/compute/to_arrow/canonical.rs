@@ -10,9 +10,11 @@ use arrow_array::types::{
 };
 use arrow_array::{
     Array, ArrayRef as ArrowArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray,
+    Decimal32Array as ArrowDecimal32Array, Decimal64Array as ArrowDecimal64Array,
     Decimal128Array as ArrowDecimal128Array, Decimal256Array as ArrowDecimal256Array,
-    GenericByteArray, GenericByteViewArray, GenericListArray, NullArray as ArrowNullArray,
-    OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
+    FixedSizeListArray as ArrowFixedSizeListArray, GenericByteArray, GenericByteViewArray,
+    GenericListArray, NullArray as ArrowNullArray, OffsetSizeTrait,
+    PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
 };
 use arrow_buffer::{ScalarBuffer, i256};
 use arrow_schema::{DataType, Field, FieldRef, Fields};
@@ -24,7 +26,8 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::DecimalValueType;
 
 use crate::arrays::{
-    BoolArray, DecimalArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
+    BoolArray, DecimalArray, FixedSizeListArray, ListArray, NullArray, PrimitiveArray, StructArray,
+    VarBinViewArray,
 };
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
@@ -39,19 +42,26 @@ pub(super) struct ToArrowCanonical;
 impl Kernel for ToArrowCanonical {
     #[allow(clippy::cognitive_complexity)]
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
+        let ToArrowArgs {
+            array,
+            arrow_type: arrow_type_opt,
+        } = ToArrowArgs::try_from(args)?;
         if !array.is_canonical() {
             // Not handled by this kernel
             return Ok(None);
         }
 
         // Figure out the target Arrow type, or use the canonical type
-        let arrow_type = arrow_type
+        let arrow_type = arrow_type_opt
             .cloned()
             .map(Ok)
             .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
 
-        let arrow_array = match (array.to_canonical()?, &arrow_type) {
+        // When `arrow_type` is `None`, conversion should respect conversion to the encoding's
+        // preferred Arrow type if the array has child arrays (struct, list, and fixed-size list).
+        let to_preferred = arrow_type_opt.is_none();
+
+        let arrow_array = match (array.to_canonical(), &arrow_type) {
             (Canonical::Null(array), DataType::Null) => to_arrow_null(array),
             (Canonical::Bool(array), DataType::Boolean) => to_arrow_bool(array),
             (Canonical::Primitive(array), DataType::Int8) if matches!(array.ptype(), PType::I8) => {
@@ -107,6 +117,34 @@ impl Kernel for ToArrowCanonical {
             {
                 to_arrow_primitive::<Float64Type>(array)
             }
+            (Canonical::Decimal(array), DataType::Decimal32(precision, scale)) => {
+                if array.decimal_dtype().precision() != *precision
+                    || array.decimal_dtype().scale() != *scale
+                {
+                    vortex_bail!(
+                        "ToArrowCanonical: target precision/scale {}/{} does not match array precision/scale {}/{}",
+                        precision,
+                        scale,
+                        array.decimal_dtype().precision(),
+                        array.decimal_dtype().scale()
+                    );
+                }
+                to_arrow_decimal32(array)
+            }
+            (Canonical::Decimal(array), DataType::Decimal64(precision, scale)) => {
+                if array.decimal_dtype().precision() != *precision
+                    || array.decimal_dtype().scale() != *scale
+                {
+                    vortex_bail!(
+                        "ToArrowCanonical: target precision/scale {}/{} does not match array precision/scale {}/{}",
+                        precision,
+                        scale,
+                        array.decimal_dtype().precision(),
+                        array.decimal_dtype().scale()
+                    );
+                }
+                to_arrow_decimal64(array)
+            }
             (Canonical::Decimal(array), DataType::Decimal128(precision, scale)) => {
                 if array.decimal_dtype().precision() != *precision
                     || array.decimal_dtype().scale() != *scale
@@ -136,11 +174,16 @@ impl Kernel for ToArrowCanonical {
                 to_arrow_decimal256(array)
             }
             (Canonical::Struct(array), DataType::Struct(fields)) => {
-                to_arrow_struct(array, fields.as_ref())
+                to_arrow_struct(array, fields.as_ref(), to_preferred)
             }
-            (Canonical::List(array), DataType::List(field)) => to_arrow_list::<i32>(array, field),
+            (Canonical::List(array), DataType::List(field)) => {
+                to_arrow_list::<i32>(array, arrow_type_opt.map(|_| field))
+            }
             (Canonical::List(array), DataType::LargeList(field)) => {
-                to_arrow_list::<i64>(array, field)
+                to_arrow_list::<i64>(array, arrow_type_opt.map(|_| field))
+            }
+            (Canonical::FixedSizeList(array), DataType::FixedSizeList(field, list_size)) => {
+                to_arrow_fixed_size_list(array, arrow_type_opt.map(|_| field), *list_size)
             }
             (Canonical::VarBinView(array), DataType::BinaryView) if array.dtype().is_binary() => {
                 to_arrow_varbinview::<BinaryViewType>(array)
@@ -195,12 +238,12 @@ fn to_arrow_null(array: NullArray) -> VortexResult<ArrowArrayRef> {
 fn to_arrow_bool(array: BoolArray) -> VortexResult<ArrowArrayRef> {
     Ok(Arc::new(ArrowBoolArray::new(
         array.boolean_buffer().clone(),
-        array.validity_mask()?.to_null_buffer(),
+        array.validity_mask().to_null_buffer(),
     )))
 }
 
 fn to_arrow_primitive<T: ArrowPrimitiveType>(array: PrimitiveArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = array.validity_mask()?.to_null_buffer();
+    let null_buffer = array.validity_mask().to_null_buffer();
     let len = array.len();
     let buffer = array.into_byte_buffer().into_arrow_buffer();
     Ok(Arc::new(ArrowPrimitiveArray::<T>::new(
@@ -209,13 +252,106 @@ fn to_arrow_primitive<T: ArrowPrimitiveType>(array: PrimitiveArray) -> VortexRes
     )))
 }
 
+fn to_arrow_decimal32(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
+    let null_buffer = array.validity_mask().to_null_buffer();
+    let buffer: Buffer<i32> = match array.values_type() {
+        DecimalValueType::I8 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I16 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i16>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I32 => array.buffer::<i32>(),
+        DecimalValueType::I64 => array
+            .buffer::<i64>()
+            .into_iter()
+            .map(|x| {
+                x.to_i32()
+                    .ok_or_else(|| vortex_err!("i64 to i32 narrowing cannot be done safely"))
+            })
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
+        DecimalValueType::I128 => array
+            .buffer::<i128>()
+            .into_iter()
+            .map(|x| {
+                x.to_i32()
+                    .ok_or_else(|| vortex_err!("i128 to i32 narrowing cannot be done safely"))
+            })
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
+        DecimalValueType::I256 => array
+            .buffer::<vortex_scalar::i256>()
+            .into_iter()
+            .map(|x| {
+                x.to_i32()
+                    .ok_or_else(|| vortex_err!("i256 to i32 narrowing cannot be done safely"))
+            })
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
+        _ => vortex_bail!("unknown value type {:?}", array.values_type()),
+    };
+    Ok(Arc::new(
+        ArrowDecimal32Array::new(buffer.into_arrow_scalar_buffer(), null_buffer)
+            .with_precision_and_scale(
+                array.decimal_dtype().precision(),
+                array.decimal_dtype().scale(),
+            )?,
+    ))
+}
+
+fn to_arrow_decimal64(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
+    let null_buffer = array.validity_mask().to_null_buffer();
+    let buffer: Buffer<i64> = match array.values_type() {
+        DecimalValueType::I8 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I16 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i16>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I32 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i32>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I64 => array.buffer::<i64>(),
+        DecimalValueType::I128 => array
+            .buffer::<i128>()
+            .into_iter()
+            .map(|x| {
+                x.to_i64()
+                    .ok_or_else(|| vortex_err!("i128 to i64 narrowing cannot be done safely"))
+            })
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
+        DecimalValueType::I256 => array
+            .buffer::<vortex_scalar::i256>()
+            .into_iter()
+            .map(|x| {
+                x.to_i64()
+                    .ok_or_else(|| vortex_err!("i256 to i64 narrowing cannot be done safely"))
+            })
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
+        _ => vortex_bail!("unknown value type {:?}", array.values_type()),
+    };
+    Ok(Arc::new(
+        ArrowDecimal64Array::new(buffer.into_arrow_scalar_buffer(), null_buffer)
+            .with_precision_and_scale(
+                array.decimal_dtype().precision(),
+                array.decimal_dtype().scale(),
+            )?,
+    ))
+}
+
 fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = array.validity_mask()?.to_null_buffer();
+    let null_buffer = array.validity_mask().to_null_buffer();
     let buffer: Buffer<i128> = match array.values_type() {
-        DecimalValueType::I8 => array.buffer::<i8>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I16 => array.buffer::<i16>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I32 => array.buffer::<i32>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I64 => array.buffer::<i64>().into_iter().map(|x| x.as_()).collect(),
+        DecimalValueType::I8 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I16 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i16>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I32 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i32>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I64 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i64>().into_iter().map(|x| x.as_()))
+        }
         DecimalValueType::I128 => array.buffer::<i128>(),
         DecimalValueType::I256 => array
             .buffer::<vortex_scalar::i256>()
@@ -224,7 +360,7 @@ fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
                 x.to_i128()
                     .ok_or_else(|| vortex_err!("i256 to i128 narrowing cannot be done safely"))
             })
-            .try_collect()?,
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
         _ => vortex_bail!("unknown value type {:?}", array.values_type()),
     };
     Ok(Arc::new(
@@ -237,17 +373,26 @@ fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
 }
 
 fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = array.validity_mask()?.to_null_buffer();
+    let null_buffer = array.validity_mask().to_null_buffer();
     let buffer: Buffer<i256> = match array.values_type() {
-        DecimalValueType::I8 => array.buffer::<i8>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I16 => array.buffer::<i16>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I32 => array.buffer::<i32>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I64 => array.buffer::<i64>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I128 => array
-            .buffer::<i128>()
-            .into_iter()
-            .map(|x| vortex_scalar::i256::from_i128(x).into())
-            .collect(),
+        DecimalValueType::I8 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I16 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i16>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I32 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i32>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I64 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i64>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I128 => Buffer::from_trusted_len_iter(
+            array
+                .buffer::<i128>()
+                .into_iter()
+                .map(|x| vortex_scalar::i256::from_i128(x).into()),
+        ),
         DecimalValueType::I256 => Buffer::<i256>::from_byte_buffer(array.byte_buffer()),
         _ => vortex_bail!("unknown type {:?}", array.values_type()),
     };
@@ -260,7 +405,11 @@ fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     ))
 }
 
-fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<ArrowArrayRef> {
+fn to_arrow_struct(
+    array: StructArray,
+    fields: &[FieldRef],
+    to_preferred: bool,
+) -> VortexResult<ArrowArrayRef> {
     if array.fields().len() != fields.len() {
         vortex_bail!(
             "StructArray has {} fields, but target Arrow type has {} fields",
@@ -276,21 +425,24 @@ fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<Arro
             // We check that the Vortex array nullability is compatible with the field
             // nullability. In other words, make sure we don't return any nulls for a
             // non-nullable field.
-            if arr.dtype().is_nullable() && !field.is_nullable() && !arr.all_valid()? {
+            if arr.dtype().is_nullable() && !field.is_nullable() && !arr.all_valid() {
                 vortex_bail!(
                     "Field {} is non-nullable but has nulls {}",
                     field,
-                    arr.tree_display()
+                    arr.display_tree()
                 );
             }
 
-            arr.clone()
-                .into_arrow(field.data_type())
-                .map_err(|err| err.with_context(format!("Failed to canonicalize field {field}")))
+            let result = if to_preferred {
+                arr.clone().into_arrow_preferred()
+            } else {
+                arr.clone().into_arrow(field.data_type())
+            };
+            result.map_err(|err| err.with_context(format!("Failed to canonicalize field {field}")))
         })
         .collect::<VortexResult<Vec<_>>>()?;
 
-    let nulls = array.validity_mask()?.to_null_buffer();
+    let nulls = array.validity_mask().to_null_buffer();
 
     if field_arrays.is_empty() {
         return Ok(Arc::new(ArrowStructArray::new_empty_fields(
@@ -306,7 +458,7 @@ fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<Arro
         .zip(fields.iter())
         .map(|((name, field_array), target_field)| {
             Field::new(
-                &**name,
+                name.as_ref(),
                 field_array.data_type().clone(),
                 target_field.is_nullable(),
             )
@@ -323,20 +475,72 @@ fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<Arro
 
 fn to_arrow_list<O: NativePType + OffsetSizeTrait>(
     array: ListArray,
-    element: &FieldRef,
+    element: Option<&FieldRef>,
 ) -> VortexResult<ArrowArrayRef> {
     // First we cast the offsets into the correct width.
     let offsets_dtype = DType::Primitive(O::PTYPE, array.dtype().nullability());
     let arrow_offsets = cast(array.offsets(), &offsets_dtype)
         .map_err(|err| err.with_context(format!("Failed to cast offsets to {offsets_dtype}")))?
-        .to_primitive()?;
+        .to_primitive();
 
-    let values = array.elements().clone().into_arrow(element.data_type())?;
-    let nulls = array.validity_mask()?.to_null_buffer();
+    let (values, element_field) = if let Some(element) = element {
+        (
+            array.elements().clone().into_arrow(element.data_type())?,
+            element.clone(),
+        )
+    } else {
+        let values = array.elements().clone().into_arrow_preferred()?;
+        let element_field = Arc::new(Field::new_list_field(
+            values.data_type().clone(),
+            array.elements().dtype().is_nullable(),
+        ));
+        (values, element_field)
+    };
+    let nulls = array.validity_mask().to_null_buffer();
 
     Ok(Arc::new(GenericListArray::new(
-        element.clone(),
+        element_field,
         arrow_offsets.buffer::<O>().into_arrow_offset_buffer(),
+        values,
+        nulls,
+    )))
+}
+
+fn to_arrow_fixed_size_list(
+    array: FixedSizeListArray,
+    element: Option<&FieldRef>,
+    list_size: i32,
+) -> VortexResult<ArrowArrayRef> {
+    assert!(
+        list_size >= 0,
+        "somehow had a negative list size for arrow fixed-size lists"
+    );
+
+    if list_size as u32 != array.list_size() {
+        vortex_bail!(
+            "Cannot convert a Vortex `FixedSizeListArray` with list size {} to an Arrow `FixedSizeListArray` with list size {list_size}",
+            array.list_size()
+        );
+    }
+
+    let (values, element_field) = if let Some(element) = element {
+        (
+            array.elements().clone().into_arrow(element.data_type())?,
+            element.clone(),
+        )
+    } else {
+        let values = array.elements().clone().into_arrow_preferred()?;
+        let element_field = Arc::new(Field::new_list_field(
+            values.data_type().clone(),
+            array.elements().dtype().is_nullable(),
+        ));
+        (values, element_field)
+    };
+    let nulls = array.validity_mask().to_null_buffer();
+
+    Ok(Arc::new(ArrowFixedSizeListArray::new(
+        element_field,
+        list_size,
         values,
         nulls,
     )))
@@ -350,10 +554,7 @@ fn to_arrow_varbinview<T: ByteViewType>(array: VarBinViewArray) -> VortexResult<
         .iter()
         .map(|buffer| buffer.clone().into_arrow_buffer())
         .collect();
-    let nulls = array
-        .validity_mask()
-        .vortex_expect("VarBinViewArray: failed to get logical validity")
-        .to_null_buffer();
+    let nulls = array.validity_mask().to_null_buffer();
 
     // SAFETY: our own VarBinView array is considered safe.
     Ok(Arc::new(unsafe {
@@ -389,7 +590,7 @@ mod tests {
     use vortex_scalar::NativeDecimalType;
 
     use crate::IntoArray;
-    use crate::arrays::{DecimalArray, PrimitiveArray, StructArray};
+    use crate::arrays::{DecimalArray, ListArray, PrimitiveArray, StructArray};
     use crate::arrow::IntoArrowArray;
     use crate::arrow::compute::to_arrow;
     use crate::builders::{ArrayBuilder, DecimalBuilder};
@@ -450,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn struct_to_arrow_with_schema_missmatch() {
+    fn struct_to_arrow_with_schema_mismatch() {
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(
@@ -506,6 +707,60 @@ mod tests {
     #[case(0i64)]
     #[case(0i128)]
     #[case(vortex_scalar::i256::ZERO)]
+    fn to_arrow_decimal32<T: NativeDecimalType>(#[case] _decimal_type: T) {
+        use arrow_array::Decimal32Array;
+
+        let mut decimal = DecimalBuilder::new::<T>(2, 1, false.into());
+        decimal.append_value(10);
+        decimal.append_value(11);
+        decimal.append_value(12);
+
+        let decimal = decimal.finish();
+
+        let arrow_array = decimal.into_arrow(&DataType::Decimal32(2, 1)).unwrap();
+        let arrow_decimal = arrow_array
+            .as_any()
+            .downcast_ref::<Decimal32Array>()
+            .unwrap();
+        assert_eq!(arrow_decimal.value(0), 10);
+        assert_eq!(arrow_decimal.value(1), 11);
+        assert_eq!(arrow_decimal.value(2), 12);
+    }
+
+    #[rstest]
+    #[case(0i8)]
+    #[case(0i16)]
+    #[case(0i32)]
+    #[case(0i64)]
+    #[case(0i128)]
+    #[case(vortex_scalar::i256::ZERO)]
+    fn to_arrow_decimal64<T: NativeDecimalType>(#[case] _decimal_type: T) {
+        use arrow_array::Decimal64Array;
+
+        let mut decimal = DecimalBuilder::new::<T>(2, 1, false.into());
+        decimal.append_value(10);
+        decimal.append_value(11);
+        decimal.append_value(12);
+
+        let decimal = decimal.finish();
+
+        let arrow_array = decimal.into_arrow(&DataType::Decimal64(2, 1)).unwrap();
+        let arrow_decimal = arrow_array
+            .as_any()
+            .downcast_ref::<Decimal64Array>()
+            .unwrap();
+        assert_eq!(arrow_decimal.value(0), 10);
+        assert_eq!(arrow_decimal.value(1), 11);
+        assert_eq!(arrow_decimal.value(2), 12);
+    }
+
+    #[rstest]
+    #[case(0i8)]
+    #[case(0i16)]
+    #[case(0i32)]
+    #[case(0i64)]
+    #[case(0i128)]
+    #[case(vortex_scalar::i256::ZERO)]
     fn to_arrow_decimal256<T: NativeDecimalType>(#[case] _decimal_type: T) {
         let mut decimal = DecimalBuilder::new::<T>(2, 1, false.into());
         decimal.append_value(10);
@@ -522,5 +777,19 @@ mod tests {
         assert_eq!(arrow_decimal.value(0), i256::from_i128(10));
         assert_eq!(arrow_decimal.value(1), i256::from_i128(11));
         assert_eq!(arrow_decimal.value(2), i256::from_i128(12));
+    }
+
+    #[test]
+    fn to_arrow_list_preferred() {
+        let elements = PrimitiveArray::new(buffer![1u8, 2, 3, 4, 5], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i32, 3, 5], Validity::NonNullable);
+        let list_array = ListArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        list_array.into_array().into_arrow_preferred().unwrap();
     }
 }

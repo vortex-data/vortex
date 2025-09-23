@@ -4,7 +4,7 @@
 use std::pin::Pin;
 use std::task::Poll;
 
-use futures_util::Stream;
+use futures::Stream;
 use pin_project::pin_project;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -20,7 +20,10 @@ pub struct ArrayStreamAdapter<S> {
     inner: S,
 }
 
-impl<S> ArrayStreamAdapter<S> {
+impl<S> ArrayStreamAdapter<S>
+where
+    S: Stream<Item = VortexResult<ArrayRef>>,
+{
     pub fn new(dtype: DType, inner: S) -> Self {
         Self { dtype, inner }
     }
@@ -46,9 +49,13 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         let this = self.project();
-        let array = futures_util::ready!(this.inner.poll_next(cx));
+        let array = futures::ready!(this.inner.poll_next(cx));
         if let Some(Ok(array)) = array.as_ref() {
-            debug_assert_eq!(array.dtype(), this.dtype);
+            debug_assert_eq!(
+                array.dtype(),
+                this.dtype,
+                "ArrayStreamAdapter received an array with unexpected dtype"
+            );
         }
 
         Poll::Ready(array)

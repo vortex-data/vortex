@@ -41,14 +41,14 @@ fn filter_select_var_bin_by_slice(
     mask_slices: &[(usize, usize)],
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().to_primitive()?;
+    let offsets = values.offsets().to_primitive();
     match_each_integer_ptype!(offsets.ptype(), |O| {
         filter_select_var_bin_by_slice_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_slices,
-            values.validity_mask()?,
+            values.validity_mask(),
             selection_count,
         )
     })
@@ -139,7 +139,7 @@ fn filter_select_var_bin_by_index(
     mask_indices: &[usize],
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().to_primitive()?;
+    let offsets = values.offsets().to_primitive();
     match_each_integer_ptype!(offsets.ptype(), |O| {
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),
@@ -163,7 +163,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
 ) -> VortexResult<VarBinArray> {
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
     for idx in mask_indices.iter().copied() {
-        if validity.is_valid(idx)? {
+        if validity.is_valid(idx) {
             let (start, end) = (
                 offsets[idx].to_usize().ok_or_else(|| {
                     vortex_err!("Failed to convert offset to usize: {}", offsets[idx])
@@ -182,18 +182,18 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::{ByteBuffer, buffer};
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::BoolArray;
-    use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::arrays::varbin::compute::filter::{
         filter_select_var_bin_by_index, filter_select_var_bin_by_slice,
     };
+    use crate::compute::conformance::filter::test_filter_conformance;
     use crate::validity::Validity;
 
     fn nullable_scalar_str(s: &str) -> Scalar {
@@ -213,8 +213,8 @@ mod test {
         let buf = filter_select_var_bin_by_index(&arr, &[0, 2], 2).unwrap();
 
         assert_eq!(buf.len(), 2);
-        assert_eq!(buf.scalar_at(0).unwrap(), "hello".into());
-        assert_eq!(buf.scalar_at(1).unwrap(), "filter".into());
+        assert_eq!(buf.scalar_at(0), "hello".into());
+        assert_eq!(buf.scalar_at(1), "filter".into());
     }
 
     #[test]
@@ -233,9 +233,9 @@ mod test {
         let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3), (4, 5)], 3).unwrap();
 
         assert_eq!(buf.len(), 3);
-        assert_eq!(buf.scalar_at(0).unwrap(), "hello".into());
-        assert_eq!(buf.scalar_at(1).unwrap(), "filter".into());
-        assert_eq!(buf.scalar_at(2).unwrap(), "filter3".into());
+        assert_eq!(buf.scalar_at(0), "hello".into());
+        assert_eq!(buf.scalar_at(1), "filter".into());
+        assert_eq!(buf.scalar_at(2), "filter3".into());
     }
 
     #[test]
@@ -252,7 +252,7 @@ mod test {
         .flat_map(|x| x.iter().cloned())
         .collect::<ByteBuffer>();
 
-        let offsets = PrimitiveArray::from_iter([0, 3, 6, 11, 15, 19, 22]).into_array();
+        let offsets = buffer![0, 3, 6, 11, 15, 19, 22].into_array();
         let validity = Validity::Array(
             BoolArray::from_iter([true, false, true, true, true, true]).into_array(),
         );
@@ -263,11 +263,11 @@ mod test {
         let null = Scalar::null(DType::Utf8(Nullable));
         assert_eq!(buf.len(), 5);
 
-        assert_eq!(buf.scalar_at(0).unwrap(), nullable_scalar_str("one"));
-        assert_eq!(buf.scalar_at(1).unwrap(), null);
-        assert_eq!(buf.scalar_at(2).unwrap(), nullable_scalar_str("three"));
-        assert_eq!(buf.scalar_at(3).unwrap(), nullable_scalar_str("five"));
-        assert_eq!(buf.scalar_at(4).unwrap(), nullable_scalar_str("six"));
+        assert_eq!(buf.scalar_at(0), nullable_scalar_str("one"));
+        assert_eq!(buf.scalar_at(1), null);
+        assert_eq!(buf.scalar_at(2), nullable_scalar_str("three"));
+        assert_eq!(buf.scalar_at(3), nullable_scalar_str("five"));
+        assert_eq!(buf.scalar_at(4), nullable_scalar_str("six"));
     }
 
     #[test]
@@ -277,7 +277,7 @@ mod test {
             .flat_map(|x| x.iter().cloned())
             .collect::<ByteBuffer>();
 
-        let offsets = PrimitiveArray::from_iter([0, 0, 3, 6]).into_array();
+        let offsets = buffer![0, 0, 3, 6].into_array();
         let validity = Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
 
@@ -286,13 +286,13 @@ mod test {
         let null = Scalar::null(DType::Utf8(Nullable));
         assert_eq!(buf.len(), 2);
 
-        assert_eq!(buf.scalar_at(0).unwrap(), null);
-        assert_eq!(buf.scalar_at(1).unwrap(), nullable_scalar_str("two"));
+        assert_eq!(buf.scalar_at(0), null);
+        assert_eq!(buf.scalar_at(1), nullable_scalar_str("two"));
     }
 
     #[test]
     fn filter_varbin_all_null() {
-        let offsets = PrimitiveArray::from_iter([0, 0, 0, 0]).into_array();
+        let offsets = buffer![0, 0, 0, 0].into_array();
         let validity = Validity::Array(BoolArray::from_iter([false, false, false]).into_array());
         let arr = VarBinArray::try_new(
             offsets,
@@ -307,7 +307,22 @@ mod test {
         let null = Scalar::null(DType::Utf8(Nullable));
         assert_eq!(buf.len(), 2);
 
-        assert_eq!(buf.scalar_at(0).unwrap(), null);
-        assert_eq!(buf.scalar_at(1).unwrap(), null);
+        assert_eq!(buf.scalar_at(0), null);
+        assert_eq!(buf.scalar_at(1), null);
+    }
+
+    #[test]
+    fn test_filter_var_bin_array() {
+        let array = VarBinArray::from_vec(
+            vec!["hello", "world", "filter", "good", "bye"],
+            DType::Utf8(NonNullable),
+        );
+        test_filter_conformance(array.as_ref());
+
+        let array = VarBinArray::from_iter(
+            vec![Some("hello"), None, Some("filter"), Some("good"), None],
+            DType::Utf8(Nullable),
+        );
+        test_filter_conformance(array.as_ref());
     }
 }

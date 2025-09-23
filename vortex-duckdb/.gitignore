@@ -5,3 +5,4 @@ src/cpp.rs
 
 # Symlinked DuckDB source is ignored. It is downloaded, extracted and symlinked as part of build.rs
 duckdb
+!src/duckdb

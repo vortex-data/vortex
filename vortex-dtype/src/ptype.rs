@@ -9,11 +9,10 @@ use std::hash::Hash;
 use std::panic::RefUnwindSafe;
 
 use num_traits::bounds::UpperBounded;
-use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
+use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive, Unsigned};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::DType;
-use crate::DType::*;
 use crate::half::f16;
 use crate::nullability::Nullability::NonNullable;
 
@@ -104,6 +103,80 @@ pub trait NativePType:
 
     /// Whether another instance of this type (`other`) is bitwise equal to `self`
     fn is_eq(self, other: Self) -> bool;
+
+    /// Downcast the provided object to a type-specific instance.
+    fn downcast<V: PTypeVisitor + ?Sized>(visitor: &V) -> V::Output<Self>;
+
+    /// Downcast the provided object to a type-specific instance.
+    fn downcast_mut<V: PTypeVisitorMut + ?Sized>(visitor: &mut V) -> V::Output<Self>;
+}
+
+/// A visitor trait for converting a `NativePType` to another parameterized type.
+#[allow(missing_docs)] // Kind of obvious..
+pub trait PTypeVisitor {
+    type Output<T: NativePType>;
+
+    fn as_u8(&self) -> Self::Output<u8>;
+    fn as_u16(&self) -> Self::Output<u16>;
+    fn as_u32(&self) -> Self::Output<u32>;
+    fn as_u64(&self) -> Self::Output<u64>;
+    fn as_i8(&self) -> Self::Output<i8>;
+    fn as_i16(&self) -> Self::Output<i16>;
+    fn as_i32(&self) -> Self::Output<i32>;
+    fn as_i64(&self) -> Self::Output<i64>;
+    fn as_f16(&self) -> Self::Output<f16>;
+    fn as_f32(&self) -> Self::Output<f32>;
+    fn as_f64(&self) -> Self::Output<f64>;
+}
+
+/// Extension trait to provide generic downcasting for [`PTypeVisitor`].
+pub trait PTypeVisitorExt: PTypeVisitor {
+    /// Downcast the object to a specific primitive type.
+    fn as_primitive<T: NativePType>(&self) -> Self::Output<T> {
+        T::downcast(self)
+    }
+}
+
+impl<T: PTypeVisitor + ?Sized> PTypeVisitorExt for T {}
+
+/// A visitor trait for converting a `NativePType` to another mutable parameterized type.
+#[allow(missing_docs)] // Kind of obvious..
+pub trait PTypeVisitorMut {
+    type Output<T: NativePType>;
+
+    fn as_u8(&mut self) -> Self::Output<u8>;
+    fn as_u16(&mut self) -> Self::Output<u16>;
+    fn as_u32(&mut self) -> Self::Output<u32>;
+    fn as_u64(&mut self) -> Self::Output<u64>;
+    fn as_i8(&mut self) -> Self::Output<i8>;
+    fn as_i16(&mut self) -> Self::Output<i16>;
+    fn as_i32(&mut self) -> Self::Output<i32>;
+    fn as_i64(&mut self) -> Self::Output<i64>;
+    fn as_f16(&mut self) -> Self::Output<f16>;
+    fn as_f32(&mut self) -> Self::Output<f32>;
+    fn as_f64(&mut self) -> Self::Output<f64>;
+}
+
+/// Extension trait to provide generic downcasting for [`PTypeVisitorMut`].
+pub trait PTypeVisitorMutExt: PTypeVisitorMut {
+    /// Downcast the object to a specific primitive type.
+    fn as_primitive_mut<T: NativePType>(&mut self) -> Self::Output<T> {
+        T::downcast_mut(self)
+    }
+}
+
+macro_rules! impl_ptype_downcast {
+    ($T:ty) => {
+        #[inline]
+        fn downcast<V: PTypeVisitor + ?Sized>(visitor: &V) -> V::Output<Self> {
+            paste::paste! { visitor.[<as_ $T>]() }
+        }
+
+        #[inline]
+        fn downcast_mut<V: PTypeVisitorMut + ?Sized>(visitor: &mut V) -> V::Output<Self> {
+            paste::paste! { visitor.[<as_ $T>]() }
+        }
+    };
 }
 
 macro_rules! native_ptype {
@@ -130,9 +203,13 @@ macro_rules! native_ptype {
             fn is_eq(self, other: Self) -> bool {
                 self == other
             }
+
+            impl_ptype_downcast!($T);
         }
     };
 }
+
+impl<T: PTypeVisitorMut + ?Sized> PTypeVisitorMutExt for T {}
 
 macro_rules! native_float_ptype {
     ($T:ty, $ptype:tt) => {
@@ -158,6 +235,8 @@ macro_rules! native_float_ptype {
             fn is_eq(self, other: Self) -> bool {
                 self.to_bits() == other.to_bits()
             }
+
+            impl_ptype_downcast!($T);
         }
     };
 }
@@ -180,7 +259,7 @@ macro_rules! match_each_native_ptype {
     (
         $self:expr,integral: |
         $integral_enc:ident |
-        $intbody:block,floating_point: |
+        $intbody:block,floating: |
         $floating_point_enc:ident |
         $floatbody:block
     ) => {{
@@ -519,38 +598,45 @@ macro_rules! match_each_native_simd_ptype {
 
 impl PType {
     /// Returns `true` iff this PType is an unsigned integer type
+    #[inline]
     pub const fn is_unsigned_int(self) -> bool {
         matches!(self, Self::U8 | Self::U16 | Self::U32 | Self::U64)
     }
 
     /// Returns `true` iff this PType is a signed integer type
+    #[inline]
     pub const fn is_signed_int(self) -> bool {
         matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64)
     }
 
     /// Returns `true` iff this PType is an integer type
     /// Equivalent to `self.is_unsigned_int() || self.is_signed_int()`
+    #[inline]
     pub const fn is_int(self) -> bool {
         self.is_unsigned_int() || self.is_signed_int()
     }
 
     /// Returns `true` iff this PType is a floating point type
+    #[inline]
     pub const fn is_float(self) -> bool {
         matches!(self, Self::F16 | Self::F32 | Self::F64)
     }
 
     /// Returns the number of bytes in this PType
+    #[inline]
     pub const fn byte_width(&self) -> usize {
         match_each_native_ptype!(self, |T| { size_of::<T>() })
     }
 
     /// Returns the number of bits in this PType
+    #[inline]
     pub const fn bit_width(&self) -> usize {
         self.byte_width() * 8
     }
 
     /// Returns the maximum value of this PType if it is an integer type
     /// Returns `u64::MAX` if the value is too large to fit in a `u64`
+    #[inline]
     pub fn max_value_as_u64(&self) -> u64 {
         match_each_native_ptype!(self, |T| {
             <T as UpperBounded>::max_value()
@@ -560,25 +646,31 @@ impl PType {
     }
 
     /// Returns the PType that corresponds to the signed version of this PType
+    #[inline]
     pub const fn to_signed(self) -> Self {
         match self {
             Self::U8 => Self::I8,
             Self::U16 => Self::I16,
             Self::U32 => Self::I32,
             Self::U64 => Self::I64,
-            _ => self,
+            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::F16 | Self::F32 | Self::F64 => {
+                self
+            }
         }
     }
 
     /// Returns the PType that corresponds to the unsigned version of this PType
     /// For floating point types, this will simply return `self`
+    #[inline]
     pub const fn to_unsigned(self) -> Self {
         match self {
             Self::I8 => Self::U8,
             Self::I16 => Self::U16,
             Self::I32 => Self::U32,
             Self::I64 => Self::U64,
-            _ => self,
+            Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::F16 | Self::F32 | Self::F64 => {
+                self
+            }
         }
     }
 }
@@ -606,9 +698,10 @@ impl TryFrom<&DType> for PType {
 
     #[inline]
     fn try_from(value: &DType) -> VortexResult<Self> {
-        match value {
-            Primitive(p, _) => Ok(*p),
-            _ => Err(vortex_err!("Cannot convert DType {} into PType", value)),
+        if let DType::Primitive(p, _) = value {
+            Ok(*p)
+        } else {
+            Err(vortex_err!("Cannot convert DType {} into PType", value))
         }
     }
 }
@@ -617,24 +710,24 @@ impl From<PType> for &DType {
     fn from(item: PType) -> Self {
         // We expand this match statement so that we can return a static reference.
         match item {
-            PType::I8 => &Primitive(PType::I8, NonNullable),
-            PType::I16 => &Primitive(PType::I16, NonNullable),
-            PType::I32 => &Primitive(PType::I32, NonNullable),
-            PType::I64 => &Primitive(PType::I64, NonNullable),
-            PType::U8 => &Primitive(PType::U8, NonNullable),
-            PType::U16 => &Primitive(PType::U16, NonNullable),
-            PType::U32 => &Primitive(PType::U32, NonNullable),
-            PType::U64 => &Primitive(PType::U64, NonNullable),
-            PType::F16 => &Primitive(PType::F16, NonNullable),
-            PType::F32 => &Primitive(PType::F32, NonNullable),
-            PType::F64 => &Primitive(PType::F64, NonNullable),
+            PType::I8 => &DType::Primitive(PType::I8, NonNullable),
+            PType::I16 => &DType::Primitive(PType::I16, NonNullable),
+            PType::I32 => &DType::Primitive(PType::I32, NonNullable),
+            PType::I64 => &DType::Primitive(PType::I64, NonNullable),
+            PType::U8 => &DType::Primitive(PType::U8, NonNullable),
+            PType::U16 => &DType::Primitive(PType::U16, NonNullable),
+            PType::U32 => &DType::Primitive(PType::U32, NonNullable),
+            PType::U64 => &DType::Primitive(PType::U64, NonNullable),
+            PType::F16 => &DType::Primitive(PType::F16, NonNullable),
+            PType::F32 => &DType::Primitive(PType::F32, NonNullable),
+            PType::F64 => &DType::Primitive(PType::F64, NonNullable),
         }
     }
 }
 
 impl From<PType> for DType {
     fn from(item: PType) -> Self {
-        Primitive(item, NonNullable)
+        DType::Primitive(item, NonNullable)
     }
 }
 
@@ -684,6 +777,29 @@ try_from_bytes!(i64);
 try_from_bytes!(f16);
 try_from_bytes!(f32);
 try_from_bytes!(f64);
+
+/// A trait that allows conversion from a PType to its physical representation (i.e., unsigned)
+pub trait PhysicalPType: NativePType {
+    /// The physical type that corresponds to this native type.
+    type Physical: NativePType + Unsigned;
+}
+
+macro_rules! physical_ptype {
+    ($T:ty, $U:ty) => {
+        impl PhysicalPType for $T {
+            type Physical = $U;
+        }
+    };
+}
+
+physical_ptype!(i8, u8);
+physical_ptype!(i16, u16);
+physical_ptype!(i32, u32);
+physical_ptype!(i64, u64);
+physical_ptype!(u8, u8);
+physical_ptype!(u16, u16);
+physical_ptype!(u32, u32);
+physical_ptype!(u64, u64);
 
 #[cfg(test)]
 mod tests {
@@ -815,16 +931,49 @@ mod tests {
 
     #[test]
     fn to_dtype() {
-        assert_eq!(DType::from(PType::U8), Primitive(PType::U8, NonNullable));
-        assert_eq!(DType::from(PType::U16), Primitive(PType::U16, NonNullable));
-        assert_eq!(DType::from(PType::U32), Primitive(PType::U32, NonNullable));
-        assert_eq!(DType::from(PType::U64), Primitive(PType::U64, NonNullable));
-        assert_eq!(DType::from(PType::I8), Primitive(PType::I8, NonNullable));
-        assert_eq!(DType::from(PType::I16), Primitive(PType::I16, NonNullable));
-        assert_eq!(DType::from(PType::I32), Primitive(PType::I32, NonNullable));
-        assert_eq!(DType::from(PType::I64), Primitive(PType::I64, NonNullable));
-        assert_eq!(DType::from(PType::F16), Primitive(PType::F16, NonNullable));
-        assert_eq!(DType::from(PType::F32), Primitive(PType::F32, NonNullable));
-        assert_eq!(DType::from(PType::F64), Primitive(PType::F64, NonNullable));
+        assert_eq!(
+            DType::from(PType::U8),
+            DType::Primitive(PType::U8, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::U16),
+            DType::Primitive(PType::U16, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::U32),
+            DType::Primitive(PType::U32, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::U64),
+            DType::Primitive(PType::U64, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::I8),
+            DType::Primitive(PType::I8, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::I16),
+            DType::Primitive(PType::I16, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::I32),
+            DType::Primitive(PType::I32, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::I64),
+            DType::Primitive(PType::I64, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::F16),
+            DType::Primitive(PType::F16, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::F32),
+            DType::Primitive(PType::F32, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::F64),
+            DType::Primitive(PType::F64, NonNullable)
+        );
     }
 }

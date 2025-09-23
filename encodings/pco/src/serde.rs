@@ -7,7 +7,7 @@ use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 
 use crate::{PcoArray, PcoEncoding, PcoVTable};
 
@@ -61,17 +61,16 @@ impl SerdeVTable<PcoVTable> for PcoVTable {
             vortex_bail!("PcoArray expected 0 or 1 child, got {}", children.len());
         };
 
-        let mut chunk_metas = vec![];
-        let mut pages = vec![];
-        let mut buffer_idx = 0;
-        for chunk_info in &metadata.chunks {
-            chunk_metas.push(buffers[buffer_idx].clone());
-            buffer_idx += 1;
-            for _ in &chunk_info.pages {
-                pages.push(buffers[buffer_idx].clone());
-                buffer_idx += 1;
-            }
-        }
+        vortex_ensure!(buffers.len() >= metadata.chunks.len());
+        let chunk_metas = buffers[..metadata.chunks.len()].to_vec();
+        let pages = buffers[metadata.chunks.len()..].to_vec();
+
+        let expected_n_pages = metadata
+            .chunks
+            .iter()
+            .map(|info| info.pages.len())
+            .sum::<usize>();
+        vortex_ensure!(pages.len() == expected_n_pages);
 
         Ok(PcoArray::new(
             chunk_metas,
@@ -90,7 +89,7 @@ impl EncodeVTable<PcoVTable> for PcoVTable {
         canonical: &vortex_array::Canonical,
         _like: Option<&PcoArray>,
     ) -> VortexResult<Option<PcoArray>> {
-        let parray = canonical.clone().into_primitive()?;
+        let parray = canonical.clone().into_primitive();
 
         Ok(Some(PcoArray::from_primitive(&parray, 3, 0)?))
     }

@@ -1,0 +1,35 @@
+[package]
+name = "vortex-cxx"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "C++ bindings for Vortex generated from Rust using cxx"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+anyhow = { workspace = true }
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-schema = { workspace = true }
+cxx = "1.0"
+futures = { workspace = true }
+paste = { workspace = true }
+take_mut = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+vortex = { workspace = true, features = ["tokio"] }
+
+[build-dependencies]
+cxx-build = "1.0"

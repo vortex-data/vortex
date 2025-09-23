@@ -21,9 +21,9 @@ impl ExprSerializeProtoExt for dyn VortexExpr + '_ {
             .map(|child| child.serialize_proto())
             .try_collect()?;
 
-        let metadata = self
-            .metadata()
-            .ok_or_else(|| vortex_err!("Expression is not serializable {}", self))?;
+        let metadata = self.metadata().ok_or_else(|| {
+            vortex_err!("Expression '{}' is not serializable: {}", self.id(), self)
+        })?;
 
         Ok(pb::Expr {
             id: self.id().to_string(),

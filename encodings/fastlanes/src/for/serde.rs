@@ -9,7 +9,7 @@ use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, SerializeMetadata,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
@@ -40,10 +40,7 @@ impl SerdeVTable<FoRVTable> for FoRVTable {
             )
         }
 
-        let ptype = PType::try_from(dtype)?;
-        let encoded_dtype = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
-        let encoded = children.get(0, &encoded_dtype, len)?;
-
+        let encoded = children.get(0, dtype, len)?;
         let reference = Scalar::new(dtype.clone(), metadata.clone());
 
         FoRArray::try_new(encoded, reference)
@@ -56,7 +53,7 @@ impl EncodeVTable<FoRVTable> for FoRVTable {
         canonical: &Canonical,
         _like: Option<&FoRArray>,
     ) -> VortexResult<Option<FoRArray>> {
-        let parray = canonical.clone().into_primitive()?;
+        let parray = canonical.clone().into_primitive();
         Ok(Some(FoRArray::encode(parray)?))
     }
 }

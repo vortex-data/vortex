@@ -21,18 +21,28 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
 anyhow = { workspace = true }
-arrow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+async-compat = { workspace = true }
 bitvec = { workspace = true }
-crossbeam-queue = { workspace = true }
+futures = { workspace = true }
 glob = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 num-traits = { workspace = true }
+object_store = { workspace = true, features = ["aws"] }
+parking_lot = { workspace = true }
+paste = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 tokio-stream = { workspace = true }
-vortex = { workspace = true, features = ["files"] }
-vortex-file = { workspace = true, features = ["tokio"] }
+url = { workspace = true }
+vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
+vortex-utils = { workspace = true, features = ["dashmap"] }
+
+[dev-dependencies]
+jiff = { workspace = true }
+rstest = { workspace = true }
 
 [lints]
 workspace = true
@@ -41,6 +51,7 @@ workspace = true
 bindgen = { workspace = true }
 cbindgen = { workspace = true }
 cc = { workspace = true }
+once_cell = { workspace = true }
 reqwest = { workspace = true }
 walkdir = { workspace = true }
 zip = { workspace = true }

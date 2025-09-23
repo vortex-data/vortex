@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter::Sum;
+
 use num_traits::PrimInt;
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
@@ -14,9 +16,9 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for VarBinVTable {
     fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let offsets = array.offsets().to_primitive()?;
+        let offsets = array.offsets().to_primitive();
         let data = array.bytes();
-        let indices = indices.to_primitive()?;
+        let indices = indices.to_primitive();
         match_each_integer_ptype!(offsets.ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 Ok(take(
@@ -27,8 +29,8 @@ impl TakeKernel for VarBinVTable {
                     offsets.as_slice::<O>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
+                    array.validity_mask(),
+                    indices.validity_mask(),
                 )?
                 .into_array())
             })
@@ -38,7 +40,7 @@ impl TakeKernel for VarBinVTable {
 
 register_kernel!(TakeKernelAdapter(VarBinVTable).lift());
 
-fn take<I: NativePType, O: NativePType + PrimInt>(
+fn take<I: NativePType, O: NativePType + PrimInt + Sum>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
@@ -57,7 +59,7 @@ fn take<I: NativePType, O: NativePType + PrimInt>(
         ));
     }
 
-    let mut builder = VarBinBuilder::<O>::with_capacity(indices.len());
+    let mut builder = VarBinBuilder::<u32>::with_capacity(indices.len());
     for &idx in indices {
         let idx = idx
             .to_usize()
@@ -81,7 +83,7 @@ fn take_nullable<I: NativePType, O: NativePType + PrimInt>(
     data_validity: Mask,
     indices_validity: Mask,
 ) -> VarBinArray {
-    let mut builder = VarBinBuilder::<O>::with_capacity(indices.len());
+    let mut builder = VarBinBuilder::<u32>::with_capacity(indices.len());
     for (idx, data_idx) in indices.iter().enumerate() {
         if !indices_validity.value(idx) {
             builder.append_null();
@@ -110,10 +112,12 @@ fn take_nullable<I: NativePType, O: NativePType + PrimInt>(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
 
     use crate::Array;
     use crate::arrays::{PrimitiveArray, VarBinArray};
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
 
     #[test]
@@ -133,5 +137,23 @@ mod tests {
             take(arr.as_ref(), idx2.as_ref()).unwrap().dtype(),
             &DType::Utf8(Nullability::Nullable)
         );
+    }
+
+    #[rstest]
+    #[case(VarBinArray::from_iter(
+        ["hello", "world", "test", "data", "array"].map(Some),
+        DType::Utf8(Nullability::NonNullable),
+    ))]
+    #[case(VarBinArray::from_iter(
+        [Some("hello"), None, Some("test"), Some("data"), None],
+        DType::Utf8(Nullability::Nullable),
+    ))]
+    #[case(VarBinArray::from_iter(
+        [b"hello".as_slice(), b"world", b"test", b"data", b"array"].map(Some),
+        DType::Binary(Nullability::NonNullable),
+    ))]
+    #[case(VarBinArray::from_iter(["single"].map(Some), DType::Utf8(Nullability::NonNullable)))]
+    fn test_take_varbin_conformance(#[case] array: VarBinArray) {
+        test_take_conformance(array.as_ref());
     }
 }

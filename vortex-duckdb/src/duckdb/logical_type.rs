@@ -14,6 +14,7 @@ wrapper!(
 
 /// `LogicalType` is Send, as the wrapped pointer and bool are Send.
 unsafe impl Send for LogicalType {}
+unsafe impl Sync for LogicalType {}
 
 impl Clone for LogicalType {
     fn clone(&self) -> Self {
@@ -24,6 +25,23 @@ impl Clone for LogicalType {
 impl LogicalType {
     pub fn new(dtype: DUCKDB_TYPE) -> Self {
         unsafe { Self::own(duckdb_create_logical_type(dtype)) }
+    }
+
+    pub fn new_list(element_dtype: DUCKDB_TYPE) -> Self {
+        let element_dtype = Self::new(element_dtype);
+        unsafe { Self::own(duckdb_create_list_type(element_dtype.as_ptr())) }
+    }
+
+    pub fn new_array(element_dtype: DUCKDB_TYPE, array_size: u32) -> Self {
+        let element_dtype = Self::new(element_dtype);
+
+        // SAFETY: The element_dtype is created by `Self::new` which ensures it is valid.
+        unsafe {
+            Self::own(duckdb_create_array_type(
+                element_dtype.as_ptr(),
+                array_size as idx_t,
+            ))
+        }
     }
 
     pub fn as_type_id(&self) -> DUCKDB_TYPE {
@@ -45,6 +63,10 @@ impl LogicalType {
 
     pub fn array_child_type(&self) -> Self {
         unsafe { LogicalType::own(duckdb_array_type_child_type(self.as_ptr())) }
+    }
+
+    pub fn array_type_array_size(&self) -> idx_t {
+        unsafe { duckdb_array_type_array_size(self.as_ptr()) }
     }
 
     pub fn list_child_type(&self) -> Self {

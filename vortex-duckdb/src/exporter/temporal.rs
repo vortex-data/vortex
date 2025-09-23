@@ -15,7 +15,7 @@ struct TemporalExporter {
 pub(crate) fn new_exporter(array: &TemporalArray) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(Box::new(TemporalExporter {
         storage_type_exporter: primitive::new_exporter(
-            &array.temporal_values().clone().to_primitive()?,
+            &array.temporal_values().clone().to_primitive(),
         )?,
     }))
 }
@@ -28,7 +28,9 @@ impl ColumnExporter for TemporalExporter {
 
 #[cfg(test)]
 mod tests {
+    use vortex::IntoArray as _;
     use vortex::arrays::{PrimitiveArray, TemporalArray};
+    use vortex::buffer::buffer;
     use vortex::dtype::datetime::TimeUnit;
 
     use crate::cpp;
@@ -38,8 +40,8 @@ mod tests {
     #[test]
     fn test_timestamp_s() {
         let arr = TemporalArray::new_timestamp(
-            PrimitiveArray::from_iter(1750265024i64..(1750265024 + 10)).to_array(),
-            TimeUnit::S,
+            buffer![1750265024i64..(1750265024 + 10)].into_array(),
+            TimeUnit::Seconds,
             None,
         );
         let mut chunk =
@@ -64,7 +66,7 @@ mod tests {
         let arr = TemporalArray::new_timestamp(
             PrimitiveArray::from_iter((0..10).map(|i| 1_000_000 * i + 1750265188000001i64))
                 .to_array(),
-            TimeUnit::Us,
+            TimeUnit::Microseconds,
             None,
         );
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP)]);
@@ -87,7 +89,7 @@ mod tests {
     fn test_timestamp_time_us() {
         let arr = TemporalArray::new_time(
             PrimitiveArray::from_iter((1i64..10).map(|i| 1_000_000 * i)).to_array(),
-            TimeUnit::Us,
+            TimeUnit::Microseconds,
         );
 
         let mut chunk = DataChunk::new([LogicalType::try_from(arr.dtype()).unwrap()]);

@@ -27,6 +27,7 @@ message ScalarValue {
     string string_value = 7;
     bytes bytes_value = 8;
     ListValue list_value = 9;
+    uint64 f16_value = 10;
   }
 }
 

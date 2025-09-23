@@ -58,6 +58,12 @@ message List {
   bool nullable = 2;
 }
 
+message FixedSizeList {
+  DType element_type = 1;
+  uint32 size = 2;
+  bool nullable = 3;
+}
+
 message Extension {
   string id = 1;
   DType storage_dtype = 2;
@@ -75,6 +81,7 @@ message DType {
     Struct struct = 7;
     List list = 8;
     Extension extension = 9;
+    FixedSizeList fixed_size_list = 10; // This is after `Extension` for backwards compatibility.
   }
 }
 

@@ -9,7 +9,7 @@ use crate::arrays::BoolArray;
 impl BoolArray {
     pub fn opt_bool_vec(&self) -> VortexResult<Vec<Option<bool>>> {
         Ok(self
-            .validity_mask()?
+            .validity_mask()
             .to_boolean_buffer()
             .into_iter()
             .zip(self.boolean_buffer().iter())
@@ -18,7 +18,7 @@ impl BoolArray {
     }
 
     pub fn bool_vec(&self) -> VortexResult<Vec<bool>> {
-        self.validity_mask()?
+        self.validity_mask()
             .to_boolean_buffer()
             .into_iter()
             .zip(self.boolean_buffer().iter())

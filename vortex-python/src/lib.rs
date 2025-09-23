@@ -10,6 +10,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 pub(crate) mod arrays;
+mod arrow;
 mod compress;
 mod dataset;
 pub(crate) mod dtype;
@@ -19,15 +20,16 @@ mod io;
 mod iter;
 mod object_store_urls;
 mod python_repr;
-mod record_batch_reader;
 mod registry;
 pub(crate) mod scalar;
+mod scan;
 mod serde;
 
 use log::LevelFilter;
 use pyo3_log::{Caching, Logger};
 use tokio::runtime::Runtime;
 use vortex::error::{VortexError, VortexExpect as _};
+use vortex::io::runtime::tokio::TokioRuntime;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -38,10 +40,14 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
         .vortex_expect("tokio runtime must not fail to start")
 });
 
+/// The Vortex runtime instance.
+static RUNTIME: LazyLock<TokioRuntime> =
+    LazyLock::new(|| TokioRuntime::from(TOKIO_RUNTIME.handle()));
+
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
 #[pymodule]
 fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
-    Python::with_gil(|py| -> PyResult<()> {
+    Python::attach(|py| -> PyResult<()> {
         Logger::new(py, Caching::LoggersAndLevels)?
             .filter(LevelFilter::Info)
             .filter_target("my_module::verbose_submodule".to_owned(), LevelFilter::Warn)
@@ -62,6 +68,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     registry::init(py, m)?;
     scalar::init(py, m)?;
     serde::init(py, m)?;
+    scan::init(py, m)?;
 
     Ok(())
 }

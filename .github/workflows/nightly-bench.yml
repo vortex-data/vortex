@@ -2,7 +2,7 @@ name: Nightly Benchmarks
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # daily
+    - cron: "0 0 * * *"  # daily
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,7 @@ jobs:
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit
     with:
-      mode: 'develop'
+      mode: "develop"
       machine_type: ${{ matrix.machine_type.instance_name }}
       # datafusion:vortex uses a lot of memory
       benchmark_matrix: |
@@ -25,8 +25,17 @@ jobs:
             "id": "tpch-nvme",
             "subcommand": "tpch",
             "name": "TPC-H on NVME",
+            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+            "scale_factor": "--scale-factor 10.0"
+          },
+          {
+            "id": "tpch-s3",
+            "subcommand": "tpch",
+            "name": "TPC-H on S3",
+            "local_dir": "bench-vortex/data/tpch/10.0",
+            "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/10.0/",
             "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex",
-            "scale_factor": "--scale-factor 10"
+            "scale_factor": "--scale-factor 10.0"
           },
           {
             "id": "tpch-nvme",
@@ -34,6 +43,22 @@ jobs:
             "name": "TPC-H on NVME",
             "targets": "datafusion:parquet,duckdb:parquet,duckdb:vortex",
             "scale_factor": "--scale-factor 100"
+          },
+          {
+            "id": "tpch-s3",
+            "subcommand": "tpch",
+            "name": "TPC-H on S3",
+            "local_dir": "bench-vortex/data/tpch/100.0",
+            "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/100.0/",
+            "targets": "datafusion:parquet,duckdb:parquet,duckdb:vortex",
+            "scale_factor": "--scale-factor 100.0"
+          },
+          {
+            "id": "tpch-nvme",
+            "subcommand": "tpch",
+            "name": "TPC-H on NVME",
+            "targets": "duckdb:parquet,duckdb:vortex",
+            "scale_factor": "--scale-factor 1000"
           },
           {
             "id": "clickbench-nvme",

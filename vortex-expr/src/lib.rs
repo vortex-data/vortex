@@ -1,18 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Vortex's expression language.
+//!
+//! All expressions are serializable, and own their own wire format.
+//!
+//! The implementation takes inspiration from [Postgres] and [Apache Datafusion].
+//!
+//! [Postgres]: https://www.postgresql.org/docs/current/sql-expressions.html
+//! [Apache Datafusion]: https://github.com/apache/datafusion/tree/5fac581efbaffd0e6a9edf931182517524526afd/datafusion/expr
+
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use dyn_eq::DynEq;
 use dyn_hash::DynHash;
 pub use exprs::*;
 pub mod aliases;
 mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
+pub mod dyn_traits;
 mod encoding;
 mod exprs;
 mod field;
@@ -43,14 +52,20 @@ pub use pack::*;
 pub use registry::*;
 pub use root::*;
 pub use scope::*;
+pub use scope_vars::*;
 pub use select::*;
+use vortex_array::operator::OperatorRef;
 use vortex_array::{Array, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 pub use vtable::*;
 
-use crate::traversal::{Node, ReferenceCollector};
+pub mod display;
+
+use crate::display::{DisplayAs, DisplayFormat};
+use crate::dyn_traits::DynEq;
+use crate::traversal::{NodeExt, ReferenceCollector};
 
 pub trait IntoExpr {
     /// Convert this type into an expression reference.
@@ -61,7 +76,7 @@ pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayRef`]s
 pub trait VortexExpr:
-    'static + Send + Sync + Debug + Display + DynEq + DynHash + private::Sealed + AnalysisExpr
+    'static + Send + Sync + Debug + DisplayAs + DynEq + DynHash + AnalysisExpr + private::Sealed
 {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
@@ -82,7 +97,8 @@ pub trait VortexExpr:
     /// Compute result of expression on given batch producing a new batch
     ///
     /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
-    /// the [VortexExpr::return_dtype] method. Use instead the [`\<dyn VortexExpr\>::evaluate`]
+    /// the [VortexExpr::return_dtype] method. Use instead the
+    /// [`VortexExpr::evaluate`](./trait.VortexExpr.html#method.evaluate).
     /// function which includes such an assertion.
     fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef>;
 
@@ -92,12 +108,22 @@ pub trait VortexExpr:
     /// Returns a new instance of this expression with the children replaced.
     fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef>;
 
-    /// Compute the type of the array returned by [`\<dyn VortexExpr\>::evaluate`].
+    /// Compute the type of the array returned by
+    /// [`VortexExpr::evaluate`](./trait.VortexExpr.html#method.evaluate).
     fn return_dtype(&self, scope: &DType) -> VortexResult<DType>;
+
+    fn operator(&self, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>>;
 }
 
-dyn_eq::eq_trait_object!(VortexExpr);
 dyn_hash::hash_trait_object!(VortexExpr);
+
+impl PartialEq for dyn VortexExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.dyn_eq(other.as_any())
+    }
+}
+
+impl Eq for dyn VortexExpr {}
 
 impl dyn VortexExpr + '_ {
     pub fn id(&self) -> ExprId {
@@ -126,11 +152,71 @@ impl dyn VortexExpr + '_ {
             result.dtype(),
             &self.return_dtype(scope.dtype())?,
             "Expression {} returned dtype {} but declared return_dtype of {}",
-            self,
+            &self,
             result.dtype(),
             self.return_dtype(scope.dtype())?,
         );
         Ok(result)
+    }
+
+    /// Display the expression as a formatted tree structure.
+    ///
+    /// This provides a hierarchical view of the expression that shows the relationships
+    /// between parent and child expressions, making complex nested expressions easier
+    /// to understand and debug.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use vortex_dtype::{DType, Nullability, PType};
+    /// # use vortex_expr::{and, cast, eq, get_item, gt, lit, not, root, select, IntoExpr, LikeExpr};
+    /// // Build a complex nested expression
+    /// let complex_expr = select(
+    ///     ["result"],
+    ///     and(
+    ///         not(eq(get_item("status", root()), lit("inactive"))),
+    ///         and(
+    ///             LikeExpr::new(get_item("name", root()), lit("%admin%"), false, false).into_expr(),
+    ///             gt(
+    ///                 cast(get_item("score", root()), DType::Primitive(PType::F64, Nullability::NonNullable)),
+    ///                 lit(75.0)
+    ///             )
+    ///         )
+    ///     )
+    /// );
+    ///
+    /// println!("{}", complex_expr.display_tree());
+    /// ```
+    ///
+    /// This produces output like:
+    ///
+    /// ```text
+    /// Select(include): {result}
+    /// └── Binary(and)
+    ///     ├── lhs: Not
+    ///     │   └── Binary(=)
+    ///     │       ├── lhs: GetItem(status)
+    ///     │       │   └── Root
+    ///     │       └── rhs: Literal(value: "inactive", dtype: utf8)
+    ///     └── rhs: Binary(and)
+    ///         ├── lhs: Like
+    ///         │   ├── child: GetItem(name)
+    ///         │   │   └── Root
+    ///         │   └── pattern: Literal(value: "%admin%", dtype: utf8)
+    ///         └── rhs: Binary(>)
+    ///             ├── lhs: Cast(target: f64)
+    ///             │   └── GetItem(score)
+    ///             │       └── Root
+    ///             └── rhs: Literal(value: 75f64, dtype: f64)
+    /// ```
+    pub fn display_tree(&self) -> impl Display {
+        display::DisplayTreeExpr(self)
+    }
+}
+
+impl Display for dyn VortexExpr + '_ {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        DisplayAs::fmt_as(self, DisplayFormat::Compact, f)
     }
 }
 
@@ -191,6 +277,10 @@ impl<V: VTable> VortexExpr for ExprAdapter<V> {
     fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
         V::return_dtype(&self.0, scope)
     }
+
+    fn operator(&self, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
+        V::operator(&self.0, scope)
+    }
 }
 
 impl<V: VTable> Debug for ExprAdapter<V> {
@@ -201,7 +291,17 @@ impl<V: VTable> Debug for ExprAdapter<V> {
 
 impl<V: VTable> Display for ExprAdapter<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.0, f)
+        DisplayAs::fmt_as(&self.0, DisplayFormat::Compact, f)
+    }
+}
+
+impl<V: VTable> DisplayAs for ExprAdapter<V> {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
+        DisplayAs::fmt_as(&self.0, df, f)
+    }
+
+    fn child_names(&self) -> Option<Vec<String>> {
+        DisplayAs::child_names(&self.0)
     }
 }
 
@@ -232,6 +332,10 @@ impl<V: VTable> AnalysisExpr for ExprAdapter<V> {
         <V::Expr as AnalysisExpr>::min(&self.0, catalog)
     }
 
+    fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        <V::Expr as AnalysisExpr>::nan_count(&self.0, catalog)
+    }
+
     fn field_path(&self) -> Option<FieldPath> {
         <V::Expr as AnalysisExpr>::field_path(&self.0)
     }
@@ -245,7 +349,7 @@ mod private {
     impl<V: VTable> Sealed for ExprAdapter<V> {}
 }
 
-/// Splits top level and operations into separate expressions
+/// Splits top level and operations into separate expressions.
 pub fn split_conjunction(expr: &ExprRef) -> Vec<ExprRef> {
     let mut conjunctions = vec![];
     split_inner(expr, &mut conjunctions);
@@ -284,7 +388,6 @@ impl Hash for ExactExpr {
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
-
     use vortex_dtype::{DType, Nullability, PType, StructFields};
 
     pub fn struct_dtype() -> DType {
@@ -378,7 +481,7 @@ mod tests {
             "(($.col1 < $.col2) or ($.col1 != $.col2))"
         );
 
-        assert_eq!(not(col1.clone()).to_string(), "!$.col1");
+        assert_eq!(not(col1.clone()).to_string(), "(!$.col1)");
 
         assert_eq!(
             select(vec![FieldName::from("col1")], root()).to_string(),

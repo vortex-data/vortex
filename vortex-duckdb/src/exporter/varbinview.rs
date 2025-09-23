@@ -21,7 +21,7 @@ pub(crate) fn new_exporter(array: &VarBinViewArray) -> VortexResult<Box<dyn Colu
     Ok(Box::new(VarBinViewExporter {
         views: array.views().clone(),
         buffers: array.buffers().to_vec(),
-        validity: array.validity_mask()?,
+        validity: array.validity_mask(),
     }))
 }
 
@@ -39,7 +39,7 @@ impl ColumnExporter for VarBinViewExporter {
         }
 
         // Update the validity mask.
-        vector.set_validity(&self.validity, offset, len);
+        unsafe { vector.set_validity(&self.validity, offset, len) };
 
         // We register our buffers zero-copy with DuckDB and re-use them in each vector.
         for buffer in &self.buffers {

@@ -19,6 +19,7 @@ pub trait Benchmark {
         target: &Target,
         disable_datafusion_cache: bool,
         emit_plan: bool,
+        delete_duckdb_database: bool,
     ) -> Result<EngineCtx> {
         let engine = target.engine();
         let format = target.format();
@@ -32,7 +33,11 @@ pub trait Benchmark {
             Engine::DuckDB => {
                 // Create a generic dataset for DuckDB context creation
                 // This will be properly configured when tables are registered
-                Ok(EngineCtx::new_with_duckdb(self.dataset(), format)?)
+                Ok(EngineCtx::new_with_duckdb(
+                    self.dataset(),
+                    format,
+                    delete_duckdb_database,
+                )?)
             }
             _ => unreachable!("engine not supported"),
         }

@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use super::BoolArray;
 use crate::arrays::BoolVTable;
@@ -25,10 +24,9 @@ impl SerdeVTable<BoolVTable> for BoolVTable {
 
     fn metadata(array: &BoolArray) -> VortexResult<Option<Self::Metadata>> {
         let bit_offset = array.boolean_buffer().offset();
-        assert!(bit_offset < 8, "Offset must be <8, got {bit_offset}");
-        Ok(Some(ProstMetadata(BoolMetadata {
-            offset: u32::try_from(bit_offset).vortex_expect("checked"),
-        })))
+        let bit_offset = u32::try_from(bit_offset)
+            .map_err(|_| vortex_err!("bit_offset {bit_offset} overflows u32"))?;
+        Ok(Some(ProstMetadata(BoolMetadata { offset: bit_offset })))
     }
 
     fn build(
@@ -42,11 +40,6 @@ impl SerdeVTable<BoolVTable> for BoolVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let buffer = BooleanBuffer::new(
-            buffers[0].clone().into_arrow_buffer(),
-            metadata.offset as usize,
-            len,
-        );
 
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
@@ -57,7 +50,7 @@ impl SerdeVTable<BoolVTable> for BoolVTable {
             vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
-        Ok(BoolArray::new(buffer, validity))
+        BoolArray::try_new(buffers[0].clone(), metadata.offset as usize, len, validity)
     }
 }
 

@@ -8,11 +8,11 @@ use crate::compute::{IsSortedKernel, IsSortedKernelAdapter, is_sorted, is_strict
 use crate::{Array, register_kernel};
 
 impl IsSortedKernel for ChunkedVTable {
-    fn is_sorted(&self, array: &ChunkedArray) -> VortexResult<bool> {
+    fn is_sorted(&self, array: &ChunkedArray) -> VortexResult<Option<bool>> {
         is_sorted_impl(array, false, is_sorted)
     }
 
-    fn is_strict_sorted(&self, array: &ChunkedArray) -> VortexResult<bool> {
+    fn is_strict_sorted(&self, array: &ChunkedArray) -> VortexResult<Option<bool>> {
         is_sorted_impl(array, true, is_strict_sorted)
     }
 }
@@ -22,8 +22,8 @@ register_kernel!(IsSortedKernelAdapter(ChunkedVTable).lift());
 fn is_sorted_impl(
     array: &ChunkedArray,
     strict: bool,
-    reentry_fn: impl Fn(&dyn Array) -> VortexResult<bool>,
-) -> VortexResult<bool> {
+    reentry_fn: impl Fn(&dyn Array) -> VortexResult<Option<bool>>,
+) -> VortexResult<Option<bool>> {
     let mut first_last = Vec::default();
 
     for chunk in array.chunks() {
@@ -31,8 +31,8 @@ fn is_sorted_impl(
             continue;
         }
 
-        let first = chunk.scalar_at(0)?;
-        let last = chunk.scalar_at(chunk.len() - 1)?;
+        let first = chunk.scalar_at(0);
+        let last = chunk.scalar_at(chunk.len() - 1);
 
         first_last.push((first, last));
     }
@@ -42,14 +42,21 @@ fn is_sorted_impl(
         .is_sorted_by(|a, b| if strict { a.1 < b.0 } else { a.1 <= b.0 });
 
     if !chunk_sorted {
-        return Ok(false);
+        return Ok(Some(false));
     }
 
     for chunk in array.chunks() {
-        if !reentry_fn(chunk)? {
-            return Ok(false);
+        match reentry_fn(chunk)? {
+            None => {
+                return Ok(None);
+            }
+            Some(v) => {
+                if !v {
+                    return Ok(Some(false));
+                }
+            }
         }
     }
 
-    Ok(true)
+    Ok(Some(true))
 }

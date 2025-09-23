@@ -61,7 +61,7 @@ impl TryFrom<&DataChunk> for String {
         let mut err: duckdb_vx_error = ptr::null_mut();
         #[cfg(debug_assertions)]
         unsafe {
-            cpp::duckdb_data_chunk_verify(value.as_ptr(), &mut err);
+            cpp::duckdb_data_chunk_verify(value.as_ptr(), &raw mut err);
             if !err.is_null() {
                 vortex_bail!(
                     "{}",
@@ -69,7 +69,7 @@ impl TryFrom<&DataChunk> for String {
                 )
             }
         };
-        let debug = unsafe { cpp::duckdb_data_chunk_to_string(value.as_ptr(), &mut err) };
+        let debug = unsafe { cpp::duckdb_data_chunk_to_string(value.as_ptr(), &raw mut err) };
         if !err.is_null() {
             vortex_bail!("{}", unsafe {
                 CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()

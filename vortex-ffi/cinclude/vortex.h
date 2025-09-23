@@ -19,41 +19,45 @@
  */
 typedef enum {
   /**
-   * Null type
+   * Null type.
    */
   DTYPE_NULL = 0,
   /**
-   * Boolean type
+   * Boolean type.
    */
   DTYPE_BOOL = 1,
   /**
-   * Primitive types (e.g., u8, i16, f32, etc.)
+   * Primitive types (e.g., u8, i16, f32, etc.).
    */
   DTYPE_PRIMITIVE = 2,
   /**
-   * Variable-length UTF-8 string type
+   * Variable-length UTF-8 string type.
    */
   DTYPE_UTF8 = 3,
   /**
-   * Variable-length binary data type
+   * Variable-length binary data type.
    */
   DTYPE_BINARY = 4,
   /**
-   * Nested struct type
+   * Nested struct type.
    */
   DTYPE_STRUCT = 5,
   /**
-   * Nested list type
+   * Nested list type.
    */
   DTYPE_LIST = 6,
   /**
-   * User-defined extension type
+   * User-defined extension type.
    */
   DTYPE_EXTENSION = 7,
   /**
-   * Decimal type with fixed precision and scale
+   * Decimal type with fixed precision and scale.
    */
   DTYPE_DECIMAL = 8,
+  /**
+   * Nested fixed-size list type.
+   */
+  DTYPE_FIXED_SIZE_LIST = 9,
 } vx_dtype_variant;
 
 /**
@@ -139,8 +143,27 @@ typedef enum {
 /**
  * The logical types of elements in Vortex arrays.
  *
- * Vortex arrays preserve a single logical type, while the encodings allow for multiple
- * physical ways to encode that type.
+ * `DType` represents the different logical data types that can be represented in a Vortex array.
+ *
+ * This is different from physical types, which represent the actual layout of data (compressed or
+ * uncompressed). The set of physical types/formats (or data layout) is surjective into the set of
+ * logical types (or in other words, all physical types map to a single logical type).
+ *
+ * Note that a `DType` represents the logical type of the elements in the `Array`s, **not** the
+ * logical type of the `Array` itself.
+ *
+ * For example, an array with [`DType::Primitive`]([`I32`], [`NonNullable`]) could be physically
+ * encoded as any of the following:
+ *
+ * - A flat array of `i32` values.
+ * - A run-length encoded sequence.
+ * - Dictionary encoded values with bitpacked codes.
+ *
+ * All of these physical encodings preserve the same logical [`I32`] type, even if the physical
+ * data is different.
+ *
+ * [`I32`]: PType::I32
+ * [`NonNullable`]: Nullability::NonNullable
  */
 typedef struct DType DType;
 
@@ -174,6 +197,17 @@ typedef struct vx_array_iterator vx_array_iterator;
 /**
  * The `sink` interface is used to collect array chunks and place them into a resource
  * (e.g. an array stream or file (`vx_array_sink_open_file`)).
+ *
+ * ## Thread Safety
+ *
+ * This struct is **not** thread-safe for concurrent operations. While the underlying
+ * `Sender` is thread-safe, the FFI wrapper should only be accessed from a single thread
+ * to avoid race conditions between `push` and `close` operations. The `close` operation
+ * consumes the sink, making any subsequent operations undefined behavior.
+ *
+ * Multiple threads may safely hold pointers to the same sink, but only one thread should
+ * perform operations on it at a time, and coordination is required to ensure `close` is
+ * called exactly once after all `push` operations are complete.
  */
 typedef struct vx_array_sink vx_array_sink;
 
@@ -191,18 +225,12 @@ typedef struct vx_dtype vx_dtype;
 typedef struct vx_error vx_error;
 
 /**
- * A handle to a Vortex file encapsulating ther footer and logic for instantiating a reader.
+ * A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.
  */
 typedef struct vx_file vx_file;
 
 /**
- * A Vortex session stores registries of extensible types, various caches, and other
- * top-level configuration.
- *
- * Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
- *
- * Multiple sessions may be created in a single process, and individual arrays are not tied to a
- * specific session.
+ * A handle to a Vortex session.
  */
 typedef struct vx_session vx_session;
 
@@ -290,6 +318,12 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Attempt to shutdown the shared tokio runtime if no sessions are active.
+ * May block indefinitely if the runtime is still running tasks.
+ */
+void vx_try_shutdown_runtime(void);
+
+/**
  * Clone a borrowed [`vx_array`], returning an owned [`vx_array`].
  *
  *
@@ -311,6 +345,7 @@ size_t vx_array_len(const vx_array *array);
  * Get the [`crate::vx_dtype`] of the array.
  *
  * The returned pointer is valid as long as the array is valid.
+ * Do NOT free the returned dtype pointer - it shares the lifetime of the array.
  */
 const vx_dtype *vx_array_dtype(const vx_array *array);
 
@@ -319,9 +354,9 @@ const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, vx_err
 const vx_array *vx_array_slice(const vx_array *array,
                                uint32_t start,
                                uint32_t stop,
-                               vx_error **error_out);
+                               vx_error **_error_out);
 
-bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **error_out);
+bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **_error_out);
 
 uint32_t vx_array_null_count(const vx_array *array, vx_error **error_out);
 
@@ -443,6 +478,15 @@ const vx_dtype *vx_dtype_new_binary(bool is_nullable);
 const vx_dtype *vx_dtype_new_list(const vx_dtype *element, bool is_nullable);
 
 /**
+ * Create a new fixed-size list data type.
+ *
+ * Takes ownership of the `element` pointer.
+ */
+const vx_dtype *vx_dtype_new_fixed_size_list(const vx_dtype *element,
+                                             uint32_t size,
+                                             bool is_nullable);
+
+/**
  * Create a new struct data type.
  *
  * Takes ownership of the `struct_dtype` pointer.
@@ -465,38 +509,72 @@ vx_dtype_variant vx_dtype_get_variant(const vx_dtype *dtype);
 bool vx_dtype_is_nullable(const vx_dtype *dtype);
 
 /**
- * Return the [`vx_ptype`] of a primitive data type.
+ * Returns the [`vx_ptype`] of a primitive.
  */
 vx_ptype vx_dtype_primitive_ptype(const vx_dtype *dtype);
 
 /**
- * Return the precision of a decimal data type.
+ * Returns the precision of a decimal.
  */
 uint8_t vx_dtype_decimal_precision(const vx_dtype *dtype);
 
 /**
- * Return the scale of a decimal data type.
+ * Returns the scale of a decimal.
  */
 int8_t vx_dtype_decimal_scale(const vx_dtype *dtype);
 
 /**
- * Return a borrowed reference to the [`vx_struct_fields`] of a struct data type.
+ * Return a borrowed reference to the [`vx_struct_fields`] of a struct.
+ *
+ * The returned pointer is valid as long as the struct dtype is valid.
+ * Do NOT free the returned pointer - it shares the lifetime of the struct dtype.
  */
 const vx_struct_fields *vx_dtype_struct_dtype(const vx_dtype *dtype);
 
 /**
- * Return a borrowed reference to the `element` typee of a list data type.
+ * Returns the element type of a list.
+ *
+ * The returned pointer is valid as long as the list dtype is valid.
+ * Do NOT free the returned dtype pointer - it shares the lifetime of the list dtype.
  */
 const vx_dtype *vx_dtype_list_element(const vx_dtype *dtype);
 
+/**
+ * Returns the element type of a fixed-size list.
+ *
+ * The returned pointer is valid as long as the fixed-size list dtype is valid.
+ * Do NOT free the returned dtype pointer - it shares the lifetime of the fixed-size list dtype.
+ */
+const vx_dtype *vx_dtype_fixed_size_list_element(const vx_dtype *dtype);
+
+/**
+ * Returns the size of a fixed-size list.
+ */
+uint32_t vx_dtype_fixed_size_list_size(const vx_dtype *dtype);
+
+/**
+ * Checks if the type is time.
+ */
 bool vx_dtype_is_time(const DType *dtype);
 
-bool vx_dype_is_date(const DType *dtype);
+/**
+ * Checks if the type is a date.
+ */
+bool vx_dtype_is_date(const DType *dtype);
 
+/**
+ * Checks if the type is a timestamp.
+ */
 bool vx_dtype_is_timestamp(const DType *dtype);
 
+/**
+ * Returns the time unit, assuming the type is time.
+ */
 uint8_t vx_dtype_time_unit(const DType *dtype);
 
+/**
+ * Returns the time zone, assuming the type is time.
+ */
 void vx_dtype_time_zone(const DType *dtype, void *dst, int *len);
 
 /**
@@ -505,7 +583,10 @@ void vx_dtype_time_zone(const DType *dtype, void *dst, int *len);
 void vx_error_free(vx_error *ptr);
 
 /**
- * Returns a borrowed reference to the error message from the given Vortex error.
+ * Returns the error message from the given Vortex error.
+ *
+ * The returned pointer is valid as long as the error is valid.
+ * Do NOT free the returned string pointer - it shares the lifetime of the error.
  */
 const vx_string *vx_error_get_message(const vx_error *error);
 
@@ -534,7 +615,10 @@ void vx_file_write_array(const char *path, const vx_array *array, vx_error **err
 uint64_t vx_file_row_count(const vx_file *file);
 
 /**
- * Return a borrowed reference to the DType of the file.
+ * Return the DType of the file.
+ *
+ * The returned pointer is valid as long as the file is valid.
+ * Do NOT free the returned dtype pointer - it shares the lifetime of the file.
  */
 const vx_dtype *vx_file_dtype(const vx_file *file);
 
@@ -644,6 +728,10 @@ uint64_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
 
 /**
  * Return a borrowed reference to the name of the field at the given index.
+ *
+ * The returned pointer is valid as long as the struct fields is valid.
+ * Do NOT free the returned string pointer - it shares the lifetime of the struct fields.
+ * Returns null if the index is out of bounds.
  */
 const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size_t idx);
 
@@ -652,6 +740,8 @@ const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size
  *
  * The return type is owned since struct dtypes can be lazily parsed from a binary format, in
  * which case it's not possible to return a borrowed reference to the field dtype.
+ *
+ * Returns null if the index is out of bounds or if the field dtype cannot be parsed.
  */
 const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, uint64_t idx);
 

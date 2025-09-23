@@ -2,6 +2,12 @@ name: "Setup Rust"
 description: "Toolchain setup and Initial compilation"
 
 inputs:
+  toolchain:
+    description: "optional override for the toolchain version (e.g. nightly)"
+    required: false
+  components:
+    description: "optional override for the components to install for the step (e.g. clippy, rustfmt, miri)"
+    required: false
   targets:
     description: "optional targets override (e.g. wasm32-unknown-unknown)"
     required: false
@@ -22,9 +28,9 @@ runs:
       uses: dtolnay/rust-toolchain@master
       if: steps.rustup-cache.outputs.cache-hit != 'true'
       with:
-        toolchain: "${{ steps.rust-version.outputs.version }}"
+        toolchain: "${{ inputs.toolchain || steps.rust-version.outputs.version }}"
         targets: "${{inputs.targets || ''}}"
-        components: clippy, rustfmt, miri, llvm-tools-preview
+        components: "${{ inputs.components || 'clippy, rustfmt' }}"
 
     - name: Rust Dependency Cache
       uses: Swatinem/rust-cache@v2

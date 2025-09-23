@@ -28,6 +28,7 @@ impl FilterKernel for PrimitiveVTable {
                 match_each_native_ptype!(array.ptype(), |T| {
                     let values =
                         filter_primitive_indices(array.as_slice::<T>(), indices.iter().copied());
+
                     Ok(PrimitiveArray::new(values, validity).into_array())
                 })
             }
@@ -38,6 +39,7 @@ impl FilterKernel for PrimitiveVTable {
                         mask.true_count(),
                         slices.iter().copied(),
                     );
+
                     Ok(PrimitiveArray::new(values, validity).into_array())
                 })
             }
@@ -69,12 +71,15 @@ fn filter_primitive_slices<T: Clone>(
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod test {
     use itertools::Itertools;
+    use rstest::rstest;
     use vortex_mask::Mask;
 
     use crate::arrays::primitive::PrimitiveArray;
     use crate::canonical::ToCanonical;
+    use crate::compute::conformance::filter::{LARGE_SIZE, MEDIUM_SIZE, test_filter_conformance};
     use crate::compute::filter;
 
     #[test]
@@ -84,8 +89,7 @@ mod test {
 
         let filtered = filter(arr.as_ref(), &Mask::from_iter(mask))
             .unwrap()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         assert_eq!(
             filtered.len(),
             mask.iter().filter(|x| **x).collect_vec().len()
@@ -100,5 +104,18 @@ mod test {
                 .map(|m| rust_arr[m.0])
                 .collect_vec()
         )
+    }
+
+    #[rstest]
+    #[case(PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]))]
+    #[case(PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]))]
+    #[case(PrimitiveArray::from_iter([42u64]))]
+    #[case(PrimitiveArray::from_iter(0..MEDIUM_SIZE as i32))]
+    #[case(PrimitiveArray::from_option_iter((0..MEDIUM_SIZE).map(|i| if i % 3 == 0 { None } else { Some(i as i64) })))]
+    #[case(PrimitiveArray::from_iter(0..LARGE_SIZE as u32))]
+    #[case(PrimitiveArray::from_iter([0.1f32, 0.2, 0.3, 0.4, 0.5]))]
+    #[case(PrimitiveArray::from_option_iter([Some(1.1f64), None, Some(2.2), Some(3.3), None]))]
+    fn test_filter_primitive_conformance(#[case] array: PrimitiveArray) {
+        test_filter_conformance(array.as_ref());
     }
 }

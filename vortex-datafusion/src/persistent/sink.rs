@@ -5,18 +5,20 @@ use std::any::Any;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use arrow_schema::SchemaRef;
 use async_trait::async_trait;
-use datafusion::arrow::datatypes::SchemaRef;
-use datafusion::common::DataFusionError;
-use datafusion::common::runtime::SpawnedTask;
-use datafusion::datasource::file_format::write::demux::DemuxedStreamReceiver;
-use datafusion::datasource::physical_plan::{FileSink, FileSinkConfig};
-use datafusion::datasource::sink::DataSink;
-use datafusion::execution::{SendableRecordBatchStream, TaskContext};
-use datafusion::physical_plan::metrics::MetricsSet;
-use datafusion::physical_plan::{DisplayAs, DisplayFormatType};
+use datafusion_common::{DataFusionError, Result as DFResult};
+use datafusion_common_runtime::{JoinSet, SpawnedTask};
+use datafusion_datasource::file_sink_config::{FileSink, FileSinkConfig};
+use datafusion_datasource::sink::DataSink;
+use datafusion_datasource::write::demux::DemuxedStreamReceiver;
+use datafusion_datasource::write::get_writer_schema;
+use datafusion_execution::{SendableRecordBatchStream, TaskContext};
+use datafusion_physical_plan::metrics::MetricsSet;
+use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
 use object_store::ObjectStore;
+use object_store::path::Path;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
@@ -24,6 +26,7 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
 use vortex::file::VortexWriteOptions;
+use vortex::io::{ObjectStoreWriter, VortexWrite};
 use vortex::stream::ArrayStreamAdapter;
 
 pub struct VortexSink {
@@ -74,7 +77,7 @@ impl DataSink for VortexSink {
         &self,
         data: SendableRecordBatchStream,
         context: &Arc<TaskContext>,
-    ) -> datafusion::common::Result<u64> {
+    ) -> DFResult<u64> {
         FileSink::write_all(self, data, context).await
     }
 }
@@ -88,37 +91,76 @@ impl FileSink for VortexSink {
     async fn spawn_writer_tasks_and_join(
         &self,
         _context: &Arc<TaskContext>,
-        demux_task: SpawnedTask<datafusion::common::Result<()>>,
+        demux_task: SpawnedTask<DFResult<()>>,
         mut file_stream_rx: DemuxedStreamReceiver,
         object_store: Arc<dyn ObjectStore>,
-    ) -> datafusion::common::Result<u64> {
+    ) -> DFResult<u64> {
         // This is a hack
         let row_counter = Arc::new(AtomicU64::new(0));
 
+        let mut file_write_tasks: JoinSet<DFResult<Path>> = JoinSet::new();
+
         // TODO(adamg):
-        // 1. We only write only file at a time
-        // 2. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
+        // 1. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
         while let Some((path, rx)) = file_stream_rx.recv().await {
             let row_counter = row_counter.clone();
-            let stream = ReceiverStream::new(rx).map(move |rb| {
-                row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
-                VortexResult::Ok(ArrayRef::from_arrow(rb, false))
-            });
-            let dtype = DType::from_arrow(self.config.output_schema.as_ref());
-            let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
+            let object_store = object_store.clone();
+            let writer_schema = get_writer_schema(&self.config);
+            let dtype = DType::from_arrow(writer_schema);
 
-            VortexWriteOptions::default()
-                .write_object_store(&object_store, &path, stream_adapter)
-                .await
-                .map_err(|e| {
-                    DataFusionError::Execution(format!("Failed to write Vortex file: {e}"))
+            // We need to spawn work because there's a dependency between the different files. If one file has too many batches buffered,
+            // the demux task might deadlock itself.
+            file_write_tasks.spawn(async move {
+                let stream = ReceiverStream::new(rx).map(move |rb| {
+                    row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
+                    VortexResult::Ok(ArrayRef::from_arrow(rb, false))
+                });
+
+                let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
+
+                let mut sink = ObjectStoreWriter::new(object_store.clone(), &path)
+                    .await
+                    .map_err(|e| {
+                        DataFusionError::Execution(format!(
+                            "Failed to create ObjectStoreWriter: {e}"
+                        ))
+                    })?;
+
+                VortexWriteOptions::default()
+                    .write(&mut sink, stream_adapter)
+                    .await
+                    .map_err(|e| {
+                        DataFusionError::Execution(format!("Failed to write Vortex file: {e}"))
+                    })?;
+
+                sink.shutdown().await.map_err(|e| {
+                    DataFusionError::Execution(format!("Failed to shutdown Vortex writer: {e}"))
                 })?;
+
+                Ok(path)
+            });
+        }
+
+        while let Some(result) = file_write_tasks.join_next().await {
+            match result {
+                Ok(path) => {
+                    let path = path?;
+                    tracing::info!(path = %path, "Successfully written file");
+                }
+                Err(e) => {
+                    if e.is_panic() {
+                        std::panic::resume_unwind(e.into_panic());
+                    } else {
+                        unreachable!();
+                    }
+                }
+            }
         }
 
         demux_task
             .join_unwind()
             .await
-            .map_err(DataFusionError::ExecutionJoin)??;
+            .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))??;
 
         Ok(row_counter.load(Ordering::SeqCst))
     }
@@ -126,14 +168,20 @@ impl FileSink for VortexSink {
 
 #[cfg(test)]
 mod tests {
+
     use std::sync::Arc;
 
+    use arrow_schema::{DataType, Field, Schema};
+    use datafusion::arrow::array::{Int8Array, RecordBatch};
     use datafusion::datasource::DefaultTableSource;
     use datafusion::execution::SessionStateBuilder;
     use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
     use datafusion::prelude::SessionContext;
-    use datafusion::scalar::ScalarValue;
+    use datafusion_common::ScalarValue;
+    use datafusion_datasource::file_format::format_as_file_type;
+    use rstest::rstest;
     use tempfile::TempDir;
+    use walkdir::WalkDir;
 
     use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
 
@@ -141,7 +189,8 @@ mod tests {
     async fn test_insert_into() {
         let dir = TempDir::new().unwrap();
 
-        let factory = VortexFormatFactory::default();
+        let factory = VortexFormatFactory::new();
+
         let mut session_state_builder = SessionStateBuilder::new().with_default_features();
         register_vortex_format_factory(factory, &mut session_state_builder);
         let session = SessionContext::new_with_state(session_state_builder.build());
@@ -150,7 +199,7 @@ mod tests {
             .sql(&format!(
                 "CREATE EXTERNAL TABLE my_tbl \
                     (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
-                STORED AS vortex 
+                STORED AS vortex \
                 LOCATION '{}/';",
                 dir.path().to_str().unwrap()
             ))
@@ -208,5 +257,165 @@ mod tests {
                 .unwrap(),
             2
         );
+    }
+
+    /// Reproduction by <https://github.com/vortex-data/vortex/issues/4315>.
+    #[rstest]
+    #[case(1000, 1)]
+    #[case(40_961, 4)]
+    #[case(1_000_000, 4)]
+    #[tokio::test]
+    async fn test_write_large_batch(
+        #[case] entries: usize,
+        #[case] expected_files: usize,
+    ) -> anyhow::Result<()> {
+        use datafusion::arrow::array::Int64Array;
+
+        let dir = TempDir::new()?;
+
+        let factory = VortexFormatFactory::new();
+
+        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
+        register_vortex_format_factory(factory, &mut session_state_builder);
+        let session = SessionContext::new_with_state(session_state_builder.build());
+
+        let data = session.read_batch(RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("a", DataType::Int8, false)])),
+            vec![Arc::new(Int8Array::from(vec![0i8; entries]))],
+        )?)?;
+
+        let logical_plan = LogicalPlanBuilder::copy_to(
+            data.logical_plan().clone(),
+            dir.path().to_str().unwrap().to_string(),
+            format_as_file_type(Arc::new(VortexFormatFactory::new())),
+            Default::default(),
+            vec![],
+        )?
+        .build()?;
+
+        session
+            .execute_logical_plan(logical_plan)
+            .await?
+            .collect()
+            .await?;
+
+        // Validate the output by reading back the written files
+        session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE written_data \
+                    (a TINYINT NOT NULL) \
+                STORED AS vortex \
+                LOCATION '{}/';",
+                dir.path().to_str().unwrap()
+            ))
+            .await?;
+
+        let result = session
+            .sql("SELECT COUNT(*) as count FROM written_data")
+            .await?
+            .collect()
+            .await?;
+
+        assert_eq!(result.len(), 1);
+        let count_batch = &result[0];
+        assert_eq!(count_batch.num_rows(), 1);
+
+        let count_value = count_batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0);
+
+        assert_eq!(
+            count_value, entries as i64,
+            "Expected {} entries, but found {}",
+            entries, count_value
+        );
+
+        let all_data = session
+            .sql("SELECT a FROM written_data")
+            .await?
+            .collect()
+            .await?;
+
+        let mut total_rows = 0;
+        for batch in all_data {
+            let col = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int8Array>()
+                .unwrap();
+
+            for i in 0..batch.num_rows() {
+                assert_eq!(
+                    col.value(i),
+                    0i8,
+                    "Expected value 0 at row {}, but found {}",
+                    total_rows + i,
+                    col.value(i)
+                );
+            }
+            total_rows += batch.num_rows();
+        }
+
+        assert_eq!(
+            total_rows, entries,
+            "Total rows read ({}) doesn't match expected entries ({})",
+            total_rows, entries
+        );
+
+        let read_dir = std::fs::read_dir(dir.path())?;
+        assert_eq!(
+            read_dir.count(),
+            expected_files,
+            "Expected {expected_files} files for {entries} values"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_write_partitioned() -> anyhow::Result<()> {
+        let dir = TempDir::new()?;
+        let data_dir = dir.path().to_str().unwrap();
+
+        let factory: VortexFormatFactory = VortexFormatFactory::new();
+        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
+        register_vortex_format_factory(factory, &mut session_state_builder);
+        let session = SessionContext::new_with_state(session_state_builder.build());
+
+        let _ = session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE my_tbl \
+                (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
+                STORED AS vortex \
+                LOCATION '{data_dir}' \
+                PARTITIONED BY (c1);"
+            ))
+            .await?;
+
+        session
+            .sql("INSERT INTO my_tbl (c1, c2) VALUES ('world', 24), ('world', 25), ('hello', 42);")
+            .await?
+            .collect()
+            .await?;
+
+        let table = session.table("my_tbl").await?;
+        assert_eq!(table.count().await?, 3);
+
+        for dir in WalkDir::new(data_dir)
+            .into_iter()
+            .filter_entry(|e| e.path().is_dir())
+        {
+            let dir = dir?;
+            if let Ok(path) = dir.path().strip_prefix(data_dir)
+                && !path.as_os_str().is_empty()
+            {
+                assert!(path.starts_with("c1=hello") || path.starts_with("c1=world"),);
+            }
+        }
+
+        Ok(())
     }
 }

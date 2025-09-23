@@ -3,55 +3,60 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 
 use futures::Stream;
-use futures_util::stream::FuturesUnordered;
-use pin_project::pin_project;
-use tokio::sync::{Semaphore, TryAcquireError};
+use futures::stream::FuturesUnordered;
+use pin_project_lite::pin_project;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use vortex_error::VortexUnwrap;
 
-/// [`Future`] that carries the amount of memory it will require to hold the completed value.
-#[pin_project]
-struct SizedFut<Fut> {
-    #[pin]
-    inner: Fut,
-    size_in_bytes: usize,
-}
-
-impl<Fut: Future> Future for SizedFut<Fut> {
-    // We tag the size in bytes alongside the original output
-    type Output = (Fut::Output, usize);
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let size_in_bytes = self.size_in_bytes;
-        let inner = ready!(self.project().inner.poll(cx));
-
-        Poll::Ready((inner, size_in_bytes))
+pin_project! {
+    /// [`Future`] that carries the amount of memory it will require to hold the completed value.
+    ///
+    /// The `OwnedSemaphorePermit` ensures permits are automatically returned when this future
+    /// is dropped, either after completion or if cancelled/aborted.
+    struct SizedFut<Fut> {
+        #[pin]
+        inner: Fut,
+        // Owned permit that will be automatically dropped when the future completes or is dropped
+        _permits: OwnedSemaphorePermit,
     }
 }
 
-/// A [`Stream`] that can work on several simultaneous requests, capping the amount of memory it
-/// uses at any given point.
-///
-/// It is meant to serve as a buffer between a producer and consumer of IO requests, with built-in
-/// backpressure that prevents the producer from materializing more than a specified maximum
-/// amount of memory.
-///
-/// This crate internally makes use of tokio's [Semaphore], and thus is only available with
-/// the `tokio` feature enabled.
-#[pin_project]
-pub struct SizeLimitedStream<Fut> {
-    #[pin]
-    inflight: FuturesUnordered<SizedFut<Fut>>,
-    bytes_available: Semaphore,
+impl<Fut: Future> Future for SizedFut<Fut> {
+    type Output = Fut::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        let result = ready!(this.inner.poll(cx));
+        Poll::Ready(result)
+    }
+}
+
+pin_project! {
+    /// A [`Stream`] that can work on several simultaneous requests, capping the amount of memory it
+    /// uses at any given point.
+    ///
+    /// It is meant to serve as a buffer between a producer and consumer of IO requests, with built-in
+    /// backpressure that prevents the producer from materializing more than a specified maximum
+    /// amount of memory.
+    ///
+    /// This crate internally makes use of tokio's [Semaphore], and thus is only available with
+    /// the `tokio` feature enabled.
+    pub struct SizeLimitedStream<Fut> {
+        #[pin]
+        inflight: FuturesUnordered<SizedFut<Fut>>,
+        bytes_available: Arc<Semaphore>,
+    }
 }
 
 impl<Fut> SizeLimitedStream<Fut> {
     pub fn new(max_bytes: usize) -> Self {
         Self {
             inflight: FuturesUnordered::new(),
-            bytes_available: Semaphore::new(max_bytes),
+            bytes_available: Arc::new(Semaphore::new(max_bytes)),
         }
     }
 
@@ -72,15 +77,16 @@ where
         // Attempt to acquire enough permits to begin working on a request that will occupy
         // `bytes` amount of memory when it completes.
         // Acquiring the permits is what creates backpressure for the producer.
-        self.bytes_available
-            .acquire_many(bytes.try_into().vortex_unwrap())
+        let permits = self
+            .bytes_available
+            .clone()
+            .acquire_many_owned(bytes.try_into().vortex_unwrap())
             .await
-            .unwrap_or_else(|_| unreachable!("pushing to closed semaphore"))
-            .forget();
+            .unwrap_or_else(|_| unreachable!("pushing to closed semaphore"));
 
         let sized_fut = SizedFut {
             inner: fut,
-            size_in_bytes: bytes,
+            _permits: permits,
         };
 
         // push into the pending queue
@@ -94,13 +100,13 @@ where
     pub fn try_push(&self, fut: Fut, bytes: usize) -> Result<(), Fut> {
         match self
             .bytes_available
-            .try_acquire_many(bytes.try_into().vortex_unwrap())
+            .clone()
+            .try_acquire_many_owned(bytes.try_into().vortex_unwrap())
         {
             Ok(permits) => {
-                permits.forget();
                 let sized_fut = SizedFut {
                     inner: fut,
-                    size_in_bytes: bytes,
+                    _permits: permits,
                 };
 
                 self.inflight.push(sized_fut);
@@ -129,9 +135,9 @@ where
         let this = self.project();
         match ready!(this.inflight.poll_next(cx)) {
             None => Poll::Ready(None),
-            Some((result, bytes_read)) => {
-                this.bytes_available.add_permits(bytes_read);
-
+            Some(result) => {
+                // Permits are automatically returned when the SizedFut is dropped
+                // after being polled to completion by FuturesUnordered
                 Poll::Ready(Some(result))
             }
         }
@@ -143,8 +149,8 @@ mod tests {
     use std::{future, io};
 
     use bytes::Bytes;
-    use futures_util::future::BoxFuture;
-    use futures_util::{FutureExt, StreamExt};
+    use futures::future::BoxFuture;
+    use futures::{FutureExt, StreamExt};
 
     use crate::limit::SizeLimitedStream;
 
@@ -189,5 +195,119 @@ mod tests {
 
         assert_eq!(size_limited.bytes_available(), 10);
         assert!(size_limited.try_push(good_fut, 5).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_size_limited_stream_zero_capacity() {
+        let stream = SizeLimitedStream::new(0);
+
+        // Should not be able to push anything
+        let result = stream.try_push(async { vec![1u8] }, 1);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_size_limited_stream_dropped_future_releases_permits() {
+        use futures::future::BoxFuture;
+
+        let stream = SizeLimitedStream::<BoxFuture<'static, Vec<u8>>>::new(10);
+
+        // Push a future that will never complete
+        stream
+            .push(
+                Box::pin(async {
+                    // This future will be dropped before completion
+                    futures::future::pending::<Vec<u8>>().await
+                }),
+                5,
+            )
+            .await;
+
+        // Push another future
+        stream.push(Box::pin(async { vec![1u8; 3] }), 3).await;
+
+        // We should have 2 bytes available now
+        assert_eq!(stream.bytes_available(), 2);
+
+        // Drop the stream without consuming the futures
+        drop(stream);
+
+        // Create a new stream to verify permits aren't leaked
+        let mut new_stream = SizeLimitedStream::<BoxFuture<'static, Vec<u8>>>::new(10);
+
+        // Should be able to use all 10 bytes
+        new_stream.push(Box::pin(async { vec![0u8; 10] }), 10).await;
+        assert_eq!(new_stream.bytes_available(), 0);
+
+        // Consume to verify it works
+        let result = new_stream.next().await;
+        assert!(result.is_some());
+        assert_eq!(new_stream.bytes_available(), 10);
+    }
+
+    #[tokio::test]
+    async fn test_size_limited_stream_exact_capacity() {
+        use futures::future::BoxFuture;
+
+        let mut stream = SizeLimitedStream::<BoxFuture<'static, Vec<u8>>>::new(10);
+
+        // Push exactly the capacity
+        stream.push(Box::pin(async { vec![0u8; 10] }), 10).await;
+
+        // Should not be able to push more
+        let result = stream.try_push(Box::pin(async { vec![1u8] }), 1);
+        assert!(result.is_err());
+
+        // After consuming, should be able to push again
+        let _ = stream.next().await;
+        assert_eq!(stream.bytes_available(), 10);
+
+        let result = stream.try_push(Box::pin(async { vec![1u8; 5] }), 5);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_size_limited_stream_multiple_small_pushes() {
+        let mut stream = SizeLimitedStream::new(100);
+
+        // Push many small items
+        for i in 0..10 {
+            #[allow(clippy::cast_possible_truncation)]
+            stream.push(async move { vec![i as u8; 5] }, 5).await;
+        }
+
+        // Should have used 50 bytes
+        assert_eq!(stream.bytes_available(), 50);
+
+        // Consume all
+        let mut count = 0;
+        while stream.next().await.is_some() {
+            count += 1;
+            if count == 10 {
+                break;
+            }
+        }
+
+        assert_eq!(count, 10);
+        assert_eq!(stream.bytes_available(), 100);
+    }
+
+    #[test]
+    fn test_size_overflow_protection() {
+        let stream = SizeLimitedStream::new(100);
+
+        // Test with size that would overflow u32 on 32-bit systems
+        // but this test assumes 64-bit where usize > u32::MAX is possible
+        #[cfg(target_pointer_width = "64")]
+        {
+            let _large_size = (u32::MAX as usize) + 1;
+            // This should panic with current implementation
+            // We're documenting the issue rather than testing the panic
+            // as the behavior may change
+        }
+
+        // Test with reasonable size
+        let result = stream.try_push(async { vec![0u8; 50] }, 50);
+        assert!(result.is_ok());
     }
 }

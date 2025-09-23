@@ -11,21 +11,23 @@ homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-readme = { workspace = true }
+readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 prost = { workspace = true }
 prost-types = { workspace = true }
 
 [features]
+default = ["expr"]
 dtype = []
 expr = ["dtype", "scalar"]
 scalar = ["dtype"]
-
-default = ["expr"]
 
 [lints]
 workspace = true

@@ -46,13 +46,15 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
                 let decimal = self.0.as_decimal();
                 match decimal.decimal_value() {
                     None => Ok(py.None().into_pyobject(py)?),
-                    Some(value) => decimal_value_to_py(py, decimal_type.scale(), *value),
+                    Some(value) => decimal_value_to_py(py, decimal_type.scale(), value),
                 }
             }
             DType::Utf8(_) => self.0.as_utf8().value().map(PyVortex).into_pyobject(py),
             DType::Binary(_) => self.0.as_binary().value().map(PyVortex).into_pyobject(py),
             DType::Struct(..) => PyVortex(self.0.as_struct()).into_pyobject(py),
-            DType::List(..) => PyVortex(self.0.as_list()).into_pyobject(py),
+            DType::List(..) | DType::FixedSizeList(..) => {
+                PyVortex(self.0.as_list()).into_pyobject(py)
+            }
             DType::Extension(_) => PyVortex(&self.0.as_extension().storage()).into_pyobject(py),
         }
     }
@@ -88,8 +90,8 @@ impl<'py> IntoPyObject<'py> for PyVortex<StructScalar<'_>> {
         };
 
         let dict = PyDict::new(py);
-        for (child, name) in fields.iter().zip(self.0.names().iter()) {
-            dict.set_item(name.to_string(), PyVortex(child).into_pyobject(py)?)
+        for (child, name) in fields.zip(self.0.names().iter()) {
+            dict.set_item(name.to_string(), PyVortex(&child).into_pyobject(py)?)
                 .map_err(|e| vortex_err!("Failed to set item in dictionary {}", e))
                 .vortex_expect("Failed to set item in dictionary");
         }

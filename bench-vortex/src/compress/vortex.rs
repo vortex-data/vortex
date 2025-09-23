@@ -4,37 +4,31 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
-use arrow_array::ArrayRef;
 use bytes::Bytes;
-use futures::TryStreamExt;
-use tokio::runtime::Handle;
+use futures::{StreamExt, pin_mut};
 use vortex::Array;
-use vortex::arrow::IntoArrowArray;
-use vortex::error::VortexResult;
-use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 
 #[inline(never)]
 pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyhow::Result<u64> {
-    Ok(VortexWriteOptions::default()
-        .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
-            Handle::current(),
-        )))
-        .write(Cursor::new(buf), array.to_array_stream())
-        .await?
-        .position())
+    let mut cursor = Cursor::new(buf);
+    VortexWriteOptions::default()
+        .write(&mut cursor, array.to_array_stream())
+        .await?;
+    Ok(cursor.position())
 }
 
 #[inline(never)]
-pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<Vec<ArrayRef>> {
-    Ok(VortexOpenOptions::in_memory()
-        .open(buf)
-        .await?
-        .scan()?
-        .with_tokio_executor(Handle::current())
-        .into_array_stream()?
-        .try_collect::<Vec<_>>()
-        .await?
-        .into_iter()
-        .map(|a| a.into_arrow_preferred())
-        .collect::<VortexResult<Vec<_>>>()?)
+pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<usize> {
+    let scan = VortexOpenOptions::new().open_buffer(buf)?.scan()?;
+    let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
+
+    let stream = scan.into_record_batch_stream(schema)?;
+    pin_mut!(stream);
+
+    let mut nbytes = 0;
+    while let Some(batch) = stream.next().await {
+        nbytes += batch?.get_array_memory_size()
+    }
+    Ok(nbytes)
 }

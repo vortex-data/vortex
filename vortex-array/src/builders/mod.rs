@@ -9,7 +9,7 @@
 //! ## Example:
 //!
 //! ```
-//! use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
+//! use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
 //! use vortex_dtype::{DType, Nullability};
 //!
 //! // Create a new builder for string data.
@@ -22,42 +22,53 @@
 //!
 //! let strings = builder.finish();
 //!
-//! assert_eq!(strings.scalar_at(0).unwrap(), "a".into());
-//! assert_eq!(strings.scalar_at(1).unwrap(), "b".into());
-//! assert_eq!(strings.scalar_at(2).unwrap(), "c".into());
-//! assert_eq!(strings.scalar_at(3).unwrap(), "d".into());
+//! assert_eq!(strings.scalar_at(0), "a".into());
+//! assert_eq!(strings.scalar_at(1), "b".into());
+//! assert_eq!(strings.scalar_at(2), "c".into());
+//! assert_eq!(strings.scalar_at(3), "d".into());
 //! ```
+
+use std::any::Any;
+
+use vortex_dtype::{DType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_panic};
+use vortex_mask::Mask;
+use vortex_scalar::{Scalar, match_each_decimal_value_type};
+
+use crate::arrays::smallest_storage_type;
+use crate::canonical::Canonical;
+use crate::{Array, ArrayRef};
+
+mod lazy_null_builder;
+use lazy_null_builder::LazyNullBufferBuilder;
 
 mod bool;
 mod decimal;
 mod extension;
-mod lazy_validity_builder;
+mod fixed_size_list;
 mod list;
 mod null;
 mod primitive;
 mod struct_;
 mod varbinview;
 
-use std::any::Any;
-
 pub use bool::*;
 pub use decimal::*;
 pub use extension::*;
+pub use fixed_size_list::*;
 pub use list::*;
 pub use null::*;
 pub use primitive::*;
 pub use struct_::*;
 pub use varbinview::*;
-use vortex_dtype::{DType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_mask::Mask;
-use vortex_scalar::{
-    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, PrimitiveScalar, Scalar,
-    ScalarValue, StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
-};
 
-use crate::arrays::smallest_storage_type;
-use crate::{Array, ArrayRef};
+#[cfg(test)]
+mod tests;
+
+/// The default capacity for builders.
+///
+/// This is equal to the default capacity for Arrow Arrays.
+pub const DEFAULT_BUILDER_CAPACITY: usize = 1024;
 
 pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;
@@ -73,28 +84,96 @@ pub trait ArrayBuilder: Send {
     }
 
     /// Append a "zero" value to the array.
+    ///
+    /// Zero values are generally determined by [`Scalar::default_value`].
     fn append_zero(&mut self) {
         self.append_zeros(1)
     }
 
     /// Appends n "zero" values to the array.
+    ///
+    /// Zero values are generally determined by [`Scalar::default_value`].
     fn append_zeros(&mut self, n: usize);
 
     /// Append a "null" value to the array.
+    ///
+    /// Implementors should panic if this method is called on a non-nullable [`ArrayBuilder`].
     fn append_null(&mut self) {
         self.append_nulls(1)
     }
 
+    /// The inner part of `append_nulls`.
+    ///
+    /// # Safety
+    ///
+    /// The array builder must be nullable.
+    unsafe fn append_nulls_unchecked(&mut self, n: usize);
+
     /// Appends n "null" values to the array.
-    fn append_nulls(&mut self, n: usize);
+    ///
+    /// Implementors should panic if this method is called on a non-nullable [`ArrayBuilder`].
+    fn append_nulls(&mut self, n: usize) {
+        assert!(
+            self.dtype().is_nullable(),
+            "tried to append {n} nulls to a non-nullable array builder"
+        );
+
+        // SAFETY: We check above that the array builder is nullable.
+        unsafe {
+            self.append_nulls_unchecked(n);
+        }
+    }
+
+    /// Appends a default value to the array.
+    fn append_default(&mut self) {
+        self.append_defaults(1)
+    }
+
+    /// Appends n default values to the array.
+    ///
+    /// If the array builder is nullable, then this has the behavior of `self.append_nulls(n)`.
+    /// If the array builder is non-nullable, then it has the behavior of `self.append_zeros(n)`.
+    fn append_defaults(&mut self, n: usize) {
+        if self.dtype().is_nullable() {
+            self.append_nulls(n);
+        } else {
+            self.append_zeros(n);
+        }
+    }
+
+    /// A generic function to append a scalar to the builder.
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()>;
+
+    /// The inner part of `extend_from_array`.
+    ///
+    /// # Safety
+    ///
+    /// The array that must have an equal [`DType`] to the array builder's `DType` (with nullability
+    /// superset semantics).
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array);
 
     /// Extends the array with the provided array, canonicalizing if necessary.
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
+    ///
+    /// Implementors must validate that the passed in [`Array`] has the correct [`DType`].
+    fn extend_from_array(&mut self, array: &dyn Array) {
+        if !self.dtype().eq_with_nullability_superset(array.dtype()) {
+            vortex_panic!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype(),
+                array.dtype()
+            );
+        }
+
+        // SAFETY: We checked that the array had a valid `DType` above.
+        unsafe { self.extend_from_array_unchecked(array) }
+    }
 
     /// Ensure that the builder can hold at least `capacity` number of items
     fn ensure_capacity(&mut self, capacity: usize);
 
-    /// Override builders validity with the one provided
+    /// Override builders validity with the one provided.
+    ///
+    /// Note that this will have no effect on the final array if the array builder is non-nullable.
     fn set_validity(&mut self, validity: Mask);
 
     /// Constructs an Array from the builder components.
@@ -107,6 +186,15 @@ pub trait ArrayBuilder: Send {
     /// [PrimitiveBuilder]'s [vortex_buffer::BufferMut] does not match the number of validity bits,
     /// the PrimitiveBuilder's [Self::finish] will panic.
     fn finish(&mut self) -> ArrayRef;
+
+    /// Constructs a canonical array directly from the builder.
+    ///
+    /// This method provides a default implementation that creates an [`ArrayRef`] via `finish` and
+    /// then converts it to canonical form. Specific builders can override this with optimized
+    /// implementations that avoid the intermediate [`Array`] creation.
+    fn finish_into_canonical(&mut self) -> Canonical {
+        self.finish().to_canonical()
+    }
 }
 
 /// Construct a new canonical builder for the given [`DType`].
@@ -115,7 +203,7 @@ pub trait ArrayBuilder: Send {
 /// # Example
 ///
 /// ```
-/// use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
+/// use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
 /// use vortex_dtype::{DType, Nullability};
 ///
 /// // Create a new builder for string data.
@@ -128,10 +216,10 @@ pub trait ArrayBuilder: Send {
 ///
 /// let strings = builder.finish();
 ///
-/// assert_eq!(strings.scalar_at(0).unwrap(), "a".into());
-/// assert_eq!(strings.scalar_at(1).unwrap(), "b".into());
-/// assert_eq!(strings.scalar_at(2).unwrap(), "c".into());
-/// assert_eq!(strings.scalar_at(3).unwrap(), "d".into());
+/// assert_eq!(strings.scalar_at(0), "a".into());
+/// assert_eq!(strings.scalar_at(1), "b".into());
+/// assert_eq!(strings.scalar_at(2), "c".into());
+/// assert_eq!(strings.scalar_at(3), "d".into());
 /// ```
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
     match dtype {
@@ -166,97 +254,11 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             *n,
             capacity,
         )),
+        DType::FixedSizeList(elem_dtype, list_size, null) => Box::new(
+            FixedSizeListBuilder::with_capacity(elem_dtype.clone(), *list_size, *null, capacity),
+        ),
         DType::Extension(ext_dtype) => {
             Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
         }
     }
 }
-
-pub trait ArrayBuilderExt: ArrayBuilder {
-    /// A generic function to append a scalar value to the builder.
-    fn append_scalar_value(&mut self, value: ScalarValue) -> VortexResult<()> {
-        if value.is_null() {
-            self.append_null();
-            Ok(())
-        } else {
-            self.append_scalar(&Scalar::new(self.dtype().clone(), value))
-        }
-    }
-
-    /// A generic function to append a scalar to the builder.
-    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        if scalar.dtype() != self.dtype() {
-            vortex_bail!(
-                "Builder has dtype {:?}, scalar has {:?}",
-                self.dtype(),
-                scalar.dtype()
-            )
-        }
-        match scalar.dtype() {
-            DType::Null => self
-                .as_any_mut()
-                .downcast_mut::<NullBuilder>()
-                .ok_or_else(|| vortex_err!("Cannot append null scalar to non-null builder"))?
-                .append_null(),
-            DType::Bool(_) => self
-                .as_any_mut()
-                .downcast_mut::<BoolBuilder>()
-                .ok_or_else(|| vortex_err!("Cannot append bool scalar to non-bool builder"))?
-                .append_option(BoolScalar::try_from(scalar)?.value()),
-            DType::Primitive(ptype, ..) => {
-                match_each_native_ptype!(ptype, |P| {
-                    self.as_any_mut()
-                        .downcast_mut::<PrimitiveBuilder<P>>()
-                        .ok_or_else(|| {
-                            vortex_err!("Cannot append primitive scalar to non-primitive builder")
-                        })?
-                        .append_option(PrimitiveScalar::try_from(scalar)?.typed_value::<P>())
-                })
-            }
-            DType::Decimal(..) => {
-                let builder = self
-                    .as_any_mut()
-                    .downcast_mut::<DecimalBuilder>()
-                    .ok_or_else(|| {
-                        vortex_err!("Cannot append decimal scalar to non-decimal builder")
-                    })?;
-                match scalar.as_decimal().decimal_value() {
-                    None => builder.append_null(),
-                    Some(v) => match_each_decimal_value!(v, |dec_val| {
-                        builder.append_value(*dec_val);
-                    }),
-                }
-            }
-            DType::Utf8(_) => self
-                .as_any_mut()
-                .downcast_mut::<VarBinViewBuilder>()
-                .ok_or_else(|| vortex_err!("Cannot append utf8 scalar to non-utf8 builder"))?
-                .append_option(Utf8Scalar::try_from(scalar)?.value()),
-            DType::Binary(_) => self
-                .as_any_mut()
-                .downcast_mut::<VarBinViewBuilder>()
-                .ok_or_else(|| vortex_err!("Cannot append binary scalar to non-binary builder"))?
-                .append_option(BinaryScalar::try_from(scalar)?.value()),
-            DType::Struct(..) => self
-                .as_any_mut()
-                .downcast_mut::<StructBuilder>()
-                .ok_or_else(|| vortex_err!("Cannot append struct scalar to non-struct builder"))?
-                .append_value(StructScalar::try_from(scalar)?)?,
-            DType::List(..) => self
-                .as_any_mut()
-                .downcast_mut::<ListBuilder<u64>>()
-                .ok_or_else(|| vortex_err!("Cannot append list scalar to non-list builder"))?
-                .append_value(ListScalar::try_from(scalar)?)?,
-            DType::Extension(..) => self
-                .as_any_mut()
-                .downcast_mut::<ExtensionBuilder>()
-                .ok_or_else(|| {
-                    vortex_err!("Cannot append extension scalar to non-extension builder")
-                })?
-                .append_value(ExtScalar::try_from(scalar)?)?,
-        }
-        Ok(())
-    }
-}
-
-impl<T: ?Sized + ArrayBuilder> ArrayBuilderExt for T {}

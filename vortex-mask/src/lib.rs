@@ -8,13 +8,17 @@ mod eq;
 mod intersect_by_rank;
 mod iter_bools;
 
+#[cfg(test)]
+mod tests;
+
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
+use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use itertools::Itertools;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexResult, vortex_panic};
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {
@@ -28,6 +32,7 @@ pub enum AllOr<T> {
 
 impl<T> AllOr<T> {
     /// Returns the `Some` variant of the enum, or a default value.
+    #[inline]
     pub fn unwrap_or_else<F, G>(self, all_true: F, all_false: G) -> T
     where
         F: FnOnce() -> T,
@@ -43,6 +48,7 @@ impl<T> AllOr<T> {
 
 impl<T> AllOr<&T> {
     /// Clone the inner value.
+    #[inline]
     pub fn cloned(self) -> AllOr<T>
     where
         T: Clone,
@@ -117,22 +123,30 @@ pub struct MaskValues {
 impl MaskValues {
     /// Returns the length of the mask.
     #[inline]
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
 
+    /// Returns true if the mask is empty i.e., it's length is 0.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.buffer.is_empty()
+    }
+
     /// Returns the true count of the mask.
+    #[inline]
     pub fn true_count(&self) -> usize {
         self.true_count
     }
 
     /// Returns the boolean buffer representation of the mask.
+    #[inline]
     pub fn boolean_buffer(&self) -> &BooleanBuffer {
         &self.buffer
     }
 
     /// Returns the boolean value at a given index.
+    #[inline]
     pub fn value(&self, index: usize) -> bool {
         self.buffer.value(index)
     }
@@ -166,6 +180,7 @@ impl MaskValues {
 
     /// Constructs a slices vector from one of the other representations.
     #[allow(clippy::cast_possible_truncation)]
+    #[inline]
     pub fn slices(&self) -> &[(usize, usize)] {
         self.slices.get_or_init(|| {
             if self.true_count == self.len() {
@@ -177,6 +192,7 @@ impl MaskValues {
     }
 
     /// Return an iterator over either indices or slices of the mask based on a density threshold.
+    #[inline]
     pub fn threshold_iter(&self, threshold: f64) -> MaskIter<'_> {
         if self.density >= threshold {
             MaskIter::Slices(self.slices())
@@ -188,11 +204,13 @@ impl MaskValues {
 
 impl Mask {
     /// Create a new Mask where all values are set.
+    #[inline]
     pub fn new_true(length: usize) -> Self {
         Self::AllTrue(length)
     }
 
     /// Create a new Mask where no values are set.
+    #[inline]
     pub fn new_false(length: usize) -> Self {
         Self::AllFalse(length)
     }
@@ -262,6 +280,14 @@ impl Mask {
         });
         debug_assert_eq!(buf.len(), len);
         let true_count = len - false_count;
+
+        // Return optimized variants when appropriate
+        if false_count == 0 {
+            return Self::AllTrue(len);
+        }
+        if false_count == len {
+            return Self::AllFalse(len);
+        }
 
         Self::Values(Arc::new(MaskValues {
             buffer: buf.finish(),
@@ -354,13 +380,21 @@ impl Mask {
 
     /// Returns the length of the mask (not the number of true values).
     #[inline]
-    // It's confusing to provide is_empty, does it mean len == 0 or true_count == 0?
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
-        match &self {
+        match self {
             Self::AllTrue(len) => *len,
             Self::AllFalse(len) => *len,
             Self::Values(values) => values.len(),
+        }
+    }
+
+    /// Returns true if the mask is empty i.e., it's length is 0.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::AllTrue(len) => *len == 0,
+            Self::AllFalse(len) => *len == 0,
+            Self::Values(values) => values.is_empty(),
         }
     }
 
@@ -389,6 +423,7 @@ impl Mask {
     pub fn all_true(&self) -> bool {
         match &self {
             Self::AllTrue(_) => true,
+            Self::AllFalse(0) => true,
             Self::AllFalse(_) => false,
             Self::Values(values) => values.buffer.len() == values.true_count,
         }
@@ -415,6 +450,7 @@ impl Mask {
     /// ## Panics
     ///
     /// Panics if the index is out of bounds.
+    #[inline]
     pub fn value(&self, idx: usize) -> bool {
         match self {
             Mask::AllTrue(_) => true,
@@ -441,16 +477,20 @@ impl Mask {
     }
 
     /// Slice the mask.
-    pub fn slice(&self, offset: usize, length: usize) -> Self {
-        assert!(offset + length <= self.len());
+    #[inline]
+    pub fn slice(&self, range: Range<usize>) -> Self {
+        assert!(range.end <= self.len());
         match &self {
-            Self::AllTrue(_) => Self::new_true(length),
-            Self::AllFalse(_) => Self::new_false(length),
-            Self::Values(values) => Self::from_buffer(values.buffer.slice(offset, length)),
+            Self::AllTrue(_) => Self::new_true(range.len()),
+            Self::AllFalse(_) => Self::new_false(range.len()),
+            Self::Values(values) => {
+                Self::from_buffer(values.buffer.slice(range.start, range.len()))
+            }
         }
     }
 
     /// Return the boolean buffer representation of the mask.
+    #[inline]
     pub fn boolean_buffer(&self) -> AllOr<&BooleanBuffer> {
         match &self {
             Self::AllTrue(_) => AllOr::All,
@@ -461,6 +501,7 @@ impl Mask {
 
     /// Return a boolean buffer representation of the mask, allocating new buffers for all-true
     /// and all-false variants.
+    #[inline]
     pub fn to_boolean_buffer(&self) -> BooleanBuffer {
         match self {
             Self::AllTrue(l) => BooleanBuffer::new_set(*l),
@@ -470,6 +511,7 @@ impl Mask {
     }
 
     /// Returns an Arrow null buffer representation of the mask.
+    #[inline]
     pub fn to_null_buffer(&self) -> Option<NullBuffer> {
         match self {
             Mask::AllTrue(_) => None,
@@ -479,6 +521,7 @@ impl Mask {
     }
 
     /// Return the indices representation of the mask.
+    #[inline]
     pub fn indices(&self) -> AllOr<&[usize]> {
         match &self {
             Self::AllTrue(_) => AllOr::All,
@@ -488,6 +531,7 @@ impl Mask {
     }
 
     /// Return the slices representation of the mask.
+    #[inline]
     pub fn slices(&self) -> AllOr<&[(usize, usize)]> {
         match &self {
             Self::AllTrue(_) => AllOr::All,
@@ -497,6 +541,7 @@ impl Mask {
     }
 
     /// Return an iterator over either indices or slices of the mask based on a density threshold.
+    #[inline]
     pub fn threshold_iter(&self, threshold: f64) -> AllOr<MaskIter<'_>> {
         match &self {
             Self::AllTrue(_) => AllOr::All,
@@ -506,10 +551,12 @@ impl Mask {
     }
 
     /// Return [`MaskValues`] if the mask is not all true or all false.
+    #[inline]
     pub fn values(&self) -> Option<&MaskValues> {
-        match self {
-            Self::Values(values) => Some(values),
-            _ => None,
+        if let Self::Values(values) = self {
+            Some(values)
+        } else {
+            None
         }
     }
 
@@ -517,8 +564,8 @@ impl Mask {
     /// count of valid elements up to each index.
     ///
     /// This is O(n_rows).
-    pub fn valid_counts_for_indices(&self, indices: &[usize]) -> VortexResult<Vec<usize>> {
-        Ok(match self {
+    pub fn valid_counts_for_indices(&self, indices: &[usize]) -> Vec<usize> {
+        match self {
             Self::AllTrue(_) => indices.to_vec(),
             Self::AllFalse(_) => vec![0; indices.len()],
             Self::Values(values) => {
@@ -531,7 +578,7 @@ impl Mask {
                         idx += 1;
                         valid_count += bool_iter
                             .next()
-                            .ok_or_else(|| vortex_err!("Row indices exceed array length"))?
+                            .unwrap_or_else(|| vortex_panic!("Row indices exceed array length"))
                             as usize;
                     }
                     valid_counts.push(valid_count);
@@ -539,11 +586,14 @@ impl Mask {
 
                 valid_counts
             }
-        })
+        }
     }
 
     /// Limit the mask to the first `limit` true values
     pub fn limit(self, limit: usize) -> Self {
+        // Early return optimization: if we're asking for more true values than the total
+        // length of the mask, then even if all values were true, we couldn't exceed the
+        // limit, so return the original mask unchanged.
         if self.len() <= limit {
             return self;
         }
@@ -571,6 +621,32 @@ impl Mask {
             }
         }
     }
+
+    /// Concatenate multiple masks together into a single mask.
+    pub fn concat<'a>(masks: impl Iterator<Item = &'a Self>) -> VortexResult<Self> {
+        let masks: Vec<_> = masks.collect();
+        let len = masks.iter().map(|t| t.len()).sum();
+
+        if masks.iter().all(|t| t.all_true()) {
+            return Ok(Mask::AllTrue(len));
+        }
+
+        if masks.iter().all(|t| t.all_false()) {
+            return Ok(Mask::AllFalse(len));
+        }
+
+        let mut builder = BooleanBufferBuilder::new(len);
+
+        for mask in masks {
+            match mask {
+                Mask::AllTrue(n) => builder.append_n(*n, true),
+                Mask::AllFalse(n) => builder.append_n(*n, false),
+                Mask::Values(v) => builder.append_buffer(v.boolean_buffer()),
+            }
+        }
+
+        Ok(Mask::from_buffer(builder.finish()))
+    }
 }
 
 /// Iterator over the indices or slices of a mask.
@@ -582,12 +658,14 @@ pub enum MaskIter<'a> {
 }
 
 impl From<BooleanBuffer> for Mask {
+    #[inline]
     fn from(value: BooleanBuffer) -> Self {
         Self::from_buffer(value)
     }
 }
 
 impl FromIterator<bool> for Mask {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
         Self::from_buffer(BooleanBuffer::from_iter(iter))
     }
@@ -595,7 +673,10 @@ impl FromIterator<bool> for Mask {
 
 impl FromIterator<Mask> for Mask {
     fn from_iter<T: IntoIterator<Item = Mask>>(iter: T) -> Self {
-        let masks = iter.into_iter().collect::<Vec<_>>();
+        let masks = iter
+            .into_iter()
+            .filter(|m| !m.is_empty())
+            .collect::<Vec<_>>();
         let total_length = masks.iter().map(|v| v.len()).sum();
 
         // If they're all valid, then return a single validity.
@@ -619,97 +700,5 @@ impl FromIterator<Mask> for Mask {
             };
         }
         Self::from_buffer(buffer.finish())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn mask_all_true() {
-        let mask = Mask::new_true(5);
-        assert_eq!(mask.len(), 5);
-        assert_eq!(mask.true_count(), 5);
-        assert_eq!(mask.density(), 1.0);
-        assert_eq!(mask.indices(), AllOr::All);
-        assert_eq!(mask.slices(), AllOr::All);
-        assert_eq!(mask.boolean_buffer(), AllOr::All,);
-    }
-
-    #[test]
-    fn mask_all_false() {
-        let mask = Mask::new_false(5);
-        assert_eq!(mask.len(), 5);
-        assert_eq!(mask.true_count(), 0);
-        assert_eq!(mask.density(), 0.0);
-        assert_eq!(mask.indices(), AllOr::None);
-        assert_eq!(mask.slices(), AllOr::None);
-        assert_eq!(mask.boolean_buffer(), AllOr::None,);
-    }
-
-    #[test]
-    fn mask_from() {
-        let masks = [
-            Mask::from_indices(5, vec![0, 2, 3]),
-            Mask::from_slices(5, vec![(0, 1), (2, 4)]),
-            Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false])),
-        ];
-
-        for mask in &masks {
-            assert_eq!(mask.len(), 5);
-            assert_eq!(mask.true_count(), 3);
-            assert_eq!(mask.density(), 0.6);
-            assert_eq!(mask.indices(), AllOr::Some(&[0, 2, 3][..]));
-            assert_eq!(mask.slices(), AllOr::Some(&[(0, 1), (2, 4)][..]));
-            assert_eq!(
-                mask.boolean_buffer(),
-                AllOr::Some(&BooleanBuffer::from_iter([true, false, true, true, false]))
-            );
-        }
-    }
-
-    #[test]
-    fn limit_all_true_mask() {
-        let all_true = Mask::new_true(4);
-        let limited_mask = all_true.clone().limit(2);
-        assert_eq!(all_true.len(), limited_mask.len());
-        assert_eq!(limited_mask.true_count(), 2);
-        assert_eq!(
-            limited_mask.boolean_buffer(),
-            AllOr::Some(&BooleanBuffer::from_iter([true, true, false, false]))
-        );
-
-        let limited_mask = all_true.clone().limit(5);
-        assert_eq!(limited_mask, all_true);
-    }
-
-    #[test]
-    fn limit_mask_values() {
-        let original_mask = Mask::from_iter([true, true, false, true, false, true]);
-        let limited_mask = original_mask.clone().limit(2);
-
-        assert_eq!(
-            limited_mask.boolean_buffer(),
-            AllOr::Some(&BooleanBuffer::from_iter([
-                true, true, false, false, false, false
-            ]))
-        );
-        assert_eq!(limited_mask.true_count(), 2);
-
-        let limited_mask = original_mask.limit(3);
-
-        assert_eq!(
-            limited_mask.boolean_buffer(),
-            AllOr::Some(&BooleanBuffer::from_iter([
-                true, true, false, true, false, false
-            ]))
-        );
-        assert_eq!(limited_mask.true_count(), 3);
-
-        let original_mask = Mask::from_iter([true, true, false, true, false, true]);
-        let limited_mask = original_mask.clone().limit(100);
-
-        assert_eq!(original_mask, limited_mask);
     }
 }

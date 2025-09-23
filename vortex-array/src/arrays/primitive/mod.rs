@@ -9,15 +9,17 @@ mod accessor;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use crate::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 
 mod compute;
+mod downcast;
 mod native_value;
+mod operator;
 mod ops;
 mod patch;
 mod serde;
@@ -44,6 +46,7 @@ impl VTable for PrimitiveVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = Self;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -55,6 +58,37 @@ impl VTable for PrimitiveVTable {
     }
 }
 
+/// A primitive array that stores [native types][vortex_dtype::NativePType] in a contiguous buffer
+/// of memory, along with an optional validity child.
+///
+/// This mirrors the Apache Arrow Primitive layout and can be converted into and out of one
+/// without allocations or copies.
+///
+/// The underlying buffer must be natively aligned to the primitive type they are representing.
+///
+/// Values are stored in their native representation with proper alignment.
+/// Null values still occupy space in the buffer but are marked invalid in the validity mask.
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::PrimitiveArray;
+/// use vortex_array::compute::sum;
+/// ///
+/// // Create from iterator using FromIterator impl
+/// let array: PrimitiveArray = [1i32, 2, 3, 4, 5].into_iter().collect();
+///
+/// // Slice the array
+/// let sliced = array.slice(1..3);
+///
+/// // Access individual values
+/// let value = sliced.scalar_at(0);
+/// assert_eq!(value, 2i32.into());
+///
+/// // Convert into a type-erased array that can be passed to compute functions.
+/// let summed = sum(sliced.as_ref()).unwrap().as_primitive().typed_value::<i64>().unwrap();
+/// assert_eq!(summed, 5i64);
+/// ```
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
     dtype: DType,
@@ -66,24 +100,75 @@ pub struct PrimitiveArray {
 #[derive(Clone, Debug)]
 pub struct PrimitiveEncoding;
 
+// TODO(connor): There are a lot of places where we could be using `new_unchecked` in the codebase.
 impl PrimitiveArray {
+    /// Creates a new [`PrimitiveArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided components do not satisfy the invariants documented
+    /// in [`PrimitiveArray::new_unchecked`].
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
-        if let Some(len) = validity.maybe_len() {
-            if buffer.len() != len {
-                vortex_panic!(
-                    "Buffer and validity length mismatch: buffer={}, validity={}",
-                    buffer.len(),
-                    len
-                );
-            }
-        }
+        Self::try_new(buffer, validity).vortex_expect("PrimitiveArray construction failed")
+    }
+
+    /// Constructs a new `PrimitiveArray`.
+    ///
+    /// See [`PrimitiveArray::new_unchecked`] for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided components do not satisfy the invariants documented in
+    /// [`PrimitiveArray::new_unchecked`].
+    #[inline]
+    pub fn try_new<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> VortexResult<Self> {
+        Self::validate(&buffer, &validity)?;
+
+        // SAFETY: validate ensures all invariants are met.
+        Ok(unsafe { Self::new_unchecked(buffer, validity) })
+    }
+
+    /// Creates a new [`PrimitiveArray`] without validation from these components:
+    ///
+    /// * `buffer` is a typed buffer containing the primitive values.
+    /// * `validity` holds the null values.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure all of the following invariants are satisfied:
+    ///
+    /// ## Validity Requirements
+    ///
+    /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
+    #[inline]
+    pub unsafe fn new_unchecked<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
             buffer: buffer.into_byte_buffer(),
             validity,
             stats_set: Default::default(),
         }
+    }
+
+    /// Validates the components that would be used to create a [`PrimitiveArray`].
+    ///
+    /// This function checks all the invariants required by [`PrimitiveArray::new_unchecked`].
+    #[inline]
+    pub(crate) fn validate<T: NativePType>(
+        buffer: &Buffer<T>,
+        validity: &Validity,
+    ) -> VortexResult<()> {
+        if let Some(len) = validity.maybe_len()
+            && buffer.len() != len
+        {
+            return Err(vortex_err!(
+                "Buffer and validity length mismatch: buffer={}, validity={}",
+                buffer.len(),
+                len
+            ));
+        }
+        Ok(())
     }
 
     pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
@@ -124,14 +209,14 @@ impl PrimitiveArray {
         ptype: PType,
         validity: Validity,
         n_rows: usize,
-    ) -> VortexResult<Self> {
+    ) -> Self {
         let byte_width = ptype.byte_width();
         let alignment = Alignment::new(byte_width);
         let buffer = match &validity {
             Validity::AllValid | Validity::NonNullable => valid_elems_buffer.aligned(alignment),
             Validity::AllInvalid => ByteBuffer::zeroed_aligned(n_rows * byte_width, alignment),
             Validity::Array(is_valid) => {
-                let bool_array = is_valid.to_canonical()?.into_bool()?;
+                let bool_array = is_valid.to_bool();
                 let bool_buffer = bool_array.boolean_buffer();
                 let mut bytes = ByteBufferMut::zeroed_aligned(n_rows * byte_width, alignment);
                 for (i, valid_i) in bool_buffer.set_indices().enumerate() {
@@ -142,7 +227,7 @@ impl PrimitiveArray {
             }
         };
 
-        Ok(Self::from_byte_buffer(buffer, ptype, validity))
+        Self::from_byte_buffer(buffer, ptype, validity)
     }
 
     pub fn ptype(&self) -> PType {
@@ -252,7 +337,7 @@ impl PrimitiveArray {
                 BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
             }
             Validity::Array(val) => {
-                let val = val.to_canonical()?.into_bool()?;
+                let val = val.to_bool();
                 BufferMut::<R>::from_iter(buf_iter.zip(val.boolean_buffer()).map(f))
             }
         };
@@ -315,7 +400,7 @@ impl ValidityHelper for PrimitiveArray {
 impl<T: NativePType> FromIterator<T> for PrimitiveArray {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let values = BufferMut::from_iter(iter);
-        PrimitiveArray::new(values.freeze(), Validity::NonNullable)
+        PrimitiveArray::new(values, Validity::NonNullable)
     }
 }
 
@@ -332,14 +417,11 @@ impl<T: NativePType> IntoArray for BufferMut<T> {
 }
 
 impl CanonicalVTable<PrimitiveVTable> for PrimitiveVTable {
-    fn canonicalize(array: &PrimitiveArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(array.clone()))
+    fn canonicalize(array: &PrimitiveArray) -> Canonical {
+        Canonical::Primitive(array.clone())
     }
 
-    fn append_to_builder(
-        array: &PrimitiveArray,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
+    fn append_to_builder(array: &PrimitiveArray, builder: &mut dyn ArrayBuilder) {
         builder.extend_from_array(array.as_ref())
     }
 }
@@ -350,7 +432,8 @@ mod tests {
     use vortex_scalar::PValue;
 
     use crate::arrays::{BoolArray, PrimitiveArray};
-    use crate::compute::conformance::mask::test_mask;
+    use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::search_sorted::rstest_reuse::apply;
     use crate::compute::conformance::search_sorted::{search_sorted_conformance, *};
     use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
@@ -358,7 +441,7 @@ mod tests {
     use crate::{ArrayRef, IntoArray};
 
     #[apply(search_sorted_conformance)]
-    fn search_sorted_primitive(
+    fn test_search_sorted_primitive(
         #[case] array: ArrayRef,
         #[case] value: i32,
         #[case] side: SearchSortedSide,
@@ -372,14 +455,49 @@ mod tests {
 
     #[test]
     fn test_mask_primitive_array() {
-        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref());
-        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
-        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).as_ref());
-        test_mask(
+        test_mask_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref(),
+        );
+        test_mask_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref(),
+        );
+        test_mask_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).as_ref(),
+        );
+        test_mask_conformance(
             PrimitiveArray::new(
                 buffer![0, 1, 2, 3, 4],
                 Validity::Array(
                     BoolArray::from_iter([true, false, true, false, true]).into_array(),
+                ),
+            )
+            .as_ref(),
+        );
+    }
+
+    #[test]
+    fn test_filter_primitive_array() {
+        // Test various sizes
+        test_filter_conformance(
+            PrimitiveArray::new(buffer![42i32], Validity::NonNullable).as_ref(),
+        );
+        test_filter_conformance(PrimitiveArray::new(buffer![0, 1], Validity::NonNullable).as_ref());
+        test_filter_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref(),
+        );
+        test_filter_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable).as_ref(),
+        );
+
+        // Test with validity
+        test_filter_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref(),
+        );
+        test_filter_conformance(
+            PrimitiveArray::new(
+                buffer![0, 1, 2, 3, 4, 5],
+                Validity::Array(
+                    BoolArray::from_iter([true, false, true, false, true, true]).into_array(),
                 ),
             )
             .as_ref(),

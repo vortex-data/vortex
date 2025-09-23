@@ -148,7 +148,7 @@ mod tests {
     {
         alp_scalar_compare(alp, value, operator)
             .unwrap()
-            .map(|a| a.to_bool().unwrap().boolean_buffer().iter().collect())
+            .map(|a| a.to_bool().boolean_buffer().iter().collect())
     }
 
     #[test]
@@ -157,15 +157,14 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
+            encoded.encoded().to_primitive().as_slice::<i32>(),
             vec![1234; 1025]
         );
 
         let r = alp_scalar_compare(&encoded, 1.3_f32, Operator::Eq)
             .unwrap()
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         for v in r.boolean_buffer().iter() {
             assert!(!v);
@@ -174,8 +173,7 @@ mod tests {
         let r = alp_scalar_compare(&encoded, 1.234f32, Operator::Eq)
             .unwrap()
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         for v in r.boolean_buffer().iter() {
             assert!(v);
@@ -188,7 +186,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
+            encoded.encoded().to_primitive().as_slice::<i32>(),
             vec![1234; 1025]
         );
 
@@ -196,8 +194,7 @@ mod tests {
         let r_eq = alp_scalar_compare(&encoded, 1.234444_f32, Operator::Eq)
             .unwrap()
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         assert!(r_eq.boolean_buffer().iter().all(|v| !v));
 
@@ -205,8 +202,7 @@ mod tests {
         let r_neq = alp_scalar_compare(&encoded, 1.234444f32, Operator::NotEq)
             .unwrap()
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         assert!(r_neq.boolean_buffer().iter().all(|v| v));
     }
@@ -217,15 +213,14 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
+            encoded.encoded().to_primitive().as_slice::<i32>(),
             vec![605; 10]
         );
 
         let r_gte = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Gte)
             .unwrap()
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         // !(0.0605_f32 >= 0.06051_f32);
         assert!(r_gte.boolean_buffer().iter().all(|v| !v));
@@ -233,8 +228,7 @@ mod tests {
         let r_gt = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Gt)
             .unwrap()
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         // (0.0605_f32 > 0.06051_f32);
         assert!(r_gt.boolean_buffer().iter().all(|v| !v));
@@ -242,8 +236,7 @@ mod tests {
         let r_lte = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Lte)
             .unwrap()
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         // 0.0605_f32 <= 0.06051_f32;
         assert!(r_lte.boolean_buffer().iter().all(|v| v));
@@ -251,8 +244,7 @@ mod tests {
         let r_lt = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Lt)
             .unwrap()
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         //0.0605_f32 < 0.06051_f32;
         assert!(r_lt.boolean_buffer().iter().all(|v| v));
@@ -264,7 +256,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
+            encoded.encoded().to_primitive().as_slice::<i32>(),
             vec![0; 10]
         );
 
@@ -317,8 +309,7 @@ mod tests {
 
         let r = compare(encoded.as_ref(), other.as_ref(), Operator::Eq)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         for v in r.boolean_buffer().iter() {
             assert!(!v);

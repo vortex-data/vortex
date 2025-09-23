@@ -1,31 +1,45 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering::SeqCst;
-use std::sync::*;
+use std::cmp::max;
+use std::fmt;
+use std::fmt::{Debug, Formatter};
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::task::{Context, Poll};
 
-use atomic::AtomicBool;
-use bitvec::macros::internal::funty::Fundamental;
-use crossbeam_queue::SegQueue;
+use async_compat::Compat;
+use futures::stream::{BoxStream, SelectAll};
+use futures::{FutureExt, Stream, StreamExt, stream};
+use itertools::Itertools;
+use num_traits::AsPrimitive;
+use url::Url;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, and_collect, lit, root, select};
+use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::current::{CurrentThreadRuntime, ThreadSafeIterator};
+use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
+use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
-    BindInput, BindResult, DataChunk, Expression, LogicalType, TableFunction, TableInitInput,
+    BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
+    TableFunction, TableInitInput,
 };
-use crate::exporter::ArrayIteratorExporter;
+use crate::exporter::{ArrayExporter, ConversionCache};
+use crate::utils::glob::expand_glob;
+use crate::utils::object_store::s3_store;
 
 pub struct VortexBindData {
     first_file: VortexFile,
     filter_exprs: Vec<ExprRef>,
-    file_paths: Vec<PathBuf>,
+    file_urls: Vec<Url>,
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
+    runtime: CurrentThreadRuntime,
 }
 
 impl Clone for VortexBindData {
@@ -35,17 +49,18 @@ impl Clone for VortexBindData {
             first_file: self.first_file.clone(),
             // filter_expr don't need to be cloned as they are consumed once in `init_global`.
             filter_exprs: vec![],
-            file_paths: self.file_paths.clone(),
+            file_urls: self.file_urls.clone(),
             column_names: self.column_names.clone(),
             column_types: self.column_types.clone(),
+            runtime: self.runtime.clone(),
         }
     }
 }
 
-impl std::fmt::Debug for VortexBindData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for VortexBindData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("VortexBindData")
-            .field("file_paths", &self.file_paths)
+            .field("file_urls", &self.file_urls)
             .field("column_names", &self.column_names)
             .field("column_types", &self.column_types)
             .field("filter_expr", &self.filter_exprs)
@@ -54,17 +69,15 @@ impl std::fmt::Debug for VortexBindData {
 }
 
 pub struct VortexGlobalData {
-    file_paths: SegQueue<PathBuf>,
-    is_first_file_processed: AtomicBool,
-    /// We currently use a conversion cache to cache converted arrays, this id is used to
-    /// ensure that each cache created has a unique id used to name those arrays
-    conversion_cache_id: AtomicU64,
-    filter_expr: Option<ExprRef>,
-    projection_expr: ExprRef,
+    iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
+    batch_id: AtomicU64,
 }
 
 pub struct VortexLocalData {
-    exporter: Option<ArrayIteratorExporter>,
+    iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
+    exporter: Option<ArrayExporter>,
+    // The unique batch id the of the last chunk exported via scan()
+    batch_id: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -78,16 +91,14 @@ fn extract_schema_from_vortex_file(
 
     // For now, we assume the top-level type to be a struct.
     let struct_dtype = dtype
-        .as_struct()
+        .as_struct_fields_opt()
         .ok_or_else(|| vortex_err!("Vortex file must contain a struct array at the top level"))?;
 
     let mut column_names = Vec::new();
     let mut column_types = Vec::new();
 
     for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
-        let logical_type = LogicalType::try_from(&field_dtype)
-            .map_err(|e| vortex_err!("Failed to convert field '{}' type: {}", field_name, e))?;
-
+        let logical_type = LogicalType::try_from(&field_dtype)?;
         column_names.push(field_name.to_string());
         column_types.push(logical_type);
     }
@@ -100,16 +111,21 @@ fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> ExprRe
     let projection_ids = init.projection_ids().unwrap_or(&[]);
     let column_ids = init.column_ids();
 
-    let projected_ids = projection_ids.iter().map(|p| column_ids[p.as_usize()]);
     select(
-        projected_ids
+        projection_ids
+            .iter()
+            .map(|p| {
+                let idx: usize = p.as_();
+                let val: usize = column_ids[idx].as_();
+                val
+            })
             .map(|idx| {
                 init.bind_data()
                     .column_names
-                    .get(idx.as_usize())
+                    .get(idx)
                     .vortex_expect("prune idx in column names")
             })
-            .map(|s| Arc::from(s.clone()))
+            .map(|s| Arc::from(s.as_str()))
             .collect::<FieldNames>(),
         root(),
     )
@@ -126,12 +142,18 @@ fn extract_table_filter_expr(
             filter
                 .into_iter()
                 .map(|(idx, ex)| {
+                    let idx_u: usize = idx.as_();
+                    let col_idx: usize = column_ids[idx_u].as_();
                     let name = init
                         .bind_data()
                         .column_names
-                        .get(column_ids[idx.as_usize()].as_usize())
+                        .get(col_idx)
                         .vortex_expect("exists");
-                    try_from_table_filter(&ex, name)
+                    try_from_table_filter(
+                        &ex,
+                        &col(name.as_str()),
+                        init.bind_data().first_file.dtype(),
+                    )
                 })
                 .reduce(|l, r| l?.zip(r?).map(|(l, r)| Ok(and(l, r))).transpose())
         })
@@ -148,14 +170,27 @@ fn extract_table_filter_expr(
     Ok(Some(filter_expr))
 }
 
-/// Creates a lock-free queue populated with file paths from bind data.
-fn create_file_paths_queue(bind_data: &VortexBindData) -> SegQueue<PathBuf> {
-    let file_paths = SegQueue::new();
-    // Skip the first file as it is opened during bind.
-    for path in bind_data.file_paths.iter().skip(1) {
-        file_paths.push(path.clone());
+/// Helper function to open a Vortex file from either a local or S3 URL
+async fn open_file(url: Url, options: VortexOpenOptions) -> VortexResult<VortexFile> {
+    if url.scheme() == "s3" {
+        assert!(url.scheme() == "s3");
+        let bucket = url
+            .host_str()
+            .ok_or_else(|| vortex_err!("Failed to extract bucket name from URL: {url}"))?;
+
+        let path = url
+            .path()
+            .strip_prefix("/")
+            .ok_or_else(|| vortex_err!("Invalid S3 path: {url}"))?;
+
+        options.open_object_store(&s3_store(bucket)?, path).await
+    } else {
+        let path = url
+            .to_file_path()
+            .map_err(|_| vortex_err!("Invalid file URL: {url}"))?;
+
+        options.open(path).await
     }
-    file_paths
 }
 
 impl TableFunction for VortexTableFunction {
@@ -174,24 +209,33 @@ impl TableFunction for VortexTableFunction {
         vec![LogicalType::varchar()]
     }
 
-    fn bind(input: &BindInput, result: &mut BindResult) -> VortexResult<Self::BindData> {
+    fn bind(
+        ctx: &ClientContext,
+        input: &BindInput,
+        result: &mut BindResult,
+    ) -> VortexResult<Self::BindData> {
+        let runtime = CurrentThreadRuntime::new();
+
         let file_glob_string = input
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
-        let paths = match glob::glob(&file_glob_string.as_string()) {
-            Ok(paths) => paths,
-            Err(e) => vortex_bail!("Failed to glob files: {}", e),
-        };
-
-        let file_paths: Vec<_> = paths
-            .collect::<Result<_, _>>()
-            .map_err(|e| vortex_err!("Failed to glob files: {}", e))?;
+        let (file_urls, _metadata) = runtime
+            .block_on(|_h| Compat::new(expand_glob(file_glob_string.as_ref().as_string())))?;
 
         // The first file is skipped in `create_file_paths_queue`.
-        let first_file = VortexOpenOptions::file()
-            .open_blocking(&file_paths[0])
-            .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
+        let Some(first_file_url) = file_urls.first() else {
+            vortex_bail!("No files matched the glob");
+        };
+
+        let footer_cache = FooterCache::new(ctx.object_cache());
+        let entry = footer_cache.entry(first_file_url.as_ref());
+        let first_file = runtime.block_on(|h| async move {
+            let options = entry.apply_to_file(VortexOpenOptions::new().with_handle(h));
+            let file = open_file(first_file_url.clone(), options).await?;
+            entry.put_if_absent(|| file.footer().clone());
+            VortexResult::Ok(file)
+        })?;
 
         let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
 
@@ -201,91 +245,155 @@ impl TableFunction for VortexTableFunction {
         }
 
         Ok(VortexBindData {
-            file_paths,
+            file_urls,
             first_file,
+            filter_exprs: vec![],
             column_names,
             column_types,
-            filter_exprs: vec![],
+            runtime,
         })
     }
 
     fn scan(
-        bind_data: &Self::BindData,
+        _client_context: &ClientContext,
+        _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
         global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
-        let exporter_for_file =
-            |file: &VortexFile, id: u64| -> VortexResult<ArrayIteratorExporter> {
-                let array_iterator = file
-                    .scan()?
-                    .with_projection(global_state.projection_expr.clone())
-                    .with_some_filter(global_state.filter_expr.clone())
-                    .into_array_iter()
-                    .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
-
-                Ok(ArrayIteratorExporter::new(Box::new(array_iterator), id))
-            };
-
         loop {
             if local_state.exporter.is_none() {
-                if !global_state.is_first_file_processed.swap(true, SeqCst) {
-                    let cache_id = global_state.conversion_cache_id.fetch_add(1, SeqCst);
-                    local_state.exporter =
-                        Some(exporter_for_file(&bind_data.first_file, cache_id)?);
-                }
-                // Retrieve a file path from the shared lock-free queue.
-                else if let Some(file_path) = global_state.file_paths.pop() {
-                    let file = VortexOpenOptions::file()
-                        .open_blocking(&file_path)
-                        .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
-
-                    let cache_id = global_state.conversion_cache_id.fetch_add(1, SeqCst);
-                    local_state.exporter = Some(exporter_for_file(&file, cache_id)?);
-                } else {
-                    // If the exporter is None and there are no more files to process, signal that the scan finished.
-                    chunk.set_len(0);
+                let Some(result) = local_state.iterator.next() else {
                     return Ok(());
-                }
+                };
+
+                let (array_result, conversion_cache) = result?;
+
+                local_state.exporter = Some(ArrayExporter::try_new(
+                    &array_result.to_struct(),
+                    &conversion_cache,
+                )?);
+                // Relaxed since there is no intra-instruction ordering required.
+                local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
             }
 
-            let Some(ref mut exporter) = local_state.exporter else {
-                vortex_bail!("ArrayIteratorExporter is not set")
-            };
+            let exporter = local_state
+                .exporter
+                .as_mut()
+                .vortex_expect("error: exporter missing");
 
-            let is_data_left_to_scan = !exporter
-                .export(chunk)
-                .map_err(|e| vortex_err!("Failed to export data: {}", e))?;
+            let has_more_data = exporter.export(chunk)?;
 
-            if is_data_left_to_scan {
+            if !has_more_data {
+                // This exporter is fully consumed.
                 local_state.exporter = None;
+                local_state.batch_id = None;
             } else {
-                assert!(!chunk.is_empty());
-                return Ok(());
+                break;
             }
         }
+
+        assert!(!chunk.is_empty());
+
+        Ok(())
     }
 
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
         let bind_data = init_input.bind_data();
-        let file_paths = create_file_paths_queue(bind_data);
         let projection_expr = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
 
+        log::trace!(
+            "Global init Vortex scan SELECT {} WHERE {}",
+            &projection_expr,
+            filter_expr
+                .as_ref()
+                .map_or("true".to_string(), |f| f.to_string())
+        );
+
+        // Estimate the number of workers.
+        // TODO(ngates): support an AtomicUsize once we plumb it through buffered streams.
+        let num_workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+
+        let client_context = init_input.client_context()?;
+        let object_cache = client_context.object_cache();
+
+        let handle = bind_data.runtime.handle();
+        let first_file = bind_data.first_file.clone();
+        let scan_streams = stream::iter(bind_data.file_urls.clone())
+            .enumerate()
+            .map(move |(idx, url)| {
+                let first_file = first_file.clone();
+                let filter_expr = filter_expr.clone();
+                let projection_expr = projection_expr.clone();
+                let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
+                let object_cache = object_cache;
+
+                handle
+                    .spawn_nested(move |handle| async move {
+                        let vxf = if idx == 0 {
+                            // The first path from `file_paths` is skipped as
+                            // the first file was already opened during bind.
+                            Ok(first_file)
+                        } else {
+                            let cache = FooterCache::new(object_cache);
+                            let entry = cache.entry(url.as_ref());
+                            let options = entry.apply_to_file(
+                                VortexOpenOptions::new().with_handle(handle.clone()),
+                            );
+                            let file = open_file(url.clone(), options).await?;
+                            entry.put_if_absent(|| file.footer().clone());
+                            VortexResult::Ok(file)
+                        }?;
+
+                        if let Some(ref filter) = filter_expr
+                            && vxf.can_prune(filter)?
+                        {
+                            return Ok(None);
+                        };
+
+                        let scan = vxf
+                            .scan()?
+                            .with_handle(handle)
+                            .with_some_filter(filter_expr)
+                            .with_projection(projection_expr)
+                            .with_ordered(false)
+                            .map(move |split| Ok((split, conversion_cache.clone())))
+                            .into_stream()?
+                            .boxed();
+
+                        Ok(Some(scan))
+                    })
+                    .boxed()
+            })
+            // Open up to num_workers * 2 files concurrently so we always have one ready to go.
+            .buffer_unordered(num_workers * 2)
+            .filter_map(|result| async move { result.transpose() });
+
         Ok(VortexGlobalData {
-            file_paths,
-            is_first_file_processed: AtomicBool::new(false),
-            conversion_cache_id: AtomicU64::new(0),
-            filter_expr,
-            projection_expr,
+            iterator: bind_data
+                .runtime
+                .block_on_stream_thread_safe(move |_| MultiScan {
+                    streams: scan_streams.boxed(),
+                    streams_finished: false,
+                    select_all: Default::default(),
+                    max_concurrency: num_workers * 2,
+                }),
+            batch_id: AtomicU64::new(0),
         })
     }
 
     fn init_local(
         _init: &TableInitInput<Self>,
-        _global: &mut Self::GlobalState,
+        global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
-        Ok(VortexLocalData { exporter: None })
+        Ok(VortexLocalData {
+            iterator: global.iterator.clone(),
+            exporter: None,
+            batch_id: None,
+        })
     }
 
     fn pushdown_complex_filter(
@@ -297,5 +405,117 @@ impl TableFunction for VortexTableFunction {
         };
         bind_data.filter_exprs.push(expr);
         Ok(true)
+    }
+
+    fn cardinality(bind_data: &Self::BindData) -> Cardinality {
+        if bind_data.file_urls.len() == 1 {
+            Cardinality::Maximum(bind_data.first_file.row_count())
+        } else {
+            // This is the same behavior as DuckDB's Parquet extension, although we could
+            // test multiplying the row count by the number of files.
+            Cardinality::Estimate(
+                max(bind_data.first_file.row_count(), 1) * bind_data.file_urls.len() as u64,
+            )
+        }
+    }
+
+    fn partition_data(
+        _bind_data: &Self::BindData,
+        _global_init_data: &mut Self::GlobalState,
+        _local_init_data: &mut Self::LocalState,
+    ) -> VortexResult<u64> {
+        _local_init_data
+            .batch_id
+            .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
+    }
+
+    fn to_string(bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {
+        let mut result = Vec::new();
+
+        // Add function name
+        result.push(("Function".to_string(), "Vortex Scan".to_string()));
+
+        // Add file information
+        if !bind_data.file_urls.is_empty() {
+            result.push(("Files".to_string(), bind_data.file_urls.len().to_string()));
+        }
+
+        // Add filter information
+        if !bind_data.filter_exprs.is_empty() {
+            let mut filters = bind_data.filter_exprs.iter().map(|f| format!("{}", f));
+            result.push(("Filters".to_string(), filters.join(" /\\\n")));
+        }
+        // NOTE: Projection is already printed by the planner.
+
+        Some(result)
+    }
+}
+
+struct MultiScan<'rt, T> {
+    // A stream-of-streams of scan results.
+    streams: BoxStream<'rt, VortexResult<BoxStream<'rt, VortexResult<T>>>>,
+    streams_finished: bool,
+    // The SelectAll used to drive the inner streams.
+    select_all: SelectAll<BoxStream<'rt, VortexResult<T>>>,
+    // The maximum number of streams to be driving concurrently.
+    max_concurrency: usize,
+}
+
+impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
+    type Item = VortexResult<T>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = &mut *self;
+
+        loop {
+            // First, try to pull from the SelectAll of active streams.
+            // This means we prefer to complete existing work before starting new work, unless it
+            // all returns Poll::Pending.
+            match this.select_all.poll_next_unpin(cx) {
+                Poll::Ready(None) => {
+                    if this.streams_finished {
+                        // All streams are done
+                        return Poll::Ready(None);
+                    }
+                }
+                Poll::Ready(Some(result)) => return Poll::Ready(Some(result)),
+                Poll::Pending => {
+                    // None of the active streams are ready right now.
+                }
+            }
+
+            // If all current streams returned `Poll::Pending`, then we try to fetch the next
+            // stream to drive. The idea here is to ensure our executors are always busy with
+            // CPU work by driving as many streams necessary to keep the I/O queues full.
+            if this.select_all.len() < this.max_concurrency {
+                match Pin::new(&mut this.streams).poll_next(cx) {
+                    Poll::Ready(Some(Ok(stream))) => {
+                        // Add the new stream to SelectAll, and continue the loop to poll it.
+                        this.select_all.push(stream);
+                        continue;
+                    }
+                    Poll::Ready(Some(Err(e))) => {
+                        // Error opening one of the streams
+                        return Poll::Ready(Some(Err(e)));
+                    }
+                    Poll::Ready(None) => {
+                        // No more streams available from the source
+                        this.streams_finished = true;
+                        if this.select_all.is_empty() {
+                            // No active streams, so we're done.
+                            return Poll::Ready(None);
+                        }
+                        return Poll::Pending;
+                    }
+                    Poll::Pending => {
+                        // Can't get more streams right now
+                        return Poll::Pending;
+                    }
+                }
+            } else {
+                // We have enough active streams, so just wait for one of them to yield.
+                return Poll::Pending;
+            }
+        }
     }
 }

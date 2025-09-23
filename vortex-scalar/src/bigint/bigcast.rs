@@ -5,17 +5,17 @@ use crate::i256;
 
 /// Checked conversion from one primitive type to another.
 ///
-/// This is meant to mirror the `ToPrimitive` trait from `num-traits` but with awareness of `i256`.
+/// This is meant to extend the `ToPrimitive` trait from `num-traits` with awareness of `i256`.
 pub trait ToPrimitive: num_traits::ToPrimitive {
     /// Converts the value of `self` to an `i256`. If the value cannot be
     /// represented by an `i256`, then `None` is returned.
     fn to_i256(&self) -> Option<i256>;
 }
 
-// Implementation for primitive types that already implement ToPrimitive from num-traits.
+/// Implementation for primitive types that already implement ToPrimitive from num-traits.
 macro_rules! impl_toprimitive_lossless {
-    ($typ:ty) => {
-        impl ToPrimitive for $typ {
+    ($T:ty) => {
+        impl ToPrimitive for $T {
             #[inline]
             fn to_i256(&self) -> Option<i256> {
                 Some(i256::from_i128(*self as i128))

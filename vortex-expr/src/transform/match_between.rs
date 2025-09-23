@@ -3,7 +3,7 @@
 
 use vortex_array::compute::{BetweenOptions, StrictComparison};
 
-use crate::forms::cnf::cnf;
+use crate::forms::conjuncts;
 use crate::{
     BetweenExpr, BinaryVTable, ExprRef, GetItemExpr, IntoExpr, LiteralExpr, Operator, and, lit,
 };
@@ -13,7 +13,7 @@ use crate::{
 pub fn find_between(expr: ExprRef) -> ExprRef {
     // We search all pairs of cnfs to find any pair of expressions can be converted into a between
     // expression.
-    let mut conjuncts = cnf(expr.clone());
+    let mut conjuncts = conjuncts(&expr);
     let mut rest = vec![];
 
     for idx in 0..conjuncts.len() {

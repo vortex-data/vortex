@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
     ArrayVTable, NotSupported, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
@@ -18,6 +19,7 @@ use crate::{
 mod canonical;
 mod compute;
 mod encode;
+mod operator;
 mod serde;
 
 vtable!(Constant);
@@ -44,6 +46,7 @@ impl VTable for ConstantVTable {
     // TODO(ngates): implement a compute kernel for elementwise operations
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
+    type PipelineVTable = Self;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -61,11 +64,10 @@ impl ConstantArray {
         S: Into<Scalar>,
     {
         let scalar = scalar.into();
-        let stats = StatsSet::constant(scalar.clone(), len);
         Self {
             scalar,
             len,
-            stats_set: ArrayStats::from(stats),
+            stats_set: Default::default(),
         }
     }
 
@@ -90,33 +92,33 @@ impl ArrayVTable<ConstantVTable> for ConstantVTable {
 }
 
 impl OperationsVTable<ConstantVTable> for ConstantVTable {
-    fn slice(array: &ConstantArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(array.scalar.clone(), stop - start).into_array())
+    fn slice(array: &ConstantArray, range: Range<usize>) -> ArrayRef {
+        ConstantArray::new(array.scalar.clone(), range.len()).into_array()
     }
 
-    fn scalar_at(array: &ConstantArray, _index: usize) -> VortexResult<Scalar> {
-        Ok(array.scalar.clone())
+    fn scalar_at(array: &ConstantArray, _index: usize) -> Scalar {
+        array.scalar.clone()
     }
 }
 
 impl ValidityVTable<ConstantVTable> for ConstantVTable {
-    fn is_valid(array: &ConstantArray, _index: usize) -> VortexResult<bool> {
-        Ok(!array.scalar().is_null())
+    fn is_valid(array: &ConstantArray, _index: usize) -> bool {
+        !array.scalar().is_null()
     }
 
-    fn all_valid(array: &ConstantArray) -> VortexResult<bool> {
-        Ok(!array.scalar().is_null())
+    fn all_valid(array: &ConstantArray) -> bool {
+        !array.scalar().is_null()
     }
 
-    fn all_invalid(array: &ConstantArray) -> VortexResult<bool> {
-        Ok(array.scalar().is_null())
+    fn all_invalid(array: &ConstantArray) -> bool {
+        array.scalar().is_null()
     }
 
-    fn validity_mask(array: &ConstantArray) -> VortexResult<Mask> {
-        Ok(match array.scalar().is_null() {
+    fn validity_mask(array: &ConstantArray) -> Mask {
+        match array.scalar().is_null() {
             true => Mask::AllFalse(array.len()),
             false => Mask::AllTrue(array.len()),
-        })
+        }
     }
 }
 

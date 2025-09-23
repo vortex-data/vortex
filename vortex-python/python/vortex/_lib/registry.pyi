@@ -3,9 +3,10 @@
 
 from typing import final
 
-import vortex as vx
+from .arrays import Array
+from .serde import ArrayContext
 
 @final
 class Registry:
-    def register(self, cls: type[vx.Array]): ...
-    def array_ctx(self, encodings: list[type[vx.Array] | str]) -> vx.ArrayContext: ...
+    def register(self, cls: type[Array]) -> None: ...
+    def array_ctx(self, encodings: list[type[Array] | str]) -> ArrayContext: ...

@@ -16,7 +16,7 @@ version = { workspace = true }
 [dependencies]
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
-futures-util = { workspace = true, features = ["io"] }
+futures = { workspace = true }
 itertools = { workspace = true }
 pin-project-lite = { workspace = true }
 vortex-array = { workspace = true }

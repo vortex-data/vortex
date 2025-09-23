@@ -2,8 +2,8 @@ name: Vortex Docs
 
 on:
   push:
-    branches: [ develop ]
-  workflow_dispatch: { }
+    branches: [develop]
+  workflow_dispatch: {}
 
 permissions:
   actions: read
@@ -16,21 +16,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: ./.github/actions/cleanup
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: "17"
+          distribution: "temurin"
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.16.0
         with:
           sync: false
+          prune-cache: false
+      - name: Generate Javadoc for Java projects
+        run: |
+          cd java
+          ./gradlew javadoc -x makeTestFiles
+      - name: Copy Javadoc to docs directory
+        run: |
+          mkdir -p docs/_static/vortex-jni
+          mkdir -p docs/_static/vortex-spark
+          cp -r java/vortex-jni/build/docs/javadoc/* docs/_static/vortex-jni/
+          cp -r java/vortex-spark/build/docs/javadoc/* docs/_static/vortex-spark/
       - name: build Python and Rust docs
         run: |
           uv run --all-packages make -C docs html
       - name: Upload static files as artifact
         id: deployment
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: docs/_build/html
 
@@ -44,7 +57,7 @@ jobs:
     steps:
       # Note, since we provide the job with a CloudFlare scoped API token, we run it in a separate job that doesn't
       # execute any repository code.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: github-pages
       - name: Extract Pages Artifact

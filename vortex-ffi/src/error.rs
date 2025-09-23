@@ -20,9 +20,8 @@ box_wrapper!(
 );
 
 #[inline]
-pub fn try_or<T>(
+pub fn try_or_default<T: Default>(
     error_out: *mut *mut vx_error,
-    on_err: T,
     function: impl FnOnce() -> VortexResult<T>,
 ) -> T {
     match function() {
@@ -35,12 +34,15 @@ pub fn try_or<T>(
                 message: err.to_string().into(),
             }));
             unsafe { error_out.write(err) };
-            on_err
+            T::default()
         }
     }
 }
 
-/// Returns a borrowed reference to the error message from the given Vortex error.
+/// Returns the error message from the given Vortex error.
+///
+/// The returned pointer is valid as long as the error is valid.
+/// Do NOT free the returned string pointer - it shares the lifetime of the error.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_error_get_message(error: *const vx_error) -> *const vx_string {
     vx_string::new_ref(&vx_error::as_ref(error).message)

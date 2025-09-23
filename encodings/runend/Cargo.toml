@@ -14,6 +14,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+arrow-array = { workspace = true, optional = true }
 arrow-buffer = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
@@ -31,7 +32,11 @@ workspace = true
 [dev-dependencies]
 divan = { workspace = true }
 rand = { workspace = true }
+rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
+
+[features]
+arrow = ["dep:arrow-array"]
 
 [[bench]]
 name = "run_end_filter"

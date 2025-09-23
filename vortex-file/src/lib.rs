@@ -33,7 +33,6 @@
 //! it can be turned into a stream by calling [`VortexFile::scan`].
 //!
 //! The file manages IO-oriented work and CPU-oriented work on two different underlying runtimes, which are configurable and pluggable with multiple provided implementations (Tokio, Rayon etc.).
-//! It also caches buffers between stages of the scan, saving on duplicate IO. The cache can also be reused between scans of the same file (See [`SegmentCache`](`crate::segments::SegmentCache`)).
 //!
 //! # File Format
 //!
@@ -90,14 +89,10 @@
 //! or without chunking, or completely elide statistics to save space or if they are not needed, for
 //! example if the metadata is being stored in an external index.
 //!
-//! Anything implementing [`VortexReadAt`](vortex_io::VortexReadAt), for example local files, byte
-//! buffers, and [cloud storage](vortex_io::ObjectStoreReadAt), can be used as the backing store.
 
-mod driver;
+mod counting;
 mod file;
 mod footer;
-mod generic;
-mod memory;
 mod open;
 mod pruning;
 pub mod segments;
@@ -109,10 +104,8 @@ mod writer;
 use std::sync::{Arc, LazyLock};
 
 pub use file::*;
-pub use footer::{Footer, SegmentSpec};
+pub use footer::*;
 pub use forever_constant::*;
-pub use generic::*;
-pub use memory::*;
 pub use open::*;
 pub use strategy::*;
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
@@ -123,7 +116,7 @@ use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
 use vortex_dict::DictEncoding;
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;
-pub use vortex_layout::scan;
+use vortex_pco::PcoEncoding;
 use vortex_runend::RunEndEncoding;
 use vortex_sequence::SequenceEncoding;
 use vortex_sparse::SparseEncoding;
@@ -140,8 +133,8 @@ mod forever_constant {
     /// The extension for Vortex files
     pub const VORTEX_FILE_EXTENSION: &str = "vortex";
 
-    /// The maximum length of a Vortex footer in bytes
-    pub const MAX_FOOTER_SIZE: u16 = u16::MAX - 8;
+    /// The maximum length of a Vortex postscript in bytes
+    pub const MAX_POSTSCRIPT_SIZE: u16 = u16::MAX - 8;
     /// The magic bytes for a Vortex file
     pub const MAGIC_BYTES: [u8; 4] = *b"VTXF";
     /// The size of the EOF marker in bytes
@@ -155,7 +148,7 @@ mod forever_constant {
         #[test]
         fn never_change_these_constants() {
             assert_eq!(V1_FOOTER_FBS_SIZE, 32);
-            assert_eq!(MAX_FOOTER_SIZE, 65527);
+            assert_eq!(MAX_POSTSCRIPT_SIZE, 65527);
             assert_eq!(MAGIC_BYTES, *b"VTXF");
             assert_eq!(EOF_SIZE, 8);
         }
@@ -177,10 +170,13 @@ pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
         EncodingRef::new_ref(DictEncoding.as_ref()),
         EncodingRef::new_ref(FSSTEncoding.as_ref()),
         EncodingRef::new_ref(FoREncoding.as_ref()),
+        EncodingRef::new_ref(PcoEncoding.as_ref()),
         EncodingRef::new_ref(RunEndEncoding.as_ref()),
         EncodingRef::new_ref(SequenceEncoding.as_ref()),
         EncodingRef::new_ref(SparseEncoding.as_ref()),
         EncodingRef::new_ref(ZigZagEncoding.as_ref()),
+        #[cfg(feature = "zstd")]
+        EncodingRef::new_ref(vortex_zstd::ZstdEncoding.as_ref()),
     ]);
     Arc::new(registry)
 });

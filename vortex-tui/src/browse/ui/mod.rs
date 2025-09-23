@@ -12,7 +12,7 @@ pub use segments::SegmentGridState;
 use super::app::{AppState, KeyMode, Tab};
 use crate::browse::ui::segments::segments_ui;
 
-pub fn render_app(app: &mut AppState, frame: &mut Frame) {
+pub fn render_app(app: &mut AppState<'_>, frame: &mut Frame<'_>) {
     // Render the outer tab view, then render the inner frame view.
     let bottom_text = if app.key_mode == KeyMode::Search {
         Line::from(format!(

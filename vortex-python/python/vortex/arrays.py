@@ -1,13 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
+from __future__ import annotations
 
 import abc
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import pyarrow
+from typing_extensions import override
 
-import vortex as vx
-from vortex._lib import arrays as _arrays
+import vortex._lib.arrays as _arrays  # pyright: ignore[reportMissingModuleSource]
+from vortex._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
+from vortex._lib.serde import ArrayContext, ArrayParts  # pyright: ignore[reportMissingModuleSource]
 
 try:
     import pandas
@@ -16,17 +20,18 @@ except ImportError:
 else:
     # HACK: monkey-patch a fixed implementation of the pd.ArrowDtype.type property accessor.
     # See https://github.com/pandas-dev/pandas/issues/60068 for more details
-    _old_ArrowDtype_type = pandas.ArrowDtype.type
+    _old_ArrowDtype_type: Callable[[pandas.ArrowDtype], type] = pandas.ArrowDtype.type.fget  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
 
     @property
-    def __ArrowDtype_type_patched(self):
+    def __ArrowDtype_type_patched(self: pandas.ArrowDtype):
         if pyarrow.types.is_string_view(self.pyarrow_dtype):
             return str
         if pyarrow.types.is_binary_view(self.pyarrow_dtype):
             return bytes
+        assert _old_ArrowDtype_type is not None
         return _old_ArrowDtype_type(self)
 
-    pandas.ArrowDtype.type = __ArrowDtype_type_patched
+    setattr(pandas.ArrowDtype, "type", __ArrowDtype_type_patched)
 
 
 if TYPE_CHECKING:
@@ -36,10 +41,15 @@ Array = _arrays.Array
 
 
 def empty_arrow_table(schema: pyarrow.Schema) -> pyarrow.Table:
-    return pyarrow.Table.from_arrays([[] for _ in schema], schema=schema)
+    def empty_array(f: pyarrow.Field[pyarrow.DataType]) -> pyarrow.Array[pyarrow.Scalar[pyarrow.DataType]]:
+        return pyarrow.array([], type=f.type)
+
+    return pyarrow.Table.from_arrays([empty_array(field) for field in schema], schema=schema)  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
 
 
-def arrow_table_from_struct_array(array: pyarrow.StructArray | pyarrow.ChunkedArray) -> pyarrow.Table:
+def arrow_table_from_struct_array(
+    array: pyarrow.StructArray | pyarrow.ChunkedArray[pyarrow.StructScalar],
+) -> pyarrow.Table:
     if len(array) == 0:
         return empty_arrow_table(pyarrow.schema(array.type))
     return pyarrow.Table.from_struct_array(array)
@@ -73,19 +83,21 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
     >>> array.to_arrow_table()
     pyarrow.Table
     age: int64
-    name: string_view
+    name: string
     ----
     age: [[25,31,33,57]]
     name: [["Joseph","Narendra","Angela","Mikhail"]]
 
     """
-    return arrow_table_from_struct_array(self.to_arrow_array())
+    array = self.to_arrow_array()
+    assert isinstance(array, pyarrow.StructArray | pyarrow.ChunkedArray)
+    return arrow_table_from_struct_array(array)
 
 
 Array.to_arrow_table = _Array_to_arrow_table
 
 
-def _Array_to_pandas_df(self: _arrays.Array) -> "pandas.DataFrame":
+def _Array_to_pandas_df(self: _arrays.Array) -> pandas.DataFrame:
     """Construct a Pandas dataframe from this Vortex array.
 
     Warning
@@ -116,7 +128,9 @@ def _Array_to_pandas_df(self: _arrays.Array) -> "pandas.DataFrame":
     3   57   Mikhail
 
     """
-    return self.to_arrow_table().to_pandas(types_mapper=pandas.ArrowDtype)
+    import pandas
+
+    return self.to_arrow_table().to_pandas(types_mapper=pandas.ArrowDtype)  # pyright: ignore[reportUnknownMemberType]
 
 
 Array.to_pandas_df = _Array_to_pandas_df
@@ -168,10 +182,10 @@ def _Array_to_polars_dataframe(
     """
     import polars
 
-    return polars.from_arrow(self.to_arrow_table())
+    return polars.from_arrow(self.to_arrow_table())  # pyright: ignore[reportUnknownMemberType]
 
 
-Array.to_polars_dataframe = _Array_to_polars_dataframe
+setattr(Array, "to_polars_dataframe", _Array_to_polars_dataframe)
 
 
 def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # breaks docs due to Polars issue #7027
@@ -236,13 +250,13 @@ def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # brea
     """
     import polars
 
-    return polars.from_arrow(self.to_arrow_array())
+    return polars.from_arrow(self.to_arrow_array())  # pyright: ignore[reportUnknownMemberType]
 
 
-Array.to_polars_series = _Array_to_polars_series
+setattr(Array, "to_polars_series", _Array_to_polars_series)
 
 
-def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> "numpy.ndarray":
+def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> numpy.ndarray:
     """Construct a NumPy array from this Vortex array.
 
     This is an alias for :code:`self.to_arrow_array().to_numpy(zero_copy_only)`
@@ -273,7 +287,7 @@ def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> "num
 Array.to_numpy = _Array_to_numpy
 
 
-def _Array_to_pylist(self: _arrays.Array) -> list[Any]:
+def _Array_to_pylist(self: _arrays.Array) -> list[Any]:  # pyright: ignore[reportExplicitAny]
     """Deeply copy an Array into a Python list.
 
     Returns
@@ -298,14 +312,22 @@ def _Array_to_pylist(self: _arrays.Array) -> list[Any]:
 Array.to_pylist = _Array_to_pylist
 
 
-def array(obj: pyarrow.Array | list | Any) -> Array:
+def array(
+    obj: pyarrow.Array[pyarrow.Scalar[Any]]  # pyright: ignore[reportExplicitAny]
+    | pyarrow.ChunkedArray[pyarrow.Scalar[Any]]  # pyright: ignore[reportExplicitAny]
+    | pyarrow.Table
+    | list[Any]  # pyright: ignore[reportExplicitAny]
+    | pandas.DataFrame
+    | range,
+) -> Array:
     """The main entry point for creating Vortex arrays from other Python objects.
 
     This function is also available as ``vortex.array``.
 
     Parameters
     ----------
-    obj : :class:`pyarrow.Array`, :class:`list`, :class:`pandas.DataFrame`
+    obj : :class:`pyarrow.Array`, :class:`pyarrow.ChunkedArray`, :class:`pyarrow.Table`, :class:`list`,
+          :class:`pandas.DataFrame`
         The elements of this array or list become the elements of the Vortex array.
 
     Returns
@@ -373,37 +395,71 @@ def array(obj: pyarrow.Array | list | Any) -> Array:
         ]
     ]
 
+    Initialize a Vortex array from a range:
+
+    >>> vortex.array(range(-3, 3)).to_arrow_array()
+    <pyarrow.lib.Int64Array object at ...>
+    [
+      -3,
+      -2,
+      -1,
+      0,
+      1,
+      2
+    ]
+
+    With a step:
+
+    >>> vortex.array(range(-1_000_000, 10_000_000, 2_000_000)).to_arrow_array()
+    <pyarrow.lib.Int64Array object at ...>
+    [
+      -1000000,
+      1000000,
+      3000000,
+      5000000,
+      7000000,
+      9000000
+    ]
     """
 
     if isinstance(obj, list):
         return Array.from_arrow(pyarrow.array(obj))
+    if isinstance(obj, range):
+        return Array.from_range(obj)
     try:
         import pandas
 
         if isinstance(obj, pandas.DataFrame):
             return Array.from_arrow(pyarrow.Table.from_pandas(obj))
     except ImportError:
-        pass
+        # if we cannot import pandas, it cannot be a pandas DataFrame
+        assert isinstance(obj, pyarrow.Array | pyarrow.ChunkedArray | pyarrow.Table)
     return Array.from_arrow(obj)
 
 
 class PyArray(Array, metaclass=abc.ABCMeta):
     """Abstract base class for Python-based Vortex arrays."""
 
-    id: str
+    @property
+    @override
+    @abc.abstractmethod
+    def id(self) -> str:
+        """The id of the array."""
 
+    @override
     @abc.abstractmethod
     def __len__(self) -> int:
         """The logical length of the array."""
 
     @property
+    @override
     @abc.abstractmethod
-    def dtype(self) -> vx.DType:
+    def dtype(self) -> DType:
         """The data type of the array."""
 
     @classmethod
     @abc.abstractmethod
-    def decode(cls, parts: vx.ArrayParts, ctx: vx.ArrayContext, dtype: vx.DType, len: int) -> Array:
+    def decode(cls, parts: ArrayParts, ctx: ArrayContext, dtype: DType, len: int) -> Array:
         """Decode an array from its component parts.
 
         :class:`ArrayParts` contains the metadata, buffers and child :class:`ArrayParts` that represent the

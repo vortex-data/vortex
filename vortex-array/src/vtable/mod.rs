@@ -8,6 +8,7 @@ mod compute;
 mod decode;
 mod encode;
 mod operations;
+mod operator;
 mod serde;
 mod validity;
 mod visitor;
@@ -20,6 +21,7 @@ pub use compute::*;
 pub use decode::*;
 pub use encode::*;
 pub use operations::*;
+pub use operator::*;
 pub use serde::*;
 pub use validity::*;
 pub use visitor::*;
@@ -61,6 +63,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Optionally enable serde for this encoding by implementing the [`SerdeVTable`] trait.
     /// Can be disabled by assigning to the [`NotSupported`] type.
     type SerdeVTable: SerdeVTable<Self>;
+    /// Optionally enable the [`PipelineVTable`] for this encoding. This allows it to partake in
+    /// operator operations.
+    type PipelineVTable: PipelineVTable<Self>;
 
     /// Returns the ID of the encoding.
     fn id(encoding: &Self::Encoding) -> EncodingId;
@@ -99,6 +104,13 @@ macro_rules! vtable {
                 fn into_array(self) -> $crate::ArrayRef {
                     // We can unsafe transmute ourselves to an ArrayAdapter.
                     std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Array>], $crate::ArrayAdapter::<[<$V VTable>]>>(self) })
+                }
+            }
+
+            impl From<[<$V Array>]> for $crate::ArrayRef {
+                fn from(value: [<$V Array>]) -> $crate::ArrayRef {
+                    use $crate::IntoArray;
+                    value.into_array()
                 }
             }
 

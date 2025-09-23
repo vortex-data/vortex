@@ -13,6 +13,9 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 arbitrary = { workspace = true, optional = true }
 arrow-array = { workspace = true }
@@ -29,6 +32,7 @@ vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
 vortex-proto = { workspace = true, features = ["scalar"] }
+vortex-utils = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

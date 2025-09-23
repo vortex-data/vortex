@@ -22,9 +22,14 @@ impl LikeKernel for DictVTable {
         if let Some(pattern) = pattern.as_constant() {
             let pattern = ConstantArray::new(pattern, array.values().len()).into_array();
             let values = like(array.values(), &pattern, options)?;
-            Ok(Some(
-                DictArray::try_new(array.codes().clone(), values)?.into_array(),
-            ))
+
+            // SAFETY: LIKE preserves the len of the values, so codes are still pointing at
+            //  valid positions.
+            unsafe {
+                Ok(Some(
+                    DictArray::new_unchecked(array.codes().clone(), values).into_array(),
+                ))
+            }
         } else {
             Ok(None)
         }

@@ -10,15 +10,18 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl FillNullKernel for ChunkedVTable {
     fn fill_null(&self, array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
-        Ok(ChunkedArray::new_unchecked(
-            array
-                .chunks()
-                .iter()
-                .map(|c| fill_null(c, fill_value))
-                .collect::<VortexResult<Vec<_>>>()?,
-            fill_value.dtype().clone(),
-        )
-        .into_array())
+        // SAFETY: fill_null applied to all chunks gives them same DType
+        unsafe {
+            Ok(ChunkedArray::new_unchecked(
+                array
+                    .chunks()
+                    .iter()
+                    .map(|c| fill_null(c, fill_value))
+                    .collect::<VortexResult<Vec<_>>>()?,
+                fill_value.dtype().clone(),
+            )
+            .into_array())
+        }
     }
 }
 
@@ -38,8 +41,10 @@ mod tests {
     fn fill_null_chunks() {
         let chunked = ChunkedArray::try_new(
             vec![
-                BoolArray::new(BooleanBuffer::new_set(5), Validity::AllInvalid).to_array(),
-                BoolArray::new(BooleanBuffer::new_set(5), Validity::AllValid).to_array(),
+                BoolArray::from_bool_buffer(BooleanBuffer::new_set(5), Validity::AllInvalid)
+                    .to_array(),
+                BoolArray::from_bool_buffer(BooleanBuffer::new_set(5), Validity::AllValid)
+                    .to_array(),
             ],
             DType::Bool(Nullability::Nullable),
         )

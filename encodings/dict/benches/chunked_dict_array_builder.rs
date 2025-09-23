@@ -5,12 +5,13 @@ use divan::Bencher;
 use rand::distr::{Distribution, StandardUniform};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::builder_with_capacity;
+use vortex_array::compute::warm_up_vtables;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dict::test::{gen_dict_fsst_test_data, gen_dict_primitive_chunks};
 use vortex_dtype::NativePType;
-use vortex_error::VortexUnwrap;
 
 fn main() {
+    warm_up_vtables();
     divan::main();
 }
 
@@ -34,7 +35,7 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
 
     bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
+        chunk.append_to_builder(builder.as_mut());
         builder.finish()
     })
 }
@@ -50,7 +51,7 @@ fn chunked_dict_primitive_into_canonical<T: NativePType>(
 
     bencher
         .with_inputs(|| chunk.clone())
-        .bench_values(|chunk| chunk.to_canonical().vortex_unwrap())
+        .bench_values(|chunk| chunk.to_canonical())
 }
 
 fn make_dict_fsst_chunks<T: NativePType>(
@@ -73,7 +74,7 @@ fn chunked_dict_fsst_canonical_into(
 
     bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
+        chunk.append_to_builder(builder.as_mut());
         builder.finish()
     })
 }
@@ -87,5 +88,5 @@ fn chunked_dict_fsst_into_canonical(
 
     bencher
         .with_inputs(|| chunk.clone())
-        .bench_values(|chunk| chunk.to_canonical().vortex_unwrap())
+        .bench_values(|chunk| chunk.to_canonical())
 }

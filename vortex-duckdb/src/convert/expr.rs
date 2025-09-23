@@ -8,68 +8,35 @@ use vortex::compute::{BetweenOptions, StrictComparison};
 use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, NotExpr, Operator, and_collect,
-    get_item_scope, list_contains, lit, or_collect,
+    BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, Operator, and_collect, col, is_null,
+    list_contains, lit, not, or_collect,
 };
 use vortex::scalar::Scalar;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-use crate::duckdb::{Expression, ExpressionClass, TableFilter, TableFilterClass};
+use crate::duckdb::{Expression, ExpressionClass};
 
 const DUCKDB_FUNCTION_NAME_CONTAINS: &str = "contains";
-
-pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<Option<ExprRef>> {
-    let Some(class) = value.as_class() else {
-        return Ok(None);
-    };
-    Ok(Some(match class {
-        TableFilterClass::ConstantComparison(const_) => {
-            let scalar: Scalar = const_.value.try_into()?;
-            let col = get_item_scope(col);
-            BinaryExpr::new_expr(col, const_.operator.try_into()?, lit(scalar))
-        }
-        TableFilterClass::ConjunctionAnd(conj_and) => {
-            let Some(children) = conj_and
-                .children()
-                .map(|child| try_from_table_filter(&child, col))
-                .try_collect::<_, Option<Vec<_>>, _>()?
-            else {
-                return Ok(None);
-            };
-
-            and_collect(children).unwrap_or_else(|| lit(true))
-        }
-        // This is a disjunction.
-        TableFilterClass::ConjunctionOr(disjuction_or) => {
-            let Some(children) = disjuction_or
-                .children()
-                .map(|child| try_from_table_filter(&child, col))
-                .try_collect::<_, Option<Vec<_>>, _>()?
-            else {
-                return Ok(None);
-            };
-
-            or_collect(children).unwrap_or_else(|| lit(false))
-        }
-        _ => todo!("cannot convert table filter {:?}", value),
-    }))
-}
 
 fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
     match value.as_class().vortex_expect("unknown class") {
         ExpressionClass::BoundConstant(constant) => {
-            Ok(Some(format!("%{}%", constant.value.as_string())))
+            Ok(Some(format!("%{}%", constant.value.as_string().as_str())))
         }
         _ => Ok(None),
     }
 }
 
+#[allow(clippy::cognitive_complexity)]
 pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<ExprRef>> {
     let Some(value) = value.as_class() else {
         vortex_bail!("no expression class id {:?}", value.as_class_id())
     };
     Ok(Some(match value {
-        ExpressionClass::BoundColumnRef(col) => get_item_scope(col.name.to_str()?),
+        ExpressionClass::BoundColumnRef(col_ref) => col(col_ref
+            .name
+            .to_str()
+            .map_err(|e| vortex_err!("invalid utf-8: {e}"))?),
         ExpressionClass::BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
         ExpressionClass::BoundComparison(compare) => {
             let operator: Operator = compare.op.try_into()?;
@@ -112,13 +79,22 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
             )
         }
         ExpressionClass::BoundOperator(operator) => match operator.op {
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT => {
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT
+            | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
+            | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
                 let children = operator.children().collect_vec();
                 assert_eq!(children.len(), 1);
                 let Some(child) = try_from_bound_expression(&children[0])? else {
                     return Ok(None);
                 };
-                NotExpr::new_expr(child)
+                match operator.op {
+                    DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT => not(child),
+                    DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL => is_null(child),
+                    DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
+                        not(is_null(child))
+                    }
+                    _ => unreachable!(),
+                }
             }
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
                 // First child is element, rest form the list.
@@ -203,7 +179,7 @@ impl TryFrom<DUCKDB_VX_EXPR_TYPE> for Operator {
         Ok(match value {
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID => vortex_bail!("invalid expr"),
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => Operator::Eq,
-            DUCKDB_VX_EXPR_TYPE::CDUCKDB_VX_EXPR_TYPE_OMPARE_NOTEQUAL => Operator::NotEq,
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL => Operator::NotEq,
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN => Operator::Lt,
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHAN => Operator::Gt,
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHANOREQUALTO => Operator::Lte,

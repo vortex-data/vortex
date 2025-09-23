@@ -10,13 +10,11 @@ use ratatui::widgets::ListState;
 use ui::render_app;
 use vortex::error::{VortexExpect, VortexResult};
 
-use crate::TOKIO_RUNTIME;
-
 mod app;
 mod ui;
 
 // Use the VortexResult and potentially launch a Backtrace.
-fn run(mut terminal: DefaultTerminal, mut app: AppState) -> VortexResult<()> {
+async fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> VortexResult<()> {
     loop {
         terminal.draw(|frame| render_app(&mut app, frame))?;
 
@@ -41,93 +39,89 @@ enum HandleResult {
 }
 
 fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
-    if let Event::Key(key) = event {
-        if key.kind == KeyEventKind::Press {
-            match (key.code, key.modifiers) {
-                (KeyCode::Char('q'), _) => {
-                    // Close the process down.
-                    return HandleResult::Exit;
+    if let Event::Key(key) = event
+        && key.kind == KeyEventKind::Press
+    {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char('q'), _) => {
+                // Close the process down.
+                return HandleResult::Exit;
+            }
+            (KeyCode::Tab, _) => {
+                // toggle between tabs
+                app.current_tab = match app.current_tab {
+                    Tab::Layout => Tab::Segments,
+                    Tab::Segments => Tab::Layout,
+                };
+            }
+            (KeyCode::Up | KeyCode::Char('k'), _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
+                // We send the key-up to the list state if we're looking at
+                // the Layouts tab.
+                match app.current_tab {
+                    Tab::Layout => app.layouts_list_state.select_previous(),
+                    Tab::Segments => app.segment_grid_state.scroll_up(10),
                 }
-                (KeyCode::Tab, _) => {
-                    // toggle between tabs
-                    app.current_tab = match app.current_tab {
-                        Tab::Layout => Tab::Segments,
-                        Tab::Segments => Tab::Layout,
-                    };
+            }
+            (KeyCode::Down | KeyCode::Char('j'), _)
+            | (KeyCode::Char('n'), KeyModifiers::CONTROL) => match app.current_tab {
+                Tab::Layout => app.layouts_list_state.select_next(),
+                Tab::Segments => app.segment_grid_state.scroll_down(10),
+            },
+            (KeyCode::PageUp, _) | (KeyCode::Char('v'), KeyModifiers::ALT) => {
+                match app.current_tab {
+                    Tab::Layout => app.layouts_list_state.scroll_up_by(10),
+                    Tab::Segments => app.segment_grid_state.scroll_up(100),
                 }
-                (KeyCode::Up | KeyCode::Char('k'), _)
-                | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
-                    // We send the key-up to the list state if we're looking at
-                    // the Layouts tab.
-                    match app.current_tab {
-                        Tab::Layout => app.layouts_list_state.select_previous(),
-                        Tab::Segments => app.segment_grid_state.scroll_up(10),
-                    }
+            }
+            (KeyCode::PageDown, _) | (KeyCode::Char('v'), KeyModifiers::CONTROL) => {
+                match app.current_tab {
+                    Tab::Layout => app.layouts_list_state.scroll_down_by(10),
+                    Tab::Segments => app.segment_grid_state.scroll_down(100),
                 }
-                (KeyCode::Down | KeyCode::Char('j'), _)
-                | (KeyCode::Char('n'), KeyModifiers::CONTROL) => match app.current_tab {
-                    Tab::Layout => app.layouts_list_state.select_next(),
-                    Tab::Segments => app.segment_grid_state.scroll_down(10),
-                },
-                (KeyCode::PageUp, _) | (KeyCode::Char('v'), KeyModifiers::ALT) => {
-                    match app.current_tab {
-                        Tab::Layout => app.layouts_list_state.scroll_up_by(10),
-                        Tab::Segments => app.segment_grid_state.scroll_up(100),
-                    }
-                }
-                (KeyCode::PageDown, _) | (KeyCode::Char('v'), KeyModifiers::CONTROL) => {
-                    match app.current_tab {
-                        Tab::Layout => app.layouts_list_state.scroll_down_by(10),
-                        Tab::Segments => app.segment_grid_state.scroll_down(100),
-                    }
-                }
-                (KeyCode::Home, _) | (KeyCode::Char('<'), KeyModifiers::ALT) => {
-                    match app.current_tab {
-                        Tab::Layout => app.layouts_list_state.select_first(),
-                        Tab::Segments => app.segment_grid_state.scroll_left(200),
-                    }
-                }
-                (KeyCode::End, _) | (KeyCode::Char('>'), KeyModifiers::ALT) => {
-                    match app.current_tab {
-                        Tab::Layout => app.layouts_list_state.select_last(),
-                        Tab::Segments => app.segment_grid_state.scroll_right(200),
-                    }
-                }
-                (KeyCode::Enter, _) => {
-                    if app.current_tab == Tab::Layout && app.cursor.layout().nchildren() > 0 {
-                        // Descend into the layout subtree for the selected child.
-                        let selected = app.layouts_list_state.selected().unwrap_or_default();
-                        app.cursor = app.cursor.child(selected);
+            }
+            (KeyCode::Home, _) | (KeyCode::Char('<'), KeyModifiers::ALT) => match app.current_tab {
+                Tab::Layout => app.layouts_list_state.select_first(),
+                Tab::Segments => app.segment_grid_state.scroll_left(200),
+            },
+            (KeyCode::End, _) | (KeyCode::Char('>'), KeyModifiers::ALT) => match app.current_tab {
+                Tab::Layout => app.layouts_list_state.select_last(),
+                Tab::Segments => app.segment_grid_state.scroll_right(200),
+            },
+            (KeyCode::Enter, _) => {
+                if app.current_tab == Tab::Layout && app.cursor.layout().nchildren() > 0 {
+                    // Descend into the layout subtree for the selected child.
+                    let selected = app.layouts_list_state.selected().unwrap_or_default();
+                    app.cursor = app.cursor.child(selected);
 
+                    // Reset the list scroll state.
+                    app.layouts_list_state = ListState::default().with_selected(Some(0));
+                }
+            }
+            (KeyCode::Left | KeyCode::Char('h'), _)
+            | (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
+                match app.current_tab {
+                    Tab::Layout => {
+                        // Ascend back up to the Parent node
+                        app.cursor = app.cursor.parent();
                         // Reset the list scroll state.
                         app.layouts_list_state = ListState::default().with_selected(Some(0));
                     }
+                    Tab::Segments => app.segment_grid_state.scroll_left(20),
                 }
-                (KeyCode::Left | KeyCode::Char('h'), _)
-                | (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
-                    match app.current_tab {
-                        Tab::Layout => {
-                            // Ascend back up to the Parent node
-                            app.cursor = app.cursor.parent();
-                            // Reset the list scroll state.
-                            app.layouts_list_state = ListState::default().with_selected(Some(0));
-                        }
-                        Tab::Segments => app.segment_grid_state.scroll_left(20),
-                    }
-                }
-                (KeyCode::Right | KeyCode::Char('l'), _)
-                | (KeyCode::Char('b'), KeyModifiers::ALT) => match app.current_tab {
+            }
+            (KeyCode::Right | KeyCode::Char('l'), _) | (KeyCode::Char('b'), KeyModifiers::ALT) => {
+                match app.current_tab {
                     Tab::Layout => {}
                     Tab::Segments => app.segment_grid_state.scroll_right(20),
-                },
-
-                (KeyCode::Char('/'), _) | (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
-                    app.key_mode = KeyMode::Search;
                 }
-
-                // Most events not handled
-                _ => {}
             }
+
+            (KeyCode::Char('/'), _) | (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
+                app.key_mode = KeyMode::Search;
+            }
+
+            // Most events not handled
+            _ => {}
         }
     }
 
@@ -228,15 +222,15 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
 }
 
 // TODO: add tui_logger and have a logs tab so we can see the log output from
-//  doing Vortex things.¬
+//  doing Vortex things.
 
-pub fn exec_tui(file: impl AsRef<Path>) -> VortexResult<()> {
-    let app = TOKIO_RUNTIME.block_on(create_file_app(file))?;
+pub async fn exec_tui(file: impl AsRef<Path>) -> VortexResult<()> {
+    let app = create_file_app(file).await?;
 
     let mut terminal = ratatui::init();
     terminal.clear()?;
 
-    run(terminal, app)?;
+    run(terminal, app).await?;
 
     ratatui::restore();
     Ok(())

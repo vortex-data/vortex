@@ -1,0 +1,1163 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! # Array Consistency Tests
+//!
+//! This module contains tests that verify consistency between related compute operations
+//! on Vortex arrays. These tests ensure that different ways of achieving the same result
+//! produce identical outputs.
+//!
+//! ## Test Categories
+//!
+//! - **Filter/Take Consistency**: Verifies that filtering with a mask produces the same
+//!   result as taking with the indices where the mask is true.
+//! - **Mask Composition**: Ensures that applying multiple masks sequentially produces
+//!   the same result as applying a combined mask.
+//! - **Identity Operations**: Tests that operations with identity inputs (all-true masks,
+//!   sequential indices) preserve the original array.
+//! - **Null Handling**: Verifies consistent behavior when operations introduce or
+//!   interact with null values.
+//! - **Edge Cases**: Tests empty arrays, single elements, and boundary conditions.
+
+use arrow_buffer::BooleanBuffer;
+use vortex_buffer::buffer;
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{VortexUnwrap, vortex_panic};
+use vortex_mask::Mask;
+
+use crate::arrays::{BoolArray, ConstantArray, PrimitiveArray};
+use crate::compute::{Operator, and, cast, compare, filter, invert, mask, or, take};
+use crate::{Array, IntoArray};
+
+/// Tests that filter and take operations produce consistent results.
+///
+/// # Invariant
+/// `filter(array, mask)` should equal `take(array, indices_where_mask_is_true)`
+///
+/// # Test Details
+/// - Creates a mask that keeps elements where index % 3 != 1
+/// - Applies filter with this mask
+/// - Creates indices array containing positions where mask is true
+/// - Applies take with these indices
+/// - Verifies both results are identical
+fn test_filter_take_consistency(array: &dyn Array) {
+    let len = array.len();
+    if len == 0 {
+        return;
+    }
+
+    // Create a test mask (keep elements where index % 3 != 1)
+    let mask_pattern: BooleanBuffer = (0..len).map(|i| i % 3 != 1).collect();
+    let mask = Mask::from_buffer(mask_pattern.clone());
+
+    // Filter the array
+    let filtered = filter(array, &mask).vortex_unwrap();
+
+    // Create indices where mask is true
+    let indices: Vec<u64> = mask_pattern
+        .iter()
+        .enumerate()
+        .filter_map(|(i, v)| v.then_some(i as u64))
+        .collect();
+    let indices_array = PrimitiveArray::from_iter(indices).into_array();
+
+    // Take using those indices
+    let taken = take(array, &indices_array).vortex_unwrap();
+
+    // Results should be identical
+    assert_eq!(
+        filtered.len(),
+        taken.len(),
+        "Filter and take should produce arrays of the same length. \
+         Filtered length: {}, Taken length: {}",
+        filtered.len(),
+        taken.len()
+    );
+
+    for i in 0..filtered.len() {
+        let filtered_val = filtered.scalar_at(i);
+        let taken_val = taken.scalar_at(i);
+        assert_eq!(
+            filtered_val, taken_val,
+            "Filter and take produced different values at index {i}. \
+             Filtered value: {filtered_val:?}, Taken value: {taken_val:?}"
+        );
+    }
+}
+
+/// Tests that double masking is consistent with combined mask.
+///
+/// # Invariant
+/// `mask(mask(array, mask1), mask2)` should equal `mask(array, mask1 | mask2)`
+///
+/// # Test Details
+/// - Creates two masks: mask1 (every 3rd element) and mask2 (every 2nd element)
+/// - Applies masks sequentially: first mask1, then mask2 on the result
+/// - Creates a combined mask using OR operation (element is masked if either mask is true)
+/// - Applies the combined mask directly to the original array
+/// - Verifies both approaches produce identical results
+///
+/// # Why This Matters
+/// This test ensures that mask operations compose correctly, which is critical for
+/// complex query operations that may apply multiple filters.
+fn test_double_mask_consistency(array: &dyn Array) {
+    let len = array.len();
+    if len == 0 {
+        return;
+    }
+
+    // Create two different mask patterns
+    let mask1: Mask = (0..len).map(|i| i % 3 == 0).collect();
+    let mask2: Mask = (0..len).map(|i| i % 2 == 0).collect();
+
+    // Apply masks sequentially
+    let first_masked = mask(array, &mask1).vortex_unwrap();
+    let double_masked = mask(&first_masked, &mask2).vortex_unwrap();
+
+    // Create combined mask (OR operation - element is masked if EITHER mask is true)
+    let combined_pattern: BooleanBuffer = mask1
+        .to_boolean_buffer()
+        .iter()
+        .zip(mask2.to_boolean_buffer().iter())
+        .map(|(a, b)| a || b)
+        .collect();
+    let combined_mask = Mask::from_buffer(combined_pattern);
+
+    // Apply combined mask directly
+    let directly_masked = mask(array, &combined_mask).vortex_unwrap();
+
+    // Results should be identical
+    assert_eq!(
+        double_masked.len(),
+        directly_masked.len(),
+        "Sequential masking and combined masking should produce arrays of the same length. \
+         Sequential length: {}, Combined length: {}",
+        double_masked.len(),
+        directly_masked.len()
+    );
+
+    for i in 0..double_masked.len() {
+        let double_val = double_masked.scalar_at(i);
+        let direct_val = directly_masked.scalar_at(i);
+        assert_eq!(
+            double_val, direct_val,
+            "Sequential masking and combined masking produced different values at index {i}. \
+             Sequential masking value: {double_val:?}, Combined masking value: {direct_val:?}\n\
+             This likely indicates an issue with how masks are composed in the array implementation."
+        );
+    }
+}
+
+/// Tests that filtering with an all-true mask preserves the array.
+///
+/// # Invariant
+/// `filter(array, all_true_mask)` should equal `array`
+///
+/// # Test Details
+/// - Creates a mask with all elements set to true
+/// - Applies filter with this mask
+/// - Verifies the result is identical to the original array
+///
+/// # Why This Matters
+/// This is an identity operation that should be optimized in implementations
+/// to avoid unnecessary copying.
+fn test_filter_identity(array: &dyn Array) {
+    let len = array.len();
+    if len == 0 {
+        return;
+    }
+
+    let all_true_mask = Mask::new_true(len);
+    let filtered = filter(array, &all_true_mask).vortex_unwrap();
+
+    // Filtered array should be identical to original
+    assert_eq!(
+        filtered.len(),
+        array.len(),
+        "Filtering with all-true mask should preserve array length. \
+         Original length: {}, Filtered length: {}",
+        array.len(),
+        filtered.len()
+    );
+
+    for i in 0..len {
+        let original_val = array.scalar_at(i);
+        let filtered_val = filtered.scalar_at(i);
+        assert_eq!(
+            filtered_val, original_val,
+            "Filtering with all-true mask should preserve all values. \
+             Value at index {i} changed from {original_val:?} to {filtered_val:?}"
+        );
+    }
+}
+
+/// Tests that masking with an all-false mask preserves values while making them nullable.
+///
+/// # Invariant
+/// `mask(array, all_false_mask)` should have same values as `array` but with nullable type
+///
+/// # Test Details
+/// - Creates a mask with all elements set to false (no elements are nullified)
+/// - Applies mask operation
+/// - Verifies all values are preserved but the array type becomes nullable
+///
+/// # Why This Matters
+/// Masking always produces a nullable array, even when no values are actually masked.
+/// This test ensures the type system handles this correctly.
+fn test_mask_identity(array: &dyn Array) {
+    let len = array.len();
+    if len == 0 {
+        return;
+    }
+
+    let all_false_mask = Mask::new_false(len);
+    let masked = mask(array, &all_false_mask).vortex_unwrap();
+
+    // Masked array should have same values (just nullable)
+    assert_eq!(
+        masked.len(),
+        array.len(),
+        "Masking with all-false mask should preserve array length. \
+         Original length: {}, Masked length: {}",
+        array.len(),
+        masked.len()
+    );
+
+    assert!(
+        masked.dtype().is_nullable(),
+        "Mask operation should always produce a nullable array, but dtype is {:?}",
+        masked.dtype()
+    );
+
+    for i in 0..len {
+        let original_val = array.scalar_at(i);
+        let masked_val = masked.scalar_at(i);
+        let expected_val = original_val.clone().into_nullable();
+        assert_eq!(
+            masked_val, expected_val,
+            "Masking with all-false mask should preserve values (as nullable). \
+             Value at index {i}: original = {original_val:?}, masked = {masked_val:?}, expected = {expected_val:?}"
+        );
+    }
+}
+
+/// Tests that slice and filter with contiguous mask produce same results.
+///
+/// # Invariant
+/// `filter(array, contiguous_true_mask)` should equal `slice(array, start, end)`
+///
+/// # Test Details
+/// - Creates a mask that is true only for indices 1, 2, and 3
+/// - Filters the array with this mask
+/// - Slices the array from index 1 to 4
+/// - Verifies both operations produce identical results
+///
+/// # Why This Matters
+/// When a filter mask represents a contiguous range, it should be equivalent to
+/// a slice operation. Some implementations may optimize this case.
+fn test_slice_filter_consistency(array: &dyn Array) {
+    let len = array.len();
+    if len < 4 {
+        return; // Need at least 4 elements for meaningful test
+    }
+
+    // Create a contiguous mask (true from index 1 to 3)
+    let mut mask_pattern = vec![false; len];
+    mask_pattern[1..4.min(len)].fill(true);
+
+    let mask = Mask::from_iter(mask_pattern);
+    let filtered = filter(array, &mask).vortex_unwrap();
+
+    // Slice should produce the same result
+    let sliced = array.slice(1..4.min(len));
+
+    assert_eq!(
+        filtered.len(),
+        sliced.len(),
+        "Filter with contiguous mask and slice should produce same length. \
+         \nFiltered length: {}\nSliced length: {}",
+        filtered.len(),
+        sliced.len()
+    );
+
+    for i in 0..filtered.len() {
+        let filtered_val = filtered.scalar_at(i);
+        let sliced_val = sliced.scalar_at(i);
+        assert_eq!(
+            filtered_val, sliced_val,
+            "Filter with contiguous mask and slice produced different values at index {i}. \
+             \nFiltered value: {filtered_val:?}\nSliced value: {sliced_val:?}"
+        );
+    }
+}
+
+/// Tests that take with sequential indices equals slice.
+///
+/// # Invariant
+/// `take(array, [1, 2, 3, ...])` should equal `slice(array, 1, n)`
+///
+/// # Test Details
+/// - Creates indices array with sequential values [1, 2, 3]
+/// - Takes elements at these indices
+/// - Slices array from index 1 to 4
+/// - Verifies both operations produce identical results
+///
+/// # Why This Matters
+/// Sequential takes are a common pattern that can be optimized to slice operations.
+fn test_take_slice_consistency(array: &dyn Array) {
+    let len = array.len();
+    if len < 3 {
+        return; // Need at least 3 elements
+    }
+
+    // Take indices [1, 2, 3]
+    let end = 4.min(len);
+    let indices = PrimitiveArray::from_iter((1..end).map(|i| i as u64)).into_array();
+    let taken = take(array, &indices).vortex_unwrap();
+
+    // Slice from 1 to end
+    let sliced = array.slice(1..end);
+
+    assert_eq!(
+        taken.len(),
+        sliced.len(),
+        "Take with sequential indices and slice should produce same length. \
+         \nTaken length: {}\nSliced length: {}",
+        taken.len(),
+        sliced.len()
+    );
+
+    for i in 0..taken.len() {
+        let taken_val = taken.scalar_at(i);
+        let sliced_val = sliced.scalar_at(i);
+        assert_eq!(
+            taken_val, sliced_val,
+            "Take with sequential indices and slice produced different values at index {i}. \
+             \nTaken value: {taken_val:?}\nSliced value: {sliced_val:?}"
+        );
+    }
+}
+
+/// Tests that filter preserves relative ordering
+fn test_filter_preserves_order(array: &dyn Array) {
+    let len = array.len();
+    if len < 4 {
+        return;
+    }
+
+    // Create a mask that selects elements at indices 0, 2, 3
+    let mask_pattern: Vec<bool> = (0..len).map(|i| i == 0 || i == 2 || i == 3).collect();
+    let mask = Mask::from_iter(mask_pattern);
+
+    let filtered = filter(array, &mask).vortex_unwrap();
+
+    // Verify the filtered array contains the right elements in order
+    assert_eq!(filtered.len(), 3.min(len));
+    if len >= 4 {
+        assert_eq!(filtered.scalar_at(0), array.scalar_at(0));
+        assert_eq!(filtered.scalar_at(1), array.scalar_at(2),);
+        assert_eq!(filtered.scalar_at(2), array.scalar_at(3));
+    }
+}
+
+/// Tests that take with repeated indices works correctly
+fn test_take_repeated_indices(array: &dyn Array) {
+    let len = array.len();
+    if len == 0 {
+        return;
+    }
+
+    // Take the first element three times
+    let indices = buffer![0u64, 0, 0].into_array();
+    let taken = take(array, &indices).vortex_unwrap();
+
+    assert_eq!(taken.len(), 3);
+    for i in 0..3 {
+        assert_eq!(taken.scalar_at(i), array.scalar_at(0),);
+    }
+}
+
+/// Tests mask and filter interaction with nulls
+fn test_mask_filter_null_consistency(array: &dyn Array) {
+    let len = array.len();
+    if len < 3 {
+        return;
+    }
+
+    // First mask some elements
+    let mask_pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
+    let mask_array = Mask::from_iter(mask_pattern);
+    let masked = mask(array, &mask_array).vortex_unwrap();
+
+    // Then filter to remove the nulls
+    let filter_pattern: Vec<bool> = (0..len).map(|i| i % 2 != 0).collect();
+    let filter_mask = Mask::from_iter(filter_pattern);
+    let filtered = filter(&masked, &filter_mask).vortex_unwrap();
+
+    // This should be equivalent to directly filtering the original array
+    let direct_filtered = filter(array, &filter_mask).vortex_unwrap();
+
+    assert_eq!(filtered.len(), direct_filtered.len());
+    for i in 0..filtered.len() {
+        assert_eq!(filtered.scalar_at(i), direct_filtered.scalar_at(i));
+    }
+}
+
+/// Tests that empty operations are consistent
+fn test_empty_operations_consistency(array: &dyn Array) {
+    let len = array.len();
+
+    // Empty filter
+    let empty_filter = filter(array, &Mask::new_false(len)).vortex_unwrap();
+    assert_eq!(empty_filter.len(), 0);
+    assert_eq!(empty_filter.dtype(), array.dtype());
+
+    // Empty take
+    let empty_indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable).into_array();
+    let empty_take = take(array, &empty_indices).vortex_unwrap();
+    assert_eq!(empty_take.len(), 0);
+    assert_eq!(empty_take.dtype(), array.dtype());
+
+    // Empty slice (if array is non-empty)
+    if len > 0 {
+        let empty_slice = array.slice(0..0);
+        assert_eq!(empty_slice.len(), 0);
+        assert_eq!(empty_slice.dtype(), array.dtype());
+    }
+}
+
+/// Tests that take preserves array properties
+fn test_take_preserves_properties(array: &dyn Array) {
+    let len = array.len();
+    if len == 0 {
+        return;
+    }
+
+    // Take all elements in original order
+    let indices = PrimitiveArray::from_iter((0..len).map(|i| i as u64)).into_array();
+    let taken = take(array, &indices).vortex_unwrap();
+
+    // Should be identical to original
+    assert_eq!(taken.len(), array.len());
+    assert_eq!(taken.dtype(), array.dtype());
+    for i in 0..len {
+        assert_eq!(taken.scalar_at(i), array.scalar_at(i),);
+    }
+}
+
+/// Tests consistency with nullable indices.
+///
+/// # Invariant
+/// `take(array, [Some(0), None, Some(2)])` should produce `[array[0], null, array[2]]`
+///
+/// # Test Details
+/// - Creates an indices array with null at position 1: `[Some(0), None, Some(2)]`
+/// - Takes elements using these indices
+/// - Verifies that:
+///   - Position 0 contains the value from array index 0
+///   - Position 1 contains null
+///   - Position 2 contains the value from array index 2
+///   - The result array has nullable type
+///
+/// # Why This Matters
+/// Nullable indices are a powerful feature that allows introducing nulls during
+/// a take operation, which is useful for outer joins and similar operations.
+fn test_nullable_indices_consistency(array: &dyn Array) {
+    let len = array.len();
+    if len < 3 {
+        return; // Need at least 3 elements to test indices 0 and 2
+    }
+
+    // Create nullable indices where some indices are null
+    let indices = PrimitiveArray::from_option_iter([Some(0u64), None, Some(2u64)]).into_array();
+
+    let taken = take(array, &indices).vortex_unwrap();
+
+    // Result should have nulls where indices were null
+    assert_eq!(
+        taken.len(),
+        3,
+        "Take with nullable indices should produce array of length 3, got {}",
+        taken.len()
+    );
+
+    assert!(
+        taken.dtype().is_nullable(),
+        "Take with nullable indices should produce nullable array, but dtype is {:?}",
+        taken.dtype()
+    );
+
+    // Check first element (from index 0)
+    let expected_0 = array.scalar_at(0).into_nullable();
+    let actual_0 = taken.scalar_at(0);
+    assert_eq!(
+        actual_0, expected_0,
+        "Take with nullable indices: element at position 0 should be from array index 0. \
+         Expected: {expected_0:?}, Actual: {actual_0:?}"
+    );
+
+    // Check second element (should be null)
+    let actual_1 = taken.scalar_at(1);
+    assert!(
+        actual_1.is_null(),
+        "Take with nullable indices: element at position 1 should be null, but got {actual_1:?}"
+    );
+
+    // Check third element (from index 2)
+    let expected_2 = array.scalar_at(2).into_nullable();
+    let actual_2 = taken.scalar_at(2);
+    assert_eq!(
+        actual_2, expected_2,
+        "Take with nullable indices: element at position 2 should be from array index 2. \
+         Expected: {expected_2:?}, Actual: {actual_2:?}"
+    );
+}
+
+/// Tests large array consistency
+fn test_large_array_consistency(array: &dyn Array) {
+    let len = array.len();
+    if len < 1000 {
+        return;
+    }
+
+    // Test with every 10th element
+    let indices: Vec<u64> = (0..len).step_by(10).map(|i| i as u64).collect();
+    let indices_array = PrimitiveArray::from_iter(indices).into_array();
+    let taken = take(array, &indices_array).vortex_unwrap();
+
+    // Create equivalent filter mask
+    let mask_pattern: Vec<bool> = (0..len).map(|i| i % 10 == 0).collect();
+    let mask = Mask::from_iter(mask_pattern);
+    let filtered = filter(array, &mask).vortex_unwrap();
+
+    // Results should match
+    assert_eq!(taken.len(), filtered.len());
+    for i in 0..taken.len() {
+        assert_eq!(taken.scalar_at(i), filtered.scalar_at(i),);
+    }
+}
+
+/// Tests that comparison operations follow inverse relationships.
+///
+/// # Invariants
+/// - `compare(array, value, Eq)` is the inverse of `compare(array, value, NotEq)`
+/// - `compare(array, value, Gt)` is the inverse of `compare(array, value, Lte)`
+/// - `compare(array, value, Lt)` is the inverse of `compare(array, value, Gte)`
+///
+/// # Test Details
+/// - Creates comparison results for each operator
+/// - Verifies that inverse operations produce opposite boolean values
+/// - Tests with multiple scalar values to ensure consistency
+///
+/// # Why This Matters
+/// Comparison operations must maintain logical consistency across encodings.
+/// This test catches bugs where an encoding might implement one comparison
+/// correctly but fail on its logical inverse.
+fn test_comparison_inverse_consistency(array: &dyn Array) {
+    let len = array.len();
+    if len == 0 {
+        return;
+    }
+
+    // Skip non-comparable types.
+    match array.dtype() {
+        DType::Null | DType::Extension(_) | DType::Struct(..) | DType::List(..) => return,
+        _ => {}
+    }
+
+    // Get a test value from the middle of the array
+    let test_scalar = if len == 0 {
+        return;
+    } else {
+        array.scalar_at(len / 2)
+    };
+
+    // Test Eq vs NotEq
+    let const_array = ConstantArray::new(test_scalar, len);
+    if let (Ok(eq_result), Ok(neq_result)) = (
+        compare(array, const_array.as_ref(), Operator::Eq),
+        compare(array, const_array.as_ref(), Operator::NotEq),
+    ) {
+        let inverted_eq = invert(&eq_result).vortex_unwrap();
+
+        assert_eq!(
+            inverted_eq.len(),
+            neq_result.len(),
+            "Inverted Eq should have same length as NotEq"
+        );
+
+        for i in 0..inverted_eq.len() {
+            let inv_val = inverted_eq.scalar_at(i);
+            let neq_val = neq_result.scalar_at(i);
+            assert_eq!(
+                inv_val, neq_val,
+                "At index {i}: NOT(Eq) should equal NotEq. \
+                 NOT(Eq) = {inv_val:?}, NotEq = {neq_val:?}"
+            );
+        }
+    }
+
+    // Test Gt vs Lte
+    if let (Ok(gt_result), Ok(lte_result)) = (
+        compare(array, const_array.as_ref(), Operator::Gt),
+        compare(array, const_array.as_ref(), Operator::Lte),
+    ) {
+        let inverted_gt = invert(&gt_result).vortex_unwrap();
+
+        for i in 0..inverted_gt.len() {
+            let inv_val = inverted_gt.scalar_at(i);
+            let lte_val = lte_result.scalar_at(i);
+            assert_eq!(
+                inv_val, lte_val,
+                "At index {i}: NOT(Gt) should equal Lte. \
+                 NOT(Gt) = {inv_val:?}, Lte = {lte_val:?}"
+            );
+        }
+    }
+
+    // Test Lt vs Gte
+    if let (Ok(lt_result), Ok(gte_result)) = (
+        compare(array, const_array.as_ref(), Operator::Lt),
+        compare(array, const_array.as_ref(), Operator::Gte),
+    ) {
+        let inverted_lt = invert(&lt_result).vortex_unwrap();
+
+        for i in 0..inverted_lt.len() {
+            let inv_val = inverted_lt.scalar_at(i);
+            let gte_val = gte_result.scalar_at(i);
+            assert_eq!(
+                inv_val, gte_val,
+                "At index {i}: NOT(Lt) should equal Gte. \
+                 NOT(Lt) = {inv_val:?}, Gte = {gte_val:?}"
+            );
+        }
+    }
+}
+
+/// Tests that comparison operations maintain proper symmetry relationships.
+///
+/// # Invariants
+/// - `compare(array, value, Gt)` should equal `compare_scalar_array(value, array, Lt)`
+/// - `compare(array, value, Lt)` should equal `compare_scalar_array(value, array, Gt)`
+/// - `compare(array, value, Eq)` should equal `compare_scalar_array(value, array, Eq)`
+///
+/// # Test Details
+/// - Compares array-scalar operations with their symmetric scalar-array versions
+/// - Verifies that ordering relationships are properly reversed
+/// - Tests equality which should be symmetric
+///
+/// # Why This Matters
+/// Ensures that comparison operations maintain mathematical ordering properties
+/// regardless of operand order.
+fn test_comparison_symmetry_consistency(array: &dyn Array) {
+    let len = array.len();
+    if len == 0 {
+        return;
+    }
+
+    // Skip non-comparable types.
+    match array.dtype() {
+        DType::Null | DType::Extension(_) | DType::Struct(..) | DType::List(..) => return,
+        _ => {}
+    }
+
+    // Get test values
+    let test_scalar = if len == 2 {
+        return;
+    } else {
+        array.scalar_at(len / 2)
+    };
+
+    // Create a constant array with the test scalar for reverse comparison
+    let const_array = ConstantArray::new(test_scalar, len);
+
+    // Test Gt vs Lt symmetry
+    if let (Ok(arr_gt_scalar), Ok(scalar_lt_arr)) = (
+        compare(array, const_array.as_ref(), Operator::Gt),
+        compare(const_array.as_ref(), array, Operator::Lt),
+    ) {
+        assert_eq!(
+            arr_gt_scalar.len(),
+            scalar_lt_arr.len(),
+            "Symmetric comparisons should have same length"
+        );
+
+        for i in 0..arr_gt_scalar.len() {
+            let arr_gt = arr_gt_scalar.scalar_at(i);
+            let scalar_lt = scalar_lt_arr.scalar_at(i);
+            assert_eq!(
+                arr_gt, scalar_lt,
+                "At index {i}: (array > scalar) should equal (scalar < array). \
+                 array > scalar = {arr_gt:?}, scalar < array = {scalar_lt:?}"
+            );
+        }
+    }
+
+    // Test Eq symmetry
+    if let (Ok(arr_eq_scalar), Ok(scalar_eq_arr)) = (
+        compare(array, const_array.as_ref(), Operator::Eq),
+        compare(const_array.as_ref(), array, Operator::Eq),
+    ) {
+        for i in 0..arr_eq_scalar.len() {
+            let arr_eq = arr_eq_scalar.scalar_at(i);
+            let scalar_eq = scalar_eq_arr.scalar_at(i);
+            assert_eq!(
+                arr_eq, scalar_eq,
+                "At index {i}: (array == scalar) should equal (scalar == array). \
+                 array == scalar = {arr_eq:?}, scalar == array = {scalar_eq:?}"
+            );
+        }
+    }
+}
+
+/// Tests that boolean operations follow De Morgan's laws.
+///
+/// # Invariants
+/// - `NOT(A AND B)` equals `(NOT A) OR (NOT B)`
+/// - `NOT(A OR B)` equals `(NOT A) AND (NOT B)`
+///
+/// # Test Details
+/// - If the array is boolean, uses it directly for testing boolean operations
+/// - Creates two boolean masks from patterns based on the array
+/// - Computes AND/OR operations and their inversions
+/// - Verifies De Morgan's laws hold for all elements
+///
+/// # Why This Matters
+/// Boolean operations must maintain logical consistency across encodings.
+/// This test catches bugs where encodings might optimize boolean operations
+/// incorrectly, breaking fundamental logical properties.
+fn test_boolean_demorgan_consistency(array: &dyn Array) {
+    if !matches!(array.dtype(), DType::Bool(_)) {
+        return;
+    }
+
+    let mask = {
+        let mask_pattern: Vec<bool> = (0..array.len()).map(|i| i % 3 == 0).collect();
+        BoolArray::from_iter(mask_pattern)
+    };
+    let mask = mask.as_ref();
+
+    // Test first De Morgan's law: NOT(A AND B) = (NOT A) OR (NOT B)
+    if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (and(array, mask), invert(array), invert(mask)) {
+        let not_a_and_b = invert(&a_and_b).vortex_unwrap();
+        let not_a_or_not_b = or(&not_a, &not_b).vortex_unwrap();
+
+        assert_eq!(
+            not_a_and_b.len(),
+            not_a_or_not_b.len(),
+            "De Morgan's law results should have same length"
+        );
+
+        for i in 0..not_a_and_b.len() {
+            let left = not_a_and_b.scalar_at(i);
+            let right = not_a_or_not_b.scalar_at(i);
+            assert_eq!(
+                left, right,
+                "De Morgan's first law failed at index {i}: \
+                 NOT(A AND B) = {left:?}, (NOT A) OR (NOT B) = {right:?}"
+            );
+        }
+    }
+
+    // Test second De Morgan's law: NOT(A OR B) = (NOT A) AND (NOT B)
+    if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) = (or(array, mask), invert(array), invert(mask)) {
+        let not_a_or_b = invert(&a_or_b).vortex_unwrap();
+        let not_a_and_not_b = and(&not_a, &not_b).vortex_unwrap();
+
+        for i in 0..not_a_or_b.len() {
+            let left = not_a_or_b.scalar_at(i);
+            let right = not_a_and_not_b.scalar_at(i);
+            assert_eq!(
+                left, right,
+                "De Morgan's second law failed at index {i}: \
+                 NOT(A OR B) = {left:?}, (NOT A) AND (NOT B) = {right:?}"
+            );
+        }
+    }
+}
+
+/// Tests that slice and aggregate operations produce consistent results.
+///
+/// # Invariants
+/// - Aggregating a sliced array should equal aggregating the corresponding
+///   elements from the canonical form
+/// - This applies to sum, count, min/max, and other aggregate functions
+///
+/// # Test Details
+/// - Slices the array and computes aggregates
+/// - Compares against aggregating the canonical form's slice
+/// - Tests multiple aggregate functions where applicable
+///
+/// # Why This Matters
+/// Aggregate operations on sliced arrays must produce correct results
+/// regardless of the underlying encoding's offset handling.
+fn test_slice_aggregate_consistency(array: &dyn Array) {
+    use vortex_dtype::DType;
+
+    use crate::compute::{min_max, nan_count, sum};
+
+    let len = array.len();
+    if len < 5 {
+        return; // Need enough elements for meaningful slice
+    }
+
+    // Define slice bounds
+    let start = 1;
+    let end = (len - 1).min(start + 10); // Take up to 10 elements
+
+    // Get sliced array and canonical slice
+    let sliced = array.slice(start..end);
+    let canonical = array.to_canonical();
+    let canonical_sliced = canonical.as_ref().slice(start..end);
+
+    // Test null count through invalid_count
+    assert_eq!(
+        sliced.invalid_count(),
+        canonical_sliced.invalid_count(),
+        "null_count on sliced array should match canonical. \
+             Sliced: {}, Canonical: {}",
+        sliced.invalid_count(),
+        canonical_sliced.invalid_count()
+    );
+
+    // Test sum for numeric types
+    if !matches!(array.dtype(), DType::Primitive(..)) {
+        return;
+    }
+
+    if let (Ok(slice_sum), Ok(canonical_sum)) = (sum(&sliced), sum(&canonical_sliced)) {
+        // Compare sum scalars
+        assert_eq!(
+            slice_sum, canonical_sum,
+            "sum on sliced array should match canonical. \
+                 Sliced: {slice_sum:?}, Canonical: {canonical_sum:?}"
+        );
+    }
+
+    // Test min_max
+    if let (Ok(slice_minmax), Ok(canonical_minmax)) = (min_max(&sliced), min_max(&canonical_sliced))
+    {
+        match (slice_minmax, canonical_minmax) {
+            (Some(s_result), Some(c_result)) => {
+                assert_eq!(
+                    s_result.min, c_result.min,
+                    "min on sliced array should match canonical. \
+                         Sliced: {:?}, Canonical: {:?}",
+                    s_result.min, c_result.min
+                );
+                assert_eq!(
+                    s_result.max, c_result.max,
+                    "max on sliced array should match canonical. \
+                         Sliced: {:?}, Canonical: {:?}",
+                    s_result.max, c_result.max
+                );
+            }
+            (None, None) => {} // Both empty, OK
+            _ => vortex_panic!("min_max results don't match"),
+        }
+    }
+
+    // Test nan_count for floating point types
+    if array.dtype().is_float()
+        && let (Ok(slice_nan_count), Ok(canonical_nan_count)) =
+            (nan_count(&sliced), nan_count(&canonical_sliced))
+    {
+        assert_eq!(
+            slice_nan_count, canonical_nan_count,
+            "nan_count on sliced array should match canonical. \
+                 Sliced: {slice_nan_count}, Canonical: {canonical_nan_count}"
+        );
+    }
+}
+
+/// Tests that cast operations preserve array properties when sliced.
+///
+/// # Invariant
+/// `cast(slice(array, start, end), dtype)` should equal `slice(cast(array, dtype), start, end)`
+///
+/// # Test Details
+/// - Slices the array from index 2 to 7 (or len-2 if smaller)
+/// - Casts the sliced array to a different type
+/// - Compares against the canonical form of the array (without slicing or casting the canonical form)
+/// - Verifies both approaches produce identical results
+///
+/// # Why This Matters
+/// This test specifically catches bugs where encodings (like RunEndArray) fail to preserve
+/// offset information during cast operations. Such bugs can lead to incorrect data being
+/// returned after casting a sliced array.
+fn test_cast_slice_consistency(array: &dyn Array) {
+    let len = array.len();
+    if len < 5 {
+        return; // Need at least 5 elements for meaningful slice
+    }
+
+    // Define slice bounds
+    let start = 2;
+    let end = 7.min(len - 2).max(start + 1); // Ensure we have at least 1 element
+
+    // Get canonical form of the original array
+    let canonical = array.to_canonical();
+
+    // Choose appropriate target dtype based on the array's type
+    let target_dtypes = match array.dtype() {
+        DType::Null => vec![],
+        DType::Bool(nullability) => vec![
+            DType::Primitive(PType::U8, *nullability),
+            DType::Primitive(PType::I32, *nullability),
+        ],
+        DType::Primitive(ptype, nullability) => {
+            let mut targets = vec![];
+            // Test nullability changes
+            let opposite_nullability = match nullability {
+                Nullability::NonNullable => Nullability::Nullable,
+                Nullability::Nullable => Nullability::NonNullable,
+            };
+            targets.push(DType::Primitive(*ptype, opposite_nullability));
+
+            // Test widening casts
+            match ptype {
+                PType::U8 => {
+                    targets.push(DType::Primitive(PType::U16, *nullability));
+                    targets.push(DType::Primitive(PType::I16, *nullability));
+                }
+                PType::U16 => {
+                    targets.push(DType::Primitive(PType::U32, *nullability));
+                    targets.push(DType::Primitive(PType::I32, *nullability));
+                }
+                PType::U32 => {
+                    targets.push(DType::Primitive(PType::U64, *nullability));
+                    targets.push(DType::Primitive(PType::I64, *nullability));
+                }
+                PType::U64 => {
+                    targets.push(DType::Primitive(PType::F64, *nullability));
+                }
+                PType::I8 => {
+                    targets.push(DType::Primitive(PType::I16, *nullability));
+                    targets.push(DType::Primitive(PType::F32, *nullability));
+                }
+                PType::I16 => {
+                    targets.push(DType::Primitive(PType::I32, *nullability));
+                    targets.push(DType::Primitive(PType::F32, *nullability));
+                }
+                PType::I32 => {
+                    targets.push(DType::Primitive(PType::I64, *nullability));
+                    targets.push(DType::Primitive(PType::F64, *nullability));
+                }
+                PType::I64 => {
+                    targets.push(DType::Primitive(PType::F64, *nullability));
+                }
+                PType::F16 => {
+                    targets.push(DType::Primitive(PType::F32, *nullability));
+                }
+                PType::F32 => {
+                    targets.push(DType::Primitive(PType::F64, *nullability));
+                    targets.push(DType::Primitive(PType::I32, *nullability));
+                }
+                PType::F64 => {
+                    targets.push(DType::Primitive(PType::I64, *nullability));
+                }
+            }
+            targets
+        }
+        DType::Utf8(nullability) => {
+            let opposite = match nullability {
+                Nullability::NonNullable => Nullability::Nullable,
+                Nullability::Nullable => Nullability::NonNullable,
+            };
+            vec![DType::Utf8(opposite), DType::Binary(*nullability)]
+        }
+        DType::Binary(nullability) => {
+            let opposite = match nullability {
+                Nullability::NonNullable => Nullability::Nullable,
+                Nullability::Nullable => Nullability::NonNullable,
+            };
+            vec![
+                DType::Binary(opposite),
+                DType::Utf8(*nullability), // May fail if not valid UTF-8
+            ]
+        }
+        DType::Decimal(decimal_type, nullability) => {
+            let opposite = match nullability {
+                Nullability::NonNullable => Nullability::Nullable,
+                Nullability::Nullable => Nullability::NonNullable,
+            };
+            vec![DType::Decimal(*decimal_type, opposite)]
+        }
+        DType::Struct(fields, nullability) => {
+            let opposite = match nullability {
+                Nullability::NonNullable => Nullability::Nullable,
+                Nullability::Nullable => Nullability::NonNullable,
+            };
+            vec![DType::Struct(fields.clone(), opposite)]
+        }
+        DType::List(element_type, nullability) => {
+            let opposite = match nullability {
+                Nullability::NonNullable => Nullability::Nullable,
+                Nullability::Nullable => Nullability::NonNullable,
+            };
+            vec![DType::List(element_type.clone(), opposite)]
+        }
+        DType::FixedSizeList(element_type, list_size, nullability) => {
+            let opposite = match nullability {
+                Nullability::NonNullable => Nullability::Nullable,
+                Nullability::Nullable => Nullability::NonNullable,
+            };
+            vec![DType::FixedSizeList(
+                element_type.clone(),
+                *list_size,
+                opposite,
+            )]
+        }
+        DType::Extension(_) => vec![], // Extension types typically only cast to themselves
+    };
+
+    // Test each target dtype
+    for target_dtype in target_dtypes {
+        // Slice the array
+        let sliced = array.slice(start..end);
+
+        // Try to cast the sliced array
+        let slice_then_cast = match cast(&sliced, &target_dtype) {
+            Ok(result) => result,
+            Err(_) => continue, // Skip if cast fails
+        };
+
+        // Verify against canonical form
+        assert_eq!(
+            slice_then_cast.len(),
+            end - start,
+            "Sliced and casted array should have length {}, but has {}",
+            end - start,
+            slice_then_cast.len()
+        );
+
+        // Compare each value against the canonical form
+        for i in 0..slice_then_cast.len() {
+            let slice_cast_val = slice_then_cast.scalar_at(i);
+
+            // Get the corresponding value from the canonical array (adjusted for slice offset)
+            let canonical_val = canonical.as_ref().scalar_at(start + i);
+
+            // Cast the canonical scalar to the target dtype
+            let expected_val = match canonical_val.cast(&target_dtype) {
+                Ok(val) => val,
+                Err(_) => {
+                    // If scalar cast fails, we can't compare - skip this target dtype
+                    // This can happen for some type conversions that aren't supported at scalar level
+                    break;
+                }
+            };
+
+            assert_eq!(
+                slice_cast_val,
+                expected_val,
+                "Cast of sliced array produced incorrect value at index {i}. \
+                 Got: {slice_cast_val:?}, Expected: {expected_val:?} \
+                 (canonical value at index {}: {canonical_val:?})\n\
+                 This likely indicates the array encoding doesn't preserve offset information during cast.",
+                start + i
+            );
+        }
+
+        // Also test the other way: cast then slice
+        let casted = match cast(array, &target_dtype) {
+            Ok(result) => result,
+            Err(_) => continue, // Skip if cast fails
+        };
+        let cast_then_slice = casted.slice(start..end);
+
+        // Verify the two approaches produce identical results
+        assert_eq!(
+            slice_then_cast.len(),
+            cast_then_slice.len(),
+            "Slice-then-cast and cast-then-slice should produce arrays of the same length"
+        );
+
+        for i in 0..slice_then_cast.len() {
+            let slice_cast_val = slice_then_cast.scalar_at(i);
+            let cast_slice_val = cast_then_slice.scalar_at(i);
+            assert_eq!(
+                slice_cast_val, cast_slice_val,
+                "Slice-then-cast and cast-then-slice produced different values at index {i}. \
+                 Slice-then-cast: {slice_cast_val:?}, Cast-then-slice: {cast_slice_val:?}"
+            );
+        }
+    }
+}
+
+/// Run all consistency tests on an array.
+///
+/// This function executes a comprehensive suite of consistency tests that verify
+/// the correctness of compute operations on Vortex arrays.
+///
+/// # Test Suite Overview
+///
+/// ## Core Operation Consistency
+/// - **Filter/Take**: Verifies `filter(array, mask)` equals `take(array, true_indices)`
+/// - **Mask Composition**: Ensures sequential masks equal combined masks
+/// - **Slice/Filter**: Checks contiguous filters equal slice operations
+/// - **Take/Slice**: Validates sequential takes equal slice operations
+/// - **Cast/Slice**: Ensures cast operations preserve sliced array properties
+///
+/// ## Boolean Operations
+/// - **De Morgan's Laws**: Verifies boolean operations follow logical laws
+///
+/// ## Comparison Operations
+/// - **Inverse Relationships**: Verifies logical inverses (Eq/NotEq, Gt/Lte, Lt/Gte)
+/// - **Symmetry**: Ensures proper ordering relationships when operands are swapped
+///
+/// ## Aggregate Operations
+/// - **Slice/Aggregate**: Verifies aggregates on sliced arrays match canonical
+///
+/// ## Identity Operations
+/// - **Filter Identity**: All-true mask preserves the array
+/// - **Mask Identity**: All-false mask preserves values (as nullable)
+/// - **Take Identity**: Taking all indices preserves the array
+///
+/// ## Edge Cases
+/// - **Empty Operations**: Empty filters, takes, and slices behave correctly
+/// - **Single Element**: Operations work with single-element arrays
+/// - **Repeated Indices**: Take with duplicate indices works correctly
+///
+/// ## Null Handling
+/// - **Nullable Indices**: Null indices produce null values
+/// - **Mask/Filter Interaction**: Masking then filtering behaves predictably
+///
+/// ## Large Arrays
+/// - **Performance**: Operations scale correctly to large arrays (1000+ elements)
+/// ```text
+pub fn test_array_consistency(array: &dyn Array) {
+    // Core operation consistency
+    test_filter_take_consistency(array);
+    test_double_mask_consistency(array);
+    test_slice_filter_consistency(array);
+    test_take_slice_consistency(array);
+    test_cast_slice_consistency(array);
+
+    // Boolean operations
+    test_boolean_demorgan_consistency(array);
+
+    // Comparison operations
+    test_comparison_inverse_consistency(array);
+    test_comparison_symmetry_consistency(array);
+
+    // Aggregate operations
+    test_slice_aggregate_consistency(array);
+
+    // Identity operations
+    test_filter_identity(array);
+    test_mask_identity(array);
+    test_take_preserves_properties(array);
+
+    // Ordering and correctness
+    test_filter_preserves_order(array);
+    test_take_repeated_indices(array);
+
+    // Null handling
+    test_mask_filter_null_consistency(array);
+    test_nullable_indices_consistency(array);
+
+    // Edge cases
+    test_empty_operations_consistency(array);
+    test_large_array_consistency(array);
+}

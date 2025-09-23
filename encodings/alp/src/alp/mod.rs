@@ -216,7 +216,7 @@ fn encode_chunk_unchecked<T: ALPFloat>(
 
     // encode the chunk, counting the number of patches
     let mut chunk_patch_count = 0;
-    encoded_output.extend(chunk.iter().map(|&v| {
+    encoded_output.extend_trusted(chunk.iter().map(|&v| {
         let encoded = T::encode_single_unchecked(v, exp);
         let decoded = T::decode_single(encoded, exp);
         let neq = !decoded.is_eq(v) as usize;

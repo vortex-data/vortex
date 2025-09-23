@@ -7,11 +7,13 @@ use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::compute::warm_up_vtables;
 use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_runend::RunEndArray;
 
 fn main() {
+    warm_up_vtables();
     divan::main();
 }
 
@@ -49,7 +51,7 @@ fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, us
 
     bencher
         .with_inputs(|| array.clone())
-        .bench_refs(|array| array.invalid_count().unwrap());
+        .bench_refs(|array| array.invalid_count());
 }
 
 fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
@@ -66,5 +68,5 @@ fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
     )
     .into_array();
 
-    RunEndArray::try_new(ends, values).unwrap()
+    RunEndArray::new(ends, values)
 }

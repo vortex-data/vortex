@@ -12,6 +12,18 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output,
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
 
+static FILL_NULL_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("fill_null".into(), ArcRef::new_ref(&FillNull));
+    for kernel in inventory::iter::<FillNullKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+pub(crate) fn warm_up_vtable() -> usize {
+    FILL_NULL_FN.kernels().len()
+}
+
 pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     FILL_NULL_FN
         .invoke(&InvocationArgs {
@@ -49,14 +61,6 @@ impl<V: VTable + FillNullKernel> Kernel for FillNullKernelAdapter<V> {
     }
 }
 
-pub static FILL_NULL_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("fill_null".into(), ArcRef::new_ref(&FillNull));
-    for kernel in inventory::iter::<FillNullKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
 struct FillNull;
 
 impl ComputeFnVTable for FillNull {
@@ -67,11 +71,7 @@ impl ComputeFnVTable for FillNull {
     ) -> VortexResult<Output> {
         let FillNullArgs { array, fill_value } = FillNullArgs::try_from(args)?;
 
-        if !array.dtype().is_nullable() {
-            return Ok(array.to_array().into());
-        }
-
-        if array.invalid_count()? == 0 {
+        if !array.dtype().is_nullable() || array.all_valid() {
             return Ok(cast(array, fill_value.dtype())?.into());
         }
 
@@ -90,7 +90,7 @@ impl ComputeFnVTable for FillNull {
 
         log::debug!("FillNullFn not implemented for {}", array.encoding_id());
         if !array.is_canonical() {
-            let canonical_arr = array.to_canonical()?.into_array();
+            let canonical_arr = array.to_canonical().into_array();
             return Ok(fill_null(canonical_arr.as_ref(), fill_value)?.into());
         }
 

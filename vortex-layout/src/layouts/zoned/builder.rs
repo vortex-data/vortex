@@ -4,12 +4,12 @@
 use std::marker::PhantomData;
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::builders::{ArrayBuilder, ArrayBuilderExt, BoolBuilder, builder_with_capacity};
+use vortex_array::builders::{ArrayBuilder, BoolBuilder, builder_with_capacity};
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldName, Nullability};
 use vortex_error::VortexResult;
-use vortex_scalar::{BinaryScalar, ScalarValue, Utf8Scalar};
+use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
 
 pub const MAX_IS_TRUNCATED: &str = "max_is_truncated";
 pub const MIN_IS_TRUNCATED: &str = "min_is_truncated";
@@ -59,7 +59,7 @@ pub struct NamedArrays {
 }
 
 impl NamedArrays {
-    pub fn all_invalid(&self) -> VortexResult<bool> {
+    pub fn all_invalid(&self) -> bool {
         // by convention we assume that the first array is the one we care about for logical validity
         self.arrays[0].all_invalid()
     }
@@ -69,7 +69,7 @@ impl NamedArrays {
 pub trait StatsArrayBuilder: Send {
     fn stat(&self) -> Stat;
 
-    fn append_scalar_value(&mut self, value: ScalarValue) -> VortexResult<()>;
+    fn append_scalar(&mut self, value: Scalar) -> VortexResult<()>;
 
     fn append_null(&mut self);
 
@@ -92,8 +92,8 @@ impl StatsArrayBuilder for StatNameArrayBuilder {
         self.stat
     }
 
-    fn append_scalar_value(&mut self, value: ScalarValue) -> VortexResult<()> {
-        self.builder.append_scalar_value(value)
+    fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
+        self.builder.append_scalar(&value)
     }
 
     fn append_null(&mut self) {
@@ -165,11 +165,11 @@ impl<T: ScalarTruncation> TruncatedMinBinaryStatsBuilder<T> {
 }
 
 pub trait ScalarTruncation: Send + Sized {
-    fn from_scalar_value(dtype: &DType, value: ScalarValue) -> VortexResult<impl ScalarTruncation>;
+    fn from_scalar(value: &Scalar) -> VortexResult<impl ScalarTruncation>;
 
     fn len(&self) -> Option<usize>;
 
-    fn into_value(self) -> ScalarValue;
+    fn into_scalar(self) -> Scalar;
 
     fn upper_bound(self, max_length: usize) -> Option<Self>;
 
@@ -177,16 +177,18 @@ pub trait ScalarTruncation: Send + Sized {
 }
 
 impl ScalarTruncation for BinaryScalar<'_> {
-    fn from_scalar_value(dtype: &DType, value: ScalarValue) -> VortexResult<impl ScalarTruncation> {
-        BinaryScalar::from_scalar_value(dtype, value)
+    fn from_scalar(value: &Scalar) -> VortexResult<impl ScalarTruncation> {
+        BinaryScalar::try_from(value)
     }
 
     fn len(&self) -> Option<usize> {
         self.len()
     }
 
-    fn into_value(self) -> ScalarValue {
-        self.into_value()
+    fn into_scalar(self) -> Scalar {
+        self.value()
+            .map(|b| Scalar::binary(b, self.dtype().nullability()))
+            .unwrap_or_else(|| Scalar::null(self.dtype().clone()))
     }
 
     fn upper_bound(self, max_length: usize) -> Option<Self> {
@@ -199,16 +201,18 @@ impl ScalarTruncation for BinaryScalar<'_> {
 }
 
 impl ScalarTruncation for Utf8Scalar<'_> {
-    fn from_scalar_value(dtype: &DType, value: ScalarValue) -> VortexResult<impl ScalarTruncation> {
-        Utf8Scalar::from_scalar_value(dtype, value)
+    fn from_scalar(value: &Scalar) -> VortexResult<impl ScalarTruncation> {
+        Utf8Scalar::try_from(value)
     }
 
     fn len(&self) -> Option<usize> {
         self.len()
     }
 
-    fn into_value(self) -> ScalarValue {
-        self.into_value()
+    fn into_scalar(self) -> Scalar {
+        self.value()
+            .map(|b| Scalar::utf8(b, self.dtype().nullability()))
+            .unwrap_or_else(|| Scalar::null(self.dtype().clone()))
     }
 
     fn upper_bound(self, max_length: usize) -> Option<Self> {
@@ -225,12 +229,11 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMaxBinaryStatsBuilder<T
         Stat::Max
     }
 
-    fn append_scalar_value(&mut self, value: ScalarValue) -> VortexResult<()> {
-        let (value, truncated) =
-            upper_bound::<T>(self.values.dtype(), value, self.max_value_length)?;
+    fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
+        let (value, truncated) = upper_bound::<T>(value, self.max_value_length)?;
 
         if let Some(upper_bound) = value {
-            ArrayBuilderExt::append_scalar_value(self.values.as_mut(), upper_bound)?;
+            self.values.append_scalar(&upper_bound)?;
             self.is_truncated.append_value(truncated);
         } else {
             self.append_null()
@@ -259,10 +262,9 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T
         Stat::Min
     }
 
-    fn append_scalar_value(&mut self, value: ScalarValue) -> VortexResult<()> {
-        let (value, truncated) =
-            lower_bound::<T>(self.values.dtype(), value, self.max_value_length)?;
-        ArrayBuilderExt::append_scalar_value(self.values.as_mut(), value)?;
+    fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
+        let (value, truncated) = lower_bound::<T>(value, self.max_value_length)?;
+        self.values.append_scalar(&value)?;
         self.is_truncated.append_value(truncated);
         Ok(())
     }
@@ -284,27 +286,25 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T
 }
 
 pub fn lower_bound<T: ScalarTruncation>(
-    dtype: &DType,
-    value: ScalarValue,
+    value: Scalar,
     max_length: usize,
-) -> VortexResult<(ScalarValue, bool)> {
-    let trunc = T::from_scalar_value(dtype, value)?;
+) -> VortexResult<(Scalar, bool)> {
+    let trunc = T::from_scalar(&value)?;
     if trunc.len().unwrap_or(0) > max_length {
-        Ok((trunc.lower_bound(max_length).into_value(), true))
+        Ok((trunc.lower_bound(max_length).into_scalar(), true))
     } else {
-        Ok((trunc.into_value(), false))
+        Ok((trunc.into_scalar(), false))
     }
 }
 
 pub fn upper_bound<T: ScalarTruncation>(
-    dtype: &DType,
-    value: ScalarValue,
+    value: Scalar,
     max_length: usize,
-) -> VortexResult<(Option<ScalarValue>, bool)> {
-    let trunc = T::from_scalar_value(dtype, value)?;
+) -> VortexResult<(Option<Scalar>, bool)> {
+    let trunc = T::from_scalar(&value)?;
     if trunc.len().unwrap_or(0) > max_length {
-        Ok((trunc.upper_bound(max_length).map(|v| v.into_value()), true))
+        Ok((trunc.upper_bound(max_length).map(|v| v.into_scalar()), true))
     } else {
-        Ok((Some(trunc.into_value()), false))
+        Ok((Some(trunc.into_scalar()), false))
     }
 }

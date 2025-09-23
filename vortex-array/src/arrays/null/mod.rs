@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -33,6 +35,7 @@ impl VTable for NullVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -44,6 +47,30 @@ impl VTable for NullVTable {
     }
 }
 
+/// A array where all values are null.
+///
+/// This mirrors the Apache Arrow Null array encoding and provides an efficient representation
+/// for arrays containing only null values. No actual data is stored, only the length.
+///
+/// All operations on null arrays return null values or indicate invalid data.
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::NullArray;
+/// use vortex_array::IntoArray;
+///
+/// // Create a null array with 5 elements
+/// let array = NullArray::new(5);
+///
+/// // Slice the array - still contains nulls
+/// let sliced = array.slice(1..3);
+/// assert_eq!(sliced.len(), 2);
+///
+/// // All elements are null
+/// let scalar = array.scalar_at(0);
+/// assert!(scalar.is_null());
+/// ```
 #[derive(Clone, Debug)]
 pub struct NullArray {
     len: usize,
@@ -102,35 +129,35 @@ impl VisitorVTable<NullVTable> for NullVTable {
 }
 
 impl CanonicalVTable<NullVTable> for NullVTable {
-    fn canonicalize(array: &NullArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Null(array.clone()))
+    fn canonicalize(array: &NullArray) -> Canonical {
+        Canonical::Null(array.clone())
     }
 }
 
 impl OperationsVTable<NullVTable> for NullVTable {
-    fn slice(_array: &NullArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(NullArray::new(stop - start).into_array())
+    fn slice(_array: &NullArray, range: Range<usize>) -> ArrayRef {
+        NullArray::new(range.len()).into_array()
     }
 
-    fn scalar_at(_array: &NullArray, _index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::null(DType::Null))
+    fn scalar_at(_array: &NullArray, _index: usize) -> Scalar {
+        Scalar::null(DType::Null)
     }
 }
 
 impl ValidityVTable<NullVTable> for NullVTable {
-    fn is_valid(_array: &NullArray, _index: usize) -> VortexResult<bool> {
-        Ok(false)
+    fn is_valid(_array: &NullArray, _index: usize) -> bool {
+        false
     }
 
-    fn all_valid(array: &NullArray) -> VortexResult<bool> {
-        Ok(array.is_empty())
+    fn all_valid(array: &NullArray) -> bool {
+        array.is_empty()
     }
 
-    fn all_invalid(array: &NullArray) -> VortexResult<bool> {
-        Ok(!array.is_empty())
+    fn all_invalid(array: &NullArray) -> bool {
+        !array.is_empty()
     }
 
-    fn validity_mask(array: &NullArray) -> VortexResult<Mask> {
-        Ok(Mask::AllFalse(array.len))
+    fn validity_mask(array: &NullArray) -> Mask {
+        Mask::AllFalse(array.len)
     }
 }

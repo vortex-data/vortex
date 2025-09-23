@@ -7,7 +7,6 @@ import com.google.protobuf.ByteString;
 import dev.vortex.api.Expression;
 import dev.vortex.api.expressions.*;
 import dev.vortex.proto.ExprProtos;
-
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -32,6 +31,15 @@ public final class Expressions {
                 .build();
     }
 
+    /**
+     * Deserialize a protocol buffer representation back into an {@link Expression} object.
+     * The method examines the expression ID and creates the appropriate concrete expression type
+     * based on the registered expression types (binary, get_item, root, literal, not).
+     * If the expression ID is not recognized, an {@link Unknown} expression is created.
+     *
+     * @param expr the protocol buffer expression to deserialize
+     * @return the deserialized Expression object
+     */
     public static Expression deserialize(ExprProtos.Expr expr) {
         byte[] metadata = expr.getMetadata().toByteArray();
         List<Expression> children =

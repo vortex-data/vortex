@@ -13,26 +13,22 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
-arcref = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
-dashmap = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
-linked_hash_set = { workspace = true }
+kanal = { workspace = true }
 log = { workspace = true }
-moka = { workspace = true, features = ["future"] }
 object_store = { workspace = true, optional = true }
-rustc-hash = { workspace = true }
+parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
-tracing = { workspace = true, optional = true }
-tracing-futures = { workspace = true, features = [
-    "futures-03",
-], optional = true }
 # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 uuid = { workspace = true }
 vortex-alp = { workspace = true }
@@ -51,37 +47,32 @@ vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-pco = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
-vortex-utils = { workspace = true }
+vortex-utils = { workspace = true, features = ["dashmap"] }
 vortex-zigzag = { workspace = true }
+vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["test-harness"] }
-vortex-io = { path = "../vortex-io", features = ["tokio"] }
+vortex-io = { workspace = true, features = ["tokio"] }
+vortex-scan = { workspace = true, features = ["tokio"] }
 
 [lints]
 workspace = true
 
 [features]
-object_store = [
-    "tokio",
-    "dep:object_store",
-    "vortex-error/object_store",
-    "vortex-io/object_store",
-]
+object_store = ["dep:object_store", "vortex-io/object_store", "tokio"]
 tokio = [
     "dep:tokio",
     "vortex-error/tokio",
     "vortex-io/tokio",
     "vortex-layout/tokio",
+    "vortex-scan/tokio",
 ]
-tracing = [
-    "dep:tracing",
-    "dep:tracing-futures",
-    "vortex-io/tracing",
-    "vortex-layout/tracing",
-]
+zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]

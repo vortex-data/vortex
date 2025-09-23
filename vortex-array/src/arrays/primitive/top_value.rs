@@ -19,12 +19,12 @@ impl PrimitiveArray {
             return Ok(None);
         }
 
-        if self.all_invalid()? {
+        if self.all_invalid() {
             return Ok(None);
         }
 
         match_each_native_ptype!(self.ptype(), |P| {
-            let (top, count) = typed_top_value(self.as_slice::<P>(), self.validity_mask()?);
+            let (top, count) = typed_top_value(self.as_slice::<P>(), self.validity_mask());
             Ok(Some((top.into(), count)))
         })
     }

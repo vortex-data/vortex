@@ -5,26 +5,25 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use dashmap::DashMap;
+use futures::future::BoxFuture;
 use itertools::Itertools;
-use vortex_array::ArrayContext;
 use vortex_array::stats::Precision;
+use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
-use vortex_expr::transform::partition::{PartitionedExpr, partition};
-use vortex_expr::transform::replace::{replace, replace_root_fields};
-use vortex_expr::transform::simplify_typed::simplify_typed;
+use vortex_expr::transform::{
+    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
+};
 use vortex_expr::{ExactExpr, ExprRef, col, root};
+use vortex_mask::Mask;
+use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
+use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
-use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
-    NoOpPruningEvaluation, PruningEvaluation,
-};
+use crate::{LayoutReader, LayoutReaderRef, LazyReaderChildren};
 
 pub struct StructReader {
     layout: StructLayout,
@@ -44,7 +43,6 @@ impl StructReader {
         layout: StructLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<Self> {
         let struct_dt = layout.struct_fields();
 
@@ -59,7 +57,7 @@ impl StructReader {
         });
 
         let lazy_children =
-            LazyReaderChildren::new(layout.children.clone(), segment_source.clone(), ctx.clone());
+            LazyReaderChildren::new(layout.children.clone(), segment_source.clone());
 
         // Create an expanded root expression that contains all fields of the struct.
         let expanded_root_expr = replace_root_fields(root(), struct_dt);
@@ -120,7 +118,7 @@ impl StructReader {
                     self.dtype(),
                     annotate_scope_access(
                         self.dtype()
-                            .as_struct()
+                            .as_struct_fields_opt()
                             .vortex_expect("We know it's a struct DType"),
                     ),
                 )
@@ -195,16 +193,17 @@ impl LayoutReader for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
-            Partitioned::Single(name, partition) => {
-                self.child(name)?.pruning_evaluation(row_range, partition)
-            }
+            Partitioned::Single(name, partition) => self
+                .child(name)?
+                .pruning_evaluation(row_range, partition, mask),
             Partitioned::Multi(_) => {
                 // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
                 //  there's not much we can do? Maybe... it's complicated...
-                Ok(Box::new(NoOpPruningEvaluation))
+                Ok(MaskFuture::ready(mask))
             }
         }
     }
@@ -213,17 +212,21 @@ impl LayoutReader for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        mask: MaskFuture,
+    ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
-            Partitioned::Single(name, partition) => {
-                self.child(name)?.filter_evaluation(row_range, partition)
-            }
-            Partitioned::Multi(partitioned) => Ok(Box::new(PartitionedMaskEvaluation::try_new(
-                partitioned.clone(),
-                |name, expr| self.child(name)?.filter_evaluation(row_range, expr),
-                |name, expr| self.child(name)?.projection_evaluation(row_range, expr),
-            )?)),
+            Partitioned::Single(name, partition) => self
+                .child(name)?
+                .filter_evaluation(row_range, partition, mask),
+            Partitioned::Multi(partitioned) => partitioned.clone().into_mask_future(
+                mask,
+                |name, expr, mask| self.child(name)?.filter_evaluation(row_range, expr, mask),
+                |name, expr, mask| {
+                    self.child(name)?
+                        .projection_evaluation(row_range, expr, mask)
+                },
+            ),
         }
     }
 
@@ -231,16 +234,21 @@ impl LayoutReader for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        mask: MaskFuture,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
                 .child(name)?
-                .projection_evaluation(row_range, partition),
-            Partitioned::Multi(partitioned) => Ok(Box::new(PartitionedArrayEvaluation::try_new(
-                partitioned.clone(),
-                |name, expr| self.child(name)?.projection_evaluation(row_range, expr),
-            )?)),
+                .projection_evaluation(row_range, partition, mask),
+            Partitioned::Multi(partitioned) => {
+                partitioned
+                    .clone()
+                    .into_array_future(mask, |name, expr, mask| {
+                        self.child(name)?
+                            .projection_evaluation(row_range, expr, mask)
+                    })
+            }
         }
     }
 }
@@ -249,92 +257,68 @@ impl LayoutReader for StructReader {
 mod tests {
     use std::sync::Arc;
 
-    use arcref::ArcRef;
-    use futures::executor::block_on;
-    use futures::stream;
     use itertools::Itertools;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::StructArray;
-    use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayContext, IntoArray, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, StructFields};
-    use vortex_expr::{eq, get_item, get_item_scope, gt, lit, or, pack, root};
+    use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root};
+    use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use crate::sequence::SequenceId;
-    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
+    use crate::segments::{SegmentSource, TestSegments};
+    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
+    fn struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
-        let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
-        let layout = block_on(
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
+        let layout = block_on(|handle| {
             strategy.write_stream(
-                &ctx,
-                sequence_writer,
-                SequentialStreamAdapter::new(
-                    DType::Struct(
-                        StructFields::new(
-                            vec!["a".into(), "b".into(), "c".into()].into(),
-                            vec![I32.into(), I32.into(), I32.into()],
-                        ),
-                        NonNullable,
-                    ),
-                    stream::once(async {
-                        Ok((
-                            SequenceId::root().downgrade(),
-                            StructArray::from_fields(
-                                [
-                                    ("a", buffer![7, 2, 3].into_array()),
-                                    ("b", buffer![4, 5, 6].into_array()),
-                                    ("c", buffer![4, 5, 6].into_array()),
-                                ]
-                                .as_slice(),
-                            )
-                            .unwrap()
-                            .into_array(),
-                        ))
-                    }),
+                ctx,
+                segments.clone(),
+                StructArray::from_fields(
+                    [
+                        ("a", buffer![7, 2, 3].into_array()),
+                        ("b", buffer![4, 5, 6].into_array()),
+                        ("c", buffer![4, 5, 6].into_array()),
+                    ]
+                    .as_slice(),
                 )
-                .sendable(),
-            ),
-        )
+                .unwrap()
+                .into_array()
+                .to_array_stream()
+                .sequenced(ptr),
+                eof,
+                handle,
+            )
+        })
         .unwrap();
 
-        (ctx, Arc::new(segments), layout)
+        (segments, layout)
     }
 
     #[rstest]
     fn test_struct_layout_or(
-        #[from(struct_layout)] (ctx, segments, layout): (
-            ArrayContext,
-            Arc<dyn SegmentSource>,
-            LayoutRef,
-        ),
+        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments).unwrap();
         let filt = or(
-            eq(get_item_scope("a"), lit(7)),
-            or(
-                eq(get_item_scope("b"), lit(5)),
-                eq(get_item_scope("a"), lit(3)),
-            ),
+            eq(col("a"), lit(7)),
+            or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
         );
-        let result = block_on(
+        let result = block_on(|_h| {
             reader
-                .filter_evaluation(&(0..3), &filt)
+                .filter_evaluation(&(0..3), &filt, MaskFuture::new_true(3))
                 .unwrap()
-                .invoke(Mask::new_true(3)),
-        )
+        })
         .unwrap();
         assert_eq!(
             vec![true, true, true],
@@ -344,83 +328,66 @@ mod tests {
 
     #[rstest]
     fn test_struct_layout(
-        #[from(struct_layout)] (ctx, segments, layout): (
-            ArrayContext,
-            Arc<dyn SegmentSource>,
-            LayoutRef,
-        ),
+        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
-        let result = block_on(
+        let result = block_on(|_h| {
             reader
-                .projection_evaluation(&(0..3), &expr)
+                .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
                 .unwrap()
-                .invoke(Mask::new_true(3)),
-        )
+        })
         .unwrap();
         assert_eq!(
             vec![true, false, false],
-            result
-                .to_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>()
+            result.to_bool().boolean_buffer().iter().collect::<Vec<_>>()
         );
     }
 
     #[rstest]
     fn test_struct_layout_row_mask(
-        #[from(struct_layout)] (ctx, segments, layout): (
-            ArrayContext,
-            Arc<dyn SegmentSource>,
-            LayoutRef,
-        ),
+        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
-        let result = block_on(
+        let result = block_on(|_h| {
             reader
-                .projection_evaluation(&(0..3), &expr)
+                .projection_evaluation(
+                    &(0..3),
+                    &expr,
+                    MaskFuture::ready(Mask::from_iter([true, true, false])),
+                )
                 .unwrap()
-                .invoke(Mask::from_iter([true, true, false])),
-        )
+        })
         .unwrap();
 
         assert_eq!(result.len(), 2);
 
         assert_eq!(
             vec![true, false],
-            result
-                .to_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>()
+            result.to_bool().boolean_buffer().iter().collect::<Vec<_>>()
         );
     }
 
     #[rstest]
     fn test_struct_layout_select(
-        #[from(struct_layout)] (ctx, segments, layout): (
-            ArrayContext,
-            Arc<dyn SegmentSource>,
-            LayoutRef,
-        ),
+        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = pack(
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             NonNullable,
         );
-        let result = block_on(
+        let result = block_on(|_h| {
             reader
-                .projection_evaluation(&(0..3), &expr)
+                .projection_evaluation(
+                    &(0..3),
+                    &expr,
+                    // Take rows 0 and 1, skip row 2, and anything after that
+                    MaskFuture::ready(Mask::from_iter([true, true, false])),
+                )
                 .unwrap()
-                // Take rows 0 and 1, skip row 2, and anything after that
-                .invoke(Mask::from_iter([true, true, false])),
-        )
+        })
         .unwrap();
 
         assert_eq!(result.len(), 2);
@@ -428,11 +395,9 @@ mod tests {
         assert_eq!(
             result
                 .to_struct()
-                .unwrap()
                 .field_by_name("a")
                 .unwrap()
                 .to_primitive()
-                .unwrap()
                 .as_slice::<i32>(),
             [7, 2].as_slice()
         );
@@ -440,11 +405,9 @@ mod tests {
         assert_eq!(
             result
                 .to_struct()
-                .unwrap()
                 .field_by_name("b")
                 .unwrap()
                 .to_primitive()
-                .unwrap()
                 .as_slice::<i32>(),
             [4, 5].as_slice()
         );

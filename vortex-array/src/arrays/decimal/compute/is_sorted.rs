@@ -11,20 +11,20 @@ use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter}
 use crate::register_kernel;
 
 impl IsSortedKernel for DecimalVTable {
-    fn is_sorted(&self, array: &DecimalArray) -> VortexResult<bool> {
+    fn is_sorted(&self, array: &DecimalArray) -> VortexResult<Option<bool>> {
         is_decimal_sorted(array, false)
     }
 
-    fn is_strict_sorted(&self, array: &DecimalArray) -> VortexResult<bool> {
+    fn is_strict_sorted(&self, array: &DecimalArray) -> VortexResult<Option<bool>> {
         is_decimal_sorted(array, true)
     }
 }
 
 register_kernel!(IsSortedKernelAdapter(DecimalVTable).lift());
 
-fn is_decimal_sorted(array: &DecimalArray, strict: bool) -> VortexResult<bool> {
+fn is_decimal_sorted(array: &DecimalArray, strict: bool) -> VortexResult<Option<bool>> {
     match_each_decimal_value_type!(array.values_type, |S| {
-        compute_is_sorted::<S>(array, strict)
+        compute_is_sorted::<S>(array, strict).map(Some)
     })
 }
 
@@ -32,7 +32,7 @@ fn compute_is_sorted<T: NativeDecimalType>(array: &DecimalArray, strict: bool) -
 where
     dyn Iterator<Item = T>: IsSortedIteratorExt,
 {
-    match array.validity_mask()? {
+    match array.validity_mask() {
         Mask::AllFalse(_) => Ok(!strict),
         Mask::AllTrue(_) => {
             let buf = array.buffer::<T>();
@@ -86,8 +86,8 @@ mod tests {
         let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
         let unsorted_array = DecimalArray::new(unsorted, dtype, Validity::NonNullable);
 
-        assert!(is_sorted(sorted_array.as_ref()).unwrap());
-        assert!(!is_sorted(unsorted_array.as_ref()).unwrap());
+        assert!(is_sorted(sorted_array.as_ref()).unwrap().unwrap());
+        assert!(!is_sorted(unsorted_array.as_ref()).unwrap().unwrap());
     }
 
     #[test]
@@ -108,7 +108,11 @@ mod tests {
         let strict_sorted_array = DecimalArray::new(strict_sorted, dtype, Validity::NonNullable);
         let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
 
-        assert!(is_strict_sorted(strict_sorted_array.as_ref()).unwrap());
-        assert!(!is_strict_sorted(sorted_array.as_ref()).unwrap());
+        assert!(
+            is_strict_sorted(strict_sorted_array.as_ref())
+                .unwrap()
+                .unwrap()
+        );
+        assert!(!is_strict_sorted(sorted_array.as_ref()).unwrap().unwrap());
     }
 }

@@ -77,7 +77,13 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
         .pvalue()
         .vortex_expect("non-nullable primitive");
 
-        Ok(SequenceArray::unchecked_new(base, multiplier, ptype, len))
+        Ok(SequenceArray::unchecked_new(
+            base,
+            multiplier,
+            ptype,
+            dtype.nullability(),
+            len,
+        ))
     }
 }
 
@@ -85,9 +91,10 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
 mod tests {
     use std::sync::Arc;
 
-    use arcref::ArcRef;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::stream::ArrayStreamExt;
+    use vortex_dtype::Nullability;
     use vortex_expr::{get_item, root};
     use vortex_file::{VortexOpenOptions, VortexWriteOptions};
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -96,17 +103,17 @@ mod tests {
 
     #[tokio::test]
     async fn round_trip_seq() {
-        let seq = SequenceArray::typed_new(2i8, 3, 4).unwrap();
+        let seq = SequenceArray::typed_new(2i8, 3, Nullability::NonNullable, 4).unwrap();
         let st = StructArray::from_fields(&[("a", seq.to_array())]).unwrap();
 
-        let file = tokio::fs::File::create("/tmp/abc.vx").await.unwrap();
+        let mut file = tokio::fs::File::create("/tmp/abc.vx").await.unwrap();
         VortexWriteOptions::default()
-            .with_strategy(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())))
-            .write(file, st.to_array_stream())
+            .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+            .write(&mut file, st.to_array_stream())
             .await
             .unwrap();
 
-        let file = VortexOpenOptions::file().open("/tmp/abc.vx").await.unwrap();
+        let file = VortexOpenOptions::new().open("/tmp/abc.vx").await.unwrap();
         let array = file
             .scan()
             .unwrap()
@@ -120,12 +127,7 @@ mod tests {
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i8 + i * 3));
 
         assert_eq!(
-            array
-                .to_canonical()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i8>(),
+            array.to_primitive().as_slice::<i8>(),
             canon.as_slice::<i8>()
         )
     }

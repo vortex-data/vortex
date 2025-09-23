@@ -3,7 +3,7 @@
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_scalar::Scalar;
 
 use crate::accessor::ArrayAccessor;
@@ -20,7 +20,7 @@ impl MinMaxKernel for VarBinVTable {
 register_kernel!(MinMaxKernelAdapter(VarBinVTable).lift());
 
 /// Compute the min and max of VarBin like array.
-pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
+pub(crate) fn compute_min_max<T: ArrayAccessor<[u8]>>(
     array: &T,
     dtype: &DType,
 ) -> VortexResult<Option<MinMaxResult>> {
@@ -42,17 +42,17 @@ pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
     Ok(minmax)
 }
 
-/// Helper function to make sure that min/max has the right [`ScalarValue`] type.
+/// Helper function to make sure that min/max has the right [`Scalar`] type.
 fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {
     match dtype {
         DType::Binary(_) => Scalar::new(dtype.clone(), value.into()),
         DType::Utf8(_) => {
-            // Safety:
-            // We trust the array's dtype here
+            // SAFETY: We only call `compute_min_max` within `varbin/`, in which we always validate
+            // the arrays, and we always pass `array.dtype()` in as the `dtype` argument.
             let value = unsafe { str::from_utf8_unchecked(value) };
             Scalar::new(dtype.clone(), value.into())
         }
-        _ => unreachable!(),
+        _ => vortex_panic!("cannot make Scalar from bytes with dtype {dtype}"),
     }
 }
 

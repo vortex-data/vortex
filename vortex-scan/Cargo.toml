@@ -1,0 +1,53 @@
+[package]
+name = "vortex-scan"
+authors.workspace = true
+description = "Scanning operations for Vortex"
+edition = { workspace = true }
+homepage = { workspace = true }
+categories = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-dtype = { workspace = true }
+vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
+vortex-io = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-metrics = { workspace = true }
+
+bit-vec = { workspace = true }
+crossbeam-deque = { workspace = true }
+crossbeam-queue = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
+roaring = { workspace = true, optional = true }
+sketches-ddsketch = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
+
+[dev-dependencies]
+loom = { workspace = true }
+vortex-layout = { workspace = true, features = ["test-harness"] }
+
+[features]
+default = []
+roaring = ["dep:roaring"]
+tokio = ["dep:tokio"]
+
+[lints]
+workspace = true

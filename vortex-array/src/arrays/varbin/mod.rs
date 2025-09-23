@@ -3,13 +3,11 @@
 
 use std::fmt::Debug;
 
-pub use compute::compute_min_max;
-use num_traits::PrimInt;
+pub(crate) use compute::compute_min_max;
+use num_traits::{AsPrimitive, PrimInt};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{
-    VortexExpect as _, VortexResult, VortexUnwrap as _, vortex_bail, vortex_err, vortex_panic,
-};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap as _, vortex_ensure, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::varbin::builder::VarBinBuilder;
@@ -18,12 +16,13 @@ use crate::validity::Validity;
 use crate::vtable::{
     ArrayVTable, NotSupported, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
+use crate::{Array, ArrayRef, EncodingId, EncodingRef, ToCanonical, vtable};
 
 mod accessor;
 pub mod builder;
 mod canonical;
 mod compute;
+mod operator;
 mod ops;
 mod serde;
 
@@ -39,6 +38,7 @@ impl VTable for VarBinVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -63,29 +63,167 @@ pub struct VarBinArray {
 pub struct VarBinEncoding;
 
 impl VarBinArray {
+    /// Creates a new [`VarBinArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided components do not satisfy the invariants documented
+    /// in [`VarBinArray::new_unchecked`].
+    pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
+        Self::try_new(offsets, bytes, dtype, validity).vortex_expect("VarBinArray new")
+    }
+
+    /// Constructs a new `VarBinArray`.
+    ///
+    /// See [`VarBinArray::new_unchecked`] for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided components do not satisfy the invariants documented in
+    /// [`VarBinArray::new_unchecked`].
     pub fn try_new(
         offsets: ArrayRef,
         bytes: ByteBuffer,
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        if !offsets.dtype().is_int() || offsets.dtype().is_nullable() {
-            vortex_bail!(MismatchedTypes: "non nullable int", offsets.dtype());
-        }
-        if !matches!(dtype, DType::Binary(_) | DType::Utf8(_)) {
-            vortex_bail!(MismatchedTypes: "utf8 or binary", dtype);
-        }
-        if dtype.is_nullable() == (validity == Validity::NonNullable) {
-            vortex_bail!("incorrect validity {:?}", validity);
-        }
+        Self::validate(&offsets, &bytes, &dtype, &validity)?;
 
-        Ok(Self {
+        // SAFETY: validate ensures all invariants are met.
+        Ok(unsafe { Self::new_unchecked(offsets, bytes, dtype, validity) })
+    }
+
+    /// Creates a new [`VarBinArray`] without validation from these components:
+    ///
+    /// * `offsets` is an array of byte offsets into the `bytes` buffer.
+    /// * `bytes` is a buffer containing all the variable-length data concatenated.
+    /// * `dtype` specifies whether this contains UTF-8 strings or binary data.
+    /// * `validity` holds the null values.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure all of the following invariants are satisfied:
+    ///
+    /// ## Offsets Requirements
+    ///
+    /// - `offsets` must be a non-nullable integer array.
+    /// - `offsets` must contain at least 1 element (for empty array, it contains \[0\]).
+    /// - All values in `offsets` must be monotonically non-decreasing.
+    /// - The first value in `offsets` must be 0.
+    /// - No offset value may exceed `bytes.len()`.
+    ///
+    /// ## Type Requirements
+    ///
+    /// - `dtype` must be exactly [`DType::Binary`] or [`DType::Utf8`].
+    /// - If `dtype` is [`DType::Utf8`], every byte slice `bytes[offsets[i]..offsets[i+1]]` must be valid UTF-8.
+    /// - `dtype.is_nullable()` must match the nullability of `validity`.
+    ///
+    /// ## Validity Requirements
+    ///
+    /// - If `validity` is [`Validity::Array`], its length must exactly equal `offsets.len() - 1`.
+    pub unsafe fn new_unchecked(
+        offsets: ArrayRef,
+        bytes: ByteBuffer,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Self {
             dtype,
             bytes,
             offsets,
             validity,
             stats_set: Default::default(),
-        })
+        }
+    }
+
+    /// Validates the components that would be used to create a [`VarBinArray`].
+    ///
+    /// This function checks all the invariants required by [`VarBinArray::new_unchecked`].
+    pub(crate) fn validate(
+        offsets: &dyn Array,
+        bytes: &ByteBuffer,
+        dtype: &DType,
+        validity: &Validity,
+    ) -> VortexResult<()> {
+        // Check offsets are non-nullable integer
+        vortex_ensure!(
+            offsets.dtype().is_int() && !offsets.dtype().is_nullable(),
+            MismatchedTypes: "non nullable int", offsets.dtype()
+        );
+
+        // Check dtype is Binary or Utf8
+        vortex_ensure!(
+            matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
+            MismatchedTypes: "utf8 or binary", dtype
+        );
+
+        // Check nullability matches
+        vortex_ensure!(
+            dtype.is_nullable() != (validity == &Validity::NonNullable),
+            "incorrect validity {:?} for dtype {}",
+            validity,
+            dtype
+        );
+
+        // Check offsets has at least one element
+        vortex_ensure!(
+            !offsets.is_empty(),
+            "Offsets must have at least one element"
+        );
+
+        // Check offsets are sorted
+        if let Some(is_sorted) = offsets.statistics().compute_is_sorted() {
+            vortex_ensure!(is_sorted, "offsets must be sorted");
+        }
+
+        let last_offset = offsets
+            .scalar_at(offsets.len() - 1)
+            .as_primitive()
+            .as_::<usize>()
+            .ok_or_else(|| vortex_err!("Last offset must be convertible to usize"))?;
+        vortex_ensure!(
+            last_offset <= bytes.len(),
+            "Last offset {} exceeds bytes length {}",
+            last_offset,
+            bytes.len()
+        );
+
+        // Check validity length
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == offsets.len() - 1,
+                "Validity length {} doesn't match array length {}",
+                validity_len,
+                offsets.len() - 1
+            );
+        }
+
+        // Validate UTF-8 for Utf8 dtype
+        if matches!(dtype, DType::Utf8(_)) {
+            let primitive_offsets = offsets.to_primitive();
+            match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
+                let offsets_slice = primitive_offsets.as_slice::<O>();
+                for (i, (start, end)) in offsets_slice
+                    .windows(2)
+                    .map(|o| (o[0].as_(), o[1].as_()))
+                    .enumerate()
+                {
+                    if validity.is_null(i) {
+                        continue;
+                    }
+
+                    let string_bytes = &bytes.as_ref()[start..end];
+                    simdutf8::basic::from_utf8(string_bytes).map_err(|_| {
+                        #[allow(clippy::unwrap_used)]
+                        // run validation using `compat` package to get more detailed error message
+                        let err = simdutf8::compat::from_utf8(string_bytes).unwrap_err();
+                        vortex_err!("invalid utf-8: {err} at index {i}")
+                    })?;
+                }
+            });
+        }
+
+        Ok(())
     }
 
     #[inline]
@@ -108,8 +246,8 @@ impl VarBinArray {
     /// Access value bytes child array limited to values that are logically present in
     /// the array unlike [bytes][Self::bytes].
     pub fn sliced_bytes(&self) -> ByteBuffer {
-        let first_offset: usize = self.offset_at(0).vortex_expect("1st offset");
-        let last_offset = self.offset_at(self.len()).vortex_expect("Last offset");
+        let first_offset: usize = self.offset_at(0);
+        let last_offset = self.offset_at(self.len());
 
         self.bytes().slice(first_offset..last_offset)
     }
@@ -163,29 +301,30 @@ impl VarBinArray {
     /// Get value offset at a given index
     ///
     /// Note: There's 1 more offsets than the elements in the array, thus last offset is at array length index
-    pub fn offset_at(&self, index: usize) -> VortexResult<usize> {
-        if index > self.len() + 1 {
-            vortex_bail!(OutOfBounds: index, 0, self.len() + 1)
-        }
+    ///
+    /// Panics if index is out of bounds
+    pub fn offset_at(&self, index: usize) -> usize {
+        assert!(
+            index <= self.len(),
+            "Index {index} out of bounds 0..={}",
+            self.len()
+        );
 
-        // TODO(ngates): PrimitiveArrayTrait should have get_scalar(idx) -> Option<T> method
-        Ok(self
-            .offsets()
+        self.offsets()
             .scalar_at(index)
-            .unwrap_or_else(|err| vortex_panic!(err, "Failed to get offset at index: {}", index))
             .as_ref()
             .try_into()
-            .vortex_expect("Failed to convert offset to usize"))
+            .vortex_expect("Failed to convert offset to usize")
     }
 
     /// Access value bytes at a given index
     ///
-    /// Will return buffer referncing underlying data without performing a copy
-    pub fn bytes_at(&self, index: usize) -> VortexResult<ByteBuffer> {
-        let start = self.offset_at(index)?;
-        let end = self.offset_at(index + 1)?;
+    /// Will return buffer referencing underlying data without performing a copy
+    pub fn bytes_at(&self, index: usize) -> ByteBuffer {
+        let start = self.offset_at(index);
+        let end = self.offset_at(index + 1);
 
-        Ok(self.bytes().slice(start..end))
+        self.bytes().slice(start..end)
     }
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
@@ -276,10 +415,9 @@ pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
 #[cfg(test)]
 mod test {
     use rstest::{fixture, rstest};
-    use vortex_buffer::Buffer;
+    use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::{DType, Nullability};
 
-    use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::validity::Validity;
     use crate::{Array, ArrayRef, IntoArray};
@@ -287,7 +425,7 @@ mod test {
     #[fixture]
     fn binary_array() -> ArrayRef {
         let values = Buffer::copy_from("hello worldhello world this is a long string".as_bytes());
-        let offsets = PrimitiveArray::from_iter([0, 11, 44]);
+        let offsets = buffer![0, 11, 44].into_array();
 
         VarBinArray::try_new(
             offsets.into_array(),
@@ -302,18 +440,18 @@ mod test {
     #[rstest]
     pub fn test_scalar_at(binary_array: ArrayRef) {
         assert_eq!(binary_array.len(), 2);
-        assert_eq!(binary_array.scalar_at(0).unwrap(), "hello world".into());
+        assert_eq!(binary_array.scalar_at(0), "hello world".into());
         assert_eq!(
-            binary_array.scalar_at(1).unwrap(),
+            binary_array.scalar_at(1),
             "hello world this is a long string".into()
         )
     }
 
     #[rstest]
     pub fn slice_array(binary_array: ArrayRef) {
-        let binary_arr = binary_array.slice(1, 2).unwrap();
+        let binary_arr = binary_array.slice(1..2);
         assert_eq!(
-            binary_arr.scalar_at(0).unwrap(),
+            binary_arr.scalar_at(0),
             "hello world this is a long string".into()
         );
     }

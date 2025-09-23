@@ -12,10 +12,10 @@ use bytes::{Buf, Bytes};
 use vortex_error::{VortexExpect, vortex_panic};
 
 use crate::debug::TruncatedDebug;
+use crate::trusted_len::TrustedLen;
 use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
-#[derive(Clone)]
 pub struct Buffer<T> {
     pub(crate) bytes: Bytes,
     pub(crate) length: usize,
@@ -23,7 +23,20 @@ pub struct Buffer<T> {
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
+impl<T> Clone for Buffer<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            bytes: self.bytes.clone(),
+            length: self.length,
+            alignment: self.alignment,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
 impl<T> PartialEq for Buffer<T> {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.bytes == other.bytes
     }
@@ -32,18 +45,21 @@ impl<T> PartialEq for Buffer<T> {
 impl<T> Eq for Buffer<T> {}
 
 impl<T> Ord for Buffer<T> {
+    #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.bytes.cmp(&other.bytes)
     }
 }
 
 impl<T> PartialOrd for Buffer<T> {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.bytes.cmp(&other.bytes))
+        Some(self.cmp(other))
     }
 }
 
 impl<T> Hash for Buffer<T> {
+    #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.bytes.as_ref().hash(state)
     }
@@ -150,6 +166,16 @@ impl<T> Buffer<T> {
         }
     }
 
+    /// Create a buffer with values from the TrustedLen iterator.
+    /// Should be preferred over `from_iter` when the iterator is known to be `TrustedLen`.
+    pub fn from_trusted_len_iter<I: TrustedLen<Item = T>>(iter: I) -> Self {
+        let (_, high) = iter.size_hint();
+        let mut buffer =
+            BufferMut::with_capacity(high.vortex_expect("TrustedLen iterator has no upper bound"));
+        buffer.extend_trusted(iter);
+        buffer.freeze()
+    }
+
     /// Returns the length of the buffer in elements of type T.
     #[inline(always)]
     pub fn len(&self) -> usize {
@@ -177,8 +203,10 @@ impl<T> Buffer<T> {
     }
 
     /// Returns an iterator over the buffer of elements of type T.
-    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.as_slice().iter()
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter {
+            inner: self.as_slice().iter(),
+        }
     }
 
     /// Returns a slice of self for the provided range.
@@ -398,6 +426,49 @@ impl<T> Buffer<T> {
     }
 }
 
+/// An iterator over Buffer elements.
+///
+/// This is an analog to the `std::slice::Iter` type.
+pub struct Iter<'a, T> {
+    inner: std::slice::Iter<'a, T>,
+}
+
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = &'a T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+
+    #[inline]
+    fn count(self) -> usize {
+        self.inner.count()
+    }
+
+    #[inline]
+    fn last(self) -> Option<Self::Item> {
+        self.inner.last()
+    }
+
+    #[inline]
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.inner.nth(n)
+    }
+}
+
+impl<T> ExactSizeIterator for Iter<'_, T> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
 impl<T: Debug> Debug for Buffer<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(&format!("Buffer<{}>", type_name::<T>()))
@@ -411,18 +482,21 @@ impl<T: Debug> Debug for Buffer<T> {
 impl<T> Deref for Buffer<T> {
     type Target = [T];
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.as_slice()
     }
 }
 
 impl<T> AsRef<[T]> for Buffer<T> {
+    #[inline]
     fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
 impl<T> FromIterator<T> for Buffer<T> {
+    #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         BufferMut::from_iter(iter).freeze()
     }
@@ -449,14 +523,17 @@ impl From<Bytes> for ByteBuffer {
 }
 
 impl Buf for ByteBuffer {
+    #[inline]
     fn remaining(&self) -> usize {
         self.len()
     }
 
+    #[inline]
     fn chunk(&self) -> &[u8] {
         self.as_slice()
     }
 
+    #[inline]
     fn advance(&mut self, cnt: usize) {
         if !cnt.is_multiple_of(*self.alignment) {
             vortex_panic!(
@@ -479,14 +556,16 @@ pub struct BufferIterator<T> {
 impl<T: Copy> Iterator for BufferIterator<T> {
     type Item = T;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         (self.index < self.buffer.len()).then(move || {
-            let value = self.buffer.as_slice()[self.index];
+            let value = self.buffer[self.index];
             self.index += 1;
             value
         })
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         let remaining = self.buffer.len() - self.index;
         (remaining, Some(remaining))
@@ -497,6 +576,7 @@ impl<T: Copy> IntoIterator for Buffer<T> {
     type Item = T;
     type IntoIter = BufferIterator<T>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         BufferIterator {
             buffer: self,
@@ -506,6 +586,7 @@ impl<T: Copy> IntoIterator for Buffer<T> {
 }
 
 impl<T> From<BufferMut<T>> for Buffer<T> {
+    #[inline]
     fn from(value: BufferMut<T>) -> Self {
         value.freeze()
     }
@@ -536,7 +617,12 @@ mod test {
     fn slice_unaligned() {
         let buf = buffer![0i32, 1, 2, 3, 4].into_byte_buffer();
         // With a regular slice, this would panic. See [`slice_bad_alignment`].
-        buf.slice_unaligned(1..2);
+        let sliced = buf.slice_unaligned(1..2);
+        // Verify the slice has the expected length (1 byte from index 1 to 2).
+        assert_eq!(sliced.len(), 1);
+        // The original buffer has i32 values [0, 1, 2, 3, 4].
+        // In little-endian bytes, 0i32 = [0, 0, 0, 0], so byte at index 1 is 0.
+        assert_eq!(sliced.as_slice(), &[0]);
     }
 
     #[test]

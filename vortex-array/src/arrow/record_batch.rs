@@ -4,7 +4,7 @@
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_schema::{DataType, Schema};
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{VortexError, VortexResult};
 
 use crate::arrays::StructArray;
 use crate::arrow::compute::{to_arrow, to_arrow_preferred};
@@ -14,11 +14,7 @@ impl TryFrom<&dyn Array> for RecordBatch {
     type Error = VortexError;
 
     fn try_from(value: &dyn Array) -> VortexResult<Self> {
-        let struct_arr = value.to_struct().map_err(|err| {
-            vortex_err!("RecordBatch can only be constructed from a Vortex StructArray: {err}")
-        })?;
-
-        struct_arr.into_record_batch()
+        value.to_struct().into_record_batch()
     }
 }
 

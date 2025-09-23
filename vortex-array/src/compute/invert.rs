@@ -11,6 +11,18 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output,
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+static INVERT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("invert".into(), ArcRef::new_ref(&Invert));
+    for kernel in inventory::iter::<InvertKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+pub(crate) fn warm_up_vtable() -> usize {
+    INVERT_FN.kernels().len()
+}
+
 /// Logically invert a boolean array, preserving its validity.
 pub fn invert(array: &dyn Array) -> VortexResult<ArrayRef> {
     INVERT_FN
@@ -48,7 +60,7 @@ impl ComputeFnVTable for Invert {
         if array.is_canonical() {
             vortex_panic!("Canonical bool array does not implement invert");
         }
-        Ok(invert(&array.to_bool()?.into_array())?.into())
+        Ok(invert(&array.to_bool().into_array())?.into())
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
@@ -114,11 +126,3 @@ impl<V: VTable + InvertKernel> Kernel for InvertKernelAdapter<V> {
         Ok(Some(V::invert(&self.0, array)?.into()))
     }
 }
-
-pub static INVERT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("invert".into(), ArcRef::new_ref(&Invert));
-    for kernel in inventory::iter::<InvertKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});

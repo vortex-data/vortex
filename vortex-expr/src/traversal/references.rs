@@ -37,7 +37,8 @@ impl NodeVisitor<'_> for ReferenceCollector {
             self.fields.insert(get_item.field().clone());
         }
         if let Some(sel) = node.as_opt::<SelectVTable>() {
-            self.fields.extend(sel.fields().fields().iter().cloned());
+            self.fields
+                .extend(sel.selection().field_names().iter().cloned());
         }
         Ok(TraversalOrder::Continue)
     }

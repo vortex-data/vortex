@@ -66,7 +66,7 @@ pub fn get_session_context(disable_datafusion_cache: bool) -> SessionContext {
         .build_arc()
         .expect("could not build runtime environment");
 
-    let factory = VortexFormatFactory::default();
+    let factory = VortexFormatFactory::new();
 
     let mut session_state_builder = SessionStateBuilder::new()
         .with_config(SessionConfig::default())
@@ -122,6 +122,15 @@ pub fn make_object_store(
     }
 }
 
+impl DataFusionCtx {
+    pub async fn execute_query(
+        &self,
+        query: &str,
+    ) -> anyhow::Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
+        execute_query(&self.session, query).await
+    }
+}
+
 pub async fn execute_query(
     ctx: &SessionContext,
     query: &str,
@@ -129,6 +138,7 @@ pub async fn execute_query(
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     let physical_plan = state.create_physical_plan(&plan).await?;
+
     let result = collect(physical_plan.clone(), state.task_ctx()).await?;
     Ok((result, physical_plan))
 }

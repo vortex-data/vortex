@@ -46,7 +46,9 @@ impl CompareKernel for SequenceVTable {
 
         if let Some(set_idx) = set_idx {
             let buffer = BooleanBuffer::from_iter((0..lhs.len()).map(|idx| idx == set_idx));
-            Ok(Some(BoolArray::new(buffer, validity).to_array()))
+            Ok(Some(
+                BoolArray::from_bool_buffer(buffer, validity).to_array(),
+            ))
         } else {
             Ok(Some(
                 ConstantArray::new(
@@ -66,16 +68,10 @@ pub(crate) fn find_intersection_scalar(
     intercept: PValue,
 ) -> Option<usize> {
     match_each_integer_ptype!(base.ptype(), |P| {
-        let intercept = intercept
-            .as_primitive()
-            .vortex_expect("constant pvalue matching already validated");
+        let intercept = intercept.as_primitive::<P>();
 
-        let base = base
-            .as_primitive::<P>()
-            .vortex_expect("base pvalue matching already validated");
-        let multiplier = multiplier
-            .as_primitive::<P>()
-            .vortex_expect("multiplier pvalue matching already validated");
+        let base = base.as_primitive::<P>();
+        let multiplier = multiplier.as_primitive::<P>();
 
         find_intersection(base, multiplier, len, intercept)
     })
@@ -104,47 +100,48 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::{BoolArray, ConstantArray};
     use vortex_array::compute::{Operator, compare};
+    use vortex_dtype::Nullability::{NonNullable, Nullable};
 
     use crate::SequenceArray;
 
     #[test]
     fn test_compare_match() {
-        let lhs = SequenceArray::typed_new(2i64, 1, 4).unwrap();
+        let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
 
         let rhs = ConstantArray::new(4i64, lhs.len());
 
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().unwrap().boolean_buffer(),
+            result.to_bool().boolean_buffer(),
             BoolArray::from_iter(vec![false, false, true, false]).boolean_buffer(),
         )
     }
 
     #[test]
     fn test_compare_match_scale() {
-        let lhs = SequenceArray::typed_new(2i64, 3, 4).unwrap();
+        let lhs = SequenceArray::typed_new(2i64, 3, Nullable, 4).unwrap();
 
         let rhs = ConstantArray::new(8i64, lhs.len());
 
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().unwrap().boolean_buffer(),
+            result.to_bool().boolean_buffer(),
             BoolArray::from_iter(vec![false, false, true, false]).boolean_buffer(),
         )
     }
 
     #[test]
     fn test_compare_no_match() {
-        let lhs = SequenceArray::typed_new(2i64, 1, 4).unwrap();
+        let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
 
         let rhs = ConstantArray::new(1i64, lhs.len());
 
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().unwrap().boolean_buffer(),
+            result.to_bool().boolean_buffer(),
             BoolArray::from_iter(vec![false, false, false, false]).boolean_buffer(),
         )
     }

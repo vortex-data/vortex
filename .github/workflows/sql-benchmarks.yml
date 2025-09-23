@@ -13,31 +13,62 @@ on:
       benchmark_matrix:
         required: false
         type: string
-        description: 'JSON string containing the matrix configuration'
+        description: "JSON string containing the matrix configuration"
         default: |
           [
             {
               "id": "tpch-nvme",
               "subcommand": "tpch",
-              "name": "TPC-H on NVME",
-              "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
-              "scale_factor": "--scale-factor 1"
+              "name": "TPC-H SF=1 on NVME",
+              "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+              "scale_factor": "--scale-factor 1.0"
             },
             {
               "id": "clickbench-nvme",
               "subcommand": "clickbench",
               "name": "Clickbench on NVME",
-              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
             },
             {
               "id": "tpch-s3",
               "subcommand": "tpch",
-              "name": "TPC-H on S3",
-              "local_dir": "bench-vortex/data/tpch/1",
-              "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/1/",
-              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet",
-              "scale_factor": "--scale-factor 1"
-            }
+              "name": "TPC-H SF=1 on S3",
+              "local_dir": "bench-vortex/data/tpch/1.0",
+              "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/1.0/",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+              "scale_factor": "--scale-factor 1.0"
+            },
+            {
+              "id": "tpch-nvme-10",
+              "subcommand": "tpch",
+              "name": "TPC-H SF=10 on NVME",
+              "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+              "scale_factor": "--scale-factor 10.0"
+            },
+            {
+              "id": "tpch-s3-10",
+              "subcommand": "tpch",
+              "name": "TPC-H SF=10 on S3",
+              "local_dir": "bench-vortex/data/tpch/10.0",
+              "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/10.0/",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+              "scale_factor": "--scale-factor 10.0"
+            },
+            {
+              "id": "tpcds-nvme",
+              "subcommand": "tpcds",
+              "name": "TPC-DS SF=1 on NVME",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+              "scale_factor": "--scale-factor 1.0"
+            },
+            {
+              "id": "statpopgen",
+              "subcommand": "statpopgen",
+              "name": "Statistical and Population Genetics",
+              "local_dir": "bench-vortex/data/statpopgen",
+              "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+              "scale_factor": "--scale-factor 100"
+            },
           ]
 
 jobs:
@@ -59,16 +90,13 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: inputs.mode == 'pr'
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          submodules: "recursive"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: inputs.mode != 'pr'
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
 
       - name: Install DuckDB
@@ -79,7 +107,7 @@ jobs:
       - name: Build binary
         shell: bash
         env:
-          RUSTFLAGS: '-C target-cpu=native -C force-frame-pointers=yes'
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
           cargo build --bin query_bench --package bench-vortex --profile release_debug
 
@@ -89,10 +117,14 @@ jobs:
           RUST_BACKTRACE: full
         run: |
           # Generate data, running each query once to make sure they don't panic.
-          target/release_debug/query_bench ${{ matrix.subcommand }} --targets ${{ matrix.targets }} -i1 -d gh-json ${{ matrix.scale_factor }}
+          target/release_debug/query_bench \
+            ${{ matrix.subcommand }} \
+            --targets ${{ matrix.targets }} \
+            -i1 \
+            -d gh-json ${{ matrix.scale_factor }}
 
       - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
@@ -101,45 +133,48 @@ jobs:
         if: matrix.remote_storage != null
         shell: bash
         env:
-          AWS_REGION: 'eu-west-1'
+          AWS_REGION: "eu-west-1"
         run: |
           aws s3 rm --recursive ${{ matrix.remote_storage }}
           aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
 
       - name: Setup Polar Signals
-        uses: polarsignals/gh-actions-ps-profiling@v0.4.0
+        uses: polarsignals/gh-actions-ps-profiling@v0.6.0
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}'
-          profiling_frequency: 200
+          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}"
+          parca_agent_version: "0.39.3"
+          project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          extra_args: "--off-cpu-threshold=1"  # Personally tuned by @brancz
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage == null
         shell: bash
         env:
-          OTEL_SERVICE_NAME: 'vortex-bench'
-          OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
-          OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
-          OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
-          OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
+          OTEL_SERVICE_NAME: "vortex-bench"
+          OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}"
+          OTEL_EXPORTER_OTLP_HEADERS: "${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}"
+          OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
           target/release_debug/query_bench ${{ matrix.subcommand }} \
             -d gh-json \
             --targets ${{ matrix.targets }} \
             --export-spans \
             ${{ matrix.scale_factor }} \
+            --delete-duckdb-database \
             -o results.json
 
       - name: Run ${{ matrix.name }} benchmark (remote)
         if: matrix.remote_storage != null
         shell: bash
         env:
-          AWS_REGION: 'eu-west-1'
-          OTEL_SERVICE_NAME: 'vortex-bench'
-          OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
-          OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
-          OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
-          OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
+          AWS_REGION: "eu-west-1"
+          OTEL_SERVICE_NAME: "vortex-bench"
+          OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}"
+          OTEL_EXPORTER_OTLP_HEADERS: "${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}"
+          OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
           target/release_debug/query_bench ${{ matrix.subcommand }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
@@ -147,11 +182,12 @@ jobs:
               --export-spans \
               ${{ matrix.scale_factor }} \
               -d gh-json \
+              --delete-duckdb-database \
               -o results.json
 
       - name: Install uv
         if: inputs.mode == 'pr'
-        uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.16.0
         with:
           sync: false
       - name: Compare results
@@ -175,12 +211,9 @@ jobs:
             > base.json
 
           echo '# Benchmarks: ${{ matrix.name }}' > comment.md
-          echo '<details>' >> comment.md
-          echo '<summary>Table of Results</summary>' >> comment.md
           echo '' >> comment.md
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
             >> comment.md
-          echo '</details>' >> comment.md
 
       - name: Comment PR
         if: inputs.mode == 'pr'

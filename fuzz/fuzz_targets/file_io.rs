@@ -2,11 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![no_main]
+#![allow(clippy::result_large_err)]
 
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::ord::make_comparator;
 use arrow_ord::sort::SortOptions;
-use futures_util::TryStreamExt;
+use itertools::Itertools;
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::IntoArrowArray;
@@ -18,7 +19,7 @@ use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_expr::{Scope, lit, root};
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 use vortex_fuzz::FuzzFileAction;
-use vortex_mask::Mask;
+use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -40,7 +41,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .unwrap_or_else(|| lit(true))
             .evaluate(&Scope::new(array_data.clone()))
             .vortex_unwrap();
-        let mask = Mask::try_from(&bool_mask.to_bool().vortex_unwrap()).vortex_unwrap();
+        let mask = bool_mask.to_bool().to_mask_fill_null_false();
         let filtered = filter(&array_data, &mask).vortex_unwrap();
         projection_expr
             .clone()
@@ -49,73 +50,63 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .vortex_unwrap()
     };
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
+    let mut full_buff = ByteBufferMut::empty();
+    let _footer = VortexWriteOptions::default()
+        .blocking::<SingleThreadRuntime>()
+        .write(&mut full_buff, array_data.to_array_iterator())
         .vortex_unwrap();
 
-    runtime.block_on(async move {
-        let full_buff = VortexWriteOptions::default()
-            .write(ByteBufferMut::empty(), array_data.to_array_stream())
-            .await
-            .vortex_unwrap();
+    let mut output = VortexOpenOptions::new()
+        .open_buffer(full_buff)
+        .vortex_unwrap()
+        .scan()
+        .vortex_unwrap()
+        .with_projection(projection_expr.unwrap_or_else(|| root()))
+        .with_some_filter(filter_expr)
+        .into_array_iter(&SingleThreadRuntime::default())
+        .vortex_unwrap()
+        .try_collect::<_, Vec<_>, _>()
+        .vortex_unwrap();
 
-        let mut output = VortexOpenOptions::in_memory()
-            .open(full_buff)
-            .await
+    let output_array = match output.len() {
+        0 => Canonical::empty(expected_array.dtype()).into_array(),
+        1 => output.pop().vortex_expect("one output"),
+        _ => ChunkedArray::from_iter(output).into_array(),
+    };
+
+    assert_eq!(
+        expected_array.len(),
+        output_array.len(),
+        "Length was not preserved."
+    );
+    assert_eq!(
+        expected_array.dtype(),
+        output_array.dtype(),
+        "DTypes aren't preserved expected {}, actual {}",
+        expected_array.dtype(),
+        output_array.dtype()
+    );
+
+    if matches!(
+        expected_array.dtype(),
+        DType::Struct(_, _) | DType::List(_, _)
+    ) {
+        compare_struct(expected_array, output_array);
+    } else {
+        let bool_result = compare(&expected_array, &output_array, Operator::Eq)
             .vortex_unwrap()
-            .scan()
-            .vortex_unwrap()
-            .with_projection(projection_expr.unwrap_or_else(|| root()))
-            .with_some_filter(filter_expr)
-            .into_array_stream()
-            .vortex_unwrap()
-            .try_collect::<Vec<_>>()
-            .await
-            .vortex_unwrap();
-
-        let output_array = match output.len() {
-            0 => Canonical::empty(expected_array.dtype()).into_array(),
-            1 => output.pop().vortex_expect("one output"),
-            _ => ChunkedArray::from_iter(output).into_array(),
-        };
-
-        assert_eq!(
-            expected_array.len(),
-            output_array.len(),
-            "Length was not preserved."
-        );
-        assert_eq!(
-            expected_array.dtype(),
-            output_array.dtype(),
-            "DTypes aren't preserved expected {}, actual {}",
-            expected_array.dtype(),
-            output_array.dtype()
-        );
-
-        if matches!(
-            expected_array.dtype(),
-            DType::Struct(_, _) | DType::List(_, _)
-        ) {
-            compare_struct(expected_array, output_array);
-        } else {
-            let bool_result = compare(&expected_array, &output_array, Operator::Eq)
-                .vortex_unwrap()
-                .to_bool()
-                .vortex_unwrap();
-            let true_count = bool_result.boolean_buffer().count_set_bits();
-            if true_count != expected_array.len()
-                && (bool_result.all_valid().vortex_unwrap()
-                    || expected_array.all_valid().vortex_unwrap())
-            {
-                vortex_panic!(
-                    "Failed to match original array {}with{}",
-                    expected_array.tree_display(),
-                    output_array.tree_display()
-                );
-            }
+            .to_bool();
+        let true_count = bool_result.boolean_buffer().count_set_bits();
+        if true_count != expected_array.len()
+            && (bool_result.all_valid() || expected_array.all_valid())
+        {
+            vortex_panic!(
+                "Failed to match original array {}with{}",
+                expected_array.display_tree(),
+                output_array.display_tree()
+            );
         }
-    });
+    }
 
     Corpus::Keep
 });
@@ -134,27 +125,27 @@ fn compare_struct(expected: ArrayRef, actual: ArrayRef) {
         comparison_result.count_set_bits(),
         arrow_expected.len(),
         "\nEXPECTED: {}ACTUAL: {}",
-        expected.tree_display(),
-        actual.tree_display()
+        expected.display_tree(),
+        actual.display_tree()
     );
 }
 
 fn has_nullable_struct(dtype: &DType) -> bool {
     dtype.is_struct() && dtype.is_nullable()
         || dtype
-            .as_struct()
+            .as_struct_fields_opt()
             .map(|sdt| sdt.fields().any(|dtype| has_nullable_struct(&dtype)))
             .unwrap_or(false)
         || dtype
-            .as_list_element()
+            .as_list_element_opt()
             .map(|e| has_nullable_struct(e.as_ref()))
             .unwrap_or(false)
 }
 
 fn has_duplicate_field_names(dtype: &DType) -> bool {
-    if let Some(struct_dtype) = dtype.as_struct() {
+    if let Some(struct_dtype) = dtype.as_struct_fields_opt() {
         struct_has_duplicate_names(struct_dtype)
-    } else if let Some(list_elem) = dtype.as_list_element() {
+    } else if let Some(list_elem) = dtype.as_list_element_opt() {
         has_duplicate_field_names(list_elem)
     } else {
         false

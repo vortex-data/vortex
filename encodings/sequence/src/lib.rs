@@ -2,12 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+mod compress;
 mod compute;
+mod operator;
 mod serde;
 
-/// Represents the equation A\[i\] = a * i b.
+/// Represents the equation A\[i\] = a * i + b.
 /// This can be used for compression, fast comparisons and also for row ids.
 pub use array::{SequenceArray, SequenceEncoding, SequenceVTable};
+pub use compress::sequence_encode;
 
 // TODO(joe): hook up to the compressor
 // TODO(joe): support comparisons with other operators

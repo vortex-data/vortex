@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -31,9 +33,9 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
             vortex_bail!("Expected at least 1 buffer, got {}", buffers.len());
         }
         let mut buffers: Vec<ByteBuffer> = buffers.to_vec();
+        let views = buffers.pop().vortex_expect("buffers non-empty");
 
-        let views =
-            Buffer::<BinaryView>::from_byte_buffer(buffers.pop().vortex_expect("checked above"));
+        let views = Buffer::<BinaryView>::from_byte_buffer(views);
 
         if views.len() != len {
             vortex_bail!("Expected {} views, got {}", len, views.len());
@@ -48,13 +50,13 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
             vortex_bail!("Expected 0 or 1 children, got {}", children.len());
         };
 
-        VarBinViewArray::try_new(views, buffers, dtype.clone(), validity)
+        VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
     }
 }
 
 impl VisitorVTable<VarBinViewVTable> for VarBinViewVTable {
     fn visit_buffers(array: &VarBinViewArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for buffer in array.buffers() {
+        for buffer in array.buffers().as_ref() {
             visitor.visit_buffer(buffer);
         }
         visitor.visit_buffer(&array.views().clone().into_byte_buffer());

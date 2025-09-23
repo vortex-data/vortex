@@ -101,7 +101,11 @@ impl PyScalar {
             DType::Utf8(..) => Self::with_subclass(py, scalar, PyUtf8Scalar),
             DType::Binary(..) => Self::with_subclass(py, scalar, PyBinaryScalar),
             DType::Struct(..) => Self::with_subclass(py, scalar, PyStructScalar),
-            DType::List(..) => Self::with_subclass(py, scalar, PyListScalar),
+            DType::List(..) | DType::FixedSizeList(..) => {
+                // We represent both lists and fixed-size lists with `PyListScalar` since the notion
+                // of "fixed-size" only applies to full arrays, not scalars.
+                Self::with_subclass(py, scalar, PyListScalar)
+            }
             DType::Extension(..) => Self::with_subclass(py, scalar, PyExtensionScalar),
         }
     }
@@ -138,7 +142,7 @@ impl PyScalar {
     }
 
     /// Return the scalar value as a Python object.
-    pub fn as_py(&self, py: Python) -> PyResult<PyObject> {
+    pub fn as_py(&self, py: Python) -> PyResult<Py<PyAny>> {
         PyVortex(&self.0).into_pyobject(py).map(|v| v.into())
     }
 }

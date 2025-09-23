@@ -6,24 +6,36 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::arrays::{ConstantVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::stats::{Precision, Stat};
+use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
 
-pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
+static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("is_sorted".into(), ArcRef::new_ref(&IsSorted));
+    for kernel in inventory::iter::<IsSortedKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+pub(crate) fn warm_up_vtable() -> usize {
+    IS_SORTED_FN.kernels().len()
+}
+
+pub fn is_sorted(array: &dyn Array) -> VortexResult<Option<bool>> {
     is_sorted_opts(array, false)
 }
 
-pub fn is_strict_sorted(array: &dyn Array) -> VortexResult<bool> {
+pub fn is_strict_sorted(array: &dyn Array) -> VortexResult<Option<bool>> {
     is_sorted_opts(array, true)
 }
 
-pub fn is_sorted_opts(array: &dyn Array, strict: bool) -> VortexResult<bool> {
+pub fn is_sorted_opts(array: &dyn Array, strict: bool) -> VortexResult<Option<bool>> {
     Ok(IS_SORTED_FN
         .invoke(&InvocationArgs {
             inputs: &[array.into()],
@@ -31,8 +43,7 @@ pub fn is_sorted_opts(array: &dyn Array, strict: bool) -> VortexResult<bool> {
         })?
         .unwrap_scalar()?
         .as_bool()
-        .value()
-        .vortex_expect("non-nullable"))
+        .value())
 }
 
 struct IsSorted;
@@ -46,41 +57,45 @@ impl ComputeFnVTable for IsSorted {
 
         // We currently don't support sorting struct arrays.
         if array.dtype().is_struct() {
-            return Ok(Scalar::from(false).into());
+            return Ok(Scalar::from(Some(false)).into());
         }
 
         let is_sorted = if strict {
             if let Some(Precision::Exact(value)) =
                 array.statistics().get_as::<bool>(Stat::IsStrictSorted)
             {
-                return Ok(Scalar::from(value).into());
+                return Ok(Scalar::from(Some(value)).into());
             }
 
             let is_strict_sorted = is_sorted_impl(array, kernels, true)?;
             let array_stats = array.statistics();
 
-            if is_strict_sorted {
-                array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
-                array_stats.set(Stat::IsStrictSorted, Precision::Exact(true.into()));
-            } else {
-                array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
+            if is_strict_sorted.is_some() {
+                if is_strict_sorted.unwrap_or(false) {
+                    array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
+                    array_stats.set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+                } else {
+                    array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
+                }
             }
 
             is_strict_sorted
         } else {
             if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsSorted)
             {
-                return Ok(Scalar::from(value).into());
+                return Ok(Scalar::from(Some(value)).into());
             }
 
             let is_sorted = is_sorted_impl(array, kernels, false)?;
             let array_stats = array.statistics();
 
-            if is_sorted {
-                array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
-            } else {
-                array_stats.set(Stat::IsSorted, Precision::Exact(false.into()));
-                array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
+            if is_sorted.is_some() {
+                if is_sorted.unwrap_or(false) {
+                    array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
+                } else {
+                    array_stats.set(Stat::IsSorted, Precision::Exact(false.into()));
+                    array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
+                }
             }
 
             is_sorted
@@ -90,7 +105,9 @@ impl ComputeFnVTable for IsSorted {
     }
 
     fn return_dtype(&self, _args: &InvocationArgs) -> VortexResult<DType> {
-        Ok(DType::Bool(Nullability::NonNullable))
+        // We always return a nullable boolean where `null` indicates we couldn't determine
+        // whether the array is constant.
+        Ok(DType::Bool(Nullability::Nullable))
     }
 
     fn return_len(&self, _args: &InvocationArgs) -> VortexResult<usize> {
@@ -144,14 +161,6 @@ impl Options for IsSortedOptions {
     }
 }
 
-pub static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("is_sorted".into(), ArcRef::new_ref(&IsSorted));
-    for kernel in inventory::iter::<IsSortedKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
 pub struct IsSortedKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(IsSortedKernelRef);
 
@@ -187,9 +196,9 @@ pub trait IsSortedKernel: VTable {
     /// - The array is not encoded as `NullArray` or `ConstantArray`.
     /// - If doing a `strict` check, if the array is nullable, it'll have at most 1 null element
     ///   as the first item in the array.
-    fn is_sorted(&self, array: &Self::Array) -> VortexResult<bool>;
+    fn is_sorted(&self, array: &Self::Array) -> VortexResult<Option<bool>>;
 
-    fn is_strict_sorted(&self, array: &Self::Array) -> VortexResult<bool>;
+    fn is_strict_sorted(&self, array: &Self::Array) -> VortexResult<Option<bool>>;
 }
 
 #[allow(clippy::wrong_self_convention)]
@@ -218,31 +227,30 @@ fn is_sorted_impl(
     array: &dyn Array,
     kernels: &[ArcRef<dyn Kernel>],
     strict: bool,
-) -> VortexResult<bool> {
+) -> VortexResult<Option<bool>> {
     // Arrays with 0 or 1 elements are strict sorted.
     if array.len() <= 1 {
-        return Ok(true);
+        return Ok(Some(true));
     }
 
     // Constant and null arrays are always sorted, but not strict sorted.
     if array.is::<ConstantVTable>() || array.is::<NullVTable>() {
-        return Ok(!strict);
+        return Ok(Some(!strict));
     }
-
-    let invalid_count = array.invalid_count()?;
 
     // Enforce strictness before we even try to check if the array is sorted.
     if strict {
+        let invalid_count = array.invalid_count();
         match invalid_count {
             // We can keep going
             0 => {}
             // If we have a potential null value - it has to be the first one.
             1 => {
-                if !array.is_invalid(0)? {
-                    return Ok(false);
+                if !array.is_invalid(0) {
+                    return Ok(Some(false));
                 }
             }
-            _ => return Ok(false),
+            _ => return Ok(Some(false)),
         }
     }
 
@@ -253,19 +261,11 @@ fn is_sorted_impl(
 
     for kernel in kernels {
         if let Some(output) = kernel.invoke(&args)? {
-            return Ok(output
-                .unwrap_scalar()?
-                .as_bool()
-                .value()
-                .vortex_expect("non-nullable"));
+            return Ok(output.unwrap_scalar()?.as_bool().value());
         }
     }
     if let Some(output) = array.invoke(&IS_SORTED_FN, &args)? {
-        return Ok(output
-            .unwrap_scalar()?
-            .as_bool()
-            .value()
-            .vortex_expect("non-nullable"));
+        return Ok(output.unwrap_scalar()?.as_bool().value());
     }
 
     if !array.is_canonical() {
@@ -275,7 +275,7 @@ fn is_sorted_impl(
         );
 
         // Recurse to canonical implementation
-        let array = array.to_canonical()?;
+        let array = array.to_canonical();
 
         return if strict {
             is_strict_sorted(array.as_ref())
@@ -303,6 +303,7 @@ mod tests {
         assert!(
             is_sorted(PrimitiveArray::new(buffer!(0, 1, 2, 3), Validity::AllValid).as_ref())
                 .unwrap()
+                .unwrap()
         );
         assert!(
             is_sorted(
@@ -312,6 +313,7 @@ mod tests {
                 )
                 .as_ref()
             )
+            .unwrap()
             .unwrap()
         );
         assert!(
@@ -323,10 +325,12 @@ mod tests {
                 .as_ref()
             )
             .unwrap()
+            .unwrap()
         );
 
         assert!(
             !is_sorted(PrimitiveArray::new(buffer!(0, 1, 3, 2), Validity::AllValid).as_ref())
+                .unwrap()
                 .unwrap()
         );
         assert!(
@@ -337,7 +341,8 @@ mod tests {
                 )
                 .as_ref()
             )
-            .unwrap(),
+            .unwrap()
+            .unwrap()
         );
     }
 
@@ -345,6 +350,7 @@ mod tests {
     fn test_is_strict_sorted() {
         assert!(
             is_strict_sorted(PrimitiveArray::new(buffer!(0, 1, 2, 3), Validity::AllValid).as_ref())
+                .unwrap()
                 .unwrap()
         );
         assert!(
@@ -356,6 +362,7 @@ mod tests {
                 .as_ref()
             )
             .unwrap()
+            .unwrap()
         );
         assert!(
             !is_strict_sorted(
@@ -365,7 +372,8 @@ mod tests {
                 )
                 .as_ref()
             )
-            .unwrap(),
+            .unwrap()
+            .unwrap()
         );
 
         assert!(
@@ -376,7 +384,8 @@ mod tests {
                 )
                 .as_ref()
             )
-            .unwrap(),
+            .unwrap()
+            .unwrap()
         );
     }
 }

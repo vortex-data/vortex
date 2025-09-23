@@ -6,6 +6,7 @@ mod bool;
 mod decimal;
 mod extension;
 mod factory;
+mod fixed_size_list;
 mod list;
 mod null;
 mod primitive;
@@ -15,22 +16,23 @@ mod utf8;
 
 use std::ops::Deref;
 
-use arrow::datatypes::{DataType, Field};
-use arrow::pyarrow::{FromPyArrow, IntoPyArrow};
+use arrow_schema::{DataType, Field};
 pub(crate) use ptype::*;
 use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
 use pyo3::types::PyType;
 use pyo3::{
-    Bound, PyAny, PyClass, PyClassInitializer, PyObject, PyResult, Python, pyclass, pymethods,
+    Bound, Py, PyAny, PyClass, PyClassInitializer, PyResult, Python, pyclass, pymethods,
     wrap_pyfunction,
 };
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 
+use crate::arrow::{FromPyArrow, ToPyArrow};
 use crate::dtype::binary::PyBinaryDType;
 use crate::dtype::bool::PyBoolDType;
 use crate::dtype::decimal::PyDecimalDType;
 use crate::dtype::extension::PyExtensionDType;
+use crate::dtype::fixed_size_list::PyFixedSizeListDType;
 use crate::dtype::list::PyListDType;
 use crate::dtype::null::PyNullDType;
 use crate::dtype::primitive::PyPrimitiveDType;
@@ -56,6 +58,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyBinaryDType>()?;
     m.add_class::<PyStructDType>()?;
     m.add_class::<PyListDType>()?;
+    m.add_class::<PyFixedSizeListDType>()?;
     m.add_class::<PyExtensionDType>()?;
 
     // Register factory functions.
@@ -69,6 +72,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factory::dtype_binary, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_struct, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_list, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_fixed_size_list, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_ext, &m)?)?;
 
     Ok(())
@@ -106,6 +110,7 @@ impl PyDType {
             DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),
             DType::Struct(..) => Self::with_subclass(py, dtype, PyStructDType),
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
+            DType::FixedSizeList(..) => Self::with_subclass(py, dtype, PyFixedSizeListDType),
             DType::Extension(..) => Self::with_subclass(py, dtype, PyExtensionDType),
         }
     }
@@ -139,12 +144,12 @@ impl PyDType {
 
 #[pymethods]
 impl PyDType {
-    fn to_arrow_type(&self, py: Python) -> PyResult<PyObject> {
-        self.0.to_arrow_dtype()?.into_pyarrow(py)
+    fn to_arrow_type(&self, py: Python) -> PyResult<Py<PyAny>> {
+        self.0.to_arrow_dtype()?.to_pyarrow(py)
     }
 
-    fn to_arrow_schema(&self, py: Python) -> PyResult<PyObject> {
-        self.0.to_arrow_schema()?.into_pyarrow(py)
+    fn to_arrow_schema(&self, py: Python) -> PyResult<Py<PyAny>> {
+        self.0.to_arrow_schema()?.to_pyarrow(py)
     }
 
     fn __str__(&self) -> String {

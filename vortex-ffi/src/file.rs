@@ -5,9 +5,9 @@
 
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::ops::Range;
+use std::slice;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
-use std::{ptr, slice};
 
 use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
@@ -17,23 +17,23 @@ use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::{ExprRef, ExprRegistryExt};
-use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
-use vortex::layout::scan::ScanBuilder;
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::proto::expr::Expr;
+use vortex::scan::{ScanBuilder, SplitBy};
 
 use crate::array::vx_array;
 use crate::array_iterator::vx_array_iterator;
 use crate::dtype::vx_dtype;
-use crate::error::{try_or, vx_error};
+use crate::error::{try_or_default, vx_error};
 use crate::session::{FileKey, vx_session};
-use crate::{RUNTIME, arc_wrapper, to_string_vec};
+use crate::{arc_wrapper, get_runtime, get_vx_runtime, to_string_vec};
 
 arc_wrapper!(
-    /// A handle to a Vortex file encapsulating ther footer and logic for instantiating a reader.
+    /// A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.
     VortexFile,
     vx_file
 );
@@ -139,7 +139,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 ) -> *const vx_file {
     let session = vx_session::as_ref(session);
 
-    try_or(error_out, ptr::null_mut(), || {
+    try_or_default(error_out, || {
         let options = unsafe {
             options
                 .as_ref()
@@ -150,14 +150,16 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
             vortex_bail!("null uri")
         }
         let uri_str = unsafe { CStr::from_ptr(options.uri) }.to_string_lossy();
-        let uri: Url = uri_str.parse().vortex_expect("File_open: parse uri");
+        let uri: Url = uri_str
+            .parse()
+            .map_err(|e| vortex_err!("Failed to parse URI '{}': {}", uri_str, e))?;
 
         let prop_keys = unsafe { to_string_vec(options.property_keys, options.property_len) };
         let prop_vals = unsafe { to_string_vec(options.property_vals, options.property_len) };
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
-        let mut file = VortexOpenOptions::file();
+        let mut file = VortexOpenOptions::new().with_handle(TokioRuntime::current());
         let mut cache_hit = false;
         if let Some(footer) = session.get_footer(&FileKey {
             location: uri_str.to_string(),
@@ -166,7 +168,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
             cache_hit = true;
         }
 
-        let vxf = RUNTIME
+        let vxf = get_runtime()
             .block_on(async move { file.open_object_store(&object_store, uri.path()).await })?;
 
         if !cache_hit {
@@ -189,10 +191,12 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
     error_out: *mut *mut vx_error,
 ) {
     let array = vx_array::as_ref(array);
-    try_or(error_out, (), || {
-        let path = unsafe { CStr::from_ptr(path).to_str()? };
+    try_or_default(error_out, || {
+        let path = unsafe { CStr::from_ptr(path) }
+            .to_str()
+            .map_err(|e| vortex_err!("invalid utf-8: {e}"))?;
 
-        RUNTIME.block_on(async {
+        get_runtime().block_on(async {
             VortexWriteOptions::default()
                 .write(
                     &mut tokio::fs::File::create(path).await?,
@@ -218,7 +222,10 @@ struct ScanOptions {
     row_offset: u64,
 }
 
-/// Return a borrowed reference to the DType of the file.
+/// Return the DType of the file.
+///
+/// The returned pointer is valid as long as the file is valid.
+/// Do NOT free the returned dtype pointer - it shares the lifetime of the file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file) -> *const vx_dtype {
     vx_dtype::new_ref(vx_file::as_ref(file).dtype())
@@ -232,7 +239,7 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
     filter_expression_len: c_uint,
     error_out: *mut *mut vx_error,
 ) -> bool {
-    try_or(error_out, false, || {
+    try_or_default(error_out, || {
         let file = vx_file::as_ref(file);
         let filter_expr = extract_expression(filter_expression, filter_expression_len)?;
         Ok(filter_expr
@@ -249,7 +256,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
     opts: *const vx_file_scan_options,
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_iterator {
-    try_or(error_out, ptr::null_mut(), || {
+    try_or_default(error_out, || {
         let file = vx_file::as_ref(file);
 
         let scan_options = unsafe { opts.as_ref() }.map_or_else(
@@ -258,8 +265,9 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         )?;
 
         let layout_reader = file.layout_reader()?;
-        let mut scan_builder =
-            ScanBuilder::new(layout_reader).with_row_offset(scan_options.row_offset);
+        let mut scan_builder = ScanBuilder::new(layout_reader)
+            .with_handle(TokioRuntime::current())
+            .with_row_offset(scan_options.row_offset);
 
         // Apply options if provided.
         if let Some(projection_expr) = scan_options.projection_expr {
@@ -278,9 +286,9 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
             scan_builder = scan_builder.with_split_by(split_by_value);
         }
 
-        Ok(vx_array_iterator::new(Box::new(
-            scan_builder.into_array_iter()?,
-        )))
+        let iter = scan_builder.into_array_iter(&get_vx_runtime())?;
+
+        Ok(vx_array_iterator::new(Box::new(iter)))
     })
 }
 

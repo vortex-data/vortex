@@ -9,12 +9,16 @@ use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter}
 use crate::register_kernel;
 
 impl IsSortedKernel for VarBinVTable {
-    fn is_sorted(&self, array: &VarBinArray) -> VortexResult<bool> {
-        array.with_iterator(|bytes_iter| bytes_iter.is_sorted())
+    fn is_sorted(&self, array: &VarBinArray) -> VortexResult<Option<bool>> {
+        array
+            .with_iterator(|bytes_iter| bytes_iter.is_sorted())
+            .map(Some)
     }
 
-    fn is_strict_sorted(&self, array: &VarBinArray) -> VortexResult<bool> {
-        array.with_iterator(|bytes_iter| bytes_iter.is_strict_sorted())
+    fn is_strict_sorted(&self, array: &VarBinArray) -> VortexResult<Option<bool>> {
+        array
+            .with_iterator(|bytes_iter| bytes_iter.is_strict_sorted())
+            .map(Some)
     }
 }
 

@@ -7,8 +7,8 @@ use pyo3::PyClass;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use vortex::arrays::{
-    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, ExtensionVTable, ListVTable,
-    NullVTable, PrimitiveVTable, StructVTable, VarBinVTable, VarBinViewVTable,
+    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, ExtensionVTable, FixedSizeListVTable,
+    ListVTable, NullVTable, PrimitiveVTable, StructVTable, VarBinVTable, VarBinViewVTable,
 };
 use vortex::encodings::alp::{ALPRDVTable, ALPVTable};
 use vortex::encodings::bytebool::ByteBoolVTable;
@@ -17,21 +17,22 @@ use vortex::encodings::dict::DictVTable;
 use vortex::encodings::fastlanes::{BitPackedVTable, DeltaVTable, FoRVTable};
 use vortex::encodings::fsst::FSSTVTable;
 use vortex::encodings::runend::RunEndVTable;
+use vortex::encodings::sequence::SequenceVTable;
 use vortex::encodings::sparse::SparseVTable;
 use vortex::encodings::zigzag::ZigZagVTable;
 use vortex::error::VortexExpect;
 use vortex::vtable::VTable;
-use vortex::{Array, ArrayRef};
+use vortex::{Array, ArrayAdapter, ArrayRef};
 
 use crate::arrays::PyArray;
 use crate::arrays::builtins::{
     PyBoolArray, PyByteBoolArray, PyChunkedArray, PyConstantArray, PyDecimalArray,
-    PyExtensionArray, PyListArray, PyNullArray, PyPrimitiveArray, PyStructArray, PyVarBinArray,
-    PyVarBinViewArray,
+    PyExtensionArray, PyFixedSizeListArray, PyListArray, PyNullArray, PyPrimitiveArray,
+    PyStructArray, PyVarBinArray, PyVarBinViewArray,
 };
 use crate::arrays::compressed::{
     PyAlpArray, PyAlpRdArray, PyDateTimePartsArray, PyDictArray, PyFsstArray, PyRunEndArray,
-    PySparseArray, PyZigZagArray,
+    PySequenceArray, PySparseArray, PyZigZagArray,
 };
 use crate::arrays::fastlanes::{
     PyFastLanesBitPackedArray, PyFastLanesDeltaArray, PyFastLanesFoRArray,
@@ -79,6 +80,10 @@ impl PyNativeArray {
 
         if array.is::<ListVTable>() {
             return Self::with_subclass(py, array, PyListArray);
+        }
+
+        if array.is::<FixedSizeListVTable>() {
+            return Self::with_subclass(py, array, PyFixedSizeListArray);
         }
 
         if array.is::<ExtensionVTable>() {
@@ -145,6 +150,10 @@ impl PyNativeArray {
             return Self::with_subclass(py, array, PyDecimalArray);
         }
 
+        if array.is::<SequenceVTable>() {
+            return Self::with_subclass(py, array, PySequenceArray);
+        }
+
         Err(PyTypeError::new_err(format!(
             "Unrecognized native array {}",
             array.encoding_id()
@@ -193,7 +202,7 @@ impl PyNativeArray {
 
     /// Returns the number of bytes used by this array.
     #[getter]
-    fn nbytes(&self) -> usize {
+    fn nbytes(&self) -> u64 {
         self.0.nbytes()
     }
 
@@ -218,7 +227,8 @@ impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::Array> for PyRef<'_,
         self.as_super()
             .inner()
             .as_any()
-            .downcast_ref::<<V::VTable as VTable>::Array>()
+            .downcast_ref::<ArrayAdapter<V::VTable>>()
             .vortex_expect("Failed to downcast array")
+            .as_inner()
     }
 }

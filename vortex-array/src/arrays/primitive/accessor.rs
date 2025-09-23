@@ -15,7 +15,7 @@ use crate::vtable::ValidityHelper;
 impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
     fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>
     where
-        F: for<'a> FnOnce(&mut (dyn Iterator<Item = Option<&'a T>>)) -> R,
+        F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a T>>) -> R,
     {
         match self.validity() {
             Validity::NonNullable | Validity::AllValid => {
@@ -24,7 +24,7 @@ impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
             }
             Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, self.len()))),
             Validity::Array(v) => {
-                let validity = v.to_bool()?;
+                let validity = v.to_bool();
                 let mut iter = self
                     .as_slice::<T>()
                     .iter()

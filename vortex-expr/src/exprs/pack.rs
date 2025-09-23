@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
 use std::hash::Hash;
 
 use itertools::Itertools as _;
@@ -12,6 +11,7 @@ use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Pack);
@@ -35,13 +35,12 @@ vtable!(Pack);
 /// let packed = example.evaluate(&Scope::new(buffer![100, 110, 200].into_array())).unwrap();
 /// let x_copy = packed
 ///     .to_struct()
-///     .unwrap()
 ///     .field_by_name("x copy")
 ///     .unwrap()
 ///     .clone();
-/// assert_eq!(x_copy.scalar_at(0).unwrap(), Scalar::from(100));
-/// assert_eq!(x_copy.scalar_at(1).unwrap(), Scalar::from(110));
-/// assert_eq!(x_copy.scalar_at(2).unwrap(), Scalar::from(200));
+/// assert_eq!(x_copy.scalar_at(0), Scalar::from(100));
+/// assert_eq!(x_copy.scalar_at(1), Scalar::from(110));
+/// assert_eq!(x_copy.scalar_at(2), Scalar::from(200));
 /// ```
 ///
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -107,7 +106,12 @@ impl VTable for PackVTable {
         let value_arrays = expr
             .values
             .iter()
-            .map(|value_expr| value_expr.unchecked_evaluate(scope))
+            .zip_eq(expr.names.iter())
+            .map(|(value_expr, name)| {
+                value_expr
+                    .unchecked_evaluate(scope)
+                    .map_err(|e| e.with_context(format!("Can't evaluate '{name}'")))
+            })
             .process_results(|it| it.collect::<Vec<_>>())?;
         let validity = match expr.nullability {
             Nullability::NonNullable => Validity::NonNullable,
@@ -145,6 +149,14 @@ impl PackExpr {
         })
     }
 
+    pub fn try_new_expr(
+        names: FieldNames,
+        values: Vec<ExprRef>,
+        nullability: Nullability,
+    ) -> VortexResult<ExprRef> {
+        Self::try_new(names, values, nullability).map(|v| v.into_expr())
+    }
+
     pub fn names(&self) -> &FieldNames {
         &self.names
     }
@@ -173,6 +185,13 @@ impl PackExpr {
     }
 }
 
+/// Creates an expression that packs values into a struct with named fields.
+///
+/// ```rust
+/// # use vortex_dtype::Nullability;
+/// # use vortex_expr::{pack, col, lit};
+/// let expr = pack([("id", col("user_id")), ("constant", lit(42))], Nullability::NonNullable);
+/// ```
 pub fn pack(
     elements: impl IntoIterator<Item = (impl Into<FieldName>, ExprRef)>,
     nullability: Nullability,
@@ -186,17 +205,28 @@ pub fn pack(
         .into_expr()
 }
 
-impl Display for PackExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "pack({}){}",
-            self.names
-                .iter()
-                .zip(&self.values)
-                .format_with(", ", |(name, expr), f| f(&format_args!("{name}: {expr}"))),
-            self.nullability
-        )
+impl DisplayAs for PackExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(
+                    f,
+                    "pack({}){}",
+                    self.names
+                        .iter()
+                        .zip(&self.values)
+                        .format_with(", ", |(name, expr), f| f(&format_args!("{name}: {expr}"))),
+                    self.nullability
+                )
+            }
+            DisplayFormat::Tree => {
+                write!(f, "Pack")
+            }
+        }
+    }
+
+    fn child_names(&self) -> Option<Vec<String>> {
+        Some(self.names.iter().map(|n| n.to_string()).collect())
     }
 }
 
@@ -213,7 +243,7 @@ mod tests {
     use vortex_dtype::{FieldNames, Nullability};
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{IntoExpr, PackExpr, Scope, col};
+    use crate::{IntoExpr, PackExpr, Scope, col, pack};
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
@@ -231,11 +261,11 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array.to_struct()?.field_by_name(field)?.clone();
+        let mut array = array.to_struct().field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct()?.field_by_name(field)?.clone();
+            array = array.to_struct().field_by_name(field)?.clone();
         }
-        Ok(array.to_primitive().unwrap())
+        Ok(array.to_primitive())
     }
 
     #[test]
@@ -246,10 +276,7 @@ mod tests {
         let test_array = test_array();
         let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert_eq!(
-            actual_array.to_struct().unwrap().struct_fields().nfields(),
-            0
-        );
+        assert_eq!(actual_array.to_struct().struct_fields().nfields(), 0);
     }
 
     #[test]
@@ -264,10 +291,9 @@ mod tests {
         let actual_array = expr
             .evaluate(&Scope::new(test_array()))
             .unwrap()
-            .to_struct()
-            .unwrap();
-        let expected_names: FieldNames = ["one", "two", "three"].into();
-        assert_eq!(actual_array.names(), &expected_names);
+            .to_struct();
+
+        assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert_eq!(actual_array.validity(), &Validity::NonNullable);
 
         assert_eq!(
@@ -312,10 +338,9 @@ mod tests {
         let actual_array = expr
             .evaluate(&Scope::new(test_array()))
             .unwrap()
-            .to_struct()
-            .unwrap();
-        let expected_names = FieldNames::from(["one", "two", "three"]);
-        assert_eq!(actual_array.names(), &expected_names);
+            .to_struct();
+
+        assert_eq!(actual_array.names(), ["one", "two", "three"]);
 
         assert_eq!(
             primitive_field(actual_array.as_ref(), &["one"])
@@ -355,10 +380,26 @@ mod tests {
         let actual_array = expr
             .evaluate(&Scope::new(test_array()))
             .unwrap()
-            .to_struct()
-            .unwrap();
-        let expected_names: FieldNames = ["one", "two", "three"].into();
-        assert_eq!(actual_array.names(), &expected_names);
+            .to_struct();
+
+        assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert_eq!(actual_array.validity(), &Validity::AllValid);
+    }
+
+    #[test]
+    pub fn test_display() {
+        let expr = pack(
+            [("id", col("user_id")), ("name", col("username"))],
+            Nullability::NonNullable,
+        );
+        assert_eq!(expr.to_string(), "pack(id: $.user_id, name: $.username)");
+
+        let expr2 = PackExpr::try_new(
+            ["x", "y"].into(),
+            vec![col("a"), col("b")],
+            Nullability::Nullable,
+        )
+        .unwrap();
+        assert_eq!(expr2.to_string(), "pack(x: $.a, y: $.b)?");
     }
 }

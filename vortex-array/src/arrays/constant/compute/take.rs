@@ -12,7 +12,7 @@ use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl TakeKernel for ConstantVTable {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        match indices.validity_mask()?.boolean_buffer() {
+        match indices.validity_mask().boolean_buffer() {
             AllOr::All => {
                 let scalar = Scalar::new(
                     array
@@ -41,7 +41,7 @@ impl TakeKernel for ConstantVTable {
 
                 let mut result_builder =
                     builder_with_capacity(&array.dtype().as_nullable(), indices.len());
-                result_builder.extend_from_array(&arr)?;
+                result_builder.extend_from_array(&arr);
                 result_builder.set_validity(Mask::from_buffer(v.clone()));
                 Ok(result_builder.finish())
             }
@@ -53,11 +53,14 @@ register_kernel!(TakeKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_mask::AllOr;
+    use vortex_scalar::Scalar;
 
     use crate::arrays::{ConstantArray, PrimitiveArray};
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
     use crate::{Array, IntoArray, ToCanonical};
@@ -79,14 +82,8 @@ mod tests {
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
         );
-        assert_eq!(
-            taken.to_primitive().unwrap().as_slice::<i32>(),
-            &[42, 42, 42]
-        );
-        assert_eq!(
-            taken.validity_mask().unwrap().indices(),
-            AllOr::Some(valid_indices)
-        );
+        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[42, 42, 42]);
+        assert_eq!(taken.validity_mask().indices(), AllOr::Some(valid_indices));
     }
 
     #[test]
@@ -101,10 +98,17 @@ mod tests {
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
         );
-        assert_eq!(
-            taken.to_primitive().unwrap().as_slice::<i32>(),
-            &[42, 42, 42]
-        );
-        assert_eq!(taken.validity_mask().unwrap().indices(), AllOr::All);
+        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[42, 42, 42]);
+        assert_eq!(taken.validity_mask().indices(), AllOr::All);
+    }
+
+    #[rstest]
+    #[case(ConstantArray::new(42i32, 5))]
+    #[case(ConstantArray::new(std::f64::consts::PI, 10))]
+    #[case(ConstantArray::new(Scalar::from("hello"), 3))]
+    #[case(ConstantArray::new(Scalar::null_typed::<i64>(), 5))]
+    #[case(ConstantArray::new(true, 1))]
+    fn test_take_constant_conformance(#[case] array: ConstantArray) {
+        test_take_conformance(array.as_ref());
     }
 }

@@ -31,6 +31,7 @@ impl VTable for ALPRDVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
+    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.alprd")
@@ -56,6 +57,7 @@ pub struct ALPRDArray {
 pub struct ALPRDEncoding;
 
 impl ALPRDArray {
+    /// Build a new `ALPRDArray` from components.
     pub fn try_new(
         dtype: DType,
         left_parts: ArrayRef,
@@ -96,7 +98,7 @@ impl ALPRDArray {
 
         let left_parts_patches = left_parts_patches
             .map(|patches| {
-                if !patches.values().all_valid()? {
+                if !patches.values().all_valid() {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.
@@ -107,12 +109,33 @@ impl ALPRDArray {
         Ok(Self {
             dtype,
             left_parts,
+            left_parts_dictionary,
+            right_parts,
+            right_bit_width,
+            left_parts_patches,
+            stats_set: Default::default(),
+        })
+    }
+
+    /// Build a new `ALPRDArray` from components. This does not perform any validation, and instead
+    /// it constructs it from parts.
+    pub(crate) unsafe fn new_unchecked(
+        dtype: DType,
+        left_parts: ArrayRef,
+        left_parts_dictionary: Buffer<u16>,
+        right_parts: ArrayRef,
+        right_bit_width: u8,
+        left_parts_patches: Option<Patches>,
+    ) -> Self {
+        Self {
+            dtype,
+            left_parts,
             left_parts_patches,
             left_parts_dictionary,
             right_parts,
             right_bit_width,
             stats_set: Default::default(),
-        })
+        }
     }
 
     /// Returns true if logical type of the array values is f32.
@@ -178,9 +201,9 @@ impl ArrayVTable<ALPRDVTable> for ALPRDVTable {
 }
 
 impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
-    fn canonicalize(array: &ALPRDArray) -> VortexResult<Canonical> {
-        let left_parts = array.left_parts().to_primitive()?;
-        let right_parts = array.right_parts().to_primitive()?;
+    fn canonicalize(array: &ALPRDArray) -> Canonical {
+        let left_parts = array.left_parts().to_primitive();
+        let right_parts = array.right_parts().to_primitive();
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = array.left_parts_dictionary();
@@ -193,8 +216,8 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
                     array.right_bit_width,
                     right_parts.into_buffer_mut::<u32>(),
                     array.left_parts_patches(),
-                )?,
-                Validity::copy_from_array(array.as_ref())?,
+                ),
+                Validity::copy_from_array(array.as_ref()),
             )
         } else {
             PrimitiveArray::new(
@@ -204,12 +227,12 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
                     array.right_bit_width,
                     right_parts.into_buffer_mut::<u64>(),
                     array.left_parts_patches(),
-                )?,
-                Validity::copy_from_array(array.as_ref())?,
+                ),
+                Validity::copy_from_array(array.as_ref()),
             )
         };
 
-        Ok(Canonical::Primitive(decoded_array))
+        Canonical::Primitive(decoded_array)
     }
 }
 
@@ -243,7 +266,7 @@ mod test {
 
         let rd_array = encoder.encode(&real_array);
 
-        let decoded = rd_array.to_primitive().unwrap();
+        let decoded = rd_array.to_primitive();
 
         let maybe_null_reals: Vec<T> = reals.into_iter().map(|v| v.unwrap_or_default()).collect();
         assert_eq!(decoded.as_slice::<T>(), &maybe_null_reals);

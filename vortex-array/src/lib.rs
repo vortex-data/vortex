@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![cfg_attr(vortex_nightly, feature(portable_simd))]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
 //! At the heart of Vortex are [arrays](ArrayRef) and [encodings](EncodingRef).
@@ -11,37 +12,40 @@
 //! Every data type recognized by Vortex also has a canonical physical encoding format, which
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 
-#![cfg_attr(feature = "nightly", feature(portable_simd))]
-
 pub use array::*;
 pub use canonical::*;
 pub use context::*;
 pub use encoding::*;
+pub use mask_future::*;
 pub use metadata::*;
+pub use offset::*;
 
 pub mod accessor;
+#[doc(hidden)]
 pub mod aliases;
 mod array;
 pub mod arrays;
 pub mod arrow;
 pub mod builders;
 mod canonical;
-pub mod compress;
 pub mod compute;
 mod context;
-pub mod data;
 mod encoding;
+pub mod executor;
 pub mod iter;
+mod mask_future;
 mod metadata;
+mod offset;
+pub mod operator;
 mod partial_ord;
 pub mod patches;
+pub mod pipeline;
 pub mod search_sorted;
 pub mod serde;
 pub mod stats;
 pub mod stream;
 #[cfg(feature = "test-harness")]
 pub mod test_harness;
-mod tree;
 pub mod validity;
 pub mod variants;
 pub mod vtable;

@@ -12,7 +12,7 @@ use vortex_array::stats::Stat;
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexUnwrap};
 use vortex_mask::AllOr;
-use vortex_scalar::{PValue, ScalarValue};
+use vortex_scalar::{PValue, Scalar};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::sample::sample;
@@ -119,6 +119,7 @@ impl_from_typed!(i16, ErasedStats::I16);
 impl_from_typed!(i32, ErasedStats::I32);
 impl_from_typed!(i64, ErasedStats::I64);
 
+/// Array of integers and relevant stats for compression.
 #[derive(Clone, Debug)]
 pub struct IntegerStats {
     pub(super) src: PrimitiveArray,
@@ -145,9 +146,7 @@ impl CompressorStats for IntegerStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.as_ref(), sample_size, sample_count)
-            .to_primitive()
-            .vortex_expect("primitive");
+        let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_primitive();
 
         Self::generate_opts(&sampled, opts)
     }
@@ -155,7 +154,7 @@ impl CompressorStats for IntegerStats {
 
 fn typed_int_stats<T>(array: &PrimitiveArray, count_distinct_values: bool) -> IntegerStats
 where
-    T: NativePType + PrimInt + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+    T: NativePType + PrimInt + for<'a> TryFrom<&'a Scalar, Error = VortexError>,
     TypedStats<T>: Into<ErasedStats>,
     NativeValue<T>: Eq + Hash,
 {
@@ -176,7 +175,7 @@ where
             }
             .into(),
         };
-    } else if array.all_invalid().vortex_expect("all_invalid") {
+    } else if array.all_invalid() {
         return IntegerStats {
             src: array.clone(),
             null_count: array.len().try_into().vortex_expect("null_count"),
@@ -194,7 +193,7 @@ where
         };
     }
 
-    let validity = array.validity_mask().vortex_expect("logical_validity");
+    let validity = array.validity_mask();
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 

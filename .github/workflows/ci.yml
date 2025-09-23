@@ -25,40 +25,40 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: spiraldb/actions/.github/actions/lint-toml@0.14.0
+      - uses: actions/checkout@v5
+      - uses: spiraldb/actions/.github/actions/lint-toml@0.16.0
 
   validate-workflow-yaml:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
+      - uses: actions/checkout@v5
       - name: Validate YAML file
         run: |
           # Lint the workflows and yamllint's configuration file.
           yamllint \
-              -c yamllint-config.yaml \
-              yamllint-config.yaml \
-              .github/
+            --strict \
+            -c yamllint-config.yaml \
+            yamllint-config.yaml \
+            .github/
 
   python-lint:
     name: "Python (lint)"
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
+      - uses: actions/checkout@v5
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.16.0
         with:
           sync: false
+          prune-cache: false
       - name: Python Lint - Format
         run: uv run ruff format --check .
       - name: Python Lint - Ruff
         run: uv run ruff check .
+      - name: Python Lint - PyRight
+        run: uv run basedpyright vortex-python
 
   python-test:
     name: "Python (test)"
@@ -67,35 +67,32 @@ jobs:
     env:
       RUST_LOG: "info,uv=debug"
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: ./.github/actions/cleanup
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.16.0
         with:
           sync: false
-
-      # Ensure the stub files are up-to-date with the public API of the native module.
-      - name: Stubtest - Vortex
-        run: |
-          uv run --isolated --all-packages stubtest vortex._lib --allowlist python/vortex/_lib/mypy.allowlist
-        working-directory: vortex-python/
+          prune-cache: false
 
       - name: Pytest - Vortex
         run: |
-          uv run --isolated --all-packages pytest --benchmark-disable test/
+          uv run --all-packages pytest --benchmark-disable test/
+        working-directory: vortex-python/
+
+      - name: Pytest Benchmarks - Vortex
+        run: |
+          uv run --all-packages pytest --benchmark-only benchmark/
         working-directory: vortex-python/
 
       - name: Doctest - PyVortex
         run: |
-          uv run --isolated --all-packages make doctest
+          uv run --all-packages make doctest
         working-directory: docs/
 
       - name: Ensure docs build - PyVortex
         run: |
-          uv run --isolated --all-packages make html
+          uv run --all-packages make html
         working-directory: docs/
 
       - uses: mlugg/setup-zig@v2
@@ -135,15 +132,13 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
       - name: Docs
         run: |
-          cargo doc --no-deps
+          RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
           # nextest doesn't support doc tests, so we run it here
-          cargo test --doc --workspace --all-features --exclude vortex-python --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
+          cargo test --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
@@ -171,25 +166,17 @@ jobs:
           - name: "with tokio dispatcher"
             command: "build"
             args: "--no-default-features --features tokio --all-targets --ignore-unknown-features"
-          - name: "with compio dispatcher"
-            command: "build"
-            args: "--no-default-features --features compio --all-targets --ignore-unknown-features"
-          - name: "with tokio+compio dispatcher"
-            command: "build"
-            args: "--no-default-features --features tokio,compio --all-targets --ignore-unknown-features"
           - name: "wasm32 with default features"
             command: "build"
             target: wasm32-unknown-unknown
             env:
-              rustflags: 'RUSTFLAGS="-A warnings --cfg getrandom_backend=\"wasm_js\""'
+              rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
     steps:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
@@ -217,9 +204,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
       - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-minimal-versions
@@ -239,18 +224,18 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
       - name: Rust Lint - Format
-        run: cargo fmt --all --check
+        run: cargo +nightly fmt --all --check
       - name: Rustc check
         run: cargo check --locked --all-features --all-targets
       - name: Rust Lint - Clippy All Features
-        run: cargo clippy --locked --all-features --all-targets
+        run: cargo clippy --locked --all-features --all-targets -- -D warnings
       - name: Rust Lint - Clippy Default Features
-        run: cargo clippy --locked --all-targets
+        run: cargo clippy --locked --all-targets -- -D warnings
 
   rust-lint-no-default:
     name: "Rust (lint, no default)"
@@ -261,14 +246,12 @@ jobs:
       - cpu=16
       - image=ubuntu24-full-x64
       - extras=s3-cache
-      - tag=rust-lint
+      - tag=rust-lint-no-default
     steps:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
@@ -281,11 +264,14 @@ jobs:
   rust-coverage:
     name: "Rust tests (coverage)"
     timeout-minutes: 120
+    permissions:
+      id-token: write
     strategy:
       matrix:
         suite:
           - tests
           - tpc-h
+          - ffi
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -293,6 +279,7 @@ jobs:
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-coverage
+      - tag=suite-${{ matrix.suite }}
     env:
       RUSTFLAGS: "-Cinstrument-coverage -A warnings"
       CARGO_INCREMENTAL: 0  # Disable incremental compilation to get accurate coverage
@@ -302,10 +289,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: ./.github/actions/cleanup
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
       - name: Install grcov
         uses: taiki-e/install-action@grcov
@@ -316,38 +300,34 @@ jobs:
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast
+          cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast
       - name: Run TPC-H
         if: ${{ matrix.suite == 'tpc-h' }}
         run: |
-          cargo run --bin query_bench -- tpch -i1 --scale-factor 0.1
+          cargo run --bin query_bench -- tpch -i2 --scale-factor 0.1
+      - name: Run FFI Example
+        if: ${{ matrix.suite == 'ffi' }}
+        run: |
+          cargo build -p vortex-ffi
+          cargo run -p vortex-ffi --example hello_vortex
       - name: Generate coverage report
         run: |
           rustup component add llvm-tools-preview
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
             --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'bench-vortex/*' \
-            --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
+            --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' --ignore 'vortex-error/*' \
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
-            --ignore 'vortex-ffi/examples/*' \
+            --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
-      - name: Coveralls
-        uses: coverallsapp/github-action@v2
+      - name: Codecov
+        uses: codecov/codecov-action@v5
         with:
-          parallel: true
-          flag-name: run-${{ matrix.suite }}
-          file: ${{ env.GRCOV_OUTPUT_FILE }}
-
-  finish-coverage:
-    needs: rust-coverage
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Close parallel build
-        uses: coverallsapp/github-action@v2
-        with:
-          parallel-finished: true
-          carryforward: "run-tests,run-tpc-h"
+          name: run-${{ matrix.suite }}
+          files: ${{ env.GRCOV_OUTPUT_FILE }}
+          disable_search: true
+          flags: ${{ matrix.suite }}
+          use_oidc: true
 
   rust-test:
     name: "Rust tests (sanitizer)"
@@ -358,60 +338,107 @@ jobs:
       - cpu=8
       - image=ubuntu24-full-x64
       - extras=s3-cache
-      - tag=rust-test
+      - tag=rust-test-sanitizer
     env:
-      RUSTFLAGS: "-A warnings -Zsanitizer=address"
+      # Add debug symbols and enable ASAN/LSAN with better output
+      RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom -C debuginfo=2 -C opt-level=0 -C strip=none"
+      ASAN_OPTIONS: "symbolize=1:print_stats=1:check_initialization_order=1:detect_leaks=1:halt_on_error=0:verbosity=1:leak_check_at_exit=1"
+      LSAN_OPTIONS: "verbosity=1:report_objects=1"
+      ASAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
+      # Link against DuckDB debug build
+      VX_DUCKDB_DEBUG: "1"
+      # Keep frame pointers for better stack traces
+      CARGO_PROFILE_DEV_DEBUG: "true"
+      CARGO_PROFILE_TEST_DEBUG: "true"
     steps:
-      - uses: actions/checkout@v4
+      - uses: runs-on/action@v2
         with:
-          submodules: "recursive"
-      - uses: ./.github/actions/cleanup
+          sccache: s3
+      - uses: actions/checkout@v5
+      - name: Install llvm
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: llvm
       - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
+          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
           tool: nextest@0.9.98
       - name: Rust Tests
-        # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast --target x86_64-unknown-linux-gnu
+          # Build with full debug info first (helps with caching)
+          cargo +nightly build --locked --workspace --all-features --target x86_64-unknown-linux-gnu
+          # Run tests with sanitizers and debug output
+          cargo +nightly nextest run \
+            --locked \
+            --workspace \
+            --all-features \
+            --no-fail-fast \
+            --target x86_64-unknown-linux-gnu \
+            --verbose \
+            -- \
+            --skip test_vortex_scan_ultra_deep_nesting
 
   build-java:
     name: "Java"
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "corretto"
+          java-version: "17"
       - uses: ./.github/actions/setup-rust
       - run: ./gradlew test --parallel
         working-directory: ./java
 
   bench-codspeed:
-    name: Benchmark with Codspeed
+    strategy:
+      matrix:
+        shard: [1, 2]
+    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c6id.8xlarge
+      - family=c6a.metal
       - extras=s3-cache
       - image=ubuntu24-full-x64
-
+      - tag=bench-codspeed
     steps:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
 
       - name: Install Codspeed
         shell: bash
         run: cargo install --force cargo-codspeed --locked
 
-      - name: Build benchmarks
+      - name: Build benchmarks (shard 1)
         env:
           RUSTFLAGS: "-C target-feature=+avx2"
+        if: ${{ matrix.shard == 1 }}
+        run: |
+          cargo codspeed build --features test-harness \
+            -p vortex-buffer \
+            -p vortex-array \
+            -p vortex \
+            -p vortex-fastlanes \
+            --profile bench
+
+      - name: Build benchmarks (shard 2)
+        env:
+          RUSTFLAGS: "-C target-feature=+avx2"
+        if: ${{ matrix.shard == 2 }}
         run: |
           cargo codspeed build --features test-harness \
             --exclude bench-vortex \
@@ -421,15 +448,19 @@ jobs:
             --exclude vortex-python \
             --exclude vortex-tui \
             --exclude xtask \
+            --exclude vortex-buffer \
+            --exclude vortex-array \
+            --exclude vortex \
+            --exclude vortex-fastlanes \
             --workspace \
             --profile bench
 
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@v3
+        uses: CodSpeedHQ/action@v4
         with:
           run: cargo codspeed run
-          runner-version: 3.4.1-beta.1
           token: ${{ secrets.CODSPEED_TOKEN }}
+          mode: "instrumentation"
 
   license-check-and-audit-check:
     name: License Check and Audit Check
@@ -443,34 +474,56 @@ jobs:
     # Prevent sudden announcement of a new advisory from failing ci:
     continue-on-error: ${{ matrix.checks == 'advisories' }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
+      - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.checks }}
 
-  ffi-test:
-    name: "FFI example test"
-    runs-on: ubuntu-latest
+  cxx-test:
+    name: "C++ build"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=cxx-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
-      - run: cargo build -p vortex-ffi
-      - run: cargo run -p vortex-ffi --example hello_vortex
+      - name: Build and run C++ unit tests
+        working-directory: vortex-cxx/
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DVORTEX_ENABLE_TESTING=ON -DVORTEX_ENABLE_ASAN=ON ..
+          cmake --build . --parallel $(nproc)
+          ctest -V
+      - name: Build and run the example in release mode
+        working-directory: vortex-cxx/examples
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          cmake --build . --parallel $(nproc)
+          ./hello-vortex ../goldenfiles/example.vortex
 
   wasm-integration:
     name: "wasm-integration"
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
         with:
+          toolchain: nightly-2025-06-26
           targets: "wasm32-wasip1"
+          components: "rust-src"
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v3.1
-      - run: cargo -Zbuild-std=panic_abort,std build --target wasm32-wasip1
+        # there is a compiler bug in nightly (but not in nightly-2025-06-26)
+      - run: cargo +nightly-2025-06-26 -Zbuild-std=panic_abort,std build --target wasm32-wasip1
         working-directory: ./wasm-test
       - run: wasmer run ./target/wasm32-wasip1/debug/wasm-test.wasm
         working-directory: ./wasm-test
@@ -484,34 +537,26 @@ jobs:
       RUSTFLAGS: "-A warnings"
       RUST_BACKTRACE: full
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
+          components: "rust-src, rustfmt, clippy, miri"
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest@0.9.98
-      - name: Run all tests with Miri
-        # For now, we only run Miri against known "fiddly" crates.
-        if: false
-        run: |
-          cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout \
-          --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr \
-          --exclude vortex-scalar --exclude vortex-duckdb --exclude vortex-ffi --exclude bench-vortex \
-          --exclude vortex-python --exclude vortex-jni
       - name: Run Miri
-        run: cargo miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
+        run: cargo +nightly miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
 
   generated-files:
-    name: "Check generated proto/fbs files are up to date"
+    name: "Check generated source files are up to date"
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - uses: ./.github/actions/cleanup
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
       - uses: ./.github/actions/setup-flatc
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
@@ -521,6 +566,9 @@ jobs:
         run: |
           cargo xtask generate-fbs
           cargo xtask generate-proto
+      - name: "regenerate FFI header file"
+        run: |
+          cargo +nightly build -p vortex-ffi
       - name: "Make sure no files changed after regenerating"
         run: |
           git status --porcelain

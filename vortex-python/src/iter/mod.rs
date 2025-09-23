@@ -2,26 +2,27 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod python;
-pub(crate) mod stream;
 
 use std::iter;
+use std::sync::Arc;
 
-use arrow::array::RecordBatchReader;
-use arrow::pyarrow::IntoPyArrow;
+use arrow_array::cast::AsArray;
+use arrow_array::{RecordBatch, RecordBatchIterator, RecordBatchReader};
+use arrow_schema::{ArrowError, DataType};
 use parking_lot::Mutex;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use pyo3::{Bound, PyResult, Python};
-pub(crate) use stream::*;
+use vortex::arrow::IntoArrowArray;
 use vortex::dtype::DType;
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{Canonical, IntoArray};
 
 use crate::arrays::PyArrayRef;
+use crate::arrow::IntoPyArrow;
 use crate::dtype::PyDType;
 use crate::install_module;
 use crate::iter::python::PythonArrayIterator;
-use crate::record_batch_reader::VortexRecordBatchReader;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "iter")?;
@@ -73,7 +74,7 @@ impl PyArrayIterator {
 
     /// Returns the next chunk from the iterator.
     fn __next__(&self, py: Python) -> PyResult<Option<PyArrayRef>> {
-        py.allow_threads(|| {
+        py.detach(|| {
             Ok(self
                 .iter
                 .lock()
@@ -87,7 +88,7 @@ impl PyArrayIterator {
     /// Read all chunks into a single :class:`vortex.Array`. If there are multiple chunks,
     /// this will be a :class:`vortex.ChunkedArray`, otherwise it will be a single array.
     fn read_all(&self, py: Python) -> PyResult<PyArrayRef> {
-        let array = py.allow_threads(|| {
+        let array = py.detach(|| {
             if let Some(iter) = self.iter.lock().take() {
                 iter.read_all()
             } else {
@@ -99,15 +100,30 @@ impl PyArrayIterator {
     }
 
     /// Convert the :class:`vortex.ArrayIterator` into a :class:`pyarrow.RecordBatchReader`.
-    fn to_arrow(slf: Bound<Self>) -> PyResult<PyObject> {
+    ///
+    /// Note that this performs the conversion on the current thread.
+    fn to_arrow(slf: Bound<Self>) -> PyResult<Py<PyAny>> {
+        let schema = Arc::new(slf.get().dtype().to_arrow_schema()?);
+        let data_type = DataType::Struct(schema.fields().clone());
+
         let iter = slf.get().take().unwrap_or_else(|| {
             Box::new(ArrayIteratorAdapter::new(
                 slf.get().dtype().clone(),
                 iter::empty(),
             ))
         });
+
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
-            Box::new(VortexRecordBatchReader::try_new(iter)?);
+            Box::new(RecordBatchIterator::new(
+                iter.map(move |chunk| {
+                    let data_type = data_type.clone();
+                    chunk?.into_arrow(&data_type)
+                })
+                .map(|chunk| chunk.map_err(|e| ArrowError::ExternalError(Box::new(e))))
+                .map(|array| array.map(|a| RecordBatch::from(a.as_struct().clone()))),
+                schema,
+            ));
+
         record_batch_reader.into_pyarrow(slf.py())
     }
 

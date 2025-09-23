@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::{Python, intern};
@@ -13,8 +15,8 @@ use vortex::scalar::Scalar;
 use vortex::serde::ArrayChildren;
 use vortex::stats::StatsSetRef;
 use vortex::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, EncodeVTable, OperationsVTable, SerdeVTable,
-    VTable, ValidityVTable, VisitorVTable,
+    ArrayVTable, CanonicalVTable, ComputeVTable, EncodeVTable, NotSupported, OperationsVTable,
+    SerdeVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
@@ -37,6 +39,7 @@ impl VTable for PythonVTable {
     type ComputeVTable = Self;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
+    type PipelineVTable = NotSupported;
 
     fn id(encoding: &Self::Encoding) -> EncodingId {
         encoding.id.clone()
@@ -62,35 +65,35 @@ impl ArrayVTable<PythonVTable> for PythonVTable {
 }
 
 impl CanonicalVTable<PythonVTable> for PythonVTable {
-    fn canonicalize(_array: &PythonArray) -> VortexResult<Canonical> {
+    fn canonicalize(_array: &PythonArray) -> Canonical {
         todo!()
     }
 }
 
 impl OperationsVTable<PythonVTable> for PythonVTable {
-    fn slice(_array: &PythonArray, _start: usize, _stop: usize) -> VortexResult<ArrayRef> {
+    fn slice(_array: &PythonArray, _range: Range<usize>) -> ArrayRef {
         todo!()
     }
 
-    fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(_array: &PythonArray, _index: usize) -> Scalar {
         todo!()
     }
 }
 
 impl ValidityVTable<PythonVTable> for PythonVTable {
-    fn is_valid(_array: &PythonArray, _index: usize) -> VortexResult<bool> {
+    fn is_valid(_array: &PythonArray, _index: usize) -> bool {
         todo!()
     }
 
-    fn all_valid(_array: &PythonArray) -> VortexResult<bool> {
+    fn all_valid(_array: &PythonArray) -> bool {
         todo!()
     }
 
-    fn all_invalid(_array: &PythonArray) -> VortexResult<bool> {
+    fn all_invalid(_array: &PythonArray) -> bool {
         todo!()
     }
 
-    fn validity_mask(_array: &PythonArray) -> VortexResult<Mask> {
+    fn validity_mask(_array: &PythonArray) -> Mask {
         todo!()
     }
 }
@@ -129,7 +132,7 @@ impl SerdeVTable<PythonVTable> for PythonVTable {
     type Metadata = RawMetadata;
 
     fn metadata(array: &PythonArray) -> VortexResult<Option<Self::Metadata>> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let obj = array.object.bind(py);
             if !obj.hasattr(intern!(py, "metadata"))? {
                 // The class does not have a metadata attribute so does not support serialization.

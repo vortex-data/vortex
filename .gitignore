@@ -218,3 +218,7 @@ profile.json.gz
 
 # Clang compilation database (https://clang.llvm.org/docs/JSONCompilationDatabase.html)
 compile_commands.json
+
+# Claude
+.claude
+

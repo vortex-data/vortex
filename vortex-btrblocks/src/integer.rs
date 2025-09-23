@@ -9,14 +9,14 @@ use std::hash::Hash;
 
 pub use stats::IntegerStats;
 use vortex_array::arrays::{ConstantArray, PrimitiveArray, PrimitiveVTable};
-use vortex_array::compress::downscale_integer_array;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 use vortex_fastlanes::{FoRArray, bit_width_histogram, bitpack_encode, find_best_bit_width};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
+use vortex_sequence::sequence_encode;
 use vortex_sparse::{SparseArray, SparseVTable};
 use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
@@ -27,6 +27,7 @@ use crate::{
     estimate_compression_ratio_with_sampling,
 };
 
+/// [`Compressor`] for signed and unsigned integers.
 pub struct IntCompressor;
 
 impl Compressor for IntCompressor {
@@ -43,6 +44,7 @@ impl Compressor for IntCompressor {
             &SparseScheme,
             &DictScheme,
             &RunEndScheme,
+            &SequenceScheme,
         ]
     }
 
@@ -56,7 +58,7 @@ impl Compressor for IntCompressor {
 }
 
 impl IntCompressor {
-    pub fn compress_no_dict(
+    pub(crate) fn compress_no_dict(
         array: &PrimitiveArray,
         is_sample: bool,
         allowed_cascading: usize,
@@ -75,7 +77,7 @@ impl IntCompressor {
         if output.nbytes() < array.nbytes() {
             Ok(output)
         } else {
-            log::debug!("resulting tree too large: {}", output.tree_display());
+            log::debug!("resulting tree too large: {}", output.display_tree());
             Ok(array.to_array())
         }
     }
@@ -97,6 +99,7 @@ const BITPACKING_SCHEME: IntCode = IntCode(4);
 const SPARSE_SCHEME: IntCode = IntCode(5);
 const DICT_SCHEME: IntCode = IntCode(6);
 const RUNEND_SCHEME: IntCode = IntCode(7);
+const SEQUENCE_SCHEME: IntCode = IntCode(8);
 
 #[derive(Debug, Copy, Clone)]
 pub struct UncompressedScheme;
@@ -121,6 +124,9 @@ pub struct DictScheme;
 
 #[derive(Debug, Copy, Clone)]
 pub struct RunEndScheme;
+
+#[derive(Debug, Copy, Clone)]
+pub struct SequenceScheme;
 
 /// Threshold for the average run length in an array before we consider run-end encoding.
 const RUN_END_THRESHOLD: u32 = 4;
@@ -265,7 +271,7 @@ impl Scheme for FORScheme {
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let for_array = FoRArray::encode(stats.src.clone())?;
-        let biased = for_array.encoded().to_primitive()?;
+        let biased = for_array.encoded().to_primitive();
         let biased_stats = IntegerStats::generate_opts(
             &biased,
             GenerateStatsOptions {
@@ -332,7 +338,7 @@ impl Scheme for ZigZagScheme {
     ) -> VortexResult<ArrayRef> {
         // Zigzag encode the values, then recursively compress the inner values.
         let zag = zigzag_encode(stats.src.clone())?;
-        let encoded = zag.encoded().to_primitive()?;
+        let encoded = zag.encoded().to_primitive();
 
         // ZigZag should be after Dict, RunEnd or Sparse.
         // We should only do these "container" style compressors once.
@@ -347,7 +353,7 @@ impl Scheme for ZigZagScheme {
         let compressed =
             IntCompressor::compress(&encoded, is_sample, allowed_cascading - 1, &new_excludes)?;
 
-        log::debug!("zigzag output: {}", compressed.tree_display());
+        log::debug!("zigzag output: {}", compressed.display_tree());
 
         Ok(ZigZagArray::try_new(compressed)?.into_array())
     }
@@ -491,14 +497,13 @@ impl Scheme for SparseScheme {
             new_excludes.extend_from_slice(excludes);
 
             let compressed_values = IntCompressor::compress_no_dict(
-                &sparse.patches().values().to_primitive()?,
+                &sparse.patches().values().to_primitive(),
                 is_sample,
                 allowed_cascading - 1,
                 &new_excludes,
             )?;
 
-            let indices =
-                downscale_integer_array(sparse.patches().indices().clone())?.to_primitive()?;
+            let indices = sparse.patches().indices().to_primitive().downcast()?;
 
             let compressed_indices = IntCompressor::compress_no_dict(
                 &indices,
@@ -580,20 +585,24 @@ impl Scheme for DictScheme {
         // TODO(aduffy): we can be more prescriptive: we know that codes will EITHER be
         //    RLE or FOR + BP. Cascading probably wastes some time here.
 
-        let dict = dictionary_encode(stats)?;
+        let dict = dictionary_encode(stats);
 
         // Cascade the codes child
-        let mut new_excludes = vec![DICT_SCHEME];
+        // Don't allow SequenceArray as the codes child as it merely adds extra indirection without actually compressing data.
+        let mut new_excludes = vec![DICT_SCHEME, SEQUENCE_SCHEME];
         new_excludes.extend_from_slice(excludes);
 
         let compressed_codes = IntCompressor::compress_no_dict(
-            &dict.codes().to_primitive()?,
+            &dict.codes().to_primitive().downcast()?,
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
         )?;
 
-        Ok(DictArray::try_new(compressed_codes, dict.values().clone())?.into_array())
+        // SAFETY: compressing codes does not change their values
+        unsafe {
+            Ok(DictArray::new_unchecked(compressed_codes, dict.values().clone()).into_array())
+        }
     }
 }
 
@@ -641,13 +650,13 @@ impl Scheme for RunEndScheme {
         assert!(allowed_cascading > 0);
 
         // run-end encode the ends
-        let (ends, values) = runend_encode(&stats.src)?;
+        let (ends, values) = runend_encode(&stats.src);
 
         let mut new_excludes = vec![RunEndScheme.code(), DictScheme.code()];
         new_excludes.extend_from_slice(excludes);
 
         let ends_stats = IntegerStats::generate_opts(
-            &ends,
+            &ends.to_primitive(),
             GenerateStatsOptions {
                 count_distinct_values: false,
             },
@@ -662,13 +671,58 @@ impl Scheme for RunEndScheme {
             ends_scheme.compress(&ends_stats, is_sample, allowed_cascading - 1, &new_excludes)?;
 
         let compressed_values = IntCompressor::compress_no_dict(
-            &values.to_primitive()?,
+            &values.to_primitive(),
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
         )?;
 
-        Ok(RunEndArray::try_new(compressed_ends, compressed_values)?.into_array())
+        // SAFETY: compression doesn't affect invariants
+        unsafe {
+            Ok(
+                RunEndArray::new_unchecked(compressed_ends, compressed_values, 0, stats.src.len())
+                    .into_array(),
+            )
+        }
+    }
+}
+
+impl Scheme for SequenceScheme {
+    type StatsType = IntegerStats;
+    type CodeType = IntCode;
+
+    fn code(&self) -> Self::CodeType {
+        SEQUENCE_SCHEME
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        stats: &Self::StatsType,
+        _is_sample: bool,
+        _allowed_cascading: usize,
+        _excludes: &[Self::CodeType],
+    ) -> VortexResult<f64> {
+        if stats.null_count > 0 {
+            return Ok(0.0);
+        }
+        // Since two values are required to store base and multiplier the
+        // compression ratio is divided by 2.
+        Ok(sequence_encode(&stats.src)?
+            .map(|_| stats.src.len() as f64 / 2.0)
+            .unwrap_or(0.0))
+    }
+
+    fn compress(
+        &self,
+        stats: &Self::StatsType,
+        _is_sample: bool,
+        _allowed_cascading: usize,
+        _excludes: &[Self::CodeType],
+    ) -> VortexResult<ArrayRef> {
+        if stats.null_count > 0 {
+            vortex_bail!("sequence encoding does not support nulls");
+        }
+        sequence_encode(&stats.src)?.ok_or_else(|| vortex_err!("cannot sequence encode array"))
     }
 }
 
@@ -683,10 +737,12 @@ mod tests {
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
+    use vortex_dict::DictEncoding;
+    use vortex_sequence::SequenceEncoding;
     use vortex_sparse::SparseEncoding;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use crate::integer::{IntCompressor, IntegerStats, SparseScheme};
+    use crate::integer::{IntCompressor, IntegerStats, SequenceScheme, SparseScheme};
     use crate::{Compressor, CompressorStats, Scheme};
 
     #[test]
@@ -723,9 +779,9 @@ mod tests {
             }
         }
 
-        let primitive = codes.freeze().into_array().to_primitive().unwrap();
+        let primitive = codes.freeze().into_array().to_primitive();
         let compressed = IntCompressor::compress(&primitive, false, 3, &[]).unwrap();
-        log::info!("compressed values: {}", compressed.tree_display());
+        assert_eq!(compressed.encoding_id(), DictEncoding.id());
     }
 
     #[test]
@@ -749,9 +805,9 @@ mod tests {
             values[random] = 5 * (rng.next_u64() % 100) as i32;
         }
 
-        let array = values.freeze().into_array().to_primitive().unwrap();
+        let array = values.freeze().into_array().to_primitive();
         let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
-        log::info!("WindowName compressed: {}", compressed.tree_display());
+        log::info!("WindowName compressed: {}", compressed.display_tree());
     }
 
     #[test]
@@ -764,7 +820,7 @@ mod tests {
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
         assert_eq!(compressed.encoding_id(), SparseEncoding.id());
-        let decoded = compressed.to_primitive().unwrap();
+        let decoded = compressed.to_primitive();
         let expected = [189u8, 189, 189, 0, 0];
         assert_eq!(decoded.as_slice::<u8>(), &expected);
         assert_eq!(decoded.validity(), array.validity());
@@ -782,9 +838,21 @@ mod tests {
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
         assert_eq!(compressed.encoding_id(), SparseEncoding.id());
-        let decoded = compressed.to_primitive().unwrap();
+        let decoded = compressed.to_primitive();
         let expected = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46];
         assert_eq!(decoded.as_slice::<u8>(), &expected);
         assert_eq!(decoded.validity(), array.validity());
+    }
+
+    #[test]
+    fn nullable_sequence() {
+        let values = (0i32..20).step_by(7).collect_vec();
+        let array = PrimitiveArray::from_option_iter(values.clone().into_iter().map(Some));
+        let compressed = SequenceScheme
+            .compress(&IntegerStats::generate(&array), false, 3, &[])
+            .unwrap();
+        assert_eq!(compressed.encoding_id(), SequenceEncoding.id());
+        let decoded = compressed.to_primitive();
+        assert_eq!(decoded.as_slice::<i32>(), values.as_slice());
     }
 }

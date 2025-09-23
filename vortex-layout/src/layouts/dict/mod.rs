@@ -74,13 +74,11 @@ impl VTable for DictVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(DictReader::try_new(
             layout.clone(),
             name,
             segment_source,
-            ctx,
         )?))
     }
 
@@ -91,6 +89,7 @@ impl VTable for DictVTable {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
+        _ctx: ArrayContext,
     ) -> VortexResult<Self::Layout> {
         let values = children.child(0, dtype)?;
         let codes = children.child(

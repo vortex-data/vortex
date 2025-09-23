@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod dictionary;
+pub(crate) mod dictionary;
 mod stats;
 
 use vortex_alp::{ALPArray, ALPEncoding, ALPVTable, RDEncoder};
@@ -11,7 +11,7 @@ use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
-use self::stats::FloatStats;
+pub use self::stats::FloatStats;
 use crate::float::dictionary::dictionary_encode;
 use crate::integer::{IntCompressor, IntegerStats};
 use crate::patches::compress_patches;
@@ -24,6 +24,7 @@ pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
 
 impl<T> FloatScheme for T where T: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
 
+/// [`Compressor`] for floating-point numbers.
 pub struct FloatCompressor;
 
 impl Compressor for FloatCompressor {
@@ -196,10 +197,10 @@ impl Scheme for ALPScheme {
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
         let alp_encoded = ALPEncoding
-            .encode(&stats.source().to_canonical()?, None)?
+            .encode(&stats.source().to_canonical(), None)?
             .vortex_expect("Input is a supported floating point array");
         let alp = alp_encoded.as_::<ALPVTable>();
-        let alp_ints = alp.encoded().to_primitive()?;
+        let alp_ints = alp.encoded().to_primitive();
 
         // Compress the ALP ints.
         // Patches are not compressed. They should be infrequent, and if they are not then we want
@@ -217,7 +218,7 @@ impl Scheme for ALPScheme {
 
         let patches = alp.patches().map(compress_patches).transpose()?;
 
-        Ok(ALPArray::try_new(compressed_alp_ints, alp.exponents(), patches)?.into_array())
+        Ok(ALPArray::new(compressed_alp_ints, alp.exponents(), patches).into_array())
     }
 }
 
@@ -315,11 +316,11 @@ impl Scheme for DictScheme {
         allowed_cascading: usize,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let dict_array = dictionary_encode(stats)?;
+        let dict_array = dictionary_encode(stats);
 
         // Only compress the codes.
         let codes_stats = IntegerStats::generate_opts(
-            &dict_array.codes().to_primitive()?,
+            &dict_array.codes().to_primitive().downcast()?,
             GenerateStatsOptions {
                 count_distinct_values: false,
             },
@@ -328,7 +329,7 @@ impl Scheme for DictScheme {
             &codes_stats,
             is_sample,
             allowed_cascading - 1,
-            &[integer::DictScheme.code()],
+            &[integer::DictScheme.code(), integer::SequenceScheme.code()],
         )?;
         let compressed_codes = codes_scheme.compress(
             &codes_stats,
@@ -338,13 +339,14 @@ impl Scheme for DictScheme {
         )?;
 
         let compressed_values = FloatCompressor::compress(
-            &dict_array.values().to_primitive()?,
+            &dict_array.values().to_primitive(),
             is_sample,
             allowed_cascading - 1,
             &[DICT_SCHEME],
         )?;
 
-        Ok(DictArray::try_new(compressed_codes, compressed_values)?.into_array())
+        // SAFETY: compressing codes or values does not alter the invariants
+        unsafe { Ok(DictArray::new_unchecked(compressed_codes, compressed_values).into_array()) }
     }
 }
 
@@ -383,8 +385,8 @@ mod tests {
             values[i] = (i % 50) as f32;
         }
 
-        let floats = values.into_array().to_primitive().unwrap();
+        let floats = values.into_array().to_primitive();
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
-        println!("compressed: {}", compressed.tree_display())
+        println!("compressed: {}", compressed.display_tree())
     }
 }

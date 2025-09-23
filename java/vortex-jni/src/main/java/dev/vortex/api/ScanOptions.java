@@ -34,10 +34,20 @@ public interface ScanOptions {
      */
     Optional<long[]> rowIndices();
 
+    /**
+     * Creates a new ScanOptions instance with default values.
+     *
+     * @return a ScanOptions instance with empty columns list, no predicate, no row range, and no row indices
+     */
     static ScanOptions of() {
         return ImmutableScanOptions.builder().build();
     }
 
+    /**
+     * Creates a new builder for constructing ScanOptions instances.
+     *
+     * @return a new builder instance that can be used to configure and build ScanOptions
+     */
     static ImmutableScanOptions.Builder builder() {
         return ImmutableScanOptions.builder();
     }

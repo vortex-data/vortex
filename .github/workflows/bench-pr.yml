@@ -2,15 +2,16 @@ name: PR Benchmarks
 
 on:
   pull_request:
-    types: [ labeled, synchronize ]
-    branches: [ "develop" ]
-  workflow_dispatch: { }
+    types: [labeled, synchronize]
+    branches: ["develop"]
+  workflow_dispatch: {}
 
 permissions:
   actions: write
   contents: read
   pull-requests: write
   id-token: write
+  deployments: write
 
 jobs:
   label_trigger:
@@ -45,10 +46,9 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
 
       - name: Install DuckDB
@@ -60,16 +60,18 @@ jobs:
       - name: Build binary
         shell: bash
         env:
-          RUSTFLAGS: '-C target-cpu=native -C force-frame-pointers=yes'
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
           cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug
 
       - name: Setup Polar Signals
-        uses: polarsignals/gh-actions-ps-profiling@v0.4.0
+        uses: polarsignals/gh-actions-ps-profiling@v0.6.0
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}'
-          profiling_frequency: 200
+          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"
+          parca_agent_version: "0.39.3"
+          project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          extra_args: "--off-cpu-threshold=1"  # Personally tuned by @brancz
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
@@ -79,13 +81,13 @@ jobs:
           target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.16.0
         with:
           sync: false
 
@@ -107,13 +109,10 @@ jobs:
             | grep $base_commit_sha \
             > base.json
 
-          echo '# Benchmarks: ${{ matrix.benchmark.id }}' > comment.md
-          echo '<details>' >> comment.md
-          echo '<summary>Table of Results</summary>' >> comment.md
+          echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md
           echo '' >> comment.md
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json "${{ matrix.benchmark.name }}" \
             >> comment.md
-          echo '</details>' >> comment.md
 
       - name: Comment PR
         uses: thollander/actions-comment-pull-request@v3
@@ -126,4 +125,4 @@ jobs:
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit
     with:
-      mode: 'pr'
+      mode: "pr"

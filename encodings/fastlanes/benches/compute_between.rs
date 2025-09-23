@@ -6,12 +6,14 @@ use rand::Rng;
 use rand::rngs::StdRng;
 use vortex_alp::{ALPArray, alp_encode};
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::compute::warm_up_vtables;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_to_best_bit_width;
 
 fn main() {
+    warm_up_vtables();
     divan::main();
 }
 
@@ -45,14 +47,12 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
 
     let alp = alp_encode(&a, None).vortex_expect("");
 
-    let encoded = alp.encoded().to_primitive().vortex_expect("");
+    let encoded = alp.encoded().to_primitive();
 
     let bp = bitpack_to_best_bit_width(&encoded)
         .vortex_expect("")
         .into_array();
-    ALPArray::try_new(bp, alp.exponents(), alp.patches().cloned())
-        .vortex_expect("")
-        .into_array()
+    ALPArray::new(bp, alp.exponents(), alp.patches().cloned()).into_array()
 }
 
 const BENCH_ARGS: &[usize] = &[2 << 10, 2 << 13, 2 << 14];
@@ -212,7 +212,6 @@ mod bitpack {
 }
 
 mod alp {
-
     use divan::Bencher;
     use num_traits::NumCast;
     use rand::SeedableRng;

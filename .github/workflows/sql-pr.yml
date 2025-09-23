@@ -2,15 +2,16 @@ name: PR SQL Benchmarks
 
 on:
   pull_request:
-    types: [ labeled, synchronize ]
-    branches: [ "develop" ]
-  workflow_dispatch: { }
+    types: [labeled, synchronize]
+    branches: ["develop"]
+  workflow_dispatch: {}
 
 permissions:
   actions: write
   contents: read
   pull-requests: write
   id-token: write
+  deployments: write
 
 jobs:
   label_trigger:
@@ -28,4 +29,4 @@ jobs:
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit
     with:
-      mode: 'pr'
+      mode: "pr"

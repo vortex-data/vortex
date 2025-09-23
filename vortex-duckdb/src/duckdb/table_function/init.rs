@@ -5,14 +5,14 @@ use std::ffi::c_void;
 use std::fmt::{Debug, Formatter};
 use std::ptr;
 
-use vortex::error::VortexExpect;
+use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::cpp;
 use crate::duckdb::data::Data;
-use crate::duckdb::{TableFilterSet, TableFunction};
+use crate::duckdb::{ClientContext, TableFilterSet, TableFunction};
 
 /// Native callback for the global initialization of a table function.
-pub(crate) unsafe extern "C" fn init_global_callback<T: TableFunction>(
+pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
     init_input: *const cpp::duckdb_vx_tfunc_init_input,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
@@ -33,7 +33,7 @@ pub(crate) unsafe extern "C" fn init_global_callback<T: TableFunction>(
 
 /// Native callback for the local initialization of a table function.
 #[allow(deref_nullptr)]
-pub(crate) unsafe extern "C" fn init_local_callback<T: TableFunction>(
+pub(crate) unsafe extern "C-unwind" fn init_local_callback<T: TableFunction>(
     init_input: *const cpp::duckdb_vx_tfunc_init_input,
     global_init_data: *mut c_void,
     error_out: *mut cpp::duckdb_vx_error,
@@ -108,6 +108,16 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
             None
         } else {
             Some(unsafe { TableFilterSet::borrow(ptr) })
+        }
+    }
+
+    /// Returns the object cache from the client context for the table function.
+    pub fn client_context(&self) -> VortexResult<ClientContext> {
+        unsafe {
+            if self.input.client_context.is_null() {
+                vortex_bail!("Client context is null");
+            }
+            Ok(ClientContext::borrow(self.input.client_context))
         }
     }
 }

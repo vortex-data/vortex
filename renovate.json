@@ -26,6 +26,19 @@
   ],
   "packageRules": [
     {
+      "matchPackageNames": [
+        "arrow{/,}**",
+        "parquet{/,}**"
+      ],
+      "enabled": false
+    },
+    {
+      "matchPackageNames": [
+        "ubuntu"
+      ],
+      "enabled": false
+    },
+    {
       "matchUpdateTypes": [
         "major",
         "minor",
@@ -35,8 +48,7 @@
       "matchPackageNames": [
         "arrow{/,}**",
         "parquet{/,}**",
-        "datafusion{/,}**",
-        "pyo3{/,}**"
+        "datafusion{/,}**"
       ]
     },
     {
@@ -59,12 +71,12 @@
       ]
     }
   ],
-  "regexManagers": [
+  "customManagers": [
     {
       "description": "Update DuckDB version in vortex-duckdb/build.rs",
       "customType": "regex",
-      "fileMatch": [
-        "vortex-duckdb/build\\.rs"
+      "managerFilePatterns": [
+        "/vortex-duckdb/build\\.rs/"
       ],
       "matchStrings": [
         "const DUCKDB_VERSION: &str = \"(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\";"

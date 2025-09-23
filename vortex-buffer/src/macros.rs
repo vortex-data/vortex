@@ -5,7 +5,13 @@
 #[macro_export]
 macro_rules! buffer {
     () => (
-        $crate::Buffer:empty()
+        $crate::Buffer::empty()
+    );
+    ($start:tt .. $end:tt) => (
+        $crate::Buffer::from_iter($start..$end)
+    );
+    ($start:tt ..= $end:tt) => (
+        $crate::Buffer::from_iter($start..=$end)
     );
     ($elem:expr; $n:expr) => (
         $crate::Buffer::full($elem, $n)
@@ -20,6 +26,12 @@ macro_rules! buffer {
 macro_rules! buffer_mut {
     () => (
         $crate::BufferMut:empty()
+    );
+    ($start:tt .. $end:tt) => (
+        $crate::BufferMut::from_iter($start..$end)
+    );
+    ($start:tt ..= $end:tt) => (
+        $crate::BufferMut::from_iter($start..=$end)
     );
     ($elem:expr; $n:expr) => (
         $crate::BufferMut::full($elem, $n)

@@ -29,6 +29,7 @@ impl VTable for BoolVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     // Enable serde for this encoding
     type SerdeVTable = Self;
 

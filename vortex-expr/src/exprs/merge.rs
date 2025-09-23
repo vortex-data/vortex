@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
 use std::hash::Hash;
 
 use itertools::Itertools as _;
@@ -11,6 +10,7 @@ use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArra
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Merge);
@@ -96,7 +96,7 @@ impl VTable for MergeVTable {
                 vortex_bail!("merge expects non-nullable struct input");
             }
 
-            let struct_array = value_array.to_struct()?;
+            let struct_array = value_array.to_struct();
 
             for (i, field_name) in struct_array.names().iter().enumerate() {
                 let array = struct_array.fields()[i].clone();
@@ -132,7 +132,7 @@ impl VTable for MergeVTable {
             }
 
             let struct_dtype = dtype
-                .as_struct()
+                .as_struct_fields_opt()
                 .vortex_expect("merge expects struct input");
 
             for i in 0..struct_dtype.nfields() {
@@ -162,11 +162,25 @@ impl MergeExpr {
         }
     }
 
+    pub fn new_expr(values: Vec<ExprRef>, nullability: Nullability) -> ExprRef {
+        Self::new(values, nullability).into_expr()
+    }
+
     pub fn nullability(&self) -> Nullability {
         self.nullability
     }
 }
 
+/// Creates an expression that merges struct expressions into a single struct.
+///
+/// Combines fields from all input expressions. If field names are duplicated,
+/// later expressions win. Fields are not recursively merged.
+///
+/// ```rust
+/// # use vortex_dtype::Nullability;
+/// # use vortex_expr::{merge, get_item, root};
+/// let expr = merge([get_item("a", root()), get_item("b", root())], Nullability::NonNullable);
+/// ```
 pub fn merge(
     elements: impl IntoIterator<Item = impl Into<ExprRef>>,
     nullability: Nullability,
@@ -175,14 +189,21 @@ pub fn merge(
     MergeExpr::new(values, nullability).into_expr()
 }
 
-impl Display for MergeExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "merge({}){}",
-            self.values.iter().format(", "),
-            self.nullability
-        )
+impl DisplayAs for MergeExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(
+                    f,
+                    "merge({}){}",
+                    self.values.iter().format(", "),
+                    self.nullability
+                )
+            }
+            DisplayFormat::Tree => {
+                write!(f, "Merge")
+            }
+        }
     }
 }
 
@@ -196,7 +217,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{MergeExpr, Scope, get_item, root};
+    use crate::{MergeExpr, Scope, get_item, merge, root};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
@@ -205,11 +226,11 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array.to_struct()?.field_by_name(field)?.clone();
+        let mut array = array.to_struct().field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct()?.field_by_name(field)?.clone();
+            array = array.to_struct().field_by_name(field)?.clone();
         }
-        array.to_primitive()
+        Ok(array.to_primitive())
     }
 
     #[test]
@@ -258,7 +279,7 @@ mod tests {
 
         assert_eq!(
             actual_array.as_struct_typed().names(),
-            &["a", "b", "c", "d", "e"].into()
+            ["a", "b", "c", "d", "e"]
         );
 
         assert_eq!(
@@ -346,15 +367,13 @@ mod tests {
         let actual_array = expr
             .evaluate(&Scope::new(test_array.clone()))
             .unwrap()
-            .to_struct()
-            .unwrap();
+            .to_struct();
 
         assert_eq!(
             actual_array
                 .field_by_name("a")
                 .unwrap()
                 .to_struct()
-                .unwrap()
                 .names()
                 .iter()
                 .map(|name| name.as_ref())
@@ -395,10 +414,9 @@ mod tests {
         let actual_array = expr
             .evaluate(&Scope::new(test_array.clone()))
             .unwrap()
-            .to_struct()
-            .unwrap();
+            .to_struct();
 
-        assert_eq!(actual_array.names(), &["a", "c", "b", "d"].into());
+        assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
     }
 
     #[test]
@@ -418,5 +436,17 @@ mod tests {
         .into_array();
         let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
         assert!(actual_array.dtype().is_nullable());
+    }
+
+    #[test]
+    pub fn test_display() {
+        let expr = merge(
+            [get_item("struct1", root()), get_item("struct2", root())],
+            Nullability::NonNullable,
+        );
+        assert_eq!(expr.to_string(), "merge($.struct1, $.struct2)");
+
+        let expr2 = MergeExpr::new(vec![get_item("a", root())], Nullability::Nullable);
+        assert_eq!(expr2.to_string(), "merge($.a)?");
     }
 }

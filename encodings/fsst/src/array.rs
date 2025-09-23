@@ -29,6 +29,7 @@ impl VTable for FSSTVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
+    type PipelineVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.fsst")
@@ -105,6 +106,25 @@ impl FSSTArray {
             vortex_bail!(InvalidArgument: "codes array must be DType::Binary type");
         }
 
+        // SAFETY: all components validated above
+        unsafe {
+            Ok(Self::new_unchecked(
+                dtype,
+                symbols,
+                symbol_lengths,
+                codes,
+                uncompressed_lengths,
+            ))
+        }
+    }
+
+    pub(crate) unsafe fn new_unchecked(
+        dtype: DType,
+        symbols: Buffer<Symbol>,
+        symbol_lengths: Buffer<u8>,
+        codes: VarBinArray,
+        uncompressed_lengths: ArrayRef,
+    ) -> Self {
         let symbols2 = symbols.clone();
         let symbol_lengths2 = symbol_lengths.clone();
         let compressor = Arc::new(LazyLock::new(Box::new(move || {
@@ -112,7 +132,7 @@ impl FSSTArray {
         })
             as Box<dyn Fn() -> Compressor + Send>));
 
-        Ok(Self {
+        Self {
             dtype,
             symbols,
             symbol_lengths,
@@ -120,7 +140,7 @@ impl FSSTArray {
             uncompressed_lengths,
             stats_set: Default::default(),
             compressor,
-        })
+        }
     }
 
     /// Access the symbol table array

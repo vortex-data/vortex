@@ -3,14 +3,14 @@
 
 //! Persistent implementation of a Vortex table provider.
 mod cache;
-mod config;
 mod format;
 pub mod metrics;
 mod opener;
 mod sink;
 mod source;
 
-pub use format::{VortexFormat, VortexFormatFactory, VortexFormatOptions};
+pub use format::{VortexFormat, VortexFormatFactory, VortexOptions};
+pub use source::VortexSource;
 
 #[cfg(test)]
 /// Utility function to register Vortex with a [`SessionStateBuilder`]
@@ -77,7 +77,7 @@ mod tests {
 
         let filepath = temp_dir.path().join("data.vortex");
 
-        let f = OpenOptions::new()
+        let mut f = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
@@ -85,7 +85,7 @@ mod tests {
             .await?;
 
         VortexWriteOptions::default()
-            .write(f, st.to_array_stream())
+            .write(&mut f, st.to_array_stream())
             .await?;
 
         let ctx = SessionContext::default();

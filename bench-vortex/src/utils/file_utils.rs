@@ -5,37 +5,42 @@ use std::fs::create_dir_all;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
-use anyhow::bail;
+use anyhow::{Context, Result, bail};
 use url::Url;
 
 /// Creates a file if it doesn't already exist.
 /// NB: Does NOT modify the given path to ensure that it resides in the data directory.
-pub fn idempotent<T, E, P: IdempotentPath + ?Sized>(
+pub fn idempotent<T, P: IdempotentPath + ?Sized>(
     path: &P,
-    f: impl FnOnce(&Path) -> Result<T, E>,
-) -> Result<PathBuf, E> {
+    f: impl FnOnce(&Path) -> Result<T>,
+) -> Result<PathBuf> {
     let data_path = path.to_data_path();
     let temp_path = temp_download_filepath();
     if !data_path.exists() {
+        // Ensure parent directory exists
+        if let Some(parent) = data_path.parent() {
+            create_dir_all(parent).context("Failed to create parent directories")?;
+        }
         f(temp_path.as_path())?;
-        std::fs::rename(temp_path, &data_path).unwrap();
+        std::fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
     }
     Ok(data_path)
 }
 
-pub async fn idempotent_async<T, E, F, P>(
-    path: &P,
-    f: impl FnOnce(PathBuf) -> F,
-) -> Result<PathBuf, E>
+pub async fn idempotent_async<T, F, P>(path: &P, f: impl FnOnce(PathBuf) -> F) -> Result<PathBuf>
 where
-    F: Future<Output = Result<T, E>>,
+    F: Future<Output = Result<T>>,
     P: IdempotentPath + ?Sized,
 {
     let data_path = path.to_data_path();
     let temp_path = temp_download_filepath();
     if !data_path.exists() {
+        // Ensure parent directory exists
+        if let Some(parent) = data_path.parent() {
+            create_dir_all(parent).context("Failed to create parent directories")?;
+        }
         f(temp_path.clone()).await?;
-        std::fs::rename(temp_path, &data_path).unwrap();
+        std::fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
     }
     Ok(data_path)
 }
@@ -54,19 +59,12 @@ pub fn temp_download_filepath() -> PathBuf {
 
 impl IdempotentPath for str {
     fn to_data_path(&self) -> PathBuf {
-        let path = data_dir().join(self);
-        if !path.parent().unwrap().exists() {
-            create_dir_all(path.parent().unwrap()).unwrap();
-        }
-        path
+        data_dir().join(self)
     }
 }
 
 impl IdempotentPath for PathBuf {
     fn to_data_path(&self) -> PathBuf {
-        if !self.parent().unwrap().exists() {
-            create_dir_all(self.parent().unwrap()).unwrap();
-        }
         self.to_path_buf()
     }
 }
@@ -78,8 +76,8 @@ impl IdempotentPath for PathBuf {
 ///
 /// # Returns
 /// - A storage type string ("s3", "gcs", "nvme")
-/// - Or `ExitCode::FAILURE` if the scheme is unknown
-pub fn url_scheme_to_storage(url: &Url) -> anyhow::Result<String> {
+/// - Or an error if the scheme is unknown
+pub fn url_scheme_to_storage(url: &Url) -> Result<String> {
     use super::constants::{STORAGE_GCS, STORAGE_NVME, STORAGE_S3};
 
     match url.scheme() {

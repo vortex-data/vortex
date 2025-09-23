@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use pyo3::{PyRef, PyResult, pyclass, pymethods};
 use vortex::arrays::StructVTable;
 
@@ -21,5 +22,16 @@ impl PyStructArray {
     pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyResult<PyArrayRef> {
         let field = self_.as_array_ref().field_by_name(name)?.clone();
         Ok(PyArrayRef::from(field))
+    }
+
+    /// Get an ordered list of field names for the struct fields.
+    pub fn names(self_: PyRef<'_, Self>) -> PyResult<Vec<String>> {
+        Ok(self_
+            .as_array_ref()
+            .struct_fields()
+            .names()
+            .iter()
+            .map(|f| f.to_string())
+            .collect_vec())
     }
 }

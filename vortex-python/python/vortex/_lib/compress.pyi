@@ -1,6 +1,6 @@
 #  SPDX-License-Identifier: Apache-2.0
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import vortex as vx
+from .arrays import Array
 
-def compress(array: vx.Array) -> vx.Array: ...
+def compress(array: Array) -> Array: ...

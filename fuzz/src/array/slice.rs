@@ -3,7 +3,8 @@
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    BoolArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray,
+    BoolArray, DecimalArray, FixedSizeListArray, ListArray, PrimitiveArray, StructArray,
+    VarBinViewArray,
 };
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -20,7 +21,7 @@ pub fn slice_canonical_array(
     stop: usize,
 ) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let bool_buff = array.validity_mask()?.to_boolean_buffer();
+        let bool_buff = array.validity_mask().to_boolean_buffer();
         Validity::from(bool_buff.slice(start, stop - start))
     } else {
         Validity::NonNullable
@@ -28,12 +29,12 @@ pub fn slice_canonical_array(
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.to_bool()?;
+            let bool_array = array.to_bool();
             let sliced_bools = bool_array.boolean_buffer().slice(start, stop - start);
-            Ok(BoolArray::new(sliced_bools, validity).into_array())
+            Ok(BoolArray::from_bool_buffer(sliced_bools, validity).into_array())
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.to_primitive()?;
+            let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
                 Ok(
                     PrimitiveArray::new(primitive_array.buffer::<P>().slice(start..stop), validity)
@@ -42,7 +43,7 @@ pub fn slice_canonical_array(
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.to_varbinview()?;
+            let utf8 = array.to_varbinview();
             let values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             Ok(VarBinViewArray::from_iter(
@@ -52,7 +53,7 @@ pub fn slice_canonical_array(
             .into_array())
         }
         DType::Struct(..) => {
-            let struct_array = array.to_struct()?;
+            let struct_array = array.to_struct();
             let sliced_children = struct_array
                 .fields()
                 .iter()
@@ -67,9 +68,9 @@ pub fn slice_canonical_array(
             .map(|a| a.into_array())
         }
         DType::List(..) => {
-            let list_array = array.to_list()?;
+            let list_array = array.to_list();
             let offsets =
-                slice_canonical_array(list_array.offsets(), start, stop + 1)?.to_primitive()?;
+                slice_canonical_array(list_array.offsets(), start, stop + 1)?.to_primitive();
 
             let (start, end) = match_each_integer_ptype!(offsets.ptype(), |P| {
                 let offset_slice = offsets.as_slice::<P>();
@@ -86,8 +87,17 @@ pub fn slice_canonical_array(
             .into_array();
             ListArray::try_new(elements, offsets, validity).map(|a| a.into_array())
         }
+        DType::FixedSizeList(..) => {
+            let fsl_array = array.to_fixed_size_list();
+            let list_size = fsl_array.list_size() as usize;
+            let elements =
+                slice_canonical_array(fsl_array.elements(), start * list_size, stop * list_size)?;
+
+            FixedSizeListArray::try_new(elements, fsl_array.list_size(), validity, array.len())
+                .map(|a| a.into_array())
+        }
         DType::Decimal(decimal_dtype, _) => {
-            let decimal_array = array.to_decimal()?;
+            let decimal_array = array.to_decimal();
             Ok(
                 match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                     DecimalArray::new(

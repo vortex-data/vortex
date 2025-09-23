@@ -1,4 +1,5 @@
 import doctest
+import os
 import re
 from pathlib import Path
 
@@ -15,8 +16,8 @@ log = logging.getLogger("vortex.docs.conf")
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "Vortex"
-copyright = "2024, Spiral"
-author = "Spiral"
+copyright = "The Vortex contributors"
+author = "Vortex contributors"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -43,7 +44,7 @@ intersphinx_mapping = {
     "pyarrow": ("https://arrow.apache.org/docs", None),
     "pandas": ("https://pandas.pydata.org/docs", None),
     "numpy": ("https://numpy.org/doc/stable", None),
-    "polars": ("https://docs.pola.rs/api/python/stable", None),
+    "polars": ("https://docs.pola.rs/api/python/stable", "polars.objects.inv"),
 }
 
 git_root = Path(__file__).parent.parent
@@ -51,7 +52,7 @@ git_root = Path(__file__).parent.parent
 nitpicky = True  # ensures all :class:, :obj:, etc. links are valid
 nitpick_ignore = []
 
-doctest_global_setup = "import pyarrow; import vortex"
+doctest_global_setup = "import pyarrow; import vortex; import vortex as vx"
 doctest_default_flags = (
     doctest.ELLIPSIS | doctest.IGNORE_EXCEPTION_DETAIL | doctest.DONT_ACCEPT_TRUE_FOR_1 | doctest.NORMALIZE_WHITESPACE
 )
@@ -187,6 +188,67 @@ def _post_process(app, builder):
         C_DOCS = None  # Reset for next build
 
 
+# Most tools change their table formatting based on the perceived number of columns. Most will
+# obey the COLUMNS environment variable (because they use `shutil.get_terminal_size()`), but
+# some COUGH polars COUGH do not.
+os.environ["COLUMNS"] = "80"
+# https://github.com/pola-rs/polars/blob/8a55acce8bb822c549861c371b6d48dee6c3379f/crates/polars-core/src/fmt.rs#L720
+os.environ["POLARS_TABLE_WIDTH"] = "80"
+
+
+def _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks(app, what, name, obj, options, lines):
+    """Remove Markdown-style code fences from Python docs written in Rust.
+
+    We would like `cargo test` to Just Work (TM). Unfortunately, by default, it executes any
+    code-block in any docstring even though we intend those docs to be *Python* doc tests.
+
+    For example, the following is interpreted by Rust as Rust code (which it will try to doctest):
+
+        /// >>> 1 + 1
+        /// 3
+        fn foo() {
+        }
+
+    What syntax can we use to communicate to Rust "This is not Rust code" but communicate to Python
+    "This is Python code"? The following appears as executable code to both, so it does not work:
+
+        /// .. code-block:: python
+        ///
+        ///     >>> 1 + 1
+        ///     3
+        fn foo() {
+        }
+
+    This does not appear to work unless we wrap all the code in braces or a function, which makes it
+    not valid Python:
+
+        /// #[no_run]
+        /// >>> 1 + 1
+        /// 3
+
+    The following is executed by neither language and does not render properly (because it is not
+    valid reStructured Text):
+
+        /// ```python
+        /// >>> 1 + 1
+        /// 3
+        /// ```
+
+    Okay, so, our solution is to just adopt the last option and explicitly remove the code fences
+    when we parse docstrings in Sphinx.
+
+    """
+    in_block = False
+    for i, line in enumerate(lines):
+        if line == "```python":
+            lines[i] = ""
+            in_block = True
+        elif in_block and line == "```":
+            lines[i] = ""
+            in_block = False
+
+
 def setup(app):
     app.connect("hawkmoth-process-docstring", _replace_rust_references)
     app.connect("write-started", _post_process)
+    app.connect("autodoc-process-docstring", _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks)

@@ -8,7 +8,7 @@ plugins {
     `java-library`
     `jvm-test-suite`
     id("com.google.protobuf")
-    id("com.gradleup.shadow") version "8.3.8"
+    id("com.gradleup.shadow") version "9.1.0"
 }
 
 dependencies {
@@ -26,6 +26,10 @@ dependencies {
     implementation("com.google.protobuf:protobuf-java")
     compileOnly("com.google.errorprone:error_prone_annotations")
     compileOnly("com.jakewharton.nopen:nopen-annotations")
+
+    // Logging
+    implementation("org.slf4j:slf4j-api:2.0.17")
+    testRuntimeOnly("ch.qos.logback:logback-classic:1.5.18")
 }
 
 testing {
@@ -86,7 +90,7 @@ tasks.withType<Test>().all {
 
 protobuf {
     protoc {
-        artifact = "com.google.protobuf:protoc:4.31.1"
+        artifact = "com.google.protobuf:protoc:4.32.1"
     }
 }
 
@@ -119,7 +123,6 @@ tasks.register("makeTestFiles") {
         val execOps = serviceOf<ExecOperations>()
 
         // Build the JNI lib
-
         execOps.exec {
             workingDir = rootProject.projectDir.absoluteFile.parentFile
             executable = "cargo"

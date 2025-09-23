@@ -12,12 +12,11 @@ use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{BenchmarkDataset, Format, Target, default_env_filter, df};
+use bench_vortex::{BenchmarkDataset, Format, Target, df, setup_logging_and_tracing};
 use clap::{Parser, value_parser};
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use tracing::info_span;
-use tracing_futures::Instrument;
+use tracing::{Instrument, info_span};
 use vortex::error::{VortexExpect, vortex_panic};
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
@@ -52,45 +51,16 @@ struct Args {
     queries: Option<Vec<usize>>,
     #[arg(short)]
     output_path: Option<PathBuf>,
+    #[arg(long)]
+    tracing: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    // Capture `RUST_LOG` configuration
-    let filter = default_env_filter(args.verbose);
+    setup_logging_and_tracing(args.verbose, args.tracing)?;
 
-    #[cfg(not(feature = "tracing"))]
-    bench_vortex::setup_logger(filter);
-
-    // We need the guard to live to the end of the function, so can't create it in the if-block
-    #[cfg(feature = "tracing")]
-    let _trace_guard = {
-        use std::io::IsTerminal;
-
-        use tracing_subscriber::prelude::*;
-
-        let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
-            .include_args(true)
-            .trace_style(tracing_chrome::TraceStyle::Async)
-            .file("public_bi.trace.json")
-            .build();
-
-        let fmt_layer = tracing_subscriber::fmt::layer()
-            .with_writer(std::io::stderr)
-            .with_level(true)
-            .with_line_number(true)
-            .with_ansi(std::io::stderr().is_terminal());
-
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(layer)
-            .with(fmt_layer)
-            .init();
-        _guard
-    };
-
-    let runtime = new_tokio_runtime(args.threads);
+    let runtime = new_tokio_runtime(args.threads)?;
 
     let pbi_dataset = PBI_DATASETS.get(args.dataset);
     let queries = match args.queries.clone() {
@@ -109,7 +79,7 @@ fn main() -> anyhow::Result<()> {
     let dataset = pbi_dataset.dataset()?;
     tracing::info!("preparing files");
     // download csvs, unzip, convert to parquet, and convert that to vortex
-    runtime.block_on(dataset.write_as_vortex());
+    runtime.block_on(dataset.write_as_vortex())?;
 
     for target in &args.targets {
         let format = target.format();
@@ -143,6 +113,7 @@ fn main() -> anyhow::Result<()> {
                                 .1,
                         )
                     })
+                    .in_current_span()
                     .await
                     .vortex_expect("Failed to spawn query");
 

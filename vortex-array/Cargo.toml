@@ -13,28 +13,29 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[package.metadata.docs.rs]
+all-features = true
+
 [lints]
 workspace = true
-
-[build-dependencies]
-rustversion = { workspace = true }
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
 arrow-arith = { workspace = true }
-arrow-array = { workspace = true }
+arrow-array = { workspace = true, features = ["ffi"] }
 arrow-buffer = { workspace = true }
-arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
 arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
+async-trait = { workspace = true }
+bitvec = { workspace = true }
 cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
-futures-util = { workspace = true }
+futures = { workspace = true, features = ["alloc", "async-await", "std"] }
 getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
 humansize = { workspace = true }
@@ -53,12 +54,18 @@ rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+simdutf8 = { workspace = true }
 static_assertions = { workspace = true }
+tabled = { workspace = true, optional = true, default-features = false, features = [
+    "std",
+] }
+termtree = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = ["prost"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-mask = { workspace = true }
+vortex-metrics = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
 
@@ -69,12 +76,13 @@ arbitrary = [
     "vortex-scalar/arbitrary",
 ]
 canonical_counter = []
-# should only be enabled on nightly compiler
-nightly = []
+table-display = ["dep:tabled"]
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 
 [dev-dependencies]
+arrow-cast = { workspace = true }
 divan = { workspace = true }
+futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness"] }
 

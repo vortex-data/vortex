@@ -7,14 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import dev.vortex.api.expressions.Binary;
 import dev.vortex.api.expressions.GetItem;
-import dev.vortex.api.expressions.Root;
 import dev.vortex.api.expressions.Literal;
+import dev.vortex.api.expressions.Root;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-
 import org.junit.jupiter.api.Test;
 
 public final class TestMinimal {

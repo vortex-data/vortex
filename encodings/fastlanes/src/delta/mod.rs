@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 
 pub use compress::*;
+use fastlanes::FastLanes;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
@@ -17,6 +18,7 @@ use vortex_dtype::{DType, NativePType, PType, match_each_unsigned_integer_ptype}
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 mod compress;
+mod compute;
 mod ops;
 mod serde;
 
@@ -34,6 +36,7 @@ impl VTable for DeltaVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
+    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("fastlanes.delta")
@@ -81,7 +84,7 @@ pub struct DeltaEncoding;
 /// may be less than the number of physically stored values.
 ///
 /// Each chunk is stored as a vector of bases and a vector of deltas. If the chunk physically
-/// contains 1,024 vlaues, then there are as many bases as there are _lanes_ of this type in a
+/// contains 1,024 values, then there are as many bases as there are _lanes_ of this type in a
 /// 1024-bit register. For example, for 64-bit values, there are 16 bases because there are 16
 /// _lanes_. Each lane is a [delta-encoding](https://en.wikipedia.org/wiki/Delta_encoding) `1024 /
 /// bit_width` long vector of values. The deltas are stored in the
@@ -143,51 +146,58 @@ impl DeltaArray {
                 deltas.dtype()
             );
         }
-        let dtype = bases.dtype().clone();
-        if !dtype.is_int() {
-            vortex_bail!("DeltaArray: dtype must be an integer, got {}", dtype);
+        let DType::Primitive(ptype, _) = bases.dtype().clone() else {
+            vortex_bail!(
+                "DeltaArray: dtype must be an integer, got {}",
+                bases.dtype()
+            );
+        };
+
+        if !ptype.is_int() {
+            vortex_bail!("DeltaArray: ptype must be an integer, got {}", ptype);
         }
 
-        if let Some(vlen) = validity.maybe_len() {
-            if vlen != logical_len {
-                vortex_bail!(
-                    "DeltaArray: validity length ({}) must match logical_len ({})",
-                    vlen,
-                    logical_len
-                );
-            }
+        if let Some(vlen) = validity.maybe_len()
+            && vlen != logical_len
+        {
+            vortex_bail!(
+                "DeltaArray: validity length ({}) must match logical_len ({})",
+                vlen,
+                logical_len
+            );
         }
 
-        let delta = Self {
+        let lanes = lane_count(ptype);
+
+        if (deltas.len() % 1024 == 0) != (bases.len() % lanes == 0) {
+            vortex_bail!(
+                "deltas length ({}) is a multiple of 1024 iff bases length ({}) is a multiple of LANES ({})",
+                deltas.len(),
+                bases.len(),
+                lanes,
+            );
+        }
+
+        // SAFETY: validation done above
+        Ok(unsafe { Self::new_unchecked(bases, deltas, validity, offset, logical_len) })
+    }
+
+    pub(crate) unsafe fn new_unchecked(
+        bases: ArrayRef,
+        deltas: ArrayRef,
+        validity: Validity,
+        offset: usize,
+        logical_len: usize,
+    ) -> Self {
+        Self {
             offset,
             len: logical_len,
-            dtype,
+            dtype: bases.dtype().clone(),
             bases,
             deltas,
             validity,
             stats_set: Default::default(),
-        };
-
-        if delta.bases().len() != delta.bases_len() {
-            vortex_bail!(
-                "DeltaArray: bases.len() ({}) != expected_bases_len ({}), based on len ({}) and lane count ({})",
-                delta.bases().len(),
-                delta.bases_len(),
-                logical_len,
-                delta.lanes()
-            );
         }
-
-        if (delta.deltas_len() % 1024 == 0) != (delta.bases_len() % delta.lanes() == 0) {
-            vortex_bail!(
-                "deltas length ({}) is a multiple of 1024 iff bases length ({}) is a multiple of LANES ({})",
-                delta.deltas_len(),
-                delta.bases_len(),
-                delta.lanes(),
-            );
-        }
-
-        Ok(delta)
     }
 
     #[inline]
@@ -202,9 +212,9 @@ impl DeltaArray {
 
     #[inline]
     fn lanes(&self) -> usize {
-        let ptype = PType::try_from(self.dtype())
-            .vortex_expect("Failed to convert DeltaArray DType to PType");
-        match_each_unsigned_integer_ptype!(ptype, |T| { <T as fastlanes::FastLanes>::LANES })
+        let ptype =
+            PType::try_from(self.dtype()).vortex_expect("DeltaArray DType must be primitive");
+        lane_count(ptype)
     }
 
     #[inline]
@@ -220,6 +230,10 @@ impl DeltaArray {
     fn deltas_len(&self) -> usize {
         self.deltas.len()
     }
+}
+
+pub(crate) fn lane_count(ptype: PType) -> usize {
+    match_each_unsigned_integer_ptype!(ptype, |T| { T::LANES })
 }
 
 impl ValidityHelper for DeltaArray {
@@ -243,7 +257,7 @@ impl ArrayVTable<DeltaVTable> for DeltaVTable {
 }
 
 impl CanonicalVTable<DeltaVTable> for DeltaVTable {
-    fn canonicalize(array: &DeltaArray) -> VortexResult<Canonical> {
-        delta_decompress(array).map(Canonical::Primitive)
+    fn canonicalize(array: &DeltaArray) -> Canonical {
+        Canonical::Primitive(delta_decompress(array))
     }
 }

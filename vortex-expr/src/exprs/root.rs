@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
-
+use vortex_array::operator::OperatorRef;
 use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexResult, vortex_bail};
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
 };
@@ -66,11 +66,22 @@ impl VTable for RootVTable {
     fn return_dtype(_expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         Ok(scope.clone())
     }
+
+    fn operator(_expr: &Self::Expr, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
+        Ok(Some(scope.clone()))
+    }
 }
 
-impl Display for RootExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "$")
+impl DisplayAs for RootExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "$")
+            }
+            DisplayFormat::Tree => {
+                write!(f, "Root")
+            }
+        }
     }
 }
 
@@ -83,13 +94,19 @@ impl AnalysisExpr for RootExpr {
         catalog.stats_ref(&self.field_path()?, Stat::Min)
     }
 
+    fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        catalog.stats_ref(&self.field_path()?, Stat::NaNCount)
+    }
+
     fn field_path(&self) -> Option<FieldPath> {
         Some(FieldPath::root())
     }
 }
 
-/// Return a global pointer to the identity token.
-/// This is the name of the data found in a vortex array or file.
+/// Creates an expression that references the root scope.
+///
+/// Returns the entire input array as passed to the expression evaluator.
+/// This is commonly used as the starting point for field access and other operations.
 pub fn root() -> ExprRef {
     RootExpr.into_expr()
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use pyo3::{IntoPyObject, PyObject, PyRef, PyResult, pyclass, pymethods};
+use pyo3::{IntoPyObject, Py, PyAny, PyRef, PyResult, pyclass, pymethods};
 use vortex::scalar::ExtScalar;
 
 use crate::PyVortex;
@@ -18,7 +18,7 @@ impl ScalarSubclass for PyExtensionScalar {
 #[pymethods]
 impl PyExtensionScalar {
     /// Return the underlying storage scalar.
-    pub fn storage(self_: PyRef<'_, Self>) -> PyResult<PyObject> {
+    pub fn storage(self_: PyRef<'_, Self>) -> PyResult<Py<PyAny>> {
         let scalar = self_.as_scalar_ref();
         let storage = scalar.storage();
         PyVortex(&storage)

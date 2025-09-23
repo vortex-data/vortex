@@ -17,32 +17,24 @@ use crate::compute::{
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
-/// Compute between (a <= x <= b), this can be implemented using compare and boolean and but this
-/// will likely have a lower runtime.
+static BETWEEN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("between".into(), ArcRef::new_ref(&Between));
+    for kernel in inventory::iter::<BetweenKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+pub(crate) fn warm_up_vtable() -> usize {
+    BETWEEN_FN.kernels().len()
+}
+
+/// Compute between (a <= x <= b).
 ///
-/// This semantics is equivalent to:
-/// ```
-/// use vortex_array::{Array, ArrayRef};
-/// use vortex_array::compute::{boolean, compare, BetweenOptions, BooleanOperator, Operator};///
-/// use vortex_error::VortexResult;
+/// This is an optimized implementation that is equivalent to `(a <= x) AND (x <= b)`.
 ///
-/// fn between(
-///    arr: &dyn Array,
-///    lower: &dyn Array,
-///    upper: &dyn Array,
-///    options: &BetweenOptions
-/// ) -> VortexResult<ArrayRef> {
-///     boolean(
-///         &compare(lower, arr, options.lower_strict.to_operator())?,
-///         &compare(arr, upper,  options.upper_strict.to_operator())?,
-///         BooleanOperator::And
-///     )
-/// }
-///  ```
-///
-/// The BetweenOptions { lower: StrictComparison, upper: StrictComparison } defines if the
-/// value is < (strict) or <= (non-strict).
-///
+/// The `BetweenOptions` defines if the lower or upper bounds are strict (exclusive) or non-strict
+/// (inclusive).
 pub fn between(
     arr: &dyn Array,
     lower: &dyn Array,
@@ -92,14 +84,6 @@ impl<V: VTable + BetweenKernel> Kernel for BetweenKernelAdapter<V> {
     }
 }
 
-pub static BETWEEN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("between".into(), ArcRef::new_ref(&Between));
-    for kernel in inventory::iter::<BetweenKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
 struct Between;
 
 impl ComputeFnVTable for Between {
@@ -124,14 +108,13 @@ impl ComputeFnVTable for Between {
 
         // A quick check to see if either array might is a null constant array.
         // Note: Depends on returning early if array is empty for is_invalid check.
-        if lower.is_invalid(0)? || upper.is_invalid(0)? {
-            if let (Some(c_lower), Some(c_upper)) = (lower.as_constant(), upper.as_constant()) {
-                if c_lower.is_null() || c_upper.is_null() {
-                    return Ok(ConstantArray::new(Scalar::null(return_dtype), array.len())
-                        .into_array()
-                        .into());
-                }
-            }
+        if (lower.is_invalid(0) || upper.is_invalid(0))
+            && let (Some(c_lower), Some(c_upper)) = (lower.as_constant(), upper.as_constant())
+            && (c_lower.is_null() || c_upper.is_null())
+        {
+            return Ok(ConstantArray::new(Scalar::null(return_dtype), array.len())
+                .into_array()
+                .into());
         }
 
         if lower.as_constant().is_some_and(|v| v.is_null())
@@ -263,9 +246,12 @@ impl Options for BetweenOptions {
     }
 }
 
+/// Strictness of the comparison.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum StrictComparison {
+    /// Strict bound (`<`)
     Strict,
+    /// Non-strict bound (`<=`)
     NonStrict,
 }
 
@@ -280,11 +266,11 @@ impl StrictComparison {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
     use vortex_dtype::{Nullability, PType};
 
     use super::*;
     use crate::ToCanonical;
-    use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::search_sorted::rstest;
     use crate::test_harness::to_int_indices;
 
@@ -298,9 +284,9 @@ mod tests {
         #[case] upper_strict: StrictComparison,
         #[case] expected: Vec<u64>,
     ) {
-        let lower = PrimitiveArray::from_iter([0, 0, 0, 0, 2]);
-        let array = PrimitiveArray::from_iter([1, 0, 1, 0, 1]);
-        let upper = PrimitiveArray::from_iter([2, 1, 1, 0, 0]);
+        let lower = buffer![0, 0, 0, 0, 2].into_array();
+        let array = buffer![1, 0, 1, 0, 1].into_array();
+        let upper = buffer![2, 1, 1, 0, 0].into_array();
 
         let matches = between(
             array.as_ref(),
@@ -312,8 +298,7 @@ mod tests {
             },
         )
         .unwrap()
-        .to_bool()
-        .unwrap();
+        .to_bool();
 
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, expected);
@@ -321,8 +306,8 @@ mod tests {
 
     #[test]
     fn test_constants() {
-        let lower = PrimitiveArray::from_iter([0, 0, 2, 0, 2]);
-        let array = PrimitiveArray::from_iter([1, 0, 1, 0, 1]);
+        let lower = buffer![0, 0, 2, 0, 2].into_array();
+        let array = buffer![1, 0, 1, 0, 1].into_array();
 
         // upper is null
         let upper = ConstantArray::new(
@@ -340,8 +325,7 @@ mod tests {
             },
         )
         .unwrap()
-        .to_bool()
-        .unwrap();
+        .to_bool();
 
         let indices = to_int_indices(matches).unwrap();
         assert!(indices.is_empty());
@@ -358,8 +342,7 @@ mod tests {
             },
         )
         .unwrap()
-        .to_bool()
-        .unwrap();
+        .to_bool();
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, vec![0, 1, 3]);
 
@@ -376,8 +359,7 @@ mod tests {
             },
         )
         .unwrap()
-        .to_bool()
-        .unwrap();
+        .to_bool();
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, vec![0, 1, 2, 3, 4]);
     }

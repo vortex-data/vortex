@@ -11,7 +11,7 @@ use url::Url;
 use vortex::ArrayRef;
 
 use crate::clickbench::Flavor;
-use crate::{Format, clickbench};
+use crate::{Format, clickbench, statpopgen};
 
 pub mod data_downloads;
 pub mod file;
@@ -23,19 +23,21 @@ pub mod tpch_l_comment;
 pub trait Dataset {
     fn name(&self) -> &str;
 
-    async fn to_vortex_array(&self) -> ArrayRef;
+    async fn to_vortex_array(&self) -> Result<ArrayRef>;
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum BenchmarkDataset {
     #[serde(rename = "tpch")]
-    TpcH { scale_factor: f32 },
+    TpcH { scale_factor: String },
     #[serde(rename = "tpcds")]
-    TpcDS { scale_factor: u32 },
+    TpcDS { scale_factor: String },
     #[serde(rename = "clickbench")]
-    ClickBench { single_file: bool, flavor: Flavor },
+    ClickBench { flavor: Flavor },
     #[serde(rename = "public-bi")]
     PublicBi { name: String },
+    #[serde(rename = "statpopgen")]
+    StatPopGen { n_rows: u64 },
 }
 
 impl BenchmarkDataset {
@@ -45,6 +47,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::TpcDS { .. } => "tpcds",
             BenchmarkDataset::ClickBench { .. } => "clickbench",
             BenchmarkDataset::PublicBi { .. } => "public-bi",
+            BenchmarkDataset::StatPopGen { .. } => "statpopgen",
         }
     }
 }
@@ -54,14 +57,12 @@ impl Display for BenchmarkDataset {
         match self {
             BenchmarkDataset::TpcH { scale_factor } => write!(f, "tpch(sf={scale_factor})"),
             BenchmarkDataset::TpcDS { scale_factor } => write!(f, "tpcds(sf={scale_factor})"),
-            BenchmarkDataset::ClickBench { single_file, .. } => {
-                if *single_file {
-                    write!(f, "clickbench-single")
-                } else {
-                    write!(f, "clickbench-partitioned")
-                }
-            }
+            BenchmarkDataset::ClickBench { flavor, .. } => match flavor {
+                Flavor::Partitioned => write!(f, "clickbench-partitioned"),
+                Flavor::Single => write!(f, "clickbench-single"),
+            },
             BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),
+            BenchmarkDataset::StatPopGen { n_rows } => write!(f, "statpopgen(n_rows={n_rows})"),
         }
     }
 }
@@ -95,18 +96,17 @@ impl BenchmarkDataset {
                 "time_dim",
                 "web_returns",
             ],
-
             BenchmarkDataset::TpcH { .. } => &[
                 "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
                 "supplier",
             ],
-
             BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
         }
     }
 
     pub fn format_path(&self, format: Format, base_url: &Url) -> Result<Url> {
-        Ok(base_url.join(&format!("{}/", format))?)
+        Ok(base_url.join(&format!("{format}/"))?)
     }
 
     pub async fn register_tables(
@@ -119,34 +119,22 @@ impl BenchmarkDataset {
             (BenchmarkDataset::TpcH { .. }, _) | (BenchmarkDataset::TpcDS { .. }, _) => {
                 // TPC-H tables are handled separately
             }
-            (BenchmarkDataset::ClickBench { single_file, .. }, Format::Parquet) => {
-                // Use glob pattern for partitioned files, specific file pattern for single file
-                let glob = if *single_file {
-                    glob::Pattern::new("hits_0.parquet")?
-                } else {
-                    glob::Pattern::new("*.parquet")?
-                };
+            (BenchmarkDataset::ClickBench { .. }, Format::Parquet) => {
                 clickbench::register_parquet_files(
                     session,
                     "hits",
                     base_url,
                     &clickbench::HITS_SCHEMA,
-                    Some(glob),
+                    Some(glob::Pattern::new("*.parquet")?),
                 )?;
             }
-            (BenchmarkDataset::ClickBench { single_file, .. }, Format::OnDiskVortex) => {
-                // Use glob pattern for partitioned files, specific file pattern for single file
-                let glob = if *single_file {
-                    Some(glob::Pattern::new("hits_0.vortex")?)
-                } else {
-                    Some(glob::Pattern::new("*.vortex")?)
-                };
+            (BenchmarkDataset::ClickBench { .. }, Format::OnDiskVortex | Format::VortexCompact) => {
                 clickbench::register_vortex_files(
                     session.clone(),
                     "hits",
                     base_url,
                     Some(clickbench::HITS_SCHEMA.clone()),
-                    glob,
+                    Some(glob::Pattern::new("*.vortex")?),
                 )
                 .await?;
             }
@@ -155,6 +143,15 @@ impl BenchmarkDataset {
             }
             (BenchmarkDataset::PublicBi { .. }, _) => {
                 anyhow::bail!("public bi unsupported for now")
+            }
+            (BenchmarkDataset::StatPopGen { .. }, Format::Parquet) => {
+                statpopgen::register_table(session, base_url, Format::Parquet).await?
+            }
+            (BenchmarkDataset::StatPopGen { .. }, Format::OnDiskVortex) => {
+                statpopgen::register_table(session, base_url, Format::OnDiskVortex).await?
+            }
+            (BenchmarkDataset::StatPopGen { .. }, format) => {
+                anyhow::bail!("StatPopGen in {format} unsupported in DataFusion")
             }
         }
 

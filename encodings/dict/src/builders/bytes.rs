@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::BuildHasher;
+use std::sync::Arc;
 
 use arrow_buffer::NullBufferBuilder;
 use num_traits::AsPrimitive;
@@ -25,6 +26,7 @@ pub struct BytesDictBuilder<Codes> {
     lookup: Option<HashTable<Codes>>,
     views: BufferMut<BinaryView>,
     values: ByteBufferMut,
+    values_nulls: NullBufferBuilder,
     hasher: RandomState,
     dtype: DType,
     max_dict_bytes: usize,
@@ -46,6 +48,7 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
             lookup: Some(HashTable::new()),
             views: BufferMut::<BinaryView>::empty(),
             values: BufferMut::empty(),
+            values_nulls: NullBufferBuilder::new(0),
             hasher: DefaultHashBuilder::default(),
             dtype,
             max_dict_bytes: constraints.max_bytes,
@@ -58,17 +61,19 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
     }
 
     #[inline]
-    fn lookup_bytes(&self, idx: usize) -> &[u8] {
-        let bin_view = &self.views[idx];
-        if bin_view.is_inlined() {
-            bin_view.as_inlined().value()
-        } else {
-            &self.values[bin_view.as_view().to_range()]
-        }
+    fn lookup_bytes(&self, idx: usize) -> Option<&[u8]> {
+        self.values_nulls.is_valid(idx).then(|| {
+            let bin_view = &self.views[idx];
+            if bin_view.is_inlined() {
+                bin_view.as_inlined().value()
+            } else {
+                &self.values[bin_view.as_view().to_range()]
+            }
+        })
     }
 
     #[inline]
-    fn encode_value(&mut self, lookup: &mut HashTable<Code>, val: &[u8]) -> Option<Code> {
+    fn encode_value(&mut self, lookup: &mut HashTable<Code>, val: Option<&[u8]>) -> Option<Code> {
         match lookup.entry(
             self.hasher.hash_one(val),
             |idx| val == self.lookup_bytes(idx.as_()),
@@ -81,22 +86,36 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
                 }
 
                 let next_code = self.views.len();
-                let view =
-                    BinaryView::make_view(val, 0, u32::try_from(self.values.len()).vortex_unwrap());
-                let additional_bytes = if view.is_inlined() {
-                    size_of::<BinaryView>()
-                } else {
-                    size_of::<BinaryView>() + val.len()
-                };
+                match val {
+                    None => {
+                        // Null value
+                        self.views.push(BinaryView::default());
+                        self.values_nulls.append_null();
+                    }
+                    Some(val) => {
+                        let view = BinaryView::make_view(
+                            val,
+                            0,
+                            u32::try_from(self.values.len()).vortex_unwrap(),
+                        );
+                        let additional_bytes = if view.is_inlined() {
+                            size_of::<BinaryView>()
+                        } else {
+                            size_of::<BinaryView>() + val.len()
+                        };
 
-                if self.dict_bytes() + additional_bytes > self.max_dict_bytes {
-                    return None;
+                        if self.dict_bytes() + additional_bytes > self.max_dict_bytes {
+                            return None;
+                        }
+
+                        self.views.push(view);
+                        self.values_nulls.append_non_null();
+                        if !view.is_inlined() {
+                            self.values.extend_from_slice(val);
+                        }
+                    }
                 }
 
-                self.views.push(view);
-                if !view.is_inlined() {
-                    self.values.extend_from_slice(val);
-                }
                 let next_code = Code::from_usize(next_code).unwrap_or_else(|| {
                     vortex_panic!("{next_code} has to fit into {}", Code::PTYPE)
                 });
@@ -113,47 +132,19 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
         let mut codes: BufferMut<Code> = BufferMut::with_capacity(len);
 
-        let (codes, validity) = if self.dtype.is_nullable() {
-            let mut null_buf = NullBufferBuilder::new(len);
-
-            accessor.with_iterator(|it| {
-                for value in it {
-                    let (code, validity) = match value {
-                        Some(v) => match self.encode_value(&mut local_lookup, v) {
-                            Some(code) => (code, true),
-                            None => break,
-                        },
-                        None => (Code::zero(), false),
-                    };
-                    null_buf.append(validity);
-                    unsafe { codes.push_unchecked(code) }
-                }
-            })?;
-            (
-                codes,
-                null_buf
-                    .finish()
-                    .map(Validity::from)
-                    .unwrap_or(Validity::AllValid),
-            )
-        } else {
-            accessor.with_iterator(|it| {
-                for value in it {
-                    let Some(code) = self.encode_value(
-                        &mut local_lookup,
-                        value.vortex_expect("Dict encode null value in non-nullable array"),
-                    ) else {
-                        break;
-                    };
-                    unsafe { codes.push_unchecked(code) }
-                }
-            })?;
-            (codes, Validity::NonNullable)
-        };
+        accessor.with_iterator(|it| {
+            for value in it {
+                let Some(code) = self.encode_value(&mut local_lookup, value) else {
+                    break;
+                };
+                unsafe { codes.push_unchecked(code) }
+            }
+        })?;
 
         // Restore lookup dictionary back into the struct
         self.lookup = Some(local_lookup);
-        Ok(PrimitiveArray::new(codes, validity).into_array())
+
+        Ok(PrimitiveArray::new(codes, Validity::NonNullable).into_array())
     }
 }
 
@@ -178,13 +169,20 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> DictEncoder for BytesDic
     }
 
     fn values(&mut self) -> VortexResult<ArrayRef> {
-        VarBinViewArray::try_new(
-            self.views.clone().freeze(),
-            vec![self.values.clone().freeze()],
-            self.dtype.clone(),
-            self.dtype.nullability().into(),
-        )
-        .map(|a| a.into_array())
+        // SAFETY: we build the views explicitly and the bytes should be checked before feeding
+        //  to the encoder.
+        unsafe {
+            Ok(VarBinViewArray::new_unchecked(
+                self.views.clone().freeze(),
+                Arc::from([self.values.clone().freeze()]),
+                self.dtype.clone(),
+                Validity::from_null_buffer(
+                    self.values_nulls.finish_cloned(),
+                    self.dtype.nullability(),
+                ),
+            )
+            .into_array())
+        }
     }
 }
 
@@ -203,12 +201,11 @@ mod test {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
         let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
-            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
+            dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 1, 0, 2, 1]
         );
         dict.values()
             .to_varbinview()
-            .unwrap()
             .with_iterator(|iter| {
                 assert_eq!(
                     iter.flatten()
@@ -236,17 +233,16 @@ mod test {
         .collect();
         let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
-            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
-            &[0, 0, 1, 0, 0, 2, 1, 0]
+            dict.codes().to_primitive().as_slice::<u8>(),
+            &[0, 1, 2, 0, 1, 3, 2, 1]
         );
         dict.values()
             .to_varbinview()
-            .unwrap()
             .with_iterator(|iter| {
                 assert_eq!(
                     iter.map(|b| b.map(|v| unsafe { str::from_utf8_unchecked(v) }))
                         .collect::<Vec<_>>(),
-                    vec![Some("hello"), Some("world"), Some("again")]
+                    vec![Some("hello"), None, Some("world"), Some("again")]
                 );
             })
             .unwrap();
@@ -258,7 +254,6 @@ mod test {
         let dict = dict_encode(arr.as_ref()).unwrap();
         dict.values()
             .to_varbinview()
-            .unwrap()
             .with_iterator(|iter| {
                 assert_eq!(
                     iter.flatten()
@@ -269,7 +264,7 @@ mod test {
             })
             .unwrap();
         assert_eq!(
-            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
+            dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 0, 1, 1, 0, 1, 0, 1]
         );
     }

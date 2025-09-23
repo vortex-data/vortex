@@ -2,15 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod compute;
+mod narrow;
 mod ops;
+mod patch;
 mod serde;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_scalar::{DecimalValueType, NativeDecimalType};
 
+pub use crate::arrays::decimal::narrow::narrowed_decimal;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
@@ -33,6 +36,7 @@ impl VTable for DecimalVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -61,7 +65,68 @@ pub fn smallest_storage_type(decimal_dtype: &DecimalDType) -> DecimalValueType {
     }
 }
 
-/// Array for decimal-typed real numbers
+/// True if `value_type` can represent every value of the type `dtype`.
+pub fn compatible_storage_type(value_type: DecimalValueType, dtype: DecimalDType) -> bool {
+    value_type >= smallest_storage_type(&dtype)
+}
+
+/// A decimal array that stores fixed-precision decimal numbers with configurable scale.
+///
+/// This mirrors the Apache Arrow Decimal encoding and provides exact arithmetic for
+/// financial and scientific computations where floating-point precision loss is unacceptable.
+///
+/// ## Storage Format
+///
+/// Decimals are stored as scaled integers in a supported scalar value type.
+///
+/// The precisions supported for each scalar type are:
+/// - **i8**: precision 1-2 digits
+/// - **i16**: precision 3-4 digits
+/// - **i32**: precision 5-9 digits
+/// - **i64**: precision 10-18 digits
+/// - **i128**: precision 19-38 digits
+/// - **i256**: precision 39-76 digits
+///
+/// These are just the maximal ranges for each scalar type, but it is perfectly legal to store
+/// values with precision that does not match this exactly. For example, a valid DecimalArray with
+/// precision=39 may store its values in an `i8` if all of the actual values fit into it.
+///
+/// Similarly, a `DecimalArray` can be built that stores a set of precision=2 values in a
+/// `Buffer<i256>`.
+///
+/// ## Precision and Scale
+///
+/// - **Precision**: Total number of significant digits (1-76, u8 range)
+/// - **Scale**: Number of digits after the decimal point (-128 to 127, i8 range)
+/// - **Value**: `stored_integer / 10^scale`
+///
+/// For example, with precision=5 and scale=2:
+/// - Stored value 12345 represents 123.45
+/// - Range: -999.99 to 999.99
+///
+/// ## Valid Scalar Types
+///
+/// The underlying storage uses these native types based on precision:
+/// - `DecimalValueType::I8`, `I16`, `I32`, `I64`, `I128`, `I256`
+/// - Type selection is automatic based on the required precision
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::DecimalArray;
+/// use vortex_dtype::DecimalDType;
+/// use vortex_buffer::{buffer, Buffer};
+/// use vortex_array::validity::Validity;
+///
+/// // Create a decimal array with precision=5, scale=2 (e.g., 123.45)
+/// let decimal_dtype = DecimalDType::new(5, 2);
+/// let values = buffer![12345i32, 67890i32, -12300i32]; // 123.45, 678.90, -123.00
+/// let array = DecimalArray::new(values, decimal_dtype, Validity::NonNullable);
+///
+/// assert_eq!(array.precision(), 5);
+/// assert_eq!(array.scale(), 2);
+/// assert_eq!(array.len(), 3);
+/// ```
 #[derive(Clone, Debug)]
 pub struct DecimalArray {
     dtype: DType,
@@ -72,30 +137,84 @@ pub struct DecimalArray {
 }
 
 impl DecimalArray {
-    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
-    /// any invariants.
+    /// Creates a new [`DecimalArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided components do not satisfy the invariants documented in
+    /// [`DecimalArray::new_unchecked`].
     pub fn new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        if let Some(len) = validity.maybe_len() {
-            if buffer.len() != len {
-                vortex_panic!(
-                    "Buffer and validity length mismatch: buffer={}, validity={}",
-                    buffer.len(),
-                    len,
-                );
-            }
-        }
+        Self::try_new(buffer, decimal_dtype, validity)
+            .vortex_expect("DecimalArray construction failed")
+    }
 
+    /// Constructs a new `DecimalArray`.
+    ///
+    /// See [`DecimalArray::new_unchecked`] for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided components do not satisfy the invariants documented in
+    /// [`DecimalArray::new_unchecked`].
+    pub fn try_new<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Self::validate(&buffer, &validity)?;
+
+        // SAFETY: validate ensures all invariants are met.
+        Ok(unsafe { Self::new_unchecked(buffer, decimal_dtype, validity) })
+    }
+
+    /// Creates a new [`DecimalArray`] without validation from these components:
+    ///
+    /// * `buffer` is a typed buffer containing the decimal values.
+    /// * `decimal_dtype` specifies the decimal precision and scale.
+    /// * `validity` holds the null values.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure all of the following invariants are satisfied:
+    ///
+    /// - All non-null values in `buffer` must be representable within the specified precision.
+    /// - For example, with precision=5 and scale=2, all values must be in range [-999.99, 999.99].
+    /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
+    pub unsafe fn new_unchecked<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> Self {
         Self {
-            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
             values: buffer.into_byte_buffer(),
             values_type: T::VALUES_TYPE,
+            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
             validity,
-            stats_set: ArrayStats::default(),
+            stats_set: Default::default(),
         }
+    }
+
+    /// Validates the components that would be used to create a [`DecimalArray`].
+    ///
+    /// This function checks all the invariants required by [`DecimalArray::new_unchecked`].
+    pub(crate) fn validate<T: NativeDecimalType>(
+        buffer: &Buffer<T>,
+        validity: &Validity,
+    ) -> VortexResult<()> {
+        if let Some(len) = validity.maybe_len() {
+            vortex_ensure!(
+                buffer.len() == len,
+                "Buffer and validity length mismatch: buffer={}, validity={}",
+                buffer.len(),
+                len,
+            );
+        }
+
+        Ok(())
     }
 
     /// Returns the underlying [`ByteBuffer`] of the array.
@@ -116,9 +235,10 @@ impl DecimalArray {
 
     /// Returns the decimal type information
     pub fn decimal_dtype(&self) -> DecimalDType {
-        match &self.dtype {
-            DType::Decimal(decimal_dtype, _) => *decimal_dtype,
-            _ => vortex_panic!("Expected Decimal dtype, got {:?}", self.dtype),
+        if let DType::Decimal(decimal_dtype, _) = self.dtype {
+            decimal_dtype
+        } else {
+            vortex_panic!("Expected Decimal dtype, got {:?}", self.dtype)
         }
     }
 
@@ -196,11 +316,11 @@ impl VisitorVTable<DecimalVTable> for DecimalVTable {
 }
 
 impl CanonicalVTable<DecimalVTable> for DecimalVTable {
-    fn canonicalize(array: &DecimalArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Decimal(array.clone()))
+    fn canonicalize(array: &DecimalArray) -> Canonical {
+        Canonical::Decimal(array.clone())
     }
 
-    fn append_to_builder(array: &DecimalArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(array: &DecimalArray, builder: &mut dyn ArrayBuilder) {
         builder.extend_from_array(array.as_ref())
     }
 }

@@ -346,3 +346,72 @@ impl ToTable for CustomUnitMeasurement {
         }
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct MemoryMeasurement {
+    pub query_idx: usize,
+    pub target: Target,
+    pub benchmark_dataset: BenchmarkDataset,
+    pub storage: String,
+    pub physical_memory_delta: i64,
+    pub virtual_memory_delta: i64,
+    pub peak_physical_memory: u64,
+    pub peak_virtual_memory: u64,
+}
+
+impl ToJson for MemoryMeasurement {
+    fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
+        let name = format!(
+            "{dataset}_q{query_idx:02}_memory/{engine}:{format}",
+            dataset = self.benchmark_dataset.name(),
+            engine = self.target.engine,
+            format = self.target.format.name(),
+            query_idx = self.query_idx
+        );
+
+        let host = Triple::host();
+
+        Box::new(MemoryMeasurementJson {
+            name,
+            storage: self.storage.clone(),
+            dataset: self.benchmark_dataset.clone(),
+            physical_memory_delta: self.physical_memory_delta,
+            virtual_memory_delta: self.virtual_memory_delta,
+            peak_physical_memory: self.peak_physical_memory,
+            peak_virtual_memory: self.peak_virtual_memory,
+            commit_id: GIT_COMMIT_ID.to_string(),
+            target: self.target,
+            env_triple: TripleJson {
+                architecture: host.architecture.to_string(),
+                operating_system: host.operating_system.to_string(),
+                environment: host.environment.to_string(),
+            },
+        })
+    }
+}
+
+impl ToTable for MemoryMeasurement {
+    fn to_table(&self) -> TableValue {
+        TableValue {
+            id: Some(self.query_idx),
+            name: format!("q{}_peak", self.query_idx),
+            target: self.target,
+            unit: Cow::from("MB"),
+            value: MeasurementValue::Float(self.peak_physical_memory as f64 / 1024.0 / 1024.0),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct MemoryMeasurementJson {
+    pub name: String,
+    pub storage: String,
+    pub dataset: BenchmarkDataset,
+    pub physical_memory_delta: i64,
+    pub virtual_memory_delta: i64,
+    pub peak_physical_memory: u64,
+    pub peak_virtual_memory: u64,
+    pub commit_id: String,
+    pub target: Target,
+    pub env_triple: TripleJson,
+}

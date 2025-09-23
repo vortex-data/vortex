@@ -8,12 +8,30 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::ConstantArray;
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
+static TAKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("take".into(), ArcRef::new_ref(&Take));
+    for kernel in inventory::iter::<TakeKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+pub(crate) fn warm_up_vtable() -> usize {
+    TAKE_FN.kernels().len() + TAKE_FROM_FN.kernels().len()
+}
+
+/// Creates a new array using the elements from the input `array` indexed by `indices`.
+///
+/// For example, if we have an `array` `[1, 2, 3, 4, 5]` and `indices` `[4, 2]`, the resulting
+/// array would be `[5, 3]`.
+///
+/// The output array will have the same length as the `indices` array.
 pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     if indices.is_empty() {
         return Ok(Canonical::empty(
@@ -32,14 +50,7 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
         .unwrap_array()
 }
 
-pub static TAKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("take".into(), ArcRef::new_ref(&Take));
-    for kernel in inventory::iter::<TakeKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
+#[doc(hidden)]
 pub struct Take;
 
 impl ComputeFnVTable for Take {
@@ -55,7 +66,7 @@ impl ComputeFnVTable for Take {
         // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
         //  such that canonicalize does less work.
 
-        if indices.all_invalid()? {
+        if indices.all_invalid() {
             return Ok(ConstantArray::new(
                 Scalar::null(array.dtype().as_nullable()),
                 indices.len(),
@@ -64,21 +75,26 @@ impl ComputeFnVTable for Take {
             .into());
         }
 
+        let taken_array = take_impl(array, indices, kernels)?;
+
         // We know that constant array don't need stats propagation, so we can avoid the overhead of
         // computing derived stats and merging them in.
-        let derived_stats = (!array.is_constant()).then(|| derive_take_stats(array));
+        if !taken_array.is::<ConstantVTable>() {
+            let derived_stats = derive_take_stats(array);
 
-        let taken = take_impl(array, indices, kernels)?;
-
-        if let Some(derived_stats) = derived_stats {
-            let mut stats = taken.statistics().to_owned();
+            // TODO(robert): Ideally, we want to have a `combine_sets` method available on a
+            // `StatsSetRef` so we don't have to incur a clone here in `.to_owned()`.
+            let mut stats = taken_array.statistics().to_owned();
             stats.combine_sets(&derived_stats, array.dtype())?;
-            for (stat, val) in stats.into_iter() {
-                taken.statistics().set(stat, val)
+
+            for (stat, val) in stats {
+                // Alternatively, use a monoidal pattern here to set `stat = val`, or if it already
+                // exists, combine the two stats (similar to how `combine_sets` does it).
+                taken_array.statistics().set(stat, val)
             }
         }
 
-        Ok(taken.into())
+        Ok(taken_array.into())
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
@@ -109,7 +125,7 @@ impl ComputeFnVTable for Take {
 fn derive_take_stats(arr: &dyn Array) -> StatsSet {
     let stats = arr.statistics().to_owned();
 
-    let is_constant = stats.get_as::<bool>(Stat::IsConstant);
+    let is_constant = arr.statistics().get_as::<bool>(Stat::IsConstant);
 
     let mut stats = stats.keep_inexact_stats(&[
         // Cannot create values smaller than min or larger than max
@@ -158,7 +174,7 @@ fn take_impl(
     // Otherwise, canonicalize and try again.
     if !array.is_canonical() {
         log::debug!("No take implementation found for {}", array.encoding_id());
-        let canonical = array.to_canonical()?;
+        let canonical = array.to_canonical();
         return take(canonical.as_ref(), indices);
     }
 
@@ -220,7 +236,7 @@ impl<V: VTable + TakeKernel> Kernel for TakeKernelAdapter<V> {
     }
 }
 
-pub static TAKE_FROM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+static TAKE_FROM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("take_from".into(), ArcRef::new_ref(&TakeFrom));
     for kernel in inventory::iter::<TakeFromKernelRef> {
         compute.register_kernel(kernel.0.clone());

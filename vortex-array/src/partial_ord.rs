@@ -18,6 +18,7 @@ where
     }
 }
 
+#[inline]
 pub fn partial_min<T: PartialMin>(a: T, b: T) -> Option<T> {
     a.partial_min(b)
 }
@@ -41,6 +42,7 @@ where
 
 impl<T: PartialOrd> PartialMax for T {}
 
+#[inline]
 pub fn partial_max<T: PartialMax>(a: T, b: T) -> Option<T> {
     a.partial_max(b)
 }

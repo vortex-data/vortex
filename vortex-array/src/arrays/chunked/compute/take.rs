@@ -17,11 +17,11 @@ impl TakeKernel for ChunkedVTable {
             indices,
             &DType::Primitive(PType::U64, indices.dtype().nullability()),
         )?
-        .to_primitive()?;
+        .to_primitive();
 
         // TODO(joe): Should we split this implementation based on indices nullability?
         let nullability = indices.dtype().nullability();
-        let indices_mask = indices.validity_mask()?;
+        let indices_mask = indices.validity_mask();
         let indices = indices.as_slice::<u64>();
 
         let mut chunks = Vec::new();
@@ -38,10 +38,10 @@ impl TakeKernel for ChunkedVTable {
                 // Start a new chunk
                 let indices_in_chunk_array = PrimitiveArray::new(
                     indices_in_chunk.clone().freeze(),
-                    Validity::from_mask(indices_mask.slice(start, stop - start), nullability),
+                    Validity::from_mask(indices_mask.slice(start..stop), nullability),
                 );
                 chunks.push(take(
-                    array.chunk(prev_chunk_idx)?,
+                    array.chunk(prev_chunk_idx),
                     indices_in_chunk_array.as_ref(),
                 )?);
                 indices_in_chunk.clear();
@@ -56,19 +56,22 @@ impl TakeKernel for ChunkedVTable {
         if !indices_in_chunk.is_empty() {
             let indices_in_chunk_array = PrimitiveArray::new(
                 indices_in_chunk.freeze(),
-                Validity::from_mask(indices_mask.slice(start, stop - start), nullability),
+                Validity::from_mask(indices_mask.slice(start..stop), nullability),
             );
             chunks.push(take(
-                array.chunk(prev_chunk_idx)?,
+                array.chunk(prev_chunk_idx),
                 indices_in_chunk_array.as_ref(),
             )?);
         }
 
-        Ok(ChunkedArray::new_unchecked(
-            chunks,
-            array.dtype().clone().union_nullability(nullability),
-        )
-        .into_array())
+        // SAFETY: take on chunks that all have same DType retains same DType
+        unsafe {
+            Ok(ChunkedArray::new_unchecked(
+                chunks,
+                array.dtype().clone().union_nullability(nullability),
+            )
+            .into_array())
+        }
     }
 }
 
@@ -84,6 +87,7 @@ mod test {
     use crate::arrays::chunked::ChunkedArray;
     use crate::arrays::{BoolArray, PrimitiveArray, StructArray};
     use crate::canonical::ToCanonical;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
 
@@ -96,10 +100,7 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = buffer![0u64, 0, 6, 4].into_array();
 
-        let result = take(arr.as_ref(), indices.as_ref())
-            .unwrap()
-            .to_primitive()
-            .unwrap();
+        let result = take(arr.as_ref(), indices.as_ref()).unwrap().to_primitive();
         assert_eq!(result.as_slice::<i32>(), &[1, 1, 1, 2]);
     }
 
@@ -125,9 +126,9 @@ mod test {
         )
         .unwrap();
         assert_eq!(result.dtype(), expect.dtype());
-        assert_eq!(result.scalar_at(0).unwrap(), expect.scalar_at(0).unwrap());
-        assert_eq!(result.scalar_at(1).unwrap(), expect.scalar_at(1).unwrap());
-        assert_eq!(result.scalar_at(2).unwrap(), expect.scalar_at(2).unwrap());
+        assert_eq!(result.scalar_at(0), expect.scalar_at(0));
+        assert_eq!(result.scalar_at(1), expect.scalar_at(1));
+        assert_eq!(result.scalar_at(2), expect.scalar_at(2));
     }
 
     #[test]
@@ -139,13 +140,40 @@ mod test {
         assert_eq!(arr.len(), 9);
 
         let indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable);
-        let result = take(arr.as_ref(), indices.as_ref())
-            .unwrap()
-            .to_primitive()
-            .unwrap();
+        let result = take(arr.as_ref(), indices.as_ref()).unwrap().to_primitive();
 
         assert!(result.is_empty());
         assert_eq!(result.dtype(), arr.dtype());
         assert!(result.as_slice::<i32>().is_empty());
+    }
+
+    #[test]
+    fn test_take_chunked_conformance() {
+        let a = buffer![1i32, 2, 3].into_array();
+        let b = buffer![4i32, 5].into_array();
+        let arr = ChunkedArray::try_new(
+            vec![a, b],
+            PrimitiveArray::empty::<i32>(Nullability::NonNullable)
+                .dtype()
+                .clone(),
+        )
+        .unwrap();
+        test_take_conformance(arr.as_ref());
+
+        // Test with nullable chunked array
+        let a = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]);
+        let b = PrimitiveArray::from_option_iter([Some(4i32), Some(5)]);
+        let dtype = a.dtype().clone();
+        let arr = ChunkedArray::try_new(vec![a.into_array(), b.into_array()], dtype).unwrap();
+        test_take_conformance(arr.as_ref());
+
+        // Test with multiple identical chunks
+        let chunk = buffer![10i32, 20, 30, 40, 50].into_array();
+        let arr = ChunkedArray::try_new(
+            vec![chunk.clone(), chunk.clone(), chunk.clone()],
+            chunk.dtype().clone(),
+        )
+        .unwrap();
+        test_take_conformance(arr.as_ref());
     }
 }

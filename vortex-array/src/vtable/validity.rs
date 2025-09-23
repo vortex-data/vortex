@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::Array;
@@ -9,29 +8,29 @@ use crate::validity::Validity;
 use crate::vtable::VTable;
 
 pub trait ValidityVTable<V: VTable> {
-    fn is_valid(array: &V::Array, index: usize) -> VortexResult<bool>;
+    fn is_valid(array: &V::Array, index: usize) -> bool;
 
-    fn all_valid(array: &V::Array) -> VortexResult<bool>;
+    fn all_valid(array: &V::Array) -> bool;
 
-    fn all_invalid(array: &V::Array) -> VortexResult<bool>;
+    fn all_invalid(array: &V::Array) -> bool;
 
     /// Returns the number of valid elements in the array.
     ///
     /// ## Post-conditions
     /// - The count is less than or equal to the length of the array.
-    fn valid_count(array: &V::Array) -> VortexResult<usize> {
-        Ok(Self::validity_mask(array)?.true_count())
+    fn valid_count(array: &V::Array) -> usize {
+        Self::validity_mask(array).true_count()
     }
 
     /// Returns the number of invalid elements in the array.
     ///
     /// ## Post-conditions
     /// - The count is less than or equal to the length of the array.
-    fn invalid_count(array: &V::Array) -> VortexResult<usize> {
-        Ok(Self::validity_mask(array)?.false_count())
+    fn invalid_count(array: &V::Array) -> usize {
+        Self::validity_mask(array).false_count()
     }
 
-    fn validity_mask(array: &V::Array) -> VortexResult<Mask>;
+    fn validity_mask(array: &V::Array) -> Mask;
 }
 
 /// An implementation of the [`ValidityVTable`] for arrays that hold validity as a child array.
@@ -46,19 +45,19 @@ impl<V: VTable> ValidityVTable<V> for ValidityVTableFromValidityHelper
 where
     V::Array: ValidityHelper,
 {
-    fn is_valid(array: &V::Array, index: usize) -> VortexResult<bool> {
+    fn is_valid(array: &V::Array, index: usize) -> bool {
         array.validity().is_valid(index)
     }
 
-    fn all_valid(array: &V::Array) -> VortexResult<bool> {
-        array.validity().all_valid()
+    fn all_valid(array: &V::Array) -> bool {
+        array.validity().all_valid(array.len())
     }
 
-    fn all_invalid(array: &V::Array) -> VortexResult<bool> {
-        array.validity().all_invalid()
+    fn all_invalid(array: &V::Array) -> bool {
+        array.validity().all_invalid(array.len())
     }
 
-    fn validity_mask(array: &V::Array) -> VortexResult<Mask> {
+    fn validity_mask(array: &V::Array) -> Mask {
         array.validity().to_mask(array.len())
     }
 }
@@ -70,9 +69,9 @@ pub struct ValidityVTableFromValiditySliceHelper;
 pub trait ValiditySliceHelper {
     fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize);
 
-    fn sliced_validity(&self) -> VortexResult<Validity> {
+    fn sliced_validity(&self) -> Validity {
         let (unsliced_validity, start, stop) = self.unsliced_validity_and_slice();
-        unsliced_validity.slice(start, stop)
+        unsliced_validity.slice(start..stop)
     }
 }
 
@@ -80,21 +79,21 @@ impl<V: VTable> ValidityVTable<V> for ValidityVTableFromValiditySliceHelper
 where
     V::Array: ValiditySliceHelper,
 {
-    fn is_valid(array: &V::Array, index: usize) -> VortexResult<bool> {
+    fn is_valid(array: &V::Array, index: usize) -> bool {
         let (unsliced_validity, start, _) = array.unsliced_validity_and_slice();
         unsliced_validity.is_valid(start + index)
     }
 
-    fn all_valid(array: &V::Array) -> VortexResult<bool> {
-        array.sliced_validity()?.all_valid()
+    fn all_valid(array: &V::Array) -> bool {
+        array.sliced_validity().all_valid(array.len())
     }
 
-    fn all_invalid(array: &V::Array) -> VortexResult<bool> {
-        array.sliced_validity()?.all_invalid()
+    fn all_invalid(array: &V::Array) -> bool {
+        array.sliced_validity().all_invalid(array.len())
     }
 
-    fn validity_mask(array: &V::Array) -> VortexResult<Mask> {
-        array.sliced_validity()?.to_mask(array.len())
+    fn validity_mask(array: &V::Array) -> Mask {
+        array.sliced_validity().to_mask(array.len())
     }
 }
 
@@ -110,19 +109,19 @@ impl<V: VTable> ValidityVTable<V> for ValidityVTableFromChild
 where
     V: ValidityChild<V>,
 {
-    fn is_valid(array: &V::Array, index: usize) -> VortexResult<bool> {
+    fn is_valid(array: &V::Array, index: usize) -> bool {
         V::validity_child(array).is_valid(index)
     }
 
-    fn all_valid(array: &V::Array) -> VortexResult<bool> {
+    fn all_valid(array: &V::Array) -> bool {
         V::validity_child(array).all_valid()
     }
 
-    fn all_invalid(array: &V::Array) -> VortexResult<bool> {
+    fn all_invalid(array: &V::Array) -> bool {
         V::validity_child(array).all_invalid()
     }
 
-    fn validity_mask(array: &V::Array) -> VortexResult<Mask> {
+    fn validity_mask(array: &V::Array) -> Mask {
         V::validity_child(array).validity_mask()
     }
 }

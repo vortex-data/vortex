@@ -3,7 +3,7 @@
 
 use itertools::Itertools as _;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::VortexResult;
 use vortex_mask::{AllOr, Mask, MaskIter};
 use vortex_scalar::Scalar;
 
@@ -49,9 +49,7 @@ fn mask_indices(
     for &set_index in indices {
         let (chunk_id, index) = find_chunk_idx(set_index, chunk_offsets);
         if chunk_id != current_chunk_id {
-            let chunk = array
-                .chunk(current_chunk_id)
-                .vortex_expect("find_chunk_idx must return valid chunk ID");
+            let chunk = array.chunk(current_chunk_id);
             let masked_chunk = mask(chunk, &Mask::from_indices(chunk.len(), chunk_indices))?;
             // Advance the chunk forward, reset the chunk indices buffer.
             chunk_indices = Vec::new();
@@ -60,9 +58,7 @@ fn mask_indices(
 
             while current_chunk_id < chunk_id {
                 // Chunks that are not affected by the mask, must still be casted to the correct dtype.
-                let chunk = array
-                    .chunk(current_chunk_id)
-                    .vortex_expect("find_chunk_idx must return valid chunk ID");
+                let chunk = array.chunk(current_chunk_id);
                 new_chunks.push(cast(chunk, new_dtype)?);
                 current_chunk_id += 1;
             }
@@ -72,18 +68,14 @@ fn mask_indices(
     }
 
     if !chunk_indices.is_empty() {
-        let chunk = array
-            .chunk(current_chunk_id)
-            .vortex_expect("find_chunk_idx must return valid chunk ID");
+        let chunk = array.chunk(current_chunk_id);
         let masked_chunk = mask(chunk, &Mask::from_indices(chunk.len(), chunk_indices))?;
         new_chunks.push(masked_chunk);
         current_chunk_id += 1;
     }
 
     while current_chunk_id < array.nchunks() {
-        let chunk = array
-            .chunk(current_chunk_id)
-            .vortex_expect("find_chunk_idx must return valid chunk ID");
+        let chunk = array.chunk(current_chunk_id);
         new_chunks.push(cast(chunk, new_dtype)?);
         current_chunk_id += 1;
     }
@@ -123,27 +115,42 @@ fn mask_slices(
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::IntoArray;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
-    use crate::compute::conformance::mask::test_mask;
+    use crate::compute::conformance::mask::test_mask_conformance;
 
-    #[test]
-    fn test_mask_chunked_array() {
-        let dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
-        let chunked = ChunkedArray::try_new(
-            vec![
-                buffer![0u64, 1].into_array(),
-                buffer![2_u64].into_array(),
-                PrimitiveArray::empty::<u64>(dtype.nullability()).to_array(),
-                buffer![3_u64, 4].into_array(),
-            ],
-            dtype,
-        )
-        .unwrap();
-
-        test_mask(chunked.as_ref());
+    #[rstest]
+    #[case(ChunkedArray::try_new(
+        vec![
+            buffer![0u64, 1].into_array(),
+            buffer![2_u64].into_array(),
+            PrimitiveArray::empty::<u64>(Nullability::NonNullable).to_array(),
+            buffer![3_u64, 4].into_array(),
+        ],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    ).unwrap())]
+    #[case(ChunkedArray::try_new(
+        vec![
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).to_array(),
+            PrimitiveArray::from_option_iter([Some(4i32), Some(5)]).to_array(),
+        ],
+        DType::Primitive(PType::I32, Nullability::Nullable),
+    ).unwrap())]
+    #[case(ChunkedArray::try_new(
+        vec![
+            buffer![42u8].into_array(),
+        ],
+        DType::Primitive(PType::U8, Nullability::NonNullable),
+    ).unwrap())]
+    #[case(ChunkedArray::try_new(
+        (0..20).map(|i| buffer![i as f32, i as f32 + 0.5].into_array()).collect(),
+        DType::Primitive(PType::F32, Nullability::NonNullable),
+    ).unwrap())]
+    fn test_mask_chunked_conformance(#[case] chunked: ChunkedArray) {
+        test_mask_conformance(chunked.as_ref());
     }
 }

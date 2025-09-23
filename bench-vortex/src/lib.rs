@@ -11,25 +11,31 @@ use std::str::FromStr;
 use clap::ValueEnum;
 use itertools::Itertools;
 use serde::Serialize;
+pub use utils::file_utils::*;
+pub use utils::logging::*;
+use vortex::error::{VortexUnwrap, vortex_err};
+use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::layout::layouts::compact::CompactCompressor;
 
 pub mod bench_run;
 pub mod benchmark_driver;
 pub mod benchmark_trait;
 pub mod clickbench;
-pub mod clickbench_benchmark;
 pub mod compress;
 pub mod conversions;
 pub mod datasets;
 pub mod display;
+pub mod downloadable_dataset;
 pub mod engines;
 pub mod measurements;
+pub mod memory;
 pub mod metrics;
 pub mod public_bi;
 pub mod query_bench;
 pub mod random_access;
+pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
-pub mod tpch_benchmark;
 pub mod utils;
 
 pub use datasets::{BenchmarkDataset, file};
@@ -112,6 +118,9 @@ pub enum Format {
     #[clap(name = "vortex")]
     #[serde(rename = "vortex")]
     OnDiskVortex,
+    #[clap(name = "vortex-compact")]
+    #[serde(rename = "vortex-compact")]
+    VortexCompact,
     #[clap(name = "duckdb")]
     #[serde(rename = "duckdb")]
     OnDiskDuckDB,
@@ -130,6 +139,7 @@ impl Format {
             Format::Arrow => "arrow",
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
+            Format::VortexCompact => "vortex-compact",
             Format::OnDiskDuckDB => "duckdb",
         }
     }
@@ -140,6 +150,7 @@ impl Format {
             Format::Arrow => "arrow",
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
+            Format::VortexCompact => "vortex",
             Format::OnDiskDuckDB => "duckdb",
         }
     }
@@ -170,6 +181,22 @@ impl Display for Engine {
     }
 }
 
-pub use utils::file_utils::*;
-pub use utils::logging::*;
-use vortex::error::{VortexUnwrap, vortex_err};
+#[derive(Debug, Clone, Copy, Default)]
+pub enum CompactionStrategy {
+    Compact,
+    #[default]
+    Default,
+}
+
+impl CompactionStrategy {
+    pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
+        match self {
+            CompactionStrategy::Compact => options.with_strategy(
+                WriteStrategyBuilder::new()
+                    .with_compressor(CompactCompressor::default())
+                    .build(),
+            ),
+            CompactionStrategy::Default => options,
+        }
+    }
+}

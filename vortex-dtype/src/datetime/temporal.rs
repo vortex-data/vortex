@@ -83,21 +83,21 @@ impl TemporalMetadata {
     /// Convert a timestamp value to a Jiff value.
     pub fn to_jiff(&self, v: i64) -> VortexResult<TemporalJiff> {
         match self {
-            TemporalMetadata::Time(TimeUnit::D) => {
+            TemporalMetadata::Time(TimeUnit::Days) => {
                 vortex_bail!("Invalid TimeUnit TimeUnit::D for TemporalMetadata::Time")
             }
             TemporalMetadata::Time(unit) => Ok(TemporalJiff::Time(
                 Time::MIN.checked_add(unit.to_jiff_span(v)?)?,
             )),
             TemporalMetadata::Date(unit) => match unit {
-                TimeUnit::D | TimeUnit::Ms => Ok(TemporalJiff::Date(
+                TimeUnit::Days | TimeUnit::Milliseconds => Ok(TemporalJiff::Date(
                     Date::new(1970, 1, 1)?.checked_add(unit.to_jiff_span(v)?)?,
                 )),
-                _ => {
+                TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
                     vortex_bail!("Invalid TimeUnit {} for TemporalMetadata::Time", unit)
                 }
             },
-            TemporalMetadata::Timestamp(TimeUnit::D, _) => {
+            TemporalMetadata::Timestamp(TimeUnit::Days, _) => {
                 vortex_bail!("Invalid TimeUnit TimeUnit::D for TemporalMetadata::Timestamp")
             }
             TemporalMetadata::Timestamp(unit, None) => Ok(TemporalJiff::Unzoned(
@@ -113,11 +113,11 @@ impl TemporalMetadata {
 }
 
 macro_rules! impl_temporal_metadata_try_from {
-    ($typ:ty) => {
-        impl TryFrom<$typ> for TemporalMetadata {
+    ($T:ty) => {
+        impl TryFrom<$T> for TemporalMetadata {
             type Error = VortexError;
 
-            fn try_from(ext_dtype: $typ) -> Result<Self, Self::Error> {
+            fn try_from(ext_dtype: $T) -> Result<Self, Self::Error> {
                 let metadata = ext_dtype
                     .metadata()
                     .ok_or_else(|| vortex_err!("ExtDType is missing metadata"))?;
@@ -143,31 +143,30 @@ impl_temporal_metadata_try_from!(&Box<ExtDType>);
 
 fn decode_date_metadata(ext_meta: &ExtMetadata) -> VortexResult<TemporalMetadata> {
     let tag = ext_meta.as_ref()[0];
-    let time_unit =
-        TimeUnit::try_from(tag).map_err(|e| vortex_err!(ComputeError: "invalid unit tag: {e}"))?;
+    let time_unit = TimeUnit::try_from(tag)?;
     Ok(TemporalMetadata::Date(time_unit))
 }
 
 fn decode_time_metadata(ext_meta: &ExtMetadata) -> VortexResult<TemporalMetadata> {
     let tag = ext_meta.as_ref()[0];
-    let time_unit =
-        TimeUnit::try_from(tag).map_err(|e| vortex_err!(ComputeError: "invalid unit tag: {e}"))?;
+    let time_unit = TimeUnit::try_from(tag)?;
     Ok(TemporalMetadata::Time(time_unit))
 }
 
 fn decode_timestamp_metadata(ext_meta: &ExtMetadata) -> VortexResult<TemporalMetadata> {
     let tag = ext_meta.as_ref()[0];
-    let time_unit =
-        TimeUnit::try_from(tag).map_err(|e| vortex_err!(ComputeError: "invalid unit tag: {e}"))?;
+    let time_unit = TimeUnit::try_from(tag)?;
     let tz_len_bytes = &ext_meta.as_ref()[1..3];
-    let tz_len = u16::from_le_bytes(tz_len_bytes.try_into()?);
+    let tz_len = u16::from_le_bytes(tz_len_bytes.try_into()?) as usize;
     if tz_len == 0 {
         return Ok(TemporalMetadata::Timestamp(time_unit, None));
     }
 
     // Attempt to load from len-prefixed bytes
-    let tz_bytes = &ext_meta.as_ref()[3..(3 + (tz_len as usize))];
-    let tz = String::from_utf8_lossy(tz_bytes).to_string();
+    let tz_bytes = &ext_meta.as_ref()[3..][..tz_len];
+    let tz = str::from_utf8(tz_bytes)
+        .map_err(|e| vortex_err!("timezone is not valid utf8 string: {e}"))?
+        .to_string();
     Ok(TemporalMetadata::Timestamp(time_unit, Some(tz)))
 }
 
@@ -219,7 +218,7 @@ mod tests {
     #[test]
     fn test_roundtrip_metadata() {
         let meta: ExtMetadata =
-            TemporalMetadata::Timestamp(TimeUnit::Ms, Some("UTC".to_string())).into();
+            TemporalMetadata::Timestamp(TimeUnit::Milliseconds, Some("UTC".to_string())).into();
 
         assert_eq!(
             meta.as_ref(),
@@ -240,7 +239,7 @@ mod tests {
 
         assert_eq!(
             temporal_metadata,
-            TemporalMetadata::Timestamp(TimeUnit::Ms, Some("UTC".to_string()))
+            TemporalMetadata::Timestamp(TimeUnit::Milliseconds, Some("UTC".to_string()))
         );
     }
 }

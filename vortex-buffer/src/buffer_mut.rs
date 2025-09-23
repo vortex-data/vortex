@@ -12,7 +12,7 @@ use bytes::{Buf, BufMut, BytesMut};
 use vortex_error::{VortexExpect, vortex_panic};
 
 use crate::debug::TruncatedDebug;
-use crate::spec_extend::SpecExtend;
+use crate::trusted_len::TrustedLen;
 use crate::{Alignment, Buffer, ByteBufferMut};
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
@@ -395,33 +395,93 @@ impl<T> Default for BufferMut<T> {
 impl<T> Deref for BufferMut<T> {
     type Target = [T];
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.as_slice()
     }
 }
 
 impl<T> DerefMut for BufferMut<T> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_slice()
     }
 }
 
 impl<T> AsRef<[T]> for BufferMut<T> {
+    #[inline]
     fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
 impl<T> AsMut<[T]> for BufferMut<T> {
+    #[inline]
     fn as_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
+    }
+}
+
+impl<T> BufferMut<T> {
+    fn extend_iter(&mut self, mut iter: impl Iterator<Item = T>) {
+        // Attempt to reserve enough memory up-front, although this is only a lower bound.
+        let (lower, _) = iter.size_hint();
+        self.reserve(lower);
+
+        let remaining = self.capacity() - self.len();
+
+        let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        let mut dst: *mut T = begin.cast_mut();
+        for _ in 0..remaining {
+            if let Some(item) = iter.next() {
+                unsafe {
+                    // SAFETY: We know we have enough capacity to write the item.
+                    dst.write(item);
+                    // Note. we used to have dst.add(iteration).write(item), here.
+                    // however this was much slower than just incrementing dst.
+                    dst = dst.add(1);
+                }
+            } else {
+                break;
+            }
+        }
+
+        // TODO(joe): replace with ptr_sub when stable
+        let length = self.len() + unsafe { dst.byte_offset_from(begin) as usize / size_of::<T>() };
+        unsafe { self.set_len(length) };
+
+        // Append remaining elements
+        iter.for_each(|item| self.push(item));
+    }
+
+    /// An unsafe variant of the `Extend` trait and its `extend` method that receives what the
+    /// caller guarantees to be an iterator with a trusted upper bound.
+    pub fn extend_trusted<I: TrustedLen<Item = T>>(&mut self, iter: I) {
+        // Reserve all memory upfront since it's an exact upper bound
+        let (_, high) = iter.size_hint();
+        self.reserve(high.vortex_expect("TrustedLen iterator didn't have valid upper bound"));
+
+        let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        let mut dst: *mut T = begin.cast_mut();
+        iter.for_each(|item| {
+            unsafe {
+                // SAFETY: We know we have enough capacity to write the item.
+                dst.write(item);
+                // Note. we used to have dst.add(iteration).write(item), here.
+                // however this was much slower than just incrementing dst.
+                dst = dst.add(1);
+            }
+        });
+        // TODO(joe): replace with ptr_sub when stable
+        let length = self.len() + unsafe { dst.byte_offset_from(begin) as usize / size_of::<T>() };
+        unsafe { self.set_len(length) };
     }
 }
 
 impl<T> Extend<T> for BufferMut<T> {
     #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        <Self as SpecExtend<T, I::IntoIter>>::spec_extend(self, iter.into_iter())
+        self.extend_iter(iter.into_iter())
     }
 }
 
@@ -431,7 +491,7 @@ where
 {
     #[inline]
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
-        self.spec_extend(iter.into_iter())
+        self.extend_iter(iter.into_iter().copied())
     }
 }
 
@@ -528,6 +588,7 @@ trait AlignedBytesMut {
 
 impl AlignedBytesMut for BytesMut {
     fn align_empty(&mut self, alignment: Alignment) {
+        // TODO(joe): this is slow fixme
         if !self.is_empty() {
             vortex_panic!("ByteBufferMut must be empty");
         }

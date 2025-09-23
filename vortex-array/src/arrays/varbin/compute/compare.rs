@@ -42,12 +42,10 @@ impl CompareKernel for VarBinVTable {
 
             if rhs_is_empty {
                 let buffer = match operator {
-                    // Every possible value is gte ""
-                    Operator::Gte => BooleanBuffer::new_set(len),
-                    // No value is lt ""
-                    Operator::Lt => BooleanBuffer::new_unset(len),
-                    _ => {
-                        let lhs_offsets = lhs.offsets().to_canonical()?.into_primitive()?;
+                    Operator::Gte => BooleanBuffer::new_set(len), // Every possible value is >= ""
+                    Operator::Lt => BooleanBuffer::new_unset(len), // No value is < ""
+                    Operator::Eq | Operator::NotEq | Operator::Gt | Operator::Lte => {
+                        let lhs_offsets = lhs.offsets().to_primitive();
                         match_each_native_ptype!(lhs_offsets.ptype(), |P| {
                             compare_offsets_to_empty::<P>(lhs_offsets, operator)
                         })
@@ -55,7 +53,7 @@ impl CompareKernel for VarBinVTable {
                 };
 
                 return Ok(Some(
-                    BoolArray::new(
+                    BoolArray::from_bool_buffer(
                         buffer,
                         lhs.validity()
                             .clone()
@@ -95,12 +93,12 @@ impl CompareKernel for VarBinVTable {
             }
             .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
-            Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
+            Ok(Some(from_arrow_array_with_len(&array, len, nullable)))
         } else if !rhs.is::<VarBinVTable>() {
             // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
-            return Ok(Some(compare(lhs.to_varbinview()?.as_ref(), rhs, operator)?));
+            return Ok(Some(compare(lhs.to_varbinview().as_ref(), rhs, operator)?));
         } else {
             Ok(None)
         }
@@ -148,11 +146,10 @@ mod test {
             Operator::Eq,
         )
         .unwrap()
-        .to_bool()
-        .unwrap();
+        .to_bool();
 
         assert_eq!(
-            &result.validity_mask().unwrap().to_boolean_buffer(),
+            &result.validity_mask().to_boolean_buffer(),
             &BooleanBuffer::from_iter([true, false, true])
         );
         assert_eq!(
@@ -173,11 +170,10 @@ mod test {
         );
         let result = compare(array.as_ref(), vbv.as_ref(), Operator::Eq)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         assert_eq!(
-            &result.validity_mask().unwrap().to_boolean_buffer(),
+            &result.validity_mask().to_boolean_buffer(),
             &BooleanBuffer::from_iter([false, false, true])
         );
         assert_eq!(

@@ -17,7 +17,7 @@ impl Display for Scalar {
             DType::Utf8(_) => write!(f, "{}", self.as_utf8()),
             DType::Binary(_) => write!(f, "{}", self.as_binary()),
             DType::Struct(..) => write!(f, "{}", self.as_struct()),
-            DType::List(..) => write!(f, "{}", self.as_list()),
+            DType::List(..) | DType::FixedSizeList(..) => write!(f, "{}", self.as_list()),
             DType::Extension(_) => write!(f, "{}", self.as_extension()),
         }
     }
@@ -30,7 +30,7 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-    use vortex_dtype::{DType, ExtDType, ExtMetadata, PType, StructFields};
+    use vortex_dtype::{DType, ExtDType, ExtMetadata, FieldName, PType, StructFields};
 
     use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
@@ -108,7 +108,7 @@ mod tests {
         fn dtype() -> DType {
             DType::Struct(
                 StructFields::new(
-                    [Arc::from("foo")].into(),
+                    [FieldName::from("foo")].into(),
                     vec![DType::Primitive(PType::U32, Nullable)],
                 ),
                 Nullable,
@@ -126,7 +126,10 @@ mod tests {
         );
 
         assert_eq!(
-            format!("{}", Scalar::struct_(dtype(), vec![Scalar::from(32_u32)])),
+            format!(
+                "{}",
+                Scalar::struct_(dtype(), vec![Scalar::from(Some(32_u32))])
+            ),
             "{foo: 32u32}"
         );
     }
@@ -138,7 +141,7 @@ mod tests {
         let f2 = DType::Primitive(PType::U32, Nullable);
         let dtype = DType::Struct(
             StructFields::new(
-                [Arc::from("foo"), Arc::from("bar")].into(),
+                [FieldName::from("foo"), FieldName::from("bar")].into(),
                 vec![f1.clone(), f2.clone()],
             ),
             Nullable,
@@ -161,7 +164,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::struct_(dtype.clone(), vec![Scalar::from(true), Scalar::null(f2)])
+                Scalar::struct_(
+                    dtype.clone(),
+                    vec![Scalar::from(Some(true)), Scalar::null(f2)]
+                )
             ),
             "{foo: true, bar: null}"
         );
@@ -169,7 +175,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::struct_(dtype, vec![Scalar::from(true), Scalar::from(32_u32)])
+                Scalar::struct_(
+                    dtype,
+                    vec![Scalar::from(Some(true)), Scalar::from(Some(32_u32))]
+                )
             ),
             "{foo: true, bar: 32u32}"
         );
@@ -181,7 +190,7 @@ mod tests {
             DType::Extension(Arc::new(ExtDType::new(
                 TIME_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullable)),
-                Some(ExtMetadata::from(TemporalMetadata::Time(TimeUnit::S))),
+                Some(ExtMetadata::from(TemporalMetadata::Time(TimeUnit::Seconds))),
             )))
         }
 
@@ -205,7 +214,7 @@ mod tests {
             DType::Extension(Arc::new(ExtDType::new(
                 DATE_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullable)),
-                Some(ExtMetadata::from(TemporalMetadata::Date(TimeUnit::D))),
+                Some(ExtMetadata::from(TemporalMetadata::Date(TimeUnit::Days))),
             )))
         }
 
@@ -252,7 +261,7 @@ mod tests {
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullable)),
                 Some(ExtMetadata::from(TemporalMetadata::Timestamp(
-                    TimeUnit::S,
+                    TimeUnit::Seconds,
                     None,
                 ))),
             )))
@@ -282,7 +291,7 @@ mod tests {
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I64, Nullable)),
                 Some(ExtMetadata::from(TemporalMetadata::Timestamp(
-                    TimeUnit::S,
+                    TimeUnit::Seconds,
                     Some(String::from("Pacific/Guam")),
                 ))),
             )))

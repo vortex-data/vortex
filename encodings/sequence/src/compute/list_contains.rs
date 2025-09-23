@@ -76,12 +76,11 @@ mod tests {
             // [1, 3] in  1
             //            2
             //            3
-            let array = SequenceArray::typed_new(1, 1, 3).unwrap();
+            let array = SequenceArray::typed_new(1, 1, Nullability::NonNullable, 3).unwrap();
 
             let res = list_contains(elements.as_ref(), array.as_ref())
                 .unwrap()
                 .to_bool()
-                .unwrap()
                 .bool_vec()
                 .unwrap();
 
@@ -92,12 +91,11 @@ mod tests {
             // [1, 3] in  1
             //            3
             //            5
-            let array = SequenceArray::typed_new(1, 2, 3).unwrap();
+            let array = SequenceArray::typed_new(1, 2, Nullability::NonNullable, 3).unwrap();
 
             let res = list_contains(elements.as_ref(), array.as_ref())
                 .unwrap()
                 .to_bool()
-                .unwrap()
                 .bool_vec()
                 .unwrap();
 

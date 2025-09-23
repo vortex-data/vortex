@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use anyhow::Result;
 use async_trait::async_trait;
 use rand::{Rng, SeedableRng};
 use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::dtype::FieldNames;
-use vortex::error::{VortexResult, VortexUnwrap};
 use vortex::validity::Validity;
 use vortex::{ArrayRef, IntoArray};
 
@@ -37,43 +37,49 @@ impl Dataset for StructListOfInts {
         &self.name
     }
 
-    async fn to_vortex_array(&self) -> ArrayRef {
+    async fn to_vortex_array(&self) -> Result<ArrayRef> {
         let names: FieldNames = (0..self.num_columns)
-            .map(|col_idx| (col_idx.to_string()))
+            .map(|col_idx| col_idx.to_string())
             .collect();
         let mut rng = rand::rngs::StdRng::seed_from_u64(0);
 
         let rows_per_chunk = (self.row_count / self.chunk_count).max(1usize);
-        (0..self.row_count)
+        let chunks: Result<Vec<_>> = (0..self.row_count)
             .step_by(rows_per_chunk)
             .map(|starting_row| rows_per_chunk.min(self.row_count - starting_row))
             .map(|chunk_row_count| {
                 let fields = (0..self.num_columns)
-                    .map(|_| {
+                    .map(|_| -> Result<ArrayRef> {
                         let elements = PrimitiveArray::from_iter(
                             (0..chunk_row_count).map(|_| rng.random::<i64>()),
                         );
-                        let offsets = PrimitiveArray::from_iter(
-                            (0..=chunk_row_count).map(|i| u32::try_from(i).vortex_unwrap()),
-                        );
-                        ListArray::try_new(
+                        let offsets: Result<Vec<u32>> = (0..=chunk_row_count)
+                            .map(|i| {
+                                u32::try_from(i).map_err(|e| {
+                                    anyhow::anyhow!("Failed to convert index to u32: {}", e)
+                                })
+                            })
+                            .collect();
+                        let offsets = PrimitiveArray::from_iter(offsets?);
+                        Ok(ListArray::try_new(
                             elements.into_array(),
                             offsets.into_array(),
                             Validity::AllValid,
-                        )
-                        .map(|a| a.into_array())
+                        )?
+                        .into_array())
                     })
-                    .collect::<VortexResult<Vec<_>>>()?;
-                StructArray::try_new(
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(StructArray::try_new(
                     names.clone(),
                     fields,
                     chunk_row_count,
                     Validity::NonNullable,
-                )
-                .map(|a| a.into_array())
+                )?
+                .into_array())
             })
-            .collect::<VortexResult<ChunkedArray>>()
-            .unwrap()
-            .into_array()
+            .collect();
+
+        let chunks = chunks?;
+        Ok(ChunkedArray::from_iter(chunks).into_array())
     }
 }

@@ -15,9 +15,7 @@
 
 use std::sync::Arc;
 
-use arrow_schema::{
-    DECIMAL128_MAX_PRECISION, DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef,
-};
+use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
@@ -61,8 +59,11 @@ impl TryFromArrowType<&DataType> for PType {
 impl TryFromArrowType<&DataType> for DecimalDType {
     fn try_from_arrow(value: &DataType) -> VortexResult<Self> {
         match value {
-            DataType::Decimal128(precision, scale) => Ok(Self::new(*precision, *scale)),
-            DataType::Decimal256(precision, scale) => Ok(Self::new(*precision, *scale)),
+            DataType::Decimal32(precision, scale)
+            | DataType::Decimal64(precision, scale)
+            | DataType::Decimal128(precision, scale)
+            | DataType::Decimal256(precision, scale) => Self::try_new(*precision, *scale),
+
             _ => Err(vortex_err!(
                 "Arrow datatype {:?} cannot be converted to DecimalDType",
                 value
@@ -99,34 +100,45 @@ impl FromArrowType<&Fields> for StructFields {
 
 impl FromArrowType<(&DataType, Nullability)> for DType {
     fn from_arrow((data_type, nullability): (&DataType, Nullability)) -> Self {
-        use crate::DType::*;
-
         if data_type.is_integer() || data_type.is_floating() {
-            return Primitive(
+            return DType::Primitive(
                 PType::try_from_arrow(data_type).vortex_expect("arrow float/integer to ptype"),
                 nullability,
             );
         }
 
         match data_type {
-            DataType::Null => Null,
-            DataType::Decimal128(precision, scale) | DataType::Decimal256(precision, scale) => {
-                Decimal(DecimalDType::new(*precision, *scale), nullability)
+            DataType::Null => DType::Null,
+            DataType::Decimal32(precision, scale)
+            | DataType::Decimal64(precision, scale)
+            | DataType::Decimal128(precision, scale)
+            | DataType::Decimal256(precision, scale) => {
+                DType::Decimal(DecimalDType::new(*precision, *scale), nullability)
             }
-            DataType::Boolean => Bool(nullability),
-            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => Utf8(nullability),
-            DataType::Binary | DataType::LargeBinary | DataType::BinaryView => Binary(nullability),
+            DataType::Boolean => DType::Bool(nullability),
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => DType::Utf8(nullability),
+            DataType::Binary | DataType::LargeBinary | DataType::BinaryView => {
+                DType::Binary(nullability)
+            }
             DataType::Date32
             | DataType::Date64
             | DataType::Time32(_)
             | DataType::Time64(_)
-            | DataType::Timestamp(..) => Extension(Arc::new(
+            | DataType::Timestamp(..) => DType::Extension(Arc::new(
                 make_temporal_ext_dtype(data_type).with_nullability(nullability),
             )),
             DataType::List(e) | DataType::LargeList(e) => {
-                List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
+                DType::List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
-            DataType::Struct(f) => Struct(StructFields::from_arrow(f), nullability),
+            DataType::FixedSizeList(e, size) => DType::FixedSizeList(
+                Arc::new(Self::from_arrow(e.as_ref())),
+                *size as u32,
+                nullability,
+            ),
+            DataType::Struct(f) => DType::Struct(StructFields::from_arrow(f), nullability),
+            DataType::Dictionary(_, value_type) => {
+                Self::from_arrow((value_type.as_ref(), nullability))
+            }
             _ => unimplemented!("Arrow data type not yet supported: {:?}", data_type),
         }
     }
@@ -180,10 +192,19 @@ impl DType {
                 PType::F64 => DataType::Float64,
             },
             DType::Decimal(dt, _) => {
-                if dt.precision() > DECIMAL128_MAX_PRECISION {
-                    DataType::Decimal256(dt.precision(), dt.scale())
-                } else {
-                    DataType::Decimal128(dt.precision(), dt.scale())
+                let precision = dt.precision();
+                let scale = dt.scale();
+
+                match precision {
+                    // This code is commented out until DataFusion improves its support for smaller decimals.
+                    // // DECIMAL32_MAX_PRECISION
+                    // 0..=9 => DataType::Decimal32(precision, scale),
+                    // // DECIMAL64_MAX_PRECISION
+                    // 10..=18 => DataType::Decimal64(precision, scale),
+                    // DECIMAL128_MAX_PRECISION
+                    0..=38 => DataType::Decimal128(precision, scale),
+                    // DECIMAL256_MAX_PRECISION
+                    39.. => DataType::Decimal256(precision, scale),
                 }
             }
             DType::Utf8(_) => DataType::Utf8View,
@@ -204,10 +225,17 @@ impl DType {
             // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
             // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
             // Arrow dtype because we do not how large our offsets are.
-            DType::List(l, _) => DataType::List(FieldRef::new(Field::new_list_field(
-                l.to_arrow_dtype()?,
-                l.nullability().into(),
+            DType::List(elem_dtype, _) => DataType::List(FieldRef::new(Field::new_list_field(
+                elem_dtype.to_arrow_dtype()?,
+                elem_dtype.nullability().into(),
             ))),
+            DType::FixedSizeList(elem_dtype, size, _) => DataType::FixedSizeList(
+                FieldRef::new(Field::new_list_field(
+                    elem_dtype.to_arrow_dtype()?,
+                    elem_dtype.nullability().into(),
+                )),
+                *size as i32,
+            ),
             DType::Extension(ext_dtype) => {
                 // Try and match against the known extension DTypes.
                 if is_temporal_ext_type(ext_dtype.id()) {

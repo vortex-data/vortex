@@ -2,13 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![no_main]
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::result_large_err)]
+
+use std::backtrace::Backtrace;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
-use vortex_array::arrays::{
-    BoolEncoding, ConstantArray, ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
-    VarBinViewEncoding,
-};
+use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{cast, compare, filter, take};
 use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
@@ -17,7 +16,6 @@ use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_fuzz::error::{VortexFuzzError, VortexFuzzResult};
 use vortex_fuzz::{Action, FuzzArrayAction, sort_canonical_array};
 use vortex_scalar::Scalar;
-use vortex_utils::aliases::hash_set::HashSet;
 
 fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     let FuzzArrayAction { array, actions } = fuzz_action;
@@ -25,13 +23,13 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     for (i, (action, expected)) in actions.into_iter().enumerate() {
         match action {
             Action::Compress => {
-                current_array = BtrBlocksCompressor
-                    .compress(current_array.to_canonical().vortex_unwrap().as_ref())
+                current_array = BtrBlocksCompressor::default()
+                    .compress(current_array.to_canonical().as_ref())
                     .vortex_unwrap();
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }
             Action::Slice(range) => {
-                current_array = current_array.slice(range.start, range.end).vortex_unwrap();
+                current_array = current_array.slice(range);
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }
             Action::Take(indices) => {
@@ -44,17 +42,12 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
             Action::SearchSorted(s, side) => {
                 // TODO(robert): Ideally we'd preserve the encoding perfectly but this is close enough
                 let mut sorted = sort_canonical_array(&current_array).vortex_unwrap();
-                if !HashSet::from([
-                    PrimitiveEncoding.id(),
-                    VarBinEncoding.id(),
-                    VarBinViewEncoding.id(),
-                    BoolEncoding.id(),
-                    StructEncoding.id(),
-                    ListEncoding.id(),
-                ])
-                .contains(&current_array.encoding_id())
-                {
-                    sorted = BtrBlocksCompressor.compress(&sorted).vortex_unwrap();
+
+                // If the current array is not in one of these canonical encodings, compress again.
+                if !current_array.is_canonical() {
+                    sorted = BtrBlocksCompressor::default()
+                        .compress(&sorted)
+                        .vortex_unwrap();
                 }
                 assert_search_sorted(sorted, s, side, expected.search(), i).unwrap()
             }
@@ -72,7 +65,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 if let Err(e) = assert_array_eq(&expected.array(), &compare_result, i) {
                     vortex_panic!(
                         "Failed to compare {}with {op} {v}\nError: {e}",
-                        current_array.tree_display()
+                        current_array.display_tree()
                     )
                 }
                 current_array = compare_result;
@@ -82,7 +75,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i) {
                     vortex_panic!(
                         "Failed to cast {} to dtype {to}\nError: {e}",
-                        current_array.tree_display()
+                        current_array.display_tree()
                     )
                 }
                 current_array = cast_result;
@@ -108,6 +101,7 @@ fn assert_search_sorted(
             side,
             search_result,
             step,
+            Backtrace::capture(),
         ))
     } else {
         Ok(())
@@ -123,11 +117,12 @@ fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzRes
             lhs.to_array(),
             rhs.to_array(),
             step,
+            Backtrace::capture(),
         ));
     }
     for idx in 0..lhs.len() {
-        let l = lhs.scalar_at(idx).vortex_unwrap();
-        let r = rhs.scalar_at(idx).vortex_unwrap();
+        let l = lhs.scalar_at(idx);
+        let r = rhs.scalar_at(idx);
 
         if l != r {
             return Err(VortexFuzzError::ArrayNotEqual(
@@ -137,6 +132,7 @@ fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzRes
                 lhs.clone(),
                 rhs.clone(),
                 step,
+                Backtrace::capture(),
             ));
         }
     }

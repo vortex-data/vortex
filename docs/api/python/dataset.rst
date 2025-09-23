@@ -11,6 +11,7 @@ encodings, this property holds true even when the filter condition specifies a s
 
    ~vortex.dataset.VortexDataset
    ~vortex.dataset.VortexScanner
+   ~vortex.dataset.VortexFragment
 
 .. raw:: html
 

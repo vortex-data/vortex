@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
+use std::sync::Arc;
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
-use vortex_dtype::DType;
+use vortex_array::operator::OperatorRef;
+use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
+use vortex_dtype::{DType, match_each_float_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
 };
@@ -76,6 +78,13 @@ impl VTable for LiteralVTable {
     fn return_dtype(expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
         Ok(expr.value.dtype().clone())
     }
+
+    fn operator(expr: &Self::Expr, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
+        Ok(Some(Arc::new(ConstantArray::new(
+            expr.value.clone(),
+            scope.len(),
+        ))))
+    }
 }
 
 impl LiteralExpr {
@@ -98,9 +107,21 @@ impl LiteralExpr {
     }
 }
 
-impl Display for LiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.value)
+impl DisplayAs for LiteralExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "{}", self.value)
+            }
+            DisplayFormat::Tree => {
+                write!(
+                    f,
+                    "Literal(value: {}, dtype: {})",
+                    self.value,
+                    self.value.dtype()
+                )
+            }
+        }
     }
 }
 
@@ -111,6 +132,23 @@ impl AnalysisExpr for LiteralExpr {
 
     fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         Some(lit(self.value.clone()))
+    }
+
+    fn nan_count(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        // The NaNCount for a non-float literal is not defined.
+        // For floating point types, the NaNCount is 1 for lit(NaN), and 0 otherwise.
+        let value = self.value.as_primitive_opt()?;
+        if !value.ptype().is_float() {
+            return None;
+        }
+
+        match_each_float_ptype!(value.ptype(), |T| {
+            match value.typed_value::<T>() {
+                None => Some(lit(0u64)),
+                Some(value) if value.is_nan() => Some(lit(1u64)),
+                _ => Some(lit(0u64)),
+            }
+        })
     }
 }
 
@@ -136,7 +174,6 @@ pub fn lit(value: impl Into<Scalar>) -> ExprRef {
 
 #[cfg(test)]
 mod tests {
-
     use vortex_dtype::{DType, Nullability, PType, StructFields};
     use vortex_scalar::Scalar;
 

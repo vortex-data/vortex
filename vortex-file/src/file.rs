@@ -6,18 +6,20 @@
 //! The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading
 //! data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
 
+use std::ops::Range;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
-use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
+use vortex_dtype::{DType, Field, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
 use vortex_layout::LayoutReader;
-use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
+use vortex_scan::{ScanBuilder, SplitBy};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
@@ -32,8 +34,8 @@ use crate::pruning::extract_relevant_file_stats_as_struct_row;
 pub struct VortexFile {
     /// The footer of the Vortex file, containing metadata and layout information.
     pub(crate) footer: Footer,
-    /// A factory for creating segment sources that read data from the file.
-    pub(crate) segment_source_factory: Arc<dyn SegmentSourceFactory>,
+    /// The segment source used to read segments from this file.
+    pub(crate) segment_source: Arc<dyn SegmentSource>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
@@ -71,8 +73,7 @@ impl VortexFile {
     /// This may spawn a background I/O driver that will exit when the returned segment source
     /// is dropped.
     pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
-        self.segment_source_factory
-            .segment_source(self.metrics.clone())
+        self.segment_source.clone()
     }
 
     /// Create a new layout reader for the file.
@@ -81,7 +82,7 @@ impl VortexFile {
         self.footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader("".into(), segment_source, self.footer().ctx().clone())
+            .new_reader("".into(), segment_source)
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
@@ -94,7 +95,7 @@ impl VortexFile {
         let Some((stats, fields)) = self
             .footer
             .statistics()
-            .zip(self.footer.dtype().as_struct())
+            .zip(self.footer.dtype().as_struct_fields_opt())
         else {
             return Ok(false);
         };
@@ -118,7 +119,6 @@ impl VortexFile {
             required_stats
                 .map()
                 .iter()
-                .filter(|&(path, _)| path.is_root())
                 .map(|(path, stats)| (path.clone(), stats.clone())),
         );
 
@@ -135,22 +135,13 @@ impl VortexFile {
             .as_constant()
             .is_some_and(|result| result.as_bool().value() == Some(true)))
     }
-}
 
-/// A factory for creating segment sources that read data from a Vortex file.
-///
-/// This trait abstracts over different implementations of segment sources, allowing
-/// for different I/O strategies (e.g., synchronous, asynchronous, memory-mapped)
-/// to be used with the same file interface.
-pub trait SegmentSourceFactory: 'static + Send + Sync {
-    /// Create a segment source for reading segments from the file.
-    ///
-    /// # Arguments
-    ///
-    /// * `metrics` - Metrics for monitoring the performance of the segment source.
-    ///
-    /// # Returns
-    ///
-    /// A new segment source that can be used to read data from the file.
-    fn segment_source(&self, metrics: VortexMetrics) -> Arc<dyn SegmentSource>;
+    pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
+        Ok(SplitBy::Layout
+            .splits(self.layout_reader()?.as_ref(), &[FieldMask::All])?
+            .into_iter()
+            .tuple_windows()
+            .map(|(start, end)| start..end)
+            .collect())
+    }
 }

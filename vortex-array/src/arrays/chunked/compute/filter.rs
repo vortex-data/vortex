@@ -27,7 +27,9 @@ impl FilterKernel for ChunkedVTable {
             MaskIter::Slices(slices) => filter_slices(array, slices.iter().copied()),
         }?;
 
-        Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
+        // SAFETY: Filter operation preserves the dtype of each chunk.
+        // All filtered chunks maintain the same dtype as the original array.
+        unsafe { Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array()) }
     }
 }
 
@@ -145,9 +147,7 @@ fn filter_indices(
         if chunk_id != current_chunk_id {
             // Push the chunk we've accumulated.
             if !chunk_indices.is_empty() {
-                let chunk = array
-                    .chunk(current_chunk_id)
-                    .vortex_expect("find_chunk_idx must return valid chunk ID");
+                let chunk = array.chunk(current_chunk_id);
                 let filtered_chunk = take(
                     chunk,
                     PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable)
@@ -165,9 +165,7 @@ fn filter_indices(
     }
 
     if !chunk_indices.is_empty() {
-        let chunk = array
-            .chunk(current_chunk_id)
-            .vortex_expect("find_chunk_idx must return valid chunk ID");
+        let chunk = array.chunk(current_chunk_id);
         let filtered_chunk = take(
             chunk,
             PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable).as_ref(),
@@ -193,35 +191,38 @@ pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::half::f16;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::filter;
 
     #[test]
     fn filter_chunked_floats() {
         let chunked = ChunkedArray::try_new(
             vec![
-                PrimitiveArray::from_iter([f16::from_f32(0.1463623)]).to_array(),
-                PrimitiveArray::from_iter([
+                buffer![f16::from_f32(0.1463623)].into_array(),
+                buffer![
                     f16::NAN,
                     f16::from_f32(0.24987793),
                     f16::from_f32(0.22497559),
                     f16::from_f32(0.22497559),
                     f16::from_f32(-36160.0),
-                ])
-                .to_array(),
-                PrimitiveArray::from_iter([
+                ]
+                .into_array(),
+                buffer![
                     f16::NAN,
                     f16::NAN,
                     f16::from_f32(0.22497559),
                     f16::from_f32(0.22497559),
                     f16::from_f32(3174.0),
-                ])
-                .to_array(),
+                ]
+                .into_array(),
             ],
             DType::Primitive(PType::F16, Nullability::NonNullable),
         )
@@ -231,5 +232,40 @@ mod test {
         ]);
         let filtered = filter(chunked.as_ref(), &mask).unwrap();
         assert_eq!(filtered.len(), 9);
+    }
+
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(ChunkedArray::try_new(
+        vec![
+            buffer![0u64, 1].into_array(),
+            buffer![2_u64].into_array(),
+            PrimitiveArray::empty::<u64>(Nullability::NonNullable).to_array(),
+            buffer![3_u64, 4].into_array(),
+        ],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    ).unwrap())]
+    #[case(ChunkedArray::try_new(
+        vec![
+            PrimitiveArray::from_option_iter([Some(0u64), None]).to_array(),
+            PrimitiveArray::from_option_iter([Some(2u64)]).to_array(),
+            PrimitiveArray::empty::<u64>(Nullability::Nullable).to_array(),
+            PrimitiveArray::from_option_iter([None, Some(4u64)]).to_array(),
+        ],
+        DType::Primitive(PType::U64, Nullability::Nullable),
+    ).unwrap())]
+    #[case(ChunkedArray::try_new(
+        vec![
+            buffer![1i32].into_array(),
+        ],
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+    ).unwrap())]
+    #[case(ChunkedArray::try_new(
+        (0..10).map(|i| buffer![i as i64, i as i64 + 10, i as i64 + 20].into_array()).collect(),
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+    ).unwrap())]
+    fn test_filter_chunked_conformance(#[case] chunked: ChunkedArray) {
+        test_filter_conformance(chunked.as_ref());
     }
 }

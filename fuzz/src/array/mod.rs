@@ -128,7 +128,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     )
                     .into_array();
 
-                    let compressed = BtrBlocksCompressor.compress(&indices_array).vortex_unwrap();
+                    let compressed = BtrBlocksCompressor::default()
+                        .compress(&indices_array)
+                        .vortex_unwrap();
                     (
                         Action::Take(compressed),
                         ExpectedValue::Array(current_array.to_array()),
@@ -140,9 +142,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     let scalar = if u.arbitrary()? {
-                        current_array
-                            .scalar_at(u.choose_index(current_array.len())?)
-                            .vortex_unwrap()
+                        current_array.scalar_at(u.choose_index(current_array.len())?)
                     } else {
                         random_scalar(u, current_array.dtype())?
                     };
@@ -177,9 +177,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 }
                 5 => {
                     let scalar = if u.arbitrary()? {
-                        current_array
-                            .scalar_at(u.choose_index(current_array.len())?)
-                            .vortex_unwrap()
+                        current_array.scalar_at(u.choose_index(current_array.len())?)
                     } else {
                         // We can compare arrays with different nullability
                         let null: Nullability = u.arbitrary()?;
@@ -217,17 +215,18 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 }
 
 fn actions_for_dtype(dtype: &DType) -> HashSet<usize> {
+    // We exclude compare on the nested types.
+    let nested_actions = [0, 1, 2, 3, 4, 6];
+
     match dtype {
         DType::Struct(sdt, _) => sdt
             .fields()
             .map(|child| actions_for_dtype(&child))
             // exclude compare
-            .fold((0..=4).chain(iter::once(6)).collect(), |acc, actions| {
+            .fold(nested_actions.into(), |acc, actions| {
                 acc.intersection(&actions).copied().collect()
             }),
-        // Once we support more list operations also recurse here on child dtype
-        // compress, slice
-        DType::List(..) => [0, 1].into_iter().collect(),
+        DType::List(..) | DType::FixedSizeList(..) => nested_actions.into(),
         _ => ALL_ACTIONS.collect(),
     }
 }

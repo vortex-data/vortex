@@ -24,10 +24,10 @@ impl CompareKernel for ChunkedVTable {
         );
 
         for chunk in lhs.non_empty_chunks() {
-            let sliced = rhs.slice(idx, idx + chunk.len())?;
+            let sliced = rhs.slice(idx..idx + chunk.len());
             let cmp_result = compare(chunk, &sliced, operator)?;
 
-            bool_builder.extend_from_array(&cmp_result)?;
+            bool_builder.extend_from_array(&cmp_result);
             idx += chunk.len();
         }
 
@@ -39,13 +39,14 @@ register_kernel!(CompareKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::Buffer;
+
     use super::*;
     use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
 
     #[test]
     fn empty_compare() {
-        let base = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
+        let base = Buffer::<u32>::empty().into_array();
         let chunked =
             ChunkedArray::try_new(vec![base.clone(), base.clone()], base.dtype().clone()).unwrap();
         let chunked_empty = ChunkedArray::try_new(vec![], base.dtype().clone()).unwrap();

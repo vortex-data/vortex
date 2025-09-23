@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use pyo3::{IntoPyObject, PyObject, PyRef, PyResult, pyclass, pymethods};
+use pyo3::{IntoPyObject, Py, PyAny, PyRef, PyResult, pyclass, pymethods};
 use vortex::error::vortex_err;
 use vortex::scalar::StructScalar;
 
@@ -19,7 +19,7 @@ impl ScalarSubclass for PyStructScalar {
 #[pymethods]
 impl PyStructScalar {
     /// Return the child scalar with the given field name.
-    pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyResult<PyObject> {
+    pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyResult<Py<PyAny>> {
         let scalar = self_.as_scalar_ref();
         let child = scalar
             .field(name)

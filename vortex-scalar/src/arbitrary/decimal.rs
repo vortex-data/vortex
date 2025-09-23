@@ -11,7 +11,7 @@ use vortex_dtype::{DECIMAL128_MAX_PRECISION, DecimalDType};
 
 use crate::{DecimalValue, InnerScalarValue, ScalarValue, i256};
 
-/// Generate an arbitrary decimal scalar confined to the bounds of
+/// Generate an arbitrary decimal scalar confined to the given bounds of precision and scale.
 pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Result<ScalarValue> {
     let precision = decimal_type.precision();
     if precision <= DECIMAL128_MAX_PRECISION {

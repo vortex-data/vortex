@@ -8,7 +8,7 @@ pub struct Scalar {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ScalarValue {
-    #[prost(oneof = "scalar_value::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9")]
+    #[prost(oneof = "scalar_value::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
     pub kind: ::core::option::Option<scalar_value::Kind>,
 }
 /// Nested message and enum types in `ScalarValue`.
@@ -33,6 +33,8 @@ pub mod scalar_value {
         BytesValue(::prost::alloc::vec::Vec<u8>),
         #[prost(message, tag = "9")]
         ListValue(super::ListValue),
+        #[prost(uint64, tag = "10")]
+        F16Value(u64),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

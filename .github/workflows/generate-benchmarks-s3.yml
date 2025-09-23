@@ -1,7 +1,7 @@
 name: "Generate TPC-H and clickbench files to S3"
 
 on:
-  workflow_dispatch: { }
+  workflow_dispatch: {}
   schedule:
     # 5AM UTC
     - cron: "0 5 * * *"
@@ -25,11 +25,9 @@ jobs:
       - extras=s3-cache
     steps:
       - uses: runs-on/action@v2
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
+      - uses: actions/checkout@v5
       - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1

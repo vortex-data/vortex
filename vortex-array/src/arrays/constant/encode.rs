@@ -15,7 +15,7 @@ impl EncodeVTable<ConstantVTable> for ConstantVTable {
     ) -> VortexResult<Option<ConstantArray>> {
         let canonical = canonical.as_ref();
         if canonical.is_constant() {
-            let scalar = canonical.scalar_at(0)?;
+            let scalar = canonical.scalar_at(0);
             Ok(Some(ConstantArray::new(scalar, canonical.len())))
         } else {
             Ok(None)

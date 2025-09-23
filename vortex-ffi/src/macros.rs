@@ -127,7 +127,7 @@ macro_rules! arc_wrapper {
                 }
 
                 /// Extract a borrowed reference from a const pointer.
-                pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a $T {
+                pub(crate) fn as_ref(ptr: *const $ffi_ident) -> &'static $T {
                     use vortex::error::VortexExpect;
                     &unsafe { ptr.as_ref() }
                         .vortex_expect("null pointer")

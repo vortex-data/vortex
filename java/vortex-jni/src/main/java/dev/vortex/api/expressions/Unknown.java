@@ -4,7 +4,6 @@
 package dev.vortex.api.expressions;
 
 import dev.vortex.api.Expression;
-
 import java.util.List;
 import java.util.Optional;
 
@@ -16,6 +15,15 @@ public final class Unknown implements Expression {
     private final List<Expression> children;
     private final byte[] metadata;
 
+    /**
+     * Creates a new Unknown expression with the specified identifier, children, and metadata.
+     * This constructor is typically used when deserializing expressions that don't have
+     * a specific Java implementation, allowing them to be preserved as generic expressions.
+     *
+     * @param id the unique identifier for this expression type
+     * @param children the list of child expressions
+     * @param metadata the serialized metadata associated with this expression
+     */
     public Unknown(String id, List<Expression> children, byte[] metadata) {
         this.id = id;
         this.children = children;

@@ -18,7 +18,7 @@ pub struct LiteralOpts {
     pub value: ::core::option::Option<super::scalar::Scalar>,
 }
 /// Options for `vortex.pack`
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PackOpts {
     #[prost(string, repeated, tag = "1")]
     pub paths: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -26,13 +26,13 @@ pub struct PackOpts {
     pub nullable: bool,
 }
 /// Options for `vortex.getitem`
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetItemOpts {
     #[prost(string, tag = "1")]
     pub path: ::prost::alloc::string::String,
 }
 /// Options for `vortex.binary`
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BinaryOpts {
     #[prost(enumeration = "binary_opts::BinaryOp", tag = "1")]
     pub op: i32,
@@ -61,6 +61,7 @@ pub mod binary_opts {
         And = 6,
         Or = 7,
         Add = 8,
+        Sub = 9,
     }
     impl BinaryOp {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -78,6 +79,7 @@ pub mod binary_opts {
                 Self::And => "And",
                 Self::Or => "Or",
                 Self::Add => "Add",
+                Self::Sub => "Sub",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -92,19 +94,20 @@ pub mod binary_opts {
                 "And" => Some(Self::And),
                 "Or" => Some(Self::Or),
                 "Add" => Some(Self::Add),
+                "Sub" => Some(Self::Sub),
                 _ => None,
             }
         }
     }
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BetweenOpts {
     #[prost(bool, tag = "1")]
     pub lower_strict: bool,
     #[prost(bool, tag = "2")]
     pub upper_strict: bool,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct LikeOpts {
     #[prost(bool, tag = "1")]
     pub negated: bool,
@@ -115,4 +118,24 @@ pub struct LikeOpts {
 pub struct CastOpts {
     #[prost(message, optional, tag = "1")]
     pub target: ::core::option::Option<super::dtype::DType>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FieldNames {
+    #[prost(string, repeated, tag = "1")]
+    pub names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SelectOpts {
+    #[prost(oneof = "select_opts::Opts", tags = "1, 2")]
+    pub opts: ::core::option::Option<select_opts::Opts>,
+}
+/// Nested message and enum types in `SelectOpts`.
+pub mod select_opts {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Opts {
+        #[prost(message, tag = "1")]
+        Include(super::FieldNames),
+        #[prost(message, tag = "2")]
+        Exclude(super::FieldNames),
+    }
 }

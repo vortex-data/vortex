@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
 use std::hash::Hash;
 
 use vortex_array::compute::invert;
@@ -9,12 +8,13 @@ use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Not);
 
 #[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug, Hash, Eq)]
 pub struct NotExpr {
     child: ExprRef,
 }
@@ -94,14 +94,29 @@ impl NotExpr {
     }
 }
 
-impl Display for NotExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "!{}", self.child)
+impl DisplayAs for NotExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "(!{})", self.child)
+            }
+            DisplayFormat::Tree => {
+                write!(f, "Not")
+            }
+        }
     }
 }
 
 impl AnalysisExpr for NotExpr {}
 
+/// Creates an expression that logically inverts boolean values.
+///
+/// Returns the logical negation of the input boolean expression.
+///
+/// ```rust
+/// # use vortex_expr::{not, root};
+/// let expr = not(root());
+/// ```
 pub fn not(operand: ExprRef) -> ExprRef {
     NotExpr::new(operand).into_expr()
 }
@@ -112,7 +127,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{Scope, col, not, root, test_harness};
+    use crate::{Scope, col, get_item, not, root, test_harness};
 
     #[test]
     fn invert_booleans() {
@@ -123,12 +138,20 @@ mod tests {
                 .evaluate(&Scope::new(bools.to_array()))
                 .unwrap()
                 .to_bool()
-                .unwrap()
                 .boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>(),
             vec![true, false, true, true, false, false]
         );
+    }
+
+    #[test]
+    fn test_display_order_of_operations() {
+        let a = not(get_item("a", root()));
+        let b = get_item("a", not(root()));
+        assert_ne!(a.to_string(), b.to_string());
+        assert_eq!(a.to_string(), "(!$.a)");
+        assert_eq!(b.to_string(), "(!$).a");
     }
 
     #[test]

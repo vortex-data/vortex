@@ -8,82 +8,193 @@ use crate::Array;
 use crate::arrays::BoolArray;
 use crate::compute::mask;
 
-pub fn test_mask(array: &dyn Array) {
-    assert_eq!(array.len(), 5);
-    test_heterogenous_mask(array);
-    test_empty_mask(array);
-    test_full_mask(array);
+/// Test mask compute function with various array sizes and patterns.
+/// The mask operation sets elements to null where the mask is true.
+pub fn test_mask_conformance(array: &dyn Array) {
+    let len = array.len();
+
+    if len > 0 {
+        test_heterogenous_mask(array);
+        test_empty_mask(array);
+        test_full_mask(array);
+        test_alternating_mask(array);
+        test_sparse_mask(array);
+        test_single_element_mask(array);
+    }
+
+    if len >= 5 {
+        test_double_mask(array);
+    }
+
+    if len > 0 {
+        test_nullable_mask_input(array);
+    }
 }
 
+/// Tests masking with a heterogeneous pattern
 fn test_heterogenous_mask(array: &dyn Array) {
-    let mask_array =
-        Mask::try_from(&BoolArray::from_iter([true, false, false, true, true])).vortex_unwrap();
+    let len = array.len();
+
+    // Create a pattern where roughly half the values are masked
+    let mask_pattern: Vec<bool> = (0..len).map(|i| i % 3 != 1).collect();
+    let mask_array = Mask::from_iter(mask_pattern.clone());
+
     let masked = mask(array, &mask_array).vortex_unwrap();
     assert_eq!(masked.len(), array.len());
-    assert!(!masked.is_valid(0).vortex_unwrap());
-    assert_eq!(
-        masked.scalar_at(1).vortex_unwrap(),
-        array.scalar_at(1).vortex_unwrap().into_nullable()
-    );
-    assert_eq!(
-        masked.scalar_at(2).vortex_unwrap(),
-        array.scalar_at(2).vortex_unwrap().into_nullable()
-    );
-    assert!(!masked.is_valid(3).vortex_unwrap());
-    assert!(!masked.is_valid(4).vortex_unwrap());
+
+    // Verify masked elements are null and unmasked elements are preserved
+    for (i, &masked_out) in mask_pattern.iter().enumerate() {
+        if masked_out {
+            assert!(!masked.is_valid(i));
+        } else {
+            assert_eq!(masked.scalar_at(i), array.scalar_at(i).into_nullable());
+        }
+    }
 }
 
+/// Tests that an empty mask (all false) preserves all elements
 fn test_empty_mask(array: &dyn Array) {
-    let all_unmasked =
-        Mask::try_from(&BoolArray::from_iter([false, false, false, false, false])).vortex_unwrap();
-    let masked = mask(array, &all_unmasked).vortex_unwrap();
+    let len = array.len();
+    let all_unmasked = vec![false; len];
+    let mask_array = Mask::from_iter(all_unmasked);
+
+    let masked = mask(array, &mask_array).vortex_unwrap();
     assert_eq!(masked.len(), array.len());
-    assert_eq!(
-        masked.scalar_at(0).vortex_unwrap(),
-        array.scalar_at(0).vortex_unwrap().into_nullable()
-    );
-    assert_eq!(
-        masked.scalar_at(1).vortex_unwrap(),
-        array.scalar_at(1).vortex_unwrap().into_nullable()
-    );
-    assert_eq!(
-        masked.scalar_at(2).vortex_unwrap(),
-        array.scalar_at(2).vortex_unwrap().into_nullable()
-    );
-    assert_eq!(
-        masked.scalar_at(3).vortex_unwrap(),
-        array.scalar_at(3).vortex_unwrap().into_nullable()
-    );
-    assert_eq!(
-        masked.scalar_at(4).vortex_unwrap(),
-        array.scalar_at(4).vortex_unwrap().into_nullable()
-    );
+
+    // All elements should be preserved
+    for i in 0..len {
+        assert_eq!(masked.scalar_at(i), array.scalar_at(i).into_nullable());
+    }
 }
 
+/// Tests that a full mask (all true) makes all elements null
 fn test_full_mask(array: &dyn Array) {
-    let all_masked =
-        Mask::try_from(&BoolArray::from_iter([true, true, true, true, true])).vortex_unwrap();
-    let masked = mask(array, &all_masked).vortex_unwrap();
-    assert_eq!(masked.len(), array.len());
-    assert!(!masked.is_valid(0).vortex_unwrap());
-    assert!(!masked.is_valid(1).vortex_unwrap());
-    assert!(!masked.is_valid(2).vortex_unwrap());
-    assert!(!masked.is_valid(3).vortex_unwrap());
-    assert!(!masked.is_valid(4).vortex_unwrap());
+    let len = array.len();
+    let all_masked = vec![true; len];
+    let mask_array = Mask::from_iter(all_masked);
 
-    let mask1 =
-        Mask::try_from(&BoolArray::from_iter([true, false, false, true, true])).vortex_unwrap();
-    let mask2 =
-        Mask::try_from(&BoolArray::from_iter([false, true, false, false, true])).vortex_unwrap();
-    let first = mask(array, &mask1).vortex_unwrap();
-    let double_masked = mask(&first, &mask2).vortex_unwrap();
-    assert_eq!(double_masked.len(), array.len());
-    assert!(!double_masked.is_valid(0).vortex_unwrap());
-    assert!(!double_masked.is_valid(1).vortex_unwrap());
-    assert_eq!(
-        double_masked.scalar_at(2).vortex_unwrap(),
-        array.scalar_at(2).vortex_unwrap().into_nullable()
-    );
-    assert!(!double_masked.is_valid(3).vortex_unwrap());
-    assert!(!double_masked.is_valid(4).vortex_unwrap());
+    let masked = mask(array, &mask_array).vortex_unwrap();
+    assert_eq!(masked.len(), array.len());
+
+    // All elements should be null
+    for i in 0..len {
+        assert!(!masked.is_valid(i));
+    }
+}
+
+/// Tests alternating mask pattern
+fn test_alternating_mask(array: &dyn Array) {
+    let len = array.len();
+    let pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
+    let mask_array = Mask::from_iter(pattern);
+
+    let masked = mask(array, &mask_array).vortex_unwrap();
+    assert_eq!(masked.len(), array.len());
+
+    for i in 0..len {
+        if i % 2 == 0 {
+            assert!(!masked.is_valid(i));
+        } else {
+            assert_eq!(masked.scalar_at(i), array.scalar_at(i).into_nullable());
+        }
+    }
+}
+
+/// Tests sparse mask (only a few elements masked)
+fn test_sparse_mask(array: &dyn Array) {
+    let len = array.len();
+    if len < 10 {
+        return; // Skip for small arrays
+    }
+
+    // Mask only about 10% of elements
+    let pattern: Vec<bool> = (0..len).map(|i| i % 10 == 0).collect();
+    let mask_array = Mask::from_iter(pattern.clone());
+
+    let masked = mask(array, &mask_array).vortex_unwrap();
+    assert_eq!(masked.len(), array.len());
+
+    // Count how many elements are valid after masking
+    let valid_count = (0..len).filter(|&i| masked.is_valid(i)).count();
+
+    // Count how many elements should be invalid:
+    // - Elements that were masked (pattern[i] == true)
+    // - Elements that were already invalid in the original array
+    let expected_invalid_count = (0..len)
+        .filter(|&i| pattern[i] || !array.is_valid(i))
+        .count();
+
+    assert_eq!(valid_count, len - expected_invalid_count);
+}
+
+/// Tests masking a single element
+fn test_single_element_mask(array: &dyn Array) {
+    let len = array.len();
+
+    // Mask only the first element
+    let mut pattern = vec![false; len];
+    pattern[0] = true;
+    let mask_array = Mask::from_iter(pattern);
+
+    let masked = mask(array, &mask_array).vortex_unwrap();
+    assert!(!masked.is_valid(0));
+
+    for i in 1..len {
+        assert_eq!(masked.scalar_at(i), array.scalar_at(i).into_nullable());
+    }
+}
+
+/// Tests double masking operations
+fn test_double_mask(array: &dyn Array) {
+    let len = array.len();
+
+    // Create two different mask patterns
+    let mask1_pattern: Vec<bool> = (0..len).map(|i| i % 3 == 0).collect();
+    let mask2_pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
+
+    let mask1 = Mask::from_iter(mask1_pattern.clone());
+    let mask2 = Mask::from_iter(mask2_pattern.clone());
+
+    let first_masked = mask(array, &mask1).vortex_unwrap();
+    let double_masked = mask(&first_masked, &mask2).vortex_unwrap();
+
+    // Elements should be null if either mask is true
+    for i in 0..len {
+        if mask1_pattern[i] || mask2_pattern[i] {
+            assert!(!double_masked.is_valid(i));
+        } else {
+            assert_eq!(
+                double_masked.scalar_at(i),
+                array.scalar_at(i).into_nullable()
+            );
+        }
+    }
+}
+
+/// Tests masking with nullable mask (nulls treated as false)
+fn test_nullable_mask_input(array: &dyn Array) {
+    let len = array.len();
+    if len < 3 {
+        return; // Skip for very small arrays
+    }
+
+    // Create a nullable mask
+    let bool_values: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
+    let validity_values: Vec<bool> = (0..len).map(|i| i % 3 != 0).collect();
+
+    let bool_array = BoolArray::from_iter(bool_values.clone());
+    let validity = crate::validity::Validity::from_iter(validity_values.clone());
+    let nullable_mask = BoolArray::from_bool_buffer(bool_array.boolean_buffer().clone(), validity);
+
+    let mask_array = nullable_mask.to_mask_fill_null_false();
+    let masked = mask(array, &mask_array).vortex_unwrap();
+
+    // Elements are masked only if the mask is true AND valid
+    for i in 0..len {
+        if bool_values[i] && validity_values[i] {
+            assert!(!masked.is_valid(i));
+        } else {
+            assert_eq!(masked.scalar_at(i), array.scalar_at(i).into_nullable());
+        }
+    }
 }

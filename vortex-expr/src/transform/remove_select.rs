@@ -3,29 +3,24 @@
 
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::traversal::{MutNodeVisitor, Node, TransformResult};
+use crate::traversal::{NodeExt, Transformed};
 use crate::{DType, ExprRef, SelectVTable, get_item, pack};
 
 /// Replaces [crate::SelectExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_select(e: ExprRef, ctx: &DType) -> VortexResult<ExprRef> {
-    let mut transform = RemoveSelectTransform { ctx };
-    e.transform(&mut transform).map(|e| e.into_inner())
+    e.transform_up(|node| remove_select_transformer(node, ctx))
+        .map(|e| e.into_inner())
 }
 
-struct RemoveSelectTransform<'a> {
-    ctx: &'a DType,
-}
-
-impl MutNodeVisitor for RemoveSelectTransform<'_> {
-    type NodeTy = ExprRef;
-
-    fn visit_up(&mut self, node: ExprRef) -> VortexResult<TransformResult<Self::NodeTy>> {
-        if let Some(select) = node.as_opt::<SelectVTable>() {
+fn remove_select_transformer(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprRef>> {
+    match node.as_opt::<SelectVTable>() {
+        None => Ok(Transformed::no(node)),
+        Some(select) => {
             let child = select.child();
-            let child_dtype = child.return_dtype(self.ctx)?;
+            let child_dtype = child.return_dtype(ctx)?;
             let child_nullability = child_dtype.nullability();
 
-            let child_dtype = child_dtype.as_struct().ok_or_else(|| {
+            let child_dtype = child_dtype.as_struct_fields_opt().ok_or_else(|| {
                 vortex_err!(
                     "Select child must return a struct dtype, however it was a {}",
                     child_dtype
@@ -34,12 +29,12 @@ impl MutNodeVisitor for RemoveSelectTransform<'_> {
 
             let expr = pack(
                 select
-                    .fields()
+                    .selection()
                     .as_include_names(child_dtype.names())
                     .map_err(|e| {
                         e.with_context(format!(
                             "Select fields {:?} must be a subset of child fields {:?}",
-                            select.fields(),
+                            select.selection(),
                             child_dtype.names()
                         ))
                     })?
@@ -48,9 +43,7 @@ impl MutNodeVisitor for RemoveSelectTransform<'_> {
                 child_nullability,
             );
 
-            Ok(TransformResult::yes(expr))
-        } else {
-            Ok(TransformResult::no(node))
+            Ok(Transformed::yes(expr))
         }
     }
 }

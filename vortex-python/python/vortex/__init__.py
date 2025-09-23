@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from . import _lib
-from ._lib.arrays import (
+from . import _lib, arrays, dataset, expr, file, io, ray, scan
+from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     AlpArray,
     AlpRdArray,
     BoolArray,
@@ -10,28 +10,33 @@ from ._lib.arrays import (
     ChunkedArray,
     ConstantArray,
     DateTimePartsArray,
+    # DecimalArray # TODO(connor): Is this missing a `DecimalArray`?
     DictArray,
     ExtensionArray,
     FastLanesBitPackedArray,
     FastLanesDeltaArray,
     FastLanesFoRArray,
+    FixedSizeListArray,
     FsstArray,
     ListArray,
     NullArray,
     PrimitiveArray,
     RunEndArray,
+    SequenceArray,
     SparseArray,
     StructArray,
     VarBinArray,
     VarBinViewArray,
     ZigZagArray,
 )
-from ._lib.compress import compress
-from ._lib.dtype import (
+from ._lib.compress import compress  # pyright: ignore[reportMissingModuleSource]
+from ._lib.dtype import (  # pyright: ignore[reportMissingModuleSource]
     BinaryDType,
     BoolDType,
     DType,
+    # TODO(connor): Is this missing a `DecimalDType` and `decimal` function?
     ExtensionDType,
+    FixedSizeListDType,
     ListDType,
     NullDType,
     PrimitiveDType,
@@ -41,6 +46,7 @@ from ._lib.dtype import (
     binary,
     bool_,
     ext,
+    fixed_size_list,
     float_,
     int_,
     list_,
@@ -49,12 +55,12 @@ from ._lib.dtype import (
     uint,
     utf8,
 )
-from ._lib.file import open
-from ._lib.iter import ArrayIterator
-from ._lib.registry import Registry
-from ._lib.scalar import (
+from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
+from ._lib.registry import Registry  # pyright: ignore[reportMissingModuleSource]
+from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
     BinaryScalar,
     BoolScalar,
+    # TODO(connor): Is this missing a `DecimalScalar`?
     ExtensionScalar,
     ListScalar,
     NullScalar,
@@ -64,13 +70,23 @@ from ._lib.scalar import (
     Utf8Scalar,
     scalar,
 )
-from ._lib.serde import ArrayContext, ArrayParts
+from ._lib.serde import ArrayContext, ArrayParts  # pyright: ignore[reportMissingModuleSource]
 from .arrays import Array, PyArray, array
-from .file import VortexFile
+from .file import VortexFile, open
+from .scan import RepeatedScan
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
 
 __all__ = [
+    # --- Modules ---
+    "arrays",
+    "dataset",
+    "expr",
+    "file",
+    "scan",
+    "io",
+    "ray",
+    # --- Objects and Functions ---
     "array",
     "compress",
     # Arrays
@@ -86,7 +102,9 @@ __all__ = [
     "BinaryDType",
     "StructDType",
     "ListDType",
+    "FixedSizeListDType",
     "ExtensionDType",
+    # TODO(connor): Is this missing `DecimalDType` and `decimal_`?
     "null",
     "bool_",
     "int_",
@@ -96,6 +114,7 @@ __all__ = [
     "binary",
     "struct",
     "list_",
+    "fixed_size_list",
     "ext",
     # Encodings
     "ConstantArray",
@@ -108,6 +127,7 @@ __all__ = [
     "VarBinViewArray",
     "StructArray",
     "ListArray",
+    "FixedSizeListArray",
     "ExtensionArray",
     "AlpArray",
     "AlpRdArray",
@@ -115,6 +135,7 @@ __all__ = [
     "DictArray",
     "FsstArray",
     "RunEndArray",
+    "SequenceArray",
     "SparseArray",
     "ZigZagArray",
     "FastLanesBitPackedArray",
@@ -140,6 +161,8 @@ __all__ = [
     "open",
     # Iterator
     "ArrayIterator",
+    # Scan
+    "RepeatedScan",
 ]
 
 #: The default registry for Vortex

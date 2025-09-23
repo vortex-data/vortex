@@ -33,7 +33,7 @@ impl Iterator for PythonArrayIterator {
     type Item = VortexResult<ArrayRef>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let mut iter = self.iter.clone_ref(py).into_bound(py);
             iter.next().map(|array| {
                 array

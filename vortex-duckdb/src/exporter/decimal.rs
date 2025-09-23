@@ -22,7 +22,7 @@ struct DecimalExporter<D: NativeDecimalType, N: NativeDecimalType> {
 }
 
 pub(crate) fn new_exporter(array: &DecimalArray) -> VortexResult<Box<dyn ColumnExporter>> {
-    let validity = array.validity_mask()?;
+    let validity = array.validity_mask();
     let dest_values_type = precision_to_duckdb_storage_size(&array.decimal_dtype())?;
 
     match_each_decimal_value_type!(array.values_type(), |D| {
@@ -38,7 +38,7 @@ pub(crate) fn new_exporter(array: &DecimalArray) -> VortexResult<Box<dyn ColumnE
 
 /// Maps a decimal precision into the small type that can represent it.
 /// see <https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals>
-fn precision_to_duckdb_storage_size(
+pub fn precision_to_duckdb_storage_size(
     decimal_dtype: &DecimalDType,
 ) -> VortexResult<DecimalValueType> {
     Ok(match decimal_dtype.precision() {
@@ -57,7 +57,7 @@ where
 {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Set validity if necessary.
-        if vector.set_validity(&self.validity, offset, len) {
+        if unsafe { vector.set_validity(&self.validity, offset, len) } {
             // All values are null, so no point copying the data.
             return Ok(());
         }

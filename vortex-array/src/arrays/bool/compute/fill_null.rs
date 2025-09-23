@@ -18,7 +18,7 @@ impl FillNullKernel for BoolVTable {
             .ok_or_else(|| vortex_err!("Fill value must be non null"))?;
 
         Ok(match array.validity() {
-            Validity::NonNullable | Validity::AllValid => BoolArray::new(
+            Validity::NonNullable | Validity::AllValid => BoolArray::from_bool_buffer(
                 array.boolean_buffer().clone(),
                 fill_value.dtype().nullability().into(),
             )
@@ -28,11 +28,12 @@ impl FillNullKernel for BoolVTable {
             }
             Validity::Array(v) => {
                 let bool_buffer = if fill {
-                    array.boolean_buffer() | &!v.to_bool()?.boolean_buffer()
+                    array.boolean_buffer() | &!v.to_bool().boolean_buffer()
                 } else {
-                    array.boolean_buffer() & v.to_bool()?.boolean_buffer()
+                    array.boolean_buffer() & v.to_bool().boolean_buffer()
                 };
-                BoolArray::new(bool_buffer, fill_value.dtype().nullability().into()).into_array()
+                BoolArray::from_bool_buffer(bool_buffer, fill_value.dtype().nullability().into())
+                    .into_array()
             }
         })
     }
@@ -55,14 +56,13 @@ mod tests {
     #[case(true, vec![true, true, false, true])]
     #[case(false, vec![true, false, false, false])]
     fn bool_fill_null(#[case] fill_value: bool, #[case] expected: Vec<bool>) {
-        let bool_array = BoolArray::new(
+        let bool_array = BoolArray::from_bool_buffer(
             BooleanBuffer::from_iter([true, true, false, false]),
             Validity::from_iter([true, false, true, false]),
         );
         let non_null_array = fill_null(bool_array.as_ref(), &fill_value.into())
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
         assert_eq!(
             non_null_array.boolean_buffer().iter().collect::<Vec<_>>(),
             expected

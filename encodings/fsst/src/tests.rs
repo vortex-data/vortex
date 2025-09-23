@@ -12,12 +12,12 @@ use crate::{FSSTEncoding, fsst_compress, fsst_train_compressor};
 
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {
-        assert_eq!($arr.scalar_at($n).unwrap(), $expected.try_into().unwrap());
+        assert_eq!($arr.scalar_at($n), $expected.try_into().unwrap());
     };
 }
 
 /// this function is VERY slow on miri, so we only want to run it once
-fn build_fsst_array() -> ArrayRef {
+pub(crate) fn build_fsst_array() -> ArrayRef {
     let mut input_array = VarBinBuilder::<i32>::with_capacity(3);
     input_array.append_value(b"The Greeks never said that the limit could not be overstepped");
     input_array.append_value(
@@ -53,7 +53,7 @@ fn test_fsst_array_ops() {
     );
 
     // test slice
-    let fsst_sliced = fsst_array.slice(1, 3).unwrap();
+    let fsst_sliced = fsst_array.slice(1..3);
     assert_eq!(fsst_sliced.encoding_id(), FSSTEncoding.id());
     assert_eq!(fsst_sliced.len(), 2);
     assert_nth_scalar!(
@@ -96,14 +96,11 @@ fn test_fsst_array_ops() {
     );
 
     // test to_canonical
-    let canonical_array = fsst_array.to_varbinview().unwrap().into_array();
+    let canonical_array = fsst_array.to_varbinview().into_array();
 
     assert_eq!(canonical_array.len(), fsst_array.len());
 
     for i in 0..fsst_array.len() {
-        assert_eq!(
-            fsst_array.scalar_at(i).unwrap(),
-            canonical_array.scalar_at(i).unwrap(),
-        );
+        assert_eq!(fsst_array.scalar_at(i), canonical_array.scalar_at(i),);
     }
 }

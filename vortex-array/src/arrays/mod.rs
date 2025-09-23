@@ -6,12 +6,17 @@
 #[cfg(test)]
 mod assertions;
 
+#[cfg(test)]
+mod validation_tests;
+
 mod bool;
 mod chunked;
 mod constant;
 mod datetime;
 mod extension;
+mod fixed_size_list;
 mod list;
+mod listview;
 mod null;
 mod primitive;
 mod struct_;
@@ -21,18 +26,18 @@ mod varbinview;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod decimal;
-//#[cfg(test)]
-//mod test_compatibility;
 
-pub use self::bool::*;
-pub use self::chunked::*;
-pub use self::constant::*;
-pub use self::datetime::*;
-pub use self::decimal::*;
-pub use self::extension::*;
-pub use self::list::*;
-pub use self::null::*;
-pub use self::primitive::*;
-pub use self::struct_::*;
-pub use self::varbin::*;
-pub use self::varbinview::*;
+pub use bool::*;
+pub use chunked::*;
+pub use constant::*;
+pub use datetime::*;
+pub use decimal::*;
+pub use extension::*;
+pub use fixed_size_list::*;
+pub use list::*;
+pub use listview::*;
+pub use null::*;
+pub use primitive::*;
+pub use struct_::*;
+pub use varbin::*;
+pub use varbinview::*;

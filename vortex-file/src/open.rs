@@ -3,55 +3,108 @@
 
 use std::sync::Arc;
 
-use flatbuffers::root;
+use futures::executor::block_on;
+use parking_lot::RwLock;
 use vortex_array::ArrayRegistry;
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex_io::file::IntoReadSource;
+use vortex_io::runtime::Handle;
+use vortex_io::{InstrumentedReadAt, VortexReadAt};
+use vortex_layout::segments::{
+    NoOpSegmentCache, SegmentCache, SegmentCacheMetrics, SegmentCacheSourceAdapter, SegmentId,
+    SharedSegmentSource,
+};
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
+use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::footer::{FileStatistics, Footer, Postscript, PostscriptSegment};
-use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, VERSION};
+use crate::footer::Footer;
+use crate::segments::{FileSegmentSource, InitialReadSegmentCache};
+use crate::{DEFAULT_REGISTRY, DeserializeStep, EOF_SIZE, MAX_POSTSCRIPT_SIZE, VortexFile};
 
-pub trait FileType: Sized {
-    type Options;
-}
+const INITIAL_READ_SIZE: usize = 1 << 20; // 1 MB
 
 /// Open options for a Vortex file reader.
-pub struct VortexOpenOptions<F: FileType> {
-    /// File-specific options
-    pub(crate) options: F::Options,
+pub struct VortexOpenOptions {
+    /// The handle used by the open file.
+    handle: Option<Handle>,
+    /// Cache to use for file segments.
+    segment_cache: Arc<dyn SegmentCache>,
+    /// The number of bytes to read when parsing the footer.
+    initial_read_size: usize,
     /// The registry of array encodings.
-    pub(crate) registry: Arc<ArrayRegistry>,
+    registry: Arc<ArrayRegistry>,
     /// The registry of layouts.
-    pub(crate) layout_registry: Arc<LayoutRegistry>,
+    layout_registry: Arc<LayoutRegistry>,
     /// An optional, externally provided, file size.
-    pub(crate) file_size: Option<u64>,
+    file_size: Option<u64>,
     /// An optional, externally provided, DType.
-    pub(crate) dtype: Option<DType>,
+    dtype: Option<DType>,
     /// An optional, externally provided, file layout.
-    // TODO(ngates): add an optional DType so we only read the layout segment.
-    pub(crate) footer: Option<Footer>,
+    footer: Option<Footer>,
+    /// The segments read during the initial read.
+    initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
     /// A metrics registry for the file.
-    pub(crate) metrics: VortexMetrics,
+    metrics: VortexMetrics,
 }
 
-impl<F: FileType> VortexOpenOptions<F> {
+impl Default for VortexOpenOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl VortexOpenOptions {
     /// Create a new [`VortexOpenOptions`] with the expected options for the file source.
     ///
     /// This should not be used directly, instead public API clients are expected to
-    /// access either `VortexOpenOptions::file()` or `VortexOpenOptions::memory()`
-    pub(crate) fn new(options: F::Options) -> Self {
+    /// access either `VortexOpenOptions::new()` or `VortexOpenOptions::memory()`
+    pub fn new() -> Self {
         Self {
-            options,
+            handle: Handle::find(),
+            segment_cache: Arc::new(NoOpSegmentCache),
+            initial_read_size: INITIAL_READ_SIZE,
             registry: DEFAULT_REGISTRY.clone(),
             layout_registry: Arc::new(LayoutRegistry::default()),
             file_size: None,
             dtype: None,
             footer: None,
+            initial_read_segments: Default::default(),
             metrics: VortexMetrics::default(),
         }
+    }
+
+    /// Configure the initial read size for the Vortex file.
+    pub fn with_initial_read_size(mut self, initial_read_size: usize) -> Self {
+        self.initial_read_size = initial_read_size;
+        self
+    }
+
+    /// Configure a custom [`SegmentCache`].
+    pub fn with_segment_cache(mut self, segment_cache: Arc<dyn SegmentCache>) -> Self {
+        self.segment_cache = segment_cache;
+        self
+    }
+
+    /// Disable segment caching entirely.
+    pub fn without_segment_cache(self) -> Self {
+        self.with_segment_cache(Arc::new(NoOpSegmentCache))
+    }
+
+    /// Configure a [`Handle`] to use for opening the file.
+    ///
+    /// **Warning**: it is important that the runtime associated with the handle remains alive
+    /// while the file is being used. If the runtime is dropped, any I/O operations on the
+    /// file will fail.
+    ///
+    /// We tried to enforce this with Rust lifetimes, but sadly Rust async cannot express scoped
+    /// futures in a safe way, so we need static lifetimes for now. If you're interested in the
+    /// details, see [this post](https://without.boats/blog/the-scoped-task-trilemma/).
+    pub fn with_handle(mut self, handle: Handle) -> Self {
+        self.handle = Some(handle);
+        self
     }
 
     /// Configure a Vortex array registry.
@@ -100,105 +153,155 @@ impl<F: FileType> VortexOpenOptions<F> {
         self.metrics = metrics;
         self
     }
+
+    /// Open a Vortex file using the provided I/O source.
+    ///
+    /// This is the most common way to open a [`VortexFile`] and tends to provide the best
+    /// out-of-the-box performance. The underlying I/O system will continue to be optimised for
+    /// different file systems and object stores so we encourage users to use this method
+    /// whenever possible and file issues if they encounter problems.
+    pub async fn open<S: IntoReadSource>(self, source: S) -> VortexResult<VortexFile> {
+        let Some(handle) = self.handle.clone() else {
+            vortex_bail!("VortexOpenOptions::handle must be set, or else be running inside Tokio");
+        };
+        let metrics = self.metrics.clone();
+        self.open_read_at(handle.open_read(source, metrics)?).await
+    }
+
+    /// Open a Vortex file from an in-memory buffer.
+    pub fn open_buffer<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
+        // We know this is in memory, so we can open it synchronously.
+        block_on(
+            self.with_initial_read_size(0)
+                .without_segment_cache()
+                .open_read_at(buffer.into()),
+        )
+    }
+
+    /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.
+    ///
+    /// This is a low-level API and we strongly recommend using [`VortexOpenOptions::open`].
+    pub async fn open_read_at<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile> {
+        let read = Arc::new(InstrumentedReadAt::new(Arc::new(read), &self.metrics));
+
+        let footer = if let Some(footer) = self.footer {
+            footer
+        } else {
+            self.read_footer(read.clone()).await?
+        };
+
+        let segment_cache = Arc::new(SegmentCacheMetrics::new(
+            InitialReadSegmentCache {
+                initial: self.initial_read_segments,
+                fallback: self.segment_cache,
+            },
+            self.metrics.clone(),
+        ));
+
+        // Create a segment source backed by the VortexReadAt implementation.
+        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::new(
+            footer.segment_map().clone(),
+            read,
+        )));
+
+        // Wrap up the segment source to first resolve segments from the initial read cache.
+        let segment_source = Arc::new(SegmentCacheSourceAdapter::new(
+            segment_cache,
+            segment_source,
+        ));
+
+        Ok(VortexFile {
+            footer,
+            segment_source,
+            metrics: self.metrics,
+        })
+    }
+
+    async fn read_footer(&self, read: Arc<dyn VortexReadAt>) -> VortexResult<Footer> {
+        // Fetch the file size and perform the initial read.
+        let file_size = match self.file_size {
+            None => read.size().await?,
+            Some(file_size) => file_size,
+        };
+        let mut initial_read_size = self
+            .initial_read_size
+            // Make sure we read enough to cover the postscript
+            .max(MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE);
+        if let Ok(file_size) = usize::try_from(file_size) {
+            initial_read_size = initial_read_size.min(file_size);
+        }
+
+        let initial_offset = file_size - initial_read_size as u64;
+        let initial_read: ByteBuffer = read
+            .clone()
+            .read_at(initial_offset, initial_read_size, Alignment::none())
+            .await?;
+
+        let mut deserializer = Footer::deserializer(initial_read)
+            .with_size(file_size)
+            .with_some_dtype(self.dtype.clone())
+            .with_array_registry(self.registry.clone())
+            .with_layout_registry(self.layout_registry.clone());
+
+        let footer = loop {
+            match deserializer.deserialize()? {
+                DeserializeStep::NeedMoreData { offset, len } => {
+                    let more_data = read.clone().read_at(offset, len, Alignment::none()).await?;
+                    deserializer.prefix_data(more_data);
+                }
+                DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),
+                DeserializeStep::Done(footer) => break Ok::<_, VortexError>(footer),
+            }
+        }?;
+
+        // If the initial read happened to cover any segments, then we can populate the
+        // segment cache
+        let initial_offset = file_size - (deserializer.buffer().len() as u64);
+        self.populate_initial_segments(initial_offset, deserializer.buffer(), &footer);
+
+        Ok(footer)
+    }
+
+    /// Populate segments in the cache that were covered by the initial read.
+    fn populate_initial_segments(
+        &self,
+        initial_offset: u64,
+        initial_read: &ByteBuffer,
+        footer: &Footer,
+    ) {
+        let first_idx = footer
+            .segment_map()
+            .partition_point(|segment| segment.offset < initial_offset);
+
+        let mut initial_read_segments = self.initial_read_segments.write();
+
+        for idx in first_idx..footer.segment_map().len() {
+            let segment = &footer.segment_map()[idx];
+            let segment_id =
+                SegmentId::from(u32::try_from(idx).vortex_expect("Invalid segment ID"));
+            let offset =
+                usize::try_from(segment.offset - initial_offset).vortex_expect("Invalid offset");
+            let buffer = initial_read
+                .slice(offset..offset + (segment.length as usize))
+                .aligned(segment.alignment);
+            initial_read_segments.insert(segment_id, buffer);
+        }
+    }
 }
 
-impl<F: FileType> VortexOpenOptions<F> {
-    /// Parse the postscript from the initial read.
-    pub(crate) fn parse_postscript(&self, initial_read: &[u8]) -> VortexResult<Postscript> {
-        if initial_read.len() < EOF_SIZE {
-            vortex_bail!(
-                "Initial read must be at least EOF_SIZE ({}) bytes",
-                EOF_SIZE
-            );
-        }
-        let eof_loc = initial_read.len() - EOF_SIZE;
-        let magic_bytes_loc = eof_loc + (EOF_SIZE - MAGIC_BYTES.len());
+#[cfg(feature = "object_store")]
+impl VortexOpenOptions {
+    pub async fn open_object_store(
+        self,
+        object_store: &Arc<dyn object_store::ObjectStore>,
+        path: &str,
+    ) -> VortexResult<VortexFile> {
+        use vortex_io::file::object_store::ObjectStoreReadSource;
 
-        let magic_number = &initial_read[magic_bytes_loc..];
-        if magic_number != MAGIC_BYTES {
-            vortex_bail!("Malformed file, invalid magic bytes, got {magic_number:?}")
-        }
-
-        let version = u16::from_le_bytes(
-            initial_read[eof_loc..eof_loc + 2]
-                .try_into()
-                .map_err(|e| vortex_err!("Version was not a u16 {e}"))?,
-        );
-        if version != VERSION {
-            vortex_bail!("Malformed file, unsupported version {version}")
-        }
-
-        let ps_size = u16::from_le_bytes(
-            initial_read[eof_loc + 2..eof_loc + 4]
-                .try_into()
-                .map_err(|e| vortex_err!("Postscript size was not a u16 {e}"))?,
-        ) as usize;
-
-        if initial_read.len() < ps_size + EOF_SIZE {
-            vortex_bail!(
-                "Initial read must be at least {} bytes to include the Postscript",
-                ps_size + EOF_SIZE
-            );
-        }
-
-        Postscript::read_flatbuffer_bytes(&initial_read[eof_loc - ps_size..eof_loc])
-    }
-
-    /// Parse the DType from the initial read.
-    pub(crate) fn parse_dtype(
-        &self,
-        initial_offset: u64,
-        initial_read: &[u8],
-        segment: &PostscriptSegment,
-    ) -> VortexResult<DType> {
-        let offset = usize::try_from(segment.offset - initial_offset)?;
-        let sliced_buffer =
-            FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
-        let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
-
-        DType::try_from_view(fbd_dtype, sliced_buffer.clone())
-    }
-
-    /// Parse the [`FileStatistics`] from the initial read buffer.
-    pub(crate) fn parse_file_statistics(
-        &self,
-        initial_offset: u64,
-        initial_read: &[u8],
-        segment: &PostscriptSegment,
-    ) -> VortexResult<FileStatistics> {
-        let offset = usize::try_from(segment.offset - initial_offset)?;
-        let sliced_buffer =
-            FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
-        FileStatistics::read_flatbuffer_bytes(&sliced_buffer)
-    }
-
-    /// Parse the rest of the footer from the initial read.
-    pub(crate) fn parse_footer(
-        &self,
-        initial_offset: u64,
-        initial_read: &[u8],
-        footer_segment: &PostscriptSegment,
-        layout_segment: &PostscriptSegment,
-        dtype: DType,
-        file_stats: Option<FileStatistics>,
-    ) -> VortexResult<Footer> {
-        let footer_offset = usize::try_from(footer_segment.offset - initial_offset)?;
-        let footer_bytes = FlatBuffer::copy_from(
-            &initial_read[footer_offset..footer_offset + (footer_segment.length as usize)],
-        );
-
-        let layout_offset = usize::try_from(layout_segment.offset - initial_offset)?;
-        let layout_bytes = FlatBuffer::copy_from(
-            &initial_read[layout_offset..layout_offset + (layout_segment.length as usize)],
-        );
-
-        Footer::from_flatbuffer(
-            footer_bytes,
-            layout_bytes,
-            dtype,
-            file_stats,
-            &self.registry,
-            &self.layout_registry,
-        )
+        self.open(ObjectStoreReadSource::new(
+            object_store.clone(),
+            path.into(),
+        ))
+        .await
     }
 }

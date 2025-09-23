@@ -3,6 +3,7 @@
 
 use std::cmp;
 use std::fmt::Debug;
+use std::ops::Range;
 
 use pco::data_types::{Number, NumberType};
 use pco::errors::PcoError;
@@ -18,8 +19,8 @@ use vortex_array::vtable::{
 };
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{DType, PType, half};
+use vortex_error::{VortexError, VortexResult, VortexUnwrap, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::serde::PcoMetadata;
@@ -59,6 +60,7 @@ impl VTable for PcoVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
+    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.pco")
@@ -69,9 +71,9 @@ impl VTable for PcoVTable {
     }
 }
 
-fn number_type_from_dtype(dtype: &DType) -> VortexResult<NumberType> {
+fn number_type_from_dtype(dtype: &DType) -> NumberType {
     let ptype = dtype.as_ptype();
-    let number_type = match ptype {
+    match ptype {
         PType::F16 => NumberType::F16,
         PType::F32 => NumberType::F32,
         PType::F64 => NumberType::F64,
@@ -81,14 +83,13 @@ fn number_type_from_dtype(dtype: &DType) -> VortexResult<NumberType> {
         PType::U16 => NumberType::U16,
         PType::U32 => NumberType::U32,
         PType::U64 => NumberType::U64,
-        _ => vortex_bail!("PType not supported by Pco: {:?}", ptype),
-    };
-    Ok(number_type)
+        _ => unreachable!("PType not supported by Pco: {:?}", ptype),
+    }
 }
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.validity_mask()?;
-    filter(&parray.to_array(), &mask)?.to_primitive()
+    let mask = parray.validity_mask();
+    Ok(filter(&parray.to_array(), &mask)?.to_primitive())
 }
 
 fn vortex_err_from_pco(err: PcoError) -> VortexError {
@@ -152,7 +153,7 @@ impl PcoArray {
         values_per_chunk: usize,
         values_per_page: usize,
     ) -> VortexResult<Self> {
-        let number_type = number_type_from_dtype(parray.dtype())?;
+        let number_type = number_type_from_dtype(parray.dtype());
         let values_per_page = if values_per_page == 0 {
             values_per_chunk
         } else {
@@ -227,43 +228,43 @@ impl PcoArray {
         }
     }
 
-    pub fn decompress(&self) -> VortexResult<ArrayRef> {
+    pub fn decompress(&self) -> PrimitiveArray {
         // To start, we figure out which chunks and pages we need to decompress, and with
         // what value offset into the first such page.
-        let number_type = number_type_from_dtype(&self.dtype)?;
+        let number_type = number_type_from_dtype(&self.dtype);
         let values_byte_buffer = match_number_enum!(
             number_type,
             NumberType<T> => {
               self.decompress_values_typed::<T>()
             }
-        )?;
+        );
 
-        let primitive = PrimitiveArray::from_values_byte_buffer(
+        PrimitiveArray::from_values_byte_buffer(
             values_byte_buffer,
             self.dtype.as_ptype(),
             self.unsliced_validity
-                .slice(self.slice_start, self.slice_stop)?,
+                .slice(self.slice_start..self.slice_stop),
             self.slice_stop - self.slice_start,
-        )?;
-        Ok(primitive.into_array())
+        )
     }
 
     #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
-    fn decompress_values_typed<T: Number>(&self) -> VortexResult<ByteBuffer> {
+    fn decompress_values_typed<T: Number>(&self) -> ByteBuffer {
         // To start, we figure out what range of values we need to decompress.
-        let slice_n_rows = self.slice_stop - self.slice_start;
         let slice_value_indices = self
             .unsliced_validity
-            .to_mask(self.unsliced_n_rows)?
-            .valid_counts_for_indices(&[self.slice_start, self.slice_stop])?;
+            .to_mask(self.unsliced_n_rows)
+            .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
         let slice_value_start = slice_value_indices[0];
         let slice_value_stop = slice_value_indices[1];
+        let slice_n_values = slice_value_stop - slice_value_start;
 
         // Then we decompress those pages into a buffer. Note that these values
         // may exceed the bounds of the slice, so we need to slice later.
-        let (fd, _) =
-            FileDecompressor::new(self.metadata.header.as_slice()).map_err(vortex_err_from_pco)?;
-        let mut decompressed_values = BufferMut::<T>::with_capacity(slice_n_rows);
+        let (fd, _) = FileDecompressor::new(self.metadata.header.as_slice())
+            .map_err(vortex_err_from_pco)
+            .vortex_unwrap();
+        let mut decompressed_values = BufferMut::<T>::with_capacity(slice_n_values);
         let mut page_idx = 0;
         let mut page_value_start = 0;
         let mut n_skipped_values = 0;
@@ -290,16 +291,19 @@ impl PcoArray {
                     if cd.is_none() {
                         let (new_cd, _) = fd
                             .chunk_decompressor(chunk_meta_bytes)
-                            .map_err(vortex_err_from_pco)?;
+                            .map_err(vortex_err_from_pco)
+                            .vortex_unwrap();
                         cd = Some(new_cd);
                     }
                     let mut pd = cd
                         .as_mut()
                         .unwrap()
                         .page_decompressor(page, page_n_values)
-                        .map_err(vortex_err_from_pco)?;
+                        .map_err(vortex_err_from_pco)
+                        .vortex_unwrap();
                     pd.decompress(&mut decompressed_values[old_len..new_len])
-                        .map_err(vortex_err_from_pco)?;
+                        .map_err(vortex_err_from_pco)
+                        .vortex_unwrap();
                 } else {
                     n_skipped_values += page_n_values;
                 }
@@ -311,18 +315,35 @@ impl PcoArray {
 
         // Slice only the values requested.
         let value_offset = slice_value_start - n_skipped_values;
-        Ok(decompressed_values
+        decompressed_values
             .freeze()
-            .slice(value_offset..value_offset + slice_n_rows)
-            .into_byte_buffer())
+            .slice(value_offset..value_offset + slice_n_values)
+            .into_byte_buffer()
     }
 
-    fn _slice(&self, start: usize, stop: usize) -> Self {
+    pub(crate) fn _slice(&self, start: usize, stop: usize) -> Self {
         PcoArray {
             slice_start: self.slice_start + start,
             slice_stop: self.slice_start + stop,
+            stats_set: Default::default(),
             ..self.clone()
         }
+    }
+
+    pub(crate) fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    pub(crate) fn slice_start(&self) -> usize {
+        self.slice_start
+    }
+
+    pub(crate) fn slice_stop(&self) -> usize {
+        self.slice_stop
+    }
+
+    pub(crate) fn unsliced_n_rows(&self) -> usize {
+        self.unsliced_n_rows
     }
 }
 
@@ -347,17 +368,17 @@ impl ArrayVTable<PcoVTable> for PcoVTable {
 }
 
 impl CanonicalVTable<PcoVTable> for PcoVTable {
-    fn canonicalize(array: &PcoArray) -> VortexResult<Canonical> {
-        array.decompress()?.to_canonical()
+    fn canonicalize(array: &PcoArray) -> Canonical {
+        array.decompress().to_canonical()
     }
 }
 
 impl OperationsVTable<PcoVTable> for PcoVTable {
-    fn slice(array: &PcoArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(array._slice(start, stop).into_array())
+    fn slice(array: &PcoArray, range: Range<usize>) -> ArrayRef {
+        array._slice(range.start, range.end).into_array()
     }
 
-    fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
-        array._slice(index, index + 1).decompress()?.scalar_at(0)
+    fn scalar_at(array: &PcoArray, index: usize) -> Scalar {
+        array._slice(index, index + 1).decompress().scalar_at(0)
     }
 }

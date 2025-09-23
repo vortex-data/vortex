@@ -23,10 +23,10 @@ impl CompareKernel for RunEndVTable {
                 ConstantArray::new(const_scalar, lhs.values().len()).as_ref(),
                 operator,
             )
-            .and_then(|values| {
+            .map(|values| {
                 runend_decode_bools(
-                    lhs.ends().to_primitive()?,
-                    values.to_bool()?,
+                    lhs.ends().to_primitive(),
+                    values.to_bool(),
                     lhs.offset(),
                     lhs.len(),
                 )
@@ -44,17 +44,15 @@ register_kernel!(CompareKernelAdapter(RunEndVTable).lift());
 
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::{BooleanBuffer, ConstantArray, PrimitiveArray};
+    use vortex_array::arrays::{BooleanBuffer, ConstantArray};
     use vortex_array::compute::{Operator, compare};
     use vortex_array::{IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
 
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
-        RunEndArray::encode(
-            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
-        )
-        .unwrap()
+        RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array()).unwrap()
     }
 
     #[test]
@@ -66,7 +64,7 @@ mod test {
             Operator::Eq,
         )
         .unwrap();
-        let res_canon = res.to_bool().unwrap();
+        let res_canon = res.to_bool();
         assert_eq!(
             res_canon.boolean_buffer(),
             &BooleanBuffer::from(vec![

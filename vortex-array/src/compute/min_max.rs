@@ -9,9 +9,22 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::Array;
+use crate::arrays::ConstantVTable;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
-use crate::stats::{Precision, Stat, StatsProviderExt};
+use crate::stats::{Precision, Stat, StatsProvider};
 use crate::vtable::VTable;
+
+static MIN_MAX_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("min_max".into(), ArcRef::new_ref(&MinMax));
+    for kernel in inventory::iter::<MinMaxKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+pub(crate) fn warm_up_vtable() -> usize {
+    MIN_MAX_FN.kernels().len()
+}
 
 /// The minimum and maximum non-null values of an array, or None if there are no non-null values.
 ///
@@ -116,17 +129,26 @@ fn min_max_impl(
     array: &dyn Array,
     kernels: &[ArcRef<dyn Kernel>],
 ) -> VortexResult<Option<MinMaxResult>> {
-    if array.is_empty() || array.valid_count()? == 0 {
+    if array.is_empty() || array.valid_count() == 0 {
         return Ok(None);
+    }
+
+    if let Some(array) = array.as_opt::<ConstantVTable>()
+        && !array.scalar().is_null()
+    {
+        return Ok(Some(MinMaxResult {
+            min: array.scalar().clone(),
+            max: array.scalar().clone(),
+        }));
     }
 
     let min = array
         .statistics()
-        .get_scalar(Stat::Min, array.dtype())
+        .get(Stat::Min)
         .and_then(Precision::as_exact);
     let max = array
         .statistics()
-        .get_scalar(Stat::Max, array.dtype())
+        .get(Stat::Max)
         .and_then(Precision::as_exact);
 
     if let Some((min, max)) = min.zip(max) {
@@ -147,7 +169,7 @@ fn min_max_impl(
     }
 
     if !array.is_canonical() {
-        let array = array.to_canonical()?;
+        let array = array.to_canonical();
         return min_max(array.as_ref());
     }
 
@@ -191,14 +213,6 @@ impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
     }
 }
 
-pub static MIN_MAX_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("min_max".into(), ArcRef::new_ref(&MinMax));
-    for kernel in inventory::iter::<MinMaxKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
@@ -222,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_bool_max() {
-        let p = BoolArray::new(
+        let p = BoolArray::from_bool_buffer(
             BooleanBuffer::from([true, true, true].as_slice()),
             Validity::NonNullable,
         );
@@ -234,7 +248,7 @@ mod tests {
             })
         );
 
-        let p = BoolArray::new(
+        let p = BoolArray::from_bool_buffer(
             BooleanBuffer::from([false, false, false].as_slice()),
             Validity::NonNullable,
         );
@@ -246,7 +260,7 @@ mod tests {
             })
         );
 
-        let p = BoolArray::new(
+        let p = BoolArray::from_bool_buffer(
             BooleanBuffer::from([false, true, false].as_slice()),
             Validity::NonNullable,
         );

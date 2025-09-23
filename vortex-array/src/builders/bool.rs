@@ -5,49 +5,59 @@ use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_ensure};
 use vortex_mask::Mask;
+use vortex_scalar::{BoolScalar, Scalar};
 
 use crate::arrays::BoolArray;
-use crate::builders::ArrayBuilder;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
+use crate::canonical::{Canonical, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub struct BoolBuilder {
+    dtype: DType,
     inner: BooleanBufferBuilder,
     nulls: LazyNullBufferBuilder,
-    nullability: Nullability,
-    dtype: DType,
 }
 
 impl BoolBuilder {
     pub fn new(nullability: Nullability) -> Self {
-        Self::with_capacity(nullability, 1024) // Same as Arrow builders
+        Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY)
     }
 
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
             inner: BooleanBufferBuilder::new(capacity),
             nulls: LazyNullBufferBuilder::new(capacity),
-            nullability,
             dtype: DType::Bool(nullability),
         }
     }
 
+    /// Appends a boolean value to the builder.
     pub fn append_value(&mut self, value: bool) {
         self.append_values(value, 1)
     }
 
+    /// Appends the same boolean value multiple times to the builder.
+    ///
+    /// This method appends the given boolean value `n` times.
     pub fn append_values(&mut self, value: bool, n: usize) {
         self.inner.append_n(n, value);
         self.nulls.append_n_non_nulls(n)
     }
 
-    pub fn append_option(&mut self, value: Option<bool>) {
-        match value {
-            Some(value) => self.append_value(value),
-            None => self.append_null(),
-        }
+    /// Finishes the builder directly into a [`BoolArray`].
+    pub fn finish_into_bool(&mut self) -> BoolArray {
+        assert_eq!(
+            self.nulls.len(),
+            self.inner.len(),
+            "Null count and value count should match when calling BoolBuilder::finish."
+        );
+
+        BoolArray::from_bool_buffer(
+            self.inner.finish(),
+            self.nulls.finish_with_nullability(self.dtype.nullability()),
+        )
     }
 }
 
@@ -72,27 +82,39 @@ impl ArrayBuilder for BoolBuilder {
         self.append_values(false, n)
     }
 
-    fn append_nulls(&mut self, n: usize) {
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.inner.append_n(n, false);
         self.nulls.append_n_nulls(n)
     }
 
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_canonical()?;
-        let Canonical::Bool(array) = array else {
-            vortex_bail!("Expected Canonical::Bool, found {:?}", array);
-        };
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "BoolBuilder expected scalar with dtype {:?}, got {:?}",
+            self.dtype(),
+            scalar.dtype()
+        );
 
-        self.inner.append_buffer(array.boolean_buffer());
-        self.nulls.append_validity_mask(array.validity_mask()?);
+        let bool_scalar = BoolScalar::try_from(scalar)?;
+        match bool_scalar.value() {
+            Some(value) => self.append_value(value),
+            None => self.append_null(),
+        }
 
         Ok(())
     }
 
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let bool_array = array.to_bool();
+
+        self.inner.append_buffer(bool_array.boolean_buffer());
+        self.nulls.append_validity_mask(bool_array.validity_mask());
+    }
+
     fn ensure_capacity(&mut self, capacity: usize) {
         if capacity > self.inner.capacity() {
-            self.nulls.ensure_capacity(capacity);
             self.inner.reserve(capacity - self.inner.capacity());
+            self.nulls.ensure_capacity(capacity);
         }
     }
 
@@ -102,17 +124,11 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn finish(&mut self) -> ArrayRef {
-        assert_eq!(
-            self.nulls.len(),
-            self.inner.len(),
-            "Null count and value count should match when calling BoolBuilder::finish."
-        );
+        self.finish_into_bool().into_array()
+    }
 
-        BoolArray::new(
-            self.inner.finish(),
-            self.nulls.finish_with_nullability(self.nullability),
-        )
-        .into_array()
+    fn finish_into_canonical(&mut self) -> Canonical {
+        Canonical::Bool(self.finish_into_bool())
     }
 }
 
@@ -120,13 +136,16 @@ impl ArrayBuilder for BoolBuilder {
 mod tests {
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
+    use vortex_dtype::{DType, Nullability};
+    use vortex_scalar::Scalar;
 
     use crate::array::Array;
     use crate::arrays::{BoolArray, ChunkedArray};
-    use crate::builders::builder_with_capacity;
+    use crate::builders::{ArrayBuilder, BoolBuilder, builder_with_capacity};
     use crate::canonical::ToCanonical;
     use crate::vtable::ValidityHelper;
     use crate::{ArrayRef, IntoArray};
+
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(0);
 
@@ -151,17 +170,47 @@ mod tests {
         let chunk = make_opt_bool_chunks(len, chunk_count);
 
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.clone().append_to_builder(builder.as_mut()).unwrap();
-        let canon_into = builder
-            .finish()
-            .to_canonical()
-            .unwrap()
-            .into_bool()
-            .unwrap();
+        chunk.clone().append_to_builder(builder.as_mut());
 
-        let into_canon = chunk.to_bool().unwrap();
+        let canon_into = builder.finish().to_bool();
+        let into_canon = chunk.to_bool();
 
         assert_eq!(canon_into.validity(), into_canon.validity());
         assert_eq!(canon_into.boolean_buffer(), into_canon.boolean_buffer());
+    }
+
+    #[test]
+    fn test_append_scalar() {
+        let mut builder = BoolBuilder::with_capacity(Nullability::Nullable, 10);
+
+        // Test appending true value.
+        let true_scalar = Scalar::bool(true, Nullability::Nullable);
+        builder.append_scalar(&true_scalar).unwrap();
+
+        // Test appending false value.
+        let false_scalar = Scalar::bool(false, Nullability::Nullable);
+        builder.append_scalar(&false_scalar).unwrap();
+
+        // Test appending null value.
+        let null_scalar = Scalar::null(DType::Bool(Nullability::Nullable));
+        builder.append_scalar(&null_scalar).unwrap();
+
+        let array = builder.finish_into_bool();
+        assert_eq!(array.len(), 3);
+
+        // Check actual values.
+        assert!(array.boolean_buffer().value(0));
+        assert!(!array.boolean_buffer().value(1));
+        // The third value is null, but the buffer might have any value.
+
+        // Check validity - first two should be valid, third should be null.
+        assert!(array.validity().is_valid(0));
+        assert!(array.validity().is_valid(1));
+        assert!(!array.validity().is_valid(2));
+
+        // Test wrong dtype error.
+        let mut builder = BoolBuilder::with_capacity(Nullability::NonNullable, 10);
+        let wrong_scalar = Scalar::from(42i32);
+        assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 }

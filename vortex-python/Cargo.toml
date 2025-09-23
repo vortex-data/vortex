@@ -20,11 +20,11 @@ workspace = true
 
 [lib]
 crate-type = ["rlib", "cdylib"]
-doctest = false                 # TODO(ngates): why?
 
 [dependencies]
-arrow = { workspace = true, features = ["pyarrow"] }
-futures = { workspace = true }
+arrow-array = { workspace = true }
+arrow-data = { workspace = true }
+arrow-schema = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 mimalloc = { workspace = true }
@@ -34,4 +34,4 @@ pyo3 = { workspace = true, features = ["abi3-py311"] }
 pyo3-log = { workspace = true }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 url = { workspace = true }
-vortex = { workspace = true, features = ["object_store", "python"] }
+vortex = { workspace = true, features = ["object_store", "python", "tokio"] }

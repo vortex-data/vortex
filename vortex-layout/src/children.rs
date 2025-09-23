@@ -6,8 +6,9 @@ use std::sync::Arc;
 
 use flatbuffers::Follow;
 use itertools::Itertools;
+use vortex_array::ArrayContext;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, layout as fbl};
 
 use crate::segments::SegmentId;
@@ -76,7 +77,7 @@ impl LayoutChildren for OwnedLayoutChildren {
         }
         let child = &self.0[idx];
         if child.dtype() != dtype {
-            vortex_panic!("Child dtype mismatch: {} != {}", child.dtype(), dtype);
+            vortex_bail!("Child dtype mismatch: {} != {}", child.dtype(), dtype);
         }
         Ok(child.clone())
     }
@@ -94,7 +95,8 @@ impl LayoutChildren for OwnedLayoutChildren {
 pub(crate) struct ViewedLayoutChildren {
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
-    ctx: LayoutContext,
+    array_ctx: ArrayContext,
+    layout_ctx: LayoutContext,
 }
 
 impl ViewedLayoutChildren {
@@ -106,17 +108,22 @@ impl ViewedLayoutChildren {
     pub(super) unsafe fn new_unchecked(
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
-        ctx: LayoutContext,
+        array_ctx: ArrayContext,
+        layout_ctx: LayoutContext,
     ) -> Self {
         Self {
             flatbuffer,
             flatbuffer_loc,
-            ctx,
+            array_ctx,
+            layout_ctx,
         }
     }
 
     /// Return the flatbuffer layout message.
     fn flatbuffer(&self) -> fbl::Layout<'_> {
+        // SAFETY: flatbuffer_loc is guaranteed to be a valid offset into the flatbuffer
+        // as it was constructed from a validated flatbuffer in ViewedLayoutChildren::try_new.
+        // The lifetime of the returned Layout is tied to self, ensuring the buffer remains valid.
         unsafe { fbl::Layout::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 }
@@ -135,10 +142,11 @@ impl LayoutChildren for ViewedLayoutChildren {
         let viewed_children = ViewedLayoutChildren {
             flatbuffer: self.flatbuffer.clone(),
             flatbuffer_loc: fb_child._tab.loc(),
-            ctx: self.ctx.clone(),
+            array_ctx: self.array_ctx.clone(),
+            layout_ctx: self.layout_ctx.clone(),
         };
         let encoding = self
-            .ctx
+            .layout_ctx
             .lookup_encoding(fb_child.encoding())
             .ok_or_else(|| vortex_err!("Encoding not found: {}", fb_child.encoding()))?;
 
@@ -156,6 +164,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                 .map(SegmentId::from)
                 .collect_vec(),
             &viewed_children,
+            self.array_ctx.clone(),
         )
     }
 

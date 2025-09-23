@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use humansize::{DECIMAL, make_format};
+use itertools::Itertools;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
@@ -9,18 +12,18 @@ use ratatui::text::Text;
 use ratatui::widgets::{
     Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget, Wrap,
 };
+use tokio::runtime::Handle;
+use tokio::task::block_in_place;
 use vortex::error::VortexExpect;
 use vortex::expr::root;
-use vortex::mask::Mask;
-use vortex::{Array, ArrayRef, ToCanonical};
-use vortex_layout::layouts::flat::FlatVTable;
-use vortex_layout::layouts::zoned::ZonedVTable;
+use vortex::layout::layouts::flat::FlatVTable;
+use vortex::layout::layouts::zoned::ZonedVTable;
+use vortex::{Array, ArrayRef, MaskFuture, ToCanonical};
 
-use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
 
 /// Render the Layouts tab.
-pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
+pub fn render_layouts(app_state: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {
     let [header_area, detail_area] =
         Layout::vertical([Constraint::Length(10), Constraint::Min(1)]).areas(area);
 
@@ -89,28 +92,29 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
 }
 
 /// Render the inner Array for a FlatLayout
-fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
+fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
     let row_count = app.cursor.layout().row_count();
     let reader = app
         .cursor
         .layout()
-        .new_reader(
-            "".into(),
-            app.vxf.segment_source(),
-            app.vxf.footer().ctx().clone(),
-        )
+        .new_reader("".into(), app.vxf.segment_source())
         .vortex_expect("Failed to create reader");
 
-    let array = TOKIO_RUNTIME
-        .block_on(
+    // FIXME(ngates): our TUI app should never perform I/O in the render loop...
+    let array = block_in_place(|| {
+        Handle::current().block_on(
             reader
-                .projection_evaluation(&(0..row_count), &root())
-                .vortex_expect("Failed to construct projection")
-                .invoke(Mask::new_true(
-                    usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
-                )),
+                .projection_evaluation(
+                    &(0..row_count),
+                    &root(),
+                    MaskFuture::new_true(
+                        usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
+                    ),
+                )
+                .vortex_expect("Failed to construct projection"),
         )
-        .vortex_expect("Failed to read flat array");
+    })
+    .vortex_expect("Failed to read flat array");
 
     // Show the metadata as JSON. (show count of encoded bytes as well)
     // let metadata_size = array.metadata_bytes().unwrap_or_default().len();
@@ -126,7 +130,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
     if is_stats_table {
         // Render the stats table horizontally
-        let struct_array = array.to_struct().vortex_expect("stats table");
+        let struct_array = array.to_struct();
         // add 1 for the chunk column
         let field_count = struct_array.struct_fields().nfields() + 1;
         let header = std::iter::once("chunk")
@@ -143,13 +147,11 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
         // TODO: trim the number of displayed rows and allow paging through column stats.
         let rows = (0..array.len()).map(|chunk_id| {
             std::iter::once(Cell::from(Text::from(format!("{chunk_id}"))))
-                .chain(field_arrays.iter().map(|arr| {
-                    Cell::from(Text::from(
-                        arr.scalar_at(chunk_id)
-                            .vortex_expect("stats table scalar_at")
-                            .to_string(),
-                    ))
-                }))
+                .chain(
+                    field_arrays
+                        .iter()
+                        .map(|arr| Cell::from(Text::from(arr.scalar_at(chunk_id).to_string()))),
+                )
                 .collect::<Row>()
         });
 
@@ -166,14 +168,17 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .style(Style::new().bold())
             .height(1);
 
-        let rows = array.statistics().into_iter().map(|(stat, value)| {
-            let value = value.into_scalar(
-                stat.dtype(array.dtype())
-                    .vortex_expect("stat invalid for dtype"),
-            );
-            let stat = Cell::from(Text::from(format!("{stat}")));
-            let value = Cell::from(Text::from(format!("{value}")));
-            Row::new(vec![stat, value])
+        let rows = array.statistics().with_iter(|iter| {
+            iter.map(|(stat, value)| {
+                let value = value.clone().into_scalar(
+                    stat.dtype(array.dtype())
+                        .vortex_expect("stat invalid for dtype"),
+                );
+                let stat = Cell::from(Text::from(format!("{stat}")));
+                let value = Cell::from(Text::from(format!("{value}")));
+                Row::new(vec![stat, value])
+            })
+            .collect::<Vec<_>>()
         });
 
         let layout = Layout::default()
@@ -182,7 +187,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .split(widget_area);
         let table = Table::new(rows, [Constraint::Min(6), Constraint::Min(6)]).header(header);
         // Tree-display the active array
-        let tree = Paragraph::new(array.tree_display().to_string()).wrap(Wrap { trim: false });
+        let tree = Paragraph::new(array.display_tree().to_string()).wrap(Wrap { trim: false });
 
         let stats_container = Block::new()
             .title("Statistics")
@@ -215,44 +220,71 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let layout = app.cursor.layout();
 
     if layout.nchildren() > 0 {
-        let filter: Vec<bool> = layout
-            .child_names()
-            .map(|name| {
-                if search_filter.is_empty() {
-                    true
-                } else {
-                    name.contains(&search_filter)
-                }
-            })
-            .collect();
+        if search_filter.is_empty() {
+            // No search filter, show all items
+            let list_items = layout
+                .child_names()
+                .map(|name| name.to_string())
+                .collect_vec();
 
-        let list_items: Vec<String> = layout
-            .child_names()
-            .zip(filter.iter())
-            .filter_map(|(name, keep)| keep.then_some(name.to_string()))
-            .collect();
+            app.filter = None;
+            render_child_list_items(app, area, buf, list_items);
+        } else {
+            // Use fuzzy matching to rank and filter results
+            let matcher = SkimMatcherV2::default();
 
-        if !app.search_filter.is_empty() {
+            // Collect scored matches
+            let mut scored_matches = layout
+                .child_names()
+                .enumerate()
+                .filter_map(|(idx, name)| {
+                    matcher
+                        .fuzzy_match(&name, &search_filter)
+                        .map(|score| (idx, name.to_string(), score))
+                })
+                .collect_vec();
+
+            // Sort by score (higher is better)
+            scored_matches.sort_by(|a, b| b.2.cmp(&a.2));
+
+            // Create filter based on fuzzy matches
+            let mut filter = vec![false; layout.nchildren()];
+            let list_items = scored_matches
+                .iter()
+                .map(|(idx, name, _score)| {
+                    filter[*idx] = true;
+                    name.clone()
+                })
+                .collect_vec();
+
             app.filter = Some(filter);
+            render_child_list_items(app, area, buf, list_items);
         }
-
-        let container = Block::new()
-            .title("Child Layouts")
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::DarkGray));
-
-        let inner_area = container.inner(area);
-
-        container.render(area, buf);
-
-        // Render the List view.
-        // TODO: add state so we can scroll
-        StatefulWidget::render(
-            List::new(list_items).highlight_style(Style::default().black().on_white().bold()),
-            inner_area,
-            buf,
-            &mut app.layouts_list_state,
-        );
     }
+}
+
+fn render_child_list_items(
+    app: &mut AppState,
+    area: Rect,
+    buf: &mut Buffer,
+    list_items: Vec<String>,
+) {
+    let container = Block::new()
+        .title("Child Layouts")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::DarkGray));
+
+    let inner_area = container.inner(area);
+
+    container.render(area, buf);
+
+    // Render the List view.
+    // TODO: add state so we can scroll
+    StatefulWidget::render(
+        List::new(list_items).highlight_style(Style::default().black().on_white().bold()),
+        inner_area,
+        buf,
+        &mut app.layouts_list_state,
+    );
 }

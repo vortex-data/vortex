@@ -4,26 +4,28 @@
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 
 use crate::{DateTimePartsArray, DateTimePartsVTable};
 
 impl CastKernel for DateTimePartsVTable {
-    fn cast(&self, array: &DateTimePartsArray, dtype: &DType) -> VortexResult<ArrayRef> {
+    fn cast(&self, array: &DateTimePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
-            vortex_bail!("cannot cast from {} to {}", array.dtype(), dtype);
+            return Ok(None);
         };
 
-        Ok(DateTimePartsArray::try_new(
-            dtype.clone(),
-            cast(
-                array.days().as_ref(),
-                &array.days().dtype().with_nullability(dtype.nullability()),
-            )?,
-            array.seconds().clone(),
-            array.subseconds().clone(),
-        )?
-        .into_array())
+        Ok(Some(
+            DateTimePartsArray::try_new(
+                dtype.clone(),
+                cast(
+                    array.days().as_ref(),
+                    &array.days().dtype().with_nullability(dtype.nullability()),
+                )?,
+                array.seconds().clone(),
+                array.subseconds().clone(),
+            )?
+            .into_array(),
+        ))
     }
 }
 
@@ -53,7 +55,7 @@ mod tests {
                 validity,
             )
             .into_array(),
-            TimeUnit::Ms,
+            TimeUnit::Milliseconds,
             Some("UTC".to_string()),
         ))
         .unwrap()
@@ -68,7 +70,7 @@ mod tests {
     #[case(Validity::NonNullable, Nullability::NonNullable)]
     #[case(Validity::AllValid, Nullability::NonNullable)]
     #[case(Validity::from_iter([true, true, true]), Nullability::Nullable)]
-    fn test_cast_to_compatibile_nullability(
+    fn test_cast_to_compatible_nullability(
         #[case] validity: Validity,
         #[case] cast_to_nullability: Nullability,
     ) {
@@ -86,10 +88,10 @@ mod tests {
         let array = date_time_array(validity);
         let result = cast(&array, &DType::Bool(Nullability::NonNullable));
         assert!(
-            result
-                .as_ref()
-                .is_err_and(|err| err.to_string().contains("cannot cast from")),
-            "{result:?}"
+            result.as_ref().is_err_and(|err| err.to_string().contains(
+                "No compute kernel to cast array vortex.ext with dtype ext(vortex.timestamp, i64, ExtMetadata([2, 3, 0, 85, 84, 67]))? to bool"
+            )),
+            "Got error: {result:?}"
         );
 
         let result = cast(
@@ -99,8 +101,41 @@ mod tests {
         assert!(
             result.as_ref().is_err_and(|err| err
                 .to_string()
-                .contains("invalid cast from nullable to non-nullable")),
-            "{result:?}"
+                .contains("invalid values to non-nullable type")),
+            "Got error: {result:?}"
         );
+    }
+
+    #[rstest]
+    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        buffer![
+            0i64,
+            86_400_000,  // 1 day in ms
+            172_800_000, // 2 days in ms
+            259_200_000, // 3 days in ms
+            345_600_000, // 4 days in ms
+        ].into_array(),
+        TimeUnit::Milliseconds,
+        Some("UTC".to_string())
+    )).unwrap())]
+    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        PrimitiveArray::from_option_iter([
+            Some(0i64),
+            None,
+            Some(172_800_000), // 2 days in ms
+            Some(259_200_000), // 3 days in ms
+            None,
+        ]).into_array(),
+        TimeUnit::Milliseconds,
+        Some("UTC".to_string())
+    )).unwrap())]
+    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        buffer![86_400_000_000_000i64].into_array(), // 1 day in ns
+        TimeUnit::Nanoseconds,
+        Some("UTC".to_string())
+    )).unwrap())]
+    fn test_cast_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
+        use vortex_array::compute::conformance::cast::test_cast_conformance;
+        test_cast_conformance(array.as_ref());
     }
 }

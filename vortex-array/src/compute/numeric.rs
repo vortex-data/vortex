@@ -15,6 +15,18 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
 
+static NUMERIC_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("numeric".into(), ArcRef::new_ref(&Numeric));
+    for kernel in inventory::iter::<NumericKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+pub(crate) fn warm_up_vtable() -> usize {
+    NUMERIC_FN.kernels().len()
+}
+
 /// Point-wise add two numeric arrays.
 ///
 /// Errs at runtime if the sum would overflow or underflow.
@@ -116,14 +128,6 @@ impl<V: VTable + NumericKernel> Kernel for NumericKernelAdapter<V> {
     }
 }
 
-pub static NUMERIC_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("numeric".into(), ArcRef::new_ref(&Numeric));
-    for kernel in inventory::iter::<NumericKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
 struct Numeric;
 
 impl ComputeFnVTable for Numeric {
@@ -134,12 +138,13 @@ impl ComputeFnVTable for Numeric {
     ) -> VortexResult<Output> {
         let NumericArgs { lhs, rhs, operator } = NumericArgs::try_from(args)?;
 
-        // Check if LHS supports the operation directly.
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
         }
+
+        // Check if LHS supports the operation directly.
         if let Some(output) = lhs.invoke(&NUMERIC_FN, args)? {
             return Ok(output);
         }
@@ -260,7 +265,7 @@ fn arrow_numeric(
         NumericOperator::RDiv => arrow_arith::numeric::div(&right, &left)?,
     };
 
-    from_arrow_array_with_len(array.as_ref(), len, nullable)
+    Ok(from_arrow_array_with_len(array.as_ref(), len, nullable))
 }
 
 #[cfg(test)]
@@ -279,7 +284,6 @@ mod test {
         let results = sub_scalar(&values, 1u16.into())
             .unwrap()
             .to_primitive()
-            .unwrap()
             .as_slice::<u16>()
             .to_vec();
         assert_eq!(results, &[0u16, 1, 2]);
@@ -291,7 +295,6 @@ mod test {
         let results = sub_scalar(&values, (-1i64).into())
             .unwrap()
             .to_primitive()
-            .unwrap()
             .as_slice::<i64>()
             .to_vec();
         assert_eq!(results, &[2i64, 3, 4]);
@@ -302,11 +305,10 @@ mod test {
         let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
         let result = sub_scalar(values.as_ref(), Some(1u16).into())
             .unwrap()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
 
         let actual = (0..result.len())
-            .map(|index| result.scalar_at(index).unwrap())
+            .map(|index| result.scalar_at(index))
             .collect::<Vec<_>>();
         assert_eq!(
             actual,
@@ -326,7 +328,6 @@ mod test {
         let results = sub_scalar(&values, to_subtract.into())
             .unwrap()
             .to_primitive()
-            .unwrap()
             .as_slice::<f64>()
             .to_vec();
         assert_eq!(results, &[2.0f64, 3.0, 4.0]);

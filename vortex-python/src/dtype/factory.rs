@@ -8,7 +8,7 @@ use pyo3::prelude::PyAnyMethods;
 use pyo3::types::PyDict;
 use pyo3::{Bound, PyResult, Python, pyfunction};
 use vortex::dtype::{
-    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldName, PType, StructFields,
+    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldName, FieldNames, PType, StructFields,
 };
 
 use crate::dtype::PyDType;
@@ -24,9 +24,10 @@ use crate::dtype::PyDType;
 ///
 /// A data type permitting only :obj:`None`.
 ///
-///     >>> import vortex as vx
-///     >>> vx.null()
-///     null()
+/// ```python
+/// >>> vx.null()
+/// null()
+/// ```
 #[pyfunction(name = "null")]
 #[pyo3(signature = ())]
 pub(super) fn dtype_null(py: Python<'_>) -> PyResult<Bound<'_, PyDType>> {
@@ -49,14 +50,18 @@ pub(super) fn dtype_null(py: Python<'_>) -> PyResult<Bound<'_, PyDType>> {
 ///
 /// A data type permitting :obj:`None`, :obj:`True`, and :obj:`False`.
 ///
-///     >>> import vortex as vx
-///     >>> vx.bool_(nullable=True)
-///     bool(nullable=True)
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.bool_(nullable=True)
+/// bool(nullable=True)
+/// ```
 ///
 /// A data type permitting just :obj:`True` and :obj:`False`.
 ///
-///     >>> vx.bool_()
-///     bool(nullable=False)
+/// ```python
+/// >>> vx.bool_()
+/// bool(nullable=False)
+/// ```
 #[pyfunction(name = "bool_")]
 #[pyo3(signature = (*, nullable = false))]
 pub(super) fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Bound<'_, PyDType>> {
@@ -82,14 +87,18 @@ pub(super) fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Bound<'_, P
 ///
 /// A data type permitting :obj:`None` and the integers from -128 to 127, inclusive:
 ///
-///     >>> import vortex as vx
-///     >>> vx.int_(8, nullable=True)
-///     int(8, nullable=True)
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.int_(8, nullable=True)
+/// int(8, nullable=True)
+/// ```
 ///
 /// A data type permitting just the integers from -2,147,483,648 to 2,147,483,647, inclusive:
 ///
-///     >>> vx.int_(32)
-///     int(32, nullable=False)
+/// ```python
+/// >>> vx.int_(32)
+/// int(32, nullable=False)
+/// ```
 #[pyfunction(name = "int_")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
 pub(super) fn dtype_int(
@@ -126,14 +135,18 @@ pub(super) fn dtype_int(
 ///
 /// A data type permitting :obj:`None` and the integers from 0 to 255, inclusive:
 ///
-///     >>> import vortex as vx
-///     >>> vx.uint(8, nullable=True)
-///     uint(8, nullable=True)
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.uint(8, nullable=True)
+/// uint(8, nullable=True)
+/// ```
 ///
 /// A data type permitting just the integers from 0 to 4,294,967,296 inclusive:
 ///
-///     >>> vx.uint(32, nullable=False)
-///     uint(32, nullable=False)
+/// ```python
+/// >>> vx.uint(32, nullable=False)
+/// uint(32, nullable=False)
+/// ```
 #[pyfunction(name = "uint")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
 pub(super) fn dtype_uint(
@@ -173,9 +186,11 @@ pub(super) fn dtype_uint(
 /// larger than 65,520 or less than -65,520 will respectively round to positive and negative
 /// infinity.
 ///
-///     >>> import vortex as vx
-///     >>> vx.float_(16, nullable=False)
-///     float(16, nullable=False)
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.float_(16, nullable=False)
+/// float(16, nullable=False)
+/// ```
 #[pyfunction(name = "float_")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
 pub(super) fn dtype_float(
@@ -215,16 +230,20 @@ pub(super) fn dtype_float(
 ///
 /// A data type permitting :obj:`None` and the integers from -128 to 127, inclusive:
 ///
-///     >>> import vortex as vx
-///     >>> vx.decimal(precision=13, scale=2, nullable=True)
-///     decimal(precision=13, scale=2, nullable=True)
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.decimal(precision=13, scale=2, nullable=True)
+/// decimal(precision=13, scale=2, nullable=True)
+/// ```
 ///
 /// A data type representing fixed-width decimal numbers with `precision` significant figures and
 /// `scale` digits after the decimal point. If `scale` is a negative value, then it is taken
 /// to be the number of trailing zeros before the decimal point.
 ///
-///     >>> vx.decimal(precision = 10, scale = 3)
-///     decimal(precision=10, scale=3, nullable=False)
+/// ```python
+/// >>> vx.decimal(precision = 10, scale = 3)
+/// decimal(precision=10, scale=3, nullable=False)
+/// ```
 #[pyfunction(name = "decimal")]
 #[pyo3(signature = (*, precision = 10, scale = 0, nullable = false))]
 pub(super) fn dtype_decimal(
@@ -233,7 +252,7 @@ pub(super) fn dtype_decimal(
     scale: i8,
     nullable: bool,
 ) -> PyResult<Bound<'_, PyDType>> {
-    let decimal_type = DType::Decimal(DecimalDType::new(precision, scale), nullable.into());
+    let decimal_type = DType::Decimal(DecimalDType::try_new(precision, scale)?, nullable.into());
     PyDType::init(py, decimal_type)
 }
 
@@ -254,9 +273,11 @@ pub(super) fn dtype_decimal(
 /// A data type permitting any UTF-8-encoded string, such as :code:`"Hello World"`, but not
 /// permitting :obj:`None`.
 ///
-///     >>> import vortex as vx
-///     >>> vx.utf8(nullable=False)
-///     utf8(nullable=False)
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.utf8(nullable=False)
+/// utf8(nullable=False)
+/// ```
 #[pyfunction(name = "utf8")]
 #[pyo3(signature = (*, nullable = false))]
 pub(super) fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Bound<'_, PyDType>> {
@@ -279,9 +300,11 @@ pub(super) fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Bound<'_, P
 ///
 /// A data type permitting any string of bytes but not permitting :obj:`None`.
 ///
-///     >>> import vortex as vx
-///     >>> vx.binary(nullable=False)
-///     binary(nullable=False)
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.binary(nullable=False)
+/// binary(nullable=False)
+/// ```
 #[pyfunction(name = "binary")]
 #[pyo3(signature = (*, nullable = false))]
 pub(super) fn dtype_binary(py: Python<'_>, nullable: bool) -> PyResult<Bound<'_, PyDType>> {
@@ -306,9 +329,11 @@ pub(super) fn dtype_binary(py: Python<'_>, nullable: bool) -> PyResult<Bound<'_,
 ///
 /// A data type permitting a struct with two fields, :code:`"name"` and :code:`"age"`, where :code:`"name"` is a UTF-8-encoded string and :code:`"age"` is a 32-bit signed integer:
 ///
-///     >>> import vortex as vx
-///     >>> vx.struct({"name": vx.utf8(), "age": vx.int_(32)})
-///     struct({"name": utf8(nullable=False), "age": int(32, nullable=False)}, nullable=False)
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.struct({"name": vx.utf8(), "age": vx.int_(32)})
+/// struct({"name": utf8(nullable=False), "age": int(32, nullable=False)}, nullable=False)
+/// ```
 // TODO(ngates): return a StructDType to allow inspection of fields
 #[pyfunction(name = "struct")]
 #[pyo3(signature = (fields = None, *, nullable = false))]
@@ -336,7 +361,10 @@ pub(super) fn dtype_struct<'py>(
     } else {
         PyDType::init(
             py,
-            DType::Struct(StructFields::new(vec![].into(), vec![]), nullable.into()),
+            DType::Struct(
+                StructFields::new(FieldNames::empty(), vec![]),
+                nullable.into(),
+            ),
         )
     }
 }
@@ -348,7 +376,8 @@ pub(super) fn dtype_struct<'py>(
 /// element : :class:`DType`
 ///     The type of the list element.
 /// nullable : :class:`bool`
-///     When :obj:`True`, :obj:`None` is a permissible value (this is not element nullability).
+///     When :obj:`True`, :obj:`None` is a permissible value (note that this is the nullability of
+///     the lists, not the inner elements).
 ///
 /// Returns
 /// -------
@@ -359,9 +388,11 @@ pub(super) fn dtype_struct<'py>(
 ///
 /// A data type permitting a list of 32-bit signed integers, but not permitting :obj:`None`.
 ///
-///     >>> import vortex as vx
-///     >>> vx.list_(vx.int_(32), nullable=False)
-///     list(int(32, nullable=False), nullable=False)
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.list_(vx.int_(32), nullable=False)
+/// list(int(32, nullable=False), nullable=False)
+/// ```
 #[pyfunction(name = "list_")]
 #[pyo3(signature = (element, *, nullable = false))]
 pub(super) fn dtype_list<'py>(
@@ -371,6 +402,49 @@ pub(super) fn dtype_list<'py>(
     PyDType::init(
         element.py(),
         DType::List(Arc::new(element.get().inner().clone()), nullable.into()),
+    )
+}
+
+/// Construct a fixed-size list data type.
+///
+/// Parameters
+/// ----------
+/// element : :class:`DType`
+///     The element type of the fixed-size list.
+/// size : :class:`int`
+///     The size of each list scalar.
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value (note that this is the nullability of
+///     the fixed-size lists, not the inner elements).
+///
+/// Returns
+/// -------
+/// :class:`DType`
+///
+/// Examples
+/// --------
+///
+/// Create a fixed-size list of 3 integers:
+///
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.fixed_size_list(vx.int_(32), 3, nullable=False)
+/// fixed_size_list(int(32, nullable=False), 3, nullable=False)
+/// ```
+#[pyfunction(name = "fixed_size_list")]
+#[pyo3(signature = (element, size, *, nullable = false))]
+pub(super) fn dtype_fixed_size_list<'py>(
+    element: &'py Bound<'py, PyDType>,
+    size: u32,
+    nullable: bool,
+) -> PyResult<Bound<'py, PyDType>> {
+    PyDType::init(
+        element.py(),
+        DType::FixedSizeList(
+            Arc::new(element.get().inner().clone()),
+            size,
+            nullable.into(),
+        ),
     )
 }
 

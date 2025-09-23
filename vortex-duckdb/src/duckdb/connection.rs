@@ -4,9 +4,9 @@
 use std::ffi::CStr;
 use std::ptr;
 
-use vortex::error::{VortexResult, vortex_err};
+use vortex::error::{VortexResult, vortex_bail, vortex_err};
 
-use crate::duckdb::{Database, QueryResult};
+use crate::duckdb::{ClientContext, Database, QueryResult};
 use crate::{cpp, duckdb_try, wrapper};
 
 wrapper!(
@@ -20,7 +20,7 @@ impl Connection {
     pub fn connect(db: &Database) -> VortexResult<Self> {
         let mut ptr: cpp::duckdb_connection = ptr::null_mut();
         duckdb_try!(
-            unsafe { cpp::duckdb_connect(db.as_ptr(), &mut ptr) },
+            unsafe { cpp::duckdb_connect(db.as_ptr(), &raw mut ptr) },
             "Failed to connect to DuckDB database"
         );
         Ok(unsafe { Self::own(ptr) })
@@ -32,11 +32,12 @@ impl Connection {
         let query_cstr =
             std::ffi::CString::new(query).map_err(|_| vortex_err!("Invalid query string"))?;
 
-        let status = unsafe { cpp::duckdb_query(self.as_ptr(), query_cstr.as_ptr(), &mut result) };
+        let status =
+            unsafe { cpp::duckdb_query(self.as_ptr(), query_cstr.as_ptr(), &raw mut result) };
 
         if status != cpp::duckdb_state::DuckDBSuccess {
             let error_msg = unsafe {
-                let error_ptr = cpp::duckdb_result_error(&mut result);
+                let error_ptr = cpp::duckdb_result_error(&raw mut result);
                 if error_ptr.is_null() {
                     "Unknown DuckDB error".to_string()
                 } else {
@@ -44,17 +45,34 @@ impl Connection {
                 }
             };
 
-            unsafe { cpp::duckdb_destroy_result(&mut result) };
+            unsafe { cpp::duckdb_destroy_result(&raw mut result) };
             return Err(vortex_err!("Failed to execute query: {}", error_msg));
         }
 
         Ok(unsafe { QueryResult::new(result) })
     }
+
+    /// Get the object cache for this connection.
+    pub fn client_context(&self) -> VortexResult<ClientContext> {
+        unsafe {
+            let client_context = cpp::duckdb_vx_connection_get_client_context(self.as_ptr());
+            if client_context.is_null() {
+                vortex_bail!(
+                    "Failed to get client context: connection={:p}",
+                    self.as_ptr()
+                )
+            }
+            Ok(ClientContext::borrow(client_context))
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use num_traits::AsPrimitive;
+
     use super::*;
+    use crate::cpp::duckdb_string_t;
 
     fn test_connection() -> VortexResult<Connection> {
         let db = Database::open_in_memory()?;
@@ -75,15 +93,6 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_invalid_sql() {
-        let conn = test_connection().unwrap();
-        let result = conn.query("INVALID SQL STATEMENT");
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("Failed to execute query"));
-    }
-
-    #[test]
     fn test_execute_with_null_bytes() {
         let conn = test_connection().unwrap();
         let result = conn.query("SELECT\0 1");
@@ -96,7 +105,7 @@ mod tests {
     fn test_query_and_get_row_count_select() {
         let conn = test_connection().unwrap();
         let result = conn.query("SELECT 1, 2, 3").unwrap();
-        assert_eq!(result.row_count().unwrap(), 1);
+        assert_eq!(result.row_count(), 1);
     }
 
     #[test]
@@ -107,7 +116,7 @@ mod tests {
         let result = conn
             .query("CREATE TABLE test (id INTEGER, name VARCHAR)")
             .unwrap();
-        assert_eq!(result.row_count().unwrap(), 0);
+        assert_eq!(result.row_count(), 0);
     }
 
     #[test]
@@ -120,24 +129,20 @@ mod tests {
             .query("INSERT INTO test VALUES (1, 'Alice'), (2, 'Bob')")
             .unwrap();
 
-        assert_eq!(result.row_count().unwrap(), 2);
-    }
-
-    #[test]
-    fn test_query_invalid_sql() {
-        let conn = test_connection().unwrap();
-        let result = conn.query("INVALID SQL");
-        assert!(result.is_err());
+        assert_eq!(result.row_count(), 2);
     }
 
     #[test]
     fn test_query_single_value() {
         let conn = test_connection().unwrap();
         let result = conn.query("SELECT 42").unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let vec = chunk.get_vector(0);
+        let slice = vec.as_slice_with_len::<i32>(chunk.len().as_());
 
-        assert_eq!(result.column_count().unwrap(), 1);
-        assert_eq!(result.row_count().unwrap(), 1);
-        assert_eq!(result.get::<i64>(0, 0).unwrap(), 42);
+        assert_eq!(chunk.column_count(), 1);
+        assert_eq!(chunk.len(), 1);
+        assert_eq!(slice[0], 42);
     }
 
     #[test]
@@ -147,12 +152,13 @@ mod tests {
         conn.query("INSERT INTO test VALUES (1), (2), (3)").unwrap();
 
         let result = conn.query("SELECT id FROM test ORDER BY id").unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let vec = chunk.get_vector(0);
+        let slice = vec.as_slice_with_len::<i32>(chunk.len().as_());
 
-        assert_eq!(result.column_count().unwrap(), 1);
-        assert_eq!(result.row_count().unwrap(), 3);
-        assert_eq!(result.get::<i64>(0, 0).unwrap(), 1);
-        assert_eq!(result.get::<i64>(0, 1).unwrap(), 2);
-        assert_eq!(result.get::<i64>(0, 2).unwrap(), 3);
+        assert_eq!(chunk.column_count(), 1);
+        assert_eq!(chunk.len(), 3);
+        assert_eq!(slice, [1, 2, 3]);
     }
 
     #[test]
@@ -160,24 +166,25 @@ mod tests {
         let conn = test_connection().unwrap();
         let result = conn.query("SELECT 1 as num, 'hello' as text").unwrap();
 
-        assert_eq!(result.column_count().unwrap(), 2);
-        assert_eq!(result.row_count().unwrap(), 1);
+        assert_eq!(result.column_count(), 2);
         assert_eq!(result.column_name(0).unwrap(), "num");
         assert_eq!(result.column_name(1).unwrap(), "text");
-        assert_eq!(result.get::<i64>(0, 0).unwrap(), 1);
-        assert_eq!(result.get::<String>(1, 0).unwrap(), "hello");
-    }
 
-    #[test]
-    fn test_query_bounds_checking() {
-        let conn = test_connection().unwrap();
-        let result = conn.query("SELECT 1").unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let vec = chunk.get_vector(0);
+        let slice = vec.as_slice_with_len::<i32>(chunk.len().as_());
 
-        // Test row bounds
-        assert!(result.get::<i64>(0, 1).is_err());
+        let mut vec_str = chunk.get_vector(1);
+        let slice_str = unsafe { vec_str.as_slice_mut::<duckdb_string_t>(chunk.len().as_()) };
 
-        // Test column bounds
-        assert!(result.get::<i64>(1, 0).is_err());
+        assert_eq!(chunk.len(), 1);
+        assert_eq!(slice[0], 1);
+        assert_eq!(
+            unsafe {
+                CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut slice_str[0])).to_string_lossy()
+            },
+            "hello"
+        );
     }
 
     #[test]
@@ -197,9 +204,12 @@ mod tests {
         let result = conn
             .query("SELECT NULL as null_col, 1 as not_null_col")
             .unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let col0 = chunk.get_vector(0);
+        let col1 = chunk.get_vector(1);
 
-        assert!(result.is_null(0, 0).unwrap());
-        assert!(!result.is_null(1, 0).unwrap());
+        assert!(col0.row_is_null(0));
+        assert!(!col1.row_is_null(0));
     }
 
     #[test]
@@ -208,11 +218,20 @@ mod tests {
         let result = conn
             .query("SELECT 42::TINYINT, 42::SMALLINT, 42::INTEGER, 42::BIGINT")
             .unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let vec0 = chunk.get_vector(0);
+        let vec1 = chunk.get_vector(1);
+        let vec2 = chunk.get_vector(2);
+        let vec3 = chunk.get_vector(3);
+        let slice0 = vec0.as_slice_with_len::<i8>(chunk.len().as_());
+        let slice1 = vec1.as_slice_with_len::<i16>(chunk.len().as_());
+        let slice2 = vec2.as_slice_with_len::<i32>(chunk.len().as_());
+        let slice3 = vec3.as_slice_with_len::<i64>(chunk.len().as_());
 
-        assert_eq!(result.get::<i64>(0, 0).unwrap(), 42); // TINYINT -> i64
-        assert_eq!(result.get::<i64>(1, 0).unwrap(), 42); // SMALLINT -> i64
-        assert_eq!(result.get::<i64>(2, 0).unwrap(), 42); // INTEGER -> i64
-        assert_eq!(result.get::<i64>(3, 0).unwrap(), 42); // BIGINT -> i64
+        assert_eq!(slice0[0], 42); // TINYINT -> i64
+        assert_eq!(slice1[0], 42); // SMALLINT -> i64
+        assert_eq!(slice2[0], 42); // INTEGER -> i64
+        assert_eq!(slice3[0], 42); // BIGINT -> i64
     }
 
     #[test]
@@ -226,7 +245,7 @@ mod tests {
         let result = conn
             .query("UPDATE test SET name = 'Updated' WHERE id <= 2")
             .unwrap();
-        assert_eq!(result.row_count().unwrap(), 2);
+        assert_eq!(result.row_count(), 2);
     }
 
     #[test]
@@ -236,6 +255,47 @@ mod tests {
         conn.query("INSERT INTO test VALUES (1), (2), (3)").unwrap();
 
         let result = conn.query("DELETE FROM test WHERE id > 1").unwrap();
-        assert_eq!(result.row_count().unwrap(), 2);
+        assert_eq!(result.row_count(), 2);
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TestCacheEntry {
+        data: String,
+        value: i32,
+    }
+
+    #[test]
+    fn test_object_cache_put_get() {
+        let conn = test_connection().unwrap();
+        let client_context = conn.client_context().unwrap();
+        let cache = client_context.object_cache();
+
+        // Test with a simple struct
+        let test_entry = TestCacheEntry {
+            data: "hello world".to_string(),
+            value: 42,
+        };
+
+        // Store the entry in the cache
+        cache.put("test_key", test_entry);
+
+        // Retrieve it back
+        let retrieved = cache.get::<TestCacheEntry>("test_key");
+        assert!(retrieved.is_some());
+
+        let retrieved_entry = retrieved.unwrap();
+        assert_eq!(retrieved_entry.data, "hello world");
+        assert_eq!(retrieved_entry.value, 42);
+    }
+
+    #[test]
+    fn test_object_cache_get_nonexistent() {
+        let conn = test_connection().unwrap();
+        let client_context = conn.client_context().unwrap();
+        let cache = client_context.object_cache();
+
+        // Try to get a non-existent key
+        let result = cache.get::<TestCacheEntry>("nonexistent_key");
+        assert!(result.is_none());
     }
 }

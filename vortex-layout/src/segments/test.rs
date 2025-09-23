@@ -3,13 +3,14 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use futures::FutureExt;
 use parking_lot::Mutex;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
-use crate::segments::sink::SegmentWriter;
-use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
+use crate::segments::{SegmentFuture, SegmentId, SegmentSink, SegmentSource};
+use crate::sequence::SequenceId;
 
 /// A dummy in-memory implementation of a segment reader and writer.
 #[derive(Default, Clone)]
@@ -18,20 +19,30 @@ pub struct TestSegments {
 }
 
 impl SegmentSource for TestSegments {
-    fn request(&self, id: SegmentId, _for_whom: &Arc<str>) -> SegmentFuture {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
         let buffer = self.segments.lock().get(*id as usize).cloned();
         async move { buffer.ok_or_else(|| vortex_err!("Segment not found")) }.boxed()
     }
 }
 
-impl SegmentWriter for TestSegments {
-    fn put(&mut self, _segment_id: SegmentId, data: Vec<ByteBuffer>) -> VortexResult<()> {
+#[async_trait]
+impl SegmentSink for TestSegments {
+    async fn write(
+        &self,
+        _sequence_id: SequenceId,
+        buffers: Vec<ByteBuffer>,
+    ) -> VortexResult<SegmentId> {
         // Combine all the buffers since we're only a test implementation
         let mut buffer = ByteBufferMut::empty();
-        for segment in data {
+        for segment in buffers {
             buffer.extend_from_slice(segment.as_ref());
         }
-        self.segments.lock().push(buffer.freeze());
-        Ok(())
+
+        let mut segments = self.segments.lock();
+        let segment_id =
+            SegmentId::from(u32::try_from(segments.len()).vortex_expect("Too many segments"));
+        segments.push(buffer.freeze());
+
+        Ok(segment_id)
     }
 }

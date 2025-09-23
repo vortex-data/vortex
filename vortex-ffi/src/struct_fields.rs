@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Deref;
+use std::ptr;
 use std::sync::Arc;
 
 use vortex::dtype::{DType, StructFields};
-use vortex::error::{VortexExpect, vortex_panic};
+use vortex::error::VortexExpect;
 
 use crate::dtype::vx_dtype;
 use crate::string::vx_string;
@@ -27,6 +28,10 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_nfields(dtype: *const vx_struct
 }
 
 /// Return a borrowed reference to the name of the field at the given index.
+///
+/// The returned pointer is valid as long as the struct fields is valid.
+/// Do NOT free the returned string pointer - it shares the lifetime of the struct fields.
+/// Returns null if the index is out of bounds.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
     dtype: *const vx_struct_fields,
@@ -35,17 +40,19 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
     let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
     let struct_dtype = &ptr.0;
     if idx >= struct_dtype.nfields() {
-        vortex_panic!("Field index out of bounds");
+        return ptr::null();
     }
-    vx_string::new_ref(&struct_dtype.names()[idx])
+    let name = struct_dtype.names()[idx].inner();
+    vx_string::new_ref(name)
 }
 
 /// Returns an *owned* reference to the dtype of the field at the given index.
 ///
 /// The return type is owned since struct dtypes can be lazily parsed from a binary format, in
 /// which case it's not possible to return a borrowed reference to the field dtype.
+///
+/// Returns null if the index is out of bounds or if the field dtype cannot be parsed.
 // TODO(ngates): should StructDType cache owned fields internally?
-// TODO(ngates): should this output a vx_error?
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_field_dtype(
     dtype: *const vx_struct_fields,
@@ -53,11 +60,20 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_dtype(
 ) -> *const vx_dtype {
     let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
     let struct_dtype = &ptr.0;
-    vx_dtype::new(Arc::new(
-        struct_dtype
-            .field_by_index(usize::try_from(idx).vortex_expect("Unsupported cast"))
-            .vortex_expect("Failed to parse lazy field dtype"),
-    ))
+
+    let idx_usize = match usize::try_from(idx) {
+        Ok(i) => i,
+        Err(_) => return ptr::null(),
+    };
+
+    if idx_usize >= struct_dtype.nfields() {
+        return ptr::null();
+    }
+
+    match struct_dtype.field_by_index(idx_usize) {
+        Some(field_dtype) => vx_dtype::new(Arc::new(field_dtype)),
+        None => ptr::null(),
+    }
 }
 
 pub(crate) struct StructDTypeBuilder {

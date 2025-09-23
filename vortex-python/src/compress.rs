@@ -38,7 +38,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///
 ///    >>> a = vx.array(list(range(1000)))
 ///    >>> str(vx.compress(a))
-///    'fastlanes.bitpacked(i64, len=1000)'
+///    'vortex.sequence(i64, len=1000)'
 ///
 /// Compress an array of increasing floating-point numbers and a few nulls:
 ///
@@ -50,6 +50,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///    'vortex.alp(f64?, len=1000)'
 #[pyfunction]
 pub fn compress(array: PyArrayRef) -> PyResult<PyArrayRef> {
-    let compressed = BtrBlocksCompressor.compress(array.inner())?;
+    let compressed = BtrBlocksCompressor::default().compress(array.inner())?;
     Ok(PyArrayRef::from(compressed))
 }

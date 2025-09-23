@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![deny(missing_docs)]
-#![feature(min_specialization)]
-#![feature(trusted_len)]
 
 //! A library for working with custom aligned buffers of sized values.
 //!
@@ -60,15 +58,15 @@ mod arrow;
 mod buffer;
 mod buffer_mut;
 mod bytes;
-#[cfg(feature = "compio")]
-mod compio;
 mod r#const;
 mod debug;
 mod macros;
 #[cfg(feature = "memmap2")]
 mod memmap2;
-mod spec_extend;
+#[cfg(feature = "serde")]
+mod serde;
 mod string;
+mod trusted_len;
 
 /// An immutable buffer of u8.
 pub type ByteBuffer = Buffer<u8>;

@@ -9,13 +9,16 @@ use crate::{RunEndArray, RunEndVTable};
 
 impl InvertKernel for RunEndVTable {
     fn invert(&self, array: &RunEndArray) -> VortexResult<ArrayRef> {
-        RunEndArray::with_offset_and_length(
-            array.ends().clone(),
-            invert(array.values())?,
-            array.len(),
-            array.offset(),
-        )
-        .map(|a| a.into_array())
+        // SAFETY: ends are preserved
+        unsafe {
+            Ok(RunEndArray::new_unchecked(
+                array.ends().clone(),
+                invert(array.values())?,
+                array.len(),
+                array.offset(),
+            )
+            .into_array())
+        }
     }
 }
 

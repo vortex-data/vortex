@@ -5,6 +5,7 @@
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/function/table_function.hpp"
+#include "duckdb/common/insertion_order_preserving_map.hpp"
 
 #include "duckdb_vx.h"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
@@ -14,7 +15,6 @@
 using namespace duckdb;
 
 namespace vortex {
-
 struct CTableFunctionInfo final : TableFunctionInfo {
     explicit CTableFunctionInfo(const duckdb_vx_tfunc_vtab_t &vtab) : vtab(vtab) {
     }
@@ -80,7 +80,8 @@ unique_ptr<FunctionData> c_bind(ClientContext &context, TableFunctionBindInput &
     };
 
     duckdb_vx_error error_out = nullptr;
-    auto ffi_bind_data = info.vtab.bind(reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
+    auto ctx = reinterpret_cast<duckdb_vx_client_context>(&context);
+    auto ffi_bind_data = info.vtab.bind(ctx, reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
                                         reinterpret_cast<duckdb_vx_tfunc_bind_result>(&result), &error_out);
     if (error_out) {
         throw BinderException(IntoErrString(error_out));
@@ -100,6 +101,7 @@ unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, Table
         .projection_ids = input.projection_ids.data(),
         .projection_ids_count = input.projection_ids.size(),
         .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
+        .client_context = reinterpret_cast<duckdb_vx_client_context>(&context),
     };
 
     duckdb_vx_error error_out = nullptr;
@@ -124,6 +126,7 @@ unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, Tabl
         .projection_ids = input.projection_ids.data(),
         .projection_ids_count = input.projection_ids.size(),
         .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
+        .client_context = reinterpret_cast<duckdb_vx_client_context>(&context),
     };
 
     duckdb_vx_error error_out = nullptr;
@@ -139,12 +142,13 @@ unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, Tabl
 void c_function(ClientContext &context, TableFunctionInput &input, DataChunk &output) {
     const auto &bind = input.bind_data->Cast<CTableBindData>();
 
+    auto ctx = reinterpret_cast<duckdb_vx_client_context>(&context);
     const auto bind_data = bind.ffi_data->DataPtr();
     auto global_data = input.global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
     auto local_data = input.local_state->Cast<CTableLocalData>().ffi_data->DataPtr();
 
     duckdb_vx_error error_out = nullptr;
-    bind.info->vtab.function(bind_data, global_data, local_data, reinterpret_cast<duckdb_data_chunk>(&output),
+    bind.info->vtab.function(ctx, bind_data, global_data, local_data, reinterpret_cast<duckdb_data_chunk>(&output),
                              &error_out);
     if (error_out) {
         throw InvalidInputException(IntoErrString(error_out));
@@ -175,6 +179,26 @@ void c_pushdown_complex_filter(ClientContext &context, LogicalGet &get, Function
             ++iter;
         }
     }
+}
+
+unique_ptr<NodeStatistics> c_cardinality(ClientContext &context, const FunctionData *bind_data) {
+    auto &bind = bind_data->Cast<CTableBindData>();
+
+    duckdb_vx_node_statistics node_stats_out = {
+        .estimated_cardinality = 0,
+        .has_estimated_cardinality = false,
+        .max_cardinality = 0,
+        .has_max_cardinality = false,
+    };
+    bind.info->vtab.cardinality(bind_data->Cast<CTableBindData>().ffi_data->DataPtr(), &node_stats_out);
+
+    auto stats = make_uniq<NodeStatistics>();
+    stats->has_estimated_cardinality = node_stats_out.has_estimated_cardinality;
+    stats->estimated_cardinality = node_stats_out.estimated_cardinality;
+    stats->has_max_cardinality = node_stats_out.has_max_cardinality;
+    stats->max_cardinality = node_stats_out.max_cardinality;
+
+    return stats;
 }
 
 extern "C" size_t duckdb_vx_tfunc_bind_input_get_parameter_count(duckdb_vx_tfunc_bind_input ffi_input) {
@@ -221,6 +245,44 @@ extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_resu
     result->return_types.push_back(*logical_type);
 }
 
+OperatorPartitionData c_get_partition_data(ClientContext &context, TableFunctionGetPartitionInput &input) {
+    if (input.partition_info.RequiresPartitionColumns()) {
+        throw InternalException("TableScan::GetPartitionData: partition columns not supported");
+    }
+    auto &bind = input.bind_data->Cast<CTableBindData>();
+    auto &global = input.global_state->Cast<CTableGlobalData>();
+    auto &local = input.local_state->Cast<CTableLocalData>();
+
+    duckdb_vx_error error_out = nullptr;
+    auto index = bind.info->vtab.get_partition_data(bind.ffi_data->DataPtr(), global.ffi_data->DataPtr(),
+                                                    local.ffi_data->DataPtr(), &error_out);
+    if (error_out) {
+        throw InvalidInputException(IntoErrString(error_out));
+    }
+    return OperatorPartitionData(index);
+}
+
+InsertionOrderPreservingMap<string> c_to_string(TableFunctionToStringInput &input) {
+    InsertionOrderPreservingMap<string> result;
+    auto &bind = input.bind_data->Cast<CTableBindData>();
+    
+    // Call the Rust side to get custom string representation if available
+    if (bind.info->vtab.to_string) {
+        auto map = bind.info->vtab.to_string(bind.ffi_data->DataPtr());
+        if (map) {
+            // Copy the map contents to the result
+            auto *cpp_map = reinterpret_cast<InsertionOrderPreservingMap<string> *>(map);
+            for (const auto &kv : *cpp_map) {
+                result[kv.first] = kv.second;
+            }
+            // Free the map allocated by Rust
+            duckdb_vx_string_map_free(map);
+        }
+    }
+    
+    return result;
+}
+
 extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
                                                  const duckdb_vx_tfunc_vtab_t *vtab) {
     if (!ffi_conn || !vtab) {
@@ -237,6 +299,9 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
     tf.filter_prune = vtab->filter_prune;
     tf.sampling_pushdown = vtab->sampling_pushdown;
     tf.late_materialization = vtab->late_materialization;
+    tf.cardinality = c_cardinality;
+    tf.get_partition_data = c_get_partition_data;
+    tf.to_string = c_to_string;
 
     // Set up the parameters
     for (size_t i = 0; i < vtab->parameter_count; i++) {
@@ -262,6 +327,27 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
         return DuckDBError;
     }
     return DuckDBSuccess;
+}
+
+extern "C" duckdb_vx_string_map duckdb_vx_string_map_create() {
+    auto map = new InsertionOrderPreservingMap<string>();
+    return reinterpret_cast<duckdb_vx_string_map>(map);
+}
+
+extern "C" void duckdb_vx_string_map_insert(duckdb_vx_string_map map, const char *key, const char *value) {
+    if (!map || !key || !value) {
+        return;
+    }
+    auto *cpp_map = reinterpret_cast<InsertionOrderPreservingMap<string> *>(map);
+    (*cpp_map)[string(key)] = string(value);
+}
+
+extern "C" void duckdb_vx_string_map_free(duckdb_vx_string_map map) {
+    if (!map) {
+        return;
+    }
+    auto *cpp_map = reinterpret_cast<InsertionOrderPreservingMap<string> *>(map);
+    delete cpp_map;
 }
 
 } // namespace vortex

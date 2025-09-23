@@ -3,29 +3,29 @@
 
 use std::sync::Arc;
 
-use arrow::array::RecordBatchReader;
-use arrow::pyarrow::IntoPyArrow;
+use arrow_array::RecordBatchReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use vortex::ToCanonical;
 use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
-use vortex::dtype::{DType, PType};
-use vortex::error::VortexError;
+use vortex::dtype::{DType, FieldNames, PType};
+use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, root, select};
-use vortex::file::scan::SplitBy;
-use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::stream::ArrayStreamExt;
+use vortex::io::runtime::BlockingRuntime;
+use vortex::layout::segments::MokaSegmentCache;
+use vortex::scan::{ScanBuilder, SplitBy};
+use vortex::{ArrayRef, ToCanonical};
 
 use crate::arrays::PyArrayRef;
+use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
 use crate::expr::PyExpr;
-use crate::iter::{ArrayStreamToIterator, PyArrayIterator};
-use crate::record_batch_reader::VortexRecordBatchReader;
-use crate::{TOKIO_RUNTIME, install_module};
+use crate::iter::PyArrayIterator;
+use crate::scan::PyRepeatedScan;
+use crate::{RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "file")?;
@@ -39,11 +39,19 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 }
 
 #[pyfunction]
-pub fn open(path: &str) -> PyResult<PyVortexFile> {
-    let vxf = VortexOpenOptions::file()
-        // TODO(ngates): use a globally shared segment cache for all files
-        .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
-        .open_blocking(path)?;
+#[pyo3(signature = (path, *, without_segment_cache = false))]
+pub fn open(path: &str, without_segment_cache: bool) -> PyResult<PyVortexFile> {
+    let vxf = RUNTIME.block_on(|h| async move {
+        let mut options = VortexOpenOptions::new();
+        if without_segment_cache {
+            options = options.without_segment_cache();
+        } else {
+            // TODO(ngates): use a globally shared segment cache for all files
+            options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
+        }
+        options.with_handle(h).open(path).await
+    })?;
+
     Ok(PyVortexFile { vxf })
 }
 
@@ -58,90 +66,11 @@ impl PyVortexFile {
         Ok(usize::try_from(slf.vxf.row_count())?)
     }
 
-    /// The dtype of the file.
     #[getter]
     fn dtype(slf: Bound<Self>) -> PyResult<Bound<PyDType>> {
         PyDType::init(slf.py(), slf.get().vxf.dtype().clone())
     }
 
-    /// Scan the Vortex file returning a :class:`vortex.ArrayIterator`.
-    ///
-    /// Parameters
-    /// ----------
-    /// projection : :class:`vortex.Expr` | None
-    ///     The projection expression to read, or else read all columns.
-    /// expr : :class:`vortex.Expr` | None
-    ///     The predicate used to filter rows. The filter columns do not need to be in the projection.
-    /// indices : :class:`vortex.Array` | None
-    ///     The indices of the rows to read. Must be sorted and non-null.
-    /// batch_size : :class:`int` | None
-    ///     The number of rows to read per chunk.
-    ///
-    /// Examples
-    /// --------
-    ///
-    /// Scan a file with a structured column and nulls at multiple levels and in multiple columns.
-    ///
-    ///     >>> import vortex as vx
-    ///     >>> import vortex.expr as ve
-    ///     >>> a = vx.array([
-    ///     ...     {'name': 'Joseph', 'age': 25},
-    ///     ...     {'name': None, 'age': 31},
-    ///     ...     {'name': 'Angela', 'age': None},
-    ///     ...     {'name': 'Mikhail', 'age': 57},
-    ///     ...     {'name': None, 'age': None},
-    ///     ... ])
-    ///     >>> vx.io.write(a, "a.vortex")
-    ///     >>> vxf = vx.open("a.vortex")
-    ///     >>> vxf.scan().read_all().to_arrow_array()
-    ///     <pyarrow.lib.StructArray object at ...>
-    ///     -- is_valid: all not null
-    ///     -- child 0 type: int64
-    ///       [
-    ///         25,
-    ///         31,
-    ///         null,
-    ///         57,
-    ///         null
-    ///       ]
-    ///     -- child 1 type: string_view
-    ///       [
-    ///         "Joseph",
-    ///         null,
-    ///         "Angela",
-    ///         "Mikhail",
-    ///         null
-    ///       ]
-    ///
-    /// Read just the age column:
-    ///
-    ///     >>> vxf.scan(['age']).read_all().to_arrow_array()
-    ///     <pyarrow.lib.StructArray object at ...>
-    ///     -- is_valid: all not null
-    ///     -- child 0 type: int64
-    ///       [
-    ///         25,
-    ///         31,
-    ///         null,
-    ///         57,
-    ///         null
-    ///       ]
-    ///
-    ///
-    /// Keep rows with an age above 35. This will read O(N_KEPT) rows, when the file format allows.
-    ///
-    ///     >>> vxf.scan(expr=ve.column("age") > 35).read_all().to_arrow_array()
-    ///     <pyarrow.lib.StructArray object at ...>
-    ///     -- is_valid: all not null
-    ///     -- child 0 type: int64
-    ///       [
-    ///         57
-    ///       ]
-    ///     -- child 1 type: string_view
-    ///       [
-    ///         "Mikhail"
-    ///       ]
-    ///
     #[pyo3(signature = (projection = None, *, expr = None, indices = None, batch_size = None))]
     fn scan(
         slf: Bound<Self>,
@@ -150,17 +79,101 @@ impl PyVortexFile {
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyResult<PyArrayIterator> {
-        let mut builder = slf
-            .get()
+        let builder = slf.get().scan_builder(
+            projection.map(|p| p.0),
+            expr.map(|e| e.into_inner()),
+            indices.map(|i| i.into_inner()),
+            batch_size,
+        )?;
+
+        Ok(PyArrayIterator::new(Box::new(
+            builder.into_array_iter(&*RUNTIME)?,
+        )))
+    }
+
+    #[pyo3(signature = (projection = None, *, expr = None, indices = None, batch_size = None))]
+    fn prepare(
+        slf: Bound<Self>,
+        projection: Option<PyIntoProjection>,
+        expr: Option<PyExpr>,
+        indices: Option<PyArrayRef>,
+        batch_size: Option<usize>,
+    ) -> PyResult<PyRepeatedScan> {
+        let builder = slf.get().scan_builder(
+            projection.map(|p| p.0),
+            expr.map(|e| e.into_inner()),
+            indices.map(|i| i.into_inner()),
+            batch_size,
+        )?;
+
+        let scan = builder.prepare()?;
+
+        Ok(PyRepeatedScan {
+            scan,
+            row_count: slf.get().vxf.row_count(),
+        })
+    }
+
+    #[pyo3(signature = (projection = None, *, expr = None, batch_size = None))]
+    fn to_arrow(
+        slf: Bound<Self>,
+        projection: Option<PyIntoProjection>,
+        expr: Option<PyExpr>,
+        batch_size: Option<usize>,
+    ) -> PyResult<Py<PyAny>> {
+        let vxf = slf.get().vxf.clone();
+
+        let reader = slf.py().detach(|| {
+            let mut builder = vxf
+                .scan()?
+                .with_some_filter(expr.map(|e| e.into_inner()))
+                .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
+
+            if let Some(batch_size) = batch_size {
+                builder = builder.with_split_by(SplitBy::RowCount(batch_size));
+            }
+
+            let schema = Arc::new(builder.dtype()?.to_arrow_schema()?);
+            builder.into_record_batch_reader(schema, &*RUNTIME)
+        })?;
+
+        let rbr: Box<dyn RecordBatchReader + Send> = Box::new(reader);
+        rbr.into_pyarrow(slf.py())
+    }
+
+    fn to_dataset(slf: Bound<Self>) -> PyResult<PyVortexDataset> {
+        Ok(PyVortexDataset::try_new(slf.get().vxf.clone())?)
+    }
+
+    #[pyo3(signature = (*))]
+    pub fn splits(&self) -> VortexResult<Vec<(u64, u64)>> {
+        Ok(self
+            .vxf
+            .splits()?
+            .into_iter()
+            .map(|x| (x.start, x.end))
+            .collect())
+    }
+}
+
+impl PyVortexFile {
+    fn scan_builder(
+        &self,
+        projection: Option<ExprRef>,
+        expr: Option<ExprRef>,
+        indices: Option<ArrayRef>,
+        batch_size: Option<usize>,
+    ) -> VortexResult<ScanBuilder<ArrayRef>> {
+        let mut builder = self
             .vxf
             .scan()?
-            .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
-            .with_some_filter(expr.map(|e| e.into_inner()))
-            .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
+            .with_handle(RUNTIME.handle())
+            .with_some_filter(expr)
+            .with_projection(projection.unwrap_or_else(root));
 
         if let Some(indices) = indices {
-            let indices = cast(indices.inner(), &DType::Primitive(PType::U64, NonNullable))?
-                .to_primitive()?
+            let indices = cast(indices.as_ref(), &DType::Primitive(PType::U64, NonNullable))?
+                .to_primitive()
                 .into_buffer::<u64>();
             builder = builder.with_row_indices(indices);
         }
@@ -169,50 +182,7 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(builder.into_array_stream()?));
-        Ok(PyArrayIterator::new(Box::new(iter)))
-    }
-
-    /// Scan the Vortex file as a :class:`pyarrow.RecordBatchReader`.
-    // TODO(ngates): columns should instead be a projection expression
-    #[pyo3(signature = (projection = None, *, expr = None, batch_size = None))]
-    fn to_arrow(
-        slf: Bound<Self>,
-        projection: Option<PyIntoProjection>,
-        expr: Option<PyExpr>,
-        batch_size: Option<usize>,
-    ) -> PyResult<PyObject> {
-        let vxf = slf.get().vxf.clone();
-
-        let stream = slf.py().allow_threads(|| {
-            let mut builder = vxf
-                .scan()?
-                .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
-                .with_some_filter(expr.map(|e| e.into_inner()))
-                .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
-
-            if let Some(batch_size) = batch_size {
-                builder = builder.with_split_by(SplitBy::RowCount(batch_size));
-            }
-
-            // TODO(ngates): use ScanBuilder::map_to_record_batch
-            Ok::<_, VortexError>(ArrayStreamExt::boxed(builder.into_array_stream()?))
-        })?;
-
-        let iter = ArrayStreamToIterator::new(stream);
-        let rbr: Box<dyn RecordBatchReader + Send> =
-            Box::new(VortexRecordBatchReader::try_new(iter)?);
-        rbr.into_pyarrow(slf.py())
-    }
-
-    /// Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API.
-    fn to_dataset(slf: Bound<Self>) -> PyResult<Bound<PyAny>> {
-        let dataset_cls = slf
-            .py()
-            .import("vortex.dataset")?
-            .getattr("VortexDataset")?;
-        let dataset = PyVortexDataset::try_new(slf.get().vxf.clone())?;
-        dataset_cls.call1((dataset,))
+        Ok(builder)
     }
 }
 
@@ -227,7 +197,7 @@ impl<'py> FromPyObject<'py> for PyIntoProjection {
                 .map(|item| item.extract::<String>())
                 .collect::<PyResult<Vec<String>>>()?;
             return Ok(PyIntoProjection(select(
-                cols.into_iter().map(Arc::<str>::from).collect::<Vec<_>>(),
+                cols.into_iter().collect::<FieldNames>(),
                 root(),
             )));
         }

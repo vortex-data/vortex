@@ -36,6 +36,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+pub use zip::*;
 
 use crate::builders::ArrayBuilder;
 use crate::{Array, ArrayRef};
@@ -61,6 +62,7 @@ mod nan_count;
 mod numeric;
 mod sum;
 mod take;
+mod zip;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered
 /// compute kernels.
@@ -68,6 +70,32 @@ pub struct ComputeFn {
     id: ArcRef<str>,
     vtable: ArcRef<dyn ComputeFnVTable>,
     kernels: RwLock<Vec<ArcRef<dyn Kernel>>>,
+}
+
+/// Force all the default [`ComputeFn`] vtables to register all available compute kernels.
+///
+/// Mostly useful for small benchmarks where the overhead might cause noise depending on the order of benchmarks.
+pub fn warm_up_vtables() {
+    crate::arrow::warm_up_vtable();
+    #[allow(unused_qualifications)]
+    between::warm_up_vtable();
+    boolean::warm_up_vtable();
+    cast::warm_up_vtable();
+    compare::warm_up_vtable();
+    fill_null::warm_up_vtable();
+    filter::warm_up_vtable();
+    invert::warm_up_vtable();
+    is_constant::warm_up_vtable();
+    is_sorted::warm_up_vtable();
+    like::warm_up_vtable();
+    list_contains::warm_up_vtable();
+    mask::warm_up_vtable();
+    min_max::warm_up_vtable();
+    nan_count::warm_up_vtable();
+    numeric::warm_up_vtable();
+    sum::warm_up_vtable();
+    take::warm_up_vtable();
+    zip::warm_up_vtable();
 }
 
 impl ComputeFn {
@@ -123,7 +151,7 @@ impl ComputeFn {
                 args.inputs
                     .iter()
                     .filter_map(|input| input.array())
-                    .format_with(",", |array, f| f(&array.tree_display()))
+                    .format_with(",", |array, f| f(&array.display_tree()))
             );
         }
         if output.len() != expected_len {
@@ -299,37 +327,42 @@ impl<'a> From<&'a DType> for Input<'a> {
 
 impl<'a> Input<'a> {
     pub fn scalar(&self) -> Option<&'a Scalar> {
-        match self {
-            Input::Scalar(scalar) => Some(*scalar),
-            _ => None,
+        if let Input::Scalar(scalar) = self {
+            Some(*scalar)
+        } else {
+            None
         }
     }
 
     pub fn array(&self) -> Option<&'a dyn Array> {
-        match self {
-            Input::Array(array) => Some(*array),
-            _ => None,
+        if let Input::Array(array) = self {
+            Some(*array)
+        } else {
+            None
         }
     }
 
     pub fn mask(&self) -> Option<&'a Mask> {
-        match self {
-            Input::Mask(mask) => Some(*mask),
-            _ => None,
+        if let Input::Mask(mask) = self {
+            Some(*mask)
+        } else {
+            None
         }
     }
 
     pub fn builder(&'a mut self) -> Option<&'a mut dyn ArrayBuilder> {
-        match self {
-            Input::Builder(builder) => Some(*builder),
-            _ => None,
+        if let Input::Builder(builder) = self {
+            Some(*builder)
+        } else {
+            None
         }
     }
 
     pub fn dtype(&self) -> Option<&'a DType> {
-        match self {
-            Input::DType(dtype) => Some(*dtype),
-            _ => None,
+        if let Input::DType(dtype) = self {
+            Some(*dtype)
+        } else {
+            None
         }
     }
 }

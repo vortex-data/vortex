@@ -17,14 +17,14 @@ struct BoolExporter {
 pub(crate) fn new_exporter(array: &BoolArray) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(Box::new(BoolExporter {
         array: array.clone(),
-        validity: array.validity_mask()?,
+        validity: array.validity_mask(),
     }))
 }
 
 impl ColumnExporter for BoolExporter {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Set validity if necessary.
-        if vector.set_validity(&self.validity, offset, len) {
+        if unsafe { vector.set_validity(&self.validity, offset, len) } {
             // All values are null, so no point copying the data.
             return Ok(());
         }

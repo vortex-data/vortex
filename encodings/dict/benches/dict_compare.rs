@@ -7,11 +7,12 @@ use std::str::from_utf8;
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{ConstantArray, VarBinArray, VarBinViewArray};
-use vortex_array::compute::{Operator, compare};
+use vortex_array::compute::{Operator, compare, warm_up_vtables};
 use vortex_dict::builders::dict_encode;
 use vortex_dict::test::{gen_primitive_for_dict, gen_varbin_words};
 
 fn main() {
+    warm_up_vtables();
     divan::main();
 }
 
@@ -105,7 +106,7 @@ fn bench_compare_sliced_dict_primitive(
 ) {
     let primitive_arr = gen_primitive_for_dict::<i32>(codes_len.max(values_len), values_len);
     let dict = dict_encode(primitive_arr.as_ref()).unwrap();
-    let dict = dict.slice(0, codes_len).unwrap();
+    let dict = dict.slice(0..codes_len);
     let value = primitive_arr.as_slice::<i32>()[0];
 
     bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
@@ -125,7 +126,7 @@ fn bench_compare_sliced_dict_varbinview(
 ) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(codes_len.max(values_len), values_len));
     let dict = dict_encode(varbin_arr.as_ref()).unwrap();
-    let dict = dict.slice(0, codes_len).unwrap();
+    let dict = dict.slice(0..codes_len);
     let bytes = varbin_arr
         .with_iterator(|i| i.next().unwrap().unwrap().to_vec())
         .unwrap();

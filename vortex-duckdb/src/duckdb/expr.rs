@@ -6,9 +6,10 @@ use std::fmt::{Display, Formatter};
 use std::ptr;
 
 use crate::cpp::duckdb_vx_expr_class;
-use crate::duckdb::{ScalarFunction, Value};
+use crate::duckdb::{ScalarFunction, ValueRef};
 use crate::{cpp, duckdb, wrapper};
 
+// TODO(joe): replace with lifetime_wrapper!
 wrapper!(Expression, cpp::duckdb_vx_expr, cpp::duckdb_vx_destroy_expr);
 
 impl Display for Expression {
@@ -40,7 +41,9 @@ impl Expression {
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CONSTANT => {
                     let value = unsafe {
-                        Value::borrow(cpp::duckdb_vx_expr_bound_constant_get_value(self.as_ptr()))
+                        ValueRef::borrow(cpp::duckdb_vx_expr_bound_constant_get_value(
+                            self.as_ptr(),
+                        ))
                     };
                     ExpressionClass::BoundConstant(BoundConstant { value })
                 }
@@ -50,7 +53,9 @@ impl Expression {
                         children_count: 0,
                         type_: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
                     };
-                    unsafe { cpp::duckdb_vx_expr_get_bound_conjunction(self.as_ptr(), &mut out) };
+                    unsafe {
+                        cpp::duckdb_vx_expr_get_bound_conjunction(self.as_ptr(), &raw mut out)
+                    };
 
                     let children =
                         unsafe { std::slice::from_raw_parts(out.children, out.children_count) };
@@ -66,7 +71,9 @@ impl Expression {
                         right: ptr::null_mut(),
                         type_: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
                     };
-                    unsafe { cpp::duckdb_vx_expr_get_bound_comparison(self.as_ptr(), &mut out) };
+                    unsafe {
+                        cpp::duckdb_vx_expr_get_bound_comparison(self.as_ptr(), &raw mut out)
+                    };
 
                     ExpressionClass::BoundComparison(BoundComparison {
                         left: unsafe { Expression::borrow(out.left) },
@@ -83,7 +90,7 @@ impl Expression {
                         upper_inclusive: false,
                     };
                     unsafe {
-                        cpp::duckdb_vx_expr_get_bound_between(self.as_ptr(), &mut out);
+                        cpp::duckdb_vx_expr_get_bound_between(self.as_ptr(), &raw mut out);
                     }
 
                     ExpressionClass::BoundBetween(BoundBetween {
@@ -100,7 +107,7 @@ impl Expression {
                         children_count: 0,
                         type_: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
                     };
-                    unsafe { cpp::duckdb_vx_expr_get_bound_operator(self.as_ptr(), &mut out) };
+                    unsafe { cpp::duckdb_vx_expr_get_bound_operator(self.as_ptr(), &raw mut out) };
 
                     let children =
                         unsafe { std::slice::from_raw_parts(out.children, out.children_count) };
@@ -117,7 +124,7 @@ impl Expression {
                         scalar_function: ptr::null_mut(),
                         bind_info: ptr::null_mut(),
                     };
-                    unsafe { cpp::duckdb_vx_expr_get_bound_function(self.as_ptr(), &mut out) };
+                    unsafe { cpp::duckdb_vx_expr_get_bound_function(self.as_ptr(), &raw mut out) };
 
                     let children =
                         unsafe { std::slice::from_raw_parts(out.children, out.children_count) };
@@ -138,7 +145,7 @@ impl Expression {
 
 pub enum ExpressionClass<'a> {
     BoundColumnRef(BoundColumnRef),
-    BoundConstant(BoundConstant),
+    BoundConstant(BoundConstant<'a>),
     BoundComparison(BoundComparison),
     BoundConjunction(BoundConjunction<'a>),
     BoundBetween(BoundBetween),
@@ -150,8 +157,8 @@ pub struct BoundColumnRef {
     pub name: duckdb::string::String,
 }
 
-pub struct BoundConstant {
-    pub value: Value,
+pub struct BoundConstant<'a> {
+    pub value: ValueRef<'a>,
 }
 
 pub struct BoundComparison {

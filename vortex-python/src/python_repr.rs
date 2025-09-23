@@ -78,6 +78,13 @@ impl Display for DTypePythonRepr<'_> {
                 edt.python_repr(),
                 n.python_repr()
             ),
+            DType::FixedSizeList(edt, size, n) => write!(
+                f,
+                "fixed_size_list({}, {}, nullable={})",
+                edt.python_repr(),
+                size,
+                n.python_repr()
+            ),
             DType::Extension(ext) => {
                 write!(
                     f,

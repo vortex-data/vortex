@@ -96,7 +96,7 @@ fn between_impl<T: NativeDecimalType>(
     upper_op: impl Fn(T, T) -> bool,
 ) -> ArrayRef {
     let buffer = arr.buffer::<T>();
-    BoolArray::new(
+    BoolArray::from_bool_buffer(
         BooleanBuffer::collect_bool(buffer.len(), |idx| {
             let value = buffer[idx];
             lower_op(lower, value) & upper_op(value, upper)
@@ -112,10 +112,10 @@ mod tests {
     use vortex_dtype::{DecimalDType, Nullability};
     use vortex_scalar::{DecimalValue, Scalar};
 
-    use crate::Array;
     use crate::arrays::{ConstantArray, DecimalArray};
     use crate::compute::{BetweenOptions, StrictComparison, between};
     use crate::validity::Validity;
+    use crate::{Array, ToCanonical};
 
     #[test]
     fn test_between() {
@@ -168,13 +168,6 @@ mod tests {
     }
 
     fn bool_to_vec(array: &dyn Array) -> Vec<bool> {
-        array
-            .to_canonical()
-            .unwrap()
-            .into_bool()
-            .unwrap()
-            .boolean_buffer()
-            .iter()
-            .collect()
+        array.to_bool().boolean_buffer().iter().collect()
     }
 }

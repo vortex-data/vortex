@@ -43,7 +43,7 @@ impl_from_typed!(f16, ErasedDistinctValues::F16);
 impl_from_typed!(f32, ErasedDistinctValues::F32);
 impl_from_typed!(f64, ErasedDistinctValues::F64);
 
-// We want to allow not rebuilding all of the stats every time.
+/// Array of floating-point numbers and relevant stats for compression.
 #[derive(Debug, Clone)]
 pub struct FloatStats {
     pub(super) src: PrimitiveArray,
@@ -74,9 +74,7 @@ impl CompressorStats for FloatStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.as_ref(), sample_size, sample_count)
-            .to_primitive()
-            .vortex_expect("primitive");
+        let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_primitive();
 
         Self::generate_opts(&sampled, opts)
     }
@@ -103,7 +101,7 @@ where
             }
             .into(),
         };
-    } else if array.all_invalid().vortex_expect("all_invalid") {
+    } else if array.all_invalid() {
         return FloatStats {
             src: array.clone(),
             null_count: array.len().try_into().vortex_expect("null_count"),
@@ -131,7 +129,7 @@ where
         HashSet::with_hasher(FxBuildHasher)
     };
 
-    let validity = array.validity_mask().vortex_expect("logical_validity");
+    let validity = array.validity_mask();
 
     let mut runs = 1;
     let head_idx = validity
@@ -212,7 +210,7 @@ mod tests {
     #[test]
     fn test_float_stats() {
         let floats = buffer![0.0f32, 1.0f32, 2.0f32].into_array();
-        let floats = floats.to_primitive().unwrap();
+        let floats = floats.to_primitive();
 
         let stats = FloatStats::generate(&floats);
 

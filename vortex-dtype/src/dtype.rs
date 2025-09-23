@@ -3,7 +3,6 @@
 
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-use std::ops::Index;
 use std::sync::Arc;
 
 use DType::*;
@@ -13,182 +12,85 @@ use vortex_error::vortex_panic;
 
 use crate::decimal::DecimalDType;
 use crate::nullability::Nullability;
-use crate::{ExtDType, FieldDType, PType, StructFields};
-
-/// A name for a field in a struct
-pub type FieldName = Arc<str>;
-
-/// An ordered list of field names in a struct
-#[derive(Clone, PartialEq, Eq, Debug, Default, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct FieldNames(Arc<[FieldName]>);
-
-impl FieldNames {
-    /// Returns the number of elements.
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Returns true if the number of elements is 0.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Returns a borrowed iterator over the field names.
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = &FieldName> {
-        FieldNamesIter {
-            inner: self,
-            idx: 0,
-        }
-    }
-
-    /// Returns a reference to a field name, or None if `index` is out of bounds.
-    pub fn get(&self, index: usize) -> Option<&FieldName> {
-        self.0.get(index)
-    }
-}
-
-impl AsRef<[FieldName]> for FieldNames {
-    fn as_ref(&self) -> &[FieldName] {
-        &self.0
-    }
-}
-
-impl Index<usize> for FieldNames {
-    type Output = FieldName;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
-    }
-}
-
-/// Iterator of references to field names
-pub struct FieldNamesIter<'a> {
-    inner: &'a FieldNames,
-    idx: usize,
-}
-
-impl<'a> Iterator for FieldNamesIter<'a> {
-    type Item = &'a FieldName;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.idx >= self.inner.len() {
-            return None;
-        }
-
-        let i = &self.inner.0[self.idx];
-        self.idx += 1;
-        Some(i)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.inner.len() - self.idx;
-        (len, Some(len))
-    }
-}
-
-impl ExactSizeIterator for FieldNamesIter<'_> {}
-
-/// Owned iterator of field names.
-pub struct FieldNamesIntoIter {
-    inner: FieldNames,
-    idx: usize,
-}
-
-impl Iterator for FieldNamesIntoIter {
-    type Item = FieldName;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.idx >= self.inner.len() {
-            return None;
-        }
-
-        let i = self.inner.0[self.idx].clone();
-        self.idx += 1;
-        Some(i)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.inner.len() - self.idx;
-        (len, Some(len))
-    }
-}
-
-impl ExactSizeIterator for FieldNamesIntoIter {}
-
-impl IntoIterator for FieldNames {
-    type Item = FieldName;
-
-    type IntoIter = FieldNamesIntoIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        FieldNamesIntoIter {
-            inner: self,
-            idx: 0,
-        }
-    }
-}
-
-impl From<Vec<FieldName>> for FieldNames {
-    fn from(value: Vec<FieldName>) -> Self {
-        Self(value.into())
-    }
-}
-
-impl From<&[&'static str]> for FieldNames {
-    fn from(value: &[&'static str]) -> Self {
-        Self(value.iter().cloned().map(Arc::from).collect())
-    }
-}
-
-impl From<&[FieldName]> for FieldNames {
-    fn from(value: &[FieldName]) -> Self {
-        Self(Arc::from(value))
-    }
-}
-
-impl<const N: usize> From<[&'static str; N]> for FieldNames {
-    fn from(value: [&'static str; N]) -> Self {
-        Self(value.into_iter().map(Arc::from).collect())
-    }
-}
-
-impl<const N: usize> From<[FieldName; N]> for FieldNames {
-    fn from(value: [FieldName; N]) -> Self {
-        Self(value.into())
-    }
-}
-
-impl<F: Into<FieldName>> FromIterator<F> for FieldNames {
-    fn from_iter<T: IntoIterator<Item = F>>(iter: T) -> Self {
-        Self(iter.into_iter().map(|v| v.into()).collect())
-    }
-}
+use crate::{ExtDType, FieldDType, FieldName, PType, StructFields};
 
 /// The logical types of elements in Vortex arrays.
 ///
-/// Vortex arrays preserve a single logical type, while the encodings allow for multiple
-/// physical ways to encode that type.
+/// `DType` represents the different logical data types that can be represented in a Vortex array.
+///
+/// This is different from physical types, which represent the actual layout of data (compressed or
+/// uncompressed). The set of physical types/formats (or data layout) is surjective into the set of
+/// logical types (or in other words, all physical types map to a single logical type).
+///
+/// Note that a `DType` represents the logical type of the elements in the `Array`s, **not** the
+/// logical type of the `Array` itself.
+///
+/// For example, an array with [`DType::Primitive`]([`I32`], [`NonNullable`]) could be physically
+/// encoded as any of the following:
+///
+/// - A flat array of `i32` values.
+/// - A run-length encoded sequence.
+/// - Dictionary encoded values with bitpacked codes.
+///
+/// All of these physical encodings preserve the same logical [`I32`] type, even if the physical
+/// data is different.
+///
+/// [`I32`]: PType::I32
+/// [`NonNullable`]: Nullability::NonNullable
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DType {
-    /// The logical null type (only has a single value, `null`)
+    /// A logical null type.
+    ///
+    /// `Null` only has a single value, `null`.
     Null,
-    /// The logical boolean type (`true` or `false` if non-nullable; `true`, `false`, or `null` if nullable)
+
+    /// A logical boolean type.
+    ///
+    /// `Bool` can be `true` or `false` if non-nullable. It can be `true`, `false`, or `null` if
+    /// nullable.
     Bool(Nullability),
-    /// Primitive, fixed-width numeric types (e.g., `u8`, `i8`, `u16`, `i16`, `u32`, `i32`, `u64`, `i64`, `f32`, `f64`)
+
+    /// A logical fixed-width numeric type.
+    ///
+    /// This can be unsigned, signed, or floating point. See [`PType`] for more information.
     Primitive(PType, Nullability),
-    /// Real numbers with fixed exact precision and scale.
+
+    /// Logical real numbers with fixed precision and scale.
+    ///
+    /// See [`DecimalDType`] for more information.
     Decimal(DecimalDType, Nullability),
-    /// UTF-8 strings
+
+    /// Logical UTF-8 strings.
     Utf8(Nullability),
-    /// Binary data
+
+    /// Logical binary data.
     Binary(Nullability),
-    /// A struct is composed of an ordered list of fields, each with a corresponding name and DType
-    Struct(StructFields, Nullability),
-    /// A variable-length list type, parameterized by a single element DType
+
+    /// A logical variable-length list type.
+    ///
+    /// This is parameterized by a single `DType` that represents the element type of the inner
+    /// lists.
     List(Arc<DType>, Nullability),
-    /// User-defined extension types
+
+    /// A logical fixed-size list type.
+    ///
+    /// This is parameterized by a `DType` that represents the element type of the inner lists, as
+    /// well as a `u32` size that determines the fixed length of each `FixedSizeList` scalar.
+    ///
+    /// This variant has not yet been implemented. Please add a comment with
+    /// `TODO(connor)[FixedSizeList]` if you need to match against `DType`.
+    FixedSizeList(Arc<DType>, u32, Nullability),
+
+    /// A logical struct type.
+    ///
+    /// A `Struct` type is composed of an ordered list of fields, each with a corresponding name and
+    /// `DType`. See [`StructFields`] for more information.
+    Struct(StructFields, Nullability),
+
+    /// A user-defined extension type.
+    ///
+    /// See [`ExtDType`] for more information.
     Extension(Arc<ExtDType>),
 }
 
@@ -196,40 +98,41 @@ pub enum DType {
 const_assert_eq!(size_of::<DType>(), 16);
 
 #[cfg(target_arch = "wasm32")]
-const_assert_eq!(size_of::<DType>(), 8);
+const_assert_eq!(size_of::<DType>(), 12);
 
 impl DType {
-    /// The default DType for bytes
+    /// The default `DType` for bytes.
     pub const BYTES: Self = Primitive(PType::U8, Nullability::NonNullable);
 
-    /// Get the nullability of the DType
+    /// Get the nullability of the `DType`.
+    #[inline]
     pub fn nullability(&self) -> Nullability {
         self.is_nullable().into()
     }
 
-    /// Check if the DType is nullable
+    /// Check if the `DType` is [`Nullability::Nullable`].
+    #[inline]
     pub fn is_nullable(&self) -> bool {
-        use crate::nullability::Nullability::*;
-
         match self {
             Null => true,
             Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
-            Bool(n)
-            | Primitive(_, n)
-            | Decimal(_, n)
-            | Utf8(n)
-            | Binary(n)
-            | Struct(_, n)
-            | List(_, n) => matches!(n, Nullable),
+            Bool(null)
+            | Primitive(_, null)
+            | Decimal(_, null)
+            | Utf8(null)
+            | Binary(null)
+            | Struct(_, null)
+            | List(_, null)
+            | FixedSizeList(_, _, null) => matches!(null, Nullability::Nullable),
         }
     }
 
-    /// Get a new DType with `Nullability::NonNullable` (but otherwise the same as `self`)
+    /// Get a new `DType` with [`Nullability::NonNullable`] (but otherwise the same as `self`)
     pub fn as_nonnullable(&self) -> Self {
         self.with_nullability(Nullability::NonNullable)
     }
 
-    /// Get a new DType with `Nullability::Nullable` (but otherwise the same as `self`)
+    /// Get a new `DType` with [`Nullability::Nullable`] (but otherwise the same as `self`)
     pub fn as_nullable(&self) -> Self {
         self.with_nullability(Nullability::Nullable)
     }
@@ -239,23 +142,24 @@ impl DType {
         match self {
             Null => Null,
             Bool(_) => Bool(nullability),
-            Primitive(p, _) => Primitive(*p, nullability),
-            Decimal(d, _) => Decimal(*d, nullability),
+            Primitive(pdt, _) => Primitive(*pdt, nullability),
+            Decimal(ddt, _) => Decimal(*ddt, nullability),
             Utf8(_) => Utf8(nullability),
             Binary(_) => Binary(nullability),
-            Struct(st, _) => Struct(st.clone(), nullability),
-            List(c, _) => List(c.clone(), nullability),
+            Struct(sf, _) => Struct(sf.clone(), nullability),
+            List(edt, _) => List(edt.clone(), nullability),
+            FixedSizeList(edt, size, _) => FixedSizeList(edt.clone(), *size, nullability),
             Extension(ext) => Extension(Arc::new(ext.with_nullability(nullability))),
         }
     }
 
-    /// Union the nullability of this dtype with the other nullability, returning a new dtype.
+    /// Union the nullability of this `DType` with the other nullability, returning a new `DType`.
     pub fn union_nullability(&self, other: Nullability) -> Self {
         let nullability = self.nullability() | other;
         self.with_nullability(nullability)
     }
 
-    /// Check if `self` and `other` are equal, ignoring nullability
+    /// Check if `self` and `other` are equal, ignoring nullability.
     pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
         match (self, other) {
             (Null, Null) => true,
@@ -265,6 +169,9 @@ impl DType {
             (Utf8(_), Utf8(_)) => true,
             (Binary(_), Binary(_)) => true,
             (List(lhs_dtype, _), List(rhs_dtype, _)) => lhs_dtype.eq_ignore_nullability(rhs_dtype),
+            (FixedSizeList(lhs_dtype, lhs_size, _), FixedSizeList(rhs_dtype, rhs_size, _)) => {
+                lhs_size == rhs_size && lhs_dtype.eq_ignore_nullability(rhs_dtype)
+            }
             (Struct(lhs_dtype, _), Struct(rhs_dtype, _)) => {
                 (lhs_dtype.names() == rhs_dtype.names())
                     && (lhs_dtype
@@ -279,21 +186,56 @@ impl DType {
         }
     }
 
-    /// Check if `self` is a `StructDType`
-    pub fn is_struct(&self) -> bool {
-        matches!(self, Struct(_, _))
+    /// Returns `true` if `self` is a subset type of `other, otherwise `false`.
+    ///
+    /// If `self` is nullable, this means that the other `DType` must also be nullable (since a
+    /// nullable type represents more values than a non-nullable type) and equal.
+    ///
+    /// If `self` is non-nullable, then the other `DType` must be equal ignoring nullabillity.
+    ///
+    /// We implement this functionality as a complement to `is_superset_of`.
+    pub fn eq_with_nullability_subset(&self, other: &Self) -> bool {
+        if self.is_nullable() {
+            self == other
+        } else {
+            self.eq_ignore_nullability(other)
+        }
     }
 
-    /// Check if `self` is a primitive tpye
+    /// Returns `true` if `self` is a superset type of `other, otherwise `false`.
+    ///
+    /// If `self` is non-nullable, this means that the other `DType` must also be non-nullable
+    /// (since a non-nullable type represents less values than a nullable type) and equal.
+    ///
+    /// If `self` is nullable, then the other `DType` must be equal ignoring nullabillity.
+    ///
+    /// This function is useful (in the `vortex-array` crate) for determining if an `Array` can
+    /// extend a given `ArrayBuilder`: it can only extend it if the `DType` of the builder is a
+    /// superset of the `Array`.
+    pub fn eq_with_nullability_superset(&self, other: &Self) -> bool {
+        if self.is_nullable() {
+            self.eq_ignore_nullability(other)
+        } else {
+            self == other
+        }
+    }
+
+    /// Check if `self` is a boolean
+    pub fn is_boolean(&self) -> bool {
+        matches!(self, Bool(_))
+    }
+
+    /// Check if `self` is a primitive type
     pub fn is_primitive(&self) -> bool {
         matches!(self, Primitive(_, _))
     }
 
-    /// Returns this DType's `PType` if it is a primitive type, otherwise panics.
+    /// Returns this [`DType`]'s [`PType`] if it is a primitive type, otherwise panics.
     pub fn as_ptype(&self) -> PType {
-        match self {
-            Primitive(ptype, _) => *ptype,
-            _ => vortex_panic!("DType is not a primitive type"),
+        if let Primitive(ptype, _) = self {
+            *ptype
+        } else {
+            vortex_panic!("DType is not a primitive type")
         }
     }
 
@@ -329,66 +271,105 @@ impl DType {
         false
     }
 
-    /// Check if `self` is a boolean
-    pub fn is_boolean(&self) -> bool {
-        matches!(self, Bool(_))
-    }
-
-    /// Check if `self` is a binary
-    pub fn is_binary(&self) -> bool {
-        matches!(self, Binary(_))
-    }
-
-    /// Check if `self` is a utf8
-    pub fn is_utf8(&self) -> bool {
-        matches!(self, Utf8(_))
-    }
-
-    /// Check if `self` is an extension type
-    pub fn is_extension(&self) -> bool {
-        matches!(self, Extension(_))
-    }
-
-    /// Check if `self` is a decimal type
+    /// Check if `self` is a [`DType::Decimal`].
     pub fn is_decimal(&self) -> bool {
         matches!(self, Decimal(..))
     }
 
-    /// Check returns the inner decimal type if the dtype is a decimal
-    pub fn as_decimal(&self) -> Option<&DecimalDType> {
-        match self {
-            Decimal(decimal, _) => Some(decimal),
-            _ => None,
+    /// Check if `self` is a [`DType::Utf8`]
+    pub fn is_utf8(&self) -> bool {
+        matches!(self, Utf8(_))
+    }
+
+    /// Check if `self` is a [`DType::Binary`]
+    pub fn is_binary(&self) -> bool {
+        matches!(self, Binary(_))
+    }
+
+    /// Check if `self` is a [`DType::List`].
+    pub fn is_list(&self) -> bool {
+        matches!(self, List(_, _))
+    }
+
+    /// Check if `self` is a [`DType::FixedSizeList`],
+    pub fn is_fixed_size_list(&self) -> bool {
+        matches!(self, FixedSizeList(..))
+    }
+
+    /// Check if `self` is a [`DType::Struct`]
+    pub fn is_struct(&self) -> bool {
+        matches!(self, Struct(_, _))
+    }
+
+    /// Check if `self` is a [`DType::Extension`] type
+    pub fn is_extension(&self) -> bool {
+        matches!(self, Extension(_))
+    }
+
+    /// Check returns the inner decimal type if the dtype is a [`DType::Decimal`].
+    pub fn as_decimal_opt(&self) -> Option<&DecimalDType> {
+        if let Decimal(decimal, _) = self {
+            Some(decimal)
+        } else {
+            None
+        }
+    }
+
+    /// Get the inner element dtype if `self` is a [`DType::List`], otherwise returns `None`.
+    ///
+    /// Note that this does _not_ return `Some` if `self` is a [`DType::FixedSizeList`].
+    pub fn as_list_element_opt(&self) -> Option<&Arc<DType>> {
+        if let List(edt, _) = self {
+            Some(edt)
+        } else {
+            None
+        }
+    }
+
+    /// Get the inner element dtype if `self` is a [`DType::FixedSizeList`], otherwise returns
+    /// `None`.
+    ///
+    /// Note that this does _not_ return `Some` if `self` is a [`DType::List`].
+    pub fn as_fixed_size_list_element_opt(&self) -> Option<&Arc<DType>> {
+        if let FixedSizeList(edt, ..) = self {
+            Some(edt)
+        } else {
+            None
+        }
+    }
+
+    /// Get the inner element dtype if `self` is **either** a [`DType::List`] or a
+    /// [`DType::FixedSizeList`], otherwise returns `None`
+    pub fn as_any_size_list_element_opt(&self) -> Option<&Arc<DType>> {
+        if let FixedSizeList(edt, ..) = self {
+            Some(edt)
+        } else if let List(edt, ..) = self {
+            Some(edt)
+        } else {
+            None
         }
     }
 
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
-    pub fn as_struct(&self) -> Option<&StructFields> {
-        match self {
-            Struct(s, _) => Some(s),
-            _ => None,
+    pub fn as_struct_fields_opt(&self) -> Option<&StructFields> {
+        if let Struct(f, _) = self {
+            Some(f)
+        } else {
+            None
         }
     }
 
-    /// Get the inner dtype if `self` is a `ListDType`, otherwise `None`
-    pub fn as_list_element(&self) -> Option<&Arc<DType>> {
-        match self {
-            List(s, _) => Some(s),
-            _ => None,
-        }
+    /// Convenience method for creating a [`DType::List`].
+    pub fn list(dtype: impl Into<DType>, nullability: Nullability) -> Self {
+        List(Arc::new(dtype.into()), nullability)
     }
 
-    /// Convenience method for creating a struct dtype
+    /// Convenience method for creating a [`DType::Struct`].
     pub fn struct_<I: IntoIterator<Item = (impl Into<FieldName>, impl Into<FieldDType>)>>(
         iter: I,
         nullability: Nullability,
     ) -> Self {
         Struct(StructFields::from_iter(iter), nullability)
-    }
-
-    /// Convenience method for creating a list dtype
-    pub fn list(dtype: impl Into<DType>, nullability: Nullability) -> Self {
-        List(Arc::new(dtype.into()), nullability)
     }
 }
 
@@ -396,22 +377,22 @@ impl Display for DType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Null => write!(f, "null"),
-            Bool(n) => write!(f, "bool{n}"),
-            Primitive(pt, n) => write!(f, "{pt}{n}"),
-            Decimal(dt, n) => write!(f, "{dt}{n}"),
-            Utf8(n) => write!(f, "utf8{n}"),
-            Binary(n) => write!(f, "binary{n}"),
-            Struct(sdt, n) => write!(
+            Bool(null) => write!(f, "bool{null}"),
+            Primitive(pdt, null) => write!(f, "{pdt}{null}"),
+            Decimal(ddt, null) => write!(f, "{ddt}{null}"),
+            Utf8(null) => write!(f, "utf8{null}"),
+            Binary(null) => write!(f, "binary{null}"),
+            Struct(sf, null) => write!(
                 f,
-                "{{{}}}{}",
-                sdt.names()
+                "{{{}}}{null}",
+                sf.names()
                     .iter()
-                    .zip(sdt.fields())
-                    .map(|(n, dt)| format!("{n}={dt}"))
+                    .zip(sf.fields())
+                    .map(|(field_null, dt)| format!("{field_null}={dt}"))
                     .join(", "),
-                n
             ),
-            List(edt, n) => write!(f, "list({edt}){n}"),
+            List(edt, null) => write!(f, "list({edt}){null}"),
+            FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
             Extension(ext) => write!(
                 f,
                 "ext({}, {}{}){}",
@@ -424,32 +405,5 @@ impl Display for DType {
                 ext.storage_dtype().nullability(),
             ),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_field_names_iter() {
-        let names = ["a", "b"];
-        let field_names = FieldNames::from(names);
-        assert_eq!(field_names.iter().len(), names.len());
-        let mut iter = field_names.iter();
-        assert_eq!(iter.next(), Some(&"a".into()));
-        assert_eq!(iter.next(), Some(&"b".into()));
-        assert_eq!(iter.next(), None);
-    }
-
-    #[test]
-    fn test_field_names_owned_iter() {
-        let names = ["a", "b"];
-        let field_names = FieldNames::from(names);
-        assert_eq!(field_names.clone().into_iter().len(), names.len());
-        let mut iter = field_names.into_iter();
-        assert_eq!(iter.next(), Some("a".into()));
-        assert_eq!(iter.next(), Some("b".into()));
-        assert_eq!(iter.next(), None);
     }
 }

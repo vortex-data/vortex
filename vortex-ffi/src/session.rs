@@ -14,13 +14,7 @@ use vortex::utils::aliases::DefaultHashBuilder;
 use crate::box_wrapper;
 
 box_wrapper!(
-    /// A Vortex session stores registries of extensible types, various caches, and other
-    /// top-level configuration.
-    ///
-    /// Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
-    ///
-    /// Multiple sessions may be created in a single process, and individual arrays are not tied to a
-    /// specific session.
+    /// A handle to a Vortex session.
     VortexSession,
     vx_session
 );
@@ -33,8 +27,19 @@ pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
     vx_session::new(Box::new(VortexSession::new()))
 }
 
+/// A Vortex session stores registries of extensible types, various caches, and other
+/// top-level configuration.
+///
+/// Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
+///
+/// Multiple sessions may be created in a single process, and individual arrays are not tied to a
+/// specific session.
+///
+/// The session holds a reference to a shared tokio runtime. When the last session is dropped,
+/// the runtime may be shut down by calling `crate::try_shutdown_runtime()`.
 pub struct VortexSession {
     file_cache: Cache<FileKey, Footer, DefaultHashBuilder>,
+    _runtime: Arc<tokio::runtime::Runtime>,
 }
 
 /// Cache key for a [`VortexFile`].
@@ -54,7 +59,13 @@ impl VortexSession {
             .weigher(|_k, footer| u32::try_from(estimate_layout_size(footer)).unwrap_or(u32::MAX))
             .build_with_hasher(DefaultHashBuilder::default());
 
-        Self { file_cache }
+        // Get a runtime reference that will be held for the lifetime of this session
+        let _runtime = crate::get_runtime();
+
+        Self {
+            file_cache,
+            _runtime,
+        }
     }
 
     pub fn get_footer(&self, file_key: &FileKey) -> Option<Footer> {

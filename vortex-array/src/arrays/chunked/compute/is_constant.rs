@@ -13,9 +13,11 @@ impl IsConstantKernel for ChunkedVTable {
         array: &ChunkedArray,
         opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
-        let mut chunks = array.chunks().iter().skip_while(|c| c.is_empty());
+        let mut chunks = array.non_empty_chunks();
 
-        let first_chunk = chunks.next().vortex_expect("Must have at least one value");
+        let first_chunk = chunks
+            .next()
+            .vortex_expect("Must have at least one non-empty chunk");
 
         match is_constant_opts(first_chunk, opts)? {
             // Un-determined
@@ -24,13 +26,9 @@ impl IsConstantKernel for ChunkedVTable {
             Some(true) => {}
         }
 
-        let first_value = first_chunk.scalar_at(0)?.into_nullable();
+        let first_value = first_chunk.scalar_at(0).into_nullable();
 
         for chunk in chunks {
-            if chunk.is_empty() {
-                continue;
-            }
-
             match is_constant_opts(chunk, opts)? {
                 // Un-determined
                 None => return Ok(None),
@@ -38,7 +36,7 @@ impl IsConstantKernel for ChunkedVTable {
                 Some(true) => {}
             }
 
-            if first_value != chunk.scalar_at(0)?.into_nullable() {
+            if first_value != chunk.scalar_at(0).into_nullable() {
                 return Ok(Some(false));
             }
         }

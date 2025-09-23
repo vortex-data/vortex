@@ -5,6 +5,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
+use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
@@ -13,6 +14,7 @@ use vortex_runend::_benchmarking::{filter_run_end, take_indices_unchecked};
 use vortex_runend::RunEndArray;
 
 fn main() {
+    warm_up_vtables();
     divan::main();
 }
 

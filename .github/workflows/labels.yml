@@ -2,7 +2,7 @@ name: PR Labels
 
 on:
   pull_request:
-    types: [ opened, reopened, synchronize, labeled, unlabeled ]  # Trigger on these PR activities
+    types: [opened, reopened, synchronize, labeled, unlabeled]  # Trigger on these PR activities
 
 jobs:
   check_changelog_label:
