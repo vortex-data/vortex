@@ -219,6 +219,9 @@ impl ListViewArray {
             offset_ptype
         );
 
+        // TODO(connor): This doesn't check that the actual logical value of `sizes` fits inside
+        // offsets. For example, `u32` does not fit inside `i32`.
+
         // Validate the `offsets` and `sizes` arrays.
         match_each_integer_ptype!(offset_ptype, |O| {
             match_each_integer_ptype!(size_ptype, |S| {

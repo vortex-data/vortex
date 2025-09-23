@@ -54,11 +54,28 @@ impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
     }
 
     /// Create a new builder with a custom value builder.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the size type `S` cannot fit within the offset type `O`.
     pub fn with_capacity(
         element_dtype: Arc<DType>,
         nullability: Nullability,
         capacity: usize,
     ) -> Self {
+        // TODO(connor): This doesn't check that the actual logical value of `sizes` fits inside
+        // offsets. For example, `u32` does not fit inside `i32`.
+
+        // Validate that size type fits within offset type.
+        assert!(
+            S::PTYPE.byte_width() <= O::PTYPE.byte_width(),
+            "Size type {:?} ({}B) must fit within offset type {:?} ({}B)",
+            S::PTYPE,
+            S::PTYPE.byte_width(),
+            O::PTYPE,
+            O::PTYPE.byte_width()
+        );
+
         // We arbitrarily choose 2 times the number of list scalars for the capacity of the elements
         // builder since we cannot know this ahead of time.
         let elements_capacity = capacity * 2;
@@ -87,10 +104,15 @@ impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
         let Some(elements) = value.elements() else {
             // If `elements` is `None`, then the `value` is a null value.
+            vortex_ensure!(
+                self.dtype.is_nullable(),
+                "Cannot append null value to non-nullable list builder"
+            );
             self.append_null();
             return Ok(());
         };
 
+        let curr_offset = self.elements_builder.len();
         let num_elements = elements.len();
 
         for scalar in elements {
@@ -101,10 +123,8 @@ impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
         self.nulls.append_non_null();
 
         self.offsets_builder.append_value(
-            O::from_usize(self.elements_builder.len())
-                .vortex_expect("Failed to convert from usize to `O`"),
+            O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
         );
-
         self.sizes_builder.append_value(
             S::from_usize(num_elements).vortex_expect("Failed to convert from usize to `S`"),
         );
@@ -155,15 +175,17 @@ impl<O: OffsetPType, S: OffsetPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     fn append_zeros(&mut self, n: usize) {
-        let curr_len = self.offsets_builder.len();
-        debug_assert_eq!(curr_len, self.sizes_builder.len());
-        debug_assert_eq!(curr_len, self.nulls.len());
+        debug_assert_eq!(self.offsets_builder.len(), self.sizes_builder.len());
+        debug_assert_eq!(self.offsets_builder.len(), self.nulls.len());
+
+        // Get the current position in the elements array.
+        let curr_offset = self.elements_builder.len();
 
         // Since we consider the "zero" element of a list an empty list, we simply update the
         // `offsets` and `sizes` metadata to add an empty list.
         for _ in 0..n {
             self.offsets_builder.append_value(
-                O::from_usize(curr_len).vortex_expect("Failed to convert from usize to <O>"),
+                O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
             );
             self.sizes_builder.append_value(S::zero());
         }
@@ -172,14 +194,16 @@ impl<O: OffsetPType, S: OffsetPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
-        let curr_len = self.offsets_builder.len();
-        debug_assert_eq!(curr_len, self.sizes_builder.len());
-        debug_assert_eq!(curr_len, self.nulls.len());
+        debug_assert_eq!(self.offsets_builder.len(), self.sizes_builder.len());
+        debug_assert_eq!(self.offsets_builder.len(), self.nulls.len());
+
+        // Get the current position in the elements array.
+        let curr_offset = self.elements_builder.len();
 
         // A null list can have any representation, but we choose to use the zero representation.
         for _ in 0..n {
             self.offsets_builder.append_value(
-                O::from_usize(curr_len).vortex_expect("Failed to convert from usize to <O>"),
+                O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
             );
             self.sizes_builder.append_value(S::zero());
         }
@@ -239,5 +263,273 @@ impl<O: OffsetPType, S: OffsetPType> ArrayBuilder for ListViewBuilder<O, S> {
     fn finish_into_canonical(&mut self) -> Canonical {
         // TODO(connor)[ListView]: fix this after list view is canonical
         unimplemented!("TODO(connor)[ListView]: fix this after list view is canonical")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability::{NonNullable, Nullable};
+    use vortex_dtype::PType::I32;
+    use vortex_scalar::Scalar;
+
+    use super::ListViewBuilder;
+    use crate::IntoArray;
+    use crate::array::Array;
+    use crate::arrays::ListArray;
+    use crate::builders::ArrayBuilder;
+    use crate::vtable::ValidityHelper;
+
+    #[test]
+    fn test_empty() {
+        let mut builder =
+            ListViewBuilder::<u32, u32>::with_capacity(Arc::new(I32.into()), NonNullable, 0);
+
+        let listview = builder.finish();
+        assert_eq!(listview.len(), 0);
+    }
+
+    #[test]
+    fn test_basic_append_and_nulls() {
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), Nullable, 0);
+
+        // Append a regular list.
+        builder
+            .append_value(
+                Scalar::list(
+                    dtype.clone(),
+                    vec![1i32.into(), 2i32.into(), 3i32.into()],
+                    NonNullable,
+                )
+                .as_list(),
+            )
+            .unwrap();
+
+        // Append an empty list.
+        builder
+            .append_value(Scalar::list_empty(dtype.clone(), NonNullable).as_list())
+            .unwrap();
+
+        // Append a null list.
+        builder.append_null();
+
+        // Append another regular list.
+        builder
+            .append_value(
+                Scalar::list(dtype, vec![4i32.into(), 5i32.into()], NonNullable).as_list(),
+            )
+            .unwrap();
+
+        let listview = builder.finish_into_listview();
+        assert_eq!(listview.len(), 4);
+
+        // Check first list: [1, 2, 3].
+        let first_list = listview.list_elements_at(0);
+        assert_eq!(first_list.len(), 3);
+        assert_eq!(first_list.scalar_at(0), 1i32.into());
+        assert_eq!(first_list.scalar_at(1), 2i32.into());
+        assert_eq!(first_list.scalar_at(2), 3i32.into());
+
+        // Check empty list.
+        let empty_list = listview.list_elements_at(1);
+        assert_eq!(empty_list.len(), 0);
+
+        // Check null list.
+        assert!(!listview.validity().is_valid(2));
+
+        // Check last list: [4, 5].
+        let last_list = listview.list_elements_at(3);
+        assert_eq!(last_list.len(), 2);
+        assert_eq!(last_list.scalar_at(0), 4i32.into());
+        assert_eq!(last_list.scalar_at(1), 5i32.into());
+    }
+
+    #[test]
+    fn test_different_offset_size_types() {
+        // Test u32 offsets with u8 sizes.
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut builder = ListViewBuilder::<u32, u8>::with_capacity(dtype.clone(), NonNullable, 0);
+
+        builder
+            .append_value(
+                Scalar::list(dtype.clone(), vec![1i32.into(), 2i32.into()], NonNullable).as_list(),
+            )
+            .unwrap();
+
+        builder
+            .append_value(
+                Scalar::list(
+                    dtype,
+                    vec![3i32.into(), 4i32.into(), 5i32.into()],
+                    NonNullable,
+                )
+                .as_list(),
+            )
+            .unwrap();
+
+        let listview = builder.finish_into_listview();
+        assert_eq!(listview.len(), 2);
+
+        // Verify first list: [1, 2].
+        let first = listview.list_elements_at(0);
+        assert_eq!(first.scalar_at(0), 1i32.into());
+        assert_eq!(first.scalar_at(1), 2i32.into());
+
+        // Verify second list: [3, 4, 5].
+        let second = listview.list_elements_at(1);
+        assert_eq!(second.scalar_at(0), 3i32.into());
+        assert_eq!(second.scalar_at(1), 4i32.into());
+        assert_eq!(second.scalar_at(2), 5i32.into());
+
+        // Test u64 offsets with u16 sizes.
+        let dtype2: Arc<DType> = Arc::new(I32.into());
+        let mut builder2 =
+            ListViewBuilder::<u64, u16>::with_capacity(dtype2.clone(), NonNullable, 0);
+
+        for i in 0..5 {
+            builder2
+                .append_value(
+                    Scalar::list(dtype2.clone(), vec![(i * 10).into()], NonNullable).as_list(),
+                )
+                .unwrap();
+        }
+
+        let listview2 = builder2.finish_into_listview();
+        assert_eq!(listview2.len(), 5);
+
+        // Verify the values: [0], [10], [20], [30], [40].
+        for i in 0..5 {
+            let list = listview2.list_elements_at(i);
+            assert_eq!(list.len(), 1);
+            assert_eq!(list.scalar_at(0), (i as i32 * 10).into());
+        }
+    }
+
+    #[test]
+    fn test_builder_trait_methods() {
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), Nullable, 0);
+
+        // Test append_zeros (creates empty lists).
+        builder.append_zeros(2);
+        assert_eq!(builder.len(), 2);
+
+        // Test append_nulls.
+        unsafe {
+            builder.append_nulls_unchecked(2);
+        }
+        assert_eq!(builder.len(), 4);
+
+        // Test append_scalar.
+        let list_scalar = Scalar::list(dtype, vec![10i32.into(), 20i32.into()], Nullable);
+        builder.append_scalar(&list_scalar).unwrap();
+        assert_eq!(builder.len(), 5);
+
+        let listview = builder.finish_into_listview();
+        assert_eq!(listview.len(), 5);
+
+        // First two are empty lists (from append_zeros).
+        assert_eq!(listview.list_elements_at(0).len(), 0);
+        assert_eq!(listview.list_elements_at(1).len(), 0);
+
+        // Next two are nulls.
+        assert!(!listview.validity().is_valid(2));
+        assert!(!listview.validity().is_valid(3));
+
+        // Last is the regular list: [10, 20].
+        let last_list = listview.list_elements_at(4);
+        assert_eq!(last_list.len(), 2);
+        assert_eq!(last_list.scalar_at(0), 10i32.into());
+        assert_eq!(last_list.scalar_at(1), 20i32.into());
+    }
+
+    #[test]
+    fn test_extend_from_array() {
+        let dtype: Arc<DType> = Arc::new(I32.into());
+
+        // Create a source ListArray.
+        let source = ListArray::from_iter_opt_slow::<u32, _, Vec<i32>>(
+            [Some(vec![1, 2, 3]), None, Some(vec![4, 5])],
+            Arc::new(I32.into()),
+        )
+        .unwrap();
+
+        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), Nullable, 0);
+
+        // Add initial data.
+        builder
+            .append_value(Scalar::list(dtype, vec![0i32.into()], NonNullable).as_list())
+            .unwrap();
+
+        // Extend from the ListArray.
+        unsafe {
+            builder.extend_from_array_unchecked(&source.into_array());
+        }
+
+        // Extend from empty array (should be no-op).
+        let empty_source = ListArray::from_iter_opt_slow::<u32, _, Vec<i32>>(
+            std::iter::empty::<Option<Vec<i32>>>(),
+            Arc::new(I32.into()),
+        )
+        .unwrap();
+        unsafe {
+            builder.extend_from_array_unchecked(&empty_source.into_array());
+        }
+
+        let listview = builder.finish_into_listview();
+        assert_eq!(listview.len(), 4);
+
+        // Check the extended data.
+        // First list: [0] (initial data).
+        let first = listview.list_elements_at(0);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first.scalar_at(0), 0i32.into());
+
+        // Second list: [1, 2, 3] (from source).
+        let second = listview.list_elements_at(1);
+        assert_eq!(second.len(), 3);
+        assert_eq!(second.scalar_at(0), 1i32.into());
+        assert_eq!(second.scalar_at(1), 2i32.into());
+        assert_eq!(second.scalar_at(2), 3i32.into());
+
+        // Third list: null (from source).
+        assert!(!listview.validity().is_valid(2));
+
+        // Fourth list: [4, 5] (from source).
+        let fourth = listview.list_elements_at(3);
+        assert_eq!(fourth.len(), 2);
+        assert_eq!(fourth.scalar_at(0), 4i32.into());
+        assert_eq!(fourth.scalar_at(1), 5i32.into());
+    }
+
+    #[test]
+    fn test_error_append_null_to_non_nullable() {
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), NonNullable, 0);
+
+        // Create a null list with nullable type (since Scalar::null requires nullable type).
+        let null_scalar = Scalar::null(DType::List(dtype, Nullable));
+        let null_list = null_scalar.as_list();
+
+        // This should fail because we're trying to append a null to a non-nullable builder.
+        let result = builder.append_value(null_list);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("null value to non-nullable")
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Size type I32 (4B) must fit within offset type I16 (2B)")]
+    fn test_error_invalid_type_combination() {
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        // This should panic because i32 (4 bytes) cannot fit within i16 (2 bytes).
+        let _builder = ListViewBuilder::<i16, i32>::with_capacity(dtype, NonNullable, 0);
     }
 }
