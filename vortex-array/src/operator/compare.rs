@@ -2,21 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::arrays::ConstantArray;
 use crate::compute::Operator as Op;
-use crate::operator::{Operator, OperatorId, OperatorRef};
+use crate::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, VectorId};
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct CompareOperator {
     children: [OperatorRef; 2],
     op: Op,
@@ -51,6 +51,26 @@ impl CompareOperator {
 
     pub fn op(&self) -> Op {
         self.op
+    }
+}
+
+impl OperatorHash for CompareOperator {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
+        self.op.hash(state);
+        self.dtype.hash(state);
+        self.children.iter().for_each(|c| c.operator_hash(state));
+    }
+}
+
+impl OperatorEq for CompareOperator {
+    fn operator_eq(&self, other: &Self) -> bool {
+        self.op == other.op
+            && self.dtype == other.dtype
+            && self
+                .children
+                .iter()
+                .zip(other.children.iter())
+                .all(|(a, b)| a.operator_eq(b))
     }
 }
 
@@ -308,6 +328,7 @@ impl<T: PartialOrd> CompareOp<T> for Lte {
     }
 }
 
+// TODO(ngates): bring these back!
 // #[cfg(test)]
 // mod tests {
 //     use std::rc::Rc;

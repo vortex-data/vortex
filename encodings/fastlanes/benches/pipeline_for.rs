@@ -13,7 +13,7 @@ use vortex_array::compute::{filter, warm_up_vtables};
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_fastlanes::{FoRArray, bitpack_to_best_bit_width};
+use vortex_fastlanes::{bitpack_to_best_bit_width, FoRArray};
 use vortex_mask::Mask;
 
 #[global_allocator]
@@ -67,6 +67,7 @@ pub fn decompress_for_early_filter<T: NativePType>(bencher: Bencher, fraction_ke
         .bench_local_values(|mask| filter(array.as_ref(), &mask).unwrap().to_canonical());
 }
 
+// TODO(ngates): bring back benchmarks once pipeline API is stable.
 // #[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]
 // #[allow(dead_code)]
 // pub fn decompress_for_pipeline_plan_filter<T: Element + NativePType>(

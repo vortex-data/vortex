@@ -10,8 +10,8 @@ use vortex_array::compute::filter;
 use vortex_array::operator::filter::FilterOperator;
 use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorHash,
-    OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
+    OperatorHash, OperatorId, OperatorRef,
 };
 use vortex_array::vtable::PipelineVTable;
 use vortex_array::{Array, Canonical};
@@ -27,27 +27,27 @@ impl PipelineVTable<FSSTVTable> for FSSTVTable {
     }
 }
 
-impl Hash for FSSTArray {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+impl OperatorHash for FSSTArray {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
         self.dtype().hash(state);
-        OperatorHash(self.symbols()).hash(state);
-        OperatorHash(self.symbol_lengths()).hash(state);
-        self.codes().hash(state);
-        OperatorHash(self.uncompressed_lengths()).hash(state);
+        self.symbols().operator_hash(state);
+        self.symbol_lengths().operator_hash(state);
+        self.codes().operator_hash(state);
+        self.uncompressed_lengths().operator_hash(state);
     }
 }
 
-impl PartialEq for FSSTArray {
-    fn eq(&self, other: &Self) -> bool {
+impl OperatorEq for FSSTArray {
+    fn operator_eq(&self, other: &Self) -> bool {
         self.dtype() == other.dtype()
-            && OperatorHash(self.symbols()) == OperatorHash(other.symbols())
-            && OperatorHash(self.symbol_lengths()) == OperatorHash(other.symbol_lengths())
-            && self.codes() == other.codes()
-            && OperatorHash(self.uncompressed_lengths())
-                == OperatorHash(other.uncompressed_lengths())
+            && self.symbols().operator_eq(other.symbols())
+            && self.symbol_lengths().operator_eq(other.symbol_lengths())
+            && self.codes().operator_eq(other.codes())
+            && self
+                .uncompressed_lengths()
+                .operator_eq(other.uncompressed_lengths())
     }
 }
-impl Eq for FSSTArray {}
 
 impl Operator for FSSTArray {
     fn id(&self) -> OperatorId {
@@ -129,19 +129,18 @@ pub struct FilteredFSSTOperator {
     mask: Mask,
 }
 
-impl Hash for FilteredFSSTOperator {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.array.hash(state);
-        OperatorHash(&self.mask).hash(state);
+impl OperatorHash for FilteredFSSTOperator {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
+        self.array.operator_hash(state);
+        self.mask.operator_hash(state);
     }
 }
 
-impl PartialEq for FilteredFSSTOperator {
-    fn eq(&self, other: &Self) -> bool {
-        self.array == other.array && OperatorHash(&self.mask) == OperatorHash(&other.mask)
+impl OperatorEq for FilteredFSSTOperator {
+    fn operator_eq(&self, other: &Self) -> bool {
+        self.array.operator_eq(&other.array) && self.mask.operator_eq(&other.mask)
     }
 }
-impl Eq for FilteredFSSTOperator {}
 
 impl Operator for FilteredFSSTOperator {
     fn id(&self) -> OperatorId {

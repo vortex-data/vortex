@@ -3,7 +3,7 @@
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
+use std::hash::Hasher;
 use std::slice;
 use std::sync::Arc;
 
@@ -14,8 +14,8 @@ use vortex_mask::Mask;
 
 use crate::compute::filter;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
-    OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
+    OperatorHash, OperatorId, OperatorRef,
 };
 use crate::{Array, Canonical, IntoArray};
 
@@ -25,25 +25,16 @@ pub struct FilterOperator {
     mask: Mask,
 }
 
-impl PartialEq for FilterOperator {
-    fn eq(&self, other: &Self) -> bool {
-        self.child.eq(&other.child) && self.mask.eq(&other.mask)
+impl OperatorEq for FilterOperator {
+    fn operator_eq(&self, other: &Self) -> bool {
+        self.child.operator_eq(&other.child) && self.mask.operator_eq(&other.mask)
     }
 }
-impl Eq for FilterOperator {}
 
-impl Hash for FilterOperator {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.child.hash(state);
-        // Hash the discriminant first
-        std::mem::discriminant(&self.mask).hash(state);
-        match &self.mask {
-            Mask::AllTrue(len) => len.hash(state),
-            Mask::AllFalse(len) => len.hash(state),
-            Mask::Values(values) => {
-                Arc::as_ptr(values).hash(state);
-            }
-        }
+impl OperatorHash for FilterOperator {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
+        self.child.operator_hash(state);
+        self.mask.operator_hash(state);
     }
 }
 

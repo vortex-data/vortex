@@ -8,13 +8,13 @@ use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use vortex_error::{
-    SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err,
+    vortex_bail, vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult,
 };
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::Canonical;
-use crate::operator::{BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorRef};
+use crate::operator::{BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorKey, OperatorRef};
 use crate::pipeline::operator::PipelineOperator;
+use crate::Canonical;
 
 /// An executor that runs an operator tree.
 ///
@@ -26,8 +26,10 @@ use crate::pipeline::operator::PipelineOperator;
 pub struct Executor {
     /// Cache of shared futures for common subtree elimination.
     /// We use WeakShared to allow futures to be dropped when no longer needed.
-    execution_cache:
-        HashMap<OperatorRef, WeakShared<BoxFuture<'static, SharedVortexResult<Canonical>>>>,
+    execution_cache: HashMap<
+        OperatorKey<OperatorRef>,
+        WeakShared<BoxFuture<'static, SharedVortexResult<Canonical>>>,
+    >,
 }
 
 impl Executor {
@@ -46,13 +48,14 @@ impl Executor {
         //  a shared execution future... somehow...
 
         // Check if we already have a shared future for this operator
-        if let Some(weak_shared) = self.execution_cache.get(operator) {
+        let key = OperatorKey(operator.clone());
+        if let Some(weak_shared) = self.execution_cache.get(&key) {
             if let Some(shared) = weak_shared.upgrade() {
                 // Return a SharedBatchExecution that references the existing shared future
                 return Ok(Box::new(SharedBatchExecution(shared)));
             } else {
                 // If the weak reference is dead, remove it from the cache
-                self.execution_cache.remove(operator);
+                self.execution_cache.remove(&key);
             }
         }
 
@@ -88,7 +91,7 @@ impl Executor {
 
         let shared_future = execution.execute().map_err(Arc::new).boxed().shared();
         self.execution_cache.insert(
-            operator.clone(),
+            OperatorKey(operator),
             shared_future.downgrade().vortex_expect("just created"),
         );
         Ok(Box::new(SharedBatchExecution(shared_future)))

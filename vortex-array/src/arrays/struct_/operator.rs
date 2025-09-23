@@ -8,13 +8,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::arrays::{StructArray, StructVTable};
 use crate::operator::getitem::GetItemOperator;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
-    OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
+    OperatorHash, OperatorId, OperatorRef,
 };
 use crate::validity::Validity;
 use crate::vtable::PipelineVTable;
@@ -51,18 +51,18 @@ struct StructOperator {
     // validity: Validity,
 }
 
-impl Hash for StructOperator {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+impl OperatorHash for StructOperator {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
         self.dtype.hash(state);
         self.len.hash(state);
         for child in &self.children {
-            child.dyn_hash(state);
+            child.operator_hash(state);
         }
     }
 }
 
-impl PartialEq for StructOperator {
-    fn eq(&self, other: &Self) -> bool {
+impl OperatorEq for StructOperator {
+    fn operator_eq(&self, other: &Self) -> bool {
         self.dtype == other.dtype
             && self.len == other.len
             && self.children.len() == other.children.len()
@@ -70,10 +70,9 @@ impl PartialEq for StructOperator {
                 .children
                 .iter()
                 .zip(other.children.iter())
-                .all(|(a, b)| a.dyn_eq(b.as_any()))
+                .all(|(a, b)| a.operator_eq(b))
     }
 }
-impl Eq for StructOperator {}
 
 impl Operator for StructOperator {
     fn id(&self) -> OperatorId {

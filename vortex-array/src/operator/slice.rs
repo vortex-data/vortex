@@ -9,11 +9,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
-    OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
+    OperatorHash, OperatorId, OperatorRef,
 };
 use crate::{Array, Canonical, IntoArray};
 
@@ -47,19 +47,18 @@ impl SliceOperator {
     }
 }
 
-impl Hash for SliceOperator {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.child.hash(state);
+impl OperatorHash for SliceOperator {
+    fn operator_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.child.operator_hash(state);
         self.range.hash(state);
     }
 }
 
-impl PartialEq for SliceOperator {
-    fn eq(&self, other: &Self) -> bool {
-        self.range == other.range && self.child.eq(&other.child)
+impl OperatorEq for SliceOperator {
+    fn operator_eq(&self, other: &Self) -> bool {
+        self.range == other.range && self.child.operator_eq(&other.child)
     }
 }
-impl Eq for SliceOperator {}
 
 impl Operator for SliceOperator {
     fn id(&self) -> OperatorId {

@@ -9,14 +9,14 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::Canonical;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::operator::canonical::CanonicalExecution;
 use crate::operator::{
-    BatchBindCtx, BatchExecutionRef, BatchOperator, DisplayFormat, Operator, OperatorHash,
-    OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecutionRef, BatchOperator, DisplayFormat, Operator, OperatorEq,
+    OperatorHash, OperatorId, OperatorRef,
 };
 use crate::vtable::PipelineVTable;
+use crate::Canonical;
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
     fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<OperatorRef>> {
@@ -24,23 +24,21 @@ impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
     }
 }
 
-impl Hash for PrimitiveArray {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+impl OperatorHash for PrimitiveArray {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
         self.dtype.hash(state);
-        OperatorHash(&self.buffer).hash(state);
-        OperatorHash(&self.validity).hash(state);
+        self.buffer.operator_hash(state);
+        self.validity.operator_hash(state);
     }
 }
 
-impl PartialEq for PrimitiveArray {
-    fn eq(&self, other: &Self) -> bool {
+impl OperatorEq for PrimitiveArray {
+    fn operator_eq(&self, other: &Self) -> bool {
         self.dtype == other.dtype
-            && OperatorHash(&self.buffer) == OperatorHash(&other.buffer)
-            && OperatorHash(&self.validity) == OperatorHash(&other.validity)
+            && self.buffer.operator_eq(&other.buffer)
+            && self.validity.operator_eq(&other.validity)
     }
 }
-
-impl Eq for PrimitiveArray {}
 
 impl Operator for PrimitiveArray {
     fn id(&self) -> OperatorId {

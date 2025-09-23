@@ -9,7 +9,7 @@ use std::sync::Arc;
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::operator::{Operator, OperatorId, OperatorRef};
+use crate::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 
 /// An operator that extracts a field from a struct array.
 #[derive(Debug)]
@@ -21,19 +21,20 @@ pub struct GetItemOperator {
     dtype: DType,
 }
 
-impl Hash for GetItemOperator {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.child.dyn_hash(state);
+impl OperatorHash for GetItemOperator {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
+        self.child.operator_hash(state);
         self.field.hash(state);
         self.dtype.hash(state);
     }
 }
-impl PartialEq for GetItemOperator {
-    fn eq(&self, other: &Self) -> bool {
-        self.child.eq(&other.child) && self.field == other.field && self.dtype == other.dtype
+impl OperatorEq for GetItemOperator {
+    fn operator_eq(&self, other: &Self) -> bool {
+        self.child.operator_eq(&other.child)
+            && self.field == other.field
+            && self.dtype == other.dtype
     }
 }
-impl Eq for GetItemOperator {}
 
 impl GetItemOperator {
     pub fn field_name(&self) -> &FieldName {

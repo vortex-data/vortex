@@ -18,34 +18,68 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
-use crate::Canonical;
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, Operator,
-    OperatorId, OperatorRef,
+    OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
 };
 use crate::pipeline::operator::bind::bind_kernels;
-use crate::pipeline::operator::buffers::{OutputTarget, allocate_vectors};
+use crate::pipeline::operator::buffers::{allocate_vectors, OutputTarget};
 use crate::pipeline::operator::input::PipelineInputOperator;
 use crate::pipeline::operator::toposort::topological_sort;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{BatchId, Element, Kernel, KernelContext, N};
 use crate::validity::Validity;
+use crate::Canonical;
 
 /// An operator node used during execution planning to represent a pipelined execution.
 ///
 /// This operator builds up a DAG of operators that can be executed in a pipelined fashion, as well
 /// as any batch input operators that provide batch data to the pipeline.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) struct PipelineOperator {
     root: NodeId,
     dag: Vec<PipelineNode>,
     batch_inputs: Vec<OperatorRef>,
+}
+
+impl OperatorHash for PipelineOperator {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
+        self.root.hash(state);
+        for node in &self.dag {
+            node.operator_hash(state);
+        }
+        for input in &self.batch_inputs {
+            input.operator_hash(state);
+        }
+    }
+}
+
+impl OperatorEq for PipelineOperator {
+    fn operator_eq(&self, other: &Self) -> bool {
+        if self.root != other.root || self.dag.len() != other.dag.len() {
+            return false;
+        }
+        for (node_a, node_b) in self.dag.iter().zip(other.dag.iter()) {
+            if !node_a.operator_eq(node_b) {
+                return false;
+            }
+        }
+        if self.batch_inputs.len() != other.batch_inputs.len() {
+            return false;
+        }
+        for (input_a, input_b) in self.batch_inputs.iter().zip(other.batch_inputs.iter()) {
+            if !input_a.operator_eq(&input_b) {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 type NodeId = usize;
@@ -62,22 +96,21 @@ struct PipelineNode {
     batch_inputs: Vec<BatchId>,
 }
 
-impl Hash for PipelineNode {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.operator.hash(state);
+impl OperatorHash for PipelineNode {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
+        self.operator.operator_hash(state);
         self.children.hash(state);
         self.batch_inputs.hash(state);
     }
 }
 
-impl PartialEq for PipelineNode {
-    fn eq(&self, other: &Self) -> bool {
-        self.operator.eq(&other.operator)
+impl OperatorEq for PipelineNode {
+    fn operator_eq(&self, other: &Self) -> bool {
+        self.operator.operator_eq(&other.operator)
             && self.children == other.children
             && self.batch_inputs == other.batch_inputs
     }
 }
-impl Eq for PipelineNode {}
 
 impl PipelineOperator {
     /// From the given operator, constructs a `PipelineOperator` as large as possible by
@@ -97,7 +130,7 @@ impl PipelineOperator {
             random_state: &RandomState,
         ) -> NodeId {
             // Compute the hash for this subtree.
-            let subtree_hash = random_state.hash_one(&node);
+            let subtree_hash = random_state.hash_one(OperatorKey(node.clone()));
 
             // Check if we've seen this subtree before (sub-expression elimination)
             if let Some(&existing_index) = hash_to_id.get(&subtree_hash) {

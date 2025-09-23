@@ -13,12 +13,13 @@ use crate::vtable::{
     ArrayVTable, NotSupported, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingId, EncodingRef, IntoArray, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingId, EncodingRef, IntoArray,
 };
 
 mod canonical;
 mod compute;
 mod encode;
+mod operator;
 mod serde;
 
 vtable!(Constant);

@@ -2,23 +2,42 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use num_traits::{ConstOne, PrimInt};
-use vortex_array::Array;
 use vortex_array::operator::slice::SliceOperator;
-use vortex_array::operator::{Operator, OperatorId, OperatorRef};
+use vortex_array::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
+use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
 use vortex_array::vtable::PipelineVTable;
-use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_array::Array;
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
+use vortex_error::{vortex_err, VortexResult};
 
 use crate::{SequenceArray, SequenceVTable};
 
 impl PipelineVTable<SequenceVTable> for SequenceVTable {
     fn to_operator(array: &SequenceArray) -> VortexResult<Option<OperatorRef>> {
         Ok(Some(Arc::new(array.clone())))
+    }
+}
+
+impl OperatorHash for SequenceArray {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
+        self.base().hash(state);
+        self.multiplier().hash(state);
+        self.dtype().hash(state);
+        self.len().hash(state);
+    }
+}
+
+impl OperatorEq for SequenceArray {
+    fn operator_eq(&self, other: &Self) -> bool {
+        self.base() == other.base()
+            && self.multiplier() == other.multiplier()
+            && self.dtype() == other.dtype()
+            && self.len() == other.len()
     }
 }
 

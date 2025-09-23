@@ -7,15 +7,15 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use num_traits::WrappingAdd;
-use vortex_array::Array;
-use vortex_array::operator::{Operator, OperatorId, OperatorRef};
+use vortex_array::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{
     BindContext, Element, Kernel, KernelContext, PipelinedOperator, VectorId,
 };
 use vortex_array::vtable::PipelineVTable;
-use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_array::Array;
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType, PType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{FoRArray, FoRVTable};
@@ -44,9 +44,9 @@ pub struct FoROperator {
     encoded_ptype: PType,
 }
 
-impl Hash for FoROperator {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.child.hash(state);
+impl OperatorHash for FoROperator {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
+        self.child.operator_hash(state);
         self.reference.hash(state);
         self.dtype.hash(state);
         self.ptype.hash(state);
@@ -54,16 +54,15 @@ impl Hash for FoROperator {
     }
 }
 
-impl PartialEq for FoROperator {
-    fn eq(&self, other: &Self) -> bool {
-        self.child.eq(&other.child)
+impl OperatorEq for FoROperator {
+    fn operator_eq(&self, other: &Self) -> bool {
+        self.child.operator_eq(&other.child)
             && self.reference == other.reference
             && self.dtype == other.dtype
             && self.ptype == other.ptype
             && self.encoded_ptype == other.encoded_ptype
     }
 }
-impl Eq for FoROperator {}
 
 impl Operator for FoROperator {
     fn id(&self) -> OperatorId {

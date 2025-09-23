@@ -11,13 +11,13 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_metrics::{Timer, VortexMetrics};
 
-use crate::Canonical;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
-    OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
+    OperatorHash, OperatorId, OperatorRef,
 };
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{BindContext, Kernel, KernelContext, PipelinedOperator};
+use crate::Canonical;
 
 #[derive(Debug)]
 pub struct MetricsOperator {
@@ -25,20 +25,19 @@ pub struct MetricsOperator {
     metrics: VortexMetrics,
 }
 
-impl Hash for MetricsOperator {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.inner.hash(state);
+impl OperatorHash for MetricsOperator {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
+        self.inner.operator_hash(state);
         // Include our ID just to differentiate from the inner operator
         self.id().hash(state);
     }
 }
 
-impl PartialEq for MetricsOperator {
-    fn eq(&self, other: &Self) -> bool {
-        self.inner.eq(&other.inner) && other.as_any().downcast_ref::<Self>().is_some()
+impl OperatorEq for MetricsOperator {
+    fn operator_eq(&self, other: &Self) -> bool {
+        self.inner.operator_eq(&other.inner)
     }
 }
-impl Eq for MetricsOperator {}
 
 impl MetricsOperator {
     pub fn new(inner: OperatorRef, metrics: VortexMetrics) -> Self {

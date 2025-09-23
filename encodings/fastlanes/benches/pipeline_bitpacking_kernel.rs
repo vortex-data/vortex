@@ -14,7 +14,8 @@ pub fn main() {
     warm_up_vtables();
     divan::main();
 }
-//
+
+// TODO(ngates): bring back benchmarks once pipeline API is stable.
 // #[divan::bench(types = [i8, i16, i32, i64], args = [0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 0.9, 1.0])]
 // pub fn aligned_step_kernel<T>(bencher: Bencher, fraction_kept: f64)
 // where

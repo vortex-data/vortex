@@ -35,9 +35,8 @@ pub mod metrics;
 mod optimize;
 pub mod slice;
 
-use std::any::{Any, type_name};
+use std::any::{type_name, Any};
 use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -46,24 +45,15 @@ pub use display::*;
 pub use hash::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_utils::dyn_eq::{DynEq, DynHash};
 
-use crate::Canonical;
 use crate::pipeline::PipelinedOperator;
+use crate::Canonical;
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
 
 /// An operator represents a node in a logical query plan.
-///
-/// ## Hash + Equality
-///
-/// Operators must implement `Hash` and `Eq` in order to have `DynHash` and `DynEq` implemented.
-/// The semantics of these traits are slightly different from the usual Rust traits, in that it is
-/// acceptable to compare or hash large data buffers by pointer rather than by value. This is
-/// because operators are typically used in contexts where they are shared by reference, and
-/// deep equality or hashing would be too expensive.
-pub trait Operator: 'static + Send + Sync + Debug + DynEq + DynHash {
+pub trait Operator: 'static + Send + Sync + Debug + DynOperatorHash + DynOperatorEq {
     /// The unique identifier for this operator instance.
     fn id(&self) -> OperatorId;
 
@@ -165,20 +155,6 @@ pub trait Operator: 'static + Send + Sync + Debug + DynEq + DynHash {
         None
     }
 }
-
-impl Hash for dyn Operator {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        DynHash::dyn_hash(self, state)
-    }
-}
-
-impl PartialEq for dyn Operator {
-    fn eq(&self, other: &Self) -> bool {
-        DynEq::dyn_eq(self, other.as_any())
-    }
-}
-
-impl Eq for dyn Operator {}
 
 /// The default execution mode for an operator is batch mode.
 pub trait BatchOperator: Operator {

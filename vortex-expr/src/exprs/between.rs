@@ -3,26 +3,26 @@
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::try_join;
 use itertools::Itertools;
-use vortex_array::compute::{BetweenOptions, StrictComparison, between as between_compute};
+use vortex_array::compute::{between as between_compute, BetweenOptions, StrictComparison};
 use vortex_array::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorId,
-    OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
+    OperatorHash, OperatorId, OperatorRef,
 };
 use vortex_array::{Array, ArrayRef, Canonical, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
+    vtable, AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable,
 };
 
 vtable!(Between);
@@ -240,11 +240,34 @@ pub fn between(arr: ExprRef, lower: ExprRef, upper: ExprRef, options: BetweenOpt
     BetweenExpr::new(arr, lower, upper, options).into_expr()
 }
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct BetweenOperator {
     children: [OperatorRef; 3],
     dtype: DType,
     options: BetweenOptions,
+}
+
+impl OperatorHash for BetweenOperator {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
+        for child in &self.children {
+            child.operator_hash(state);
+        }
+        self.dtype.hash(state);
+        self.options.hash(state);
+    }
+}
+
+impl OperatorEq for BetweenOperator {
+    fn operator_eq(&self, other: &Self) -> bool {
+        self.children.len() == other.children.len()
+            && self
+                .children
+                .iter()
+                .zip(other.children.iter())
+                .all(|(a, b)| a.operator_eq(b))
+            && self.dtype == other.dtype
+            && self.options == other.options
+    }
 }
 
 impl Operator for BetweenOperator {

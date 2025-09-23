@@ -6,12 +6,12 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use fastlanes::{BitPacking, FastLanes};
-use vortex_array::operator::{Operator, OperatorHash, OperatorId, OperatorRef};
+use vortex_array::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
+use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
 use vortex_array::vtable::PipelineVTable;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, PhysicalPType, match_each_integer_ptype};
+use vortex_dtype::{match_each_integer_ptype, DType, PhysicalPType};
 use vortex_error::VortexResult;
 
 use crate::{BitPackedArray, BitPackedVTable};
@@ -35,30 +35,29 @@ impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
     }
 }
 
-impl Hash for BitPackedArray {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+impl OperatorHash for BitPackedArray {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
         self.offset.hash(state);
         self.len.hash(state);
         self.dtype.hash(state);
         self.bit_width.hash(state);
-        OperatorHash(&self.packed).hash(state);
+        self.packed.operator_hash(state);
         // We don't care about patches because they're not yet supported by the operator.
         // OperatorHash(&self.patches).hash(state);
-        OperatorHash(&self.validity).hash(state);
+        self.validity.operator_hash(state);
     }
 }
 
-impl PartialEq for BitPackedArray {
-    fn eq(&self, other: &Self) -> bool {
+impl OperatorEq for BitPackedArray {
+    fn operator_eq(&self, other: &Self) -> bool {
         self.offset == other.offset
             && self.len == other.len
             && self.dtype == other.dtype
             && self.bit_width == other.bit_width
-            && OperatorHash(&self.packed) == OperatorHash(&other.packed)
-            && OperatorHash(&self.validity) == OperatorHash(&other.validity)
+            && self.packed.operator_eq(&other.packed)
+            && self.validity.operator_eq(&other.validity)
     }
 }
-impl Eq for BitPackedArray {}
 
 impl Operator for BitPackedArray {
     fn id(&self) -> OperatorId {

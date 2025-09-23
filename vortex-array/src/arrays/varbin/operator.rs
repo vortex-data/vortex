@@ -4,26 +4,25 @@
 use std::hash::{Hash, Hasher};
 
 use crate::arrays::VarBinArray;
-use crate::operator::OperatorHash;
+use crate::operator::{OperatorEq, OperatorHash};
 use crate::vtable::ValidityHelper;
 
-impl Hash for VarBinArray {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+impl OperatorHash for VarBinArray {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
         self.dtype.hash(state);
-        OperatorHash(self.bytes()).hash(state);
-        OperatorHash(self.offsets()).hash(state);
-        OperatorHash(self.validity()).hash(state);
+        self.bytes().operator_hash(state);
+        self.offsets().operator_hash(state);
+        self.validity().operator_hash(state);
     }
 }
 
-impl PartialEq for VarBinArray {
-    fn eq(&self, other: &Self) -> bool {
+impl OperatorEq for VarBinArray {
+    fn operator_eq(&self, other: &Self) -> bool {
         self.dtype == other.dtype
-            && OperatorHash(self.bytes()) == OperatorHash(other.bytes())
-            && OperatorHash(self.offsets()) == OperatorHash(other.offsets())
-            && OperatorHash(self.validity()) == OperatorHash(other.validity())
+            && self.bytes().operator_eq(other.bytes())
+            && self.offsets().operator_eq(other.offsets())
+            && self.validity().operator_eq(other.validity())
     }
 }
-impl Eq for VarBinArray {}
 
 // TODO(ngates): impl Operator
