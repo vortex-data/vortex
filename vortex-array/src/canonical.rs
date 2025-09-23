@@ -78,7 +78,7 @@ pub enum Canonical {
     Primitive(PrimitiveArray),
     Decimal(DecimalArray),
     VarBinView(VarBinViewArray),
-    // TODO(joe): maybe this should be a ListView, however this will be annoying in spiral
+    // TODO(connor)[ListView]: Convert the canonical encoding of `List` to `ListViewArray`.
     List(ListArray),
     FixedSizeList(FixedSizeListArray),
     Struct(StructArray),
