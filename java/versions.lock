@@ -178,11 +178,11 @@ org.apache.logging.log4j:log4j-core:2.20.0 (2 constraints: 85217617)
 
 org.apache.logging.log4j:log4j-slf4j2-impl:2.20.0 (1 constraints: 8410bbd5)
 
-org.apache.orc:orc-core:1.9.6 (1 constraints: c90cd927)
+org.apache.orc:orc-core:1.9.7 (1 constraints: ca0cda27)
 
-org.apache.orc:orc-mapreduce:1.9.6 (1 constraints: c90cd927)
+org.apache.orc:orc-mapreduce:1.9.7 (1 constraints: ca0cda27)
 
-org.apache.orc:orc-shims:1.9.6 (1 constraints: 460af7bc)
+org.apache.orc:orc-shims:1.9.7 (1 constraints: 470af8bc)
 
 org.apache.parquet:parquet-column:1.13.1 (2 constraints: a81b61f4)
 
@@ -196,29 +196,29 @@ org.apache.parquet:parquet-hadoop:1.13.1 (1 constraints: ef0cb234)
 
 org.apache.parquet:parquet-jackson:1.13.1 (1 constraints: ba0ef063)
 
-org.apache.spark:spark-catalyst_2.12:3.5.6 (2 constraints: d6114d28)
+org.apache.spark:spark-catalyst_2.12:3.5.7 (2 constraints: d8117728)
 
-org.apache.spark:spark-common-utils_2.12:3.5.6 (4 constraints: 7b3a5833)
+org.apache.spark:spark-common-utils_2.12:3.5.7 (4 constraints: 7f3a6834)
 
-org.apache.spark:spark-core_2.12:3.5.6 (3 constraints: b120ecda)
+org.apache.spark:spark-core_2.12:3.5.7 (3 constraints: b4206cdb)
 
-org.apache.spark:spark-kvstore_2.12:3.5.6 (1 constraints: 200de036)
+org.apache.spark:spark-kvstore_2.12:3.5.7 (1 constraints: 210de136)
 
-org.apache.spark:spark-launcher_2.12:3.5.6 (1 constraints: 200de036)
+org.apache.spark:spark-launcher_2.12:3.5.7 (1 constraints: 210de136)
 
-org.apache.spark:spark-network-common_2.12:3.5.6 (2 constraints: ba1e1ae4)
+org.apache.spark:spark-network-common_2.12:3.5.7 (2 constraints: bc1e50e4)
 
-org.apache.spark:spark-network-shuffle_2.12:3.5.6 (1 constraints: 200de036)
+org.apache.spark:spark-network-shuffle_2.12:3.5.7 (1 constraints: 210de136)
 
-org.apache.spark:spark-sketch_2.12:3.5.6 (2 constraints: a21bc4f6)
+org.apache.spark:spark-sketch_2.12:3.5.7 (2 constraints: a41beef6)
 
-org.apache.spark:spark-sql-api_2.12:3.5.6 (1 constraints: dc0e977c)
+org.apache.spark:spark-sql-api_2.12:3.5.7 (1 constraints: dd0e987c)
 
-org.apache.spark:spark-sql_2.12:3.5.6 (1 constraints: 10050f36)
+org.apache.spark:spark-sql_2.12:3.5.7 (1 constraints: 11051036)
 
-org.apache.spark:spark-tags_2.12:3.5.6 (9 constraints: f4834e9c)
+org.apache.spark:spark-tags_2.12:3.5.7 (9 constraints: fd8388a2)
 
-org.apache.spark:spark-unsafe_2.12:3.5.6 (3 constraints: 282a934a)
+org.apache.spark:spark-unsafe_2.12:3.5.7 (3 constraints: 2b2a174b)
 
 org.apache.xbean:xbean-asm9-shaded:4.23 (2 constraints: 8019e83c)
 
