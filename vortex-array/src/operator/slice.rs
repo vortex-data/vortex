@@ -9,7 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
@@ -121,7 +121,7 @@ impl Operator for SliceOperator {
 
 impl BatchOperator for SliceOperator {
     fn bind(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
-        let child_exec = ctx.take_child(0)?;
+        let child_exec = ctx.child(0)?;
         Ok(Box::new(SliceExecution {
             child: child_exec,
             range: self.range.clone(),

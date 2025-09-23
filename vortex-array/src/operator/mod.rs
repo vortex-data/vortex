@@ -35,7 +35,7 @@ pub mod metrics;
 mod optimize;
 pub mod slice;
 
-use std::any::{type_name, Any};
+use std::any::{Any, type_name};
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -46,8 +46,8 @@ pub use hash::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::pipeline::PipelinedOperator;
 use crate::Canonical;
+use crate::pipeline::PipelinedOperator;
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
@@ -123,11 +123,6 @@ pub trait Operator: 'static + Send + Sync + Debug + DynOperatorHash + DynOperato
         Ok(None)
     }
 
-    // Which fields this operator accesses (for projection pushdown)
-    // fn required_columns(&self) -> Option<Vec<FieldPath>> {
-    //     None
-    // }
-
     /// Whether this operator is aligned 1:1 with its child.
     ///
     /// Returns `None` if unknown.
@@ -162,7 +157,9 @@ pub trait BatchOperator: Operator {
 }
 
 pub trait BatchBindCtx {
-    fn take_child(&mut self, idx: usize) -> VortexResult<BatchExecutionRef>;
+    /// Returns the execution for the child at the given index, consuming it from the context.
+    /// Each child may be consumed only once.
+    fn child(&mut self, idx: usize) -> VortexResult<BatchExecutionRef>;
 }
 
 /// The primary execution trait for operators.

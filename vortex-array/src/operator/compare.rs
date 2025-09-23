@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::ConstantArray;
 use crate::compute::Operator as Op;
@@ -260,11 +260,11 @@ impl<T: Element + NativePType, Op: CompareOp<T> + Send> Kernel
         let lhs = lhs_vec.as_slice::<T>();
         let bools = out.as_slice_mut::<bool>();
 
-        // TODO(ngates): use lhs.len()?
-
+        // Note we zip only over the shortest iterator which is LHS
         lhs.iter().zip(bools).for_each(|(lhs, bool)| {
             *bool = Op::compare(lhs, &self.rhs);
         });
+        out.set_len(lhs.len());
 
         Ok(())
     }

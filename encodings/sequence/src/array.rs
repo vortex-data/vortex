@@ -11,13 +11,13 @@ use vortex_array::vtable::{
     VisitorVTable,
 };
 use vortex_array::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
 };
 use vortex_buffer::BufferMut;
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_native_ptype, DType, NativePType, Nullability, PType,
+    DType, NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
 };
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{PValue, Scalar, ScalarValue};
 
@@ -250,8 +250,8 @@ pub struct SequenceEncoding;
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_dtype::Nullability;
     use vortex_scalar::{Scalar, ScalarValue};
 

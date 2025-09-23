@@ -8,9 +8,9 @@ use std::sync::Arc;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 
+use crate::ArrayRef;
 use crate::operator::{Operator, OperatorRef};
 use crate::validity::Validity;
-use crate::ArrayRef;
 
 /// A hash trait for operators that loosens the semantics to permit pointer-based hashing for
 /// data objects such as buffers.

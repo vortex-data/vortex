@@ -113,19 +113,12 @@ impl Operator for FilterOperator {
     fn as_batch(&self) -> Option<&dyn BatchOperator> {
         Some(self)
     }
-
-    // fn as_pipelined(&self) -> Option<&dyn PipelinedOperator> {
-    //     TODO(ngates): do we decide if we're super sparse that we should be batch executed?
-    //      Seems like a weird place to make that decision though... Although we do have all the
-    //      information here. Pushdown has already happened, so we know exactly which is faster.
-    // Some(self)
-    // }
 }
 
 impl BatchOperator for FilterOperator {
     fn bind(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
         Ok(Box::new(FilterExecution {
-            child: ctx.take_child(0)?,
+            child: ctx.child(0)?,
             mask: self.mask.clone(),
         }) as BatchExecutionRef)
     }

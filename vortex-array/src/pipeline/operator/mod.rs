@@ -18,24 +18,24 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
+use crate::Canonical;
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, Operator,
     OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
 };
 use crate::pipeline::operator::bind::bind_kernels;
-use crate::pipeline::operator::buffers::{allocate_vectors, OutputTarget};
+use crate::pipeline::operator::buffers::{OutputTarget, allocate_vectors};
 use crate::pipeline::operator::input::PipelineInputOperator;
 use crate::pipeline::operator::toposort::topological_sort;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{BatchId, Element, Kernel, KernelContext, N};
 use crate::validity::Validity;
-use crate::Canonical;
 
 /// An operator node used during execution planning to represent a pipelined execution.
 ///
@@ -74,7 +74,7 @@ impl OperatorEq for PipelineOperator {
             return false;
         }
         for (input_a, input_b) in self.batch_inputs.iter().zip(other.batch_inputs.iter()) {
-            if !input_a.operator_eq(&input_b) {
+            if !input_a.operator_eq(input_b) {
                 return false;
             }
         }
@@ -263,7 +263,7 @@ impl BatchOperator for PipelineOperator {
 
         // Bind the batch input operators
         let batch_inputs: Vec<_> = (0..self.batch_inputs.len())
-            .map(|i| ctx.take_child(i))
+            .map(|i| ctx.child(i))
             .try_collect()?;
 
         let vectors = allocation_plan.vectors;
@@ -274,13 +274,13 @@ impl BatchOperator for PipelineOperator {
         };
 
         match self.dtype() {
-            DType::Bool(_) => Ok(Box::new(BoolPipelineExecution {
+            DType::Bool(Nullability::NonNullable) => Ok(Box::new(BoolPipelineExecution {
                 len: self.len(),
                 batch_inputs,
                 vectors,
                 pipeline,
             })),
-            DType::Primitive(ptype, _) => {
+            DType::Primitive(ptype, Nullability::NonNullable) => {
                 match_each_native_ptype!(ptype, |T| {
                     Ok(Box::new(PrimitivePipelineExecution {
                         len: self.len(),
@@ -292,7 +292,7 @@ impl BatchOperator for PipelineOperator {
                 })
             }
             _ => vortex_bail!(
-                "PipelineOperator currently only supports primitive output types {}",
+                "PipelineOperator currently only supports non-nullable bool or primitive output types {}",
                 self.dtype()
             ),
         }

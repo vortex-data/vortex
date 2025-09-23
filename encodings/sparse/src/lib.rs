@@ -6,14 +6,14 @@ use std::fmt::Debug;
 use itertools::Itertools as _;
 use num_traits::NumCast;
 use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray};
-use vortex_array::compute::{compare, fill_null, filter, sub_scalar, Operator};
+use vortex_array::compute::{Operator, compare, fill_null, filter, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
-use vortex_array::{vtable, Array, ArrayRef, EncodingId, EncodingRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, vortex_ensure, VortexExpect as _, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
@@ -338,10 +338,10 @@ fn patch_validity<I: NativePType>(
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::cast;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexUnwrap;

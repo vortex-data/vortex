@@ -6,12 +6,12 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BatchId, BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
+use crate::pipeline::{BatchId, BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
 
 /// An operator that exports a child operator's data in canonical pipelined form.
 #[derive(Debug, Clone)]

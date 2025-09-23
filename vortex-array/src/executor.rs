@@ -8,13 +8,13 @@ use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use vortex_error::{
-    vortex_bail, vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult,
+    SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err,
 };
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::Canonical;
 use crate::operator::{BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorKey, OperatorRef};
 use crate::pipeline::operator::PipelineOperator;
-use crate::Canonical;
 
 /// An executor that runs an operator tree.
 ///
@@ -99,7 +99,7 @@ impl Executor {
 }
 
 impl BatchBindCtx for Vec<Option<BatchExecutionRef>> {
-    fn take_child(&mut self, idx: usize) -> VortexResult<BatchExecutionRef> {
+    fn child(&mut self, idx: usize) -> VortexResult<BatchExecutionRef> {
         if idx >= self.len() {
             vortex_bail!("Child index {} out of bounds", idx);
         }
@@ -122,25 +122,6 @@ impl BatchExecution for SharedBatchExecution {
     async fn execute(self: Box<Self>) -> VortexResult<Canonical> {
         self.0.await.map_err(VortexError::from)
     }
-}
-
-pub trait OptimizerRule {
-    fn name(&self) -> &'static str;
-
-    /// Attempts to reduce the given operator by applying this optimization rule.
-    fn optimize(&self, operator: OperatorRef) -> VortexResult<Option<OperatorRef>>;
-
-    /// Returns the order in which this rule should be applied.
-    ///
-    /// If `None`, the rule should handle recursion itself.
-    fn apply_order(&self) -> Option<ApplyOrder> {
-        None
-    }
-}
-
-pub enum ApplyOrder {
-    TopDown,
-    BottomUp,
 }
 
 #[cfg(test)]
