@@ -516,14 +516,14 @@ impl OperationsVTable<StructVTable> for StructVTable {
     }
 
     fn scalar_at(array: &StructArray, index: usize) -> Scalar {
-        Scalar::struct_(
-            array.dtype().clone(),
-            array
-                .fields()
-                .iter()
-                .map(|field| field.scalar_at(index))
-                .collect_vec(),
-        )
+        let fields = array.fields();
+        let mut children = Vec::with_capacity(fields.len());
+
+        for child in fields.iter() {
+            children.push(child.scalar_at(index));
+        }
+
+        Scalar::struct_(array.dtype().clone(), children)
     }
 }
 
