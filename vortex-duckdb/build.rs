@@ -17,7 +17,7 @@ static DUCKDB_VERSION: Lazy<String> = Lazy::new(|| {
     // This is to ensure that we don't implicitly build against a different DuckDB version during
     // an extension build which might lead to subtle ABI breaks, e.g. reordering fields in C++ structs.
     env::var("DUCKDB_VERSION")
-        .unwrap_or_else(|_| "1.3.2".to_owned())
+        .unwrap_or_else(|_| "1.4.0".to_owned())
         .trim_start_matches("v")
         .to_owned()
 });
@@ -199,8 +199,11 @@ fn build_duckdb(duckdb_source_root: &Path) -> Result<PathBuf, Box<dyn std::error
         let path = entry.path();
 
         if path
-            .extension()
-            .map(|ext| ext == "dylib" || ext == "so")
+            .file_name()
+            .and_then(|name| name.to_str())
+            // Match by file name prefix rather than on file type extension as versions
+            // can be appended to the file name on Linux, e.g. libduckdb.so.0.0.1.
+            .map(|name| name.starts_with("libduckdb"))
             .unwrap_or(false)
         {
             let dest = duckdb_library_dir.join(entry.file_name());

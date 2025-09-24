@@ -34,6 +34,11 @@ wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 unsafe impl Send for Vector {}
 
 impl Vector {
+    /// Create a new vector with the given type.
+    pub fn new(logical_type: LogicalType) -> Self {
+        unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), 0)) }
+    }
+
     /// Create a new vector with the given type and capacity.
     pub fn with_capacity(logical_type: LogicalType, len: usize) -> Self {
         unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), len as _)) }
@@ -46,7 +51,9 @@ impl Vector {
         }
     }
 
-    /// Copy values from other vector to this vector.
+    /// Reference the data from another vector.
+    ///
+    /// After calling this, both vectors share ownership of the same underlying data.
     pub fn reference(&mut self, other: &Vector) {
         unsafe { cpp::duckdb_vector_reference_vector(self.as_ptr(), other.as_ptr()) }
     }
