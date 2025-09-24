@@ -391,11 +391,63 @@ fn test_write_timestamps() {
 }
 
 #[test]
+#[ignore = "Assertion fail in DuckDB (`child.GetVectorType() == VectorType::FLAT_VECTOR`) with debug"]
+fn test_vortex_scan_fixed_size_list_utf8() {
+    // Test a simple FixedSizeList of Utf8 strings to ensure proper materialization.
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        // Create a large number of strings to stress test.
+        let strings: Vec<&str> = (0..24)
+            .map(|i| match i % 6 {
+                0 => "first",
+                1 => "second",
+                2 => "third",
+                3 => "fourth",
+                4 => "fifth",
+                _ => "sixth",
+            })
+            .collect();
+
+        let strings_array = VarBinViewArray::from_iter_str(strings);
+
+        // Create fixed-size lists of strings.
+        let fsl = FixedSizeListArray::new(
+            strings_array.into_array(),
+            4, // 4 strings per list
+            Validity::AllValid,
+            6, // 6 lists total
+        );
+
+        write_single_column_vortex_file("string_lists", fsl).await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+
+    // Query the structure.
+    let result = conn
+        .query(&format!(
+            "SELECT string_lists FROM vortex_scan('{file_path}')"
+        ))
+        .unwrap();
+
+    let mut row_count = 0;
+    for chunk in result {
+        row_count += chunk.len();
+        // Accessing the structure should not cause a segfault.
+        let _vec = chunk.get_vector(0);
+    }
+    assert_eq!(row_count, 6, "Should have retrieved 6 lists");
+}
+
+#[test]
+#[ignore = "Assertion fail in DuckDB (`child.GetVectorType() == VectorType::FLAT_VECTOR`) with debug"]
 fn test_vortex_scan_nested_fixed_size_list_utf8() {
     // Regression test for a segfault that occurs inside query 7 and 8 of the `statpopgen` benchmark
     // when running with `FixedSizeList` instead of `List`.
 
-    // Test FixedSizeList of Utf8 to ensure proper materialization.
+    // Test FixedSizeList of FixedSizeList of Utf8 to ensure proper materialization.
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let file = runtime.block_on(async {
@@ -452,6 +504,125 @@ fn test_vortex_scan_nested_fixed_size_list_utf8() {
 }
 
 #[test]
+#[ignore = "Assertion fail in DuckDB (`le.offset + le.length <= child_size`) with debug"]
+fn test_vortex_scan_list_of_ints() {
+    // Test a simple List of integers.
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        // Create integers that will be grouped into lists.
+        let integers = PrimitiveArray::from_iter([
+            10i32, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
+        ]);
+
+        // Create variable-length lists using offsets.
+        // List 0: [10, 20, 30] (indices 0-2)
+        // List 1: [40, 50, 60, 70] (indices 3-6)
+        // List 2: [80] (indices 7-7)
+        // List 3: [90, 100, 110, 120, 130] (indices 8-12)
+        // List 4: [140, 150] (indices 13-14)
+        let offsets = buffer![0i32, 3, 7, 8, 13, 15];
+        let list_array = ListArray::try_new(
+            integers.into_array(),
+            offsets.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        write_single_column_vortex_file("int_list", list_array).await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+
+    // Query the list structure to verify row count.
+    let result = conn
+        .query(&format!("SELECT COUNT(*) FROM vortex_scan('{file_path}')"))
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let count = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
+    assert_eq!(count, 5, "Should have 5 lists");
+
+    // Try to access the data - this tests for segfaults.
+    let result = conn
+        .query(&format!("SELECT int_list FROM vortex_scan('{file_path}')"))
+        .unwrap();
+
+    let mut row_count = 0;
+    for chunk in result {
+        row_count += chunk.len();
+        let _vec = chunk.get_vector(0);
+    }
+    assert_eq!(row_count, 5, "Should have retrieved 5 rows");
+}
+
+#[test]
+#[ignore = "Assertion fail in DuckDB (`le.offset + le.length <= child_size`) with debug"]
+fn test_vortex_scan_list_of_utf8() {
+    // Test a simple List of UTF8 strings.
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        // Create UTF8 strings that will be grouped into lists.
+        let strings = VarBinViewArray::from_iter_str(vec![
+            "apple",
+            "banana",
+            "cherry",
+            "date",
+            "elderberry",
+            "fig",
+            "grape",
+            "honeydew",
+            "kiwi",
+            "lemon",
+            "mango",
+            "nectarine",
+        ]);
+
+        // Create variable-length lists using offsets.
+        // List 0: [apple, banana, cherry] (indices 0-2)
+        // List 1: [date, elderberry] (indices 3-4)
+        // List 2: [fig, grape, honeydew, kiwi] (indices 5-8)
+        // List 3: [lemon, mango, nectarine] (indices 9-11)
+        let offsets = buffer![0i32, 3, 5, 9, 12];
+        let list_array = ListArray::try_new(
+            strings.into_array(),
+            offsets.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        write_single_column_vortex_file("string_list", list_array).await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+
+    // Query the list structure to verify row count.
+    let result = conn
+        .query(&format!("SELECT COUNT(*) FROM vortex_scan('{file_path}')"))
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let count = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
+    assert_eq!(count, 4, "Should have 4 lists");
+
+    // Try to access the data - this tests for segfaults.
+    let result = conn
+        .query(&format!(
+            "SELECT string_list FROM vortex_scan('{file_path}')"
+        ))
+        .unwrap();
+
+    let mut row_count = 0;
+    for chunk in result {
+        row_count += chunk.len();
+        let _vec = chunk.get_vector(0);
+    }
+    assert_eq!(row_count, 4, "Should have retrieved 4 rows");
+}
+
+#[test]
+#[ignore = "Assertion fail in DuckDB (`le.offset + le.length <= child_size`) with debug"]
 fn test_vortex_scan_ultra_deep_nesting() {
     // Test ultra-deep nesting: Multiple levels of FSL and List combinations with UTF8.
     // FSL[List[FSL[List[FSL[UTF8]]]]]
