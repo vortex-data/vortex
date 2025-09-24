@@ -4,6 +4,8 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use vortex_array::arrays::VarBinArray;
 use vortex_array::compute::take;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
@@ -17,7 +19,7 @@ fn main() {
 #[divan::bench]
 fn varbin(bencher: Bencher) {
     let array = fixture(65_535);
-    let indices = indices(1024);
+    let indices = indices(1024, 65_535);
 
     bencher
         .with_inputs(|| (&array, &indices))
@@ -27,7 +29,27 @@ fn varbin(bencher: Bencher) {
 #[divan::bench]
 fn varbinview(bencher: Bencher) {
     let array = fixture(65_535).to_varbinview();
-    let indices = indices(1024);
+    let indices = indices(1024, 65_535);
+
+    bencher
+        .with_inputs(|| (&array, &indices))
+        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
+}
+
+#[divan::bench]
+fn varbin_non_null(bencher: Bencher) {
+    let array = non_null_fixutre(65_535);
+    let indices = indices(1024, 65_535);
+
+    bencher
+        .with_inputs(|| (&array, &indices))
+        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
+}
+
+#[divan::bench]
+fn varbinview_non_null(bencher: Bencher) {
+    let array = non_null_fixutre(65_535).to_varbinview();
+    let indices = indices(1024, 65_535);
 
     bencher
         .with_inputs(|| (&array, &indices))
@@ -44,7 +66,18 @@ fn fixture(len: usize) -> VarBinArray {
     )
 }
 
+fn non_null_fixutre(len: usize) -> VarBinArray {
+    VarBinArray::from_iter(
+        [Some("inlined"), Some("verylongstring--notinlined")]
+            .into_iter()
+            .cycle()
+            .take(len),
+        DType::Utf8(Nullability::Nullable),
+    )
+}
+
 // Fraction of the indices to take.
-fn indices(len: usize) -> ArrayRef {
-    Buffer::from_iter((0..len).filter_map(|x| (x % 2 == 0).then_some(x as u64))).into_array()
+fn indices(desired: usize, range: usize) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(0);
+    Buffer::from_iter((0..desired).map(|_| rng.random_range(0..range) as u64)).into_array()
 }
