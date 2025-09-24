@@ -9,7 +9,9 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use fastlanes::FastLanes;
-use vortex_array::operator::{LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
+use vortex_array::operator::{
+    LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
+};
 use vortex_array::pipeline::{BindContext, Kernel, PipelinedOperator, RowSelection};
 use vortex_array::vtable::PipelineVTable;
 use vortex_buffer::Buffer;
@@ -76,7 +78,7 @@ impl Operator for BitPackedArray {
     }
 
     fn bounds(&self) -> LengthBounds {
-        self.len
+        self.len.into()
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -107,7 +109,6 @@ impl PipelinedOperator for BitPackedArray {
                     self.bit_width as usize,
                     packed_stride,
                     buffer,
-                    0,
                 )) as Box<dyn Kernel>)
             } else {
                 // TODO(ngates): the unaligned kernel needs fixing for the non-masked API

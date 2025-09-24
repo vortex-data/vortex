@@ -63,7 +63,7 @@ impl Operator for FSSTArray {
     }
 
     fn bounds(&self) -> LengthBounds {
-        Array::len(self.as_ref())
+        Array::len(self.as_ref()).into()
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -156,7 +156,7 @@ impl Operator for FilteredFSSTOperator {
     }
 
     fn bounds(&self) -> LengthBounds {
-        self.mask.len()
+        self.mask.len().into()
     }
 
     fn children(&self) -> &[OperatorRef] {

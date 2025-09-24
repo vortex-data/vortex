@@ -80,10 +80,11 @@ impl VTable for LiteralVTable {
     }
 
     fn operator(expr: &Self::Expr, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
-        Ok(Some(Arc::new(ConstantArray::new(
-            expr.value.clone(),
-            scope.bounds(),
-        ))))
+        let Some(len) = scope.bounds().maybe_len() else {
+            // Cannot return unsized operator.
+            return Ok(None);
+        };
+        Ok(Some(Arc::new(ConstantArray::new(expr.value.clone(), len))))
     }
 }
 

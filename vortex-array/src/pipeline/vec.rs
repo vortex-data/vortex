@@ -14,10 +14,10 @@ use std::ops::{Deref, DerefMut};
 
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 
-use crate::pipeline::N;
 use crate::pipeline::bits::BitVector;
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::{View, ViewMut};
+use crate::pipeline::N;
 
 /// A vector contains fixed-size owned data in canonical form.
 #[derive(Debug)]
@@ -30,8 +30,8 @@ pub struct Vector {
     elements: ByteBufferMut,
     /// The validity mask for the vector, indicating which elements in the buffer are valid.
     validity: BitVector,
-    // The length of the valid values in the vector.
-    len: usize,
+    // The position of the selected values in the vector.
+    selection: Selection,
 
     /// Additional buffers of data used by the vector, such as string data.
     // TODO(ngates): ideally these buffers are compressed somehow? E.g. using FSST?
@@ -55,23 +55,13 @@ impl Vector {
             vtype,
             elements,
             validity: BitVector::full().clone(),
-            len: 0,
+            selection: Selection::Prefix,
             data: vec![],
         }
     }
 
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    pub fn set_len(&mut self, len: usize) {
-        assert!(len <= N, "Length cannot exceed the capacity of the vector");
-        self.len = len;
+    pub fn set_selection(&mut self, selection: Selection) {
+        self.selection = selection;
     }
 
     pub fn as_mut_array<T: Element>(&mut self) -> &mut [T; N] {
@@ -85,7 +75,7 @@ impl Vector {
             elements: self.elements.as_mut_ptr().cast(),
             validity: Some(self.validity.as_view_mut()),
             data: vec![],
-            len: self.len,
+            selection: self.selection,
             _marker: Default::default(),
         }
     }
@@ -95,7 +85,7 @@ impl Vector {
             vtype: self.vtype,
             elements: self.elements.as_ptr().cast(),
             validity: Some(self.validity.as_view()),
-            len: self.len,
+            selection: self.selection,
             data: vec![],
             _marker: Default::default(),
         }
@@ -162,4 +152,10 @@ impl<'a> DerefMut for VectorRefMut<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.view
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Selection {
+    Prefix,
+    Mask,
 }

@@ -15,6 +15,7 @@ use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
     OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
+use crate::pipeline::bits::BitView;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{BindContext, Kernel, KernelContext, PipelinedOperator, RowSelection};
 use crate::Canonical;
@@ -149,8 +150,13 @@ struct MetricsKernel {
 }
 
 impl Kernel for MetricsKernel {
-    fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
+fn step(&self,
+        ctx: &KernelContext,
+        chunk_idx: usize,
+        selection: &BitView,
+        out: &mut ViewMut,
+    ) -> VortexResult<()> {
         let _timer = self.timer.time();
-        self.inner.step(ctx, out)
+        self.inner.step(ctx, chunk_idx, selection, out)
     }
 }

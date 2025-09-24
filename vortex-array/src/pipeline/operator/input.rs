@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
-use std::hash::Hasher;
-use std::sync::Arc;
-
-use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-
 use crate::operator::{LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
+use crate::pipeline::bits::BitView;
+use crate::pipeline::vec::Selection;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{
     BatchId, BindContext, Element, Kernel, KernelContext, PipelinedOperator, RowSelection, N,
 };
+use std::any::Any;
+use std::hash::Hasher;
+use std::marker::PhantomData;
+use std::sync::Arc;
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 /// An operator that exports a child operator's data in canonical pipelined form.
 #[derive(Debug, Clone)]
@@ -82,8 +82,7 @@ impl PipelinedOperator for PipelineInputOperator {
             match_each_native_ptype!(ptype, |T| {
                 return Ok(Box::new(CanonicalPrimitiveKernel::<T> {
                     batch_id,
-                    elements: None,
-                    offset: 0,
+                    _phantom: PhantomData::default(),
                 }) as Box<dyn Kernel>);
             })
         }
@@ -102,27 +101,31 @@ impl PipelinedOperator for PipelineInputOperator {
 // FIXME(ngates): we should support canonical inputs to the operator to avoid copying.
 struct CanonicalPrimitiveKernel<T> {
     batch_id: BatchId,
-    elements: Option<Buffer<T>>,
-    offset: usize,
+    _phantom: PhantomData<T>,
 }
 
 impl<T: Element + NativePType> Kernel for CanonicalPrimitiveKernel<T> {
-    fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
-        if self.elements.is_none() {
-            let array = ctx.batch_input(self.batch_id).clone().into_primitive();
-            self.elements = Some(array.into_buffer());
+    fn step(
+        &self,
+        ctx: &KernelContext,
+        chunk_idx: usize,
+        selection: &BitView,
+        out: &mut ViewMut,
+    ) -> VortexResult<()> {
+        // TODO(ngates): maybe we defer binding until execution time when we can pass in the
+        //  canonical array directly? It would avoid this clone on each step.
+        let array = ctx.batch_input(self.batch_id).as_primitive().buffer::<T>();
+
+        // TODO(ngates): decide when to iterate set indices vs copy all values.
+        out.as_array_mut()
+            .copy_from_slice(&array[chunk_idx * N..][..N]);
+
+        // We don't know whether all true bits are at the front of the mask, so we must set
+        // the selection to Mask.
+        match selection.true_count() {
+            N | 0 => out.set_selection(Selection::Prefix),
+            _ => out.set_selection(Selection::Mask),
         }
-
-        let elements = self
-            .elements
-            .as_ref()
-            .vortex_expect("elements not initialized");
-
-        let len = (elements.len() - self.offset).min(N);
-        out.set_len(len);
-        out.as_slice_mut()
-            .copy_from_slice(&elements[self.offset..][..len]);
-        self.offset += len;
 
         Ok(())
     }

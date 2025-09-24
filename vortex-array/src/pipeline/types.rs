@@ -44,7 +44,7 @@ impl VType {
 }
 
 /// A trait to identify canonical vector types.
-pub trait Element: 'static + Copy + Debug {
+pub trait Element: 'static + Copy + Debug + Send {
     fn vtype() -> VType;
 }
 

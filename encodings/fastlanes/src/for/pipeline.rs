@@ -10,6 +10,7 @@ use num_traits::WrappingAdd;
 use vortex_array::operator::{
     LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
+use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{
     BindContext, Element, Kernel, KernelContext, PipelinedOperator, RowSelection, VectorId,
@@ -187,11 +188,17 @@ where
     T: NativePType + Element + WrappingAdd,
     E: NativePType + Element,
 {
-    fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
+    fn step(
+        &self,
+        ctx: &KernelContext,
+        _chunk_idx: usize,
+        _selection: &BitView,
+        out: &mut ViewMut,
+    ) -> VortexResult<()> {
         let vec = ctx.vector(self.child);
 
-        let values = unsafe { std::mem::transmute::<&[E], &[T]>(vec.as_slice::<E>()) };
-        let out = out.as_slice_mut::<T>();
+        let values = unsafe { std::mem::transmute::<&[E], &[T]>(vec.as_array::<E>()) };
+        let out = out.as_array_mut::<T>();
 
         values.iter().zip(out).for_each(|(value, out)| {
             *out = value.wrapping_add(&self.reference);

@@ -17,10 +17,10 @@ use arrow_buffer::BooleanBuffer;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
-use tabled::row;
 use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
 use crate::arrays::{BoolArray, PrimitiveArray};
@@ -28,13 +28,14 @@ use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, LengthBounds,
     Operator, OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
 };
+use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
 use crate::pipeline::operator::bind::bind_kernels;
 use crate::pipeline::operator::buffers::{allocate_vectors, OutputTarget};
 use crate::pipeline::operator::input::PipelineInputOperator;
 use crate::pipeline::operator::toposort::topological_sort;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BatchId, Element, Kernel, KernelContext, RowSelection, N};
+use crate::pipeline::{BatchId, Element, Kernel, KernelContext, RowSelection, N, N_WORDS};
 use crate::validity::Validity;
 use crate::Canonical;
 
@@ -297,18 +298,17 @@ impl BatchOperator for PipelineOperator {
 
         // We know that the entire pipeline has the same row selection. So we must decide what
         // to do with it.
-        match &self.row_selection {
+        let len_provider = match &self.row_selection {
             RowSelection::Domain(len) => {
                 // The pipeline contains "leaf" nodes that create their own rows from data buffers.
                 // In this case, we must step the pipeline for `len / N` iterations to produce
                 // the output array.
-                todo!()
+                LenProvider::Fixed(*len)
             }
             RowSelection::All => {
                 // The pipeline selects all rows from its external vectorized inputs. These inputs
                 // are wrapped up as `PipelineInputOperator`s in the DAG, so we will know their
                 // row count after awaiting the pipeline's inputs.
-
                 todo!()
             }
             RowSelection::MaskOperator(_) => {
@@ -322,34 +322,22 @@ impl BatchOperator for PipelineOperator {
                 //
                 // The result of each kernel should still be written into the original output
                 // position.
-                todo!()
+                LenProvider::Mask
             }
-        }
+        };
 
         match self.dtype() {
-            // DType::Bool(Nullability::NonNullable) => Ok(Box::new(BoolPipelineExecution {
-            //     row_selection: self
-            //         .root_operator()
-            //         .as_pipelined()
-            //         .vortex_expect("checked")
-            //         .row_selection(),
-            //     batch_inputs,
-            //     vectors,
-            //     pipeline,
-            // })),
+            DType::Bool(Nullability::NonNullable) => Ok(Box::new(
+                PipelineExecution::<BoolOutput>::new(len_provider, batch_inputs, vectors, pipeline),
+            )),
             DType::Primitive(ptype, Nullability::NonNullable) => {
                 match_each_native_ptype!(ptype, |T| {
-                    Ok(Box::new(PrimitivePipelineExecution {
-                        row_selection: self
-                            .root_operator()
-                            .as_pipelined()
-                            .vortex_expect("checked")
-                            .row_selection(),
+                    Ok(Box::new(PipelineExecution::<PrimitiveOutput<T>>::new(
+                        len_provider,
                         batch_inputs,
                         vectors,
                         pipeline,
-                        phantom_data: PhantomData::<T>,
-                    }))
+                    )))
                 })
             }
             _ => vortex_bail!(
@@ -366,21 +354,107 @@ enum LenProvider {
     Mask,
 }
 
-struct BoolPipelineExecution {
+trait PipelineOutput: Send {
+    type Element: Element;
+    fn allocate(capacity: usize) -> Self;
+    fn view_mut(&mut self, offset: usize) -> ViewMut<'_>;
+    fn into_canonical(self, len: usize) -> VortexResult<Canonical>;
+}
+
+struct BoolOutput {
+    buffer: BufferMut<bool>,
+}
+
+impl PipelineOutput for BoolOutput {
+    type Element = bool;
+
+    fn allocate(capacity: usize) -> Self {
+        let mut buffer = BufferMut::with_capacity(capacity);
+        unsafe { buffer.set_len(capacity) };
+        BoolOutput { buffer }
+    }
+
+    fn view_mut(&mut self, offset: usize) -> ViewMut<'_> {
+        ViewMut::new(&mut self.buffer[offset..][..N], None)
+    }
+
+    fn into_canonical(mut self, len: usize) -> VortexResult<Canonical> {
+        unsafe { self.buffer.set_len(len) };
+
+        let buffer = ByteBuffer::from_arrow_buffer(
+            BooleanBuffer::from(self.buffer.as_ref()).into_inner(),
+            Alignment::of::<u64>(),
+        );
+
+        Ok(Canonical::Bool(BoolArray::try_new(
+            buffer,
+            0,
+            len,
+            Validity::NonNullable,
+        )?))
+    }
+}
+
+struct PrimitiveOutput<T> {
+    buffer: BufferMut<T>,
+}
+
+impl<T: NativePType + Element> PipelineOutput for PrimitiveOutput<T> {
+    type Element = T;
+
+    fn allocate(capacity: usize) -> Self {
+        let mut buffer = BufferMut::with_capacity(capacity);
+        unsafe { buffer.set_len(capacity) };
+        PrimitiveOutput { buffer }
+    }
+
+    fn view_mut(&mut self, offset: usize) -> ViewMut<'_> {
+        ViewMut::new(&mut self.buffer[offset..][..N], None)
+    }
+
+    fn into_canonical(mut self, len: usize) -> VortexResult<Canonical> {
+        unsafe { self.buffer.set_len(len) };
+        Ok(Canonical::Primitive(PrimitiveArray::new(
+            self.buffer.freeze(),
+            Validity::NonNullable,
+        )))
+    }
+}
+
+struct PipelineExecution<O> {
     len: LenProvider,
     batch_inputs: Vec<BatchExecutionRef>,
     vectors: Vec<RefCell<Vector>>,
     pipeline: Pipeline,
+    _element: PhantomData<O>,
+}
+
+impl<O> PipelineExecution<O> {
+    fn new(
+        len: LenProvider,
+        batch_inputs: Vec<BatchExecutionRef>,
+        vectors: Vec<RefCell<Vector>>,
+        pipeline: Pipeline,
+    ) -> Self {
+        PipelineExecution {
+            len,
+            batch_inputs,
+            vectors,
+            pipeline,
+            _element: PhantomData,
+        }
+    }
 }
 
 #[async_trait]
-impl BatchExecution for BoolPipelineExecution {
+impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
     async fn execute(mut self: Box<Self>) -> VortexResult<Canonical> {
         // Execute all batch input operators concurrently with the row selection.
         let batch_inputs =
             try_join_all(self.batch_inputs.into_iter().map(|exec| exec.execute())).await?;
 
-        let mut mask = None;
+        // Extract the length and possibly row selection mask.
+        let mut mask: Option<BooleanBuffer> = None;
         let len = match &self.len {
             LenProvider::FromBatchInput(batch_id) => batch_inputs[*batch_id].as_ref().len(),
             LenProvider::Fixed(len) => *len,
@@ -390,9 +464,18 @@ impl BatchExecution for BoolPipelineExecution {
                     .vortex_expect("mask batch input missing")
                     .as_ref()
                     .try_to_mask_fill_null_false()?;
-                let len = selection_mask.true_count();
-                mask = Some(selection_mask);
-                len
+
+                match selection_mask.boolean_buffer() {
+                    AllOr::All => selection_mask.len(),
+                    AllOr::None => {
+                        // TODO(ngates): we should short-circuit execution here.
+                        0
+                    }
+                    AllOr::Some(buffer) => {
+                        mask = Some(buffer.clone());
+                        selection_mask.true_count()
+                    }
+                }
             }
         };
 
@@ -404,123 +487,71 @@ impl BatchExecution for BoolPipelineExecution {
 
         // Allocate the output vector and validity.
         let capacity = len.next_multiple_of(N) + N;
-        let mut elements = BufferMut::<bool>::with_capacity(capacity);
-        unsafe { elements.set_len(capacity) };
+        let mut output = O::allocate(capacity);
 
-        // Run the operator to completion.
-        let mut position = 0;
-        while position < len {
-            let mut elements_view = ViewMut::new(&mut elements[position..][..N], None);
-            self.pipeline.step(&ctx, &mut elements_view)?;
-            position += elements_view.len;
-            // TODO(ngates): we should call Handle::yield every X iterations to avoid
-            //  starving other tasks in async contexts.
+        match mask {
+            None => {
+                // Run the operator to completion with all rows selected.
+                let nchunks = (len + N - 1) / N;
+                let mut position = 0;
+                for chunk_idx in 0..nchunks {
+                    let mask_len = (len - position).min(N);
+                    let selection_vec = (mask_len < N).then(|| BitVector::true_until(mask_len));
+                    let selection = selection_vec.as_ref().unwrap_or_else(|| BitVector::full());
+
+                    let mut elements_view = output.view_mut(position);
+                    self.pipeline.step(
+                        &ctx,
+                        chunk_idx,
+                        &selection.as_view(),
+                        &mut elements_view,
+                    )?;
+
+                    // Flatten the elements view such that the selected elements are at the front.
+                    elements_view.flatten::<O::Element>(&selection.as_view());
+
+                    // Advance the position by the number of true bits in the selection
+                    position += selection.true_count();
+
+                    // TODO(ngates): we should call Handle::yield every X iterations to avoid
+                    //  starving other tasks in async contexts.
+                }
+                assert_eq!(position, len);
+            }
+            Some(mask) => {
+                // Step the pipeline over each chunk of the mask.
+                let mut mask_iter = mask.bit_chunks().iter_padded();
+
+                let mut selection_words = [0usize; N_WORDS];
+                let mut selection_view_mut = BitViewMut::new(&mut selection_words);
+
+                let mut position = 0;
+                let mut chunk_idx = 0;
+                while position < len {
+                    // Populate the mask for this chunk
+                    selection_view_mut.clear();
+                    selection_view_mut.fill_with_words(&mut mask_iter);
+
+                    let mut elements_view = output.view_mut(position);
+                    self.pipeline.step(
+                        &ctx,
+                        chunk_idx,
+                        &selection_view_mut.as_view(),
+                        &mut elements_view,
+                    )?;
+                    chunk_idx += 1;
+
+                    // Flatten the elements view such that the selected elements are at the front.
+                    elements_view.flatten::<O::Element>(&selection_view_mut.as_view());
+
+                    // Advance the position by the number of true bits in the selection
+                    position += selection_view_mut.true_count();
+                }
+                assert_eq!(position, len);
+            }
         }
-        assert_eq!(position, len);
-        unsafe { elements.set_len(position) };
 
-        let buffer = ByteBuffer::from_arrow_buffer(
-            BooleanBuffer::from(elements.as_ref()).into_inner(),
-            Alignment::of::<u64>(),
-        );
-
-        Ok(Canonical::Bool(BoolArray::try_new(
-            buffer,
-            0,
-            position,
-            Validity::NonNullable,
-        )?))
-    }
-}
-
-struct PrimitivePipelineExecution<T> {
-    len: LenProvider,
-    batch_inputs: Vec<BatchExecutionRef>,
-    vectors: Vec<RefCell<Vector>>,
-    pipeline: Pipeline,
-    phantom_data: PhantomData<T>,
-}
-
-#[async_trait]
-impl<T: Element + NativePType> BatchExecution for PrimitivePipelineExecution<T> {
-    async fn execute(mut self: Box<Self>) -> VortexResult<Canonical> {
-        // Execute all batch input operators concurrently.
-        let batch_inputs =
-            try_join_all(self.batch_inputs.into_iter().map(|exec| exec.execute())).await?;
-
-        // We figure out the length of the output.
-        let len = match &self.len {
-            LenProvider::FromBatchInput(batch_id) => batch_inputs[*batch_id].as_ref().len(),
-            LenProvider::Fixed(len) => *len,
-        };
-
-        // Create a kernel context with the batch inputs.
-        let ctx = KernelContext {
-            vectors: self.vectors,
-            batch_inputs,
-        };
-
-        // Allocate the output vector and validity.
-        let capacity = len.next_multiple_of(N) + N;
-        let mut elements = BufferMut::<T>::with_capacity(capacity);
-        unsafe { elements.set_len(capacity) };
-
-        // Run the operator to completion.
-        let mut position = 0;
-        while position < len {
-            let mut elements_view = ViewMut::new(&mut elements[position..][..N], None);
-            self.pipeline.step(&ctx, &mut elements_view)?;
-            position += elements_view.len;
-        }
-        assert_eq!(position, len);
-        unsafe { elements.set_len(len) };
-
-        Ok(Canonical::Primitive(PrimitiveArray::new(
-            elements.freeze(),
-            Validity::NonNullable,
-        )))
-    }
-}
-
-struct PrimitiveFilteredPipelineExecution<T> {
-    mask: BatchId,
-    batch_inputs: Vec<BatchExecutionRef>,
-    vectors: Vec<RefCell<Vector>>,
-    pipeline: Pipeline,
-    phantom_data: PhantomData<T>,
-}
-
-#[async_trait]
-impl<T: Element + NativePType> BatchExecution for PrimitiveFilteredPipelineExecution<T> {
-    async fn execute(mut self: Box<Self>) -> VortexResult<Canonical> {
-        // Execute all batch input operators concurrently.
-        let batch_inputs =
-            try_join_all(self.batch_inputs.into_iter().map(|exec| exec.execute())).await?;
-
-        // Create a kernel context with the batch inputs.
-        let ctx = KernelContext {
-            vectors: self.vectors,
-            batch_inputs,
-        };
-
-        // Allocate the output vector and validity.
-        let capacity = self.len.next_multiple_of(N) + N;
-        let mut elements = BufferMut::<T>::with_capacity(capacity);
-        unsafe { elements.set_len(capacity) };
-
-        // Run the operator to completion.
-        let mut output_len = 0;
-        while output_len < self.len {
-            let mut elements_view = ViewMut::new(&mut elements[output_len..][..N], None);
-            self.pipeline.step(&ctx, &mut elements_view)?;
-            output_len += elements_view.len;
-        }
-        unsafe { elements.set_len(output_len) };
-
-        Ok(Canonical::Primitive(PrimitiveArray::new(
-            elements.freeze(),
-            Validity::NonNullable,
-        )))
+        output.into_canonical(len)
     }
 }
 
@@ -531,21 +562,27 @@ struct Pipeline {
 }
 
 impl Kernel for Pipeline {
-    fn step(&mut self, ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
+    fn step(
+        &self,
+        ctx: &KernelContext,
+        chunk_idx: usize,
+        selection: &BitView,
+        out: &mut ViewMut,
+    ) -> VortexResult<()> {
         for &node_idx in self.exec_order.iter() {
-            let kernel = self.kernels[node_idx].as_mut();
+            let kernel = &self.kernels[node_idx];
 
             match &self.output_targets[node_idx] {
-                OutputTarget::ExternalOutput => kernel.step(ctx, out)?,
+                OutputTarget::ExternalOutput => kernel.step(ctx, chunk_idx, selection, out)?,
                 OutputTarget::IntermediateVector(vector_idx) => {
                     let mut vector_ref = ctx.vectors[*vector_idx].borrow_mut();
-                    let len = {
+                    let selection = {
                         let mut view = vector_ref.as_view_mut();
-                        kernel.step(ctx, &mut view)?;
-                        view.len
+                        kernel.step(ctx, chunk_idx, selection, &mut view)?;
+                        view.selection
                     };
-                    // Propagate the length set by the kernel to the vector
-                    vector_ref.set_len(len);
+                    // Propagate the selection set by the kernel to the stored vector
+                    vector_ref.set_selection(selection);
                 }
             };
         }

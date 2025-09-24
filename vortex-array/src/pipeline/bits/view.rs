@@ -4,7 +4,7 @@
 use std::fmt::{Debug, Formatter};
 
 use bitvec::prelude::*;
-use vortex_error::{VortexError, vortex_err};
+use vortex_error::{vortex_err, VortexError};
 
 use crate::pipeline::{N, N_WORDS};
 
@@ -17,6 +17,9 @@ use crate::pipeline::{N, N_WORDS};
 #[derive(Clone, Copy)]
 pub struct BitView<'a> {
     bits: &'a BitArray<[usize; N_WORDS], Lsb0>,
+    // TODO(ngates): we may want to expose this for optimizations.
+    // If set to Selection::Prefix, then all true bits are at the start of the array.
+    // selection: Selection,
     true_count: usize,
 }
 

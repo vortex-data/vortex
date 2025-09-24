@@ -10,6 +10,8 @@ use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::{
     LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
+use vortex_array::pipeline::bits::BitView;
+use vortex_array::pipeline::vec::Selection;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{
     BindContext, Element, Kernel, KernelContext, PipelinedOperator, RowSelection, N,
@@ -59,7 +61,7 @@ impl Operator for SequenceArray {
     }
 
     fn bounds(&self) -> LengthBounds {
-        Array::len(self.as_ref())
+        Array::len(self.as_ref()).into()
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -105,15 +107,13 @@ impl PipelinedOperator for SequenceArray {
             if self.multiplier().as_primitive::<T>() == <T as ConstOne>::ONE {
                 Box::new(SequenceKernel::<T> {
                     base: self.base().as_primitive::<T>(),
-                    len: self.len(),
-                    offset: 0,
+                    len: Array::len(self.as_ref()),
                 })
             } else {
                 Box::new(MultiplierSequenceKernel::<T> {
                     base: self.base().as_primitive::<T>(),
                     multiplier: self.multiplier().as_primitive::<T>(),
-                    len: self.len(),
-                    offset: 0,
+                    len: Array::len(self.as_ref()),
                 })
             }
         }))
@@ -131,21 +131,31 @@ impl PipelinedOperator for SequenceArray {
 struct SequenceKernel<T> {
     base: T,
     len: usize,
-    offset: usize,
 }
 
 impl<T: Element + NativePType + PrimInt> Kernel for SequenceKernel<T> {
-    fn step(&mut self, _ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
+    fn step(
+        &self,
+        _ctx: &KernelContext,
+        step_idx: usize,
+        selection: &BitView,
+        out: &mut ViewMut,
+    ) -> VortexResult<()> {
         // TODO(ngates): benchmark and optimize this
-        let values = out.as_slice_mut::<T>();
-        let len = (self.len - self.offset).min(N);
-        for i in 0..len {
+        let values = out.as_array_mut::<T>();
+
+        let offset = step_idx * N;
+        for i in 0..N {
             values[i] = self.base
-                + T::from_usize(self.offset + i)
+                + T::from_usize(offset + i)
                     .ok_or_else(|| vortex_err!("Overflow converting usize to ptype"))?;
         }
-        out.set_len(len);
-        self.offset += len;
+
+        match selection.true_count() {
+            0 | N => out.set_selection(Selection::Prefix),
+            _ => out.set_selection(Selection::Mask),
+        }
+
         Ok(())
     }
 }
@@ -154,26 +164,36 @@ struct MultiplierSequenceKernel<T> {
     base: T,
     multiplier: T,
     len: usize,
-    offset: usize,
 }
 
 impl<T: Element + NativePType + PrimInt> Kernel for MultiplierSequenceKernel<T> {
-    fn step(&mut self, _ctx: &KernelContext, out: &mut ViewMut) -> VortexResult<()> {
+    fn step(
+        &self,
+        _ctx: &KernelContext,
+        chunk_idx: usize,
+        selection: &BitView,
+        out: &mut ViewMut,
+    ) -> VortexResult<()> {
         // TODO(ngates): benchmark and optimize this. We should use addition not multiplication
-        let values = out.as_slice_mut::<T>();
-        let len = (self.len - self.offset).min(N);
-        for i in 0..len {
+        let values = out.as_array_mut::<T>();
+        let offset = chunk_idx * N;
+
+        for i in 0..N {
             values[i] = self.base
                 + self
                     .multiplier
                     .checked_mul(
-                        &T::from_usize(self.offset + i)
+                        &T::from_usize(offset + i)
                             .ok_or_else(|| vortex_err!("Overflow converting usize to ptype"))?,
                     )
                     .ok_or_else(|| vortex_err!("Overflow computing sequence value"))?;
         }
-        out.set_len(len);
-        self.offset += len;
+
+        match selection.true_count() {
+            0 | N => out.set_selection(Selection::Prefix),
+            _ => out.set_selection(Selection::Mask),
+        }
+
         Ok(())
     }
 }
