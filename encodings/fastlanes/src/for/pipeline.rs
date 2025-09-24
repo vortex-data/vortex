@@ -81,7 +81,7 @@ impl Operator for FoROperator {
     }
 
     fn bounds(&self) -> LengthBounds {
-        todo!()
+        self.child.bounds()
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -198,11 +198,13 @@ where
         let vec = ctx.vector(self.child);
 
         let values = unsafe { std::mem::transmute::<&[E], &[T]>(vec.as_array::<E>()) };
-        let out = out.as_array_mut::<T>();
+        let out_values = out.as_array_mut::<T>();
 
-        values.iter().zip(out).for_each(|(value, out)| {
+        // TODO(ngates): decide whether to iter ones of the selection mask
+        values.iter().zip(out_values).for_each(|(value, out)| {
             *out = value.wrapping_add(&self.reference);
         });
+        out.set_selection(vec.selection());
 
         Ok(())
     }

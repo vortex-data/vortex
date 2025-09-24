@@ -45,19 +45,34 @@ where
         _selection: &BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {
-        assert_eq!(N, 1024, "BitPackedKernel assumes N=1024");
+        assert_eq!(
+            N % 1024,
+            0,
+            "BitPackedKernel assumes N is a multiple of 1024"
+        );
 
         // We re-interpret the output view as the unsigned bitpacked type.
         out.reinterpret_as::<<T as PhysicalPType>::Physical>();
 
         let elements = out.as_array_mut::<<T as PhysicalPType>::Physical>();
 
-        let packed_offset = chunk_idx * self.packed_stride;
-        let packed = &self.buffer.as_slice()[packed_offset..][..self.packed_stride];
+        let packed_offset = ((chunk_idx * N) / 1024) * self.packed_stride;
+        let packed = &self.buffer.as_slice()[packed_offset..];
 
-        // TODO(ngates): decide if the selection mask is sufficiently sparse to warrant
-        //  unpacking only the selected elements.
-        unsafe { BitPacking::unchecked_unpack(self.width, packed, &mut elements[..]) };
+        // We compute the number of FastLanes vectors for this chunk.
+        let nvecs = (N / 1024).min(packed.len() / self.packed_stride);
+
+        for i in 0..nvecs {
+            // TODO(ngates): decide if the selection mask is sufficiently sparse to warrant
+            //  unpacking only the selected elements.
+            unsafe {
+                BitPacking::unchecked_unpack(
+                    self.width,
+                    &packed[(i * self.packed_stride)..][..self.packed_stride],
+                    &mut elements[(i * 1024)..],
+                );
+            }
+        }
 
         out.reinterpret_as::<T>();
 
