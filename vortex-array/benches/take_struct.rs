@@ -52,13 +52,12 @@ fn take_struct_simple(bencher: Bencher) {
         });
 }
 
-#[divan::bench]
-fn take_struct_wide(bencher: Bencher) {
+#[divan::bench(args = [8])]
+fn take_struct_wide(bencher: Bencher, width: usize) {
     let mut rng = StdRng::seed_from_u64(0);
     let range = Uniform::new(0i64, 100_000_000).unwrap();
 
-    // Create a struct with many fields (8 fields)
-    let fields: Vec<_> = (0..8)
+    let fields: Vec<_> = (0..width)
         .map(|_| {
             (0..ARRAY_SIZE)
                 .map(|_| rng.sample(range))
