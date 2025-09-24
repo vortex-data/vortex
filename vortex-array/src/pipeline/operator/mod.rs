@@ -384,6 +384,8 @@ enum RowSelectionSource {
     FromMask,
 }
 
+/// This trait allows us to abstract over the canonical element type of the pipeline, providing
+/// a single implementation of the pipeline batch execution for all canonical types.
 trait PipelineOutput: Send {
     type Element: Element;
     fn allocate(capacity: usize) -> Self;
