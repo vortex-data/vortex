@@ -6,6 +6,7 @@ use std::cmp::Ordering;
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
 use std::ops::{Deref, RangeBounds};
 
 use bytes::{Buf, Bytes};
@@ -20,7 +21,7 @@ pub struct Buffer<T> {
     pub(crate) bytes: Bytes,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
-    pub(crate) _marker: std::marker::PhantomData<T>,
+    pub(crate) _marker: PhantomData<T>,
 }
 
 impl<T> Clone for Buffer<T> {
@@ -30,7 +31,18 @@ impl<T> Clone for Buffer<T> {
             bytes: self.bytes.clone(),
             length: self.length,
             alignment: self.alignment,
-            _marker: std::marker::PhantomData,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T> Default for Buffer<T> {
+    fn default() -> Self {
+        Self {
+            bytes: Default::default(),
+            length: 0,
+            alignment: Alignment::of::<T>(),
+            _marker: PhantomData,
         }
     }
 }
@@ -39,6 +51,18 @@ impl<T> PartialEq for Buffer<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.bytes == other.bytes
+    }
+}
+
+impl<T: PartialEq> PartialEq<Vec<T>> for Buffer<T> {
+    fn eq(&self, other: &Vec<T>) -> bool {
+        self.as_ref() == other.as_slice()
+    }
+}
+
+impl<T: PartialEq> PartialEq<Buffer<T>> for Vec<T> {
+    fn eq(&self, other: &Buffer<T>) -> bool {
+        self.as_slice() == other.as_ref()
     }
 }
 
@@ -502,14 +526,39 @@ impl<T> FromIterator<T> for Buffer<T> {
     }
 }
 
-/// Only for `Buffer<u8>` can we zero-copy from a `Vec<u8>` since we can use a 1-byte alignment.
-impl From<Vec<u8>> for ByteBuffer {
-    fn from(value: Vec<u8>) -> Self {
-        Self::from(Bytes::from(value))
+// Helper struct to allow us to zero-copy any vec into a buffer
+#[repr(transparent)]
+struct Wrapper<T>(Vec<T>);
+
+impl<T> AsRef<[u8]> for Wrapper<T> {
+    fn as_ref(&self) -> &[u8] {
+        let data = self.0.as_ptr().cast::<u8>();
+        let len = self.0.len() * size_of::<T>();
+        unsafe { std::slice::from_raw_parts(data, len) }
     }
 }
 
-/// Only for `Buffer<u8>` can we zero-copy from a `Bytes` since we can use a 1-byte alignment.
+impl<T> From<Vec<T>> for Buffer<T>
+where
+    T: Send + 'static,
+{
+    fn from(value: Vec<T>) -> Self {
+        let original_len = value.len();
+        let wrapped_vec = Wrapper(value);
+
+        let bytes = Bytes::from_owner(wrapped_vec);
+
+        assert_eq!(bytes.as_ptr().align_offset(align_of::<T>()), 0);
+
+        Self {
+            bytes,
+            length: original_len,
+            alignment: Alignment::of::<T>(),
+            _marker: PhantomData,
+        }
+    }
+}
+
 impl From<Bytes> for ByteBuffer {
     fn from(bytes: Bytes) -> Self {
         let length = bytes.len();
@@ -596,7 +645,7 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
 mod test {
     use bytes::Buf;
 
-    use crate::{Alignment, ByteBuffer, buffer};
+    use crate::{Alignment, Buffer, ByteBuffer, buffer};
 
     #[test]
     fn align() {
@@ -643,5 +692,13 @@ mod test {
         assert_eq!(buf.remaining(), 5);
         assert_eq!(buf.as_slice(), b"world");
         assert_eq!(buf.chunk(), b"world");
+    }
+
+    #[test]
+    fn from_vec() {
+        let vec = vec![1, 2, 3, 4, 5];
+        let buff = Buffer::from(vec.clone());
+        assert!(buff.is_aligned(Alignment::of::<i32>()));
+        assert_eq!(vec, buff);
     }
 }
