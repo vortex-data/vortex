@@ -36,13 +36,15 @@ mod optimize;
 pub mod slice;
 
 use std::any::{Any, type_name};
-use std::fmt::Debug;
+use std::fmt;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use arcref::ArcRef;
 use async_trait::async_trait;
 pub use display::*;
 pub use hash::*;
+use termtree::Tree;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -82,8 +84,20 @@ pub trait Operator: 'static + Send + Sync + Debug + DynOperatorHash + DynOperato
     }
 
     /// Override the default formatting of this operator.
-    fn fmt_as(&self, _df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt_as(&self, _df: DisplayFormat, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", type_name::<Self>())
+    }
+
+    fn fmt_all(&self) -> Tree<String> {
+        let node_name = TreeNodeDisplay(self).to_string();
+        let child_trees: Vec<_> = self
+            .children()
+            .iter()
+            .map(|child| child.fmt_all())
+            .collect();
+        Tree::new(node_name)
+            .with_leaves(child_trees)
+            .with_multiline(true)
     }
 
     /// Create a new instance of this operator with the given children.
