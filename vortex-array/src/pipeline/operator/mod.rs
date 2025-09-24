@@ -335,7 +335,7 @@ impl BatchOperator for PipelineOperator {
                 // The pipeline contains "leaf" nodes that create their own rows from data buffers.
                 // In this case, we must step the pipeline for `len / N` iterations to produce
                 // the output array.
-                RowSelectionSource::FromLeaf { len: *len }
+                RowSelectionSource::LeafNode { len: *len }
             }
             RowSelection::All => {
                 // The pipeline selects all rows from its external vectorized inputs. These inputs
@@ -343,7 +343,7 @@ impl BatchOperator for PipelineOperator {
                 // row count after awaiting the pipeline's inputs.
                 // In theory, we only need one. But we want to check they're all the same length
                 // for sanity.
-                RowSelectionSource::FromBatchInputs(self.domain_inputs.clone())
+                RowSelectionSource::BatchInputs(self.domain_inputs.clone())
             }
             RowSelection::MaskOperator(_) => {
                 // The pipeline operators over a selection of rows from its external vectorized
@@ -356,7 +356,7 @@ impl BatchOperator for PipelineOperator {
                 //
                 // The result of each kernel should still be written into the original output
                 // position.
-                RowSelectionSource::FromMask
+                RowSelectionSource::Mask
             }
         };
 
@@ -393,9 +393,9 @@ impl BatchOperator for PipelineOperator {
 /// same [`RowSelection`]. This enum represents the execution-time equivalent of that selection
 /// identifying essentially
 enum RowSelectionSource {
-    FromBatchInputs(Vec<BatchId>),
-    FromLeaf { len: usize },
-    FromMask,
+    BatchInputs(Vec<BatchId>),
+    LeafNode { len: usize },
+    Mask,
 }
 
 /// This trait allows us to abstract over the canonical element type of the pipeline, providing
@@ -504,7 +504,7 @@ impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
         // Extract the length and possibly row selection mask.
         let mut mask: Option<BooleanBuffer> = None;
         let len = match &self.row_selection {
-            RowSelectionSource::FromBatchInputs(batch_ids) => {
+            RowSelectionSource::BatchInputs(batch_ids) => {
                 match batch_ids
                     .iter()
                     .map(|id| children[*id].as_ref().len())
@@ -519,8 +519,8 @@ impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
                     }
                 }
             }
-            RowSelectionSource::FromLeaf { len } => *len,
-            RowSelectionSource::FromMask => {
+            RowSelectionSource::LeafNode { len } => *len,
+            RowSelectionSource::Mask => {
                 // Recall the final child is the mask operator.
                 let selection_mask = children
                     .pop()
