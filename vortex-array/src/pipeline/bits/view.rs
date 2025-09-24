@@ -4,7 +4,7 @@
 use std::fmt::{Debug, Formatter};
 
 use bitvec::prelude::*;
-use vortex_error::{vortex_err, VortexError};
+use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::pipeline::{N, N_WORDS};
 
@@ -97,6 +97,34 @@ impl<'a> BitView<'a> {
                     }
                     bit_idx += usize::BITS as usize;
                 }
+            }
+        }
+    }
+
+    /// Runs the provided function `f` for each index of a `true` bit in the view.
+    pub fn try_iter_ones<F>(&self, mut f: F) -> VortexResult<()>
+    where
+        F: FnMut(usize) -> VortexResult<()>,
+    {
+        match self.true_count {
+            0 => Ok(()),
+            N => {
+                for i in 0..N {
+                    f(i)?;
+                }
+                Ok(())
+            }
+            _ => {
+                let mut bit_idx = 0;
+                for mut raw in self.bits.into_inner() {
+                    while raw != 0 {
+                        let bit_pos = raw.trailing_zeros();
+                        f(bit_idx + bit_pos as usize)?;
+                        raw &= raw - 1; // Clear the bit at `bit_pos`
+                    }
+                    bit_idx += usize::BITS as usize;
+                }
+                Ok(())
             }
         }
     }

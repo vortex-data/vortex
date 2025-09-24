@@ -161,11 +161,10 @@ macro_rules! match_each_compare_op {
 
 impl PipelinedOperator for CompareOperator {
     fn row_selection(&self) -> RowSelection {
-        // We checked in [`Operator::as_pipelined`] that both children have the same row selection.
         self.children[0]
             .as_pipelined()
-            .vortex_expect("checked")
-            .row_selection()
+            .map(|p| p.row_selection())
+            .unwrap_or(RowSelection::All)
     }
 
     #[allow(clippy::cognitive_complexity)]

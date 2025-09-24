@@ -117,8 +117,10 @@ impl<T: Element + NativePType> Kernel for CanonicalPrimitiveKernel<T> {
         let array = ctx.batch_input(self.batch_id).as_primitive().buffer::<T>();
 
         // TODO(ngates): decide when to iterate set indices vs copy all values.
+
+        let len = (array.len() - (chunk_idx * N)).min(N);
         out.as_array_mut()
-            .copy_from_slice(&array[chunk_idx * N..][..N]);
+            .copy_from_slice(&array[chunk_idx * N..][..len]);
 
         // We don't know whether all true bits are at the front of the mask, so we must set
         // the selection to Mask.

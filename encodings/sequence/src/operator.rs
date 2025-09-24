@@ -143,12 +143,22 @@ impl<T: Element + NativePType + PrimInt> Kernel for SequenceKernel<T> {
     ) -> VortexResult<()> {
         // TODO(ngates): benchmark and optimize this
         let values = out.as_array_mut::<T>();
-
         let offset = step_idx * N;
-        for i in 0..N {
-            values[i] = self.base
-                + T::from_usize(offset + i)
-                    .ok_or_else(|| vortex_err!("Overflow converting usize to ptype"))?;
+
+        // Check if we're in the final chunk to avoid overflow
+        if (offset + N) > self.len {
+            selection.try_iter_ones(|idx| {
+                values[idx] = self.base
+                    + T::from_usize(offset + idx)
+                        .ok_or_else(|| vortex_err!("Overflow converting usize to ptype"))?;
+                Ok(())
+            })?;
+        } else {
+            for i in 0..N {
+                values[i] = self.base
+                    + T::from_usize(offset + i)
+                        .ok_or_else(|| vortex_err!("Overflow converting usize to ptype"))?;
+            }
         }
 
         match selection.true_count() {
