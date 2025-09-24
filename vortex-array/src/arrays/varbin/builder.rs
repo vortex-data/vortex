@@ -34,7 +34,7 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
         offsets.push(O::zero());
         Self {
             offsets,
-            data: BufferMut::empty(),
+            data: BufferMut::with_capacity(len * size_of::<O>()),
             validity: NullBufferBuilder::new(len),
         }
     }
