@@ -5,7 +5,7 @@ use std::any::Any;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ConstantArray, ConstantVTable};
@@ -14,7 +14,7 @@ use crate::pipeline::bits::BitView;
 use crate::pipeline::vec::Selection;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{
-    BindContext, Element, Kernel, KernelContext, PipelinedOperator, RowSelection, N,
+    BindContext, Element, Kernel, KernelContext, N, PipelinedOperator, RowSelection,
 };
 use crate::vtable::PipelineVTable;
 

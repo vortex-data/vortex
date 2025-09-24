@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::ConstantArray;
 use crate::compute::Operator as Op;
@@ -118,10 +118,9 @@ impl Operator for CompareOperator {
         if let Some((left, right)) = self.children[0]
             .as_pipelined()
             .zip(self.children[1].as_pipelined())
+            && left.row_selection() != right.row_selection()
         {
-            if left.row_selection() != right.row_selection() {
-                return None;
-            }
+            return None;
         }
 
         Some(self)

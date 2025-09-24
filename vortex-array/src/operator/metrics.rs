@@ -11,6 +11,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_metrics::{Timer, VortexMetrics};
 
+use crate::Canonical;
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
     OperatorEq, OperatorHash, OperatorId, OperatorRef,
@@ -18,7 +19,6 @@ use crate::operator::{
 use crate::pipeline::bits::BitView;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{BindContext, Kernel, KernelContext, PipelinedOperator, RowSelection};
-use crate::Canonical;
 
 /// An operator that wraps another operator and records metrics about its execution.
 #[derive(Debug)]
@@ -150,7 +150,8 @@ struct MetricsKernel {
 }
 
 impl Kernel for MetricsKernel {
-fn step(&self,
+    fn step(
+        &self,
         ctx: &KernelContext,
         chunk_idx: usize,
         selection: &BitView,

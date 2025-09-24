@@ -8,7 +8,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::arrays::{StructArray, StructVTable};
 use crate::operator::getitem::GetItemOperator;

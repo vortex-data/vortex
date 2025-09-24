@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+use std::hash::Hasher;
+use std::marker::PhantomData;
+use std::sync::Arc;
+
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+
 use crate::operator::{LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 use crate::pipeline::bits::BitView;
 use crate::pipeline::vec::Selection;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{
-    BatchId, BindContext, Element, Kernel, KernelContext, PipelinedOperator, RowSelection, N,
+    BatchId, BindContext, Element, Kernel, KernelContext, N, PipelinedOperator, RowSelection,
 };
-use std::any::Any;
-use std::hash::Hasher;
-use std::marker::PhantomData;
-use std::sync::Arc;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 /// An operator that exports a child operator's data in canonical pipelined form.
 #[derive(Debug, Clone)]
@@ -82,7 +84,7 @@ impl PipelinedOperator for PipelineInputOperator {
             match_each_native_ptype!(ptype, |T| {
                 return Ok(Box::new(CanonicalPrimitiveKernel::<T> {
                     batch_id,
-                    _phantom: PhantomData::default(),
+                    _phantom: PhantomData,
                 }) as Box<dyn Kernel>);
             })
         }
@@ -119,8 +121,8 @@ impl<T: Element + NativePType> Kernel for CanonicalPrimitiveKernel<T> {
         // TODO(ngates): decide when to iterate set indices vs copy all values.
 
         let len = (array.len() - (chunk_idx * N)).min(N);
-        out.as_array_mut()
-            .copy_from_slice(&array[chunk_idx * N..][..len]);
+        // TODO(ngates): is this faster if we hard-code N?
+        out.as_array_mut()[..len].copy_from_slice(&array[chunk_idx * N..][..len]);
 
         // We don't know whether all true bits are at the front of the mask, so we must set
         // the selection to Mask.

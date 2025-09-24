@@ -25,17 +25,18 @@ mod types;
 pub mod vec;
 pub mod view;
 
+use std::cell::RefCell;
+
 pub use row_selection::*;
 pub use types::*;
+use vec::VectorRef;
+use vortex_error::VortexResult;
 
 use self::vec::Vector;
 use self::view::ViewMut;
+use crate::Canonical;
 use crate::operator::Operator;
 use crate::pipeline::bits::BitView;
-use crate::Canonical;
-use std::cell::RefCell;
-use vec::VectorRef;
-use vortex_error::VortexResult;
 
 /// The number of elements in each step of a Vortex evaluation operator.
 pub const N: usize = 1024;

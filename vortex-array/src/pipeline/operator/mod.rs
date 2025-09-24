@@ -18,11 +18,12 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
+use crate::Canonical;
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, LengthBounds,
@@ -30,14 +31,13 @@ use crate::operator::{
 };
 use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
 use crate::pipeline::operator::bind::bind_kernels;
-use crate::pipeline::operator::buffers::{allocate_vectors, OutputTarget};
+use crate::pipeline::operator::buffers::{OutputTarget, allocate_vectors};
 use crate::pipeline::operator::input::PipelineInputOperator;
 use crate::pipeline::operator::toposort::topological_sort;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BatchId, Element, Kernel, KernelContext, RowSelection, N, N_WORDS};
+use crate::pipeline::{BatchId, Element, Kernel, KernelContext, N, N_WORDS, RowSelection};
 use crate::validity::Validity;
-use crate::Canonical;
 
 /// An operator node used during execution planning to represent a pipelined execution.
 ///
@@ -48,6 +48,7 @@ pub(crate) struct PipelineOperator {
     root: NodeId,
     dag: Vec<PipelineNode>,
     batch_inputs: Vec<OperatorRef>,
+    domain_inputs: Vec<BatchId>,
     row_selection: RowSelection,
 }
 
@@ -123,15 +124,12 @@ impl PipelineOperator {
         // selection changes, we must start a new pipeline.
         let row_selection = operator.as_pipelined()?.row_selection();
 
-        let mut dag = vec![];
-        let mut batch = vec![];
-        let mut hash_to_id: HashMap<u64, NodeId> = HashMap::new();
-
         fn visit_node(
             node: OperatorRef,
             row_selection: RowSelection,
             dag: &mut Vec<PipelineNode>,
             batch: &mut Vec<OperatorRef>,
+            domain_inputs: &mut Vec<BatchId>,
             hash_to_id: &mut HashMap<u64, NodeId>,
             random_state: &RandomState,
         ) -> NodeId {
@@ -154,6 +152,7 @@ impl PipelineOperator {
             // Prepare the pipelined vector children
             for child_idx in pipelined.vector_children() {
                 let mut child_op = node_children[child_idx].clone();
+                let mut is_domain_input = false;
 
                 if child_op
                     .as_pipelined()
@@ -163,6 +162,12 @@ impl PipelineOperator {
                     // include it in our pipeline. Otherwise, we need to stop the pipeline here and
                     // treat this child as a batch input.
                     child_op = Arc::new(PipelineInputOperator::new(child_op));
+
+                    // If the child is marked as a vector child, but it doesn't itself support
+                    // pipelined compute, then we know it has the same domain of rows as the
+                    // pipeline. We track it so we can use its row count as the domain size at
+                    // execution time.
+                    is_domain_input = true;
                 }
 
                 let child_node_id = visit_node(
@@ -170,10 +175,17 @@ impl PipelineOperator {
                     row_selection.clone(),
                     dag,
                     batch,
+                    domain_inputs,
                     hash_to_id,
                     random_state,
                 );
                 child_indices.push(child_node_id);
+
+                if is_domain_input {
+                    let domain_batch = &dag[child_node_id].batch_inputs;
+                    assert_eq!(domain_batch.len(), 1);
+                    domain_inputs.push(domain_batch[0]);
+                }
             }
 
             // And the batch input children
@@ -200,12 +212,17 @@ impl PipelineOperator {
         }
 
         // Build the DAG
+        let mut dag = vec![];
+        let mut batch = vec![];
+        let mut domain_inputs = vec![];
+        let mut hash_to_id: HashMap<u64, NodeId> = HashMap::new();
         let random_state = RandomState::default();
         let root_index = visit_node(
             operator,
             row_selection.clone(),
             &mut dag,
             &mut batch,
+            &mut domain_inputs,
             &mut hash_to_id,
             &random_state,
         );
@@ -227,6 +244,7 @@ impl PipelineOperator {
             root: root_index,
             dag,
             batch_inputs: batch,
+            domain_inputs,
             row_selection,
         })
     }
@@ -309,7 +327,9 @@ impl BatchOperator for PipelineOperator {
                 // The pipeline selects all rows from its external vectorized inputs. These inputs
                 // are wrapped up as `PipelineInputOperator`s in the DAG, so we will know their
                 // row count after awaiting the pipeline's inputs.
-                todo!()
+                // In theory, we only need one. But we want to check they're all the same length
+                // for sanity.
+                LenProvider::FromBatch(self.domain_inputs.clone())
             }
             RowSelection::MaskOperator(_) => {
                 // The pipeline operators over a selection of rows from its external vectorized
@@ -349,7 +369,7 @@ impl BatchOperator for PipelineOperator {
 }
 
 enum LenProvider {
-    FromBatchInput(BatchId),
+    FromBatch(Vec<BatchId>),
     Fixed(usize),
     Mask,
 }
@@ -456,7 +476,21 @@ impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
         // Extract the length and possibly row selection mask.
         let mut mask: Option<BooleanBuffer> = None;
         let len = match &self.len {
-            LenProvider::FromBatchInput(batch_id) => batch_inputs[*batch_id].as_ref().len(),
+            LenProvider::FromBatch(batch_ids) => {
+                match batch_ids
+                    .iter()
+                    .map(|id| batch_inputs[*id].as_ref().len())
+                    .all_equal_value()
+                {
+                    Ok(len) => len,
+                    Err(lens) => {
+                        vortex_bail!(
+                            "Mismatched input lengths for pipeline domain inputs: {:?}",
+                            lens
+                        );
+                    }
+                }
+            }
             LenProvider::Fixed(len) => *len,
             LenProvider::Mask => {
                 let selection_mask = batch_inputs
@@ -492,7 +526,7 @@ impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
         match mask {
             None => {
                 // Run the operator to completion with all rows selected.
-                let nchunks = (len + N - 1) / N;
+                let nchunks = len.div_ceil(N);
                 let mut position = 0;
                 for chunk_idx in 0..nchunks {
                     let mask_len = (len - position).min(N);

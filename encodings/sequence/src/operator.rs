@@ -6,6 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use num_traits::{ConstOne, PrimInt};
+use vortex_array::Array;
 use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::{
     LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
@@ -14,12 +15,11 @@ use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::vec::Selection;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{
-    BindContext, Element, Kernel, KernelContext, PipelinedOperator, RowSelection, N,
+    BindContext, Element, Kernel, KernelContext, N, PipelinedOperator, RowSelection,
 };
 use vortex_array::vtable::PipelineVTable;
-use vortex_array::Array;
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::{SequenceArray, SequenceVTable};
 
@@ -147,9 +147,9 @@ impl<T: Element + NativePType + PrimInt> Kernel for SequenceKernel<T> {
 
         // Check if we're in the final chunk to avoid overflow
         if (offset + N) > self.len {
-            selection.try_iter_ones(|idx| {
-                values[idx] = self.base
-                    + T::from_usize(offset + idx)
+            selection.try_iter_ones(|i| {
+                values[i] = self.base
+                    + T::from_usize(offset + i)
                         .ok_or_else(|| vortex_err!("Overflow converting usize to ptype"))?;
                 Ok(())
             })?;
@@ -188,15 +188,29 @@ impl<T: Element + NativePType + PrimInt> Kernel for MultiplierSequenceKernel<T> 
         let values = out.as_array_mut::<T>();
         let offset = chunk_idx * N;
 
-        for i in 0..N {
-            values[i] = self.base
-                + self
-                    .multiplier
-                    .checked_mul(
-                        &T::from_usize(offset + i)
-                            .ok_or_else(|| vortex_err!("Overflow converting usize to ptype"))?,
-                    )
-                    .ok_or_else(|| vortex_err!("Overflow computing sequence value"))?;
+        if (offset + N) > self.len {
+            selection.try_iter_ones(|i| {
+                values[i] = self.base
+                    + self
+                        .multiplier
+                        .checked_mul(
+                            &T::from_usize(offset + i)
+                                .ok_or_else(|| vortex_err!("Overflow converting usize to ptype"))?,
+                        )
+                        .ok_or_else(|| vortex_err!("Overflow computing sequence value"))?;
+                Ok(())
+            })?;
+        } else {
+            for i in 0..N {
+                values[i] = self.base
+                    + self
+                        .multiplier
+                        .checked_mul(
+                            &T::from_usize(offset + i)
+                                .ok_or_else(|| vortex_err!("Overflow converting usize to ptype"))?,
+                        )
+                        .ok_or_else(|| vortex_err!("Overflow computing sequence value"))?;
+            }
         }
 
         match selection.true_count() {

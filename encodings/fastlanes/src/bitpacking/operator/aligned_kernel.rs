@@ -57,7 +57,7 @@ where
 
         // TODO(ngates): decide if the selection mask is sufficiently sparse to warrant
         //  unpacking only the selected elements.
-        unsafe { BitPacking::unchecked_unpack(self.width, &packed, &mut elements[..]) };
+        unsafe { BitPacking::unchecked_unpack(self.width, packed, &mut elements[..]) };
 
         out.reinterpret_as::<T>();
 

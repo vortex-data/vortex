@@ -7,6 +7,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use num_traits::WrappingAdd;
+use vortex_array::Array;
 use vortex_array::operator::{
     LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
@@ -16,9 +17,8 @@ use vortex_array::pipeline::{
     BindContext, Element, Kernel, KernelContext, PipelinedOperator, RowSelection, VectorId,
 };
 use vortex_array::vtable::PipelineVTable;
-use vortex_array::Array;
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::{FoRArray, FoRVTable};

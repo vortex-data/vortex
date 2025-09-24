@@ -35,19 +35,20 @@ pub mod metrics;
 mod optimize;
 pub mod slice;
 
-pub use display::*;
-pub use hash::*;
-
-use crate::pipeline::PipelinedOperator;
-use crate::Canonical;
-use arcref::ArcRef;
-use async_trait::async_trait;
-use std::any::{type_name, Any};
+use std::any::{Any, type_name};
 use std::fmt::Debug;
 use std::ops::BitAnd;
 use std::sync::Arc;
+
+use arcref::ArcRef;
+use async_trait::async_trait;
+pub use display::*;
+pub use hash::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+
+use crate::Canonical;
+use crate::pipeline::PipelinedOperator;
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
@@ -163,11 +164,7 @@ pub struct LengthBounds {
 
 impl LengthBounds {
     pub fn maybe_len(&self) -> Option<usize> {
-        if self.min == self.max {
-            Some(self.min)
-        } else {
-            None
-        }
+        (self.min == self.max).then_some(self.min)
     }
 
     pub fn contains(&self, len: usize) -> bool {

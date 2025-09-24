@@ -4,10 +4,10 @@
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
+use crate::pipeline::N;
 use crate::pipeline::bits::{BitView, BitViewMut};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vec::Selection;
-use crate::pipeline::N;
 
 pub struct View<'a> {
     /// The physical type of the vector, which defines how the elements are stored.
