@@ -17,8 +17,8 @@ fn main() {
     divan::main();
 }
 
-const ARRAY_SIZE: usize = 10_000;
-const NUM_ACCESSES: usize = 100;
+const ARRAY_SIZE: usize = 100_000;
+const NUM_ACCESSES: usize = 1000;
 
 #[divan::bench]
 fn scalar_at_struct_simple(bencher: Bencher) {

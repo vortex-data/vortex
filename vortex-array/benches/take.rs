@@ -18,8 +18,8 @@ fn main() {
     divan::main();
 }
 
-const ARRAY_SIZE: usize = 10_000;
-const TAKE_SIZE: usize = 100;
+const ARRAY_SIZE: usize = 100_000;
+const TAKE_SIZE: usize = 1000;
 
 #[divan::bench]
 fn take_struct_simple(bencher: Bencher) {
