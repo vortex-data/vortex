@@ -391,7 +391,6 @@ fn test_write_timestamps() {
 }
 
 #[test]
-#[ignore = "Assertion fail in DuckDB (`child.GetVectorType() == VectorType::FLAT_VECTOR`) with debug"]
 fn test_vortex_scan_fixed_size_list_utf8() {
     // Test a simple FixedSizeList of Utf8 strings to ensure proper materialization.
 
@@ -504,7 +503,6 @@ fn test_vortex_scan_nested_fixed_size_list_utf8() {
 }
 
 #[test]
-#[ignore = "Assertion fail in DuckDB (`le.offset + le.length <= child_size`) with debug"]
 fn test_vortex_scan_list_of_ints() {
     // Test a simple List of integers.
     let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -557,7 +555,6 @@ fn test_vortex_scan_list_of_ints() {
 }
 
 #[test]
-#[ignore = "Assertion fail in DuckDB (`le.offset + le.length <= child_size`) with debug"]
 fn test_vortex_scan_list_of_utf8() {
     // Test a simple List of UTF8 strings.
     let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -622,7 +619,6 @@ fn test_vortex_scan_list_of_utf8() {
 }
 
 #[test]
-#[ignore = "Assertion fail in DuckDB (`le.offset + le.length <= child_size`) with debug"]
 fn test_vortex_scan_ultra_deep_nesting() {
     // Test ultra-deep nesting: Multiple levels of FSL and List combinations with UTF8.
     // FSL[List[FSL[List[FSL[UTF8]]]]]
