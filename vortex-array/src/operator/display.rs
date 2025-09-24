@@ -4,13 +4,11 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
-use itertools::Itertools;
-
 use crate::operator::Operator;
 
 impl dyn Operator + '_ {
     pub fn display_tree(&self) -> impl Display {
-        DisplayTreeExpr(self)
+        self
     }
 }
 
@@ -19,30 +17,15 @@ pub enum DisplayFormat {
     Tree,
 }
 
-// TODO(ngates): this is pretty bad right now, and pipelined operators display poorly.
-struct DisplayTreeExpr<'a>(&'a dyn Operator);
-
-impl Display for DisplayTreeExpr<'_> {
+impl Display for dyn Operator + '_ {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        pub use termtree::Tree;
-
-        fn make_tree(expr: &dyn Operator) -> Result<Tree<String>, fmt::Error> {
-            let node_name = TreeNodeDisplay(expr).to_string();
-            let child_trees: Vec<_> = expr
-                .children()
-                .iter()
-                .map(|child| make_tree(child.as_ref()))
-                .try_collect()?;
-            Ok(Tree::new(node_name).with_leaves(child_trees))
-        }
-
-        write!(f, "{}", make_tree(self.0)?)
+        write!(f, "{}", self.fmt_all())
     }
 }
 
-struct TreeNodeDisplay<'a>(&'a dyn Operator);
+pub struct TreeNodeDisplay<'a, T: Operator + ?Sized>(pub &'a T);
 
-impl<'a> Display for TreeNodeDisplay<'a> {
+impl<'a, T: Operator + ?Sized> Display for TreeNodeDisplay<'a, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.0.fmt_as(DisplayFormat::Tree, f)
     }

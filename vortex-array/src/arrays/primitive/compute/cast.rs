@@ -4,6 +4,7 @@
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_err};
+use vortex_mask::{AllOr, Mask};
 
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
@@ -36,37 +37,62 @@ impl CastKernel for PrimitiveVTable {
             ));
         }
 
+        let mask = array.validity_mask();
+
         // Otherwise, we need to cast the values one-by-one
-        match_each_native_ptype!(new_ptype, |T| {
-            Ok(Some(
-                PrimitiveArray::new(cast::<T>(array)?, new_validity).into_array(),
-            ))
-        })
+        Ok(Some(match_each_native_ptype!(new_ptype, |T| {
+            match_each_native_ptype!(array.ptype(), |F| {
+                PrimitiveArray::new(cast::<F, T>(array.as_slice(), mask)?, new_validity)
+                    .into_array()
+            })
+        })))
     }
 }
 
 register_kernel!(CastKernelAdapter(PrimitiveVTable).lift());
 
-fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Buffer<T>> {
-    let mut buffer = BufferMut::with_capacity(array.len());
-    match_each_native_ptype!(array.ptype(), |P| {
-        for item in array.as_slice::<P>() {
-            let item = T::from(*item).ok_or_else(
-                || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
-            )?;
-            // SAFETY: we've pre-allocated the required capacity
-            unsafe { buffer.push_unchecked(item) }
+fn cast<F: NativePType, T: NativePType>(array: &[F], mask: Mask) -> VortexResult<Buffer<T>> {
+    match mask.boolean_buffer() {
+        AllOr::All => {
+            let mut buffer = BufferMut::with_capacity(array.len());
+            for item in array {
+                let item = T::from(*item).ok_or_else(
+                    || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
+                )?;
+                // SAFETY: we've pre-allocated the required capacity
+                unsafe { buffer.push_unchecked(item) }
+            }
+            Ok(buffer.freeze())
         }
-    });
-    Ok(buffer.freeze())
+        AllOr::None => Ok(Buffer::zeroed(array.len())),
+        AllOr::Some(b) => {
+            // TODO(robert): Depending on density of the buffer might be better to prefill Buffer and only write valid values
+            let mut buffer = BufferMut::with_capacity(array.len());
+            for (item, valid) in array.iter().zip(b.iter()) {
+                if valid {
+                    let item = T::from(*item).ok_or_else(
+                        || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
+                    )?;
+                    // SAFETY: we've pre-allocated the required capacity
+                    unsafe { buffer.push_unchecked(item) }
+                } else {
+                    // SAFETY: we've pre-allocated the required capacity
+                    unsafe { buffer.push_unchecked(T::default()) }
+                }
+            }
+            Ok(buffer.freeze())
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use arrow_buffer::BooleanBuffer;
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
+    use vortex_mask::Mask;
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
@@ -153,6 +179,25 @@ mod test {
         assert_eq!(
             s.to_string(),
             "Cannot cast array with invalid values to non-nullable type."
+        );
+    }
+
+    #[test]
+    fn cast_with_invalid_nulls() {
+        let arr = PrimitiveArray::new(
+            buffer![-1i32, 0, 10],
+            Validity::from_iter([false, true, true]),
+        );
+        let p = cast(
+            arr.as_ref(),
+            &DType::Primitive(PType::U32, Nullability::Nullable),
+        )
+        .unwrap()
+        .to_primitive();
+        assert_eq!(p.as_slice::<u32>(), vec![0, 0, 10]);
+        assert_eq!(
+            p.validity_mask(),
+            Mask::from(BooleanBuffer::from(vec![false, true, true]))
         );
     }
 

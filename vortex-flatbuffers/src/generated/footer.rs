@@ -66,7 +66,7 @@ impl<'a> flatbuffers::Follow<'a> for CompressionScheme {
   type Inner = Self;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
     Self(b)
   }
 }
@@ -75,7 +75,7 @@ impl flatbuffers::Push for CompressionScheme {
     type Output = CompressionScheme;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        flatbuffers::emplace_scalar::<u8>(dst, self.0);
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
     }
 }
 
@@ -131,21 +131,21 @@ impl<'a> flatbuffers::Follow<'a> for SegmentSpec {
   type Inner = &'a SegmentSpec;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    <&'a SegmentSpec>::follow(buf, loc)
+    unsafe { <&'a SegmentSpec>::follow(buf, loc) }
   }
 }
 impl<'a> flatbuffers::Follow<'a> for &'a SegmentSpec {
   type Inner = &'a SegmentSpec;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    flatbuffers::follow_cast_ref::<SegmentSpec>(buf, loc)
+    unsafe { flatbuffers::follow_cast_ref::<SegmentSpec>(buf, loc) }
   }
 }
 impl<'b> flatbuffers::Push for SegmentSpec {
     type Output = SegmentSpec;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        let src = ::core::slice::from_raw_parts(self as *const SegmentSpec as *const u8, <Self as flatbuffers::Push>::size());
+        let src = unsafe { ::core::slice::from_raw_parts(self as *const SegmentSpec as *const u8, <Self as flatbuffers::Push>::size()) };
         dst.copy_from_slice(src);
     }
     #[inline]
@@ -358,7 +358,7 @@ impl<'a> flatbuffers::Follow<'a> for Postscript<'a> {
   type Inner = Postscript<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
   }
 }
 
@@ -512,7 +512,7 @@ impl<'a> flatbuffers::Follow<'a> for PostscriptSegment<'a> {
   type Inner = PostscriptSegment<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
   }
 }
 
@@ -678,7 +678,7 @@ impl<'a> flatbuffers::Follow<'a> for FileStatistics<'a> {
   type Inner = FileStatistics<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
   }
 }
 
@@ -779,7 +779,7 @@ impl<'a> flatbuffers::Follow<'a> for Footer<'a> {
   type Inner = Footer<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
   }
 }
 
@@ -948,7 +948,7 @@ impl<'a> flatbuffers::Follow<'a> for ArraySpec<'a> {
   type Inner = ArraySpec<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
   }
 }
 
@@ -1050,7 +1050,7 @@ impl<'a> flatbuffers::Follow<'a> for LayoutSpec<'a> {
   type Inner = LayoutSpec<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
   }
 }
 
@@ -1149,7 +1149,7 @@ impl<'a> flatbuffers::Follow<'a> for CompressionSpec<'a> {
   type Inner = CompressionSpec<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
   }
 }
 
@@ -1246,7 +1246,7 @@ impl<'a> flatbuffers::Follow<'a> for EncryptionSpec<'a> {
   type Inner = EncryptionSpec<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
   }
 }
 
@@ -1365,14 +1365,14 @@ pub fn size_prefixed_root_as_postscript_with_opts<'b, 'o>(
 /// # Safety
 /// Callers must trust the given bytes do indeed contain a valid `Postscript`.
 pub unsafe fn root_as_postscript_unchecked(buf: &[u8]) -> Postscript {
-  flatbuffers::root_unchecked::<Postscript>(buf)
+  unsafe { flatbuffers::root_unchecked::<Postscript>(buf) }
 }
 #[inline]
 /// Assumes, without verification, that a buffer of bytes contains a size prefixed Postscript and returns it.
 /// # Safety
 /// Callers must trust the given bytes do indeed contain a valid size prefixed `Postscript`.
 pub unsafe fn size_prefixed_root_as_postscript_unchecked(buf: &[u8]) -> Postscript {
-  flatbuffers::size_prefixed_root_unchecked::<Postscript>(buf)
+  unsafe { flatbuffers::size_prefixed_root_unchecked::<Postscript>(buf) }
 }
 #[inline]
 pub fn finish_postscript_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(

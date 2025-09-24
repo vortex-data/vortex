@@ -16,7 +16,6 @@ use vortex_layout::layouts::struct_::writer::StructStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
 
 const ONE_MEG: u64 = 1 << 20;
-const ROW_BLOCK_SIZE: usize = 8192;
 
 /// Build a new [writer strategy][LayoutStrategy] to compress and reorganize chunks of a Vortex file.
 ///
@@ -25,6 +24,7 @@ const ROW_BLOCK_SIZE: usize = 8192;
 /// bulk decoding performance, and IOPS required to perform an indexed read.
 pub struct WriteStrategyBuilder {
     compressor: Option<Arc<dyn CompressorPlugin>>,
+    row_block_size: usize,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -37,7 +37,10 @@ impl WriteStrategyBuilder {
     /// Create a new empty builder. It can be further configured, and then finally built
     /// yielding the [`LayoutStrategy`].
     pub const fn new() -> Self {
-        Self { compressor: None }
+        Self {
+            compressor: None,
+            row_block_size: 8192,
+        }
     }
 
     /// Override the [compressor][CompressorPlugin] used for compressing chunks in the file.
@@ -46,6 +49,12 @@ impl WriteStrategyBuilder {
     /// total size with decoding performance.
     pub fn with_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
         self.compressor = Some(Arc::new(compressor));
+        self
+    }
+
+    /// Override the row block size used to determine the zone map sizes.
+    pub fn with_row_block_size(mut self, row_block_size: usize) -> Self {
+        self.row_block_size = row_block_size;
         self
     }
 
@@ -68,7 +77,7 @@ impl WriteStrategyBuilder {
             compressing,
             RepartitionWriterOptions {
                 block_size_minimum: ONE_MEG,
-                block_len_multiple: ROW_BLOCK_SIZE,
+                block_len_multiple: self.row_block_size,
                 canonicalize: true,
             },
         );
@@ -93,7 +102,7 @@ impl WriteStrategyBuilder {
             dict,
             compress_then_flat,
             ZonedLayoutOptions {
-                block_size: ROW_BLOCK_SIZE,
+                block_size: self.row_block_size,
                 ..Default::default()
             },
         );
@@ -105,7 +114,7 @@ impl WriteStrategyBuilder {
                 // No minimum block size in bytes
                 block_size_minimum: 0,
                 // Always repartition into 8K row blocks
-                block_len_multiple: ROW_BLOCK_SIZE,
+                block_len_multiple: self.row_block_size,
                 canonicalize: false,
             },
         );

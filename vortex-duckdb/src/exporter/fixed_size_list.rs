@@ -101,7 +101,7 @@ mod tests {
         // TODO(connor): This mutable API is brittle. Maybe bundle this logic?
         let mut chunk = DataChunk::new([array_type]);
 
-        new_exporter(fsl, &ConversionCache::new(0))
+        new_exporter(fsl, &ConversionCache::default())
             .unwrap()
             .export(offset, len, &mut chunk.get_vector(0))
             .unwrap();
@@ -315,7 +315,7 @@ mod tests {
         let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
 
-        new_exporter(&outer_fsl, &ConversionCache::new(0))
+        new_exporter(&outer_fsl, &ConversionCache::default())
             .unwrap()
             .export(0, 2, &mut chunk.get_vector(0))
             .unwrap();
@@ -368,7 +368,7 @@ mod tests {
         let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
 
-        new_exporter(&outer_fsl, &ConversionCache::new(0))
+        new_exporter(&outer_fsl, &ConversionCache::default())
             .unwrap()
             .export(0, 3, &mut chunk.get_vector(0))
             .unwrap();
