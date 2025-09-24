@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod basic;
+mod common;
 mod degenerate;
 mod filter;
 mod nested;
