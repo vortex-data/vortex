@@ -111,9 +111,9 @@ name = "chunk_array_builder"
 harness = false
 
 [[bench]]
-name = "take"
+name = "take_struct"
 harness = false
 
 [[bench]]
-name = "scalar_at"
+name = "scalar_at_struct"
 harness = false
