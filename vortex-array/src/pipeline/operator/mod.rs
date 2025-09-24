@@ -316,12 +316,12 @@ impl BatchOperator for PipelineOperator {
 
         // We know that the entire pipeline has the same row selection. So we must decide what
         // to do with it.
-        let len_provider = match &self.row_selection {
+        let row_selection = match &self.row_selection {
             RowSelection::Domain(len) => {
                 // The pipeline contains "leaf" nodes that create their own rows from data buffers.
                 // In this case, we must step the pipeline for `len / N` iterations to produce
                 // the output array.
-                LenProvider::Fixed(*len)
+                RowSelectionSource::FromLeaf { len: *len }
             }
             RowSelection::All => {
                 // The pipeline selects all rows from its external vectorized inputs. These inputs
@@ -329,7 +329,7 @@ impl BatchOperator for PipelineOperator {
                 // row count after awaiting the pipeline's inputs.
                 // In theory, we only need one. But we want to check they're all the same length
                 // for sanity.
-                LenProvider::FromBatch(self.domain_inputs.clone())
+                RowSelectionSource::FromBatchInputs(self.domain_inputs.clone())
             }
             RowSelection::MaskOperator(_) => {
                 // The pipeline operators over a selection of rows from its external vectorized
@@ -342,18 +342,23 @@ impl BatchOperator for PipelineOperator {
                 //
                 // The result of each kernel should still be written into the original output
                 // position.
-                LenProvider::Mask
+                RowSelectionSource::FromMask
             }
         };
 
         match self.dtype() {
-            DType::Bool(Nullability::NonNullable) => Ok(Box::new(
-                PipelineExecution::<BoolOutput>::new(len_provider, batch_inputs, vectors, pipeline),
-            )),
+            DType::Bool(Nullability::NonNullable) => {
+                Ok(Box::new(PipelineExecution::<BoolOutput>::new(
+                    row_selection,
+                    batch_inputs,
+                    vectors,
+                    pipeline,
+                )))
+            }
             DType::Primitive(ptype, Nullability::NonNullable) => {
                 match_each_native_ptype!(ptype, |T| {
                     Ok(Box::new(PipelineExecution::<PrimitiveOutput<T>>::new(
-                        len_provider,
+                        row_selection,
                         batch_inputs,
                         vectors,
                         pipeline,
@@ -368,10 +373,15 @@ impl BatchOperator for PipelineOperator {
     }
 }
 
-enum LenProvider {
-    FromBatch(Vec<BatchId>),
-    Fixed(usize),
-    Mask,
+/// Indicates which rows the pipeline is executed over.
+///
+/// Note that when assembling the pipeline, we ensure that all operators in the pipeline have the
+/// same [`RowSelection`]. This enum represents the execution-time equivalent of that selection
+/// identifying essentially
+enum RowSelectionSource {
+    FromBatchInputs(Vec<BatchId>),
+    FromLeaf { len: usize },
+    FromMask,
 }
 
 trait PipelineOutput: Send {
@@ -442,8 +452,10 @@ impl<T: NativePType + Element> PipelineOutput for PrimitiveOutput<T> {
 }
 
 struct PipelineExecution<O> {
-    len: LenProvider,
-    batch_inputs: Vec<BatchExecutionRef>,
+    row_selection: RowSelectionSource,
+    // The children store the batch inputs to the pipeline. If the LenProvider indicates that we
+    // are running over a masked domain of rows, the final child will be the mask operator.
+    children: Vec<BatchExecutionRef>,
     vectors: Vec<RefCell<Vector>>,
     pipeline: Pipeline,
     _element: PhantomData<O>,
@@ -451,14 +463,14 @@ struct PipelineExecution<O> {
 
 impl<O> PipelineExecution<O> {
     fn new(
-        len: LenProvider,
+        row_selection: RowSelectionSource,
         batch_inputs: Vec<BatchExecutionRef>,
         vectors: Vec<RefCell<Vector>>,
         pipeline: Pipeline,
     ) -> Self {
         PipelineExecution {
-            len,
-            batch_inputs,
+            row_selection,
+            children: batch_inputs,
             vectors,
             pipeline,
             _element: PhantomData,
@@ -469,17 +481,17 @@ impl<O> PipelineExecution<O> {
 #[async_trait]
 impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
     async fn execute(mut self: Box<Self>) -> VortexResult<Canonical> {
-        // Execute all batch input operators concurrently with the row selection.
-        let batch_inputs =
-            try_join_all(self.batch_inputs.into_iter().map(|exec| exec.execute())).await?;
+        // Execute all child operators concurrently with the row selection.
+        let mut children =
+            try_join_all(self.children.into_iter().map(|exec| exec.execute())).await?;
 
         // Extract the length and possibly row selection mask.
         let mut mask: Option<BooleanBuffer> = None;
-        let len = match &self.len {
-            LenProvider::FromBatch(batch_ids) => {
+        let len = match &self.row_selection {
+            RowSelectionSource::FromBatchInputs(batch_ids) => {
                 match batch_ids
                     .iter()
-                    .map(|id| batch_inputs[*id].as_ref().len())
+                    .map(|id| children[*id].as_ref().len())
                     .all_equal_value()
                 {
                     Ok(len) => len,
@@ -491,10 +503,11 @@ impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
                     }
                 }
             }
-            LenProvider::Fixed(len) => *len,
-            LenProvider::Mask => {
-                let selection_mask = batch_inputs
-                    .last()
+            RowSelectionSource::FromLeaf { len } => *len,
+            RowSelectionSource::FromMask => {
+                // Recall the final child is the mask operator.
+                let selection_mask = children
+                    .pop()
                     .vortex_expect("mask batch input missing")
                     .as_ref()
                     .try_to_mask_fill_null_false()?;
@@ -516,7 +529,7 @@ impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
         // Create a kernel context with the batch inputs.
         let ctx = KernelContext {
             vectors: self.vectors,
-            batch_inputs,
+            batch_inputs: children,
         };
 
         // Allocate the output vector and validity.
