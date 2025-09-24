@@ -10,6 +10,7 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::Formatter;
 use std::hash::{BuildHasher, Hash, Hasher};
+use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -17,6 +18,7 @@ use arrow_buffer::BooleanBuffer;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
+use termtree::Tree;
 use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -235,8 +237,20 @@ impl Operator for PipelineOperator {
     }
 
     fn fmt_as(&self, _df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
-        writeln!(f, "PipelineOperator wrapping:")?;
-        write!(f, "{}", self.root_operator().display_tree())
+        writeln!(f, "PipelineOperator")?;
+        write!(f, "{}", self.root_operator().display_tree(),)
+    }
+
+    fn fmt_all(&self) -> String {
+        let node_name = "PipelineOperator".to_string();
+
+        let child_trees: Vec<_> = iter::once(self.root_operator().fmt_all())
+            .chain(self.children().iter().map(|child| child.fmt_all()))
+            .collect();
+        Tree::new(node_name)
+            .with_leaves(child_trees)
+            .with_multiline(true)
+            .to_string()
     }
 
     fn with_children(self: Arc<Self>, children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {

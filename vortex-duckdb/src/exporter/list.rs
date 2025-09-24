@@ -110,7 +110,7 @@ mod tests {
         let list_type = LogicalType::new_list(cpp::duckdb_type::DUCKDB_TYPE_INTEGER);
         let mut chunk = DataChunk::new([list_type]);
 
-        new_array_exporter(&list, &ConversionCache::new(0))
+        new_array_exporter(&list, &ConversionCache::default())
             .unwrap()
             .export(0, 0, &mut chunk.get_vector(0))
             .unwrap();
@@ -137,7 +137,7 @@ mod tests {
         let list_type = LogicalType::new_list(cpp::duckdb_type::DUCKDB_TYPE_INTEGER);
         let mut chunk = DataChunk::new([list_type]);
 
-        new_array_exporter(&list, &ConversionCache::new(0))
+        new_array_exporter(&list, &ConversionCache::default())
             .unwrap()
             .export(0, 3, &mut chunk.get_vector(0))
             .unwrap();
@@ -170,7 +170,7 @@ mod tests {
         let list_type = LogicalType::new_list(cpp::duckdb_type::DUCKDB_TYPE_VARCHAR);
         let mut chunk = DataChunk::new([list_type]);
 
-        new_array_exporter(&list, &ConversionCache::new(0))
+        new_array_exporter(&list, &ConversionCache::default())
             .unwrap()
             .export(0, 4, &mut chunk.get_vector(0))
             .unwrap();

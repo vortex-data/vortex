@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::min;
+
 use fastlanes::BitPacking;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Element, Kernel, KernelContext, N};
@@ -49,7 +51,7 @@ where
         let packed = &self.buffer.as_slice()[self.packed_offset..];
 
         // We compute the number of FastLanes vectors that we have remaining.
-        let nvecs = (N / 1024).min(packed.len() / self.packed_stride);
+        let nvecs = min(N / 1024, packed.len() / self.packed_stride);
 
         // We short-circuit full unpacking logic if the mask is sufficiently sparse.
         for i in 0..nvecs {
