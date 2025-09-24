@@ -4,6 +4,7 @@
 use std::iter::Sum;
 use std::ops::AddAssign;
 
+use arrow_buffer::BooleanBufferBuilder;
 use num_traits::PrimInt;
 use vortex_buffer::{BufferMut, ByteBufferMut};
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
@@ -65,7 +66,6 @@ fn take<I: NativePType, O: NativePType + PrimInt + Sum + AddAssign>(
     new_offsets.push(O::zero());
     let mut current_offset = O::zero();
 
-    // let mut builder = VarBinBuilder::<u32>::with_data_capacity(data_capacity, indices.len());
     for &idx in indices {
         let idx = idx
             .to_usize()
@@ -120,26 +120,31 @@ fn take_nullable<I: NativePType, O: NativePType + PrimInt + Sum + AddAssign>(
     let mut new_offsets = BufferMut::with_capacity(indices.len() + 1);
     new_offsets.push(O::zero());
     let mut current_offset = O::zero();
-    let mut validity_buffer = BufferMut::<bool>::with_capacity(indices.len());
+
+    let mut validity_buffer = BooleanBufferBuilder::new(indices.len());
+
+    // Convert indices once and store valid ones with their positions
+    let mut valid_indices = Vec::with_capacity(indices.len());
 
     // First pass: calculate offsets and validity
     for (idx, data_idx) in indices.iter().enumerate() {
         if !indices_validity.value(idx) {
-            validity_buffer.push(false);
+            validity_buffer.append(false);
             new_offsets.push(current_offset);
             continue;
         }
-        let data_idx = data_idx
+        let data_idx_usize = data_idx
             .to_usize()
             .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
-        if data_validity.value(data_idx) {
-            validity_buffer.push(true);
-            let start = offsets[data_idx];
-            let stop = offsets[data_idx + 1];
+        if data_validity.value(data_idx_usize) {
+            validity_buffer.append(true);
+            let start = offsets[data_idx_usize];
+            let stop = offsets[data_idx_usize + 1];
             current_offset += stop - start;
             new_offsets.push(current_offset);
+            valid_indices.push(data_idx_usize);
         } else {
-            validity_buffer.push(false);
+            validity_buffer.append(false);
             new_offsets.push(current_offset);
         }
     }
@@ -150,33 +155,18 @@ fn take_nullable<I: NativePType, O: NativePType + PrimInt + Sum + AddAssign>(
             .vortex_expect("Failed to cast max offset to usize"),
     );
 
-    // Second pass: copy data
-    for (idx, data_idx) in indices.iter().enumerate() {
-        if !validity_buffer[idx] {
-            continue;
-        }
-        let data_idx = data_idx
+    // Second pass: copy data for valid indices only
+    for data_idx in valid_indices {
+        let start = offsets[data_idx]
             .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
-        if data_validity.value(data_idx) {
-            let start = offsets[data_idx]
-                .to_usize()
-                .vortex_expect("Failed to cast max offset to usize");
-            let stop = offsets[data_idx + 1]
-                .to_usize()
-                .vortex_expect("Failed to cast max offset to usize");
-            new_data.extend_from_slice(&data[start..stop]);
-        }
+            .vortex_expect("Failed to cast max offset to usize");
+        let stop = offsets[data_idx + 1]
+            .to_usize()
+            .vortex_expect("Failed to cast max offset to usize");
+        new_data.extend_from_slice(&data[start..stop]);
     }
 
-    let array_validity = if validity_buffer.iter().all(|&v| v) {
-        Validity::from(dtype.nullability())
-    } else {
-        Validity::from_mask(
-            Mask::from_iter(validity_buffer.iter().copied()),
-            dtype.nullability(),
-        )
-    };
+    let array_validity = Validity::from(validity_buffer.finish());
 
     // Safety:
     // All variants of VarBinArray are satisfied here.
