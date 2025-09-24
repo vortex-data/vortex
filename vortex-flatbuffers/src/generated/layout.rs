@@ -34,7 +34,7 @@ impl<'a> flatbuffers::Follow<'a> for Layout<'a> {
   type Inner = Layout<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
   }
 }
 
@@ -245,14 +245,14 @@ pub fn size_prefixed_root_as_layout_with_opts<'b, 'o>(
 /// # Safety
 /// Callers must trust the given bytes do indeed contain a valid `Layout`.
 pub unsafe fn root_as_layout_unchecked(buf: &[u8]) -> Layout {
-  flatbuffers::root_unchecked::<Layout>(buf)
+  unsafe { flatbuffers::root_unchecked::<Layout>(buf) }
 }
 #[inline]
 /// Assumes, without verification, that a buffer of bytes contains a size prefixed Layout and returns it.
 /// # Safety
 /// Callers must trust the given bytes do indeed contain a valid size prefixed `Layout`.
 pub unsafe fn size_prefixed_root_as_layout_unchecked(buf: &[u8]) -> Layout {
-  flatbuffers::size_prefixed_root_unchecked::<Layout>(buf)
+  unsafe { flatbuffers::size_prefixed_root_unchecked::<Layout>(buf) }
 }
 #[inline]
 pub fn finish_layout_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(
