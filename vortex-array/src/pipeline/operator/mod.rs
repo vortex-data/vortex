@@ -244,14 +244,13 @@ impl Operator for PipelineOperator {
     fn fmt_all(&self) -> String {
         let node_name = "PipelineOperator".to_string();
 
-        let child_trees: Vec<_> = iter::once(
-            self.root_operator().fmt_all()
-        )
-        .chain(self.children().iter().map(|child| child.fmt_all()))
-        .collect();
+        let child_trees: Vec<_> = iter::once(self.root_operator().fmt_all())
+            .chain(self.children().iter().map(|child| child.fmt_all()))
+            .collect();
         Tree::new(node_name)
             .with_leaves(child_trees)
-            .with_multiline(true).to_string()
+            .with_multiline(true)
+            .to_string()
     }
 
     fn with_children(self: Arc<Self>, children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {

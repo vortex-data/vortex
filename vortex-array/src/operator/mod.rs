@@ -97,7 +97,8 @@ pub trait Operator: 'static + Send + Sync + Debug + DynOperatorHash + DynOperato
             .collect();
         Tree::new(node_name)
             .with_leaves(child_trees)
-            .with_multiline(true).to_string()
+            .with_multiline(true)
+            .to_string()
     }
 
     /// Create a new instance of this operator with the given children.
