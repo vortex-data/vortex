@@ -8,7 +8,7 @@ use crate::operator::Operator;
 
 impl dyn Operator + '_ {
     pub fn display_tree(&self) -> impl Display {
-        DisplayTreeExpr(self)
+        self
     }
 }
 
@@ -20,9 +20,9 @@ pub enum DisplayFormat {
 // TODO(ngates): this is pretty bad right now, and pipelined operators display poorly.
 struct DisplayTreeExpr<'a>(&'a dyn Operator);
 
-impl Display for DisplayTreeExpr<'_> {
+impl Display for dyn Operator + '_ {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0.fmt_all())
+        write!(f, "{}", self.fmt_all())
     }
 }
 
