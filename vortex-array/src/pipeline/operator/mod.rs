@@ -28,7 +28,7 @@ use crate::Canonical;
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef, TreeNodeDisplay,
+    OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
 };
 use crate::pipeline::operator::bind::bind_kernels;
 use crate::pipeline::operator::buffers::{OutputTarget, allocate_vectors};
