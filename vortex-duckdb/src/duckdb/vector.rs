@@ -46,7 +46,9 @@ impl Vector {
         }
     }
 
-    /// Copy values from other vector to this vector.
+    /// Reference the data from another vector.
+    ///
+    /// After calling this, both vectors share ownership of the same underlying data.
     pub fn reference(&mut self, other: &Vector) {
         unsafe { cpp::duckdb_vector_reference_vector(self.as_ptr(), other.as_ptr()) }
     }
