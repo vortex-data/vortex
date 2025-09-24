@@ -94,13 +94,15 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         // DuckDB requires the value vector which references the data to be
         // unique. Otherwise, DuckDB races on the values vector passed to the
         // dictionary.
-        let mut values_vector = Vector::with_capacity(
-            self.values_vector.lock().logical_type(),
-            self.values_len as usize,
-        );
-        values_vector.reference(&self.values_vector.lock());
+        let new_values_vector = {
+            let values_vector = self.values_vector.lock();
+            let mut new_values_vector = Vector::new(values_vector.logical_type());
+            // Shares the underlying data which determines the vectors length.
+            new_values_vector.reference(&values_vector);
+            new_values_vector
+        };
 
-        vector.dictionary(&values_vector, self.values_len as usize, &sel_vec, len);
+        vector.dictionary(&new_values_vector, self.values_len as usize, &sel_vec, len);
 
         // Use a unique id to each dictionary data array -- telling duckdb that
         // the dict value vector is the same as reuse the hash in a join.

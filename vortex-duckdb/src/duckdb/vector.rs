@@ -34,6 +34,11 @@ wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 unsafe impl Send for Vector {}
 
 impl Vector {
+    /// Create a new vector with the given type.
+    pub fn new(logical_type: LogicalType) -> Self {
+        unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), 0)) }
+    }
+
     /// Create a new vector with the given type and capacity.
     pub fn with_capacity(logical_type: LogicalType, len: usize) -> Self {
         unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), len as _)) }
