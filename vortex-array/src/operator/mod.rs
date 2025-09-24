@@ -88,7 +88,7 @@ pub trait Operator: 'static + Send + Sync + Debug + DynOperatorHash + DynOperato
         write!(f, "{}", type_name::<Self>())
     }
 
-    fn fmt_all(&self) -> Tree<String> {
+    fn fmt_all(&self) -> String {
         let node_name = TreeNodeDisplay(self).to_string();
         let child_trees: Vec<_> = self
             .children()
@@ -97,7 +97,7 @@ pub trait Operator: 'static + Send + Sync + Debug + DynOperatorHash + DynOperato
             .collect();
         Tree::new(node_name)
             .with_leaves(child_trees)
-            .with_multiline(true)
+            .with_multiline(true).to_string()
     }
 
     /// Create a new instance of this operator with the given children.
