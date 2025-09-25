@@ -56,7 +56,9 @@ pub(crate) fn new_exporter(
             let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
             new_array_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
 
-            // This is a bit of a hack, but we need to create a dictionary vector
+            // This is a bit of a hack, but we need to return the values vector into a dictionary
+            // typed vector, where we can later set different selection vectors.
+            // If this is not done here the threads will race to convert the value into a dictionary.
             Vector::with_capacity(vector.logical_type(), 0).dictionary(
                 &vector,
                 values.len(),
@@ -106,8 +108,8 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
             len,
         );
 
-        // Use a unique id to each dictionary data array -- telling duckdb that
-        // the dict value vector is the same as reuse the hash in a join.
+        // Use a unique id for each dictionary data array -- informing duckdb that the dict value
+        // vector is the same, used for reuse of the hash in a join.
         vector.set_dictionary_id(format!("{}-{}", self.cache_id, self.value_id));
 
         Ok(())
