@@ -249,7 +249,7 @@ impl<O: OffsetPType, S: OffsetPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.nulls.ensure_capacity(capacity);
     }
 
-    fn set_validity(&mut self, validity: Mask) {
+    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
         self.nulls = LazyNullBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }

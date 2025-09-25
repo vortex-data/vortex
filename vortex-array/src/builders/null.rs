@@ -73,9 +73,7 @@ impl ArrayBuilder for NullBuilder {
 
     fn ensure_capacity(&mut self, _capacity: usize) {}
 
-    fn set_validity(&mut self, validity: Mask) {
-        self.length = validity.len();
-    }
+    unsafe fn set_validity_unchecked(&mut self, _validity: Mask) {}
 
     fn finish(&mut self) -> ArrayRef {
         NullArray::new(self.length).into_array()

@@ -176,7 +176,20 @@ pub trait ArrayBuilder: Send {
     /// Override builders validity with the one provided.
     ///
     /// Note that this will have no effect on the final array if the array builder is non-nullable.
-    fn set_validity(&mut self, validity: Mask);
+    fn set_validity(&mut self, validity: Mask) {
+        if !self.dtype().is_nullable() {
+            return;
+        }
+        assert_eq!(self.len(), validity.len());
+        unsafe { self.set_validity_unchecked(validity) }
+    }
+
+    /// override validity with the one provided, without checking lengths
+    ///
+    /// # Safety
+    ///
+    /// Given validity must have an equal length to [`self.len()`].
+    unsafe fn set_validity_unchecked(&mut self, validity: Mask);
 
     /// Constructs an Array from the builder components.
     ///
