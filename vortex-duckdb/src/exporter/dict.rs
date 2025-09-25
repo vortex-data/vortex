@@ -56,6 +56,7 @@ pub(crate) fn new_exporter(
             let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
             new_array_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
 
+            // This is a bit of a hack, but we need to create a dictionary vector
             let v = Vector::with_capacity(vector.logical_type(), 0);
             v.dictionary(&vector, values.len(), &SelectionVector::with_capacity(0), 0);
 
