@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::min;
-
 use fastlanes::BitPacking;
+use std::cmp::min;
 use vortex_array::pipeline::bits::BitView;
+use vortex_array::pipeline::vec::Selection;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Element, Kernel, KernelContext, N};
 use vortex_buffer::Buffer;
 use vortex_dtype::PhysicalPType;
 use vortex_error::VortexResult;
+
+const UNPACK_SINGLE_THRESHOLD: usize = 8;
 
 // TODO(ngates): we should try putting the const bit width as a generic here, to avoid
 //  a switch in the fastlanes library on every invocation of `unchecked_unpack`.
@@ -44,7 +46,7 @@ where
         &self,
         _ctx: &KernelContext,
         chunk_idx: usize,
-        _selection: &BitView,
+        selection: &BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {
         assert_eq!(
@@ -64,15 +66,38 @@ where
         // We compute the number of FastLanes vectors for this chunk.
         let nvecs = min(N / 1024, packed.len() / self.packed_stride);
 
-        for i in 0..nvecs {
-            // TODO(ngates): decide if the selection mask is sufficiently sparse to warrant
-            //  unpacking only the selected elements.
-            unsafe {
-                BitPacking::unchecked_unpack(
-                    self.width,
-                    &packed[(i * self.packed_stride)..][..self.packed_stride],
-                    &mut elements[(i * 1024)..],
-                );
+        match selection.true_count() {
+            n if n > (nvecs * UNPACK_SINGLE_THRESHOLD) => {
+                assert_eq!(N, 1024);
+                let values_out = out.as_array_mut();
+                let mut pos = 0;
+
+                selection.iter_ones(|idx| {
+                    values_out[pos] = unsafe {
+                        BitPacking::unchecked_unpack_single(
+                            self.width,
+                            &packed[..self.packed_stride],
+                            idx,
+                        )
+                    };
+                    pos += 1;
+                });
+
+                out.set_selection(Selection::Prefix);
+            }
+            _ => {
+                for i in 0..nvecs {
+                    // TODO(ngates): decide if the selection mask is sufficiently sparse to warrant
+                    //  unpacking only the selected elements.
+                    unsafe {
+                        BitPacking::unchecked_unpack(
+                            self.width,
+                            &packed[(i * self.packed_stride)..][..self.packed_stride],
+                            &mut elements[(i * 1024)..],
+                        );
+                    }
+                }
+                out.set_selection(Selection::Mask);
             }
         }
 

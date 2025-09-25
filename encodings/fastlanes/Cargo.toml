@@ -43,6 +43,7 @@ vortex-alp = { path = "../alp" }
 vortex-array = { workspace = true, features = ["test-harness"] }
 vortex-expr = { workspace = true }
 vortex-fastlanes = { path = ".", features = ["test-harness"] }
+vortex-io = { workspace = true }
 
 [features]
 test-harness = ["dep:rand"]

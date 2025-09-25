@@ -6,25 +6,24 @@ use std::env;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, LazyLock};
 
-use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::FutureExt;
 use vortex_array::compute::filter;
 use vortex_array::executor::Executor;
-use vortex_array::operator::OperatorRef;
-use vortex_array::operator::filter::FilterOperator;
 use vortex_array::operator::slice::SliceOperator;
+use vortex_array::operator::OperatorRef;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef, IntoArray, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _, vortex_bail};
-use vortex_expr::{ExprRef, Scope, is_root};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap as _};
+use vortex_expr::{is_root, ExprRef, Scope};
 use vortex_mask::Mask;
 
-use crate::LayoutReader;
-use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
+use crate::LayoutReader;
 
 /// The threshold of mask density below which we will evaluate the expression only over the
 /// selected rows, and above which we evaluate the expression over all rows and then select
@@ -242,16 +241,16 @@ async fn try_evaluate_using_operator(
         vortex_bail!("ArrayEvaluation: cannot convert expr to operator {}", expr);
     };
 
-    let mut operator: OperatorRef = Arc::new(SliceOperator::try_new(operator, row_range)?);
-    if !mask.all_true() {
-        operator = Arc::new(FilterOperator::new(operator, mask.clone()));
-    }
+    // FIXME(ngates): push slicing into the mask? Or allow it since we know the length?
+    let operator: OperatorRef = Arc::new(SliceOperator::try_new(operator, row_range)?);
 
     // TODO(ngates): in the future we should be able to return operators from projection.
-    println!("Optimizing operator: {}", operator.display_tree());
+    log::info!("Optimizing operator: {}", operator.display_tree());
     let operator = operator.optimize()?;
-    println!("Executing operator: {}", operator.display_tree());
-    Ok(Executor::default().execute(operator).await?.into_array())
+    Ok(Executor::default()
+        .project_mask(&operator, Some(mask))
+        .await?
+        .into_array())
 }
 
 #[cfg(test)]
@@ -266,10 +265,10 @@ mod test {
     use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;
 
-    use crate::LayoutStrategy as _;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::LayoutStrategy as _;
 
     #[test]
     fn flat_identity() {

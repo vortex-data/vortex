@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use crate::arrays::{BoolArray, ConstantArray, PrimitiveArray};
+use crate::operator::{
+    BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorEq, OperatorHash, OperatorRef,
+};
+use crate::pipeline::operator::PipelineOperator;
+use crate::{Canonical, IntoArray, ToCanonical};
 use async_trait::async_trait;
 use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::{FutureExt, TryFutureExt};
-use itertools::Itertools;
-use vortex_error::{
-    SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err,
-};
+use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
-
-use crate::Canonical;
-use crate::operator::{BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorKey, OperatorRef};
-use crate::pipeline::operator::PipelineOperator;
 
 /// An executor that runs an operator tree.
 ///
@@ -26,40 +27,56 @@ use crate::pipeline::operator::PipelineOperator;
 pub struct Executor {
     /// Cache of shared futures for common subtree elimination.
     /// We use WeakShared to allow futures to be dropped when no longer needed.
-    execution_cache: HashMap<
-        OperatorKey<OperatorRef>,
-        WeakShared<BoxFuture<'static, SharedVortexResult<Canonical>>>,
-    >,
+    execution_cache:
+        HashMap<ProjectionKey, WeakShared<BoxFuture<'static, SharedVortexResult<Canonical>>>>,
 }
 
 impl Executor {
-    /// Returns an execution future for the given operator.
-    pub fn execute(
+    /// Returns a projection future for the given operator.
+    pub fn project(
         &mut self,
-        operator: OperatorRef,
+        operator: &OperatorRef,
+        mask: Option<&OperatorRef>,
     ) -> BoxFuture<'static, VortexResult<Canonical>> {
-        let execution = self.batch_execution(&operator);
-        async move { execution?.execute().await }.boxed()
+        let execution = self.batch_projection(operator, mask);
+        async move { Box::new(execution?).execute().await }.boxed()
     }
 
-    fn batch_execution(&mut self, operator: &OperatorRef) -> VortexResult<BatchExecutionRef> {
+    pub fn project_mask(
+        &mut self,
+        operator_ref: &OperatorRef,
+        mask: Option<&Mask>,
+    ) -> BoxFuture<'static, VortexResult<Canonical>> {
+        let mask: Option<OperatorRef> =
+            mask.map(|mask| Arc::new(mask.clone().into_array().to_bool()) as OperatorRef);
+        self.project(operator_ref, mask.as_ref())
+    }
+
+    fn batch_projection(
+        &mut self,
+        operator: &OperatorRef,
+        mask: Option<&OperatorRef>,
+    ) -> VortexResult<SharedBatchExecution> {
         // FIXME(ngates): we should have a separate optimize call that turns the operator tree
         //  into a DAG by inserting shared CSE nodes, each of which has the ability to construct
         //  a shared execution future... somehow...
 
         // Check if we already have a shared future for this operator
-        let key = OperatorKey(operator.clone());
+        let key = ProjectionKey {
+            operator: operator.clone(),
+            mask: mask.cloned(),
+        };
         if let Some(weak_shared) = self.execution_cache.get(&key) {
             if let Some(shared) = weak_shared.upgrade() {
                 // Return a SharedBatchExecution that references the existing shared future
-                return Ok(Box::new(SharedBatchExecution(shared)));
+                return Ok(SharedBatchExecution(shared));
             } else {
                 // If the weak reference is dead, remove it from the cache
                 self.execution_cache.remove(&key);
             }
         }
 
-        // Attempt to convert the operator into a operator operator, if so we use that to execute.
+        // Attempt to convert the operator into a pipeline operator, if so we use that to execute.
         //
         // The construction of this operator pulls the largest subgraph of nodes that can be
         // executed in a pipelined fashion.
@@ -69,15 +86,12 @@ impl Executor {
         };
 
         log::info!("Executing operator: {}", operator.display_tree());
-        println!("Executing operator: {}", operator.display_tree());
 
-        // For each child, create a batch execution that uses the executor to compute it.
-        let mut children: Vec<_> = operator
-            .children()
-            .iter()
-            .map(|child| self.batch_execution(child))
-            .map_ok(Some)
-            .try_collect()?;
+        let len = operator
+            .bounds()
+            .maybe_len()
+            .vortex_expect("Must have concrete length");
+        let all_true_mask: OperatorRef = Arc::new(ConstantArray::new(true, len));
 
         let execution = operator
             .as_batch()
@@ -87,25 +101,78 @@ impl Executor {
                     operator
                 )
             })?
-            .bind(&mut children)?;
+            .project(mask.unwrap_or(&all_true_mask), self)?;
 
+        Ok(self.shared(key, execution))
+    }
+
+    fn shared(&mut self, key: ProjectionKey, execution: BatchExecutionRef) -> SharedBatchExecution {
         let shared_future = execution.execute().map_err(Arc::new).boxed().shared();
-        self.execution_cache.insert(
-            OperatorKey(operator),
-            shared_future.downgrade().vortex_expect("just created"),
-        );
-        Ok(Box::new(SharedBatchExecution(shared_future)))
+        self.execution_cache
+            .insert(key, shared_future.downgrade().vortex_expect("just created"));
+        SharedBatchExecution(shared_future)
     }
 }
 
-impl BatchBindCtx for Vec<Option<BatchExecutionRef>> {
-    fn child(&mut self, idx: usize) -> VortexResult<BatchExecutionRef> {
-        if idx >= self.len() {
-            vortex_bail!("Child index {} out of bounds", idx);
+struct ProjectionKey {
+    operator: OperatorRef,
+    mask: Option<OperatorRef>,
+}
+impl Hash for ProjectionKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.operator.operator_hash(state);
+        if let Some(mask) = &self.mask {
+            mask.operator_hash(state);
+        };
+    }
+}
+impl PartialEq for ProjectionKey {
+    fn eq(&self, other: &Self) -> bool {
+        if !self.operator.operator_eq(&other.operator) {
+            return false;
         }
-        self[idx]
-            .take()
-            .ok_or_else(|| vortex_err!("Child already consumed"))
+        match (&self.mask, &other.mask) {
+            (Some(m1), Some(m2)) => m1.operator_eq(m2),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+impl Eq for ProjectionKey {}
+
+impl BatchBindCtx for Executor {
+    fn project(
+        &mut self,
+        operator: &OperatorRef,
+        mask: &OperatorRef,
+    ) -> VortexResult<BatchExecutionRef> {
+        assert_eq!(operator.bounds().maybe_len(), mask.bounds().maybe_len());
+        Ok(Box::new(self.batch_projection(operator, Some(mask))?))
+    }
+
+    fn project_all(&mut self, operator: &OperatorRef) -> VortexResult<BatchExecutionRef> {
+        // We basically need to terminate the binding at some point... otherwise we keep
+        // creating fake all-true masks and then the canonical operator tries to bind the mask.
+        if let Some(array) = operator.as_any().downcast_ref::<PrimitiveArray>() {
+            return Ok(Box::new(CanonicalExecutionAllRows(Canonical::Primitive(
+                array.clone(),
+            ))) as _);
+        }
+
+        if let Some(array) = operator.as_any().downcast_ref::<BoolArray>() {
+            return Ok(Box::new(CanonicalExecutionAllRows(Canonical::Bool(array.clone()))) as _);
+        }
+
+        Ok(Box::new(self.batch_projection(operator, None)?))
+    }
+}
+
+struct CanonicalExecutionAllRows(Canonical);
+
+#[async_trait]
+impl BatchExecution for CanonicalExecutionAllRows {
+    async fn execute(self: Box<Self>) -> VortexResult<Canonical> {
+        Ok(self.0)
     }
 }
 
@@ -115,6 +182,7 @@ impl BatchBindCtx for Vec<Option<BatchExecutionRef>> {
 // TODO(ngates): I think we could turn this into a full operator so that the tree display
 //  makes more sense? Currently we just perform CSE during execution, rather than an up-front
 //  optimization.
+#[derive(Clone)]
 struct SharedBatchExecution(Shared<BoxFuture<'static, SharedVortexResult<Canonical>>>);
 
 #[async_trait]
@@ -141,7 +209,8 @@ mod tests {
         let array = buffer![1i32, 2, 3, 4].into_array().to_primitive();
 
         let mut executor = Executor::default();
-        let result = block_on(executor.execute(Arc::new(array.clone()))).unwrap();
+        let result =
+            block_on(executor.project(&(Arc::new(array.clone()) as OperatorRef), None)).unwrap();
         assert_eq!(
             result.into_primitive().as_slice::<i32>(),
             array.as_slice::<i32>()
@@ -154,11 +223,11 @@ mod tests {
         let rhs = buffer![3i32, 2, 1].into_array().to_primitive();
 
         // The CompareOperator uses pipelined execution
-        let compare =
+        let compare: OperatorRef =
             Arc::new(CompareOperator::try_new(Arc::new(lhs), Arc::new(rhs), Op::Gt).unwrap());
 
         let mut executor = Executor::default();
-        let result = block_on(executor.execute(compare)).unwrap();
+        let result = block_on(executor.project(&compare, None)).unwrap();
         assert_eq!(
             result.into_bool().bool_vec().unwrap(),
             vec![false, false, true]
@@ -179,7 +248,7 @@ mod tests {
         let compare = Arc::new(MetricsOperator::new(compare, VortexMetrics::default()));
 
         let mut executor = Executor::default();
-        let result = block_on(executor.execute(compare.clone())).unwrap();
+        let result = block_on(executor.project(&(compare.clone() as OperatorRef), None)).unwrap();
         assert_eq!(
             result.into_bool().bool_vec().unwrap(),
             vec![false, false, false, false]

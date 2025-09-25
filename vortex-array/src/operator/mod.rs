@@ -28,29 +28,30 @@
 pub mod canonical;
 pub mod compare;
 mod display;
-pub mod filter;
+// pub mod filter;
 pub mod getitem;
 mod hash;
+mod mask;
 pub mod metrics;
 mod optimize;
 pub mod slice;
 
-use std::any::{Any, type_name};
+use std::any::{type_name, Any};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::BitAnd;
 use std::sync::Arc;
 
+use crate::pipeline::PipelinedOperator;
+use crate::Canonical;
 use arcref::ArcRef;
 use async_trait::async_trait;
 pub use display::*;
 pub use hash::*;
+pub use mask::*;
 use termtree::Tree;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-
-use crate::Canonical;
-use crate::pipeline::PipelinedOperator;
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
@@ -219,13 +220,22 @@ impl From<usize> for LengthBounds {
 
 /// The default execution mode for an operator is batch mode.
 pub trait BatchOperator: Operator {
-    fn bind(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef>;
+    fn project(
+        &self,
+        mask: &OperatorRef,
+        ctx: &mut dyn BatchBindCtx,
+    ) -> VortexResult<BatchExecutionRef>;
+    // TODO(ngates): add reduce(&self) function here if we need.
 }
 
 pub trait BatchBindCtx {
-    /// Returns the execution for the child at the given index, consuming it from the context.
-    /// Each child may be consumed only once.
-    fn child(&mut self, idx: usize) -> VortexResult<BatchExecutionRef>;
+    fn project(
+        &mut self,
+        operator: &OperatorRef,
+        mask: &OperatorRef,
+    ) -> VortexResult<BatchExecutionRef>;
+
+    fn project_all(&mut self, operator: &OperatorRef) -> VortexResult<BatchExecutionRef>;
 }
 
 /// The primary execution trait for operators.

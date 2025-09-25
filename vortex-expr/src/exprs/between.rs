@@ -9,7 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::try_join;
 use itertools::Itertools;
-use vortex_array::compute::{BetweenOptions, StrictComparison, between as between_compute};
+use vortex_array::compute::{between as between_compute, BetweenOptions, StrictComparison};
 use vortex_array::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
     OperatorEq, OperatorHash, OperatorId, OperatorRef,
@@ -17,12 +17,12 @@ use vortex_array::operator::{
 use vortex_array::{Array, ArrayRef, Canonical, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
+    vtable, AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable,
 };
 
 vtable!(Between);
@@ -312,10 +312,14 @@ impl Operator for BetweenOperator {
 }
 
 impl BatchOperator for BetweenOperator {
-    fn bind(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
-        let arr = ctx.child(0)?;
-        let lower = ctx.child(1)?;
-        let upper = ctx.child(2)?;
+    fn project(
+        &self,
+        mask: &OperatorRef,
+        ctx: &mut dyn BatchBindCtx,
+    ) -> VortexResult<BatchExecutionRef> {
+        let arr = ctx.project(&self.children[0], mask)?;
+        let lower = ctx.project(&self.children[1], mask)?;
+        let upper = ctx.project(&self.children[2], mask)?;
         Ok(Box::new(BetweenExecution {
             arr,
             lower,

@@ -3,6 +3,7 @@
 
 mod array;
 pub mod compute;
+mod operator;
 mod ops;
 mod patch;
 mod serde;
@@ -14,7 +15,7 @@ pub use array::*;
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::{vtable, EncodingId, EncodingRef};
 
 vtable!(Bool);
 
@@ -29,7 +30,7 @@ impl VTable for BoolVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type PipelineVTable = NotSupported;
+    type PipelineVTable = Self;
     // Enable serde for this encoding
     type SerdeVTable = Self;
 

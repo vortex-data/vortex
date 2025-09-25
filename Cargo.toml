@@ -30,7 +30,7 @@ members = [
     "vortex-utils",
     "xtask",
 ]
-exclude = ["duckdb-vortex/duckdb-rs", "java/testfiles", "wasm-test"]
+exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"
 
 [workspace.package]

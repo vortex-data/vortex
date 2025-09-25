@@ -82,12 +82,8 @@ impl Operator for FilterOperator {
 
     fn reduce_children(&self) -> VortexResult<Option<OperatorRef>> {
         // We need selection target information to be defined for all children.
-        let Some(selection_targets): Option<Vec<_>> = self
-            .child
-            .children()
-            .iter()
-            .enumerate()
-            .map(|(i, child)| child.is_selection_target(i))
+        let Some(selection_targets): Option<Vec<_>> = (0..self.child.nchildren())
+            .map(|i| self.child.is_selection_target(i))
             .collect()
         else {
             return Ok(None);
@@ -96,6 +92,7 @@ impl Operator for FilterOperator {
         // Selection is defined to be false for all children, so we cannot push down the
         // filter.
         if selection_targets.iter().all(|s| !s) {
+            println!("Not selection target");
             return Ok(None);
         }
 
@@ -116,7 +113,11 @@ impl Operator for FilterOperator {
             })
             .collect();
 
-        Ok(Some(self.child.clone().with_children(children)?))
+        Ok(self
+            .child
+            .clone()
+            .with_children(children)?
+            .reduce_children()?)
     }
 
     fn as_batch(&self) -> Option<&dyn BatchOperator> {
@@ -125,9 +126,9 @@ impl Operator for FilterOperator {
 }
 
 impl BatchOperator for FilterOperator {
-    fn bind(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
+    fn project(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
         Ok(Box::new(FilterExecution {
-            child: ctx.child(0)?,
+            child: ctx.child(0),
             mask: self.mask.clone(),
         }) as BatchExecutionRef)
     }

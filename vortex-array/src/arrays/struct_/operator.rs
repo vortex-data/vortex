@@ -7,8 +7,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::arrays::{StructArray, StructVTable};
 use crate::operator::getitem::GetItemOperator;
@@ -135,21 +136,26 @@ impl Operator for StructOperator {
 }
 
 impl BatchOperator for StructOperator {
-    fn bind(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
-        let children = (0..self.children.len())
-            .map(|i| ctx.child(i))
-            .collect::<VortexResult<Vec<_>>>()?;
+    fn project(
+        &self,
+        mask: &OperatorRef,
+        ctx: &mut dyn BatchBindCtx,
+    ) -> VortexResult<BatchExecutionRef> {
+        let children = self
+            .children
+            .iter()
+            .map(|child| ctx.project(child, mask))
+            .try_collect()?;
+
+        let mask = ctx.project_all(mask)?;
 
         // TODO(ngates): we need custom push down logic for selection over a struct array in case
         //  there are no children. Because in this case, we need to hold onto the selection mask
         //  to know the true length.
 
         Ok(Box::new(StructExecution {
-            len: self
-                .bounds
-                .maybe_len()
-                .ok_or_else(|| vortex_err!("StructOperator must have a known length"))?,
             dtype: self.dtype.clone(),
+            mask,
             children,
             // validity: self.validity.clone(),
         }))
@@ -157,8 +163,8 @@ impl BatchOperator for StructOperator {
 }
 
 struct StructExecution {
-    len: usize,
     dtype: DType,
+    mask: BatchExecutionRef,
     children: Vec<BatchExecutionRef>,
     // validity: Validity,
 }
@@ -173,6 +179,10 @@ impl BatchExecution for StructExecution {
             .map(|canonical| canonical.into_array())
             .collect();
 
+        // TODO(ngates): join at the same time as the children? Although we only need this if
+        //  we have no children
+        let mask = self.mask.execute().await?.into_bool().to_mask();
+
         let array = StructArray::new(
             self.dtype
                 .as_struct_fields_opt()
@@ -180,7 +190,7 @@ impl BatchExecution for StructExecution {
                 .names()
                 .clone(),
             children,
-            self.len,
+            mask.true_count(),
             // self.validity,
             Validity::AllValid,
         );

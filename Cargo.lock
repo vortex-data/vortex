@@ -6785,6 +6785,7 @@ dependencies = [
  "vortex-error",
  "vortex-expr",
  "vortex-fastlanes",
+ "vortex-io",
  "vortex-mask",
  "vortex-scalar",
  "vortex-utils",
