@@ -25,10 +25,7 @@ use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
-use crate::duckdb::{
-    BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
-    TableFunction, TableInitInput,
-};
+use crate::duckdb::{BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType, TableFunction, TableInitInput, VirtualColumnsResult};
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
 use crate::utils::object_store::s3_store;
@@ -192,6 +189,11 @@ async fn open_file(url: Url, options: VortexOpenOptions) -> VortexResult<VortexF
         options.open(path).await
     }
 }
+
+// taken from duckdb/common/constants.h COLUMN_IDENTIFIER_EMPTY
+static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
+static EMPTY_COLUMN_NAME: &str = "";
+
 
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
@@ -448,6 +450,10 @@ impl TableFunction for VortexTableFunction {
         // NOTE: Projection is already printed by the planner.
 
         Some(result)
+    }
+
+    fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColumnsResult) {
+        result.register(EMPTY_COLUMN_IDX, EMPTY_COLUMN_NAME, &LogicalType::bool());
     }
 }
 

@@ -11,6 +11,7 @@ mod cardinality;
 mod init;
 mod partition;
 mod pushdown_complex_filter;
+mod virtual_columns;
 
 pub use bind::*;
 pub use init::*;
@@ -25,6 +26,8 @@ use crate::duckdb::table_function::cardinality::cardinality_callback;
 use crate::duckdb::table_function::partition::get_partition_data_callback;
 use crate::duckdb::table_function::pushdown_complex_filter::pushdown_complex_filter_callback;
 use crate::{cpp, duckdb_try};
+use crate::duckdb::table_function::virtual_columns::{get_virtual_columns_callback};
+pub use virtual_columns::VirtualColumnsResult;
 
 /// A trait that defines the supported operations for a table function in DuckDB.
 ///
@@ -117,6 +120,9 @@ pub trait TableFunction: Sized + Debug {
         _local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64>;
 
+    /// Returns the virtual columns of the table function.
+    fn virtual_columns(_bind_data: &Self::BindData, _result: &mut VirtualColumnsResult) {}
+
     /// Returns a vector of key-value pairs for EXPLAIN output
     fn to_string(_bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {
         None
@@ -165,6 +171,7 @@ impl Connection {
             cardinality: Some(cardinality_callback::<T>),
             pushdown_complex_filter: Some(pushdown_complex_filter_callback::<T>),
             pushdown_expression: ptr::null_mut::<c_void>(),
+            get_virtual_columns: Some(get_virtual_columns_callback::<T>),
             to_string: Some(to_string_callback::<T>),
             table_scan_progress: ptr::null_mut::<c_void>(),
             get_partition_data: Some(get_partition_data_callback::<T>),
