@@ -4,7 +4,7 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::compute::{add, and_kleene, compare, or_kleene, sub};
+use vortex_array::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
 use vortex_array::operator::OperatorRef;
 use vortex_array::operator::compare::CompareOperator;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, compute};
@@ -94,6 +94,8 @@ impl VTable for BinaryVTable {
             Operator::Or => or_kleene(&lhs, &rhs),
             Operator::Add => add(&lhs, &rhs),
             Operator::Sub => sub(&lhs, &rhs),
+            Operator::Mul => mul(&lhs, &rhs),
+            Operator::Div => div(&lhs, &rhs),
         }
     }
 
@@ -290,7 +292,7 @@ impl AnalysisExpr for BinaryExpr {
                 self.lhs.stat_falsification(catalog)?,
                 self.rhs.stat_falsification(catalog)?,
             )),
-            Operator::Add | Operator::Sub => None,
+            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
         }
     }
 }

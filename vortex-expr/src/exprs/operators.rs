@@ -68,6 +68,8 @@ impl From<Operator> for BinaryOp {
             Operator::Or => BinaryOp::Or,
             Operator::Add => BinaryOp::Add,
             Operator::Sub => BinaryOp::Sub,
+            Operator::Mul => BinaryOp::Mul,
+            Operator::Div => BinaryOp::Div,
         }
     }
 }
@@ -93,6 +95,8 @@ impl From<BinaryOp> for Operator {
             BinaryOp::Or => Operator::Or,
             BinaryOp::Add => Operator::Add,
             BinaryOp::Sub => Operator::Sub,
+            BinaryOp::Mul => Operator::Mul,
+            BinaryOp::Div => Operator::Div,
         }
     }
 }
@@ -110,6 +114,8 @@ impl Display for Operator {
             Operator::Or => "or",
             Operator::Add => "+",
             Operator::Sub => "-",
+            Operator::Mul => "*",
+            Operator::Div => "/",
         };
         Display::fmt(display, f)
     }
@@ -124,7 +130,12 @@ impl Operator {
             Operator::Gte => Some(Operator::Lt),
             Operator::Lt => Some(Operator::Gte),
             Operator::Lte => Some(Operator::Gt),
-            Operator::And | Operator::Or | Operator::Add | Operator::Sub => None,
+            Operator::And
+            | Operator::Or
+            | Operator::Add
+            | Operator::Sub
+            | Operator::Mul
+            | Operator::Div => None,
         }
     }
 
@@ -149,6 +160,8 @@ impl Operator {
             Operator::Or => Operator::Or,
             Operator::Add => Operator::Add,
             Operator::Sub => Operator::Sub,
+            Operator::Mul => Operator::Mul,
+            Operator::Div => Operator::Div, //RDiv?
         }
     }
 
