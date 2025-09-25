@@ -227,6 +227,10 @@ impl BinaryView {
         unsafe { &self._ref }
     }
 
+    pub fn as_view_mut(&mut self) -> &mut Ref {
+        unsafe { &mut self._ref }
+    }
+
     pub fn as_u128(&self) -> u128 {
         // SAFETY: binary view always safe to read as u128 LE bytes
         unsafe { u128::from_le_bytes(self.le_bytes) }
@@ -268,6 +272,14 @@ impl BinaryView {
                     view_ref.offset(),
                 ),
             }
+        }
+    }
+
+    pub fn offset_view_mut(&mut self, offset: u32) {
+        if !self.is_inlined() {
+            // Referencing views must have their buffer_index adjusted with new offsets
+            let view_ref = self.as_view_mut();
+            view_ref.buffer_index += offset;
         }
     }
 }

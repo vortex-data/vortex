@@ -236,18 +236,24 @@ impl ArrayBuilder for VarBinViewBuilder {
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         let array = array.to_varbinview();
+        let array_validity_mask = array.validity_mask();
+        let array_views = array.views().clone();
+        let array_buffers = array.buffers().clone();
+        drop(array);
+
         self.flush_in_progress();
 
-        let new_indices = self.completed.extend_from_slice(array.buffers());
+        let new_indices = self.completed.extend_from_slice(&array_buffers);
 
         match new_indices {
             NewIndices::ConstantOffset(offset) => {
-                self.views_builder
-                    .extend_trusted(array.views().iter().map(|view| view.offset_view(offset)));
+                let mut v = array_views.into_mut();
+                v.iter_mut().for_each(|v| v.offset_view_mut(offset));
+                self.views_builder.extend_trusted(v.freeze().into_iter());
             }
             NewIndices::LookupArray(lookup) => {
                 self.views_builder
-                    .extend_trusted(array.views().iter().map(|view| {
+                    .extend_trusted(array_views.iter().map(|view| {
                         if view.is_inlined() {
                             *view
                         } else {
@@ -258,7 +264,7 @@ impl ArrayBuilder for VarBinViewBuilder {
             }
         }
 
-        self.push_only_validity_mask(array.validity_mask());
+        self.push_only_validity_mask(array_validity_mask);
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
