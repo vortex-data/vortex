@@ -3,10 +3,8 @@
 
 use std::sync::Arc;
 
-use num_traits::{AsPrimitive, Zero};
-use vortex_dtype::{
-    DType, NativePType, Nullability, match_each_integer_ptype, match_each_native_ptype,
-};
+use num_traits::AsPrimitive;
+use vortex_dtype::{DType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_err};
 
 use crate::arrays::{ListArray, PrimitiveVTable};
@@ -14,7 +12,7 @@ use crate::builders::{ArrayBuilder, ListViewBuilder, PrimitiveBuilder};
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray, OffsetPType, ToCanonical};
 
 mod vtable;
 pub use vtable::{ListViewEncoding, ListViewVTable};
@@ -264,7 +262,7 @@ impl ListViewArray {
         // Fast path for `PrimitiveArray`.
         self.offsets
             .as_opt::<PrimitiveVTable>()
-            .map(|p| match_each_native_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
+            .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.offsets
@@ -287,7 +285,7 @@ impl ListViewArray {
         // Fast path for `PrimitiveArray`.
         self.sizes
             .as_opt::<PrimitiveVTable>()
-            .map(|p| match_each_native_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
+            .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.sizes
@@ -356,8 +354,8 @@ fn validate_offsets_and_sizes<O, S>(
     elements_len: u64,
 ) -> VortexResult<()>
 where
-    O: NativePType + PartialOrd + Zero,
-    S: NativePType + PartialOrd + Zero,
+    O: OffsetPType,
+    S: OffsetPType,
 {
     debug_assert_eq!(offsets_slice.len(), sizes_slice.len());
 

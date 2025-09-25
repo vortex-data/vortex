@@ -8,12 +8,12 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_iterator::BitIndexIterator;
-use num_traits::AsPrimitive;
-use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
+use num_traits::{AsPrimitive, Zero};
+use vortex_dtype::{DType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{ListScalar, Scalar};
 
-use crate::arrays::{BoolArray, ConstantArray, ListArray, ListVTable};
+use crate::arrays::{BoolArray, ConstantArray, ListViewArray};
 use crate::compute::{
     self, BinaryArgs, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Output,
 };
@@ -49,17 +49,19 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// ## Example
 ///
 /// ```rust
-/// use vortex_array::{Array, IntoArray, ToCanonical};
-/// use vortex_array::arrays::{ConstantArray, ListArray, VarBinArray};
-/// use vortex_array::compute::list_contains;
-/// use vortex_array::validity::Validity;
-/// use vortex_buffer::buffer;
-/// use vortex_dtype::DType;
-/// use vortex_scalar::Scalar;
+/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::arrays::{ConstantArray, ListViewArray, VarBinArray};
+/// # use vortex_array::compute::list_contains;
+/// # use vortex_array::validity::Validity;
+/// # use vortex_buffer::buffer;
+/// # use vortex_dtype::DType;
+/// # use vortex_scalar::Scalar;
+/// #
 /// let elements = VarBinArray::from_vec(
 ///         vec!["a", "a", "b", "a", "c"], DType::Utf8(false.into())).into_array();
-/// let offsets = buffer![0u32, 1, 3, 5].into_array();
-/// let list_array = ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap();
+/// let offsets = buffer![0u32, 1, 3].into_array();
+/// let sizes = buffer![1u32, 2, 2].into_array();
+/// let list_array = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable).unwrap();
 ///
 /// let matches = list_contains(list_array.as_ref(), ConstantArray::new(Scalar::from("b"), list_array.len()).as_ref()).unwrap();
 /// let to_vec: Vec<bool> = matches.to_bool().boolean_buffer().iter().collect();
@@ -93,7 +95,7 @@ impl ComputeFnVTable for ListContains {
         };
         if !elem_dtype.as_ref().eq_ignore_nullability(value.dtype()) {
             vortex_bail!(
-                "Element type {} of ListArray does not match search value {}",
+                "Element type {} of ListViewArray does not match search value {}",
                 elem_dtype,
                 value.dtype(),
             );
@@ -224,13 +226,12 @@ fn list_contains_scalar(
         return Ok(ConstantArray::new(contains.scalar_at(0), array.len()).into_array());
     }
 
-    // `invoke` enforces that must be working with a `ListArray`.
-    let list_array = array.as_::<ListVTable>();
+    let list_array = array.to_listview();
 
     let elems = list_array.elements();
     if elems.is_empty() {
         // Must return false when a list is empty (but valid), or null when the list itself is null.
-        return list_false_or_null(list_array, nullability);
+        return list_false_or_null(&list_array, nullability);
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
@@ -248,7 +249,7 @@ fn list_contains_scalar(
                     "Search value must not be null here"
                 );
                 // False, unless the list itself is null in which case we return null.
-                list_false_or_null(list_array, nullability)
+                list_false_or_null(&list_array, nullability)
             }
             // No elements match, and all comparisons are valid (result in `false`).
             Some(false) => {
@@ -261,24 +262,49 @@ fn list_contains_scalar(
             // All elements match, and all comparisons are valid (result in `true`).
             Some(true) => {
                 // True, unless the list itself is empty or NULL.
-                list_is_not_empty(list_array, nullability)
+                list_is_not_empty(&list_array, nullability)
             }
         };
     }
 
-    let ends = list_array.offsets().to_primitive();
-    match_each_integer_ptype!(ends.ptype(), |T| {
-        Ok(reduce_with_ends(
-            ends.as_slice::<T>(),
-            matches.boolean_buffer(),
-            list_array.validity().clone().union_nullability(nullability),
-        ))
+    // Get the offsets and sizes as primitive arrays.
+    let offsets = list_array.offsets().to_primitive();
+    let sizes = list_array.sizes().to_primitive();
+
+    // Process based on the offset and size types.
+    match_each_integer_ptype!(offsets.ptype(), |O| {
+        match_each_integer_ptype!(sizes.ptype(), |S| {
+            let offsets_slice = offsets.as_slice::<O>();
+            let sizes_slice = sizes.as_slice::<S>();
+
+            let mask: BooleanBuffer = (0..list_array.len())
+                .map(|i| {
+                    let offset = offsets_slice[i].as_();
+                    let size = sizes_slice[i].as_();
+
+                    // BitIndexIterator yields indices of true bits only. If `.next()` returns
+                    // `Some(_)`, at least one element in this list's range matches.
+                    let mut set_bits =
+                        BitIndexIterator::new(matches.boolean_buffer().values(), offset, size);
+                    set_bits.next().is_some()
+                })
+                .collect();
+
+            Ok(BoolArray::from_bool_buffer(
+                mask,
+                list_array.validity().clone().union_nullability(nullability),
+            )
+            .into_array())
+        })
     })
 }
 
 /// Returns a `Bool` array with `false` for lists that are valid,
 /// or `NULL` if the list itself is null.
-fn list_false_or_null(list_array: &ListArray, nullability: Nullability) -> VortexResult<ArrayRef> {
+fn list_false_or_null(
+    list_array: &ListViewArray,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
     match list_array.validity() {
         Validity::NonNullable => {
             // All false.
@@ -312,7 +338,10 @@ fn list_false_or_null(list_array: &ListArray, nullability: Nullability) -> Vorte
 
 /// Returns a `Bool` array with `true` for lists which are NOT empty, or `false` if they are empty,
 /// or `NULL` if the list itself is null.
-fn list_is_not_empty(list_array: &ListArray, nullability: Nullability) -> VortexResult<ArrayRef> {
+fn list_is_not_empty(
+    list_array: &ListViewArray,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
     // Short-circuit for all invalid.
     if matches!(list_array.validity(), Validity::AllInvalid) {
         return Ok(ConstantArray::new(
@@ -322,9 +351,9 @@ fn list_is_not_empty(list_array: &ListArray, nullability: Nullability) -> Vortex
         .into_array());
     }
 
-    let offsets = list_array.offsets().to_primitive();
-    let buffer = match_each_integer_ptype!(offsets.ptype(), |T| {
-        element_is_not_empty(offsets.as_slice::<T>())
+    let sizes = list_array.sizes().to_primitive();
+    let buffer = match_each_integer_ptype!(sizes.ptype(), |S| {
+        BooleanBuffer::from_iter(sizes.as_slice::<S>().iter().map(|&size| size != S::zero()))
     });
 
     // Copy over the validity mask from the input.
@@ -333,29 +362,6 @@ fn list_is_not_empty(list_array: &ListArray, nullability: Nullability) -> Vortex
         list_array.validity().clone().union_nullability(nullability),
     )
     .into_array())
-}
-
-/// Reduces each boolean values into a Mask that indicates which elements in the
-/// ListArray contain the matching value.
-fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
-    ends: &[T],
-    matches: &BooleanBuffer,
-    validity: Validity,
-) -> ArrayRef {
-    let mask: BooleanBuffer = ends
-        .windows(2)
-        .map(|window| {
-            let len = window[1].as_() - window[0].as_();
-            let mut set_bits = BitIndexIterator::new(matches.values(), window[0].as_(), len);
-            set_bits.next().is_some()
-        })
-        .collect();
-
-    BoolArray::from_bool_buffer(mask, validity).into_array()
-}
-
-fn element_is_not_empty<T: NativePType>(values: &[T]) -> BooleanBuffer {
-    BooleanBuffer::from_iter(values.windows(2).map(|window| window[1] != window[0]))
 }
 
 #[cfg(test)]
@@ -369,7 +375,8 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::arrays::{
-        BoolArray, ConstantArray, ConstantVTable, ListArray, PrimitiveArray, VarBinArray,
+        BoolArray, ConstantArray, ConstantVTable, ListArray, ListVTable, ListViewArray,
+        PrimitiveArray, VarBinArray, list_view_from_list,
     };
     use crate::canonical::ToCanonical;
     use crate::compute::list_contains;
@@ -378,12 +385,21 @@ mod tests {
     use crate::{Array, ArrayRef, IntoArray};
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
-        ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
+        list_view_from_list(
+            ListArray::from_iter_slow::<u64, _>(
+                values,
+                Arc::new(DType::Utf8(Nullability::NonNullable)),
+            )
             .unwrap()
+            .as_::<ListVTable>()
+            .clone(),
+        )
+        .into_array()
     }
 
     fn null_strings(values: Vec<Vec<Option<&str>>>) -> ArrayRef {
         let elements = values.iter().flatten().cloned().collect_vec();
+
         let mut offsets = values
             .iter()
             .scan(0u64, |st, v| {
@@ -397,8 +413,7 @@ mod tests {
         let elements =
             VarBinArray::from_iter(elements, DType::Utf8(Nullability::Nullable)).into_array();
 
-        ListArray::try_new(elements, offsets, Validity::NonNullable)
-            .unwrap()
+        list_view_from_list(ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap())
             .into_array()
     }
 
@@ -551,6 +566,139 @@ mod tests {
                 Some(false),
                 Some(true)
             ]
+        );
+    }
+
+    #[test]
+    fn test_list_contains_empty_listview() {
+        // Create a completely empty ListView with no elements
+        let empty_elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
+        let offsets = Buffer::from_iter([0u32, 0, 0, 0]).into_array();
+        let sizes = Buffer::from_iter([0u32, 0, 0, 0]).into_array();
+
+        let list_array = ListViewArray::try_new(
+            empty_elements.into_array(),
+            offsets,
+            sizes,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        // Test with a non-null search value
+        let search = ConstantArray::new(Scalar::from(42i32), list_array.len());
+        let result = list_contains(list_array.as_ref(), search.as_ref()).unwrap();
+
+        // All lists are empty, so all should return false
+        assert_eq!(result.len(), 4);
+        assert_eq!(
+            result.to_bool().bool_vec().unwrap(),
+            vec![false, false, false, false]
+        );
+    }
+
+    #[test]
+    fn test_list_contains_all_null_elements() {
+        // Create lists containing only null elements
+        let elements = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None, None]);
+        let offsets = Buffer::from_iter([0u32, 2, 4]).into_array();
+        let sizes = Buffer::from_iter([2u32, 2, 1]).into_array();
+
+        let list_array =
+            ListViewArray::try_new(elements.into_array(), offsets, sizes, Validity::NonNullable)
+                .unwrap();
+
+        // Test searching for a null value
+        let null_search = ConstantArray::new(
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            list_array.len(),
+        );
+        let result = list_contains(list_array.as_ref(), null_search.as_ref()).unwrap();
+
+        // Searching for null in lists with null elements should return null
+        assert_eq!(result.len(), 3);
+        assert_eq!(result.to_bool().validity(), &Validity::AllInvalid);
+
+        // Test searching for a non-null value
+        let non_null_search = ConstantArray::new(Scalar::from(42i32), list_array.len());
+        let result2 = list_contains(list_array.as_ref(), non_null_search.as_ref()).unwrap();
+
+        // All comparisons result in null, but search is not null, so should return false
+        assert_eq!(result2.len(), 3);
+        assert_eq!(
+            result2.to_bool().bool_vec().unwrap(),
+            vec![false, false, false]
+        );
+    }
+
+    #[test]
+    fn test_list_contains_large_offsets() {
+        // Test with large offset values that are still valid
+        // ListView allows non-contiguous views into the elements array
+        let elements = Buffer::from_iter([1i32, 2, 3, 4, 5]).into_array();
+
+        // Create lists with various offsets, testing the flexibility of ListView
+        // List 0: element at offset 0 (value 1)
+        // List 1: elements at offset 1-2 (values 2, 3)
+        // List 2: element at offset 4 (value 5)
+        // List 3: empty list
+        let offsets = Buffer::from_iter([0u32, 1, 4, 0]).into_array();
+        let sizes = Buffer::from_iter([1u32, 2, 1, 0]).into_array();
+
+        let list_array =
+            ListViewArray::try_new(elements.into_array(), offsets, sizes, Validity::NonNullable)
+                .unwrap();
+
+        // Test searching for value 2, which appears only in list 1
+        let search = ConstantArray::new(Scalar::from(2i32), list_array.len());
+        let result = list_contains(list_array.as_ref(), search.as_ref()).unwrap();
+
+        assert_eq!(result.len(), 4);
+        assert_eq!(
+            result.to_bool().bool_vec().unwrap(),
+            vec![false, true, false, false] // Value 2 is only in list 1
+        );
+
+        // Test searching for value 5, which appears only in list 2
+        let search5 = ConstantArray::new(Scalar::from(5i32), list_array.len());
+        let result5 = list_contains(list_array.as_ref(), search5.as_ref()).unwrap();
+
+        assert_eq!(
+            result5.to_bool().bool_vec().unwrap(),
+            vec![false, false, true, false] // Value 5 is only in list 2
+        );
+    }
+
+    #[test]
+    fn test_list_contains_offset_size_boundary() {
+        // Test edge case where offset + size approaches type boundaries
+        // We create lists where the last valid index (offset + size - 1) is at various boundaries
+
+        // For u8 boundary
+        let elements = Buffer::from_iter(0..256).into_array();
+        let offsets = Buffer::from_iter([0u8, 100, 200, 254]).into_array();
+        let sizes = Buffer::from_iter([50u8, 50, 54, 2]).into_array(); // Last list goes to index 255
+
+        let list_array =
+            ListViewArray::try_new(elements.into_array(), offsets, sizes, Validity::NonNullable)
+                .unwrap();
+
+        // Search for value 255 which should only be in the last list
+        let search = ConstantArray::new(Scalar::from(255i32), list_array.len());
+        let result = list_contains(list_array.as_ref(), search.as_ref()).unwrap();
+
+        assert_eq!(result.len(), 4);
+        assert_eq!(
+            result.to_bool().bool_vec().unwrap(),
+            vec![false, false, false, true]
+        );
+
+        // Search for value 0 which should only be in the first list
+        let search_zero = ConstantArray::new(Scalar::from(0i32), list_array.len());
+        let result_zero = list_contains(list_array.as_ref(), search_zero.as_ref()).unwrap();
+
+        assert_eq!(
+            result_zero.to_bool().bool_vec().unwrap(),
+            vec![true, false, false, false]
         );
     }
 }

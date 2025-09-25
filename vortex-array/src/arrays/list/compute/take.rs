@@ -2,8 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_buffer::BooleanBufferBuilder;
-use num_traits::PrimInt;
-use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
+use vortex_dtype::{Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
@@ -42,7 +41,7 @@ impl TakeKernel for ListVTable {
 
 register_kernel!(TakeKernelAdapter(ListVTable).lift());
 
-fn _take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
+fn _take<I: OffsetPType, O: OffsetPType>(
     array: &ListArray,
     offsets: &[O],
     indices_array: &PrimitiveArray,
@@ -109,7 +108,7 @@ fn _take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
     .to_array())
 }
 
-fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
+fn _take_nullable<I: OffsetPType, O: OffsetPType>(
     array: &ListArray,
     offsets: &[O],
     indices: &[I],

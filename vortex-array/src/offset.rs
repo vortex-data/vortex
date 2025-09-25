@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::{AsPrimitive, PrimInt};
+use num_traits::{AsPrimitive, PrimInt, Zero};
 use vortex_dtype::NativePType;
 use vortex_scalar::Scalar;
 
@@ -11,7 +11,7 @@ use vortex_scalar::Scalar;
 ///
 /// [`ListBuilder`]: crate::builders::ListBuilder
 /// [`ListViewBuilder`]: crate::builders::ListViewBuilder
-pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {
+pub trait OffsetPType: NativePType + PrimInt + Zero + AsPrimitive<usize> + Into<Scalar> {
     /// Returns the maximum offset value that can be represented by this type.
     fn max_offset() -> u64 {
         Self::PTYPE.max_value_as_u64()
@@ -19,4 +19,4 @@ pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar>
 }
 
 /// Implements [`OffsetPType`] for all possible `T` that have the correct bounds.
-impl<T> OffsetPType for T where T: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
+impl<T> OffsetPType for T where T: NativePType + PrimInt + Zero + AsPrimitive<usize> + Into<Scalar> {}
