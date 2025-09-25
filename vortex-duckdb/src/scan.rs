@@ -25,7 +25,10 @@ use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
-use crate::duckdb::{BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType, TableFunction, TableInitInput, VirtualColumnsResult};
+use crate::duckdb::{
+    BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
+    TableFunction, TableInitInput, VirtualColumnsResult,
+};
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
 use crate::utils::object_store::s3_store;
@@ -191,9 +194,11 @@ async fn open_file(url: Url, options: VortexOpenOptions) -> VortexResult<VortexF
 }
 
 // taken from duckdb/common/constants.h COLUMN_IDENTIFIER_EMPTY
+// This is used by duckdb whenever there is no projection id in a logical_get node.
+// For some reason we cannot return an empty DataChunk and duckdb will look for the virtual column
+// with this index and create a data chunk with a single vector of that type.
 static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
 static EMPTY_COLUMN_NAME: &str = "";
-
 
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
