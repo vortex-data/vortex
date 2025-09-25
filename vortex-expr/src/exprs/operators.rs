@@ -42,6 +42,10 @@ pub enum Operator {
     ///
     /// The result is null at any index that either input is null.
     Sub,
+    /// Multiple two numbers
+    Mul,
+    /// Divide the left side by the right side
+    Div,
 }
 
 impl From<Operator> for i32 {

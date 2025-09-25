@@ -256,7 +256,7 @@ impl FileSource for VortexSource {
             None => conjunction(supported),
         };
 
-        println!("Updated predicate: {predicate}");
+        tracing::debug!(predicate, "Saving predicate");
 
         source.predicate = Some(predicate);
 

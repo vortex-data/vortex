@@ -16,16 +16,6 @@ use vortex::scalar::Scalar;
 
 use crate::convert::{FromDataFusion, TryFromDataFusion};
 
-const SUPPORTED_BINARY_OPS: &[DFOperator] = &[
-    DFOperator::Eq,
-    DFOperator::NotEq,
-    DFOperator::Gt,
-    DFOperator::GtEq,
-    DFOperator::Lt,
-    DFOperator::LtEq,
-    DFOperator::Plus,
-];
-
 /// Tries to convert the expressions into a vortex conjunction. Will return Ok(None) iff the input conjunction is empty.
 pub(crate) fn make_vortex_predicate(
     predicate: &[&Arc<dyn PhysicalExpr>],
@@ -92,6 +82,9 @@ impl TryFromDataFusion<DFOperator> for Operator {
             DFOperator::And => Ok(Operator::And),
             DFOperator::Or => Ok(Operator::Or),
             DFOperator::Plus => Ok(Operator::Add),
+            DFOperator::Minus => Ok(Operator::Sub),
+            DFOperator::Multiply => Ok(Operator::Mul),
+            DFOperator::Divide => Ok(Operator::Div),
             DFOperator::IsDistinctFrom
             | DFOperator::IsNotDistinctFrom
             | DFOperator::RegexMatch
@@ -110,9 +103,6 @@ impl TryFromDataFusion<DFOperator> for Operator {
             | DFOperator::StringConcat
             | DFOperator::AtArrow
             | DFOperator::ArrowAt
-            | DFOperator::Minus
-            | DFOperator::Multiply
-            | DFOperator::Divide
             | DFOperator::Modulo
             | DFOperator::Arrow
             | DFOperator::LongArrow
@@ -159,16 +149,10 @@ pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> boo
 }
 
 fn can_binary_be_pushed_down(binary: &df_expr::BinaryExpr, schema: &Schema) -> bool {
-    let is_op_supported =
-        binary.op().is_logic_operator() || SUPPORTED_BINARY_OPS.contains(binary.op());
-    let r = is_op_supported
+    let is_op_supported = Operator::try_from_df(binary.op()).is_ok();
+    is_op_supported
         && can_be_pushed_down(binary.left(), schema)
-        && can_be_pushed_down(binary.right(), schema);
-
-    println!("{binary}");
-    println!("r = {r}");
-
-    r
+        && can_be_pushed_down(binary.right(), schema)
 }
 
 fn supported_data_types(dt: &DataType) -> bool {
@@ -263,6 +247,9 @@ mod tests {
     #[case::and(DFOperator::And, Operator::And)]
     #[case::or(DFOperator::Or, Operator::Or)]
     #[case::plus(DFOperator::Plus, Operator::Add)]
+    #[case::plus(DFOperator::Minus, Operator::Sub)]
+    #[case::plus(DFOperator::Multiply, Operator::Mul)]
+    #[case::plus(DFOperator::Divide, Operator::Div)]
     fn test_operator_conversion_supported(
         #[case] df_op: DFOperator,
         #[case] expected_vortex_op: Operator,
