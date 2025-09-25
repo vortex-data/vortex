@@ -13,7 +13,7 @@ use vortex::encodings::dict::DictArray;
 use vortex::error::VortexResult;
 use vortex::{Array, ToCanonical};
 
-use crate::duckdb::{LogicalType, SelectionVector, Vector};
+use crate::duckdb::{SelectionVector, Vector};
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::{ColumnExporter, constant, new_array_exporter};
 
@@ -57,8 +57,12 @@ pub(crate) fn new_exporter(
             new_array_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
 
             // This is a bit of a hack, but we need to create a dictionary vector
-            let v = Vector::with_capacity(vector.logical_type(), 0);
-            v.dictionary(&vector, values.len(), &SelectionVector::with_capacity(0), 0);
+            Vector::with_capacity(vector.logical_type(), 0).dictionary(
+                &vector,
+                values.len(),
+                &SelectionVector::with_capacity(0),
+                0,
+            );
 
             let vector = Arc::new(Mutex::new(vector));
             cache
@@ -96,7 +100,7 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         }
 
         vector.dictionary(
-            &*self.values_vector.lock(),
+            &self.values_vector.lock(),
             self.values_len as usize,
             &sel_vec,
             len,
