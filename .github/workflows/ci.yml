@@ -296,7 +296,7 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
-          tool: nextest@0.9.98
+          tool: nextest
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
@@ -370,7 +370,7 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
-          tool: nextest@0.9.98
+          tool: nextest
       - name: Rust Tests
         run: |
           # Build with full debug info first (helps with caching)
@@ -544,7 +544,7 @@ jobs:
           components: "rust-src, rustfmt, clippy, miri"
       - uses: taiki-e/install-action@v2
         with:
-          tool: nextest@0.9.98
+          tool: nextest
       - name: Run Miri
         run: cargo +nightly miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
 
