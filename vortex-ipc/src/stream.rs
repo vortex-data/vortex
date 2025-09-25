@@ -85,7 +85,7 @@ impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
     }
 }
 
-/// A trait for convering an [`ArrayStream`] into IPC streams.
+/// A trait for converting an [`ArrayStream`] into IPC streams.
 pub trait ArrayStreamIPC {
     fn into_ipc(self) -> ArrayStreamIPCBytes
     where

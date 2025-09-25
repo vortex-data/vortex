@@ -11,7 +11,7 @@ In fact, layouts provide a mechanism to perform efficient scanning of columnar d
 The buffers might live in-memory, in a single file on-disk, split across many files, in a remote Redis, in Postgres
 block storage, or anywhere else that you can implement key/value blob storage.
 
-In psuedo-code, a layout might look like this (note that unlike arrays, layouts use u64 lengths to support larger-than
+In pseudo-code, a layout might look like this (note that unlike arrays, layouts use u64 lengths to support larger-than
 memory data):
 
 ```rust

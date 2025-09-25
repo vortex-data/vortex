@@ -71,13 +71,13 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// >>> a = vx.io.read_url("abfss://my_file_system@my_account.dfs.core.windows.net/path/to/dataset.vortex")  # doctest: +SKIP
 /// ```
 ///
-/// Read an array from an Azure Blob Stroage URL:
+/// Read an array from an Azure Blob Storage URL:
 ///
 /// ```python
 /// >>> a = vx.io.read_url("https://my_account.blob.core.windows.net/my_container/path/to/dataset.vortex")  # doctest: +SKIP
 /// ```
 ///
-/// Read an array from a Google Stroage URL:
+/// Read an array from a Google Storage URL:
 ///
 /// ```python
 /// >>> a = vx.io.read_url("gs://bucket/path/to/dataset.vortex")  # doctest: +SKIP

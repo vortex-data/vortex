@@ -122,7 +122,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         columns : list of str
             The columns to keep, identified by name.
         filter : :class:`.pyarrow.dataset.Expression`
-            Keep only rows for which this expression evalutes to ``True``. Any rows for which
+            Keep only rows for which this expression evaluates to ``True``. Any rows for which
             this expression evaluates to ``Null`` is removed.
         batch_size : int
             The maximum number of rows per batch.
@@ -222,7 +222,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         columns : list of str
             The columns to keep, identified by name.
         filter : :class:`.pyarrow.dataset.Expression`
-            Keep only rows for which this expression evalutes to ``True``. Any rows for which
+            Keep only rows for which this expression evaluates to ``True``. Any rows for which
             this expression evaluates to ``Null`` is removed.
         batch_size : int
             The maximum number of rows per batch.
@@ -294,7 +294,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         columns : list of str
             The columns to keep, identified by name.
         filter : :class:`.pyarrow.dataset.Expression`
-            Keep only rows for which this expression evalutes to ``True``. Any rows for which
+            Keep only rows for which this expression evaluates to ``True``. Any rows for which
             this expression evaluates to ``Null`` is removed.
         batch_size : int
             The maximum number of rows per batch.
@@ -343,7 +343,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         columns : list of str
             The columns to keep, identified by name.
         filter : :class:`.pyarrow.dataset.Expression`
-            Keep only rows for which this expression evalutes to ``True``. Any rows for which
+            Keep only rows for which this expression evaluates to ``True``. Any rows for which
             this expression evaluates to ``Null`` is removed.
         batch_size : int
             The maximum number of rows per batch.
@@ -401,7 +401,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         columns : list of str
             The columns to keep, identified by name.
         filter : :class:`.pyarrow.dataset.Expression`
-            Keep only rows for which this expression evalutes to ``True``. Any rows for which
+            Keep only rows for which this expression evaluates to ``True``. Any rows for which
             this expression evaluates to ``Null`` is removed.
         batch_size : int
             The maximum number of rows per batch.
@@ -462,7 +462,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         columns : list of str, dict[str, :class:`.pyarrow.dataset.Expression`] | None
             The columns to keep, identified by name.
         filter : :class:`.pyarrow.dataset.Expression`
-            Keep only rows for which this expression evalutes to ``True``. Any rows for which
+            Keep only rows for which this expression evaluates to ``True``. Any rows for which
             this expression evaluates to ``Null`` is removed.
         batch_size : int
             The maximum number of rows per batch.
@@ -740,7 +740,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
     columns : list of str
         The columns to keep, identified by name.
     filter : :class:`.pyarrow.dataset.Expression`
-        Keep only rows for which this expression evalutes to ``True``. Any rows for which
+        Keep only rows for which this expression evaluates to ``True``. Any rows for which
         this expression evaluates to ``Null`` is removed.
     batch_size : int
         The maximum number of rows per batch.

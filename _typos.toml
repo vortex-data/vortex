@@ -1,0 +1,10 @@
+[default]
+extend-ignore-identifiers-re = ["FoR", "typ"]
+
+[files]
+extend-exclude = ["/bench-vortex/**", "/docs/references.bib"]
+
+[type.py]
+extend-ignore-identifiers-re = [
+    "Trafic", # Appears in some clickbench-related examples
+]

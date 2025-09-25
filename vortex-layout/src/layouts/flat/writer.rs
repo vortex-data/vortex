@@ -248,7 +248,7 @@ mod tests {
                 result.statistics().get_as::<String>(Stat::Min),
                 // The typo is correct, we need this to be truncated.
                 Some(Precision::Inexact(
-                    "Another string that's meant to be smaller than the previous valu".to_string()
+                    "Another string that's meant to be smaller than the previous value".to_string()
                 ))
             );
             assert_eq!(

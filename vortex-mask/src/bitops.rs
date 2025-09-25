@@ -279,12 +279,12 @@ mod tests {
         let a = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false]));
         let b = Mask::from_buffer(BooleanBuffer::from_iter([false, true, false, true]));
 
-        let ab = &a & &b;
-        let ba = &b & &a;
+        let a_b = &a & &b;
+        let b_a = &b & &a;
 
-        assert_eq!(ab.true_count(), ba.true_count());
+        assert_eq!(a_b.true_count(), b_a.true_count());
         for i in 0..4 {
-            assert_eq!(ab.value(i), ba.value(i));
+            assert_eq!(a_b.value(i), b_a.value(i));
         }
     }
 
