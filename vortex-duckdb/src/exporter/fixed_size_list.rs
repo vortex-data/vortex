@@ -32,7 +32,7 @@ pub(crate) fn new_exporter(
     array: &FixedSizeListArray,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let elements_exporter = new_array_exporter(array.elements(), cache)?;
+    let elements_exporter = new_array_exporter(array.elements().to_canonical().as_ref(), cache)?;
 
     Ok(Box::new(FixedSizeListExporter {
         validity: array.validity_mask(),
@@ -69,13 +69,7 @@ impl ColumnExporter for FixedSizeListExporter {
         self.elements_exporter
             .export(offset * list_size, len * list_size, &mut elements_vector)?;
 
-        // TODO(connor): We must flatten the child vector to ensure any child dictionary views
-        // (namely UTF-8 string views in dictionaries) are materialized.
-        // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825 for a
-        // detailed explanation on why we need this for now.
-        elements_vector.flatten((len * list_size) as u64);
-
-        Ok(())
+         Ok(())
     }
 }
 
