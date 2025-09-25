@@ -13,7 +13,7 @@ use vortex::encodings::dict::DictArray;
 use vortex::error::VortexResult;
 use vortex::{Array, ToCanonical};
 
-use crate::duckdb::{SelectionVector, Vector};
+use crate::duckdb::{LogicalType, SelectionVector, Vector};
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::{ColumnExporter, constant, new_array_exporter};
 
@@ -56,6 +56,9 @@ pub(crate) fn new_exporter(
             let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
             new_array_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
 
+            let v = Vector::with_capacity(vector.logical_type(), 0);
+            v.dictionary(&vector, values.len(), &SelectionVector::with_capacity(0), 0);
+
             let vector = Arc::new(Mutex::new(vector));
             cache
                 .values_cache
@@ -91,23 +94,16 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
             *dst = src
         }
 
-        // DuckDB requires the value vector which references the data to be
-        // unique. Otherwise, DuckDB races on the values vector passed to the
-        // dictionary.
-        let new_values_vector = {
-            let values_vector = self.values_vector.lock();
-            let mut new_values_vector = Vector::new(values_vector.logical_type());
-            // Shares the underlying data which determines the vectors length.
-            new_values_vector.reference(&values_vector);
-            new_values_vector
-        };
-
-        vector.dictionary(&new_values_vector, self.values_len as usize, &sel_vec, len);
+        vector.dictionary(
+            &*self.values_vector.lock(),
+            self.values_len as usize,
+            &sel_vec,
+            len,
+        );
 
         // Use a unique id to each dictionary data array -- telling duckdb that
         // the dict value vector is the same as reuse the hash in a join.
         vector.set_dictionary_id(format!("{}-{}", self.cache_id, self.value_id));
-        vector.set_dictionary_len(self.values_len);
 
         Ok(())
     }
