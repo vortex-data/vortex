@@ -500,7 +500,6 @@ mod test {
     }
 
     #[test]
-    #[ignore = "TODO(connor)[ListView]: Arrow prefers `List` over `ListView`"]
     fn roundtrip_list() {
         let names = Arc::new(StringArray::from_iter(vec![
             Some("Joseph"),

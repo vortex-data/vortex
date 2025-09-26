@@ -480,6 +480,7 @@ fn to_arrow_struct(
     )?))
 }
 
+/// Converts a Vortex [`ListViewArray`] into an arrow [`GenericListArray`].
 fn to_arrow_list<O: OffsetPType + OffsetSizeTrait>(
     array: ListViewArray,
     element: Option<&FieldRef>,
@@ -534,6 +535,7 @@ fn to_arrow_list<O: OffsetPType + OffsetSizeTrait>(
     )))
 }
 
+/// Converts a Vortex [`ListViewArray`] into an arrow [`GenericListViewArray`].
 fn to_arrow_listview<O: OffsetPType + OffsetSizeTrait>(
     array: ListViewArray,
     element: Option<&FieldRef>,

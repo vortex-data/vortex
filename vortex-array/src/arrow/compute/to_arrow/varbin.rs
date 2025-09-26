@@ -7,13 +7,13 @@ use arrow_array::{
     ArrayRef as ArrowArrayRef, GenericBinaryArray, GenericStringArray, OffsetSizeTrait,
 };
 use arrow_schema::DataType;
-use vortex_dtype::{DType, NativePType, Nullability, PType};
+use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::arrow::compute::{ToArrowKernel, ToArrowKernelAdapter};
 use crate::compute::cast;
-use crate::{Array, ToCanonical, register_kernel};
+use crate::{Array, OffsetPType, ToCanonical, register_kernel};
 
 impl ToArrowKernel for VarBinVTable {
     fn to_arrow(
@@ -66,7 +66,7 @@ impl ToArrowKernel for VarBinVTable {
 
 register_kernel!(ToArrowKernelAdapter(VarBinVTable).lift());
 
-fn to_arrow<O: NativePType + OffsetSizeTrait>(array: &VarBinArray) -> VortexResult<ArrowArrayRef> {
+fn to_arrow<O: OffsetPType + OffsetSizeTrait>(array: &VarBinArray) -> VortexResult<ArrowArrayRef> {
     let offsets = cast(
         array.offsets(),
         &DType::Primitive(O::PTYPE, Nullability::NonNullable),
