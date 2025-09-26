@@ -75,10 +75,24 @@ pub(crate) fn new_exporter(
         }
     };
 
+    let new_values_vector = {
+        let values_vector = values_vector.lock();
+        let mut new_values_vector = Vector::new(values_vector.logical_type());
+        // Shares the underlying data which determines the vectors length.
+        new_values_vector.reference(&values_vector);
+        Vector::with_capacity(new_values_vector.logical_type(), 0).dictionary(
+            &new_values_vector,
+            values.len(),
+            &SelectionVector::with_capacity(0),
+            0,
+        );
+        Arc::new(Mutex::new(new_values_vector))
+    };
+
     let codes = array.codes().to_primitive();
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
-            values_vector,
+            values_vector: new_values_vector,
             values_len: values.len().as_u32(),
             codes,
             codes_type: PhantomData::<I>,
@@ -94,6 +108,7 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         let mut sel_vec = SelectionVector::with_capacity(len);
         let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
         for (dst, src) in mut_sel_vec.iter_mut().zip(
+            // FIXME(joe): we ignore nullability in codes, fix with a specific null value in the values vector.
             self.codes.as_slice::<I>()[offset..offset + len]
                 .iter()
                 .map(|v| v.as_()),
