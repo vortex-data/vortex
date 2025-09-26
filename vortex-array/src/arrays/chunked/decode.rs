@@ -124,10 +124,8 @@ fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> Li
         elements_builder.extend_from_array(chunk.elements());
 
         // Append offsets and sizes, adjusting offsets to point into the combined array.
-        for i in 0..chunk.len() {
-            offsets.push(current_elements_offset + offsets_slice[i]);
-            sizes.push(sizes_slice[i]);
-        }
+        offsets.extend(offsets_slice.iter().map(|o| o + current_elements_offset));
+        sizes.extend(sizes_slice);
     }
 
     let elements = elements_builder.finish();

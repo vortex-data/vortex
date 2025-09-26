@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
 use arrow_buffer::BooleanBuffer;
-use builders::ListBuilder;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
@@ -17,9 +16,9 @@ use super::{
     BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray, smallest_storage_type,
 };
 use crate::arrays::{VarBinArray, VarBinViewArray};
-use crate::builders::{ArrayBuilder, DecimalBuilder, FixedSizeListBuilder};
+use crate::builders::{ArrayBuilder, DecimalBuilder, FixedSizeListBuilder, ListViewBuilder};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray, OffsetPType, ToCanonical, builders};
+use crate::{Array, ArrayRef, IntoArray, OffsetPType, ToCanonical};
 
 /// A wrapper type to implement `Arbitrary` for `ArrayRef`.
 #[derive(Clone, Debug)]
@@ -143,7 +142,6 @@ fn random_array_chunk(
             .vortex_unwrap()
             .into_array())
         }
-        // TODO(connor)[ListView]: This is wrong, we need to return a `ListViewArray`.
         DType::List(elem_dtype, null) => random_list(u, elem_dtype, *null, chunk_len),
         DType::FixedSizeList(elem_dtype, list_size, null) => {
             random_fixed_size_list(u, elem_dtype, *list_size, *null, chunk_len)
@@ -213,7 +211,7 @@ fn random_list_with_offset_type<O: OffsetPType>(
 ) -> Result<ArrayRef> {
     let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
 
-    let mut builder = ListBuilder::<O>::with_capacity(elem_dtype.clone(), null, 10);
+    let mut builder = ListViewBuilder::<O, O>::with_capacity(elem_dtype.clone(), null, 20, 10);
 
     for _ in 0..array_length {
         if null == Nullability::Nullable && u.arbitrary::<bool>()? {

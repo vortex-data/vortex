@@ -214,7 +214,6 @@ fn constant_list_scalar_contains(
     Ok(result.unwrap_or_else(|| ConstantArray::new(false_scalar, len).to_array()))
 }
 
-// TODO(connor)[ListView]: Update for `ListView`.
 fn list_contains_scalar(
     array: &dyn Array,
     value: &Scalar,
@@ -494,7 +493,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO(connor)[ListView]: `list_contains` does not support `ListView` yet?"]
     fn test_constant_list() {
         let list_array = ConstantArray::new(
             Scalar::list(
