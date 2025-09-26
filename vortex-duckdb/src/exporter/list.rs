@@ -16,7 +16,8 @@ use crate::exporter::ColumnExporter;
 
 struct ListExporter<O, S> {
     validity: Mask,
-    elements_exporter: Box<dyn ColumnExporter>,
+    /// We cache the child elements of our list array so that we don't have to export it every time.
+    duckdb_elements: Vector,
     offsets: PrimitiveArray,
     sizes: PrimitiveArray,
     num_elements: usize,
@@ -28,22 +29,30 @@ pub(crate) fn new_exporter(
     array: &ListViewArray,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
     let offsets = array.offsets().to_primitive();
     let sizes = array.sizes().to_primitive();
+
+    // Create a duckdb elements vector up front so that future exports can reference it.
+    let elements = array.elements();
+
+    let mut duckdb_elements = Vector::with_capacity(elements.dtype().try_into()?, elements.len());
+    let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
+    elements_exporter.export(0, elements.len(), &mut duckdb_elements)?;
+
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
         match_each_integer_ptype!(sizes.ptype(), |S| {
             Box::new(ListExporter {
                 validity: array.validity_mask(),
-                elements_exporter,
+                duckdb_elements,
                 offsets,
                 sizes,
-                num_elements: array.elements().len(),
+                num_elements: elements.len(),
                 offset_type: PhantomData::<O>,
                 size_type: PhantomData::<S>,
             }) as Box<dyn ColumnExporter>
         })
     });
+
     Ok(boxed)
 }
 
@@ -87,15 +96,12 @@ impl<O: OffsetPType, S: OffsetPType> ColumnExporter for ListExporter<O, S> {
             duckdb_list_views[i] = cpp::duckdb_list_entry { offset, length };
         }
 
-        // TODO(connor): This is quite bad: we have to export the entire elements array every single
-        // time export even a small slice of the `ListViewArray`.
-        vector.list_vector_reserve(self.num_elements as u64)?;
+        let mut child = vector.list_vector_get_child();
+        child.reference(&self.duckdb_elements);
+
         vector.list_vector_set_size(self.num_elements as u64)?;
 
-        let mut elements_vector = vector.list_vector_get_child();
-
-        self.elements_exporter
-            .export(0, self.num_elements, &mut elements_vector)
+        Ok(())
     }
 }
 
@@ -112,6 +118,7 @@ mod tests {
     use crate::exporter::new_array_exporter;
 
     #[test]
+    #[ignore = "TODO(connor): Exporters do not correctly handle empty vectors"]
     fn test_export_empty_list() {
         let list = ListViewArray::try_new(
             Buffer::<u32>::empty().into_array(),

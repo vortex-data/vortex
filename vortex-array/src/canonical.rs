@@ -41,7 +41,7 @@ use crate::{Array, ArrayRef, IntoArray};
 /// * `PrimitiveArray`: [`arrow_array::PrimitiveArray`]
 /// * `DecimalArray`: [`arrow_array::Decimal128Array`] and [`arrow_array::Decimal256Array`]
 /// * `VarBinViewArray`: [`arrow_array::GenericByteViewArray`]
-/// * `ListArray`: [`arrow_array::ListArray`]
+/// * `ListViewArray`: [`arrow_array::ListViewArray`]
 /// * `FixedSizeListArray`: [`arrow_array::FixedSizeListArray`]
 /// * `StructArray`: [`arrow_array::StructArray`]
 ///
