@@ -16,7 +16,7 @@ use vortex_array::pipeline::{BindContext, Kernel, PipelinedOperator};
 use vortex_array::vtable::PipelineVTable;
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_integer_ptype, DType, PhysicalPType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 
 use crate::operator::aligned_kernel::BitPackedKernel;
 use crate::{BitPackedArray, BitPackedVTable};
@@ -89,27 +89,6 @@ impl Operator for BitPackedArray {
         Ok(self)
     }
 
-    fn reduce_parent(
-        &self,
-        _parent: OperatorRef,
-        _child_idx: usize,
-    ) -> VortexResult<Option<OperatorRef>> {
-        // if let Some(filter) = parent.as_any().downcast_ref::<FilterOperator>() {
-        //     return Ok(Some(Arc::new(FilteredBitPackedOperator {
-        //         array: self.clone(),
-        //         mask: filter
-        //             .mask()
-        //             .clone()
-        //             .into_array()
-        //             .to_bool()
-        //             .to_operator()?
-        //             .vortex_expect("mask must have operator"),
-        //     })));
-        // }
-
-        return Ok(None);
-    }
-
     fn as_pipelined(&self) -> Option<&dyn PipelinedOperator> {
         Some(self)
     }
@@ -143,79 +122,6 @@ impl PipelinedOperator for BitPackedArray {
                 unreachable!("Offset must be zero")
             }
         })
-    }
-
-    fn vector_children(&self) -> Vec<usize> {
-        vec![]
-    }
-
-    fn batch_children(&self) -> Vec<usize> {
-        vec![]
-    }
-}
-
-#[derive(Debug)]
-pub struct FilteredBitPackedOperator {
-    array: BitPackedArray,
-    mask: OperatorRef,
-}
-
-impl OperatorHash for FilteredBitPackedOperator {
-    fn operator_hash<H: Hasher>(&self, state: &mut H) {
-        self.array.operator_hash(state);
-        self.mask.operator_hash(state);
-    }
-}
-
-impl OperatorEq for FilteredBitPackedOperator {
-    fn operator_eq(&self, other: &Self) -> bool {
-        self.array.operator_eq(&other.array) && self.mask.operator_eq(&other.mask)
-    }
-}
-
-impl Operator for FilteredBitPackedOperator {
-    fn id(&self) -> OperatorId {
-        OperatorId::from("fastlanes.bitpacked.filter")
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn dtype(&self) -> &DType {
-        self.array.dtype()
-    }
-
-    fn bounds(&self) -> LengthBounds {
-        self.array.bounds()
-    }
-
-    fn children(&self) -> &[OperatorRef] {
-        std::slice::from_ref(&self.mask)
-    }
-
-    fn with_children(self: Arc<Self>, children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
-        Ok(Arc::new(FilteredBitPackedOperator {
-            array: self.array.clone(),
-            mask: children.into_iter().next().vortex_expect("missing child"),
-        }))
-    }
-
-    fn is_selection_target(&self, _child_idx: usize) -> Option<bool> {
-        Some(false)
-    }
-
-    fn as_pipelined(&self) -> Option<&dyn PipelinedOperator> {
-        Some(self)
-    }
-}
-
-impl PipelinedOperator for FilteredBitPackedOperator {
-    fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
-        self.array
-            .as_pipelined()
-            .vortex_expect("must pipeline")
-            .bind(ctx)
     }
 
     fn vector_children(&self) -> Vec<usize> {
