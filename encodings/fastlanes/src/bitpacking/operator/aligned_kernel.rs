@@ -67,8 +67,11 @@ where
         let nvecs = min(N / 1024, packed.len() / self.packed_stride);
 
         match selection.true_count() {
-            n if n > (nvecs * UNPACK_SINGLE_THRESHOLD) => {
-                assert_eq!(N, 1024);
+            n if n <= (nvecs * UNPACK_SINGLE_THRESHOLD) => {
+                assert_eq!(
+                    N, 1024,
+                    "TODO(ngates): support unpack_single for multiple vecs?"
+                );
                 let values_out = out.as_array_mut();
                 let mut pos = 0;
 

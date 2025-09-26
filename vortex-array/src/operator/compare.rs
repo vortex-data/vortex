@@ -16,7 +16,9 @@ use crate::operator::{LengthBounds, Operator, OperatorEq, OperatorHash, Operator
 use crate::pipeline::bits::BitView;
 use crate::pipeline::vec::Selection;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, VectorId};
+use crate::pipeline::{
+    BindContext, Element, Kernel, KernelContext, PipelinedOperator, VectorId, N,
+};
 
 #[derive(Debug)]
 pub struct CompareOperator {
@@ -309,11 +311,27 @@ impl<T: Element + NativePType, Op: CompareOp<T> + Send> Kernel
                 out.set_selection(Selection::Prefix)
             }
             Selection::Mask => {
-                // TODO(ngates): decide at what true count we should iter indices...
-                selection.iter_ones(|idx| {
-                    bools[idx] = Op::compare(&lhs[idx], &self.rhs);
-                });
-                out.set_selection(Selection::Mask)
+                match selection.true_count() {
+                    // This threshold probably depends on SIMD register width
+                    // For now, we assume a conservative 16 bytes.
+                    // We should just setup the benchmarks to find the threshold experimentally.
+                    // In fact, Vortex should come with a command to run on a machine to find
+                    // these numbers and persist them somewhere.
+                    n if n > (N / (16 / size_of::<T>())) => {
+                        for idx in 0..N {
+                            bools[idx] = Op::compare(&lhs[idx], &self.rhs);
+                        }
+                        out.set_selection(Selection::Mask)
+                    }
+                    _ => {
+                        let mut pos = 0;
+                        selection.iter_ones(|idx| {
+                            bools[pos] = Op::compare(&lhs[idx], &self.rhs);
+                            pos += 1;
+                        });
+                        out.set_selection(Selection::Prefix)
+                    }
+                }
             }
         }
 
