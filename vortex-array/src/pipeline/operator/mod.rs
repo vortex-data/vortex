@@ -4,6 +4,7 @@
 mod bind;
 pub mod buffers;
 mod input;
+mod output;
 mod toposort;
 
 use std::any::Any;
@@ -14,17 +15,15 @@ use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use arrow_buffer::BooleanBuffer;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
+use output::{BoolOutput, PipelineOutput};
 use termtree::Tree;
-use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
-use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, LengthBounds,
     MaskExecution, Operator, OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
@@ -33,11 +32,11 @@ use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
 use crate::pipeline::operator::bind::bind_kernels;
 use crate::pipeline::operator::buffers::{allocate_vectors, OutputTarget};
 use crate::pipeline::operator::input::PipelineInputOperator;
+use crate::pipeline::operator::output::PrimitiveOutput;
 use crate::pipeline::operator::toposort::topological_sort;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{BatchId, Element, Kernel, KernelContext, N, N_WORDS};
-use crate::validity::Validity;
 use crate::Canonical;
 
 /// An operator node used during execution planning to represent a pipelined execution.
@@ -357,75 +356,6 @@ impl BatchOperator for PipelineOperator {
                 self.dtype()
             ),
         }
-    }
-}
-
-/// This trait allows us to abstract over the canonical element type of the pipeline, providing
-/// a single implementation of the pipeline batch execution for all canonical types.
-trait PipelineOutput: Send {
-    type Element: Element;
-    fn allocate(capacity: usize) -> Self;
-    fn view_mut(&mut self, offset: usize) -> ViewMut<'_>;
-    fn into_canonical(self, len: usize) -> VortexResult<Canonical>;
-}
-
-struct BoolOutput {
-    buffer: BufferMut<bool>,
-}
-
-impl PipelineOutput for BoolOutput {
-    type Element = bool;
-
-    fn allocate(capacity: usize) -> Self {
-        let mut buffer = BufferMut::with_capacity(capacity);
-        unsafe { buffer.set_len(capacity) };
-        BoolOutput { buffer }
-    }
-
-    fn view_mut(&mut self, offset: usize) -> ViewMut<'_> {
-        ViewMut::new(&mut self.buffer[offset..][..N], None)
-    }
-
-    fn into_canonical(mut self, len: usize) -> VortexResult<Canonical> {
-        unsafe { self.buffer.set_len(len) };
-
-        let buffer = ByteBuffer::from_arrow_buffer(
-            BooleanBuffer::from(self.buffer.as_ref()).into_inner(),
-            Alignment::of::<u64>(),
-        );
-
-        Ok(Canonical::Bool(BoolArray::try_new(
-            buffer,
-            0,
-            len,
-            Validity::NonNullable,
-        )?))
-    }
-}
-
-struct PrimitiveOutput<T> {
-    buffer: BufferMut<T>,
-}
-
-impl<T: NativePType + Element> PipelineOutput for PrimitiveOutput<T> {
-    type Element = T;
-
-    fn allocate(capacity: usize) -> Self {
-        let mut buffer = BufferMut::with_capacity(capacity);
-        unsafe { buffer.set_len(capacity) };
-        PrimitiveOutput { buffer }
-    }
-
-    fn view_mut(&mut self, offset: usize) -> ViewMut<'_> {
-        ViewMut::new(&mut self.buffer[offset..][..N], None)
-    }
-
-    fn into_canonical(mut self, len: usize) -> VortexResult<Canonical> {
-        unsafe { self.buffer.set_len(len) };
-        Ok(Canonical::Primitive(PrimitiveArray::new(
-            self.buffer.freeze(),
-            Validity::NonNullable,
-        )))
     }
 }
 

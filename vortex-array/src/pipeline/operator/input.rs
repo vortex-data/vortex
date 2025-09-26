@@ -16,6 +16,9 @@ use crate::pipeline::view::ViewMut;
 use crate::pipeline::{BatchId, BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
 
 /// An operator that exports a child operator's data in canonical pipelined form.
+///
+/// FIXME(ngates): this should disappear and instead the allocation plan should know how to pass
+///  input vectors as a zero-copy view over the input array.
 #[derive(Debug, Clone)]
 pub struct PipelineInputOperator {
     child: OperatorRef,
