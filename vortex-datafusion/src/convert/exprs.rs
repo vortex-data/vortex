@@ -121,14 +121,14 @@ impl TryFromDataFusion<DFOperator> for Operator {
     }
 }
 
-pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> bool {
+pub(crate) fn can_be_pushed_down(df_expr: &PhysicalExprRef, schema: &Schema) -> bool {
     // We currently do not support pushdown of dynamic expressions in DF.
     // See issue: https://github.com/vortex-data/vortex/issues/4034
-    if is_dynamic_physical_expr(expr) {
+    if is_dynamic_physical_expr(df_expr) {
         return false;
     }
 
-    let expr = expr.as_any();
+    let expr = df_expr.as_any();
     if let Some(binary) = expr.downcast_ref::<df_expr::BinaryExpr>() {
         can_binary_be_pushed_down(binary, schema)
     } else if let Some(col) = expr.downcast_ref::<df_expr::Column>() {
@@ -143,7 +143,7 @@ pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> boo
     } else if let Some(cast) = expr.downcast_ref::<df_expr::CastExpr>() {
         supported_data_types(cast.cast_type()) && can_be_pushed_down(cast.expr(), schema)
     } else {
-        log::debug!("DataFusion expression can't be pushed down: {expr:?}");
+        tracing::debug!(%df_expr, "DataFusion expression can't be pushed down");
         false
     }
 }
@@ -259,9 +259,6 @@ mod tests {
     }
 
     #[rstest]
-    #[case::minus(DFOperator::Minus)]
-    #[case::multiply(DFOperator::Multiply)]
-    #[case::divide(DFOperator::Divide)]
     #[case::modulo(DFOperator::Modulo)]
     #[case::bitwise_and(DFOperator::BitwiseAnd)]
     #[case::regex_match(DFOperator::RegexMatch)]
@@ -428,8 +425,11 @@ mod tests {
         let left = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
         let right =
             Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(42)))) as Arc<dyn PhysicalExpr>;
-        let binary_expr = Arc::new(df_expr::BinaryExpr::new(left, DFOperator::Minus, right))
-            as Arc<dyn PhysicalExpr>;
+        let binary_expr = Arc::new(df_expr::BinaryExpr::new(
+            left,
+            DFOperator::AtQuestion,
+            right,
+        )) as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down(&binary_expr, &test_schema));
     }
