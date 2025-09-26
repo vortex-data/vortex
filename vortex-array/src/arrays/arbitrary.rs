@@ -143,6 +143,7 @@ fn random_array_chunk(
             .vortex_unwrap()
             .into_array())
         }
+        // TODO(connor)[ListView]: This is wrong, we need to return a `ListViewArray`.
         DType::List(elem_dtype, null) => random_list(u, elem_dtype, *null, chunk_len),
         DType::FixedSizeList(elem_dtype, list_size, null) => {
             random_fixed_size_list(u, elem_dtype, *list_size, *null, chunk_len)

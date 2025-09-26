@@ -100,6 +100,7 @@ impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
         }
     }
 
+    // TODO(connor): This should probably take a `&ListScalar` instead.
     /// Append a list of values to the builder.
     ///
     /// This method extends the value builder with the provided values and records
