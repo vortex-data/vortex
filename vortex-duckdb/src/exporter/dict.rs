@@ -118,8 +118,10 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 
         {
             let values = self.values_vector.lock();
+            let mut other = Vector::new(values.logical_type());
+            other.reference(&*values);
             vector.dictionary(
-                &*values,
+                &other,
                 self.values_len as usize,
                 &sel_vec,
                 len,
