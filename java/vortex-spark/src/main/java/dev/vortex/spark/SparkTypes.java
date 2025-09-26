@@ -123,7 +123,7 @@ public final class SparkTypes {
                  * This means that we need to "cheat" a little in how we convert into Spark's type system. We support
                  * the following conversions:
                  *  1. Vortex DATE -> Spark TIMESTAMP (with 00:00:00 time and local timezone)
-                 *  2. Vortex TIMSTAMP -> Spark TIMESTAMP, with precision truncated to µs
+                 *  2. Vortex TIMESTAMP -> Spark TIMESTAMP, with precision truncated to µs
                  *  3. Vortex TIME -> not supported
                  */
                 if (dType.isTime()) {

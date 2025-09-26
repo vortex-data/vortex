@@ -63,7 +63,7 @@ impl PyExpr {
     }
 }
 
-fn py_binary_opeartor<'py>(
+fn py_binary_operator<'py>(
     left: PyRef<'py, PyExpr>,
     operator: Operator,
     right: Bound<'py, PyExpr>,
@@ -107,56 +107,56 @@ impl PyExpr {
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_opeartor(self_, Operator::Eq, coerce_expr(right)?)
+        py_binary_operator(self_, Operator::Eq, coerce_expr(right)?)
     }
 
     fn __ne__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_opeartor(self_, Operator::NotEq, coerce_expr(right)?)
+        py_binary_operator(self_, Operator::NotEq, coerce_expr(right)?)
     }
 
     fn __gt__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_opeartor(self_, Operator::Gt, coerce_expr(right)?)
+        py_binary_operator(self_, Operator::Gt, coerce_expr(right)?)
     }
 
     fn __ge__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_opeartor(self_, Operator::Gte, coerce_expr(right)?)
+        py_binary_operator(self_, Operator::Gte, coerce_expr(right)?)
     }
 
     fn __lt__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_opeartor(self_, Operator::Lt, coerce_expr(right)?)
+        py_binary_operator(self_, Operator::Lt, coerce_expr(right)?)
     }
 
     fn __le__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_opeartor(self_, Operator::Lte, coerce_expr(right)?)
+        py_binary_operator(self_, Operator::Lte, coerce_expr(right)?)
     }
 
     fn __and__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_opeartor(self_, Operator::And, coerce_expr(right)?)
+        py_binary_operator(self_, Operator::And, coerce_expr(right)?)
     }
 
     fn __or__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_opeartor(self_, Operator::Or, coerce_expr(right)?)
+        py_binary_operator(self_, Operator::Or, coerce_expr(right)?)
     }
 
     fn __getitem__(self_: PyRef<'_, Self>, field: String) -> PyResult<PyExpr> {

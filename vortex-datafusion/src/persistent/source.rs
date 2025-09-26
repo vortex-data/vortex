@@ -16,6 +16,7 @@ use datafusion_physical_expr::{PhysicalExprRef, conjunction};
 use datafusion_physical_expr_adapter::{
     DefaultPhysicalExprAdapterFactory, PhysicalExprAdapterFactory,
 };
+use datafusion_physical_expr_common::physical_expr::fmt_sql;
 use datafusion_physical_plan::filter_pushdown::{
     FilterPushdownPropagation, PushedDown, PushedDownPredicate,
 };
@@ -202,7 +203,7 @@ impl FileSource for VortexSource {
             // Use TreeRender style key=value formatting to display the predicate
             DisplayFormatType::TreeRender => {
                 if let Some(ref predicate) = self.predicate {
-                    writeln!(f, "predicate={predicate}")?;
+                    writeln!(f, "predicate={}", fmt_sql(predicate.as_ref()))?;
                 };
             }
         }

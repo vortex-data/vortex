@@ -38,7 +38,7 @@ fn varbinview(bencher: Bencher) {
 
 #[divan::bench]
 fn varbin_non_null(bencher: Bencher) {
-    let array = non_null_fixutre(65_535);
+    let array = non_null_fixture(65_535);
     let indices = indices(1024, 65_535);
 
     bencher
@@ -48,7 +48,7 @@ fn varbin_non_null(bencher: Bencher) {
 
 #[divan::bench]
 fn varbinview_non_null(bencher: Bencher) {
-    let array = non_null_fixutre(65_535).to_varbinview();
+    let array = non_null_fixture(65_535).to_varbinview();
     let indices = indices(1024, 65_535);
 
     bencher
@@ -66,7 +66,7 @@ fn fixture(len: usize) -> VarBinArray {
     )
 }
 
-fn non_null_fixutre(len: usize) -> VarBinArray {
+fn non_null_fixture(len: usize) -> VarBinArray {
     VarBinArray::from_iter(
         [Some("inlined"), Some("verylongstring--notinlined")]
             .into_iter()

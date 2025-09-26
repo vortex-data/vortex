@@ -46,7 +46,7 @@ impl SegmentSink for BufferedSegmentSink {
         // reference to this one, we essentially have an exclusive lock on the segment writer.
         sequence_id.collapse().await;
 
-        let (segment_id, padding_bufer) = {
+        let (segment_id, padding_buffer) = {
             let mut specs = self.segment_specs.lock();
             let segment_id = SegmentId::from(
                 u32::try_from(specs.len())
@@ -85,7 +85,7 @@ impl SegmentSink for BufferedSegmentSink {
             }
         };
 
-        if let Some(padding) = padding_bufer {
+        if let Some(padding) = padding_buffer {
             let _ = self.buffers.send(padding).await;
         }
         for buffer in buffers {
