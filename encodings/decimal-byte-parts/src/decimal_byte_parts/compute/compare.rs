@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use Sign::Negative;
-use num_traits::{Bounded, NumCast};
+use num_traits::NumCast;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
 use vortex_array::{Array, ArrayRef, register_kernel};
-use vortex_dtype::{NativePType, Nullability, PType, match_each_integer_ptype};
+use vortex_dtype::{IntegerPType, Nullability, PType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::{DecimalValue, Scalar, ScalarValue, ToPrimitive, match_each_decimal_value};
+use vortex_scalar::{DecimalValue, Scalar, ScalarValue, ToI256, match_each_decimal_value};
 
 use crate::DecimalBytePartsVTable;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
@@ -91,7 +91,7 @@ fn decimal_value_wrapper_to_primitive(
 
 fn decimal_value_to_primitive<P>(decimal_value: DecimalValue) -> Result<ScalarValue, Sign>
 where
-    P: NativePType + NumCast + Bounded + ToPrimitive,
+    P: IntegerPType + ToI256,
     ScalarValue: From<P>,
 {
     match_each_decimal_value!(decimal_value, |decimal_v| {

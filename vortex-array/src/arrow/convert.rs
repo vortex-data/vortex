@@ -24,7 +24,7 @@ use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use itertools::Itertools;
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::datetime::TimeUnit;
-use vortex_dtype::{DType, DecimalDType, NativePType, PType};
+use vortex_dtype::{DType, DecimalDType, IntegerPType, NativePType, PType};
 use vortex_error::{VortexExpect as _, vortex_panic};
 use vortex_scalar::i256;
 
@@ -68,7 +68,7 @@ where
 
 impl<O> IntoArray for OffsetBuffer<O>
 where
-    O: NativePType + OffsetSizeTrait,
+    O: IntegerPType + OffsetSizeTrait,
 {
     fn into_array(self) -> ArrayRef {
         let primitive = PrimitiveArray::new(
@@ -198,7 +198,7 @@ where
 
 impl<T: ByteArrayType> FromArrowArray<&GenericByteArray<T>> for ArrayRef
 where
-    <T as ByteArrayType>::Offset: NativePType,
+    <T as ByteArrayType>::Offset: IntegerPType,
 {
     fn from_arrow(value: &GenericByteArray<T>, nullable: bool) -> Self {
         let dtype = match T::DATA_TYPE {
@@ -331,7 +331,7 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
     }
 }
 
-impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for ArrayRef {
+impl<O: IntegerPType + OffsetSizeTrait> FromArrowArray<&GenericListArray<O>> for ArrayRef {
     fn from_arrow(value: &GenericListArray<O>, nullable: bool) -> Self {
         // Extract the validity of the underlying element array
         let elem_nullable = match value.data_type() {

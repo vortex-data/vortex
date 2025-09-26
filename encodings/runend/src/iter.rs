@@ -3,12 +3,11 @@
 
 use std::cmp::min;
 
-use num_traits::{AsPrimitive, FromPrimitive};
-use vortex_dtype::NativePType;
+use vortex_dtype::IntegerPType;
 use vortex_error::vortex_panic;
 
 #[inline]
-pub fn trimmed_ends_iter<E: NativePType + FromPrimitive + AsPrimitive<usize> + Ord>(
+pub fn trimmed_ends_iter<E: IntegerPType>(
     run_ends: &[E],
     offset: usize,
     length: usize,

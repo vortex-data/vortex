@@ -8,9 +8,8 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_iterator::BitIndexIterator;
-use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
+use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{ListScalar, Scalar};
 
@@ -339,7 +338,7 @@ fn list_is_not_empty(list_array: &ListArray, nullability: Nullability) -> Vortex
 
 /// Reduces each boolean values into a Mask that indicates which elements in the
 /// ListArray contain the matching value.
-fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
+fn reduce_with_ends<T: IntegerPType>(
     ends: &[T],
     matches: &BooleanBuffer,
     validity: Validity,
@@ -398,14 +397,14 @@ pub fn list_elem_len(array: &dyn Array) -> VortexResult<ArrayRef> {
     Ok(lens_array)
 }
 
-fn element_lens<T: NativePType>(values: &[T]) -> Buffer<T> {
+fn element_lens<T: IntegerPType>(values: &[T]) -> Buffer<T> {
     values
         .windows(2)
         .map(|window| window[1] - window[0])
         .collect()
 }
 
-fn element_is_not_empty<T: NativePType>(values: &[T]) -> BooleanBuffer {
+fn element_is_not_empty<T: IntegerPType>(values: &[T]) -> BooleanBuffer {
     BooleanBuffer::from_iter(values.windows(2).map(|window| window[1] != window[0]))
 }
 

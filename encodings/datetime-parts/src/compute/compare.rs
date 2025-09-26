@@ -196,12 +196,12 @@ mod test {
     use vortex_array::compute::Operator;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_dtype::NativePType;
+    use vortex_dtype::IntegerPType;
     use vortex_dtype::datetime::TimeUnit;
 
     use super::*;
 
-    fn dtp_array_from_timestamp<T: NativePType>(
+    fn dtp_array_from_timestamp<T: IntegerPType>(
         value: T,
         validity: Validity,
     ) -> DateTimePartsArray {

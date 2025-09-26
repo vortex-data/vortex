@@ -8,18 +8,17 @@ use bitvec::macros::internal::funty::Fundamental;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
 use vortex::arrays::{ConstantArray, ConstantVTable, PrimitiveArray};
-use vortex::compute::take;
-use vortex::dtype::{NativePType, match_each_integer_ptype};
+use vortex::dtype::{IntegerPType, match_each_integer_ptype};
 use vortex::encodings::dict::DictArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex::{Array, ToCanonical};
+use vortex::{Array, ToCanonical, compute};
 
 use crate::duckdb::{LogicalType, SelectionVector, Vector};
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::{ColumnExporter, all_invalid, constant, new_array_exporter};
 
-struct DictExporter<I: NativePType> {
+struct DictExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
     values_vector: Arc<Mutex<Vector>>, // NOTE(ngates): not actually flat...
     values_len: u32,
@@ -76,7 +75,7 @@ pub(crate) fn new_exporter_with_flatten(
                 canonical
             }
         };
-        return new_array_exporter(&take(canonical.as_ref(), codes.as_ref())?, cache);
+        return new_array_exporter(&compute::take(canonical.as_ref(), codes.as_ref())?, cache);
     } else {
         // Check if we have a cached vector and extract it if we do.
         let cached_vector = cache
@@ -113,7 +112,7 @@ pub(crate) fn new_exporter_with_flatten(
     })
 }
 
-impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
+impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Create a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);

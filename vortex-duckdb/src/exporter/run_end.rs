@@ -3,9 +3,8 @@
 
 use std::marker::PhantomData;
 
-use num_traits::{FromPrimitive, ToPrimitive};
 use vortex::arrays::PrimitiveArray;
-use vortex::dtype::{NativePType, match_each_integer_ptype};
+use vortex::dtype::{IntegerPType, match_each_integer_ptype};
 use vortex::encodings::runend::RunEndArray;
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::search_sorted::{SearchSorted, SearchSortedSide};
@@ -18,7 +17,7 @@ use crate::exporter::{ColumnExporter, new_array_exporter};
 
 /// We export run-end arrays to a DuckDB dictionary vector, using a selection vector to
 /// repeat the values in the run-end array.
-struct RunEndExporter<E: NativePType> {
+struct RunEndExporter<E: IntegerPType> {
     ends: PrimitiveArray,
     ends_type: PhantomData<E>,
     values: ArrayRef,
@@ -45,7 +44,7 @@ pub(crate) fn new_exporter(
     })
 }
 
-impl<E: NativePType + Ord + FromPrimitive + ToPrimitive> ColumnExporter for RunEndExporter<E> {
+impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         let ends_slice = self.ends.as_slice::<E>();
 

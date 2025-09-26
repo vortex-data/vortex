@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::AsPrimitive;
-use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_native_ptype};
+use vortex_dtype::{IntegerPType, NativePType, match_each_integer_ptype, match_each_native_ptype};
 
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
@@ -43,7 +42,7 @@ impl PrimitiveArray {
     ) -> Self
     where
         T: NativePType,
-        I: NativePType + AsPrimitive<usize>,
+        I: IntegerPType,
     {
         let mut own_values = self.into_buffer_mut::<T>();
 

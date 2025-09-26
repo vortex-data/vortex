@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools as _;
+use itertools::Itertools;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{NativeDType, NativePType, PType};
+use vortex_dtype::PType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
@@ -59,9 +59,7 @@ fn alp_encode_components_typed<T>(
     exponents: Option<Exponents>,
 ) -> VortexResult<(Exponents, ArrayRef, Option<Patches>)>
 where
-    T: ALPFloat + NativePType,
-    T::ALPInt: NativePType,
-    T: NativeDType,
+    T: ALPFloat,
 {
     let values_slice = values.as_slice::<T>();
 
@@ -135,6 +133,7 @@ mod tests {
 
     use vortex_array::validity::Validity;
     use vortex_buffer::{Buffer, buffer};
+    use vortex_dtype::NativePType;
     use vortex_scalar::Scalar;
 
     use super::*;

@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{DType, IntegerPType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{ListScalar, Scalar};
@@ -21,7 +21,7 @@ use crate::arrays::{ListViewArray, list_view_from_list};
 use crate::builders::{
     ArrayBuilder, DEFAULT_BUILDER_CAPACITY, PrimitiveBuilder, builder_with_capacity,
 };
-use crate::{Canonical, OffsetPType, ToCanonical};
+use crate::{Canonical, ToCanonical};
 
 /// A builder for creating [`ListViewArray`] instances.
 ///
@@ -29,7 +29,7 @@ use crate::{Canonical, OffsetPType, ToCanonical};
 /// efficiency. For example, you might use `u64` for offsets but only `u8` for sizes if your lists
 /// are small.
 ///
-/// Any combination of [`OffsetPType`] types are valid, as long as the type of `sizes` can fit into
+/// Any combination of [`IntegerPType`] types are valid, as long as the type of `sizes` can fit into
 /// the type of `offsets`.
 ///
 /// # Example
@@ -39,7 +39,7 @@ use crate::{Canonical, OffsetPType, ToCanonical};
 /// builder.append_value(&[4, 5]);
 /// let array = builder.finish();
 /// ```
-pub struct ListViewBuilder<O: OffsetPType, S: OffsetPType> {
+pub struct ListViewBuilder<O: IntegerPType, S: IntegerPType> {
     dtype: DType,
     elements_builder: Box<dyn ArrayBuilder>,
     offsets_builder: PrimitiveBuilder<O>,
@@ -47,7 +47,7 @@ pub struct ListViewBuilder<O: OffsetPType, S: OffsetPType> {
     nulls: LazyNullBufferBuilder,
 }
 
-impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
+impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
     /// Creates a new `ListViewBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self::with_capacity(element_dtype, nullability, DEFAULT_BUILDER_CAPACITY)
@@ -66,12 +66,12 @@ impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
         // Validate that size type's maximum value fits within offset type's maximum value.
         // Since offsets are non-negative, we only need to check max values.
         assert!(
-            S::max_offset() <= O::max_offset(),
+            S::max_value_as_u64() <= O::max_value_as_u64(),
             "Size type {:?} (max offset {}) must fit within offset type {:?} (max offset {})",
             S::PTYPE,
-            S::max_offset(),
+            S::max_value_as_u64(),
             O::PTYPE,
-            O::max_offset()
+            O::max_value_as_u64()
         );
 
         // We arbitrarily choose 2 times the number of list scalars for the capacity of the elements
@@ -155,7 +155,7 @@ impl<O: OffsetPType, S: OffsetPType> ListViewBuilder<O, S> {
     }
 }
 
-impl<O: OffsetPType, S: OffsetPType> ArrayBuilder for ListViewBuilder<O, S> {
+impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

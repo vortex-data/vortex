@@ -8,7 +8,7 @@ use arbitrary::{Arbitrary, Result, Unstructured};
 use arrow_buffer::BooleanBuffer;
 use builders::ListBuilder;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, Nullability, PType};
+use vortex_dtype::{DType, IntegerPType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::{Scalar, match_each_decimal_value_type};
@@ -19,7 +19,7 @@ use super::{
 use crate::arrays::{VarBinArray, VarBinViewArray};
 use crate::builders::{ArrayBuilder, DecimalBuilder, FixedSizeListBuilder};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray, OffsetPType, ToCanonical, builders};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, builders};
 
 /// A wrapper type to implement `Arbitrary` for `ArrayRef`.
 #[derive(Clone, Debug)]
@@ -201,10 +201,10 @@ fn random_list(
     }
 }
 
-/// Creates a random list array with the given [`OffsetPType`] for the internal offsets child.
+/// Creates a random list array with the given [`IntegerPType`] for the internal offsets child.
 ///
 /// If the `chunk_len` is specified, the length of the array will be equal to the chunk length.
-fn random_list_with_offset_type<O: OffsetPType>(
+fn random_list_with_offset_type<O: IntegerPType>(
     u: &mut Unstructured,
     elem_dtype: &Arc<DType>,
     null: Nullability,

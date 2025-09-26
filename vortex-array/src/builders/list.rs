@@ -5,7 +5,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_dtype::{DType, IntegerPType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{ListScalar, Scalar};
@@ -16,11 +16,11 @@ use crate::builders::{
     builder_with_capacity,
 };
 use crate::canonical::{Canonical, ToCanonical};
-use crate::compute::{add_scalar, cast, sub_scalar};
-use crate::{Array, ArrayRef, IntoArray, OffsetPType};
+use crate::compute::cast;
+use crate::{Array, ArrayRef, IntoArray};
 
 /// The builder for building a [`ListArray`], parametrized by the `PType` of the offsets buffer.
-pub struct ListBuilder<O: NativePType> {
+pub struct ListBuilder<O: IntegerPType> {
     dtype: DType,
     /// The values of the list.
     value_builder: Box<dyn ArrayBuilder>,
@@ -29,7 +29,7 @@ pub struct ListBuilder<O: NativePType> {
     nulls: LazyNullBufferBuilder,
 }
 
-impl<O: OffsetPType> ListBuilder<O> {
+impl<O: IntegerPType> ListBuilder<O> {
     /// Creates a new `ListBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(value_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self::with_capacity(value_dtype, nullability, DEFAULT_BUILDER_CAPACITY)
@@ -135,7 +135,7 @@ impl<O: OffsetPType> ListBuilder<O> {
     }
 }
 
-impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
+impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -192,13 +192,16 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
             return;
         }
 
-        let n_already_added_values = self.value_builder.len();
-        let Some(n_already_added_values) = O::from_usize(n_already_added_values) else {
-            vortex_panic!(
-                "cannot convert length {} to type {:?}",
-                n_already_added_values,
-                O::PTYPE
-            )
+        let builder_len = self.value_builder.len();
+        let builder_len_offset = match O::from_usize(builder_len) {
+            Some(v) => v,
+            None => {
+                vortex_panic!(
+                    "cannot convert length {} to type {:?}",
+                    builder_len,
+                    O::PTYPE
+                )
+            }
         };
 
         let offsets = list.offsets();
@@ -206,28 +209,31 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
         let index_dtype = self.index_builder.dtype();
 
-        let n_leading_junk_values_scalar = offsets
-            .scalar_at(0)
-            .cast(index_dtype)
-            .vortex_expect("Must cast to index dtype");
-        let n_leading_junk_values =
-            usize::try_from(&n_leading_junk_values_scalar).vortex_expect("Offset must be a usize");
+        // Cast offsets to the correct type upfront.
+        let casted_offsets =
+            cast(offsets, index_dtype).vortex_expect("Offsets must be castable to index dtype");
 
-        let casted_offsets = cast(&offsets.slice(1..offsets.len()), index_dtype)
-            .vortex_expect("Offsets must be an index dtype");
-        let offsets_without_leading_junk =
-            sub_scalar(&casted_offsets, n_leading_junk_values_scalar)
-                .vortex_expect("Offsets must be able to subtract leading offset");
-        let offsets_into_builder =
-            add_scalar(&offsets_without_leading_junk, n_already_added_values.into())
-                .vortex_expect("Offsets must be able to add existing values offsets");
+        // Convert to primitive and get as slice.
+        let offsets_primitive = casted_offsets.to_primitive();
+        let offsets_slice = offsets_primitive.as_slice::<O>();
 
-        let last_offset = offsets.scalar_at(offsets.len() - 1);
-        let last_offset = usize::try_from(&last_offset).vortex_expect("Offset must be a usize");
-        let non_junk_values = elements.slice(n_leading_junk_values..last_offset);
+        // Get the first offset (leading junk values count).
+        let n_leading_junk_values = offsets_slice[0];
+        let n_leading_junk_values_usize: usize = n_leading_junk_values.as_();
+
+        // Manually adjust offsets and append to index_builder.
+        for i in 1..offsets_slice.len() {
+            let offset = offsets_slice[i];
+            let adjusted = offset - n_leading_junk_values + builder_len_offset;
+            self.index_builder.append_value(adjusted);
+        }
+
+        // Extract non-junk values.
+        let last_offset = offsets_slice[offsets_slice.len() - 1];
+        let last_offset_usize: usize = last_offset.as_();
+        let non_junk_values = elements.slice(n_leading_junk_values_usize..last_offset_usize);
 
         self.nulls.append_validity_mask(array.validity_mask());
-        self.index_builder.extend_from_array(&offsets_into_builder);
         self.value_builder.ensure_capacity(non_junk_values.len());
         self.value_builder.extend_from_array(&non_junk_values);
     }
@@ -259,7 +265,7 @@ mod tests {
     use Nullability::{NonNullable, Nullable};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{DType, IntegerPType, Nullability};
     use vortex_scalar::Scalar;
 
     use crate::array::Array;
@@ -268,7 +274,7 @@ mod tests {
     use crate::builders::list::ListBuilder;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{IntoArray as _, OffsetPType, ToCanonical};
+    use crate::{IntoArray, ToCanonical};
 
     #[test]
     fn test_empty() {
@@ -367,7 +373,7 @@ mod tests {
         assert_eq!(list_array.list_elements_at(2).len(), 3);
     }
 
-    fn test_extend_builder_gen<O: OffsetPType>() {
+    fn test_extend_builder_gen<O: IntegerPType>() {
         let list = ListArray::from_iter_opt_slow::<O, _, _>(
             [Some(vec![0, 1, 2]), None, Some(vec![4, 5])],
             Arc::new(I32.into()),

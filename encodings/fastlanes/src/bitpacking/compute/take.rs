@@ -12,7 +12,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
-    NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
+    IntegerPType, NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
 };
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -49,7 +49,7 @@ impl TakeKernel for BitPackedVTable {
 
 register_kernel!(TakeKernelAdapter(BitPackedVTable).lift());
 
-fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
+fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     array: &BitPackedArray,
     indices: &PrimitiveArray,
     taken_validity: Validity,

@@ -18,7 +18,6 @@ pub use context::*;
 pub use encoding::*;
 pub use mask_future::*;
 pub use metadata::*;
-pub use offset::*;
 
 pub mod accessor;
 #[doc(hidden)]
@@ -35,7 +34,6 @@ pub mod executor;
 pub mod iter;
 mod mask_future;
 mod metadata;
-mod offset;
 pub mod operator;
 mod partial_ord;
 pub mod patches;

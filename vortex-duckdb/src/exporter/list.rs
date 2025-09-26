@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use itertools::Itertools as _;
 use vortex::ToCanonical as _;
 use vortex::arrays::{ListArray, PrimitiveArray};
-use vortex::dtype::{NativePType, match_each_integer_ptype};
+use vortex::dtype::{IntegerPType, match_each_integer_ptype};
 use vortex::error::{VortexResult, vortex_err};
 use vortex::mask::Mask;
 
@@ -39,7 +39,7 @@ pub(crate) fn new_exporter(
     Ok(boxed)
 }
 
-impl<T: NativePType> ColumnExporter for ListExporter<T> {
+impl<T: IntegerPType> ColumnExporter for ListExporter<T> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Set validity if necessary.
         if unsafe { vector.set_validity(&self.validity, offset, len) } {

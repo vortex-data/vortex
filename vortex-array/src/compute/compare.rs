@@ -12,7 +12,7 @@ use arrow_buffer::{BooleanBuffer, NullBuffer};
 use arrow_ord::cmp;
 use arrow_ord::ord::make_comparator;
 use arrow_schema::SortOptions;
-use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_dtype::{DType, IntegerPType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
@@ -273,7 +273,7 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for CompareArgs<'a> {
 /// like `VarBin`.
 pub fn compare_lengths_to_empty<P, I>(lengths: I, op: Operator) -> BooleanBuffer
 where
-    P: NativePType,
+    P: IntegerPType,
     I: Iterator<Item = P>,
 {
     // All comparison can be expressed in terms of equality. "" is the absolute min of possible value.

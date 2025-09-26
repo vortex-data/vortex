@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter::Sum;
-use std::ops::AddAssign;
-
 use arrow_buffer::BooleanBufferBuilder;
-use num_traits::PrimInt;
 use vortex_buffer::{BufferMut, ByteBufferMut};
-use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
+use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
@@ -43,7 +39,7 @@ impl TakeKernel for VarBinVTable {
 
 register_kernel!(TakeKernelAdapter(VarBinVTable).lift());
 
-fn take<I: NativePType, O: NativePType + PrimInt + Sum + AddAssign>(
+fn take<I: IntegerPType, O: IntegerPType>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
@@ -109,7 +105,7 @@ fn take<I: NativePType, O: NativePType + PrimInt + Sum + AddAssign>(
     }
 }
 
-fn take_nullable<I: NativePType, O: NativePType + PrimInt + Sum + AddAssign>(
+fn take_nullable<I: IntegerPType, O: IntegerPType>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],

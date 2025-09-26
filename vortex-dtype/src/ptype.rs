@@ -6,10 +6,13 @@
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
+use std::ops::AddAssign;
 use std::panic::RefUnwindSafe;
 
 use num_traits::bounds::UpperBounded;
-use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive, Unsigned};
+use num_traits::{
+    AsPrimitive, Bounded, FromPrimitive, Num, NumCast, PrimInt, ToPrimitive, Unsigned,
+};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::DType;
@@ -46,7 +49,43 @@ pub enum PType {
     F64 = 10,
 }
 
-/// A trait for native Rust types that correspond 1:1 to a PType
+// TODO(connor): Remove the `AsPrimitive<usize>` bound from `IntegerPType` and move it to `UnsignedPType`
+/// Trait for integer primitive types that can be used as indices, offsets, or codes.
+///
+/// Includes all signed and unsigned integer types (u8, u16, u32, u64, i8, i16, i32, i64).
+///
+/// You can use the `match_each_integer_ptype` macro to help with writing "generic" code over
+/// dynamically typed code.
+pub trait IntegerPType:
+    NativePType + PrimInt + ToPrimitive + Bounded + AddAssign + AsPrimitive<usize>
+{
+    /// Returns the maximum offset value that can be represented by this type.
+    fn max_value_as_u64() -> u64 {
+        Self::PTYPE.max_value_as_u64()
+    }
+}
+
+/// Implements [`IntegerPType`] for all possible `T` that have the correct bounds.
+impl<T> IntegerPType for T where
+    T: NativePType + PrimInt + ToPrimitive + Bounded + AddAssign + AsPrimitive<usize>
+{
+}
+
+/// Trait for unsigned integer primitive types used where non-negative values are required.
+///
+/// Includes only unsigned integer types (u8, u16, u32, u64).
+///
+/// You can use the `match_each_unsigned_integer_ptype` macro to help with writing "generic" code
+/// over dynamically typed code.
+pub trait UnsignedPType: Unsigned + IntegerPType {}
+
+/// Implements [`UnsignedPType`] for all possible `T` that have the correct bounds.
+impl<T> UnsignedPType for T where T: Unsigned + IntegerPType {}
+
+/// A trait for native Rust types that correspond 1:1 to a PType.
+///
+/// You can use the `match_each_native_ptype` macro to help with writing "generic" code over
+/// dynamically typed code.
 pub trait NativePType:
     Send
     + Sync

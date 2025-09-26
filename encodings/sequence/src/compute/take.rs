@@ -7,7 +7,10 @@ use vortex_array::compute::{TakeKernel, TakeKernelAdapter};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
+use vortex_dtype::{
+    DType, IntegerPType, NativePType, Nullability, match_each_integer_ptype,
+    match_each_native_ptype,
+};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
@@ -20,7 +23,7 @@ impl TakeKernel for SequenceVTable {
         let indices = indices.to_primitive();
         let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
 
-        Ok(match_each_native_ptype!(indices.ptype(), |T| {
+        Ok(match_each_integer_ptype!(indices.ptype(), |T| {
             let indices = indices.as_slice::<T>();
             match_each_native_ptype!(array.ptype(), |S| {
                 let mul = array.multiplier().as_primitive::<S>();
@@ -31,7 +34,7 @@ impl TakeKernel for SequenceVTable {
     }
 }
 
-fn take<T: NativePType, S: NativePType>(
+fn take<T: IntegerPType, S: NativePType>(
     mul: S,
     base: S,
     indices: &[T],

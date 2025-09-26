@@ -10,12 +10,12 @@ use std::sync::Arc;
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::AsPrimitive;
+#[cfg(feature = "test-harness")]
+use vortex_dtype::IntegerPType;
 use vortex_dtype::{DType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
 use vortex_scalar::Scalar;
 
-#[cfg(feature = "test-harness")]
-use crate::OffsetPType;
 use crate::arrays::PrimitiveVTable;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
@@ -375,7 +375,7 @@ impl ListArray {
     /// This is a convenience method to create a list array from an iterator of iterators.
     /// This method is slow however since each element is first converted to a scalar and then
     /// appended to the array.
-    pub fn from_iter_slow<O: OffsetPType, I: IntoIterator>(
+    pub fn from_iter_slow<O: IntegerPType, I: IntoIterator>(
         iter: I,
         dtype: Arc<DType>,
     ) -> VortexResult<ArrayRef>
@@ -401,7 +401,7 @@ impl ListArray {
         Ok(builder.finish())
     }
 
-    pub fn from_iter_opt_slow<O: OffsetPType, I: IntoIterator<Item = Option<T>>, T>(
+    pub fn from_iter_opt_slow<O: IntegerPType, I: IntoIterator<Item = Option<T>>, T>(
         iter: I,
         dtype: Arc<DType>,
     ) -> VortexResult<ArrayRef>

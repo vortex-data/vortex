@@ -4,9 +4,9 @@
 use std::fmt::Debug;
 
 pub(crate) use compute::compute_min_max;
-use num_traits::{AsPrimitive, PrimInt};
+use num_traits::AsPrimitive;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
+use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap as _, vortex_ensure, vortex_err};
 use vortex_scalar::Scalar;
 
@@ -263,7 +263,7 @@ impl VarBinArray {
 
     fn from_vec_sized<O, T>(vec: Vec<T>, dtype: DType) -> Self
     where
-        O: NativePType + PrimInt,
+        O: IntegerPType,
         T: AsRef<[u8]>,
     {
         let mut builder = VarBinBuilder::<O>::with_capacity(vec.len());

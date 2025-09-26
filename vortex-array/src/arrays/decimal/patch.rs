@@ -2,9 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
-use num_traits::AsPrimitive;
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{DecimalDType, NativePType, match_each_integer_ptype};
+use vortex_dtype::{DecimalDType, IntegerPType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, vortex_panic};
 use vortex_scalar::{BigCast, NativeDecimalType, match_each_decimal_value_type};
 
@@ -58,7 +57,7 @@ fn patch_typed<I, ValuesDVT, PatchDVT>(
     patched_validity: Validity,
 ) -> DecimalArray
 where
-    I: NativePType + AsPrimitive<usize>,
+    I: IntegerPType,
     PatchDVT: NativeDecimalType,
     ValuesDVT: NativeDecimalType,
 {

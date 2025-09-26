@@ -11,7 +11,7 @@ use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexError, VortexExpect, vortex_err};
 
 use crate::{
-    DecimalScalar, InnerScalarValue, NativeDecimalType, Scalar, ScalarValue, ToPrimitive, i256,
+    DecimalScalar, InnerScalarValue, NativeDecimalType, Scalar, ScalarValue, ToI256, i256,
     match_each_decimal_value,
 };
 

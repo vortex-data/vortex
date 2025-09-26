@@ -9,7 +9,7 @@ use std::ops::{Add, Sub};
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use crate::pvalue::{CoercePValue, PValue};
 use crate::{InnerScalarValue, Scalar, ScalarValue};

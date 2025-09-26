@@ -13,13 +13,13 @@ use vortex_array::builders::{ArrayBuilder, DecimalBuilder, ListBuilder, builder_
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray as _, OffsetPType, ToCanonical as _};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
-    DType, DecimalDType, NativePType, Nullability, StructFields, match_each_integer_ptype,
-    match_each_native_ptype,
+    DType, DecimalDType, IntegerPType, NativePType, Nullability, StructFields,
+    match_each_integer_ptype, match_each_native_ptype,
 };
-use vortex_error::{VortexError, VortexExpect as _, vortex_panic};
+use vortex_error::{VortexError, VortexExpect, vortex_panic};
 use vortex_scalar::{
     DecimalScalar, ListScalar, NativeDecimalType, Scalar, StructScalar,
     match_each_decimal_value_type,
@@ -177,7 +177,7 @@ fn canonicalize_sparse_lists(
     })
 }
 
-fn canonicalize_sparse_lists_inner<I: NativePType, SmallestViableOffsetType: OffsetPType>(
+fn canonicalize_sparse_lists_inner<I: IntegerPType, SmallestViableOffsetType: IntegerPType>(
     indices: &[I],
     values: ListArray,
     fill_value: ListScalar,
@@ -230,7 +230,7 @@ fn canonicalize_sparse_lists_inner<I: NativePType, SmallestViableOffsetType: Off
     builder.finish_into_canonical()
 }
 
-fn canonicalize_sparse_lists_inner_with_null_fill_value<I: NativePType, O: OffsetPType>(
+fn canonicalize_sparse_lists_inner_with_null_fill_value<I: IntegerPType, O: IntegerPType>(
     indices: &[I],
     elements: ArrayRef,
     offsets: &[O],
@@ -292,7 +292,7 @@ fn canonicalize_sparse_fixed_size_list(array: &SparseArray, nullability: Nullabi
 /// This algorithm walks through the sparse indices sequentially, filling gaps with the fill value's
 /// elements (or defaults if null). Since all lists have the same size, we can directly append
 /// elements without tracking offsets.
-fn canonicalize_sparse_fixed_size_list_inner<I: NativePType>(
+fn canonicalize_sparse_fixed_size_list_inner<I: IntegerPType>(
     indices: &[I],
     values: FixedSizeListArray,
     fill_value: ListScalar,
@@ -529,7 +529,7 @@ fn canonicalize_varbin(
     })
 }
 
-fn canonicalize_varbin_inner<I: NativePType>(
+fn canonicalize_varbin_inner<I: IntegerPType>(
     fill_value: Option<ByteBuffer>,
     indices: Buffer<I>,
     values: VarBinViewArray,
