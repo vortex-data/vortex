@@ -10,8 +10,8 @@ use vortex_error::VortexResult;
 
 use crate::compute::filter;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, MaskExecution,
+    Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
 use crate::{Array, Canonical};
 
@@ -66,18 +66,18 @@ impl BatchOperator for Canonical {
     ) -> VortexResult<BatchExecutionRef> {
         Ok(Box::new(CanonicalExecution {
             canonical: self.clone(),
-            mask: ctx.project_all(mask)?,
+            mask: ctx.bind_mask(mask)?,
         }))
     }
 }
 
 pub struct CanonicalExecution {
     canonical: Canonical,
-    mask: BatchExecutionRef,
+    mask: MaskExecution,
 }
 
 impl CanonicalExecution {
-    pub fn new(canonical: Canonical, mask: BatchExecutionRef) -> Self {
+    pub fn new(canonical: Canonical, mask: MaskExecution) -> Self {
         Self { canonical, mask }
     }
 }
@@ -85,7 +85,7 @@ impl CanonicalExecution {
 #[async_trait]
 impl BatchExecution for CanonicalExecution {
     async fn execute(self: Box<Self>) -> VortexResult<Canonical> {
-        let mask = self.mask.execute().await?.into_bool().to_mask();
+        let mask = self.mask.await?;
         Ok(if !mask.all_true() {
             filter(self.canonical.as_ref(), &mask)?.to_canonical()
         } else {

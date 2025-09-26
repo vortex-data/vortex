@@ -14,8 +14,8 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use crate::arrays::{StructArray, StructVTable};
 use crate::operator::getitem::GetItemOperator;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, MaskExecution,
+    Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
 use crate::validity::Validity;
 use crate::vtable::PipelineVTable;
@@ -144,10 +144,10 @@ impl BatchOperator for StructOperator {
         let children = self
             .children
             .iter()
-            .map(|child| ctx.project(child, mask))
+            .map(|child| ctx.bind_project(child, Some(mask)))
             .try_collect()?;
 
-        let mask = ctx.project_all(mask)?;
+        let mask = ctx.bind_mask(mask)?;
 
         // TODO(ngates): we need custom push down logic for selection over a struct array in case
         //  there are no children. Because in this case, we need to hold onto the selection mask
@@ -164,7 +164,7 @@ impl BatchOperator for StructOperator {
 
 struct StructExecution {
     dtype: DType,
-    mask: BatchExecutionRef,
+    mask: MaskExecution,
     children: Vec<BatchExecutionRef>,
     // validity: Validity,
 }
@@ -181,7 +181,7 @@ impl BatchExecution for StructExecution {
 
         // TODO(ngates): join at the same time as the children? Although we only need this if
         //  we have no children
-        let mask = self.mask.execute().await?.into_bool().to_mask();
+        let mask = self.mask.await?;
 
         let array = StructArray::new(
             self.dtype

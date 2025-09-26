@@ -109,7 +109,7 @@ impl BatchOperator for FSSTArray {
     ) -> VortexResult<BatchExecutionRef> {
         Ok(Box::new(FSSTExecution {
             array: self.clone(),
-            mask: ctx.project_all(mask)?,
+            mask: ctx.bind_project(mask)?,
         }))
     }
 }

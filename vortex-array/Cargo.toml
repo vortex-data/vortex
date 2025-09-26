@@ -35,7 +35,7 @@ bitvec = { workspace = true }
 cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
-futures = { workspace = true, features = ["alloc", "async-await", "std"] }
+futures = { workspace = true }
 getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
 humansize = { workspace = true }
@@ -48,6 +48,7 @@ num_enum = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 pin-project = { workspace = true }
+pin-project-lite = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true, optional = true }

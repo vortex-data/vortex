@@ -317,9 +317,9 @@ impl BatchOperator for BetweenOperator {
         mask: &OperatorRef,
         ctx: &mut dyn BatchBindCtx,
     ) -> VortexResult<BatchExecutionRef> {
-        let arr = ctx.project(&self.children[0], mask)?;
-        let lower = ctx.project(&self.children[1], mask)?;
-        let upper = ctx.project(&self.children[2], mask)?;
+        let arr = ctx.bind_project(&self.children[0], Some(mask))?;
+        let lower = ctx.bind_project(&self.children[1], Some(mask))?;
+        let upper = ctx.bind_project(&self.children[2], Some(mask))?;
         Ok(Box::new(BetweenExecution {
             arr,
             lower,

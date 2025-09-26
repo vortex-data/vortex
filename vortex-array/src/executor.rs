@@ -4,7 +4,7 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use crate::arrays::{BoolArray, ConstantArray, PrimitiveArray};
+use crate::arrays::ConstantArray;
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorEq, OperatorHash, OperatorRef,
 };
@@ -13,7 +13,9 @@ use crate::{Canonical, IntoArray, ToCanonical};
 use async_trait::async_trait;
 use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::{FutureExt, TryFutureExt};
-use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult};
+use vortex_error::{
+    vortex_bail, vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult,
+};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -141,38 +143,21 @@ impl PartialEq for ProjectionKey {
 impl Eq for ProjectionKey {}
 
 impl BatchBindCtx for Executor {
-    fn project(
+    fn bind_project(
         &mut self,
         operator: &OperatorRef,
-        mask: &OperatorRef,
+        mask: Option<&OperatorRef>,
     ) -> VortexResult<BatchExecutionRef> {
-        assert_eq!(operator.bounds().maybe_len(), mask.bounds().maybe_len());
-        Ok(Box::new(self.batch_projection(operator, Some(mask))?))
-    }
-
-    fn project_all(&mut self, operator: &OperatorRef) -> VortexResult<BatchExecutionRef> {
-        // We basically need to terminate the binding at some point... otherwise we keep
-        // creating fake all-true masks and then the canonical operator tries to bind the mask.
-        if let Some(array) = operator.as_any().downcast_ref::<PrimitiveArray>() {
-            return Ok(Box::new(CanonicalExecutionAllRows(Canonical::Primitive(
-                array.clone(),
-            ))) as _);
+        if let Some(mask) = mask {
+            if mask.len() != operator.len() {
+                vortex_bail!(
+                    "Mask length {} != operator length {}",
+                    mask.len(),
+                    operator.len()
+                );
+            }
         }
-
-        if let Some(array) = operator.as_any().downcast_ref::<BoolArray>() {
-            return Ok(Box::new(CanonicalExecutionAllRows(Canonical::Bool(array.clone()))) as _);
-        }
-
-        Ok(Box::new(self.batch_projection(operator, None)?))
-    }
-}
-
-struct CanonicalExecutionAllRows(Canonical);
-
-#[async_trait]
-impl BatchExecution for CanonicalExecutionAllRows {
-    async fn execute(self: Box<Self>) -> VortexResult<Canonical> {
-        Ok(self.0)
+        Ok(Box::new(self.batch_projection(operator, mask)?))
     }
 }
 

@@ -27,7 +27,7 @@ use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, LengthBounds,
-    Operator, OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
+    MaskExecution, Operator, OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
 };
 use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
 use crate::pipeline::operator::bind::bind_kernels;
@@ -316,9 +316,9 @@ impl BatchOperator for PipelineOperator {
             //  batch execution to support returning a MaskedCanonical array for deferred masking.
             .map(|(i, operator)| {
                 if self.domain_inputs.contains(&i) {
-                    ctx.project(operator, mask)
+                    ctx.bind_project(operator, Some(mask))
                 } else {
-                    ctx.project_all(operator)
+                    ctx.bind_project(operator, None)
                 }
             })
             .try_collect()?;
@@ -335,7 +335,7 @@ impl BatchOperator for PipelineOperator {
             .bounds()
             .maybe_len()
             .vortex_expect("Must have length");
-        let mask = ctx.project_all(mask)?;
+        let mask = ctx.bind_mask(mask)?;
 
         match self.dtype() {
             DType::Bool(Nullability::NonNullable) => Ok(Box::new(
@@ -431,7 +431,7 @@ impl<T: NativePType + Element> PipelineOutput for PrimitiveOutput<T> {
 
 struct PipelineExecution<O> {
     len: usize,
-    mask: BatchExecutionRef,
+    mask: MaskExecution,
     // The children store the batch inputs to the pipeline. If the LenProvider indicates that we
     // are running over a masked domain of rows, the final child will be the mask operator.
     children: Vec<BatchExecutionRef>,
@@ -443,7 +443,7 @@ struct PipelineExecution<O> {
 impl<O> PipelineExecution<O> {
     fn new(
         len: usize,
-        mask: BatchExecutionRef,
+        mask: MaskExecution,
         batch_inputs: Vec<BatchExecutionRef>,
         vectors: Vec<RefCell<Vector>>,
         pipeline: Pipeline,
@@ -466,10 +466,7 @@ impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
         let children = try_join_all(self.children.into_iter().map(|exec| exec.execute())).await?;
 
         // Extract the selection mask
-        // FIXME(ngates): converting to a mask shouldn't require canonicalizing, otherwise we
-        //  may flatten an all-true mask. Create a MaskExecution that tries to downcast the mask
-        //  operator?
-        let mask = self.mask.execute().await?.into_bool().to_mask();
+        let mask = self.mask.await?;
         assert_eq!(self.len, mask.len(), "Incorrect mask length");
         let len = self.len;
 

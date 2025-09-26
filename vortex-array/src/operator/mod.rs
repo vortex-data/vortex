@@ -51,7 +51,7 @@ pub use hash::*;
 pub use mask::*;
 use termtree::Tree;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
@@ -71,8 +71,10 @@ pub trait Operator: 'static + Send + Sync + Debug + DynOperatorHash + DynOperato
     fn bounds(&self) -> LengthBounds;
 
     /// Returns the exact number of rows produced by this operator, if known.
-    fn len(&self) -> Option<usize> {
-        self.bounds().maybe_len()
+    fn len(&self) -> usize {
+        self.bounds()
+            .maybe_len()
+            .vortex_expect("Must have length FIME")
     }
 
     /// Returns if this operator is known to be empty (i.e. max bound is 0).
@@ -225,22 +227,41 @@ pub trait BatchOperator: Operator {
         mask: &OperatorRef,
         ctx: &mut dyn BatchBindCtx,
     ) -> VortexResult<BatchExecutionRef>;
-    // TODO(ngates): add reduce(&self) function here if we need.
+
+    // TODO(ngates): add reduce(&self) function here also
 }
 
+/// We provide bind functions on the context to perform common sub-expression elimination and
+/// re-use the execution results from identical operators.
 pub trait BatchBindCtx {
-    fn project(
+    /// Bind an operator into a projection execution.
+    ///
+    /// The caller should decide whether they want to pass a mask when binding the given operator.
+    /// If passed, the mask operator will be used to selection true rows.
+    ///
+    /// The bind context ensures that multiple calls to this function with the same operators
+    /// will bind to the same internal shared execution instance, avoiding duplicate work.
+    fn bind_project(
         &mut self,
         operator: &OperatorRef,
-        mask: &OperatorRef,
+        mask: Option<&OperatorRef>,
     ) -> VortexResult<BatchExecutionRef>;
+}
 
-    fn project_all(&mut self, operator: &OperatorRef) -> VortexResult<BatchExecutionRef>;
+impl dyn BatchBindCtx + '_ {
+    /// Utility function for binding a [`MaskExecution`] from an [`OperatorRef`].
+    ///
+    /// This function provides access to the shared mask execution node, while also
+    /// short-circuiting compute if the operator can be exported to a mask more efficiently, for
+    /// example a constant array.
+    pub fn bind_mask(&mut self, operator: &OperatorRef) -> VortexResult<MaskExecution> {
+        MaskExecution::bind(operator, self)
+    }
 }
 
 /// The primary execution trait for operators.
 ///
-/// Alternatively, or additionally, operators may choose to implement [`PipelinedOperator`].
+// TODO(ngates): this is basically just BoxFuture<'static, VortexResult<Canonical>>...
 #[async_trait]
 pub trait BatchExecution: Send {
     async fn execute(self: Box<Self>) -> VortexResult<Canonical>;

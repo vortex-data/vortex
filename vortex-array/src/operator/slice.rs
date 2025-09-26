@@ -120,7 +120,7 @@ impl BatchOperator for SliceOperator {
         mask: &OperatorRef,
         ctx: &mut dyn BatchBindCtx,
     ) -> VortexResult<BatchExecutionRef> {
-        let child_exec = ctx.project(&self.child, mask)?;
+        let child_exec = ctx.bind_project(&self.child, Some(mask))?;
         Ok(Box::new(SliceExecution {
             child: child_exec,
             range: self.range.clone(),

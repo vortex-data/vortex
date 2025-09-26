@@ -82,10 +82,9 @@ impl BatchOperator for BoolArray {
         mask: &OperatorRef,
         ctx: &mut dyn BatchBindCtx,
     ) -> VortexResult<BatchExecutionRef> {
-        let mask = ctx.project_all(mask)?;
         Ok(Box::new(CanonicalExecution::new(
             Canonical::Bool(self.clone()),
-            mask,
+            ctx.bind_mask(mask)?,
         )))
     }
 }
