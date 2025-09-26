@@ -104,7 +104,7 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 
         vector.dictionary(&new_values_vector, self.values_len as usize, &sel_vec, len);
 
-        // Use a unique id to each dictionary data array -- telling duckdb that
+        // Use a unique id for each dictionary data array -- telling duckdb that
         // the dict value vector is the same as reuse the hash in a join.
         vector.set_dictionary_id(format!("{}-{}", self.cache_id, self.value_id));
         vector.set_dictionary_len(self.values_len);

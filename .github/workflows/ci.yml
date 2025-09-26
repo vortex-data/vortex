@@ -382,9 +382,7 @@ jobs:
             --all-features \
             --no-fail-fast \
             --target x86_64-unknown-linux-gnu \
-            --verbose \
-            -- \
-            --skip test_vortex_scan_ultra_deep_nesting
+            --verbose
 
   build-java:
     name: "Java"
