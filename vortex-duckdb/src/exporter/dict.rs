@@ -13,13 +13,14 @@ use vortex::encodings::dict::DictArray;
 use vortex::error::VortexResult;
 use vortex::{Array, ToCanonical};
 
-use crate::duckdb::{SelectionVector, Vector};
+use crate::duckdb::{LogicalType, SelectionVector, Vector};
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::{ColumnExporter, constant, new_array_exporter};
 
 struct DictExporter<I: NativePType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
     values_vector: Arc<Mutex<Vector>>, // NOTE(ngates): not actually flat...
+    logical_type: LogicalType,
     values_len: u32,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
@@ -33,6 +34,7 @@ pub(crate) fn new_exporter(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
     let values = array.values();
+    let logical_type: LogicalType = values.dtype().try_into()?;
     if let Some(constant) = values.as_opt::<ConstantVTable>() {
         return constant::new_exporter_with_mask(
             &ConstantArray::new(constant.scalar().clone(), array.codes().len()),
@@ -53,13 +55,13 @@ pub(crate) fn new_exporter(
         Some(vector) => vector,
         None => {
             // Create a new DuckDB vector for the values.
-            let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
+            let mut vector = Vector::with_capacity(logical_type.clone(), values.len());
             new_array_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
 
             // This is a bit of a hack, but we need to return the values vector into a dictionary
             // typed vector, where we can later set different selection vectors.
             // If this is not done here the threads will race to convert the value into a dictionary.
-            Vector::with_capacity(vector.logical_type(), 0).dictionary(
+            Vector::with_capacity(logical_type.clone(), 0).dictionary(
                 &vector,
                 values.len(),
                 &SelectionVector::with_capacity(0),
@@ -75,24 +77,25 @@ pub(crate) fn new_exporter(
         }
     };
 
-    let new_values_vector = {
-        let values_vector = values_vector.lock();
-        let mut new_values_vector = Vector::new(values_vector.logical_type());
-        // Shares the underlying data which determines the vectors length.
-        new_values_vector.reference(&values_vector);
-        Vector::with_capacity(new_values_vector.logical_type(), 0).dictionary(
-            &new_values_vector,
-            values.len(),
-            &SelectionVector::with_capacity(0),
-            0,
-        );
-        Arc::new(Mutex::new(new_values_vector))
-    };
+    // let new_values_vector = {
+    //     let values_vector = values_vector.lock();
+    //     let mut new_values_vector = Vector::new(logical_type.clone());
+    //     // Shares the underlying data which determines the vectors length.
+    //     new_values_vector.reference(&values_vector);
+    //     Vector::with_capacity(values_vector.logical_type(), 0).dictionary(
+    //         &new_values_vector,
+    //         values.len(),
+    //         &SelectionVector::with_capacity(0),
+    //         0,
+    //     );
+    //     Arc::new(Mutex::new(new_values_vector))
+    // };
 
     let codes = array.codes().to_primitive();
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
-            values_vector: new_values_vector,
+            values_vector,
+            logical_type,
             values_len: values.len().as_u32(),
             codes,
             codes_type: PhantomData::<I>,
@@ -118,7 +121,7 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 
         {
             let values = self.values_vector.lock();
-            let mut other = Vector::new(values.logical_type());
+            let mut other = Vector::new(self.logical_type.clone());
             other.reference(&*values);
             vector.dictionary(
                 &other,
