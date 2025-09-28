@@ -78,13 +78,6 @@ impl Operator for FSSTArray {
         parent: OperatorRef,
         _child_idx: usize,
     ) -> VortexResult<Option<OperatorRef>> {
-        // if let Some(filter) = parent.as_any().downcast_ref::<FilterOperator>() {
-        //     return Ok(Some(Arc::new(FilteredFSSTOperator {
-        //         array: self.clone(),
-        //         mask: filter.mask().clone(),
-        //     })));
-        // }
-
         if let Some(slice) = parent.as_any().downcast_ref::<SliceOperator>() {
             return Ok(Some(Arc::new(
                 self.slice(slice.range().clone())
