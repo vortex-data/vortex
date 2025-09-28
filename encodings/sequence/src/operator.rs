@@ -6,18 +6,16 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use num_traits::{ConstOne, PrimInt};
-use vortex_array::Array;
 use vortex_array::operator::slice::SliceOperator;
-use vortex_array::operator::{
-    LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
-};
+use vortex_array::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::vec::Selection;
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
+use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
 use vortex_array::vtable::PipelineVTable;
-use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_array::Array;
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
+use vortex_error::{vortex_err, VortexResult};
 
 use crate::{SequenceArray, SequenceVTable};
 
@@ -32,7 +30,7 @@ impl OperatorHash for SequenceArray {
         self.base().hash(state);
         self.multiplier().hash(state);
         self.dtype().hash(state);
-        self.bounds().hash(state);
+        self.len().hash(state);
     }
 }
 
@@ -41,7 +39,7 @@ impl OperatorEq for SequenceArray {
         self.base() == other.base()
             && self.multiplier() == other.multiplier()
             && self.dtype() == other.dtype()
-            && self.bounds() == other.bounds()
+            && self.len() == other.len()
     }
 }
 
@@ -58,8 +56,8 @@ impl Operator for SequenceArray {
         Array::dtype(self.as_ref())
     }
 
-    fn bounds(&self) -> LengthBounds {
-        Array::len(self.as_ref()).into()
+    fn len(&self) -> usize {
+        Array::len(self.as_ref())
     }
 
     fn children(&self) -> &[OperatorRef] {

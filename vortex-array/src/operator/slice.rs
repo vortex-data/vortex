@@ -8,11 +8,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
+    OperatorHash, OperatorId, OperatorRef,
 };
 use crate::{Array, Canonical, IntoArray};
 
@@ -31,11 +31,11 @@ impl SliceOperator {
                 range.end
             );
         }
-        if range.end > child.bounds().max {
+        if range.end > child.len() {
             vortex_bail!(
                 "slice range end out of bounds: {} > {}",
                 range.end,
-                child.bounds().max
+                child.len()
             );
         }
         Ok(SliceOperator { child, range })
@@ -72,8 +72,8 @@ impl Operator for SliceOperator {
         self.child.dtype()
     }
 
-    fn bounds(&self) -> LengthBounds {
-        (self.range.end - self.range.start).into()
+    fn len(&self) -> usize {
+        self.range.end - self.range.start
     }
 
     fn children(&self) -> &[OperatorRef] {

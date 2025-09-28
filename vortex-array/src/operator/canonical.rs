@@ -11,8 +11,8 @@ use vortex_error::VortexResult;
 
 use crate::compute::filter;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, MaskExecution,
-    Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, MaskExecution, Operator,
+    OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
 use crate::{Array, Canonical};
 
@@ -29,8 +29,8 @@ impl Operator for Canonical {
         self.as_ref().dtype()
     }
 
-    fn bounds(&self) -> LengthBounds {
-        self.as_ref().len().into()
+    fn len(&self) -> usize {
+        self.as_ref().len()
     }
 
     fn children(&self) -> &[OperatorRef] {

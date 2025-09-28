@@ -9,14 +9,14 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::Canonical;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::operator::canonical::CanonicalExecution;
 use crate::operator::{
-    BatchBindCtx, BatchExecutionRef, BatchOperator, DisplayFormat, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecutionRef, BatchOperator, DisplayFormat, Operator, OperatorEq,
+    OperatorHash, OperatorId, OperatorRef,
 };
 use crate::vtable::PipelineVTable;
+use crate::Canonical;
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
     fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<OperatorRef>> {
@@ -53,8 +53,8 @@ impl Operator for PrimitiveArray {
         &self.dtype
     }
 
-    fn bounds(&self) -> LengthBounds {
-        LengthBounds::from(self.buffer.len() / self.dtype.as_ptype().byte_width())
+    fn len(&self) -> usize {
+        self.buffer.len() / self.dtype.as_ptype().byte_width()
     }
 
     fn children(&self) -> &[OperatorRef] {

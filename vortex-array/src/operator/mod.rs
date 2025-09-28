@@ -36,10 +36,9 @@ pub mod metrics;
 mod optimize;
 pub mod slice;
 
-use std::any::{Any, type_name};
+use std::any::{type_name, Any};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::ops::BitAnd;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -49,10 +48,10 @@ pub use hash::*;
 pub use mask::*;
 use termtree::Tree;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 
-use crate::Canonical;
 use crate::pipeline::PipelinedOperator;
+use crate::Canonical;
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
@@ -68,19 +67,12 @@ pub trait Operator: 'static + Send + Sync + Debug + DynOperatorHash + DynOperato
     /// Returns the [`DType`] of the array produced by this operator.
     fn dtype(&self) -> &DType;
 
-    /// Returns the bounds on the number of rows produced by this operator.
-    fn bounds(&self) -> LengthBounds;
-
-    /// Returns the exact number of rows produced by this operator, if known.
-    fn len(&self) -> usize {
-        self.bounds()
-            .maybe_len()
-            .vortex_expect("Must have length FIME")
-    }
+    /// Returns the number of rows this operator holds.
+    fn len(&self) -> usize;
 
     /// Returns if this operator is known to be empty (i.e. max bound is 0).
     fn is_empty(&self) -> bool {
-        self.bounds().max == 0
+        self.len() == 0
     }
 
     /// The children of this operator.
@@ -157,53 +149,6 @@ pub trait Operator: 'static + Send + Sync + Debug + DynOperatorHash + DynOperato
     /// [`BatchOperator`], although they may choose to do so.
     fn as_pipelined(&self) -> Option<&dyn PipelinedOperator> {
         None
-    }
-}
-
-/// Represents the known row count bounds of an operator.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct LengthBounds {
-    pub min: usize,
-    pub max: usize,
-}
-
-impl LengthBounds {
-    pub fn maybe_len(&self) -> Option<usize> {
-        (self.min == self.max).then_some(self.min)
-    }
-
-    pub fn contains(&self, len: usize) -> bool {
-        self.min <= len && len <= self.max
-    }
-
-    pub fn intersect_all<I: IntoIterator<Item = LengthBounds>>(iters: I) -> Self {
-        let mut min = 0;
-        let mut max = 0;
-        for bounds in iters {
-            min = min.max(bounds.min);
-            max = max.min(bounds.max);
-        }
-        Self { min, max }
-    }
-}
-
-impl BitAnd for LengthBounds {
-    type Output = Self;
-
-    fn bitand(self, rhs: Self) -> Self::Output {
-        Self {
-            min: self.min.max(rhs.min),
-            max: self.max.min(rhs.max),
-        }
-    }
-}
-
-impl From<usize> for LengthBounds {
-    fn from(value: usize) -> Self {
-        Self {
-            min: value,
-            max: value,
-        }
     }
 }
 

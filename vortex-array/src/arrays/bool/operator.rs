@@ -12,8 +12,8 @@ use vortex_error::VortexResult;
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::operator::canonical::CanonicalExecution;
 use crate::operator::{
-    BatchBindCtx, BatchExecutionRef, BatchOperator, DisplayFormat, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecutionRef, BatchOperator, DisplayFormat, Operator, OperatorEq,
+    OperatorHash, OperatorId, OperatorRef,
 };
 use crate::vtable::PipelineVTable;
 use crate::{Array, Canonical};
@@ -55,8 +55,8 @@ impl Operator for BoolArray {
         Array::dtype(self.as_ref())
     }
 
-    fn bounds(&self) -> LengthBounds {
-        Array::len(self.as_ref()).into()
+    fn len(&self) -> usize {
+        Array::len(self.as_ref())
     }
 
     fn children(&self) -> &[OperatorRef] {

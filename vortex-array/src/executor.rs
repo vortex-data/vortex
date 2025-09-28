@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::{FutureExt, TryFutureExt};
 use vortex_error::{
-    SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err,
+    vortex_bail, vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult,
 };
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -90,11 +90,7 @@ impl Executor {
 
         log::info!("Executing operator: {}", operator.display_tree());
 
-        let len = operator
-            .bounds()
-            .maybe_len()
-            .vortex_expect("Must have concrete length");
-        let all_true_mask: OperatorRef = Arc::new(ConstantArray::new(true, len));
+        let all_true_mask: OperatorRef = Arc::new(ConstantArray::new(true, operator.len()));
 
         let execution = operator
             .as_batch()

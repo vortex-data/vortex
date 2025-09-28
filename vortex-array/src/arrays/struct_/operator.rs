@@ -9,13 +9,13 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::arrays::{StructArray, StructVTable};
 use crate::operator::getitem::GetItemOperator;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, MaskExecution,
-    Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, MaskExecution, Operator,
+    OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
 use crate::validity::Validity;
 use crate::vtable::PipelineVTable;
@@ -35,7 +35,7 @@ impl PipelineVTable<StructVTable> for StructVTable {
 
         Ok(Some(Arc::new(StructOperator {
             dtype: array.dtype().clone(),
-            bounds: array.len().into(),
+            len: array.len(),
             children,
             // validity: array.validity.clone(),
         })))
@@ -47,7 +47,7 @@ impl PipelineVTable<StructVTable> for StructVTable {
 struct StructOperator {
     dtype: DType,
     children: Vec<OperatorRef>,
-    bounds: LengthBounds,
+    len: usize,
     // FIXME(ngates): validity should be an operator too...
     // validity: Validity,
 }
@@ -55,7 +55,7 @@ struct StructOperator {
 impl OperatorHash for StructOperator {
     fn operator_hash<H: Hasher>(&self, state: &mut H) {
         self.dtype.hash(state);
-        self.bounds.hash(state);
+        self.len.hash(state);
         for child in &self.children {
             child.operator_hash(state);
         }
@@ -65,7 +65,7 @@ impl OperatorHash for StructOperator {
 impl OperatorEq for StructOperator {
     fn operator_eq(&self, other: &Self) -> bool {
         self.dtype == other.dtype
-            && self.bounds == other.bounds
+            && self.len == other.len
             && self.children.len() == other.children.len()
             && self
                 .children
@@ -88,8 +88,8 @@ impl Operator for StructOperator {
         &self.dtype
     }
 
-    fn bounds(&self) -> LengthBounds {
-        self.bounds
+    fn len(&self) -> usize {
+        self.len
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -97,12 +97,11 @@ impl Operator for StructOperator {
     }
 
     fn with_children(self: Arc<Self>, children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
-        let bounds = LengthBounds::intersect_all(children.iter().map(|c| c.bounds()));
         Ok(Arc::new(StructOperator {
             dtype: self.dtype.clone(),
             // validity: self.validity.clone(),
             children,
-            bounds,
+            len: self.len,
         }))
     }
 

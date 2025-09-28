@@ -21,17 +21,16 @@ use futures::try_join;
 use itertools::Itertools;
 use output::{BoolOutput, PipelineOutput};
 use termtree::Tree;
-use vortex_dtype::{DType, Nullability, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{match_each_native_ptype, DType, Nullability};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
-use crate::Canonical;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, LengthBounds,
-    MaskExecution, Operator, OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, MaskExecution,
+    Operator, OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
 };
 use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
-use crate::pipeline::operator::allocation::{OutputTarget, allocate_vectors};
+use crate::pipeline::operator::allocation::{allocate_vectors, OutputTarget};
 use crate::pipeline::operator::bind::bind_kernels;
 use crate::pipeline::operator::input::VectorInputOperator;
 use crate::pipeline::operator::output::PrimitiveOutput;
@@ -39,6 +38,7 @@ use crate::pipeline::operator::toposort::topological_sort;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{BatchId, Kernel, KernelContext, N, N_WORDS};
+use crate::Canonical;
 
 /// An operator node used during execution planning to represent a pipelined execution.
 ///
@@ -241,8 +241,8 @@ impl Operator for PipelineOperator {
         self.root_operator().dtype()
     }
 
-    fn bounds(&self) -> LengthBounds {
-        self.root_operator().bounds()
+    fn len(&self) -> usize {
+        self.root_operator().len()
     }
 
     fn children(&self) -> &[OperatorRef] {

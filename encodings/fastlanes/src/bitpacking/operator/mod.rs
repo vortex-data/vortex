@@ -9,13 +9,11 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use fastlanes::FastLanes;
-use vortex_array::operator::{
-    LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
-};
+use vortex_array::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 use vortex_array::pipeline::{BindContext, Kernel, PipelinedOperator};
 use vortex_array::vtable::PipelineVTable;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, PhysicalPType, match_each_integer_ptype};
+use vortex_dtype::{match_each_integer_ptype, DType, PhysicalPType};
 use vortex_error::VortexResult;
 
 use crate::operator::aligned_kernel::BitPackedKernel;
@@ -77,8 +75,8 @@ impl Operator for BitPackedArray {
         &self.dtype
     }
 
-    fn bounds(&self) -> LengthBounds {
-        self.len.into()
+    fn len(&self) -> usize {
+        self.len
     }
 
     fn children(&self) -> &[OperatorRef] {

@@ -11,14 +11,14 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_metrics::{Timer, VortexMetrics};
 
-use crate::Canonical;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
+    OperatorHash, OperatorId, OperatorRef,
 };
 use crate::pipeline::bits::BitView;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{BindContext, Kernel, KernelContext, PipelinedOperator};
+use crate::Canonical;
 
 /// An operator that wraps another operator and records metrics about its execution.
 #[derive(Debug)]
@@ -65,8 +65,8 @@ impl Operator for MetricsOperator {
         self.inner.dtype()
     }
 
-    fn bounds(&self) -> LengthBounds {
-        self.inner.bounds()
+    fn len(&self) -> usize {
+        self.inner.len()
     }
 
     fn children(&self) -> &[OperatorRef] {

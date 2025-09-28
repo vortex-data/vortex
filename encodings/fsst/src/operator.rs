@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use vortex_array::compute::filter;
 use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, MaskExecution,
-    Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, MaskExecution, Operator,
+    OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
 use vortex_array::vtable::PipelineVTable;
 use vortex_array::{Array, Canonical};
@@ -60,8 +60,8 @@ impl Operator for FSSTArray {
         Array::dtype(self.as_ref())
     }
 
-    fn bounds(&self) -> LengthBounds {
-        Array::len(self.as_ref()).into()
+    fn len(&self) -> usize {
+        Array::len(self.as_ref())
     }
 
     fn children(&self) -> &[OperatorRef] {

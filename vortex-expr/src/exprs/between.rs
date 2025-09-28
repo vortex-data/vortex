@@ -9,20 +9,20 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::try_join;
 use itertools::Itertools;
-use vortex_array::compute::{BetweenOptions, StrictComparison, between as between_compute};
+use vortex_array::compute::{between as between_compute, BetweenOptions, StrictComparison};
 use vortex_array::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, Operator, OperatorEq,
+    OperatorHash, OperatorId, OperatorRef,
 };
 use vortex_array::{Array, ArrayRef, Canonical, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
+    vtable, AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable,
 };
 
 vtable!(Between);
@@ -283,8 +283,8 @@ impl Operator for BetweenOperator {
         &self.dtype
     }
 
-    fn bounds(&self) -> LengthBounds {
-        self.children[0].bounds()
+    fn len(&self) -> usize {
+        self.children[0].len()
     }
 
     fn children(&self) -> &[OperatorRef] {
