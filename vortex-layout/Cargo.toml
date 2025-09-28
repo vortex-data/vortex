@@ -22,7 +22,7 @@ arrow-buffer = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 flatbuffers = { workspace = true }
-futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
+futures = { workspace = true, features = ["executor"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }

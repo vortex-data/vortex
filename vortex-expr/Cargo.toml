@@ -24,7 +24,7 @@ arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
 async-trait = { workspace = true }
 dyn-hash = { workspace = true }
-futures = { workspace = true, features = ["async-await"] }
+futures = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
