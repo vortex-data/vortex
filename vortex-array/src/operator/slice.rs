@@ -7,9 +7,8 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
@@ -86,27 +85,6 @@ impl Operator for SliceOperator {
             children.into_iter().next().vortex_expect("missing child"),
             self.range.clone(),
         )?))
-    }
-
-    fn reduce_children(&self) -> VortexResult<Option<OperatorRef>> {
-        // We push down the slice operator to any child that is aligned to the parent.
-        let children = (0..self.nchildren())
-            .map(|i| {
-                let child = self.child.children()[i].clone();
-
-                if self.child.is_selection_target(i).unwrap_or_default() {
-                    // Push-down the filter to this child.
-                    Ok::<_, VortexError>(Arc::new(SliceOperator::try_new(
-                        child,
-                        self.range.clone(),
-                    )?) as OperatorRef)
-                } else {
-                    Ok(child)
-                }
-            })
-            .try_collect()?;
-
-        Ok(Some(self.child.clone().with_children(children)?))
     }
 
     fn as_batch(&self) -> Option<&dyn BatchOperator> {

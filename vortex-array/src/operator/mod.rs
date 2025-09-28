@@ -36,14 +36,12 @@ pub mod metrics;
 mod optimize;
 pub mod slice;
 
-use std::any::{type_name, Any};
+use std::any::{Any, type_name};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::BitAnd;
 use std::sync::Arc;
 
-use crate::pipeline::PipelinedOperator;
-use crate::Canonical;
 use arcref::ArcRef;
 use async_trait::async_trait;
 pub use display::*;
@@ -52,6 +50,9 @@ pub use mask::*;
 use termtree::Tree;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
+
+use crate::Canonical;
+use crate::pipeline::PipelinedOperator;
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
@@ -143,20 +144,6 @@ pub trait Operator: 'static + Send + Sync + Debug + DynOperatorHash + DynOperato
         _child_idx: usize,
     ) -> VortexResult<Option<OperatorRef>> {
         Ok(None)
-    }
-
-    /// Return `true` if the given child is considered to be a selection target.
-    ///
-    /// The definition of this is such that pushing a selection operator down to all selection
-    /// targets will result in the same output as a selection on this operator.
-    ///
-    /// For example, `select(Op, mask) == Op(select(child, mask), ...)` for all children that are
-    /// selection targets.
-    ///
-    /// If any child index returns `None`, then selection pushdown is not possible.
-    /// If all children return `Some(false)`, then selection pushdown is not possible.
-    fn is_selection_target(&self, _child_idx: usize) -> Option<bool> {
-        None
     }
 
     /// Returns this operator as a [`BatchOperator`] if it supports batch execution.

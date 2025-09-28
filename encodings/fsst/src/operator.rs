@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use vortex_array::compute::filter;
 use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, MaskExecution,
+    Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
 use vortex_array::vtable::PipelineVTable;
 use vortex_array::{Array, Canonical};
@@ -109,7 +109,7 @@ impl BatchOperator for FSSTArray {
     ) -> VortexResult<BatchExecutionRef> {
         Ok(Box::new(FSSTExecution {
             array: self.clone(),
-            mask: ctx.bind_project(mask)?,
+            mask: ctx.bind_mask(mask)?,
         }))
     }
 }
@@ -117,13 +117,13 @@ impl BatchOperator for FSSTArray {
 // TODO(ngates): obviously we should inline the canonical logic here
 struct FSSTExecution {
     array: FSSTArray,
-    mask: BatchExecutionRef,
+    mask: MaskExecution,
 }
 
 #[async_trait]
 impl BatchExecution for FSSTExecution {
     async fn execute(self: Box<Self>) -> VortexResult<Canonical> {
-        let mask = self.mask.execute().await?.into_bool().to_mask();
+        let mask = self.mask.await?;
         Ok(filter(self.array.as_ref(), &mask)?.to_canonical())
     }
 }

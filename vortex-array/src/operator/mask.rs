@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::ConstantArray;
-use crate::operator::{BatchBindCtx, Operator, OperatorRef};
-use futures::future::BoxFuture;
-use futures::FutureExt;
-use pin_project_lite::pin_project;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use futures::FutureExt;
+use futures::future::BoxFuture;
+use pin_project_lite::pin_project;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
+
+use crate::arrays::ConstantArray;
+use crate::operator::{BatchBindCtx, Operator, OperatorRef};
 
 pin_project! {
     #[project = MaskExecutionProj]
@@ -41,6 +43,9 @@ impl MaskExecution {
                 return Ok(Self::AllFalse { len });
             }
         }
+
+        // TODO(ngates): we may want to support creating masks from iterator of slices, in which
+        //  case we could check for run-end encoding here?
 
         // If none of the above patterns match, we fall back to canonicalizing.
         let execution = ctx.bind_project(operator, None)?;

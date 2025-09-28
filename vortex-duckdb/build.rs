@@ -3,11 +3,11 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
-use bindgen::Abi;
-use once_cell::sync::Lazy;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
+
+use bindgen::Abi;
+use once_cell::sync::Lazy;
 
 const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
 static DUCKDB_VERSION: Lazy<String> = Lazy::new(|| {
@@ -141,7 +141,7 @@ fn http_client() -> Result<reqwest::blocking::Client, Box<dyn std::error::Error>
         .or_else(|_| env::var("HTTP_TIMEOUT"))
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(300);
+        .unwrap_or(90);
 
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(timeout_secs))

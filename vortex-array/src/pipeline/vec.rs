@@ -97,16 +97,16 @@ impl Vector {
 pub struct VectorRef<'a> {
     // Use to ensure that view and borrow have the same lifetime.
     #[allow(dead_code)]
-    borrow: Ref<'a, Vector>,
+    owner: Ref<'a, Vector>,
     view: View<'a>,
 }
 
 impl<'a> VectorRef<'a> {
-    pub fn new(borrow: Ref<'a, Vector>) -> Self {
-        let view = borrow.as_view();
+    pub fn new(owner: Ref<'a, Vector>) -> Self {
+        let view = owner.as_view();
         // SAFETY: we continue to hold onto the [`Ref`], so it is safe to erase the lifetime.
         let view = unsafe { std::mem::transmute::<View<'_>, View<'a>>(view) };
-        Self { borrow, view }
+        Self { owner, view }
     }
 
     pub fn as_view(&self) -> &View<'a> {

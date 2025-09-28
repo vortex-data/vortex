@@ -4,8 +4,8 @@
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::pipeline::operator::PipelineNode;
-use crate::pipeline::operator::buffers::VectorAllocationPlan;
-use crate::pipeline::{BatchId, BindContext, Kernel, VectorId};
+use crate::pipeline::operator::allocation::VectorAllocationPlan;
+use crate::pipeline::{BatchId, BindContext, Kernel, VectorHandle};
 
 pub(crate) fn bind_kernels(
     dag: &[PipelineNode],
@@ -13,19 +13,20 @@ pub(crate) fn bind_kernels(
 ) -> VortexResult<Vec<Box<dyn Kernel>>> {
     let mut kernels = Vec::with_capacity(dag.len());
     for node in dag {
-        let input_ids = node
+        let input_handles: Vec<_> = node
             .children
             .iter()
-            .map(|node_id| {
-                allocation_plan.output_targets[*node_id]
-                    .vector_id()
-                    .vortex_expect("Input node must have an output vector ID")
+            .map(|child_idx| {
+                let vector_idx = allocation_plan.output_targets[*child_idx]
+                    .vector_idx()
+                    .vortex_expect("Input node must have an output vector ID");
+                VectorHandle::intermediate_vector(vector_idx)
             })
-            .collect::<Vec<_>>();
+            .collect();
 
         let bind_context = PipelineBindContext {
-            children: &input_ids,
-            batch_inputs: &node.batch_inputs,
+            vector_inputs: &input_handles,
+            batch_inputs: &node.batch_input_ids,
         };
 
         let pipelined = node.operator.as_pipelined().ok_or_else(|| {
@@ -37,13 +38,17 @@ pub(crate) fn bind_kernels(
 }
 
 struct PipelineBindContext<'a> {
-    children: &'a [VectorId],
+    vector_inputs: &'a [VectorHandle],
     batch_inputs: &'a [BatchId],
 }
 
 impl BindContext for PipelineBindContext<'_> {
-    fn children(&self) -> &[VectorId] {
-        self.children
+    /// Returns a handle to the vector input for the given child index.
+    ///
+    /// This handle can be used to access the vector during kernel execution by requesting it
+    /// from the [`KernelContext`](crate::pipeline::operator::KernelContext).
+    fn vector_input(&self, child_idx: usize) -> VectorHandle {
+        self.vector_inputs[child_idx]
     }
 
     fn batch_inputs(&self) -> &[BatchId] {

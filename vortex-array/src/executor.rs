@@ -4,20 +4,21 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use async_trait::async_trait;
+use futures::future::{BoxFuture, Shared, WeakShared};
+use futures::{FutureExt, TryFutureExt};
+use vortex_error::{
+    SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err,
+};
+use vortex_mask::Mask;
+use vortex_utils::aliases::hash_map::HashMap;
+
 use crate::arrays::ConstantArray;
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorEq, OperatorHash, OperatorRef,
 };
 use crate::pipeline::operator::PipelineOperator;
 use crate::{Canonical, IntoArray, ToCanonical};
-use async_trait::async_trait;
-use futures::future::{BoxFuture, Shared, WeakShared};
-use futures::{FutureExt, TryFutureExt};
-use vortex_error::{
-    vortex_bail, vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult,
-};
-use vortex_mask::Mask;
-use vortex_utils::aliases::hash_map::HashMap;
 
 /// An executor that runs an operator tree.
 ///
@@ -148,14 +149,14 @@ impl BatchBindCtx for Executor {
         operator: &OperatorRef,
         mask: Option<&OperatorRef>,
     ) -> VortexResult<BatchExecutionRef> {
-        if let Some(mask) = mask {
-            if mask.len() != operator.len() {
-                vortex_bail!(
-                    "Mask length {} != operator length {}",
-                    mask.len(),
-                    operator.len()
-                );
-            }
+        if let Some(mask) = mask
+            && mask.len() != operator.len()
+        {
+            vortex_bail!(
+                "Mask length {} != operator length {}",
+                mask.len(),
+                operator.len()
+            );
         }
         Ok(Box::new(self.batch_projection(operator, mask)?))
     }

@@ -5,7 +5,7 @@ use std::any::Any;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ConstantArray, ConstantVTable};
@@ -13,7 +13,7 @@ use crate::operator::{LengthBounds, Operator, OperatorEq, OperatorHash, Operator
 use crate::pipeline::bits::BitView;
 use crate::pipeline::vec::Selection;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
+use crate::pipeline::{BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
 use crate::vtable::PipelineVTable;
 
 impl PipelineVTable<ConstantVTable> for ConstantVTable {

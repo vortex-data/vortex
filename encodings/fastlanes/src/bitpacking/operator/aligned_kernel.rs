@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use fastlanes::BitPacking;
 use std::cmp::min;
+
+use fastlanes::BitPacking;
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::vec::Selection;
 use vortex_array::pipeline::view::ViewMut;

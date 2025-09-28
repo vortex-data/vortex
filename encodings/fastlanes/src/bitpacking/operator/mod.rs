@@ -15,7 +15,7 @@ use vortex_array::operator::{
 use vortex_array::pipeline::{BindContext, Kernel, PipelinedOperator};
 use vortex_array::vtable::PipelineVTable;
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_integer_ptype, DType, PhysicalPType};
+use vortex_dtype::{DType, PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 
 use crate::operator::aligned_kernel::BitPackedKernel;

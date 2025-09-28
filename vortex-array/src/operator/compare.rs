@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::ConstantArray;
 use crate::compute::Operator as Op;
@@ -17,7 +17,7 @@ use crate::pipeline::bits::BitView;
 use crate::pipeline::vec::Selection;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{
-    BindContext, Element, Kernel, KernelContext, PipelinedOperator, VectorId, N,
+    BindContext, Element, Kernel, KernelContext, N, PipelinedOperator, VectorHandle,
 };
 
 #[derive(Debug)]
@@ -112,11 +112,6 @@ impl Operator for CompareOperator {
         }))
     }
 
-    fn is_selection_target(&self, _child_idx: usize) -> Option<bool> {
-        // Both children are selection targets
-        Some(true)
-    }
-
     fn as_pipelined(&self) -> Option<&dyn PipelinedOperator> {
         Some(self)
     }
@@ -171,7 +166,7 @@ impl PipelinedOperator for CompareOperator {
             return match_each_native_ptype!(ptype, |T| {
                 match_each_compare_op!(self.op.swap(), |Op| {
                     Ok(Box::new(ScalarComparePrimitiveKernel::<T, Op> {
-                        lhs: ctx.children()[1],
+                        lhs: ctx.vector_input(1),
                         rhs: lhs_const
                             .scalar()
                             .as_primitive()
@@ -189,7 +184,7 @@ impl PipelinedOperator for CompareOperator {
             return match_each_native_ptype!(ptype, |T| {
                 match_each_compare_op!(self.op, |Op| {
                     Ok(Box::new(ScalarComparePrimitiveKernel::<T, Op> {
-                        lhs: ctx.children()[0],
+                        lhs: ctx.vector_input(0),
                         rhs: rhs_const
                             .scalar()
                             .as_primitive()
@@ -204,8 +199,8 @@ impl PipelinedOperator for CompareOperator {
         match_each_native_ptype!(ptype, |T| {
             match_each_compare_op!(self.op, |Op| {
                 Ok(Box::new(ComparePrimitiveKernel::<T, Op> {
-                    lhs: ctx.children()[0],
-                    rhs: ctx.children()[1],
+                    lhs: ctx.vector_input(0),
+                    rhs: ctx.vector_input(1),
                     _phantom: PhantomData,
                 }) as Box<dyn Kernel>)
             })
@@ -225,8 +220,8 @@ impl PipelinedOperator for CompareOperator {
 /// operation.
 /// Kernel that performs primitive type comparisons between two input vectors.
 pub struct ComparePrimitiveKernel<T, Op> {
-    lhs: VectorId,
-    rhs: VectorId,
+    lhs: VectorHandle,
+    rhs: VectorHandle,
     _phantom: PhantomData<(T, Op)>,
 }
 
@@ -284,7 +279,7 @@ impl<T: Element + NativePType, Op: CompareOp<T> + Send> Kernel for ComparePrimit
 }
 
 struct ScalarComparePrimitiveKernel<T: Element + NativePType, Op: CompareOp<T>> {
-    lhs: VectorId,
+    lhs: VectorHandle,
     rhs: T,
     _phantom: PhantomData<Op>,
 }

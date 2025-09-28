@@ -7,15 +7,15 @@ use std::cell::RefCell;
 
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::pipeline::VType;
 use crate::pipeline::operator::{NodeId, PipelineNode};
 use crate::pipeline::vec::Vector;
-use crate::pipeline::{VType, VectorId};
 
 #[derive(Debug)]
 pub struct VectorAllocationPlan {
     /// Where each node writes its output
     pub(crate) output_targets: Vec<OutputTarget>,
-    /// The actual allocated vectors
+    /// The actual allocated intermediate vectors
     pub(crate) vectors: Vec<RefCell<Vector>>,
 }
 
@@ -32,7 +32,8 @@ pub(crate) enum OutputTarget {
 }
 
 impl OutputTarget {
-    pub fn vector_id(&self) -> Option<VectorId> {
+    /// Returns the index of the intermediate vector that this node writes to, if any.
+    pub fn vector_idx(&self) -> Option<usize> {
         match self {
             OutputTarget::IntermediateVector(idx) => Some(*idx),
             OutputTarget::ExternalOutput => None,

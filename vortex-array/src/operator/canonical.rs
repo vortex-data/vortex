@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use async_trait::async_trait;
 use std::any::Any;
 use std::hash::Hasher;
 use std::sync::Arc;
+
+use async_trait::async_trait;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 

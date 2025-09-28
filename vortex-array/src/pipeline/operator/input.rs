@@ -6,43 +6,43 @@ use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::operator::{LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 use crate::pipeline::bits::BitView;
 use crate::pipeline::vec::Selection;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BatchId, BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
+use crate::pipeline::{BatchId, BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
 
 /// An operator that exports a child operator's data in canonical pipelined form.
 ///
 /// FIXME(ngates): this should disappear and instead the allocation plan should know how to pass
 ///  input vectors as a zero-copy view over the input array.
 #[derive(Debug, Clone)]
-pub struct PipelineInputOperator {
+pub(super) struct VectorInputOperator {
     child: OperatorRef,
 }
 
-impl OperatorHash for PipelineInputOperator {
-    fn operator_hash<H: Hasher>(&self, state: &mut H) {
-        self.child.operator_hash(state);
-    }
-}
-
-impl OperatorEq for PipelineInputOperator {
-    fn operator_eq(&self, other: &Self) -> bool {
-        self.child.operator_eq(&other.child)
-    }
-}
-
-impl PipelineInputOperator {
+impl VectorInputOperator {
     pub(super) fn new(child: OperatorRef) -> Self {
         Self { child }
     }
 }
 
-impl Operator for PipelineInputOperator {
+impl OperatorHash for VectorInputOperator {
+    fn operator_hash<H: Hasher>(&self, state: &mut H) {
+        self.child.operator_hash(state);
+    }
+}
+
+impl OperatorEq for VectorInputOperator {
+    fn operator_eq(&self, other: &Self) -> bool {
+        self.child.operator_eq(&other.child)
+    }
+}
+
+impl Operator for VectorInputOperator {
     fn id(&self) -> OperatorId {
         OperatorId::from("vortex.operator.canonical")
     }
@@ -64,7 +64,7 @@ impl Operator for PipelineInputOperator {
     }
 
     fn with_children(self: Arc<Self>, children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
-        Ok(Arc::new(PipelineInputOperator {
+        Ok(Arc::new(VectorInputOperator {
             child: children.into_iter().next().vortex_expect("missing child"),
         }))
     }
@@ -74,7 +74,7 @@ impl Operator for PipelineInputOperator {
     }
 }
 
-impl PipelinedOperator for PipelineInputOperator {
+impl PipelinedOperator for VectorInputOperator {
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
         let batch_id = ctx.batch_inputs()[0];
         if let DType::Primitive(ptype, _) = self.dtype() {

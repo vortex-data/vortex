@@ -32,9 +32,9 @@ use vortex_error::VortexResult;
 
 use self::vec::Vector;
 use self::view::ViewMut;
+use crate::Canonical;
 use crate::operator::Operator;
 use crate::pipeline::bits::BitView;
-use crate::Canonical;
 
 /// The number of elements in each step of a Vortex evaluation operator.
 pub const N: usize = 1024;
@@ -64,13 +64,25 @@ pub trait PipelinedOperator: Operator {
 
 /// The context used when binding an operator for execution.
 pub trait BindContext {
-    fn children(&self) -> &[VectorId];
+    fn vector_input(&self, idx: usize) -> VectorHandle;
 
     fn batch_inputs(&self) -> &[BatchId];
 }
 
-/// The ID of the vector to use.
-pub type VectorId = usize;
+/// An opaque handle for accessing a given vector during a pipeline step.
+#[derive(Debug, Clone, Copy)]
+pub struct VectorHandle {
+    intermediate_vector: usize,
+}
+
+impl VectorHandle {
+    pub(crate) fn intermediate_vector(idx: usize) -> Self {
+        Self {
+            intermediate_vector: idx,
+        }
+    }
+}
+
 /// The ID of the batch input to use.
 pub type BatchId = usize;
 
@@ -104,17 +116,17 @@ pub trait Kernel: Send {
 }
 
 /// Context passed to kernels during execution, providing access to vectors.
-pub struct KernelContext {
+pub struct KernelContext<'a> {
     /// The allocated vectors for intermediate results.
-    pub(crate) vectors: Vec<RefCell<Vector>>,
+    pub(crate) intermediate_vectors: &'a [RefCell<Vector>],
     /// The computed batch inputs.
-    pub(crate) batch_inputs: Vec<Canonical>,
+    pub(crate) batch_inputs: &'a [Canonical],
 }
 
-impl KernelContext {
-    /// Get a vector by its ID.
-    pub fn vector(&self, vector_id: VectorId) -> VectorRef<'_> {
-        VectorRef::new(self.vectors[vector_id].borrow())
+impl KernelContext<'_> {
+    /// Get a vector by its handle.
+    pub fn vector(&self, handle: VectorHandle) -> VectorRef<'_> {
+        VectorRef::new(self.intermediate_vectors[handle.intermediate_vector].borrow())
     }
 
     /// Get a batch input by its ID.

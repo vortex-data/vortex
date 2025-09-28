@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub mod allocation;
 mod bind;
-pub mod buffers;
 mod input;
 mod output;
 mod toposort;
@@ -17,27 +17,28 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use futures::try_join;
 use itertools::Itertools;
 use output::{BoolOutput, PipelineOutput};
 use termtree::Tree;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, Nullability, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
+use crate::Canonical;
 use crate::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, LengthBounds,
     MaskExecution, Operator, OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
 };
 use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
+use crate::pipeline::operator::allocation::{OutputTarget, allocate_vectors};
 use crate::pipeline::operator::bind::bind_kernels;
-use crate::pipeline::operator::buffers::{allocate_vectors, OutputTarget};
-use crate::pipeline::operator::input::PipelineInputOperator;
+use crate::pipeline::operator::input::VectorInputOperator;
 use crate::pipeline::operator::output::PrimitiveOutput;
 use crate::pipeline::operator::toposort::topological_sort;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BatchId, Element, Kernel, KernelContext, N, N_WORDS};
-use crate::Canonical;
+use crate::pipeline::{BatchId, Kernel, KernelContext, N, N_WORDS};
 
 /// An operator node used during execution planning to represent a pipelined execution.
 ///
@@ -49,8 +50,6 @@ pub(crate) struct PipelineOperator {
     dag: Vec<PipelineNode>,
     /// The set of operators that provide canonicalized batch inputs to the pipeline.
     batch_inputs: Vec<OperatorRef>,
-    /// The set of the batch inputs that should have the mask propagated to them.
-    domain_inputs: Vec<BatchId>,
 }
 
 impl OperatorHash for PipelineOperator {
@@ -93,19 +92,19 @@ type NodeId = usize;
 struct PipelineNode {
     // The operator at this node.
     operator: OperatorRef,
-    // The indices of the child nodes in the `nodes` vector.
+    // The children of the node.
     children: Vec<NodeId>,
     // The indices of this node's parents in the `nodes` vector.
     parents: Vec<NodeId>,
-    // The IDs of the batch inputs that feed into this node.
-    batch_inputs: Vec<BatchId>,
+    // The indices of the batch inputs that feed into this node.
+    batch_input_ids: Vec<BatchId>,
 }
 
 impl OperatorHash for PipelineNode {
     fn operator_hash<H: Hasher>(&self, state: &mut H) {
         self.operator.operator_hash(state);
         self.children.hash(state);
-        self.batch_inputs.hash(state);
+        self.batch_input_ids.hash(state);
     }
 }
 
@@ -113,7 +112,7 @@ impl OperatorEq for PipelineNode {
     fn operator_eq(&self, other: &Self) -> bool {
         self.operator.operator_eq(&other.operator)
             && self.children == other.children
-            && self.batch_inputs == other.batch_inputs
+            && self.batch_input_ids == other.batch_input_ids
     }
 }
 
@@ -126,8 +125,7 @@ impl PipelineOperator {
         fn visit_node(
             node: OperatorRef,
             dag: &mut Vec<PipelineNode>,
-            batch: &mut Vec<OperatorRef>,
-            domain_inputs: &mut Vec<BatchId>,
+            batch_inputs: &mut Vec<OperatorRef>,
             hash_to_id: &mut HashMap<u64, NodeId>,
             random_state: &RandomState,
         ) -> NodeId {
@@ -141,62 +139,54 @@ impl PipelineOperator {
             }
 
             // Process children first (post-order traversal)
-            let mut child_indices: Vec<NodeId> = vec![];
-            let mut batch_indices: Vec<BatchId> = vec![];
+            let mut children: Vec<NodeId> = vec![];
+            let mut batch_input_ids: Vec<usize> = vec![];
 
             let node_children = node.children();
             let pipelined = node.as_pipelined().vortex_expect("must be pipelined");
 
-            // Prepare the pipelined vector children
+            // The vector child are those whose rows are aligned to the rows of the current node.
             for child_idx in pipelined.vector_children() {
-                let mut child_op = node_children[child_idx].clone();
-                let mut is_domain_input = false;
+                let child = node_children[child_idx].clone();
 
-                if child_op.as_pipelined().is_none() {
-                    // If the child supports pipelining and has the same row selection, we can
-                    // include it in our pipeline. Otherwise, we need to stop the pipeline here and
-                    // treat this child as a batch input.
-                    child_op = Arc::new(PipelineInputOperator::new(child_op));
+                if child.as_pipelined().is_some() {
+                    // If the child is both aligned and supports pipelined execution, then we include
+                    // it in the pipeline by recursing.
+                    let child_node_id =
+                        visit_node(child, dag, batch_inputs, hash_to_id, random_state);
+                    children.push(child_node_id);
+                } else {
+                    // If the child is aligned, but does not support pipelined execution, then at
+                    // runtime we must compute the full canonical input, then feed it into the
+                    // pipeline step-by-step.
 
-                    // If the child is marked as a vector child, but it doesn't itself support
-                    // pipelined compute, then we know it has the same domain of rows as the
-                    // pipeline. We track it so we can use its row count as the domain size at
-                    // execution time.
-                    is_domain_input = true;
-                }
+                    // For now, we do this by creating a dummy operator node that wraps the input
+                    // operator and produces the output as pipeline vectors. This currently incurs
+                    // a copy, we should fix this.
 
-                let child_node_id = visit_node(
-                    child_op,
-                    dag,
-                    batch,
-                    domain_inputs,
-                    hash_to_id,
-                    random_state,
-                );
-                child_indices.push(child_node_id);
-
-                if is_domain_input {
-                    let domain_batch = &dag[child_node_id].batch_inputs;
-                    assert_eq!(domain_batch.len(), 1);
-                    domain_inputs.push(domain_batch[0]);
+                    // But for now, we create a fake operator that wraps the input operator and
+                    // produces output by copying.
+                    let child: OperatorRef = Arc::new(VectorInputOperator::new(child));
+                    let child_node_id =
+                        visit_node(child, dag, batch_inputs, hash_to_id, random_state);
+                    children.push(child_node_id);
                 }
             }
 
-            // And the batch input children
+            // And the batch inputs
             for child_idx in pipelined.batch_children() {
                 let child = node_children[child_idx].clone();
-                let batch_id = batch.len();
-                batch.push(child);
-                batch_indices.push(batch_id);
+                batch_inputs.push(child);
+                batch_input_ids.push(batch_inputs.len() - 1);
             }
 
             // Create new DAG node
             let node_id: NodeId = dag.len();
             let dag_node = PipelineNode {
                 operator: node,
-                children: child_indices,
+                children,
                 parents: vec![], // Will be filled in later
-                batch_inputs: batch_indices,
+                batch_input_ids,
             };
 
             dag.push(dag_node);
@@ -207,23 +197,21 @@ impl PipelineOperator {
 
         // Build the DAG
         let mut dag = vec![];
-        let mut batch = vec![];
-        let mut domain_inputs = vec![];
+        let mut batch_inputs = vec![];
         let mut hash_to_id: HashMap<u64, NodeId> = HashMap::new();
         let random_state = RandomState::default();
         let root_index = visit_node(
             operator,
             &mut dag,
-            &mut batch,
-            &mut domain_inputs,
+            &mut batch_inputs,
             &mut hash_to_id,
             &random_state,
         );
 
         // Fill in parent relationships
         for i in 0..dag.len() {
-            let children = dag[i].children.clone();
-            for &child_idx in &children {
+            for child_idx in dag[i].children.clone() {
+                assert!(child_idx < dag.len());
                 dag[child_idx].parents.push(i);
             }
         }
@@ -231,8 +219,7 @@ impl PipelineOperator {
         Some(PipelineOperator {
             root: root_index,
             dag,
-            batch_inputs: batch,
-            domain_inputs,
+            batch_inputs,
         })
     }
 
@@ -309,44 +296,33 @@ impl BatchOperator for PipelineOperator {
         let batch_inputs: Vec<_> = self
             .batch_inputs
             .iter()
-            .enumerate()
-            // TODO(ngates): some batch inputs need to be masked!
-            // TODO(ngates): pipeline inputs are different from batch inputs. We probably want
-            //  batch execution to support returning a MaskedCanonical array for deferred masking.
-            .map(|(i, operator)| {
-                if self.domain_inputs.contains(&i) {
-                    ctx.bind_project(operator, Some(mask))
-                } else {
-                    ctx.bind_project(operator, None)
-                }
-            })
+            .map(|operator| ctx.bind_project(operator, None))
             .try_collect()?;
 
-        let vectors = allocation_plan.vectors;
+        let mask = ctx.bind_mask(mask)?;
+
+        let intermediate_vectors = allocation_plan.vectors;
         let pipeline = Pipeline {
             kernels,
             exec_order,
             output_targets: allocation_plan.output_targets,
         };
 
-        let len = self
-            .root_operator()
-            .bounds()
-            .maybe_len()
-            .vortex_expect("Must have length");
-        let mask = ctx.bind_mask(mask)?;
-
         match self.dtype() {
-            DType::Bool(Nullability::NonNullable) => Ok(Box::new(
-                PipelineExecution::<BoolOutput>::new(len, mask, batch_inputs, vectors, pipeline),
-            )),
+            DType::Bool(Nullability::NonNullable) => {
+                Ok(Box::new(PipelineExecution::<BoolOutput>::new(
+                    mask,
+                    batch_inputs,
+                    intermediate_vectors,
+                    pipeline,
+                )))
+            }
             DType::Primitive(ptype, Nullability::NonNullable) => {
                 match_each_native_ptype!(ptype, |T| {
                     Ok(Box::new(PipelineExecution::<PrimitiveOutput<T>>::new(
-                        len,
                         mask,
                         batch_inputs,
-                        vectors,
+                        intermediate_vectors,
                         pipeline,
                     )))
                 })
@@ -360,29 +336,24 @@ impl BatchOperator for PipelineOperator {
 }
 
 struct PipelineExecution<O> {
-    len: usize,
     mask: MaskExecution,
-    // The children store the batch inputs to the pipeline. If the LenProvider indicates that we
-    // are running over a masked domain of rows, the final child will be the mask operator.
-    children: Vec<BatchExecutionRef>,
-    vectors: Vec<RefCell<Vector>>,
+    batch_inputs: Vec<BatchExecutionRef>,
+    intermediate_vectors: Vec<RefCell<Vector>>,
     pipeline: Pipeline,
     _element: PhantomData<O>,
 }
 
 impl<O> PipelineExecution<O> {
     fn new(
-        len: usize,
         mask: MaskExecution,
         batch_inputs: Vec<BatchExecutionRef>,
-        vectors: Vec<RefCell<Vector>>,
+        intermediate_vectors: Vec<RefCell<Vector>>,
         pipeline: Pipeline,
     ) -> Self {
         PipelineExecution {
-            len,
             mask,
-            children: batch_inputs,
-            vectors,
+            batch_inputs,
+            intermediate_vectors,
             pipeline,
             _element: PhantomData,
         }
@@ -392,18 +363,17 @@ impl<O> PipelineExecution<O> {
 #[async_trait]
 impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
     async fn execute(mut self: Box<Self>) -> VortexResult<Canonical> {
-        // Execute all child operators concurrently with the row selection.
-        let children = try_join_all(self.children.into_iter().map(|exec| exec.execute())).await?;
+        // Execute all input operators and mask concurrently.
+        let batch_inputs = try_join_all(self.batch_inputs.into_iter().map(|e| e.execute()));
+        let (batch_inputs, mask) = try_join!(batch_inputs, self.mask)?;
 
         // Extract the selection mask
-        let mask = self.mask.await?;
-        assert_eq!(self.len, mask.len(), "Incorrect mask length");
-        let len = self.len;
+        let len = mask.len();
 
         // Create a kernel context with the batch inputs.
         let ctx = KernelContext {
-            vectors: self.vectors,
-            batch_inputs: children,
+            intermediate_vectors: &self.intermediate_vectors,
+            batch_inputs: &batch_inputs,
         };
 
         // Allocate the output vector and validity.
@@ -441,7 +411,7 @@ impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
             let mut selection_words = [0usize; N_WORDS];
             let mut selection_view_mut = BitViewMut::new(&mut selection_words);
 
-            let nchunks = (self.len + N - 1) / N;
+            let nchunks = len.div_ceil(N);
 
             let mut position = 0;
             for chunk_idx in 0..nchunks {
@@ -490,7 +460,7 @@ impl Kernel for Pipeline {
             match &self.output_targets[node_idx] {
                 OutputTarget::ExternalOutput => kernel.step(ctx, chunk_idx, selection, out)?,
                 OutputTarget::IntermediateVector(vector_idx) => {
-                    let mut vector_ref = ctx.vectors[*vector_idx].borrow_mut();
+                    let mut vector_ref = ctx.intermediate_vectors[*vector_idx].borrow_mut();
                     let selection = {
                         let mut view = vector_ref.as_view_mut();
                         kernel.step(ctx, chunk_idx, selection, &mut view)?;

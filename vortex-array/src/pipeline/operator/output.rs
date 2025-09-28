@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::{BoolArray, PrimitiveArray};
-use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Element, N};
-use crate::validity::Validity;
-use crate::Canonical;
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
+
+use crate::Canonical;
+use crate::arrays::{BoolArray, PrimitiveArray};
+use crate::pipeline::view::ViewMut;
+use crate::pipeline::{Element, N};
+use crate::validity::Validity;
 
 /// This trait allows us to abstract over the canonical element type of the pipeline, providing
 /// a single implementation of the pipeline batch execution for all canonical types.
