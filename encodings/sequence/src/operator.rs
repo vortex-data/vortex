@@ -6,16 +6,16 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use num_traits::{ConstOne, PrimInt};
+use vortex_array::Array;
 use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::{Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::vec::Selection;
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, PipelinedOperator, N};
+use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
 use vortex_array::vtable::PipelineVTable;
-use vortex_array::Array;
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::{SequenceArray, SequenceVTable};
 

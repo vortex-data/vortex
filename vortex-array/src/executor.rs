@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::{FutureExt, TryFutureExt};
 use vortex_error::{
-    vortex_bail, vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult,
+    SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err,
 };
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;

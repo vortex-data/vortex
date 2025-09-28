@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::ConstantArray;
 use crate::compute::Operator as Op;
@@ -17,7 +17,7 @@ use crate::pipeline::bits::BitView;
 use crate::pipeline::vec::Selection;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{
-    BindContext, Element, Kernel, KernelContext, PipelinedOperator, VectorHandle, N,
+    BindContext, Element, Kernel, KernelContext, N, PipelinedOperator, VectorHandle,
 };
 
 #[derive(Debug)]

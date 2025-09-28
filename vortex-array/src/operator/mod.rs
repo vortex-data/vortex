@@ -36,7 +36,7 @@ pub mod metrics;
 mod optimize;
 pub mod slice;
 
-use std::any::{type_name, Any};
+use std::any::{Any, type_name};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -50,8 +50,8 @@ use termtree::Tree;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::pipeline::PipelinedOperator;
 use crate::Canonical;
+use crate::pipeline::PipelinedOperator;
 
 pub type OperatorId = ArcRef<str>;
 pub type OperatorRef = Arc<dyn Operator>;
