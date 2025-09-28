@@ -35,7 +35,7 @@ bitvec = { workspace = true }
 cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
-futures = { workspace = true }
+futures = { workspace = true, features = ["async-await"] }
 getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
 humansize = { workspace = true }
