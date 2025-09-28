@@ -28,7 +28,6 @@
 pub mod canonical;
 pub mod compare;
 mod display;
-// pub mod filter;
 pub mod getitem;
 mod hash;
 mod mask;
