@@ -20,6 +20,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
+use vortex_mask::AllOr;
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
@@ -377,12 +378,25 @@ fn build_bloom_filter_from_dictionary_values(values: &dyn Array) -> Option<Bloom
             "insert_utf8 called with non-utf8 chunk"
         );
 
-        for index in 0..utf8.len() {
-            if utf8.is_valid(index) {
-                // SAFETY: we enforce at the top that this is a UTF-8 chunk
-                let bytes = utf8.bytes_at(index);
-                let string = unsafe { std::str::from_utf8_unchecked(&bytes) };
-                filter.insert(string);
+        match utf8.validity_mask().slices() {
+            AllOr::All => {
+                for index in 0..utf8.len() {
+                    let bytes = utf8.bytes_at(index);
+                    let string = unsafe { std::str::from_utf8_unchecked(&bytes) };
+                    filter.insert(string);
+                }
+            }
+            AllOr::None => {
+                // Nothing to insert
+            }
+            AllOr::Some(ranges) => {
+                for &(start, stop) in ranges {
+                    for index in start..stop {
+                        let bytes = utf8.bytes_at(index);
+                        let string = unsafe { std::str::from_utf8_unchecked(&bytes) };
+                        filter.insert(string);
+                    }
+                }
             }
         }
     }
@@ -390,15 +404,27 @@ fn build_bloom_filter_from_dictionary_values(values: &dyn Array) -> Option<Bloom
     // Binary data can still be inserted in this way.
     fn insert_binary(binary: &VarBinViewArray, filter: &mut BloomFilter) {
         assert!(
-            binary.dtype().is_utf8(),
-            "insert_utf8 called with non-utf8 chunk"
+            binary.dtype().is_binary(),
+            "insert_binary called with non-binary chunk"
         );
 
-        for index in 0..binary.len() {
-            if binary.is_valid(index) {
-                // SAFETY: we enforce at the top that this is a UTF-8 chunk
-                let bytes = binary.bytes_at(index);
-                filter.insert_raw(bytes);
+        match binary.validity_mask().slices() {
+            AllOr::All => {
+                for index in 0..binary.len() {
+                    let bytes = binary.bytes_at(index);
+                    filter.insert_raw(bytes);
+                }
+            }
+            AllOr::None => {
+                // Nothing to insert
+            }
+            AllOr::Some(ranges) => {
+                for &(start, stop) in ranges {
+                    for index in start..stop {
+                        let bytes = binary.bytes_at(index);
+                        filter.insert_raw(bytes);
+                    }
+                }
             }
         }
     }
