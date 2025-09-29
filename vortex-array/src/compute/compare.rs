@@ -7,8 +7,11 @@ use std::fmt::{Display, Formatter};
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use arrow_buffer::BooleanBuffer;
+use arrow_array::{BooleanArray, Datum as ArrowDatum};
+use arrow_buffer::{BooleanBuffer, NullBuffer};
 use arrow_ord::cmp;
+use arrow_ord::ord::make_comparator;
+use arrow_schema::SortOptions;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
@@ -300,16 +303,42 @@ fn arrow_compare(
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-    let lhs = Datum::try_new(left)?;
-    let rhs = Datum::try_new(right)?;
 
-    let array = match operator {
-        Operator::Eq => cmp::eq(&lhs, &rhs)?,
-        Operator::NotEq => cmp::neq(&lhs, &rhs)?,
-        Operator::Gt => cmp::gt(&lhs, &rhs)?,
-        Operator::Gte => cmp::gt_eq(&lhs, &rhs)?,
-        Operator::Lt => cmp::lt(&lhs, &rhs)?,
-        Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
+
+    let array = if left.dtype().is_recursive() || right.dtype().is_recursive() {
+        let lhs = Datum::try_new_array(&left.to_canonical().into_array())?;
+        let (lhs, _) = lhs.get();
+        let rhs = Datum::try_new_array(&right.to_canonical().into_array())?;
+        let (rhs, _) = rhs.get();
+
+        let cmp = make_comparator(lhs, rhs, SortOptions::default())?;
+        assert_eq!(lhs.len(), rhs.len());
+        let len = lhs.len();
+        let values = (0..len).map(|i| {
+            let cmp = cmp(i, i);
+            match operator {
+                Operator::Eq => cmp.is_eq(),
+                Operator::NotEq => cmp.is_ne(),
+                Operator::Gt => cmp.is_gt(),
+                Operator::Gte => cmp.is_gt() || cmp.is_eq(),
+                Operator::Lt => cmp.is_lt() ,
+                Operator::Lte => cmp.is_lt() || cmp.is_eq(),
+            }
+        }).collect();
+        let nulls = NullBuffer::union(lhs.nulls(), rhs.nulls());
+        BooleanArray::new(values, nulls)
+    } else {
+        let lhs = Datum::try_new(left)?;
+        let rhs = Datum::try_new(right)?;
+
+        match operator {
+            Operator::Eq => cmp::eq(&lhs, &rhs)?,
+            Operator::NotEq => cmp::neq(&lhs, &rhs)?,
+            Operator::Gt => cmp::gt(&lhs, &rhs)?,
+            Operator::Gte => cmp::gt_eq(&lhs, &rhs)?,
+            Operator::Lt => cmp::lt(&lhs, &rhs)?,
+            Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
+        }
     };
     Ok(from_arrow_array_with_len(&array, left.len(), nullable))
 }
