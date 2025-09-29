@@ -456,43 +456,59 @@ mod tests {
         // Create two simple list arrays with integers
         let values1 = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
         let offsets1 = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
-        let list1 = ListArray::try_new(values1.into_array(), offsets1.into_array(), Validity::NonNullable).unwrap();
+        let list1 = ListArray::try_new(
+            values1.into_array(),
+            offsets1.into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
 
         let values2 = PrimitiveArray::from_iter([1i32, 2, 3, 4, 7, 8]);
         let offsets2 = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
-        let list2 = ListArray::try_new(values2.into_array(), offsets2.into_array(), Validity::NonNullable).unwrap();
+        let list2 = ListArray::try_new(
+            values2.into_array(),
+            offsets2.into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
 
         // Test equality - first two lists should be equal, third should be different
         let result = compare(list1.as_ref(), list2.as_ref(), Operator::Eq).unwrap();
         let bool_result = result.to_bool();
-        assert_eq!(bool_result.boolean_buffer().value(0), true); // [1,2] == [1,2]
-        assert_eq!(bool_result.boolean_buffer().value(1), true); // [3,4] == [3,4]
-        assert_eq!(bool_result.boolean_buffer().value(2), false); // [5,6] != [7,8]
+        assert!(bool_result.boolean_buffer().value(0)); // [1,2] == [1,2]
+        assert!(bool_result.boolean_buffer().value(1)); // [3,4] == [3,4]
+        assert!(!bool_result.boolean_buffer().value(2)); // [5,6] != [7,8]
 
         // Test inequality
         let result = compare(list1.as_ref(), list2.as_ref(), Operator::NotEq).unwrap();
         let bool_result = result.to_bool();
-        assert_eq!(bool_result.boolean_buffer().value(0), false);
-        assert_eq!(bool_result.boolean_buffer().value(1), false);
-        assert_eq!(bool_result.boolean_buffer().value(2), true);
+        assert!(!bool_result.boolean_buffer().value(0));
+        assert!(!bool_result.boolean_buffer().value(1));
+        assert!(bool_result.boolean_buffer().value(2));
 
         // Test less than
         let result = compare(list1.as_ref(), list2.as_ref(), Operator::Lt).unwrap();
         let bool_result = result.to_bool();
-        assert_eq!(bool_result.boolean_buffer().value(0), false); // [1,2] < [1,2] = false
-        assert_eq!(bool_result.boolean_buffer().value(1), false); // [3,4] < [3,4] = false
-        assert_eq!(bool_result.boolean_buffer().value(2), true); // [5,6] < [7,8] = true
+        assert!(!bool_result.boolean_buffer().value(0)); // [1,2] < [1,2] = false
+        assert!(!bool_result.boolean_buffer().value(1)); // [3,4] < [3,4] = false
+        assert!(bool_result.boolean_buffer().value(2)); // [5,6] < [7,8] = true
     }
 
     #[test]
     fn test_list_array_constant_comparison() {
         use std::sync::Arc;
+
         use vortex_dtype::{DType, PType};
 
         // Create a list array
         let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
         let offsets = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
-        let list = ListArray::try_new(values.into_array(), offsets.into_array(), Validity::NonNullable).unwrap();
+        let list = ListArray::try_new(
+            values.into_array(),
+            offsets.into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
 
         // Create a constant list scalar [3,4] that will be broadcasted
         let list_scalar = Scalar::list(
@@ -505,9 +521,9 @@ mod tests {
         // Compare list with constant - all should be compared to [3,4]
         let result = compare(list.as_ref(), constant.as_ref(), Operator::Eq).unwrap();
         let bool_result = result.to_bool();
-        assert_eq!(bool_result.boolean_buffer().value(0), false); // [1,2] != [3,4]
-        assert_eq!(bool_result.boolean_buffer().value(1), true); // [3,4] == [3,4]
-        assert_eq!(bool_result.boolean_buffer().value(2), false); // [5,6] != [3,4]
+        assert!(!bool_result.boolean_buffer().value(0)); // [1,2] != [3,4]
+        assert!(bool_result.boolean_buffer().value(1)); // [3,4] == [3,4]
+        assert!(!bool_result.boolean_buffer().value(2)); // [5,6] != [3,4]
     }
 
     #[test]
@@ -534,15 +550,15 @@ mod tests {
         // Test equality
         let result = compare(struct1.as_ref(), struct2.as_ref(), Operator::Eq).unwrap();
         let bool_result = result.to_bool();
-        assert_eq!(bool_result.boolean_buffer().value(0), true); // {true, 1} == {true, 1}
-        assert_eq!(bool_result.boolean_buffer().value(1), true); // {false, 2} == {false, 2}
-        assert_eq!(bool_result.boolean_buffer().value(2), false); // {true, 3} != {false, 4}
+        assert!(bool_result.boolean_buffer().value(0)); // {true, 1} == {true, 1}
+        assert!(bool_result.boolean_buffer().value(1)); // {false, 2} == {false, 2}
+        assert!(!bool_result.boolean_buffer().value(2)); // {true, 3} != {false, 4}
 
         // Test greater than
         let result = compare(struct1.as_ref(), struct2.as_ref(), Operator::Gt).unwrap();
         let bool_result = result.to_bool();
-        assert_eq!(bool_result.boolean_buffer().value(0), false); // {true, 1} > {true, 1} = false
-        assert_eq!(bool_result.boolean_buffer().value(1), false); // {false, 2} > {false, 2} = false
-        assert_eq!(bool_result.boolean_buffer().value(2), true); // {true, 3} > {false, 4} = true (bool field takes precedence)
+        assert!(!bool_result.boolean_buffer().value(0)); // {true, 1} > {true, 1} = false
+        assert!(!bool_result.boolean_buffer().value(1)); // {false, 2} > {false, 2} = false
+        assert!(bool_result.boolean_buffer().value(2)); // {true, 3} > {false, 4} = true (bool field takes precedence)
     }
 }
