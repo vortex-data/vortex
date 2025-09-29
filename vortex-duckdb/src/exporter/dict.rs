@@ -231,6 +231,7 @@ mod tests {
     }
 
     #[ignore = "TODO(connor): Exporters do not correctly handle empty vectors"]
+    #[test]
     fn test_export_empty_dict() {
         let arr = DictArray::new(
             Buffer::<u32>::empty().into_array(),

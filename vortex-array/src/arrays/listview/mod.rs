@@ -8,19 +8,22 @@ use vortex_dtype::{DType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_err};
 
 use crate::arrays::{ListArray, PrimitiveVTable};
-use crate::builders::{ArrayBuilder, ListViewBuilder, PrimitiveBuilder};
+use crate::builders::PrimitiveBuilder;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, Canonical, IntoArray, OffsetPType, ToCanonical};
 
+mod compute;
+
 mod vtable;
 pub use vtable::{ListViewEncoding, ListViewVTable};
 
+mod rebuild;
+pub use rebuild::ListViewRebuildMode;
+
 #[cfg(test)]
 mod tests;
-
-mod compute;
 
 /// The canonical encoding for variable-length list arrays.
 ///
@@ -316,34 +319,6 @@ impl ListViewArray {
     /// Returns the elements array.
     pub fn elements(&self) -> &ArrayRef {
         &self.elements
-    }
-
-    /// Rebuilds a [`ListViewArray`], deduplicating all data and cleaning up garbage data.
-    ///
-    /// This is useful when the `elements` child array of the [`ListViewArray`] might have
-    /// overlapping, duplicate, and garbage data, and we want to have fully unshuffled data.
-    pub fn rebuild_listview(&self) -> ListViewArray {
-        let element_dtype = self
-            .dtype()
-            .as_list_element_opt()
-            .vortex_expect("somehow had a canonical list that was not a list");
-
-        let offsets_ptype = self.offsets().dtype().as_ptype();
-        let sizes_ptype = self.sizes().dtype().as_ptype();
-
-        match_each_integer_ptype!(offsets_ptype, |O| {
-            match_each_integer_ptype!(sizes_ptype, |S| {
-                let mut builder = ListViewBuilder::<O, S>::with_capacity(
-                    element_dtype.clone(),
-                    self.dtype().nullability(),
-                    self.elements().len(),
-                    self.len(),
-                );
-
-                builder.extend_from_array(self.as_ref());
-                builder.finish_into_listview()
-            })
-        })
     }
 }
 

@@ -3,10 +3,20 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{ListViewArray, ListViewVTable};
+use crate::arrays::{ListViewArray, ListViewRebuildMode, ListViewVTable};
 use crate::compute::{self, TakeKernel, TakeKernelAdapter};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
+
+/// The threshold for triggering a rebuild of the [`ListViewArray`].
+///
+/// By default, we will not touch the underlying `elements` array of the [`ListViewArray`] since it
+/// can be potentially expensive to reorganize the array based on what views we have into it.
+///
+/// However, we also do not want to carry around a large amount of garbage data. Below this
+/// threshold of the density of the selection mask, we will rebuild the [`ListViewArray`], removing
+/// any garbage data.
+const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
 
 /// [`ListViewArray`] take implementation.
 ///
@@ -37,10 +47,19 @@ impl TakeKernel for ListViewVTable {
         // - Offsets and sizes are derived from existing valid child arrays.
         // - Offsets and sizes have the same length (both taken with same `indices`).
         // - Validity correctly reflects the combination of array and indices validity.
-        Ok(unsafe {
+        let mut new_array = unsafe {
             ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
+        };
+
+        #[allow(clippy::cast_possible_truncation)]
+        let rebuild_threshold = (array.len() as f64 * REBUILD_DENSITY_THRESHOLD) as usize;
+
+        // TODO(connor)[ListView]: Figure out a better heuristic.
+        if indices.len() <= rebuild_threshold {
+            new_array = new_array.rebuild(ListViewRebuildMode::RemoveGaps);
         }
-        .into_array())
+
+        Ok(new_array.into_array())
     }
 }
 

@@ -9,11 +9,11 @@ use arcref::ArcRef;
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_iterator::BitIndexIterator;
 use num_traits::{AsPrimitive, Zero};
-use vortex_dtype::{DType, Nullability, match_each_integer_ptype};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{ListScalar, Scalar};
 
-use crate::arrays::{BoolArray, ConstantArray, ListViewArray};
+use crate::arrays::{BoolArray, ConstantArray, ListViewArray, PrimitiveArray};
 use crate::compute::{
     self, BinaryArgs, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Output,
 };
@@ -214,6 +214,7 @@ fn constant_list_scalar_contains(
     Ok(result.unwrap_or_else(|| ConstantArray::new(false_scalar, len).to_array()))
 }
 
+/// Returns a [`BoolArray`] where each bit represents if a list contains the scalar.
 fn list_contains_scalar(
     array: &dyn Array,
     value: &Scalar,
@@ -271,31 +272,47 @@ fn list_contains_scalar(
     let sizes = list_array.sizes().to_primitive();
 
     // Process based on the offset and size types.
-    match_each_integer_ptype!(offsets.ptype(), |O| {
+    let list_matches = match_each_integer_ptype!(offsets.ptype(), |O| {
         match_each_integer_ptype!(sizes.ptype(), |S| {
-            let offsets_slice = offsets.as_slice::<O>();
-            let sizes_slice = sizes.as_slice::<S>();
-
-            let mask: BooleanBuffer = (0..list_array.len())
-                .map(|i| {
-                    let offset = offsets_slice[i].as_();
-                    let size = sizes_slice[i].as_();
-
-                    // BitIndexIterator yields indices of true bits only. If `.next()` returns
-                    // `Some(_)`, at least one element in this list's range matches.
-                    let mut set_bits =
-                        BitIndexIterator::new(matches.boolean_buffer().values(), offset, size);
-                    set_bits.next().is_some()
-                })
-                .collect();
-
-            Ok(BoolArray::from_bool_buffer(
-                mask,
-                list_array.validity().clone().union_nullability(nullability),
-            )
-            .into_array())
+            process_matches::<O, S>(matches, list_array.len(), offsets, sizes)
         })
-    })
+    });
+
+    Ok(BoolArray::from_bool_buffer(
+        list_matches,
+        list_array.validity().clone().union_nullability(nullability),
+    )
+    .into_array())
+}
+
+// TODO(connor): change the bounds to `IntegerPType`.
+/// Returns a [`BooleanBuffer`] where each bit represents if a list contains the scalar, derived
+/// from a [`BoolArray`] of matches on the child elements array.
+fn process_matches<O, S>(
+    matches: BoolArray,
+    list_array_len: usize,
+    offsets: PrimitiveArray,
+    sizes: PrimitiveArray,
+) -> BooleanBuffer
+where
+    O: NativePType + AsPrimitive<usize>,
+    S: NativePType + AsPrimitive<usize>,
+{
+    let offsets_slice = offsets.as_slice::<O>();
+    let sizes_slice = sizes.as_slice::<S>();
+
+    (0..list_array_len)
+        .map(|i| {
+            let offset = offsets_slice[i].as_();
+            let size = sizes_slice[i].as_();
+
+            // BitIndexIterator yields indices of true bits only. If `.next()` returns
+            // `Some(_)`, at least one element in this list's range matches.
+            let mut set_bits =
+                BitIndexIterator::new(matches.boolean_buffer().values(), offset, size);
+            set_bits.next().is_some()
+        })
+        .collect::<BooleanBuffer>()
 }
 
 /// Returns a `Bool` array with `false` for lists that are valid,

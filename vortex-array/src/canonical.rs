@@ -7,8 +7,8 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
 
 use crate::arrays::{
-    BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray, NullArray,
-    PrimitiveArray, StructArray, VarBinViewArray,
+    BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray,
+    ListViewRebuildMode, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
 };
 use crate::builders::builder_with_capacity;
 use crate::{Array, ArrayRef, IntoArray};
@@ -102,7 +102,9 @@ impl Canonical {
     pub fn compact(&self) -> VortexResult<Canonical> {
         match self {
             Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers()?)),
-            Canonical::List(array) => Ok(Canonical::List(array.rebuild_listview())),
+            Canonical::List(array) => {
+                Ok(Canonical::List(array.rebuild(ListViewRebuildMode::Flatten)))
+            }
             _ => Ok(self.clone()),
         }
     }

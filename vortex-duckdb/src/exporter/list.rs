@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
+use parking_lot::Mutex;
 use vortex::arrays::{ListViewArray, PrimitiveArray};
 use vortex::dtype::match_each_integer_ptype;
 use vortex::error::{VortexResult, vortex_err};
@@ -16,8 +18,13 @@ use crate::exporter::ColumnExporter;
 
 struct ListExporter<O, S> {
     validity: Mask,
-    /// We cache the child elements of our list array so that we don't have to export it every time.
-    duckdb_elements: Vector,
+    /// We cache the child elements of our list array so that we don't have to export it every time,
+    /// and we also share it across any other exporters who want to export this array.
+    ///
+    /// Note that we are trading less compute for more memory here, as we will export the entire
+    /// array in the constructor of the exporter (`new_exporter`) even if some of the elements are
+    /// unreachable.
+    duckdb_elements: Arc<Mutex<Vector>>,
     offsets: PrimitiveArray,
     sizes: PrimitiveArray,
     num_elements: usize,
@@ -29,24 +36,50 @@ pub(crate) fn new_exporter(
     array: &ListViewArray,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    // Cache an `elements` vector up front so that future exports can reference it.
+    let elements = array.elements();
+    let num_elements = elements.len();
+
+    let values_key = Arc::as_ptr(elements).addr();
+    // Check if we have a cached vector and extract it if we do.
+    let cached_elements = cache
+        .values_cache
+        .get(&values_key)
+        .map(|entry| entry.value().1.clone());
+
+    let shared_elements = match cached_elements {
+        Some(elements) => elements,
+        None => {
+            // We have no cached the vector yet, so create a new DuckDB vector for the elements.
+            let mut duckdb_elements =
+                Vector::with_capacity(elements.dtype().try_into()?, elements.len());
+            let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
+
+            // TODO(connor)[ListView]: THIS IS A HACK, we should be checking this everywhere.
+            if !elements.is_empty() {
+                elements_exporter.export(0, elements.len(), &mut duckdb_elements)?;
+            }
+
+            let shared_elements = Arc::new(Mutex::new(duckdb_elements));
+            cache
+                .values_cache
+                .insert(values_key, (elements.clone(), shared_elements.clone()));
+
+            shared_elements
+        }
+    };
+
     let offsets = array.offsets().to_primitive();
     let sizes = array.sizes().to_primitive();
-
-    // Create a duckdb elements vector up front so that future exports can reference it.
-    let elements = array.elements();
-
-    let mut duckdb_elements = Vector::with_capacity(elements.dtype().try_into()?, elements.len());
-    let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
-    elements_exporter.export(0, elements.len(), &mut duckdb_elements)?;
 
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
         match_each_integer_ptype!(sizes.ptype(), |S| {
             Box::new(ListExporter {
                 validity: array.validity_mask(),
-                duckdb_elements,
+                duckdb_elements: shared_elements,
                 offsets,
                 sizes,
-                num_elements: elements.len(),
+                num_elements,
                 offset_type: PhantomData::<O>,
                 size_type: PhantomData::<S>,
             }) as Box<dyn ColumnExporter>
@@ -97,7 +130,7 @@ impl<O: OffsetPType, S: OffsetPType> ColumnExporter for ListExporter<O, S> {
         }
 
         let mut child = vector.list_vector_get_child();
-        child.reference(&self.duckdb_elements);
+        child.reference(&self.duckdb_elements.lock());
 
         vector.list_vector_set_size(self.num_elements as u64)?;
 
