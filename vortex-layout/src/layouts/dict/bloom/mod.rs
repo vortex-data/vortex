@@ -3,10 +3,8 @@
 
 //! This module implements Bloom Filters, which are treated as another type of "zone map".
 //!
-//! Bloom filters may optionally be populated at write time, and consulted at read time for
-//! any of the queries.
+//! Bloom filters may optionally be populated at write time, and consulted at read time.
 
-pub mod builder;
 pub mod sbbf;
 mod serde;
 

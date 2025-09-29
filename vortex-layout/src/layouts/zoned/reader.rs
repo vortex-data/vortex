@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::ops::{BitAnd, BitOr, Range};
+use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::BooleanBufferBuilder;
@@ -16,18 +16,16 @@ use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{BinaryVTable, ExprRef, LikeVTable, LiteralVTable, Operator, VortexExpr, root};
+use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::LayoutReader;
-use crate::layouts::dict::bloom::{BloomFilter, BloomFilters};
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::SegmentSource;
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
-type SharedBloomFilter = Shared<BoxFuture<'static, SharedVortexResult<Option<BloomFilters>>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
 type PredicateCache = Arc<OnceLock<Option<ExprRef>>>;
 
@@ -46,12 +44,6 @@ pub struct ZonedReader {
     /// Shared zone map
     zone_map: OnceLock<SharedZoneMap>,
 
-    /// Shared bloom filters for the zones
-    bloom_filters: OnceLock<SharedBloomFilter>,
-
-    /// Segment reader, used for fetching the bloom filters segment if present.
-    segment_source: Arc<dyn SegmentSource>,
-
     /// A cache of expr -> optional pruning predicate.
     /// This also uses the present_stats from the `ZonedLayout`
     pruning_predicates: Arc<DashMap<ExprRef, PredicateCache>>,
@@ -68,19 +60,15 @@ impl ZonedReader {
             .new_reader(name.clone(), segment_source.clone())?;
         let zones_child = layout
             .zones
-            .new_reader(format!("{name}.zones").into(), segment_source.clone())?;
-
-        // Attempt to pre-fetch the bloom filter segment.
+            .new_reader(format!("{name}.zones").into(), segment_source)?;
 
         Ok(Self {
             layout,
             name,
             data_child,
             zones_child,
-            segment_source,
             pruning_result: Default::default(),
             zone_map: Default::default(),
-            bloom_filters: Default::default(),
             pruning_predicates: Default::default(),
         })
     }
@@ -133,17 +121,6 @@ impl ZonedReader {
             .clone()
     }
 
-    fn bloom_filters(&self) -> SharedBloomFilter {
-        self.bloom_filters
-            .get_or_init(move || {
-                fetch_bloom_filter(
-                    self.layout.bloom_filter_segment,
-                    self.segment_source.clone(),
-                )
-            })
-            .clone()
-    }
-
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
     fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
         self.pruning_result
@@ -151,69 +128,19 @@ impl ZonedReader {
             .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
                 None => {
                     log::debug!("No pruning predicate for expr: {expr}");
-
-                    let nzones = self.layout.nzones();
-                    let bloom_filters = self.bloom_filters();
-                    let dynamic_updates = DynamicExprUpdates::new(&expr);
-
-                    // If the expression is prunable via our Bloom filters, then we construct
-                    // a new updatable pruning result that probes the filters to classify zones
-                    // as in/out of bounds for the scan
-                    is_bloom_prunable(expr.as_ref()).then_some({
-                        async move {
-                            let bloom = bloom_filters.await?;
-                            if let Some(bloom_filters) = bloom {
-                                let initial_mask = bloom_filters.prune(expr.as_ref());
-
-                                Ok(Arc::new(PruningResult {
-                                    zone_map: None,
-                                    bloom_filters: Some(bloom_filters),
-                                    predicate: expr.clone(),
-                                    expr: expr.clone(),
-                                    dynamic_updates,
-                                    latest_result: RwLock::new((0, initial_mask)),
-                                }))
-                            } else {
-                                Ok(Arc::new(PruningResult {
-                                    zone_map: None,
-                                    bloom_filters: None,
-                                    predicate: expr.clone(),
-                                    expr: expr.clone(),
-                                    dynamic_updates,
-                                    latest_result: RwLock::new((0, Mask::new_false(nzones))),
-                                }))
-                            }
-                        }
-                        .map_err(Arc::new)
-                        .boxed()
-                        .shared()
-                    })
+                    None
                 }
                 Some(predicate) => {
                     log::debug!("Constructed pruning predicate for expr: {expr}: {predicate:?}");
                     let zone_map = self.zone_map();
                     let dynamic_updates = DynamicExprUpdates::new(&expr);
 
-                    // If the data child is String, we try and use bloom filter in addition.
-                    let bloom_filters = self.bloom_filters();
-
                     Some(
                         async move {
                             let zone_map = zone_map.await?;
-                            let bloom_filters = bloom_filters.await?;
-                            // It would be nice to spawn the bloom filters probing to run
-                            let mut initial_mask = zone_map.prune(&predicate)?;
-
-                            // Optionally refine the mask using the bloom filter
-                            if let Some(ref bloom) = bloom_filters {
-                                let bloom_mask = bloom.prune(expr.as_ref());
-                                initial_mask = initial_mask.bitor(&bloom_mask);
-                            }
-
+                            let initial_mask = zone_map.prune(&predicate)?;
                             Ok(Arc::new(PruningResult {
-                                zone_map: Some(zone_map),
-                                expr: expr.clone(),
-                                bloom_filters,
+                                zone_map,
                                 predicate,
                                 dynamic_updates,
                                 latest_result: RwLock::new((0, initial_mask)),
@@ -243,39 +170,6 @@ impl ZonedReader {
             .saturating_mul(self.layout.zone_len as u64)
             .min(self.layout.row_count())
     }
-}
-
-fn fetch_bloom_filter(
-    bloom_filter_segment: Option<SegmentId>,
-    segment_source: Arc<dyn SegmentSource>,
-) -> SharedBloomFilter {
-    async move {
-        match bloom_filter_segment {
-            // No bloom filters
-            None => Ok(None),
-            Some(segment_id) => {
-                let bloom_filter_segment = segment_source.request(segment_id).await?;
-                let mut filters = vec![];
-
-                let mut rest = bloom_filter_segment.as_ref();
-                while !rest.is_empty() {
-                    let (filter, remainder) = BloomFilter::try_deserialize(rest)?;
-                    filters.push(filter);
-
-                    rest = remainder;
-                }
-
-                if filters.is_empty() {
-                    return Ok(None);
-                }
-
-                Ok(Some(BloomFilters::new(filters)))
-            }
-        }
-    }
-    .map_err(Arc::new)
-    .boxed()
-    .shared()
 }
 
 impl LayoutReader for ZonedReader {
@@ -346,8 +240,6 @@ impl LayoutReader for ZonedReader {
 
             let mut builder = BooleanBufferBuilder::new(mask.len());
             for (zone_idx, &zone_length) in zone_range.clone().zip_eq(&zone_lengths) {
-                // Pruning mask is true = prune false = read, we need to invert that for
-                // a filter mask
                 builder.append_n(zone_length, !pruning_mask.value(usize::try_from(zone_idx)?));
             }
 
@@ -399,9 +291,7 @@ impl LayoutReader for ZonedReader {
 /// A wrapper for the result of pruning an expression against a zone map such that we can refresh
 /// it each time the dynamic expressions are updated.
 struct PruningResult {
-    zone_map: Option<ZoneMap>,
-    bloom_filters: Option<BloomFilters>,
-    expr: ExprRef,
+    zone_map: ZoneMap,
     predicate: ExprRef,
     dynamic_updates: Option<DynamicExprUpdates>,
     latest_result: RwLock<(u64, Mask)>,
@@ -443,47 +333,11 @@ impl PruningResult {
             self.predicate
         );
 
-        let nzones = guard.1.len();
-        let mut next_mask = Mask::new_false(nzones);
-
-        // We OR the masks. If stats says we cannot prune, but bloom filters says we can (common)
-        // then we can prune. They need to both agree on a zone being unprunable for us to
-        // read the zone.
-
-        // Apply ZoneMap first, if present
-        if let Some(ref zone_map) = self.zone_map {
-            next_mask = next_mask.bitor(&zone_map.prune(&self.predicate)?);
-        }
-
-        // Next apply the Bloom filters
-        if let Some(ref bloom_filters) = self.bloom_filters {
-            let bloom_mask = bloom_filters.prune(self.expr.as_ref());
-            next_mask = next_mask.bitor(&bloom_mask);
-        }
-
+        let next_mask = self.zone_map.prune(&self.predicate)?;
         *guard = (version, next_mask.clone());
 
         Ok(next_mask)
     }
-}
-
-fn is_bloom_prunable(expr: &dyn VortexExpr) -> bool {
-    if let Some(binary) = expr.as_opt::<BinaryVTable>()
-        && binary.rhs().is::<LiteralVTable>()
-        && matches!(binary.op(), Operator::Eq | Operator::NotEq)
-    {
-        return true;
-    }
-
-    if let Some(like) = expr.as_opt::<LikeVTable>()
-        && like.pattern().is::<LiteralVTable>()
-        && !like.case_insensitive()
-        && !like.negated()
-    {
-        return true;
-    }
-
-    false
 }
 
 #[cfg(test)]

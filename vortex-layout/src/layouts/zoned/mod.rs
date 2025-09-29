@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod accumulator;
 mod builder;
 mod reader;
 pub mod writer;
@@ -53,11 +52,8 @@ impl VTable for ZonedVTable {
         }
     }
 
-    fn segment_ids(layout: &ZonedLayout) -> Vec<SegmentId> {
-        layout
-            .bloom_filter_segment
-            .map(|segment| vec![segment])
-            .unwrap_or_default()
+    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
+        vec![]
     }
 
     fn nchildren(_layout: &Self::Layout) -> usize {
@@ -96,8 +92,8 @@ impl VTable for ZonedVTable {
         _encoding: &Self::Encoding,
         dtype: &DType,
         _row_count: u64,
-        metadata: &ZonedMetadata,
-        segment_ids: Vec<SegmentId>,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         _ctx: ArrayContext,
     ) -> VortexResult<Self::Layout> {
@@ -111,7 +107,6 @@ impl VTable for ZonedVTable {
             zones,
             metadata.zone_len as usize,
             metadata.present_stats.clone(),
-            segment_ids.first().copied(),
         ))
     }
 }
@@ -125,9 +120,6 @@ pub struct ZonedLayout {
     zones: LayoutRef,
     zone_len: usize,
     present_stats: Arc<[Stat]>,
-    // Optional bloom filter segment
-    // If present, the bloom filter is created for each zone.
-    bloom_filter_segment: Option<SegmentId>,
 }
 
 impl ZonedLayout {
@@ -136,10 +128,10 @@ impl ZonedLayout {
         zones: LayoutRef,
         zone_len: usize,
         present_stats: Arc<[Stat]>,
-        bloom_filter_segment: Option<SegmentId>,
     ) -> Self {
-        assert!(zone_len > 0, "Zone length must be greater than 0");
-
+        if zone_len == 0 {
+            vortex_panic!("Zone length must be greater than 0");
+        }
         let expected_dtype = ZoneMap::dtype_for_stats_table(data.dtype(), &present_stats);
         if zones.dtype() != &expected_dtype {
             vortex_panic!("Invalid zone map layout: zones dtype does not match expected dtype");
@@ -149,7 +141,6 @@ impl ZonedLayout {
             zones,
             zone_len,
             present_stats,
-            bloom_filter_segment,
         }
     }
 
@@ -160,11 +151,6 @@ impl ZonedLayout {
     /// Returns an array of stats that exist in the layout's data, must be sorted.
     pub fn present_stats(&self) -> &Arc<[Stat]> {
         &self.present_stats
-    }
-
-    /// Get the segment ID for where to read the bloom filters, if present.
-    pub fn bloom_filter_segment(&self) -> Option<SegmentId> {
-        self.bloom_filter_segment
     }
 }
 
@@ -200,6 +186,7 @@ impl SerializeMetadata for ZonedMetadata {
 
 #[cfg(test)]
 mod tests {
+
     use rstest::rstest;
 
     use super::*;

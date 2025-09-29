@@ -174,21 +174,25 @@ impl LayoutStrategy for DictStrategy {
                     ).await
                 });
 
+                let bloom_eof = eof.split_off();
+                let segment_sink2 = segment_sink.clone();
+
                 // Write bloom filter to segment if present
-                let bloom_filter_fut = if let Some(filter) = bloom_filter {
-                    let bloom_filter_id = eof.split_off().downgrade();
-                    let segment_sink2 = segment_sink.clone();
-                    let serialized = vec![filter.serialize()];
-                    Some(handle.spawn_nested(move |_h| async move {
-                        segment_sink2.write(bloom_filter_id, serialized).await
-                    }))
-                } else {
-                    None
-                };
+                let bloom_filter_fut = handle.spawn_nested(move |h| async move {
+                    if let Some(filter) = bloom_filter.await? {
+                        let bloom_filter_id = bloom_eof.downgrade();
+                        let serialized = vec![filter.serialize()];
+                        Ok(Some(h.spawn_nested(move |_h| async move {
+                            segment_sink2.write(bloom_filter_id, serialized).await
+                        })))
+                    } else {
+                        Ok(None)
+                    }
+                });
 
                 yield async move {
-                    let (codes_layout, values_layout) = try_join!(codes_fut, values_layout)?;
-                    let bloom_segment_id = if let Some(fut) = bloom_filter_fut {
+                    let (codes_layout, values_layout, bloom_filter_future) = try_join!(codes_fut, values_layout, bloom_filter_fut)?;
+                    let bloom_segment_id = if let Some(fut) = bloom_filter_future {
                         Some(fut.await?)
                     } else {
                         None
@@ -440,7 +444,7 @@ struct DictionaryTransformer {
     input: DictionaryStream,
     active_codes_tx: Option<kanal::AsyncSender<SequencedChunk>>,
     active_values_tx: Option<oneshot::Sender<SequencedChunk>>,
-    active_bloom_filter: Option<BloomFilter>,
+    active_bloom_filter_tx: Option<oneshot::Sender<Option<BloomFilter>>>,
     pending_send: Option<BoxFuture<'static, Result<(), kanal::SendError>>>,
 }
 
@@ -450,7 +454,7 @@ impl DictionaryTransformer {
             input,
             active_codes_tx: None,
             active_values_tx: None,
-            active_bloom_filter: None,
+            active_bloom_filter_tx: None,
             pending_send: None,
         }
     }
@@ -460,7 +464,7 @@ impl Stream for DictionaryTransformer {
     type Item = (
         SendableSequentialStream,
         BoxFuture<'static, SequencedChunk>,
-        Option<BloomFilter>,
+        BoxFuture<'static, VortexResult<Option<BloomFilter>>>,
     );
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -492,9 +496,11 @@ impl Stream for DictionaryTransformer {
                         // Start a new group
                         let (codes_tx, codes_rx) = kanal::bounded_async::<SequencedChunk>(1);
                         let (values_tx, values_rx) = oneshot::channel();
+                        let (bloom_tx, bloom_rx) = oneshot::channel();
 
                         self.active_codes_tx = Some(codes_tx.clone());
                         self.active_values_tx = Some(values_tx);
+                        self.active_bloom_filter_tx = Some(bloom_tx);
 
                         // Send first codes
                         self.pending_send =
@@ -515,9 +521,15 @@ impl Stream for DictionaryTransformer {
                         }
                         .boxed();
 
+                        let bloom_future = async move {
+                            bloom_rx
+                                .await
+                                .map_err(|e| vortex_err!("bloom filter receiver dropped: {}", e))
+                        }
+                        .boxed();
+
                         // Take the bloom filter from the previous group (if any)
-                        let bloom_filter = self.active_bloom_filter.take();
-                        return Poll::Ready(Some((codes_stream, values_future, bloom_filter)));
+                        return Poll::Ready(Some((codes_stream, values_future, bloom_future)));
                     } else {
                         // Continue streaming codes to existing group
                         if let Some(tx) = &self.active_codes_tx {
@@ -532,7 +544,9 @@ impl Stream for DictionaryTransformer {
                     if let Some(values_tx) = self.active_values_tx.take() {
                         let _ = values_tx.send(Ok((seq_id, array)));
                     }
-                    self.active_bloom_filter = bloom_filter;
+                    if let Some(bloom_tx) = self.active_bloom_filter_tx.take() {
+                        let _ = bloom_tx.send(bloom_filter);
+                    }
                     self.active_codes_tx = None; // Close codes stream
                 }
                 Poll::Ready(Some(Err(e))) => {

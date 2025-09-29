@@ -14,7 +14,6 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_expr::{ExprRef, Scope};
 use vortex_mask::Mask;
 
-use crate::layouts::zoned::accumulator::Accumulator;
 use crate::layouts::zoned::builder::{
     MAX_IS_TRUNCATED, MIN_IS_TRUNCATED, StatsArrayBuilder, stats_builder_with_capacity,
 };
@@ -150,7 +149,6 @@ impl ZoneMap {
 //  Or `min: {a: i32, b: i32}` for a struct array of type `{a: i32, b: i32}`.
 //  See: <https://github.com/vortex-data/vortex/issues/1835>
 /// Accumulates statistics for a column.
-#[derive(Default)]
 pub struct StatsAccumulator {
     builders: Vec<Box<dyn StatsArrayBuilder>>,
     length: usize,
@@ -177,16 +175,22 @@ impl StatsAccumulator {
             length: 0,
         }
     }
-}
 
-impl Accumulator for StatsAccumulator {
-    // The stats accumulator yields a `ZoneMap`, with one row for every zone and one column for
-    // every stat.
-    type Value = ZoneMap;
-
-    fn push_chunk(&mut self, array: &dyn Array) -> VortexResult<()> {
+    pub fn push_chunk_without_compute(&mut self, array: &dyn Array) -> VortexResult<()> {
         for builder in self.builders.iter_mut() {
             if let Some(Precision::Exact(v)) = array.statistics().get(builder.stat()) {
+                builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
+            } else {
+                builder.append_null();
+            }
+        }
+        self.length += 1;
+        Ok(())
+    }
+
+    pub fn push_chunk(&mut self, array: &dyn Array) -> VortexResult<()> {
+        for builder in self.builders.iter_mut() {
+            if let Some(v) = array.statistics().compute_stat(builder.stat())? {
                 builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
             } else {
                 builder.append_null();
@@ -200,7 +204,7 @@ impl Accumulator for StatsAccumulator {
     ///
     /// Returns `None` if none of the requested statistics can be computed, for example they are
     /// not applicable to the column's data type.
-    fn finish(mut self) -> VortexResult<Option<ZoneMap>> {
+    pub fn as_stats_table(&mut self) -> Option<ZoneMap> {
         let mut names = Vec::new();
         let mut fields = Vec::new();
         let mut stats = Vec::new();
@@ -219,22 +223,19 @@ impl Accumulator for StatsAccumulator {
             }
 
             stats.push(builder.stat());
-
-            let (stat_names, stat_arrays) = values.into_parts();
-
-            names.extend(stat_names);
-            fields.extend(stat_arrays);
+            names.extend(values.names);
+            fields.extend(values.arrays);
         }
 
         if names.is_empty() {
-            return Ok(None);
+            return None;
         }
 
-        Ok(Some(ZoneMap {
+        Some(ZoneMap {
             array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)
                 .vortex_expect("Failed to create zone map"),
             stats: stats.into(),
-        }))
+        })
     }
 }
 
@@ -252,11 +253,10 @@ mod tests {
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldPath, FieldPathSet, Nullability, PType};
-    use vortex_error::VortexUnwrap;
+    use vortex_error::{VortexExpect, VortexUnwrap};
     use vortex_expr::pruning::checked_pruning_expr;
     use vortex_expr::{gt, gt_eq, lit, lt, root};
 
-    use crate::layouts::zoned::accumulator::Accumulator;
     use crate::layouts::zoned::zone_map::{StatsAccumulator, ZoneMap};
     use crate::layouts::zoned::{MAX_IS_TRUNCATED, MIN_IS_TRUNCATED};
 
@@ -274,7 +274,7 @@ mod tests {
             StatsAccumulator::new(builder.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&builder.finish()).vortex_unwrap();
         acc.push_chunk(&builder2.finish()).vortex_unwrap();
-        let stats_table = acc.finish().unwrap().unwrap();
+        let stats_table = acc.as_stats_table().vortex_expect("Must have stats table");
         assert_eq!(
             stats_table.array.names().as_ref(),
             &[
@@ -299,7 +299,7 @@ mod tests {
         let array = buffer![0, 1, 2].into_array();
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&array).vortex_unwrap();
-        let stats_table = acc.finish().unwrap().unwrap();
+        let stats_table = acc.as_stats_table().vortex_expect("Must have stats table");
         assert_eq!(
             stats_table.array.names().as_ref(),
             &[

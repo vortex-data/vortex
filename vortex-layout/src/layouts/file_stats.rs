@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future;
 use std::sync::Arc;
-use std::{future, mem};
 
 use futures::StreamExt;
 use itertools::Itertools;
@@ -12,7 +12,6 @@ use vortex_array::{ArrayRef, ToCanonical as _};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
-use crate::layouts::zoned::accumulator::Accumulator;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::sequence::{
     SendableSequentialStream, SequenceId, SequentialStreamAdapter, SequentialStreamExt,
@@ -102,9 +101,7 @@ impl FileStatsAccumulator {
             .lock()
             .iter_mut()
             .map(|acc| {
-                let acc = mem::take(acc);
-                acc.finish()
-                    .vortex_expect("finish for ZoneMap should succeed")
+                acc.as_stats_table()
                     .map(|table| {
                         table
                             .to_stats_set(&self.stats)

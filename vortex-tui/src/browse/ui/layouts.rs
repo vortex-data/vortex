@@ -16,6 +16,7 @@ use tokio::runtime::Handle;
 use tokio::task::block_in_place;
 use vortex::error::VortexExpect;
 use vortex::expr::root;
+use vortex::layout::layouts::dict::DictVTable;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::{Array, ArrayRef, MaskFuture, ToCanonical};
@@ -64,6 +65,17 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
             "FlatBuffer Size: {}",
             size_formatter(cursor.flatbuffer_size())
         )));
+    }
+
+    if let Some(dict_layout) = cursor.layout().as_opt::<DictVTable>() {
+        let bloom_filter_info = match dict_layout.bloom_filter_segment() {
+            None => "N/A".to_string(),
+            Some(segment_id) => {
+                let segment_spec = cursor.segment_spec(segment_id);
+                format!("Segment {}: {} bytes", *segment_id, segment_spec.length)
+            }
+        };
+        rows.push(Text::from(format!("Bloom Filter: {bloom_filter_info}")).bold());
     }
 
     if let Some(layout) = cursor.layout().as_opt::<ZonedVTable>() {

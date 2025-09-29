@@ -44,6 +44,7 @@ impl VTable for DictVTable {
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
         ProstMetadata(DictLayoutMetadata::new(
             PType::try_from(layout.codes.dtype()).vortex_expect("ptype"),
+            layout.bloom_filter,
         ))
     }
 
@@ -137,6 +138,10 @@ impl DictLayout {
             bloom_filter: Some(bloom_filter),
         }
     }
+
+    pub fn bloom_filter_segment(&self) -> Option<SegmentId> {
+        self.bloom_filter
+    }
 }
 
 #[derive(prost::Message)]
@@ -150,9 +155,10 @@ pub struct DictLayoutMetadata {
 }
 
 impl DictLayoutMetadata {
-    pub fn new(codes_ptype: PType) -> Self {
+    pub fn new(codes_ptype: PType, bloom_filter_segment: Option<SegmentId>) -> Self {
         let mut metadata = Self::default();
         metadata.set_codes_ptype(codes_ptype);
+        metadata.bloom_filter = bloom_filter_segment.map(|s| *s);
         metadata
     }
 
