@@ -242,7 +242,12 @@ impl LayoutStrategy for DictStrategy {
 }
 
 enum DictionaryChunk {
+    /// A chunk of codes that should be emitted to the segment sink
     Codes((SequenceId, ArrayRef)),
+    /// A chunk of dictionary values that should be emitted to the segment sink.
+    ///
+    /// Once the values are emitted, the group is "closed". Any future Codes correspond to
+    /// a new group instead.
     Values((SequenceId, ArrayRef, Option<BloomFilter>)),
 }
 
