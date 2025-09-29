@@ -133,8 +133,13 @@ impl<'a> Debug for ValueRef<'a> {
 }
 
 impl Value {
-    pub fn null() -> Self {
+
+    pub fn sql_null() -> Self {
         unsafe { Self::own(cpp::duckdb_create_null_value()) }
+    }
+
+    pub fn null(logical_type: &LogicalType) -> Self {
+        unsafe { Self::own(cpp::duckdb_vx_value_create_null(logical_type.as_ptr())) }
     }
 
     /// Note the lifetime of logical type if tied to &self
@@ -227,7 +232,8 @@ where
     fn from(value: Option<T>) -> Self {
         match value {
             Some(v) => v.into(),
-            None => Value::null(),
+            // TODO(joe): fixme
+            None => todo!(),
         }
     }
 }

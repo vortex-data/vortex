@@ -52,6 +52,10 @@ impl LogicalType {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR)
     }
 
+    pub fn blob() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_BLOB)
+    }
+
     pub fn int64() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT)
     }
