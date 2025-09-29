@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{ConstantArray, VarBinArray, VarBinViewArray, VarBinViewVTable};
+use vortex_array::arrays::{
+    ConstantArray, MaskedArray, VarBinArray, VarBinViewArray, VarBinViewVTable,
+};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
@@ -319,7 +321,13 @@ impl Scheme for ConstantScheme {
             .as_constant()
             .vortex_expect("ConstantScheme::compress can only be called when array is constant");
 
-        Ok(ConstantArray::new(scalar, stats.src.len()).into_array())
+        let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
+
+        if !stats.source().all_valid() {
+            Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
+        } else {
+            Ok(const_arr)
+        }
     }
 }
 

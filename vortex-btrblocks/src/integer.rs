@@ -8,7 +8,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 pub use stats::IntegerStats;
-use vortex_array::arrays::{ConstantArray, PrimitiveArray, PrimitiveVTable};
+use vortex_array::arrays::{ConstantArray, MaskedArray, PrimitiveArray, PrimitiveVTable};
+use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
@@ -190,11 +191,6 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
-        // Cannot have mix of nulls and non-nulls
-        if stats.null_count > 0 && stats.value_count > 0 {
-            return Ok(0.0);
-        }
-
         Ok(stats.value_count as f64)
     }
 
@@ -212,7 +208,13 @@ impl Scheme for ConstantScheme {
             .as_constant()
             .vortex_expect("constant array expected");
 
-        Ok(ConstantArray::new(scalar, stats.src.len()).into_array())
+        let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
+
+        if !stats.source().all_valid() {
+            Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
+        } else {
+            Ok(const_arr)
+        }
     }
 }
 

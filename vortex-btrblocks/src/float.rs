@@ -5,7 +5,8 @@ pub(crate) mod dictionary;
 mod stats;
 
 use vortex_alp::{ALPArray, ALPEncoding, ALPVTable, RDEncoder};
-use vortex_array::arrays::{ConstantArray, PrimitiveVTable};
+use vortex_array::arrays::{ConstantArray, MaskedArray, PrimitiveVTable};
+use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
@@ -127,11 +128,6 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
-        // Cannot have mix of nulls and non-nulls
-        if stats.null_count > 0 && stats.value_count > 0 {
-            return Ok(0.0);
-        }
-
         Ok(stats.value_count as f64)
     }
 
@@ -147,7 +143,13 @@ impl Scheme for ConstantScheme {
             .as_constant()
             .vortex_expect("must be constant");
 
-        Ok(ConstantArray::new(scalar, stats.source().len()).into_array())
+        let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
+
+        if !stats.source().all_valid() {
+            Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
+        } else {
+            Ok(const_arr)
+        }
     }
 }
 
