@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-
 use arrayref::{array_mut_ref, array_ref};
 use fastlanes::RLE;
 use vortex_array::arrays::PrimitiveArray;
@@ -10,7 +8,7 @@ use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
-use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
+use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 
 use crate::{FL_CHUNK_SIZE, RLEArray};
@@ -18,13 +16,17 @@ use crate::{FL_CHUNK_SIZE, RLEArray};
 impl RLEArray {
     /// Encodes a primitive array of unsigned integers using FastLanes RLE.
     pub fn encode(array: &PrimitiveArray) -> VortexResult<Self> {
-        match_each_unsigned_integer_ptype!(array.ptype(), |T| { rle_encode_typed::<T>(array) })
+        match_each_native_ptype!(array.ptype(), |T| { rle_encode_typed::<T>(array) })
     }
 }
 
 /// Decompresses an RLE array back into a primitive array.
 pub fn rle_decompress(array: &RLEArray) -> PrimitiveArray {
-    match_each_unsigned_integer_ptype!(array.ptype(), |T| { rle_decode_typed::<T>(array) })
+    let decompressed = match_each_native_ptype!(array.values().dtype().as_ptype(), |T| {
+        rle_decode_typed::<T>(array)
+    });
+
+    decompressed
 }
 
 /// Encodes a primitive array of unsigned integers using FastLanes RLE.
@@ -32,7 +34,7 @@ pub fn rle_decompress(array: &RLEArray) -> PrimitiveArray {
 /// In case the input array length is % 1024 != 0, the last chunk is padded.
 fn rle_encode_typed<T>(array: &PrimitiveArray) -> VortexResult<RLEArray>
 where
-    T: NativePType + RLE + Clone + Hash + Eq,
+    T: NativePType + RLE,
 {
     let values = array.as_slice::<T>();
     let len = values.len();
@@ -160,8 +162,10 @@ where
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::Buffer;
+    use vortex_dtype::half::f16;
 
     use super::*;
 
@@ -260,5 +264,24 @@ mod test {
         assert_eq!(encoded.len(), 2048);
         assert_eq!(decoded.as_slice::<u32>(), expected.as_slice());
         assert_eq!(encoded.value_chunk_offsets().len(), 2);
+    }
+
+    #[rstest]
+    #[case::u8((0u8..100).collect::<Buffer<u8>>())]
+    #[case::u16((0u16..2000).collect::<Buffer<u16>>())]
+    #[case::u32((0u32..2000).collect::<Buffer<u32>>())]
+    #[case::u64((0u64..2000).collect::<Buffer<u64>>())]
+    #[case::i8((-100i8..100).collect::<Buffer<i8>>())]
+    #[case::i16((-2000i16..2000).collect::<Buffer<i16>>())]
+    #[case::i32((-2000i32..2000).collect::<Buffer<i32>>())]
+    #[case::i64((-2000i64..2000).collect::<Buffer<i64>>())]
+    #[case::f16((-2000..2000).map(|i| f16::from_f32(i as f32)).collect::<Buffer<f16>>())]
+    #[case::f32((-2000..2000).map(|i| i as f32).collect::<Buffer<f32>>())]
+    #[case::f64((-2000..2000).map(|i| i as f64).collect::<Buffer<f64>>())]
+    fn test_roundtrip_primitive_types<T: NativePType>(#[case] values: Buffer<T>) {
+        let primitive = values.clone().into_array().to_primitive();
+        let result = RLEArray::encode(&primitive).unwrap();
+        let decoded = result.to_primitive();
+        assert_eq!(decoded.as_slice::<T>(), values.as_slice());
     }
 }

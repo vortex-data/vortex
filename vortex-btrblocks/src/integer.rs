@@ -13,7 +13,9 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
-use vortex_fastlanes::{FoRArray, bit_width_histogram, bitpack_encode, find_best_bit_width};
+use vortex_fastlanes::{
+    FoRArray, RLEArray, bit_width_histogram, bitpack_encode, find_best_bit_width,
+};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
@@ -46,6 +48,7 @@ impl Compressor for IntCompressor {
             &DictScheme,
             &RunEndScheme,
             &SequenceScheme,
+            &RLEScheme,
         ]
     }
 
@@ -99,8 +102,9 @@ const ZIGZAG_SCHEME: IntCode = IntCode(3);
 const BITPACKING_SCHEME: IntCode = IntCode(4);
 const SPARSE_SCHEME: IntCode = IntCode(5);
 const DICT_SCHEME: IntCode = IntCode(6);
-const RUNEND_SCHEME: IntCode = IntCode(7);
+const RUN_END_SCHEME: IntCode = IntCode(7);
 const SEQUENCE_SCHEME: IntCode = IntCode(8);
+const RUN_LENGTH_SCHEME: IntCode = IntCode(9);
 
 #[derive(Debug, Copy, Clone)]
 pub struct UncompressedScheme;
@@ -129,8 +133,14 @@ pub struct RunEndScheme;
 #[derive(Debug, Copy, Clone)]
 pub struct SequenceScheme;
 
+#[derive(Debug, Copy, Clone)]
+pub struct RLEScheme;
+
 /// Threshold for the average run length in an array before we consider run-end encoding.
 const RUN_END_THRESHOLD: u32 = 4;
+
+/// Threshold for the average run length in an array before we consider run-length encoding.
+const RUN_LENGTH_THRESHOLD: u32 = RUN_END_THRESHOLD;
 
 impl Scheme for UncompressedScheme {
     type StatsType = IntegerStats;
@@ -622,7 +632,7 @@ impl Scheme for RunEndScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        RUNEND_SCHEME
+        RUN_END_SCHEME
     }
 
     fn expected_compression_ratio(
@@ -737,6 +747,95 @@ impl Scheme for SequenceScheme {
     }
 }
 
+impl Scheme for RLEScheme {
+    type StatsType = IntegerStats;
+    type CodeType = IntCode;
+
+    fn code(&self) -> IntCode {
+        RUN_LENGTH_SCHEME
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        stats: &Self::StatsType,
+        is_sample: bool,
+        allowed_cascading: usize,
+        excludes: &[IntCode],
+    ) -> VortexResult<f64> {
+        // Don't compress all-null arrays.
+        if stats.value_count == 0 {
+            return Ok(0.0);
+        }
+
+        // Check whether RLE is a good fit, based on the average run length.
+        if stats.average_run_length < RUN_LENGTH_THRESHOLD {
+            return Ok(0.0);
+        }
+
+        // Run compression on a sample to see how it performs.
+        estimate_compression_ratio_with_sampling(
+            self,
+            stats,
+            is_sample,
+            allowed_cascading,
+            excludes,
+        )
+    }
+
+    fn compress(
+        &self,
+        stats: &IntegerStats,
+        is_sample: bool,
+        allowed_cascading: usize,
+        excludes: &[IntCode],
+    ) -> VortexResult<ArrayRef> {
+        let rle_array = RLEArray::encode(&stats.src)?;
+
+        if allowed_cascading == 0 {
+            return Ok(rle_array.into_array());
+        }
+
+        // Set up excludes to prevent infinite recursion.
+        let mut new_excludes = vec![RLEScheme.code()];
+        new_excludes.extend_from_slice(excludes);
+
+        let compressed_values = IntCompressor::compress_no_dict(
+            &rle_array.values().to_primitive(),
+            is_sample,
+            allowed_cascading - 1,
+            &new_excludes,
+        )?;
+
+        let compressed_indices = IntCompressor::compress_no_dict(
+            &rle_array.indices().to_primitive(),
+            is_sample,
+            allowed_cascading - 1,
+            &new_excludes,
+        )?;
+
+        let compressed_offsets = IntCompressor::compress_no_dict(
+            &rle_array.value_chunk_offsets().to_primitive(),
+            is_sample,
+            allowed_cascading - 1,
+            &new_excludes,
+        )?;
+
+        // SAFETY: Recursive compression doesn't affect the invariants.
+        unsafe {
+            Ok(RLEArray::new_unchecked(
+                compressed_values,
+                compressed_indices,
+                compressed_offsets,
+                rle_array.validity().clone(),
+                rle_array.dtype().clone(),
+                rle_array.offset(),
+                rle_array.len(),
+            )
+            .into_array())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
@@ -753,7 +852,7 @@ mod tests {
     use vortex_sparse::SparseEncoding;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use crate::integer::{IntCompressor, IntegerStats, SequenceScheme, SparseScheme};
+    use crate::integer::{IntCompressor, IntegerStats, RLEScheme, SequenceScheme, SparseScheme};
     use crate::{Compressor, CompressorStats, Scheme};
 
     #[test]
@@ -863,6 +962,22 @@ mod tests {
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
         assert_eq!(compressed.encoding_id(), SequenceEncoding.id());
+        let decoded = compressed.to_primitive();
+        assert_eq!(decoded.as_slice::<i32>(), values.as_slice());
+    }
+
+    #[test]
+    fn test_rle_compression() {
+        let mut values = Vec::new();
+        values.extend(std::iter::repeat_n(42i32, 100));
+        values.extend(std::iter::repeat_n(123i32, 200));
+        values.extend(std::iter::repeat_n(987i32, 150));
+
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let compressed = RLEScheme
+            .compress(&IntegerStats::generate(&array), false, 3, &[])
+            .unwrap();
+
         let decoded = compressed.to_primitive();
         assert_eq!(decoded.as_slice::<i32>(), values.as_slice());
     }

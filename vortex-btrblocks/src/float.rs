@@ -11,6 +11,7 @@ use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_fastlanes::RLEArray;
 use vortex_scalar::Scalar;
 
 pub use self::stats::FloatStats;
@@ -41,6 +42,7 @@ impl Compressor for FloatCompressor {
             &ALPScheme,
             &ALPRDScheme,
             &DictScheme,
+            &RLEScheme,
         ]
     }
 
@@ -58,7 +60,11 @@ const CONSTANT_SCHEME: FloatCode = FloatCode(1);
 const ALP_SCHEME: FloatCode = FloatCode(2);
 const ALPRD_SCHEME: FloatCode = FloatCode(3);
 const DICT_SCHEME: FloatCode = FloatCode(4);
-const RUNEND_SCHEME: FloatCode = FloatCode(5);
+const RUN_END_SCHEME: FloatCode = FloatCode(5);
+const RUN_LENGTH_SCHEME: FloatCode = FloatCode(6);
+
+/// Threshold for the average run length in an array before we consider run-length encoding.
+const RUN_LENGTH_THRESHOLD: u32 = 4;
 
 #[derive(Debug, Copy, Clone)]
 struct UncompressedScheme;
@@ -74,6 +80,9 @@ struct ALPRDScheme;
 
 #[derive(Debug, Copy, Clone)]
 struct DictScheme;
+
+#[derive(Debug, Copy, Clone)]
+struct RLEScheme;
 
 impl Scheme for UncompressedScheme {
     type StatsType = FloatStats;
@@ -222,7 +231,7 @@ impl Scheme for ALPScheme {
         if excludes.contains(&DICT_SCHEME) {
             int_excludes.push(integer::DictScheme.code());
         }
-        if excludes.contains(&RUNEND_SCHEME) {
+        if excludes.contains(&RUN_END_SCHEME) {
             int_excludes.push(integer::RunEndScheme.code());
         }
 
@@ -363,6 +372,95 @@ impl Scheme for DictScheme {
     }
 }
 
+impl Scheme for RLEScheme {
+    type StatsType = FloatStats;
+    type CodeType = FloatCode;
+
+    fn code(&self) -> FloatCode {
+        RUN_LENGTH_SCHEME
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        stats: &Self::StatsType,
+        is_sample: bool,
+        allowed_cascading: usize,
+        excludes: &[FloatCode],
+    ) -> VortexResult<f64> {
+        // Don't compress all-null arrays.
+        if stats.value_count == 0 {
+            return Ok(0.0);
+        }
+
+        // Check whether RLE is a good fit, based on the average run length.
+        if stats.average_run_length < RUN_LENGTH_THRESHOLD {
+            return Ok(0.0);
+        }
+
+        // Run compression on a sample to see how it performs.
+        estimate_compression_ratio_with_sampling(
+            self,
+            stats,
+            is_sample,
+            allowed_cascading,
+            excludes,
+        )
+    }
+
+    fn compress(
+        &self,
+        stats: &FloatStats,
+        is_sample: bool,
+        allowed_cascading: usize,
+        excludes: &[FloatCode],
+    ) -> VortexResult<ArrayRef> {
+        let rle_array = RLEArray::encode(stats.source())?;
+
+        if allowed_cascading == 0 {
+            return Ok(rle_array.into_array());
+        }
+
+        // Set up excludes to prevent infinite recursion.
+        let mut new_excludes = vec![RLEScheme.code()];
+        new_excludes.extend_from_slice(excludes);
+
+        let compressed_values = FloatCompressor::compress(
+            &rle_array.values().to_primitive(),
+            is_sample,
+            allowed_cascading - 1,
+            &new_excludes,
+        )?;
+
+        let compressed_indices = IntCompressor::compress_no_dict(
+            &rle_array.indices().to_primitive(),
+            is_sample,
+            allowed_cascading - 1,
+            &[],
+        )?;
+
+        let compressed_offsets = IntCompressor::compress_no_dict(
+            &rle_array.value_chunk_offsets().to_primitive(),
+            is_sample,
+            allowed_cascading - 1,
+            &[],
+        )?;
+
+        // SAFETY: Recursive compression doesn't affect the invariants.
+        unsafe {
+            Ok(RLEArray::new_unchecked(
+                compressed_values,
+                compressed_indices,
+                compressed_offsets,
+                rle_array.validity().clone(),
+                rle_array.dtype().clone(),
+                rle_array.offset(),
+                rle_array.len(),
+            )
+            .into_array())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
@@ -370,8 +468,8 @@ mod tests {
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::{Buffer, buffer_mut};
 
-    use crate::float::FloatCompressor;
-    use crate::{Compressor, MAX_CASCADE};
+    use crate::float::{FloatCompressor, RLEScheme};
+    use crate::{Compressor, CompressorStats, MAX_CASCADE, Scheme};
 
     #[test]
     fn test_empty() {
@@ -401,5 +499,20 @@ mod tests {
         let floats = values.into_array().to_primitive();
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
         println!("compressed: {}", compressed.display_tree())
+    }
+
+    #[test]
+    fn test_rle_compression() {
+        let mut values = Vec::new();
+        values.extend(std::iter::repeat_n(1.5f32, 100));
+        values.extend(std::iter::repeat_n(2.7f32, 200));
+        values.extend(std::iter::repeat_n(3.15f32, 150));
+
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let stats = crate::float::FloatStats::generate(&array);
+        let compressed = RLEScheme.compress(&stats, false, 3, &[]).unwrap();
+
+        let decoded = compressed.to_primitive();
+        assert_eq!(decoded.as_slice::<f32>(), values.as_slice());
     }
 }

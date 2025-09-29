@@ -18,6 +18,7 @@ use vortex_error::{VortexResult, vortex_ensure};
 use crate::FL_CHUNK_SIZE;
 
 mod compress;
+mod compute;
 mod ops;
 mod serde;
 
@@ -78,15 +79,19 @@ impl RLEArray {
         indices: &dyn Array,
         value_chunks_offsets: &dyn Array,
         validity: Validity,
+        length: usize,
     ) -> VortexResult<()> {
         if let Some(validity_length) = validity.maybe_len() {
             vortex_ensure!(
-                validity_length == indices.len(),
-                "RLE validity length must match indices length, got {} and {}",
+                validity_length == length,
+                "RLE validity length must match logical array length, got {} and {}",
                 validity_length,
-                values.len()
+                length
             );
         }
+
+        // Note that we don't compare the validity length with
+        // the indices length, as indices get padded to 1024.
 
         vortex_ensure!(
             values.dtype().is_primitive(),
@@ -125,7 +130,13 @@ impl RLEArray {
         validity: Validity,
         length: usize,
     ) -> VortexResult<Self> {
-        Self::validate(&values, &indices, &value_chunk_offsets, validity.clone())?;
+        Self::validate(
+            &values,
+            &indices,
+            &value_chunk_offsets,
+            validity.clone(),
+            length,
+        )?;
         let dtype = DType::Primitive(values.dtype().as_ptype(), validity.nullability());
 
         Ok(Self {
@@ -149,6 +160,7 @@ impl RLEArray {
     /// - The `indices` array contains valid indices into chunks of the `values` array
     /// - The `value_chunk_offsets` array contains valid chunk start offsets
     /// - The `validity` array has the same length as `length`
+    #[allow(clippy::too_many_arguments)]
     pub unsafe fn new_unchecked(
         values: ArrayRef,
         indices: ArrayRef,
@@ -170,20 +182,19 @@ impl RLEArray {
         }
     }
 
-    pub(crate) fn values(&self) -> &dyn Array {
+    #[inline]
+    pub fn values(&self) -> &ArrayRef {
         &self.values
     }
 
-    pub(crate) fn indices(&self) -> &dyn Array {
+    #[inline]
+    pub fn indices(&self) -> &ArrayRef {
         &self.indices
     }
 
-    pub(crate) fn value_chunk_offsets(&self) -> &dyn Array {
+    #[inline]
+    pub fn value_chunk_offsets(&self) -> &ArrayRef {
         &self.value_chunk_offsets
-    }
-
-    pub fn ptype(&self) -> PType {
-        self.dtype.as_ptype()
     }
 
     /// Returns the offset within a chunk for an absolute position.
@@ -207,7 +218,7 @@ impl RLEArray {
     }
 
     /// Index offset into the array
-    pub(crate) fn offset(&self) -> usize {
+    pub fn offset(&self) -> usize {
         self.offset
     }
 }
@@ -265,7 +276,7 @@ mod test {
 
         assert_eq!(rle_array.len(), 5);
         assert_eq!(rle_array.values.len(), 3);
-        assert_eq!(rle_array.ptype(), PType::U32);
+        assert_eq!(rle_array.values.dtype().as_ptype(), PType::U32);
     }
 
     #[test]
