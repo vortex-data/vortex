@@ -201,12 +201,10 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        // We only use Constant encoding if the entire array is constant, never if one of
-        // the child arrays yields a constant value.
-        let scalar = stats
-            .source()
-            .as_constant()
-            .vortex_expect("constant array expected");
+        let scalar_idx = (0..stats.source().len())
+            .position(|idx| stats.source().is_valid(idx))
+            .vortex_expect("Must have at least one valid value");
+        let scalar = stats.source().scalar_at(scalar_idx);
 
         let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
 

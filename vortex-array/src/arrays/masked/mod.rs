@@ -20,6 +20,8 @@ use crate::{
 
 vtable!(Masked);
 
+mod serde;
+
 #[derive(Clone, Debug)]
 pub struct MaskedEncoding;
 
@@ -35,7 +37,7 @@ impl VTable for MaskedVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type PipelineVTable = NotSupported;
-    type SerdeVTable = NotSupported;
+    type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.masked")
@@ -51,19 +53,6 @@ pub struct MaskedArray {
     child: ArrayRef,
     validity: Validity,
     dtype: DType,
-}
-
-impl MaskedArray {
-    fn masked_child(&self) -> VortexResult<ArrayRef> {
-        mask(&self.child, &self.validity.to_mask(self.len()))
-    }
-
-    fn nullability(&self) -> Nullability {
-        match self.validity {
-            Validity::NonNullable => Nullability::NonNullable,
-            _ => Nullability::Nullable,
-        }
-    }
 }
 
 impl ArrayVTable<MaskedVTable> for MaskedVTable {
@@ -100,8 +89,8 @@ impl ValidityHelper for MaskedArray {
 
 impl MaskedArray {
     pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
-        if child.dtype().is_nullable() {
-            vortex_bail!("MaskedArray only supports non-nullable children");
+        if child.valid_count() != child.len() {
+            vortex_bail!("MaskedArray children must not have nulls");
         }
 
         if let Validity::Array(arr) = &validity
@@ -110,11 +99,7 @@ impl MaskedArray {
             vortex_bail!("Validity must be the same length as a MaskedArray's child");
         }
 
-        let nullability = match validity {
-            Validity::NonNullable => Nullability::NonNullable,
-            _ => Nullability::Nullable,
-        };
-
+        let nullability = child.dtype().nullability() | validity.nullability();
         let dtype = child.dtype().with_nullability(nullability);
 
         Ok(Self {
@@ -122,6 +107,17 @@ impl MaskedArray {
             validity,
             dtype,
         })
+    }
+
+    fn masked_child(&self) -> VortexResult<ArrayRef> {
+        mask(&self.child, &self.validity.to_mask(self.len()))
+    }
+
+    fn nullability(&self) -> Nullability {
+        match self.validity {
+            Validity::NonNullable => Nullability::NonNullable,
+            _ => Nullability::Nullable,
+        }
     }
 }
 
@@ -147,6 +143,7 @@ impl VisitorVTable<MaskedVTable> for MaskedVTable {
 
     fn visit_children(array: &MaskedArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("child", array.child.as_ref());
+        visitor.visit_validity(&array.validity, array.child.len());
     }
 }
 
