@@ -11,13 +11,14 @@ use vortex::arrays::{ConstantArray, ConstantVTable, PrimitiveArray};
 use vortex::dtype::{NativePType, match_each_integer_ptype};
 use vortex::encodings::dict::DictArray;
 use vortex::error::VortexResult;
-use vortex::{Array, IntoArray, ToCanonical};
 use vortex::mask::Mask;
 use vortex::validity::Validity;
 use vortex::vtable::ValidityHelper;
+use vortex::{Array, IntoArray, ToCanonical};
+
 use crate::duckdb::{LogicalType, SelectionVector, Vector};
 use crate::exporter::cache::ConversionCache;
-use crate::exporter::{ColumnExporter, constant, new_array_exporter, VectorExt, validity, invalid};
+use crate::exporter::{ColumnExporter, VectorExt, constant, invalid, new_array_exporter, validity};
 
 struct DictExporter<I: NativePType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
@@ -50,13 +51,11 @@ pub(crate) fn new_exporter(
 
     match codes_mask {
         Mask::AllTrue(_) => {}
-        Mask::AllFalse(len) => {
-            return Ok(invalid::new_exporter(len, &values_type))
-        }
+        Mask::AllFalse(len) => return Ok(invalid::new_exporter(len, &values_type)),
         Mask::Values(_) => {
             // duckdb cannot have a dictionary with validity in the codes.
             let array = array.to_canonical().into_array();
-            return new_array_exporter(&array, cache)
+            return new_array_exporter(&array, cache);
         }
     }
 
@@ -84,7 +83,6 @@ pub(crate) fn new_exporter(
         }
     };
 
-
     let codes = array.codes().to_primitive();
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
@@ -101,8 +99,6 @@ pub(crate) fn new_exporter(
 
 impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
-
-
         // Create a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);
         let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
@@ -143,8 +139,8 @@ mod tests {
 
     use crate::cpp;
     use crate::duckdb::{DataChunk, LogicalType};
-    use crate::exporter::{new_array_exporter, ConversionCache};
     use crate::exporter::dict::new_exporter;
+    use crate::exporter::{ConversionCache, new_array_exporter};
 
     #[test]
     fn test_constant_dict() {
@@ -192,12 +188,16 @@ mod tests {
 "#
         );
 
-        let mut flat_chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut flat_chunk =
+            DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        new_array_exporter(&arr.to_canonical().into_array(), &ConversionCache::default())
-            .unwrap()
-            .export(0, 3, &mut flat_chunk.get_vector(0))
-            .unwrap();
+        new_array_exporter(
+            &arr.to_canonical().into_array(),
+            &ConversionCache::default(),
+        )
+        .unwrap()
+        .export(0, 3, &mut flat_chunk.get_vector(0))
+        .unwrap();
         flat_chunk.set_len(3);
 
         assert_eq!(
@@ -206,6 +206,5 @@ mod tests {
 - FLAT INTEGER: 3 = [ NULL, 10, NULL]
 "#
         )
-
     }
 }

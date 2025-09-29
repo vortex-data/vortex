@@ -148,7 +148,8 @@ impl ToDuckDBScalar for BinaryScalar<'_> {
 impl ToDuckDBScalar for ExtScalar<'_> {
     /// Converts an extension scalar (primarily temporal types) to a DuckDB value.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
-        let logical_type = LogicalType::try_from(&DType::Extension(Arc::new(self.ext_dtype().clone())))?;
+        let logical_type =
+            LogicalType::try_from(&DType::Extension(Arc::new(self.ext_dtype().clone())))?;
         let time = TemporalMetadata::try_from(self.ext_dtype())?;
         let value = || {
             self.storage()

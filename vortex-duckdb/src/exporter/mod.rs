@@ -7,6 +7,7 @@ mod constant;
 mod decimal;
 mod dict;
 mod fixed_size_list;
+mod invalid;
 mod list;
 mod primitive;
 mod run_end;
@@ -14,7 +15,6 @@ mod sequence;
 mod temporal;
 mod validity;
 mod varbinview;
-mod invalid;
 
 use std::sync::Arc;
 
@@ -32,8 +32,9 @@ use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 use vortex::iter::ArrayIterator;
 use vortex::mask::Mask;
 use vortex::{Array, Canonical, ToCanonical};
+
 use crate::cpp::DUCKDB_TYPE;
-use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, Vector, Value, LogicalType};
+use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, LogicalType, Value, Vector};
 
 /// DuckDB exporter for an [`ArrayIterator`], sharing state and caches.
 pub struct ArrayIteratorExporter {
@@ -166,7 +167,10 @@ fn new_array_exporter(
 
     // Otherwise, we fall back to canonical
     match array.to_canonical() {
-        Canonical::Null(_) => Ok(invalid::new_exporter(array.len(), &LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL))),
+        Canonical::Null(_) => Ok(invalid::new_exporter(
+            array.len(),
+            &LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL),
+        )),
         Canonical::Bool(array) => bool::new_exporter(&array),
         Canonical::Primitive(array) => primitive::new_exporter(&array),
         Canonical::Decimal(array) => decimal::new_exporter(&array),

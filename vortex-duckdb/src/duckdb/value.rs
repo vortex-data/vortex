@@ -133,7 +133,6 @@ impl<'a> Debug for ValueRef<'a> {
 }
 
 impl Value {
-
     pub fn sql_null() -> Self {
         unsafe { Self::own(cpp::duckdb_create_null_value()) }
     }
