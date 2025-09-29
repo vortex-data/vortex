@@ -307,8 +307,12 @@ impl ListArray {
 
     /// Create a copy of this array by adjusting `offsets` to start at `0` and removing elements not
     /// referenced by the `offsets`.
-    pub fn reset_offsets(&self) -> VortexResult<Self> {
-        let elements = self.sliced_elements();
+    pub fn reset_offsets(&self, recurse: bool) -> VortexResult<Self> {
+        let mut elements = self.sliced_elements();
+        if recurse && elements.is_canonical() {
+            elements = elements.to_canonical().compact()?.into_array();
+        }
+
         let offsets = self.offsets();
         let first_offset = offsets.scalar_at(0);
         let adjusted_offsets = sub_scalar(offsets, first_offset)?;
