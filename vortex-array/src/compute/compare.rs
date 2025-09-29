@@ -295,7 +295,7 @@ fn arrow_compare(
 ) -> VortexResult<ArrayRef> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
 
-    let array = if left.dtype().is_recursive() || right.dtype().is_recursive() {
+    let array = if left.dtype().is_nested() || right.dtype().is_nested() {
         let lhs = Datum::try_new_array(&left.to_canonical().into_array())?;
         let (lhs, _) = lhs.get();
         let rhs = Datum::try_new_array(&right.to_canonical().into_array())?;

@@ -306,12 +306,12 @@ impl DType {
         matches!(self, Extension(_))
     }
 
-    /// Check if `self` is a recursive type, i.e. list, fixed size list, struct, or extension of a
+    /// Check if `self` is a nested type, i.e. list, fixed size list, struct, or extension of a
     /// recursive type.
-    pub fn is_recursive(&self) -> bool {
+    pub fn is_nested(&self) -> bool {
         match self {
             List(..) | FixedSizeList(..) | Struct(..) => true,
-            Extension(ext) => ext.storage_dtype().is_recursive(),
+            Extension(ext) => ext.storage_dtype().is_nested(),
             _ => false,
         }
     }
