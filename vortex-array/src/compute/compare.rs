@@ -212,15 +212,6 @@ impl ComputeFnVTable for Compare {
             );
         }
 
-        // TODO(ngates): no reason why not
-        if lhs.dtype().is_struct() {
-            vortex_bail!(
-                "Compare does not support arrays with Struct DType, got: {} and {}",
-                lhs.dtype(),
-                rhs.dtype()
-            )
-        }
-
         Ok(DType::Bool(
             lhs.dtype().nullability() | rhs.dtype().nullability(),
         ))
@@ -304,7 +295,6 @@ fn arrow_compare(
 ) -> VortexResult<ArrayRef> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
 
-
     let array = if left.dtype().is_recursive() || right.dtype().is_recursive() {
         let lhs = Datum::try_new_array(&left.to_canonical().into_array())?;
         let (lhs, _) = lhs.get();
@@ -314,17 +304,19 @@ fn arrow_compare(
         let cmp = make_comparator(lhs, rhs, SortOptions::default())?;
         assert_eq!(lhs.len(), rhs.len());
         let len = lhs.len();
-        let values = (0..len).map(|i| {
-            let cmp = cmp(i, i);
-            match operator {
-                Operator::Eq => cmp.is_eq(),
-                Operator::NotEq => cmp.is_ne(),
-                Operator::Gt => cmp.is_gt(),
-                Operator::Gte => cmp.is_gt() || cmp.is_eq(),
-                Operator::Lt => cmp.is_lt() ,
-                Operator::Lte => cmp.is_lt() || cmp.is_eq(),
-            }
-        }).collect();
+        let values = (0..len)
+            .map(|i| {
+                let cmp = cmp(i, i);
+                match operator {
+                    Operator::Eq => cmp.is_eq(),
+                    Operator::NotEq => cmp.is_ne(),
+                    Operator::Gt => cmp.is_gt(),
+                    Operator::Gte => cmp.is_gt() || cmp.is_eq(),
+                    Operator::Lt => cmp.is_lt(),
+                    Operator::Lte => cmp.is_lt() || cmp.is_eq(),
+                }
+            })
+            .collect();
         let nulls = NullBuffer::union(lhs.nulls(), rhs.nulls());
         BooleanArray::new(values, nulls)
     } else {
@@ -367,7 +359,10 @@ mod tests {
 
     use super::*;
     use crate::ToCanonical;
-    use crate::arrays::{BoolArray, ConstantArray, VarBinArray, VarBinViewArray};
+    use crate::arrays::{
+        BoolArray, ConstantArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
+        VarBinViewArray,
+    };
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
@@ -454,5 +449,100 @@ mod tests {
     fn arrow_compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
         let res = compare(&left, &right, Operator::Eq).unwrap();
         assert_eq!(res.to_bool().boolean_buffer().count_set_bits(), left.len());
+    }
+
+    #[test]
+    fn test_list_array_comparison() {
+        // Create two simple list arrays with integers
+        let values1 = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
+        let offsets1 = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
+        let list1 = ListArray::try_new(values1.into_array(), offsets1.into_array(), Validity::NonNullable).unwrap();
+
+        let values2 = PrimitiveArray::from_iter([1i32, 2, 3, 4, 7, 8]);
+        let offsets2 = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
+        let list2 = ListArray::try_new(values2.into_array(), offsets2.into_array(), Validity::NonNullable).unwrap();
+
+        // Test equality - first two lists should be equal, third should be different
+        let result = compare(list1.as_ref(), list2.as_ref(), Operator::Eq).unwrap();
+        let bool_result = result.to_bool();
+        assert_eq!(bool_result.boolean_buffer().value(0), true); // [1,2] == [1,2]
+        assert_eq!(bool_result.boolean_buffer().value(1), true); // [3,4] == [3,4]
+        assert_eq!(bool_result.boolean_buffer().value(2), false); // [5,6] != [7,8]
+
+        // Test inequality
+        let result = compare(list1.as_ref(), list2.as_ref(), Operator::NotEq).unwrap();
+        let bool_result = result.to_bool();
+        assert_eq!(bool_result.boolean_buffer().value(0), false);
+        assert_eq!(bool_result.boolean_buffer().value(1), false);
+        assert_eq!(bool_result.boolean_buffer().value(2), true);
+
+        // Test less than
+        let result = compare(list1.as_ref(), list2.as_ref(), Operator::Lt).unwrap();
+        let bool_result = result.to_bool();
+        assert_eq!(bool_result.boolean_buffer().value(0), false); // [1,2] < [1,2] = false
+        assert_eq!(bool_result.boolean_buffer().value(1), false); // [3,4] < [3,4] = false
+        assert_eq!(bool_result.boolean_buffer().value(2), true); // [5,6] < [7,8] = true
+    }
+
+    #[test]
+    fn test_list_array_constant_comparison() {
+        use std::sync::Arc;
+        use vortex_dtype::{DType, PType};
+
+        // Create a list array
+        let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
+        let offsets = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
+        let list = ListArray::try_new(values.into_array(), offsets.into_array(), Validity::NonNullable).unwrap();
+
+        // Create a constant list scalar [3,4] that will be broadcasted
+        let list_scalar = Scalar::list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![3i32.into(), 4i32.into()],
+            Nullability::NonNullable,
+        );
+        let constant = ConstantArray::new(list_scalar, 3);
+
+        // Compare list with constant - all should be compared to [3,4]
+        let result = compare(list.as_ref(), constant.as_ref(), Operator::Eq).unwrap();
+        let bool_result = result.to_bool();
+        assert_eq!(bool_result.boolean_buffer().value(0), false); // [1,2] != [3,4]
+        assert_eq!(bool_result.boolean_buffer().value(1), true); // [3,4] == [3,4]
+        assert_eq!(bool_result.boolean_buffer().value(2), false); // [5,6] != [3,4]
+    }
+
+    #[test]
+    fn test_struct_array_comparison() {
+        // Create two struct arrays with bool and int fields
+        let bool_field1 = BoolArray::from_iter([Some(true), Some(false), Some(true)]);
+        let int_field1 = PrimitiveArray::from_iter([1i32, 2, 3]);
+
+        let bool_field2 = BoolArray::from_iter([Some(true), Some(false), Some(false)]);
+        let int_field2 = PrimitiveArray::from_iter([1i32, 2, 4]);
+
+        let struct1 = StructArray::from_fields(&[
+            ("bool_col", bool_field1.into_array()),
+            ("int_col", int_field1.into_array()),
+        ])
+        .unwrap();
+
+        let struct2 = StructArray::from_fields(&[
+            ("bool_col", bool_field2.into_array()),
+            ("int_col", int_field2.into_array()),
+        ])
+        .unwrap();
+
+        // Test equality
+        let result = compare(struct1.as_ref(), struct2.as_ref(), Operator::Eq).unwrap();
+        let bool_result = result.to_bool();
+        assert_eq!(bool_result.boolean_buffer().value(0), true); // {true, 1} == {true, 1}
+        assert_eq!(bool_result.boolean_buffer().value(1), true); // {false, 2} == {false, 2}
+        assert_eq!(bool_result.boolean_buffer().value(2), false); // {true, 3} != {false, 4}
+
+        // Test greater than
+        let result = compare(struct1.as_ref(), struct2.as_ref(), Operator::Gt).unwrap();
+        let bool_result = result.to_bool();
+        assert_eq!(bool_result.boolean_buffer().value(0), false); // {true, 1} > {true, 1} = false
+        assert_eq!(bool_result.boolean_buffer().value(1), false); // {false, 2} > {false, 2} = false
+        assert_eq!(bool_result.boolean_buffer().value(2), true); // {true, 3} > {false, 4} = true (bool field takes precedence)
     }
 }
