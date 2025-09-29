@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future::ready;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -12,7 +11,6 @@ use futures::future::BoxFuture;
 use futures::stream::{BoxStream, once};
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt, pin_mut, try_join};
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::stream::ArrayStreamExt;
 use vortex_array::{Array, ArrayContext, ArrayRef, Canonical};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
@@ -145,7 +143,7 @@ impl LayoutStrategy for DictStrategy {
         let child_layouts = stream! {
             pin_mut!(runs);
 
-            while let Some((codes_stream, values_fut)) = runs.next().await {
+            while let Some((codes_stream, values_fut, bloom_filter)) = runs.next().await {
                 let codes = self.codes.clone();
                 let codes_eof = eof.split_off();
                 let ctx2 = ctx.clone();
@@ -160,27 +158,12 @@ impl LayoutStrategy for DictStrategy {
                     ).await
                 });
 
-                let bloom_id = eof.split_off().downgrade();
-                let bloom_fut = handle.spawn_nested(move |h| async move {
-                    // stuff
-                });
-                // // Write bloom filters if available
-                // let (values_sequence_id, values_array) = values_fut.await?;
-                // let values_fut: BoxFuture<SequencedChunk> = ready(Ok((values_sequence_id, values_array.clone()))).boxed();
-                // let bloom_segment_id = if let Some(bloom_filter) = build_bloom_filter_from_dictionary_values(values_array.as_ref()) {
-                //     // Write the bloom filter as its own segment before the values
-                //     let bloom_sequence_id = eof.split_off().downgrade();
-                //     Ok(Some(segment_sink.write(bloom_sequence_id, vec![bloom_filter.serialize()]).await?))
-                // } else {
-                //     Ok(None)
-                // };
-
                 let values = self.values.clone();
                 let values_eof = eof.split_off();
                 let ctx2 = ctx.clone();
                 let segment_sink2 = segment_sink.clone();
                 let dtype2 = dtype2.clone();
-                // let values_fut = ready(Ok((values_sequence_id, values_array)));
+
                 let values_layout = handle.spawn_nested(move |h| async move {
                     values.write_stream(
                         ctx2,
@@ -191,9 +174,26 @@ impl LayoutStrategy for DictStrategy {
                     ).await
                 });
 
+                // Write bloom filter to segment if present
+                let bloom_filter_fut = if let Some(filter) = bloom_filter {
+                    let bloom_filter_id = eof.split_off().downgrade();
+                    let segment_sink2 = segment_sink.clone();
+                    let serialized = vec![filter.serialize()];
+                    Some(handle.spawn_nested(move |_h| async move {
+                        segment_sink2.write(bloom_filter_id, serialized).await
+                    }))
+                } else {
+                    None
+                };
+
                 yield async move {
-                    try_join!(codes_fut, values_layout)
-                    // try_join!(codes_fut, values_layout, ready(bloom_segment_id).boxed())
+                    let (codes_layout, values_layout) = try_join!(codes_fut, values_layout)?;
+                    let bloom_segment_id = if let Some(fut) = bloom_filter_fut {
+                        Some(fut.await?)
+                    } else {
+                        None
+                    };
+                    Ok::<_, VortexError>((codes_layout, values_layout, bloom_segment_id))
                 }.boxed();
             }
         };
@@ -201,20 +201,19 @@ impl LayoutStrategy for DictStrategy {
         let mut child_layouts = child_layouts
             .buffered(usize::MAX)
             .map(|result| {
-                // let (codes_layout, values_layout, bloom_segment_id) = result?;
-                let (codes_layout, values_layout) = result?;
-                // if let Some(bloom_filter_segment) = bloom_segment_id {
-                //     Ok::<_, VortexError>(
-                //         DictLayout::new_with_bloom_filter(
-                //             values_layout,
-                //             codes_layout,
-                //             bloom_filter_segment,
-                //         )
-                //         .into_layout(),
-                //     )
-                // } else {
-                Ok::<_, VortexError>(DictLayout::new(values_layout, codes_layout).into_layout())
-                // }
+                let (codes_layout, values_layout, bloom_segment_id) = result?;
+                if let Some(bloom_filter_segment) = bloom_segment_id {
+                    Ok::<_, VortexError>(
+                        DictLayout::new_with_bloom_filter(
+                            values_layout,
+                            codes_layout,
+                            bloom_filter_segment,
+                        )
+                        .into_layout(),
+                    )
+                } else {
+                    Ok::<_, VortexError>(DictLayout::new(values_layout, codes_layout).into_layout())
+                }
             })
             .try_collect::<Vec<_>>()
             .await?;
@@ -239,7 +238,7 @@ impl LayoutStrategy for DictStrategy {
 
 enum DictionaryChunk {
     Codes((SequenceId, ArrayRef)),
-    Values((SequenceId, ArrayRef)),
+    Values((SequenceId, ArrayRef, Option<BloomFilter>)),
 }
 
 type DictionaryStream = BoxStream<'static, VortexResult<DictionaryChunk>>;
@@ -311,24 +310,34 @@ impl DictStreamState {
         let mut to_be_encoded = Some(chunk);
         while let Some(remaining) = to_be_encoded.take() {
             match self.encoder.take() {
+                // First chunk, build the encoder
                 None => match start_encoding(&self.constraints, &remaining)? {
-                    EncodingState::Continue((encoder, encoded)) => {
-                        res.push(Ok(labeler.codes(encoded)));
+                    EncodingState::Continue(encoder, codes) => {
+                        res.push(Ok(labeler.codes(codes)));
                         self.encoder = Some(encoder);
                     }
-                    EncodingState::Done((values, encoded, unencoded)) => {
-                        res.push(Ok(labeler.codes(encoded)));
+                    EncodingState::Done {
+                        values,
+                        codes,
+                        unencoded,
+                    } => {
+                        res.push(Ok(labeler.codes(codes)));
                         res.push(Ok(labeler.values(values)));
                         to_be_encoded = Some(unencoded);
                     }
                 },
+                // Reuse existing encoder for subsequent chunks
                 Some(encoder) => match encode_chunk(encoder, &remaining)? {
-                    EncodingState::Continue((encoder, encoded)) => {
-                        res.push(Ok(labeler.codes(encoded)));
+                    EncodingState::Continue(encoder, codes) => {
+                        res.push(Ok(labeler.codes(codes)));
                         self.encoder = Some(encoder);
                     }
-                    EncodingState::Done((values, encoded, unencoded)) => {
-                        res.push(Ok(labeler.codes(encoded)));
+                    EncodingState::Done {
+                        values,
+                        codes,
+                        unencoded,
+                    } => {
+                        res.push(Ok(labeler.codes(codes)));
                         res.push(Ok(labeler.values(values)));
                         to_be_encoded = Some(unencoded);
                     }
@@ -400,6 +409,7 @@ fn build_bloom_filter_from_dictionary_values(values: &dyn Array) -> Option<Bloom
 
         Some(bloom)
     } else {
+        // TODO(aduffy): support primitive and decimal types, timestamps, etc.
         None
     }
 }
@@ -419,7 +429,8 @@ impl DictChunkLabeler {
     }
 
     fn values(&mut self, chunk: ArrayRef) -> DictionaryChunk {
-        DictionaryChunk::Values((self.sequence_pointer.advance(), chunk))
+        let bloom_filter = build_bloom_filter_from_dictionary_values(chunk.as_ref());
+        DictionaryChunk::Values((self.sequence_pointer.advance(), chunk, bloom_filter))
     }
 }
 
@@ -429,6 +440,7 @@ struct DictionaryTransformer {
     input: DictionaryStream,
     active_codes_tx: Option<kanal::AsyncSender<SequencedChunk>>,
     active_values_tx: Option<oneshot::Sender<SequencedChunk>>,
+    active_bloom_filter: Option<BloomFilter>,
     pending_send: Option<BoxFuture<'static, Result<(), kanal::SendError>>>,
 }
 
@@ -438,13 +450,18 @@ impl DictionaryTransformer {
             input,
             active_codes_tx: None,
             active_values_tx: None,
+            active_bloom_filter: None,
             pending_send: None,
         }
     }
 }
 
 impl Stream for DictionaryTransformer {
-    type Item = (SendableSequentialStream, BoxFuture<'static, SequencedChunk>);
+    type Item = (
+        SendableSequentialStream,
+        BoxFuture<'static, SequencedChunk>,
+        Option<BloomFilter>,
+    );
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -498,7 +515,9 @@ impl Stream for DictionaryTransformer {
                         }
                         .boxed();
 
-                        return Poll::Ready(Some((codes_stream, values_future)));
+                        // Take the bloom filter from the previous group (if any)
+                        let bloom_filter = self.active_bloom_filter.take();
+                        return Poll::Ready(Some((codes_stream, values_future, bloom_filter)));
                     } else {
                         // Continue streaming codes to existing group
                         if let Some(tx) = &self.active_codes_tx {
@@ -508,11 +527,12 @@ impl Stream for DictionaryTransformer {
                         }
                     }
                 }
-                Poll::Ready(Some(Ok(DictionaryChunk::Values(values)))) => {
+                Poll::Ready(Some(Ok(DictionaryChunk::Values((seq_id, array, bloom_filter))))) => {
                     // Complete the current group
                     if let Some(values_tx) = self.active_values_tx.take() {
-                        let _ = values_tx.send(Ok(values));
+                        let _ = values_tx.send(Ok((seq_id, array)));
                     }
+                    self.active_bloom_filter = bloom_filter;
                     self.active_codes_tx = None; // Close codes stream
                 }
                 Poll::Ready(Some(Err(e))) => {
@@ -576,9 +596,18 @@ impl DictLayoutMetadata {
 }
 
 enum EncodingState {
-    Continue((Box<dyn DictEncoder>, ArrayRef)),
-    // (values, encoded, unencoded)
-    Done((ArrayRef, ArrayRef, ArrayRef)),
+    /// Continue encoding with the same dictionary, yielding the encoder and the codes
+    Continue(Box<dyn DictEncoder>, ArrayRef),
+    /// Unique values after encoding is completed
+    Done {
+        /// The unique values
+        values: ArrayRef,
+        /// Integer codes, pointing into positions in the values
+        codes: ArrayRef,
+        /// The remaining values that were not encoded, because of
+        /// dictionary size constraints being met.
+        unencoded: ArrayRef,
+    },
 }
 
 fn start_encoding(constraints: &DictConstraints, chunk: &dyn Array) -> VortexResult<EncodingState> {
@@ -592,8 +621,12 @@ fn encode_chunk(
 ) -> VortexResult<EncodingState> {
     let encoded = encoder.encode(chunk)?;
     Ok(match remainder(chunk, encoded.len()) {
-        None => EncodingState::Continue((encoder, encoded)),
-        Some(unencoded) => EncodingState::Done((encoder.values()?, encoded, unencoded)),
+        None => EncodingState::Continue(encoder, encoded),
+        Some(unencoded) => EncodingState::Done {
+            values: encoder.values()?,
+            codes: encoded,
+            unencoded,
+        },
     })
 }
 

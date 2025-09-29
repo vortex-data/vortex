@@ -8,7 +8,7 @@ pub mod writer;
 use std::sync::Arc;
 
 use reader::DictReader;
-use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
+use vortex_array::{ArrayContext, ProstMetadata};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
