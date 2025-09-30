@@ -34,7 +34,7 @@ use vortex::mask::Mask;
 use vortex::{Array, Canonical, ToCanonical};
 
 use crate::cpp::DUCKDB_TYPE;
-use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, LogicalType, Value, Vector};
+use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, LogicalType, Vector};
 
 /// DuckDB exporter for an [`ArrayIterator`], sharing state and caches.
 pub struct ArrayIteratorExporter {

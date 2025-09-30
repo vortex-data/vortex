@@ -25,7 +25,8 @@ impl ColumnExporter for InvalidExporter {
             "invalid exporter: offset + len must be less than or equal to len"
         );
 
-        Ok(vector.reference_value(&self.null_value))
+        vector.reference_value(&self.null_value);
+        Ok(())
     }
 }
 
@@ -34,7 +35,7 @@ mod tests {
     use vortex::arrays::PrimitiveArray;
 
     use super::*;
-    use crate::cpp::duckdb_type;
+    
     use crate::duckdb::{DataChunk, LogicalType};
 
     #[test]
@@ -44,7 +45,7 @@ mod tests {
 
         let mut chunk = DataChunk::new([ltype.clone()]);
 
-        let exporter = new_exporter(arr.len(), &ltype)
+        new_exporter(arr.len(), &ltype)
             .export(0, 3, &mut chunk.get_vector(0))
             .unwrap();
         chunk.set_len(3);

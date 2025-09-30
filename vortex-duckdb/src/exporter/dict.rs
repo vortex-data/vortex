@@ -12,13 +12,11 @@ use vortex::dtype::{NativePType, match_each_integer_ptype};
 use vortex::encodings::dict::DictArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex::validity::Validity;
-use vortex::vtable::ValidityHelper;
 use vortex::{Array, IntoArray, ToCanonical};
 
 use crate::duckdb::{LogicalType, SelectionVector, Vector};
 use crate::exporter::cache::ConversionCache;
-use crate::exporter::{ColumnExporter, VectorExt, constant, invalid, new_array_exporter, validity};
+use crate::exporter::{ColumnExporter, constant, invalid, new_array_exporter};
 
 struct DictExporter<I: NativePType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
@@ -70,9 +68,15 @@ pub(crate) fn new_exporter(
     let values_vector = match cached_vector {
         Some(vector) => vector,
         None => {
+            let flatten = false;
+            let values  = if flatten {
+                values.to_canonical().into_array()
+            } else {
+                values.clone()
+            };
             // Create a new DuckDB vector for the values.
             let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
-            new_array_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
+            new_array_exporter(&values, cache)?.export(0, values.len(), &mut vector)?;
 
             let vector = Arc::new(Mutex::new(vector));
             cache
