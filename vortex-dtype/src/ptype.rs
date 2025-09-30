@@ -112,7 +112,7 @@ pub trait NativePType:
 }
 
 /// A visitor trait for converting a `NativePType` to another parameterized type.
-#[allow(missing_docs)] // Kind of obvious..
+#[allow(missing_docs)] // Kind of obvious.
 pub trait PTypeVisitor {
     type Output<T: NativePType>;
 
@@ -181,6 +181,12 @@ macro_rules! impl_ptype_downcast {
 
 macro_rules! native_ptype {
     ($T:ty, $ptype:tt) => {
+        impl crate::NativeDType for $T {
+            fn dtype() -> DType {
+                DType::Primitive(PType::$ptype, crate::Nullability::NonNullable)
+            }
+        }
+
         impl NativePType for $T {
             const PTYPE: PType = PType::$ptype;
 
@@ -213,6 +219,12 @@ impl<T: PTypeVisitorMut + ?Sized> PTypeVisitorMutExt for T {}
 
 macro_rules! native_float_ptype {
     ($T:ty, $ptype:tt) => {
+        impl crate::NativeDType for $T {
+            fn dtype() -> DType {
+                DType::Primitive(PType::$ptype, crate::Nullability::NonNullable)
+            }
+        }
+
         impl NativePType for $T {
             const PTYPE: PType = PType::$ptype;
 

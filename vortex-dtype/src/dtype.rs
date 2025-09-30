@@ -94,6 +94,17 @@ pub enum DType {
     Extension(Arc<ExtDType>),
 }
 
+/// This trait is implemented by native Rust types that can be converted
+/// to and from Vortex scalar values.
+/// e.g. `&str` -> `DType::Utf8`
+///      `bool` -> `DType::Bool`
+///
+/// The dtype is the one closet matching the domain of the rust type e.g. `Option<T>` -> nullable dtype.
+pub trait NativeDType {
+    /// Returns the Vortex data type for this scalar type.
+    fn dtype() -> DType;
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 const_assert_eq!(size_of::<DType>(), 16);
 
