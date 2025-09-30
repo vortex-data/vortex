@@ -1,33 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
-use crate::arrays::{MaskedArray, MaskedVTable, PrimitiveArray};
-use crate::canonical::ToCanonical;
-use crate::compute::{TakeKernel, TakeKernelAdapter, take};
-use crate::validity::Validity;
+use crate::arrays::{MaskedArray, MaskedVTable};
+use crate::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl TakeKernel for MaskedVTable {
     fn take(&self, array: &MaskedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        // Strip nulls from indices to get non-nullable indices for taking from child
-        // The child is guaranteed to have no nulls, so we can only take with non-null indices
-        let stripped_indices = if indices.dtype().is_nullable() {
-            // Create a non-nullable version of the indices by replacing nulls with 0
+        let taken_child = if !indices.all_valid() {
             // This is safe because we'll mask out these positions in the validity
-            let prim = indices.to_primitive();
-            match_each_native_ptype!(prim.ptype(), |P| {
-                PrimitiveArray::new(prim.into_buffer::<P>(), Validity::NonNullable).into_array()
-            })
+            let filled_take = fill_null(
+                indices,
+                &Scalar::default_value(indices.dtype().clone().as_nonnullable()),
+            )?;
+            take(&array.child, &filled_take)?
         } else {
-            indices.to_owned()
+            take(&array.child, indices)?
         };
-
-        // Take from the child using the stripped indices
-        let taken_child = take(&array.child, &stripped_indices)?;
 
         // Compute the new validity by taking from array's validity and merging with indices validity
         let taken_validity = array.validity().take(indices)?;
