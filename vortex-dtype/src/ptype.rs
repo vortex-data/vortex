@@ -12,9 +12,9 @@ use num_traits::bounds::UpperBounded;
 use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive, Unsigned};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
-use crate::DType;
 use crate::half::f16;
 use crate::nullability::Nullability::NonNullable;
+use crate::{DType, Nullability};
 
 /// Physical type enum, represents the in-memory physical layout but might represent a different logical type.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash, prost::Enumeration)]
@@ -112,7 +112,7 @@ pub trait NativePType:
 }
 
 /// A visitor trait for converting a `NativePType` to another parameterized type.
-#[allow(missing_docs)] // Kind of obvious..
+#[allow(missing_docs)] // Kind of obvious.
 pub trait PTypeVisitor {
     type Output<T: NativePType>;
 
@@ -181,6 +181,12 @@ macro_rules! impl_ptype_downcast {
 
 macro_rules! native_ptype {
     ($T:ty, $ptype:tt) => {
+        impl crate::NativeDType for $T {
+            fn dtype(nullability: Nullability) -> DType {
+                DType::Primitive(PType::$ptype, nullability)
+            }
+        }
+
         impl NativePType for $T {
             const PTYPE: PType = PType::$ptype;
 
@@ -213,6 +219,12 @@ impl<T: PTypeVisitorMut + ?Sized> PTypeVisitorMutExt for T {}
 
 macro_rules! native_float_ptype {
     ($T:ty, $ptype:tt) => {
+        impl crate::NativeDType for $T {
+            fn dtype(nullability: Nullability) -> DType {
+                DType::Primitive(PType::$ptype, nullability)
+            }
+        }
+
         impl NativePType for $T {
             const PTYPE: PType = PType::$ptype;
 

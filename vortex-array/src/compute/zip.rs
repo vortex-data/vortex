@@ -75,6 +75,15 @@ impl ComputeFnVTable for Zip {
         // TODO(os): add invert_mask opt and check if if_false has a kernel like:
         //           kernel.invoke(Args(if_false, if_true, mask, invert_mask = true))
 
+        if !if_true.is_canonical() || !if_false.is_canonical() {
+            return zip(
+                if_true.to_canonical().as_ref(),
+                if_false.to_canonical().as_ref(),
+                mask,
+            )
+            .map(Into::into);
+        }
+
         Ok(zip_impl(
             if_true.to_canonical().as_ref(),
             if_false.to_canonical().as_ref(),
@@ -212,11 +221,14 @@ pub(crate) fn zip_impl_with_builder(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::zip;
-    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
+    use vortex_dtype::Nullability;
     use vortex_mask::Mask;
+    use vortex_scalar::Scalar;
+
+    use crate::arrays::{ConstantArray, PrimitiveArray};
+    use crate::compute::zip;
+    use crate::{Array, IntoArray, ToCanonical};
 
     #[test]
     fn test_zip_basic() {
@@ -259,5 +271,37 @@ mod tests {
         let if_false = buffer![1, 2, 3, 4].into_array();
 
         zip(&if_true, &if_false, &mask).unwrap();
+    }
+
+    #[test]
+    fn test_fragmentation() {
+        let len = 100;
+
+        let const1 = ConstantArray::new(
+            Scalar::utf8("hello_this_is_a_longer_string", Nullability::Nullable),
+            len,
+        )
+        .to_array();
+
+        let const2 = ConstantArray::new(
+            Scalar::utf8("world_this_is_another_string", Nullability::Nullable),
+            len,
+        )
+        .to_array();
+
+        // Create a mask that alternates frequently to cause fragmentation
+        // Pattern: take from const1 at even indices, const2 at odd indices
+        let indices: Vec<usize> = (0..len).step_by(2).collect();
+        let mask = Mask::from_indices(len, indices);
+
+        let result = zip(&const1, &const2, &mask).unwrap();
+
+        insta::assert_snapshot!(result.display_tree(), @r"
+        root: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%)
+          metadata: EmptyMetadata
+          buffer (align=1): 29 B (1.75%)
+          buffer (align=1): 28 B (1.69%)
+          buffer (align=16): 1.60 kB (96.56%)
+        ");
     }
 }
