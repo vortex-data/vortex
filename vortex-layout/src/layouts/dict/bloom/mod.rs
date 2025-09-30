@@ -8,12 +8,7 @@
 pub mod sbbf;
 mod serde;
 
-use std::ops::Index;
-use std::sync::Arc;
-
 use vortex_buffer::BufferMut;
-use vortex_expr::{BinaryVTable, LikeVTable, LiteralVTable, Operator, VortexExpr};
-use vortex_mask::Mask;
 
 use crate::layouts::dict::bloom::sbbf::{Block, Sbbf};
 
@@ -198,102 +193,6 @@ impl BloomFilter {
         match self {
             BloomFilter::SplitBlockWord(sbbf) => sbbf.load(),
         }
-    }
-}
-
-/// A shareable set of Bloom filters, one for each zone.
-#[derive(Clone)]
-pub struct BloomFilters {
-    filters: Arc<[BloomFilter]>,
-}
-
-impl BloomFilters {
-    /// Create a new set of bloom filters from a collection of `BloomFilter`, assumed to be one
-    /// filter per zone.
-    pub fn new(filters: impl Into<Arc<[BloomFilter]>>) -> Self {
-        Self {
-            filters: filters.into(),
-        }
-    }
-
-    /// Build a pruning mask by turning the expression into a sequence of probes against the zone
-    /// Bloom filters.
-    ///
-    /// The pruning mask will have the length equal to the number of zones. Each bit in the mask
-    /// indicates:
-    ///
-    /// * `true` indicating the zone **can** be pruned, as determined by the Bloom filter
-    /// * `false` indicating the zone **cannot** be pruned, because the Bloom filter indicated
-    ///   that the target _may_ be contained in the zone.
-    pub fn prune(&self, expr: &dyn VortexExpr) -> Mask {
-        // Handle pruning of `=` and `<>` against a string literal
-        if let Some(binary) = expr.as_opt::<BinaryVTable>()
-            && let Some(rhs) = binary.rhs().as_opt::<LiteralVTable>()
-            && let Some(phrase) = rhs.value().as_utf8_opt().and_then(|s| s.value())
-        {
-            let op = match binary.op() {
-                Operator::Eq => CheckOp::Eq,
-                // Other operators not supported, no pruning executed
-                _ => return Mask::new_false(self.filters.len()),
-            };
-
-            self.prune_op(phrase.as_str(), op)
-        }
-        // Handle `LIKE` expressions against a literal pattern
-        else if let Some(like) = expr.as_opt::<LikeVTable>()
-            && !like.case_insensitive()
-            && !like.negated()
-            && let Some(rhs) = like.pattern().as_opt::<LiteralVTable>()
-            && let Some(pattern) = rhs.value().as_utf8_opt().and_then(|s| s.value())
-        {
-            match parse_like_pattern(pattern.as_str()) {
-                LikePattern::Exact(search) => self.prune_op(search, CheckOp::Eq),
-                LikePattern::Suffix(suffix) => self.prune_op(suffix, CheckOp::EndsWith),
-                LikePattern::Prefix(prefix) => self.prune_op(prefix, CheckOp::StartsWith),
-                LikePattern::Contains(contains) => self.prune_op(contains, CheckOp::Contains),
-                LikePattern::Other(_) => Mask::new_false(self.filters.len()),
-            }
-        } else {
-            Mask::new_false(self.filters.len())
-        }
-    }
-
-    /// Generate a Mask with a bit for each zone based on the presence of tokens for the given
-    /// check operation.
-    fn prune_op(&self, target: &str, op: CheckOp) -> Mask {
-        match op {
-            CheckOp::Eq => Mask::from_iter(self.filters.iter().map(|f| !f.check(target))),
-            CheckOp::NotEq => Mask::from_iter(self.filters.iter().map(|f| f.check(target))),
-            CheckOp::Contains => {
-                Mask::from_iter(self.filters.iter().map(|f| !f.check_contains(target)))
-            }
-            CheckOp::StartsWith => {
-                Mask::from_iter(self.filters.iter().map(|f| !f.check_prefix(target)))
-            }
-            CheckOp::EndsWith => {
-                Mask::from_iter(self.filters.iter().map(|f| !f.check_suffix(target)))
-            }
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.filters.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.filters.is_empty()
-    }
-
-    pub fn load(&self) -> Vec<f64> {
-        self.filters.iter().map(|f| f.load()).collect()
-    }
-}
-
-impl Index<usize> for BloomFilters {
-    type Output = BloomFilter;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.filters[index]
     }
 }
 
