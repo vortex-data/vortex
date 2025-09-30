@@ -47,11 +47,7 @@ impl Not for Mask {
     type Output = Mask;
 
     fn not(self) -> Self::Output {
-        match self.boolean_buffer() {
-            AllOr::All => Mask::new_false(self.len()),
-            AllOr::None => Mask::new_true(self.len()),
-            AllOr::Some(buffer) => Mask::from_buffer(!buffer),
-        }
+        !(&self)
     }
 }
 
