@@ -13,9 +13,9 @@ use vortex::arrays::FixedSizeListArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use super::{ConversionCache, new_array_exporter};
-use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, VectorExt};
+use super::{ConversionCache, all_invalid, new_array_exporter_with_flatten};
+use crate::duckdb::{LogicalType, Vector};
+use crate::exporter::ColumnExporter;
 
 /// Exporter for converting Vortex [`FixedSizeListArray`] to DuckDB ARRAY vectors.
 struct FixedSizeListExporter {
@@ -32,7 +32,13 @@ pub(crate) fn new_exporter(
     array: &FixedSizeListArray,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let elements_exporter = new_array_exporter(array.elements(), cache)?;
+    let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
+
+    let ltype: LogicalType = array.dtype().try_into()?;
+
+    if let Mask::AllFalse(len) = array.validity_mask() {
+        return Ok(all_invalid::new_exporter(len, &ltype));
+    }
 
     Ok(Box::new(FixedSizeListExporter {
         validity: array.validity_mask(),
@@ -209,6 +215,7 @@ mod tests {
 
         // All lists should be null.
         let vector = chunk.get_vector(0);
+        vector.flatten(chunk.len());
         assert_nulls(&vector, &[false, false, false]);
     }
 

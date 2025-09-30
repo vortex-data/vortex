@@ -10,10 +10,10 @@ use vortex::dtype::{NativePType, match_each_integer_ptype};
 use vortex::error::{VortexResult, vortex_err};
 use vortex::mask::Mask;
 
-use super::{ConversionCache, new_array_exporter};
+use super::{ConversionCache, new_array_exporter_with_flatten};
 use crate::cpp;
 use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, VectorExt};
+use crate::exporter::ColumnExporter;
 
 struct ListExporter<T> {
     validity: Mask,
@@ -26,7 +26,7 @@ pub(crate) fn new_exporter(
     array: &ListArray,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let elements_exporter = new_array_exporter(array.elements(), cache)?;
+    let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
     let offsets = array.offsets().to_primitive();
     let boxed = match_each_integer_ptype!(offsets.ptype(), |T| {
         Box::new(ListExporter {
@@ -96,6 +96,7 @@ mod tests {
     use super::*;
     use crate::cpp;
     use crate::duckdb::{DataChunk, LogicalType};
+    use crate::exporter::new_array_exporter;
 
     #[test]
     fn test_export_empty_list() {

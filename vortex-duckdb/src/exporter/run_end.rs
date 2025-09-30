@@ -108,7 +108,7 @@ impl<E: NativePType + Ord + FromPrimitive + ToPrimitive> ColumnExporter for RunE
         // Export the run-end values into the vector, and then turn it into a dictionary vector.
         self.values_exporter
             .export(start_run_idx, values_len as usize, vector)?;
-        vector.slice_to_dictionary(sel_vec, len as _);
+        vector.dictionary(vector, values_len as usize, &sel_vec, len as _);
 
         Ok(())
     }
