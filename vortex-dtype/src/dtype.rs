@@ -99,7 +99,7 @@ pub enum DType {
 /// e.g. `&str` -> `DType::Utf8`
 ///      `bool` -> `DType::Bool`
 ///
-/// The dtype is the one closet matching the domain of the rust type e.g. option<T> -> nullable dtype.
+/// The dtype is the one closet matching the domain of the rust type e.g. `Option<T>` -> nullable dtype.
 pub trait NativeDType {
     /// Returns the Vortex data type for this scalar type.
     fn dtype() -> DType;
