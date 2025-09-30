@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod all_invalid;
 mod bool;
 mod cache;
 mod constant;
 mod decimal;
 mod dict;
 mod fixed_size_list;
-mod all_invalid;
 mod list;
 mod primitive;
 mod run_end;

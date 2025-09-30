@@ -220,7 +220,7 @@ impl<T: PTypeVisitorMut + ?Sized> PTypeVisitorMutExt for T {}
 macro_rules! native_float_ptype {
     ($T:ty, $ptype:tt) => {
         impl crate::NativeDType for $T {
-             fn dtype() -> DType {
+            fn dtype() -> DType {
                 DType::Primitive(PType::$ptype, crate::Nullability::NonNullable)
             }
         }

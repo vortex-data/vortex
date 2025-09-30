@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+
 use vortex_buffer::ByteBuffer;
-use crate::{DType, Nullability};
+
 use crate::dtype::NativeDType;
+use crate::{DType, Nullability};
 
 /// It is common to represent a nullable type `T` as an `Option<T>`, so we implement a blanket
 /// implementation for all `Option<T>` to simply be a nullable `T`.
@@ -59,6 +61,7 @@ impl NativeDType for ByteBuffer {
 #[cfg(test)]
 mod tests {
     use half::f16;
+
     use super::*;
     use crate::PType;
 

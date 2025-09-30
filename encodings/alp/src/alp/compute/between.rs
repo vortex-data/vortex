@@ -10,7 +10,7 @@ use vortex_array::compute::{
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_dtype::{NativeDType, NativePType, Nullability};
 use vortex_error::VortexResult;
-use vortex_scalar::{Scalar};
+use vortex_scalar::Scalar;
 
 use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
 
