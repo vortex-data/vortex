@@ -9,7 +9,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
 
 use super::{ComputeFnVTable, InvocationArgs, Output, cast};
-use crate::builders::{ArrayBuilder, builder_with_capacity};
+use crate::builders::{ArrayBuilder, VarBinViewBuilder, builder_with_capacity};
 use crate::compute::{ComputeFn, Kernel};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
@@ -193,7 +193,21 @@ pub(crate) fn zip_return_dtype(if_true: &dyn Array, if_false: &dyn Array) -> DTy
 
 fn zip_impl(if_true: &dyn Array, if_false: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     // if_true.len() == if_false.len() from ComputeFn::invoke
-    let builder = builder_with_capacity(&zip_return_dtype(if_true, if_false), if_true.len());
+    let return_type = zip_return_dtype(if_true, if_false);
+    let capacity = if_true.len();
+
+    let builder = match return_type {
+        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_buffer_deduplication(
+            DType::Utf8(n),
+            capacity,
+        )),
+        DType::Binary(n) => Box::new(VarBinViewBuilder::with_buffer_deduplication(
+            DType::Binary(n),
+            capacity,
+        )),
+        _ => builder_with_capacity(&return_type, if_true.len()),
+    };
+
     zip_impl_with_builder(if_true, if_false, mask, builder)
 }
 
