@@ -209,10 +209,11 @@ impl Scheme for ConstantScheme {
             .position(|idx| stats.source().is_valid(idx))
             .vortex_expect("Must have at least one valid value");
         let scalar = stats.source().scalar_at(scalar_idx);
+        let scalar_is_valid = scalar.is_valid();
 
         let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
 
-        if !stats.source().all_valid() {
+        if !stats.source().all_valid() && scalar_is_valid {
             Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
         } else {
             Ok(const_arr)
