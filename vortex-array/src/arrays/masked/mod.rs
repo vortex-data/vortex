@@ -8,7 +8,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::compute::mask;
-use crate::stats::StatsSetRef;
+use crate::stats::{ArrayStats, Precision, Stat, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{
     ArrayVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
@@ -53,6 +53,7 @@ pub struct MaskedArray {
     child: ArrayRef,
     validity: Validity,
     dtype: DType,
+    stats: ArrayStats,
 }
 
 impl ArrayVTable<MaskedVTable> for MaskedVTable {
@@ -65,13 +66,7 @@ impl ArrayVTable<MaskedVTable> for MaskedVTable {
     }
 
     fn stats(array: &MaskedArray) -> StatsSetRef<'_> {
-        if array.all_valid() {
-            array.child.statistics()
-        } else {
-            let stats = array.child.statistics();
-            stats.retain(&[]);
-            stats
-        }
+        array.stats.to_ref(array.as_ref())
     }
 }
 
@@ -98,10 +93,21 @@ impl MaskedArray {
         let nullability = validity.nullability();
         let dtype = child.dtype().with_nullability(nullability);
 
+        let stats = if validity.all_valid(child.len()) {
+            child.statistics().to_owned()
+        } else {
+            let invalid_count = validity.to_mask(child.len()).false_count();
+            let mut stats = child.statistics().to_owned();
+            stats.retain_only(&[Stat::UncompressedSizeInBytes]);
+            stats.set(Stat::NullCount, Precision::exact(invalid_count));
+            stats
+        };
+
         Ok(Self {
             child,
             validity,
             dtype,
+            stats: stats.into(),
         })
     }
 
@@ -133,6 +139,7 @@ impl OperationsVTable<MaskedVTable> for MaskedVTable {
             child,
             validity,
             dtype: array.dtype.clone(),
+            stats: ArrayStats::default(),
         }
         .into_array()
     }
