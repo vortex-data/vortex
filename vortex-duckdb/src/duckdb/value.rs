@@ -6,7 +6,7 @@ use std::fmt::{Debug, Display, Formatter};
 
 use num_traits::AsPrimitive;
 use vortex::buffer::{BufferString, ByteBuffer};
-use vortex::dtype::{NativeDType, Nullability};
+use vortex::dtype::NativeDType;
 use vortex::error::{VortexError, VortexExpect, vortex_err, vortex_panic};
 
 use crate::cpp::DUCKDB_TYPE;
@@ -234,9 +234,7 @@ where
     fn try_from(value: Option<T>) -> Result<Self, Self::Error> {
         match value {
             Some(v) => Ok(v.into()),
-            None => Ok(Value::null(&LogicalType::try_from(&T::dtype(
-                Nullability::Nullable,
-            ))?)),
+            None => Ok(Value::null(&LogicalType::try_from(&T::dtype())?)),
         }
     }
 }
