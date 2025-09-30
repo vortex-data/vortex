@@ -118,3 +118,7 @@ harness = false
 [[bench]]
 name = "scalar_at_struct"
 harness = false
+
+[[bench]]
+name = "varbinview_compact"
+harness = false
