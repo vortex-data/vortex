@@ -6,7 +6,8 @@ use std::fmt::{Debug, Display, Formatter};
 
 use num_traits::AsPrimitive;
 use vortex::buffer::{BufferString, ByteBuffer};
-use vortex::error::{VortexExpect, vortex_err, vortex_panic};
+use vortex::dtype::{DType, NativePType, Nullability};
+use vortex::error::{VortexError, VortexExpect, vortex_err, vortex_panic};
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;
@@ -224,15 +225,28 @@ impl Debug for Value {
     }
 }
 
-impl<T> From<Option<T>> for Value
+impl<T> TryFrom<Option<T>> for Value
 where
-    T: Into<Value>,
+    T: Into<Value> + NativePType,
 {
-    fn from(value: Option<T>) -> Self {
+    type Error = VortexError;
+
+    fn try_from(value: Option<T>) -> Result<Self, Self::Error> {
         match value {
-            Some(v) => v.into(),
-            // TODO(joe): fixme
-            None => todo!(),
+            Some(v) => Ok(v.into()),
+            None => Ok(Value::null(&LogicalType::try_from(T::PTYPE)?)),
+        }
+    }
+}
+
+impl TryFrom<Option<bool>> for Value
+{
+    type Error = VortexError;
+
+    fn try_from(value: Option<bool>) -> Result<Self, Self::Error> {
+        match value {
+            Some(v) => Ok(v.into()),
+            None => Ok(Value::null(&LogicalType::bool())),
         }
     }
 }

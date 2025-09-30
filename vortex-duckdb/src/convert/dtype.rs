@@ -291,19 +291,7 @@ impl TryFrom<&DType> for LogicalType {
         let duckdb_type = match dtype {
             DType::Null => DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL,
             DType::Bool(_) => DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN,
-            DType::Primitive(ptype, _) => match ptype {
-                I8 => DUCKDB_TYPE::DUCKDB_TYPE_TINYINT,
-                I16 => DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT,
-                I32 => DUCKDB_TYPE::DUCKDB_TYPE_INTEGER,
-                I64 => DUCKDB_TYPE::DUCKDB_TYPE_BIGINT,
-                U8 => DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT,
-                U16 => DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT,
-                U32 => DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER,
-                U64 => DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT,
-                F32 => DUCKDB_TYPE::DUCKDB_TYPE_FLOAT,
-                F64 => DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE,
-                PType::F16 => return Err(vortex_err!("F16 type not supported in DuckDB")),
-            },
+            DType::Primitive(ptype, _) => return LogicalType::try_from(*ptype),
             DType::Utf8(_) => DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR,
             DType::Binary(_) => DUCKDB_TYPE::DUCKDB_TYPE_BLOB,
             DType::Struct(struct_type, _) => {
@@ -347,6 +335,26 @@ impl TryFrom<&DType> for LogicalType {
         };
 
         Ok(LogicalType::new(duckdb_type))
+    }
+}
+
+impl TryFrom<PType> for LogicalType {
+    type Error = VortexError;
+
+    fn try_from(value: PType) -> Result<Self, Self::Error> {
+        Ok(match value {
+            I8 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TINYINT),
+            I16 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT),
+            I32 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+            I64 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT),
+            U8 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT),
+            U16 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT),
+            U32 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER),
+            U64 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT),
+            F32 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_FLOAT),
+            F64 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE),
+            PType::F16 => return Err(vortex_err!("F16 type not supported in DuckDB")),
+        })
     }
 }
 

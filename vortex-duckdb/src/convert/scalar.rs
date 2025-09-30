@@ -72,9 +72,9 @@ impl ToDuckDBScalar for PrimitiveScalar<'_> {
     /// - `F16` values are converted to `F32` before creating the DuckDB value
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         if self.ptype() == PType::F16 {
-            return Ok(Value::from(self.as_::<f16>().map(|f| f.to_f32())));
+            return Ok(Value::try_from(self.as_::<f16>().map(|f| f.to_f32()))?);
         }
-        match_each_native_simd_ptype!(self.ptype(), |P| { Ok(Value::from(self.as_::<P>(),)) })
+        match_each_native_simd_ptype!(self.ptype(), |P| { Ok(Value::try_from(self.as_::<P>())?) })
     }
 }
 
@@ -121,7 +121,7 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
 impl ToDuckDBScalar for BoolScalar<'_> {
     /// Converts a boolean scalar to a DuckDB boolean value.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
-        Ok(Value::from(self.value()))
+        Value::try_from(self.value())
     }
 }
 
