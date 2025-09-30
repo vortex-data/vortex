@@ -133,15 +133,7 @@ impl BloomFilter {
     /// does not contain the given string.
     pub fn check(&self, search: &str) -> bool {
         match self {
-            BloomFilter::SplitBlockWord(sbbf) => {
-                for token in sbbf::tokenize(search) {
-                    if !sbbf.check(token) {
-                        return false;
-                    }
-                }
-
-                true
-            }
+            BloomFilter::SplitBlockWord(sbbf) => sbbf.check(search),
         }
     }
 

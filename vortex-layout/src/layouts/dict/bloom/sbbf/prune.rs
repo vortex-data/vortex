@@ -2,8 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_expr::{
-    BinaryExpr, BinaryVTable, LikeExpr, LikeVTable, LiteralVTable, NotExpr, Operator, RootVTable,
-    VortexExpr,
+    BinaryExpr, BinaryVTable, LikeExpr, LikeVTable, LiteralVTable, Operator, RootVTable, VortexExpr,
 };
 
 use crate::layouts::dict::bloom::{BloomFilter, LikePattern, parse_like_pattern};
@@ -14,7 +13,7 @@ pub trait BloomPruner {
     ///
     /// Returns false if the expression fails to prune, or the expression does not support pruning
     /// with bloom filters.
-    fn can_prune(&self, filter: &BloomFilter) -> bool {
+    fn can_prune(&self, _filter: &BloomFilter) -> bool {
         false
     }
 }

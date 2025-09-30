@@ -6,7 +6,7 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use futures::future::{BoxFuture, Shared};
-use futures::{FutureExt, TryFutureExt, TryStreamExt, try_join};
+use futures::{FutureExt, TryFutureExt, try_join};
 use vortex_array::compute::{MinMaxResult, min_max, take};
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, MaskFuture};
