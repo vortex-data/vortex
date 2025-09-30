@@ -221,7 +221,7 @@ impl Vector {
             }
             Mask::AllFalse(_) => {
                 // SAFETY: Caller guaranteees this.
-                unsafe { self.set_all_false_validity() }
+                self.set_all_false_validity();
                 true
             }
             Mask::Values(arr) => {

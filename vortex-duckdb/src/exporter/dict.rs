@@ -13,7 +13,7 @@ use vortex::dtype::{NativePType, match_each_integer_ptype};
 use vortex::encodings::dict::DictArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex::{Array, IntoArray, ToCanonical};
+use vortex::{Array, ToCanonical};
 
 use crate::duckdb::{LogicalType, SelectionVector, Vector};
 use crate::exporter::cache::ConversionCache;
@@ -32,7 +32,7 @@ struct DictExporter<I: NativePType> {
 pub(crate) fn new_exporter_with_flatten(
     array: &DictArray,
     cache: &ConversionCache,
-    flatten: bool,
+    mut flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
     let values = array.values();
@@ -51,9 +51,8 @@ pub(crate) fn new_exporter_with_flatten(
         Mask::AllTrue(_) => {}
         Mask::AllFalse(len) => return Ok(invalid::new_exporter(len, &values_type)),
         Mask::Values(_) => {
-            // duckdb cannot have a dictionary with validity in the codes.
-            let array = array.to_canonical().into_array();
-            return new_array_exporter(&array, cache);
+            // duckdb cannot have a dictionary with validity in the codes, so flatten the array.
+            flatten = true;
         }
     }
 
