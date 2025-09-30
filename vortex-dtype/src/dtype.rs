@@ -94,13 +94,15 @@ pub enum DType {
     Extension(Arc<ExtDType>),
 }
 
-/// A trait implemented for most native Rust types, mapping them to a `DType`.
+/// This trait is implemented by native Rust types that can be converted
+/// to and from Vortex scalar values.
 /// e.g. `&str` -> `DType::Utf8`
-/// e.g. `bool` -> `DType::Bool`
-/// ...
+///      `bool` -> `DType::Bool`
+///
+/// The dtype is the one closet matching the domain of the rust type e.g. option<T> -> nullable dtype.
 pub trait NativeDType {
-    /// The `DType` that this type maps to.
-    fn dtype(nullability: Nullability) -> DType;
+    /// Returns the Vortex data type for this scalar type.
+    fn dtype() -> DType;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -424,51 +426,5 @@ impl Display for DType {
                 ext.storage_dtype().nullability(),
             ),
         }
-    }
-}
-
-impl NativeDType for &str {
-    fn dtype(nullability: Nullability) -> DType {
-        Utf8(nullability)
-    }
-}
-
-impl NativeDType for &[u8] {
-    fn dtype(nullability: Nullability) -> DType {
-        Binary(nullability)
-    }
-}
-
-impl NativeDType for bool {
-    fn dtype(nullability: Nullability) -> DType {
-        Bool(nullability)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use half::f16;
-
-    use crate::dtype::NativeDType;
-    use crate::{DType, Nullability, PType};
-
-    #[test]
-    fn test_native_dtype() {
-        assert_eq!(
-            <&str as NativeDType>::dtype(Nullability::Nullable),
-            DType::Utf8(Nullability::Nullable)
-        );
-        assert_eq!(
-            <bool as NativeDType>::dtype(Nullability::Nullable),
-            DType::Bool(Nullability::Nullable)
-        );
-        assert_eq!(
-            <f16 as NativeDType>::dtype(Nullability::Nullable),
-            DType::Primitive(PType::F16, Nullability::Nullable)
-        );
-        assert_eq!(
-            <u64 as NativeDType>::dtype(Nullability::Nullable),
-            DType::Primitive(PType::U64, Nullability::Nullable)
-        );
     }
 }
