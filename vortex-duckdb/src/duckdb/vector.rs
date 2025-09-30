@@ -58,20 +58,6 @@ impl Vector {
         unsafe { cpp::duckdb_vector_reference_vector(self.as_ptr(), other.as_ptr()) }
     }
 
-    /// Slice the vector to a new dictionary vector, using the current vector's values and
-    /// the provided selection vector.
-    ///
-    /// A dictionary slice holds a strong reference to all memory it uses.
-    pub fn slice_to_dictionary(&mut self, sel_vec: SelectionVector, sel_vec_length: usize) {
-        unsafe {
-            cpp::duckdb_vx_vector_slice_to_dictionary(
-                self.as_ptr(),
-                sel_vec.as_ptr(),
-                sel_vec_length as _,
-            )
-        }
-    }
-
     /// Creates a dictionary vector for a given values vector and selection vector.
     ///
     /// A dictionary holds a strong reference to all memory it uses.
@@ -574,27 +560,6 @@ mod tests {
         assert!(validity.is_valid(32), "Row 32 should be valid");
         assert!(validity.is_valid(62), "Row 62 should be valid");
         assert!(validity.is_valid(65), "Row 65 should be valid");
-    }
-
-    #[test]
-    fn test_slice_to_dictionary() {
-        let len = 2;
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
-
-        let slice = unsafe { vector.as_slice_mut::<i32>(len) };
-        slice[0] = 10;
-        slice[1] = 20;
-
-        let mut sel_vec = SelectionVector::with_capacity(2);
-        let sel_slice = unsafe { sel_vec.as_slice_mut(2) };
-        sel_slice[0] = 1;
-        sel_slice[1] = 0;
-
-        vector.slice_to_dictionary(sel_vec, 2);
-        vector.flatten(2);
-
-        assert_eq!(vector.as_slice_with_len::<i32>(2), &[20, 10]);
     }
 
     #[test]

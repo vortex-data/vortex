@@ -32,7 +32,7 @@ struct DictExporter<I: NativePType> {
 pub(crate) fn new_exporter_with_flatten(
     array: &DictArray,
     cache: &ConversionCache,
-    /// Whether to return a duckdb flat vector or not.
+    // Whether to return a duckdb flat vector or not.
     mut flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
