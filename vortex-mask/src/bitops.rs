@@ -43,6 +43,14 @@ impl BitOr for &Mask {
     }
 }
 
+impl Not for Mask {
+    type Output = Mask;
+
+    fn not(self) -> Self::Output {
+        !(&self)
+    }
+}
+
 impl Not for &Mask {
     type Output = Mask;
 
@@ -179,7 +187,7 @@ mod tests {
     #[test]
     fn test_not_all_true() {
         let all_true = Mask::new_true(5);
-        let result = !&all_true;
+        let result = !all_true;
         assert!(result.all_false());
         assert_eq!(result.true_count(), 0);
         assert_eq!(result.len(), 5);
@@ -188,7 +196,7 @@ mod tests {
     #[test]
     fn test_not_all_false() {
         let all_false = Mask::new_false(5);
-        let result = !&all_false;
+        let result = !all_false;
         assert!(result.all_true());
         assert_eq!(result.true_count(), 5);
         assert_eq!(result.len(), 5);
@@ -197,7 +205,7 @@ mod tests {
     #[test]
     fn test_not_values() {
         let values = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
-        let result = !&values;
+        let result = !values;
 
         assert_eq!(result.len(), 5);
         assert_eq!(result.true_count(), 2);
@@ -211,12 +219,12 @@ mod tests {
     #[test]
     fn test_not_empty() {
         let empty_true = Mask::new_true(0);
-        let result = !&empty_true;
+        let result = !empty_true;
         assert_eq!(result.len(), 0);
         assert!(result.is_empty());
 
         let empty_false = Mask::new_false(0);
-        let result = !&empty_false;
+        let result = !empty_false;
         assert_eq!(result.len(), 0);
         assert!(result.is_empty());
     }
@@ -225,7 +233,7 @@ mod tests {
     fn test_double_not() {
         let original =
             Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
-        let double_not = !&(!&original);
+        let double_not = !(!original.clone());
 
         // Double negation should return the original
         assert_eq!(double_not.true_count(), original.true_count());
@@ -241,10 +249,10 @@ mod tests {
         let b = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false]));
 
         let and_result = &a & &b;
-        let not_and = !&and_result;
+        let not_and = !and_result;
 
-        let not_a = !&a;
-        let not_b = !&b;
+        let not_a = !a;
+        let not_b = !b;
         let or_result = &not_a | &not_b;
 
         assert_eq!(not_and.len(), 4);

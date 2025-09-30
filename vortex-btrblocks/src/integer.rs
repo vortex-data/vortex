@@ -8,10 +8,11 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 pub use stats::IntegerStats;
-use vortex_array::arrays::{ConstantArray, PrimitiveArray, PrimitiveVTable};
+use vortex_array::arrays::{ConstantArray, MaskedArray, PrimitiveArray, PrimitiveVTable};
+use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 use vortex_fastlanes::{FoRArray, bit_width_histogram, bitpack_encode, find_best_bit_width};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
@@ -186,12 +187,7 @@ impl Scheme for ConstantScheme {
         }
 
         // Only arrays with one distinct values can be constant compressed.
-        if stats.distinct_values_count != 1 {
-            return Ok(0.0);
-        }
-
-        // Cannot have mix of nulls and non-nulls
-        if stats.null_count > 0 && stats.value_count > 0 {
+        if stats.distinct_values_count > 1 {
             return Ok(0.0);
         }
 
@@ -205,14 +201,24 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        // We only use Constant encoding if the entire array is constant, never if one of
-        // the child arrays yields a constant value.
-        let scalar = stats
-            .source()
-            .as_constant()
-            .vortex_expect("constant array expected");
+        let scalar_idx = (0..stats.source().len()).position(|idx| stats.source().is_valid(idx));
 
-        Ok(ConstantArray::new(scalar, stats.src.len()).into_array())
+        match scalar_idx {
+            Some(idx) => {
+                let scalar = stats.source().scalar_at(idx);
+                let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
+                if !stats.source().all_valid() {
+                    Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
+                } else {
+                    Ok(const_arr)
+                }
+            }
+            None => Ok(ConstantArray::new(
+                Scalar::null(stats.src.dtype().clone()),
+                stats.src.len(),
+            )
+            .into_array()),
+        }
     }
 }
 
