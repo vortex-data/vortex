@@ -343,7 +343,8 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
-        Ok(stats.value_count as f64)
+        // Force constant is these cases
+        Ok(f64::MAX)
     }
 
     fn compress(
