@@ -186,7 +186,7 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
-        if stats.null_count as usize == stats.src.len() || stats.value_count == 0 {
+        if stats.src.all_invalid() {
             return Ok(0.0);
         }
 

@@ -3,7 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{MaskedArray, MaskedVTable};
+use crate::arrays::{BoolArray, MaskedArray, MaskedVTable};
+use crate::canonical::ToCanonical;
 use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
@@ -15,9 +16,6 @@ impl CompareKernel for MaskedVTable {
         rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
-        use crate::arrays::BoolArray;
-        use crate::canonical::ToCanonical;
-
         // Compare the child arrays
         let compare_result = compare(&lhs.child, rhs, operator)?;
 

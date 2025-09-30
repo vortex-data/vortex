@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{ConstantArray, VarBinArray, VarBinViewArray, VarBinViewVTable};
+use vortex_array::arrays::{
+    ConstantArray, MaskedArray, VarBinArray, VarBinViewArray, VarBinViewVTable,
+};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
@@ -288,6 +290,40 @@ impl Scheme for ConstantScheme {
         true
     }
 
+    // fn expected_compression_ratio(
+    //     &self,
+    //     stats: &Self::StatsType,
+    //     is_sample: bool,
+    //     _allowed_cascading: usize,
+    //     _excludes: &[Self::CodeType],
+    // ) -> VortexResult<f64> {
+    //     if is_sample {
+    //         return Ok(0.0);
+    //     }
+
+    //     if stats.src.is_constant() {
+    //         // Force constant
+    //         Ok(f64::MAX)
+    //     } else {
+    //         Ok(0.0)
+    //     }
+    // }
+
+    // fn compress(
+    //     &self,
+    //     stats: &Self::StatsType,
+    //     _is_sample: bool,
+    //     _allowed_cascading: usize,
+    //     _excludes: &[Self::CodeType],
+    // ) -> VortexResult<ArrayRef> {
+    //     let scalar = stats
+    //         .src
+    //         .as_constant()
+    //         .vortex_expect("ConstantScheme::compress can only be called when array is constant");
+
+    //     Ok(ConstantArray::new(scalar, stats.src.len()).into_array())
+    // }
+
     fn expected_compression_ratio(
         &self,
         stats: &Self::StatsType,
@@ -299,12 +335,15 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
-        if stats.src.is_constant() {
-            // Force constant
-            Ok(f64::MAX)
-        } else {
-            Ok(0.0)
+        if stats.src.all_invalid() {
+            return Ok(0.0);
         }
+
+        if stats.estimated_distinct_count != 1 || !stats.src.is_constant() {
+            return Ok(0.0);
+        }
+
+        Ok(stats.value_count as f64)
     }
 
     fn compress(
@@ -314,12 +353,19 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<ArrayRef> {
-        let scalar = stats
-            .src
-            .as_constant()
-            .vortex_expect("ConstantScheme::compress can only be called when array is constant");
+        let scalar_idx = (0..stats.source().len())
+            .position(|idx| stats.source().is_valid(idx))
+            .vortex_expect("Must have at least one valid value");
+        let scalar = stats.source().scalar_at(scalar_idx);
+        let scalar_is_valid = scalar.is_valid();
 
-        Ok(ConstantArray::new(scalar, stats.src.len()).into_array())
+        let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
+
+        if !stats.source().all_valid() && scalar_is_valid {
+            Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
+        } else {
+            Ok(const_arr)
+        }
     }
 }
 

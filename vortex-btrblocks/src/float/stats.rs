@@ -48,7 +48,6 @@ impl_from_typed!(f64, ErasedDistinctValues::F64);
 pub struct FloatStats {
     pub(super) src: PrimitiveArray,
     // cache for validity.false_count()
-    #[allow(dead_code)]
     pub(super) null_count: u32,
     // cache for validity.true_count()
     pub(super) value_count: u32,
