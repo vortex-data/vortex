@@ -155,8 +155,8 @@ mod tests {
 
     use crate::cpp;
     use crate::duckdb::{DataChunk, LogicalType};
-    use crate::exporter::{ColumnExporter, ConversionCache, new_array_exporter};
     use crate::exporter::dict::new_exporter_with_flatten;
+    use crate::exporter::{ColumnExporter, ConversionCache, new_array_exporter};
 
     pub(crate) fn new_exporter(
         array: &DictArray,
