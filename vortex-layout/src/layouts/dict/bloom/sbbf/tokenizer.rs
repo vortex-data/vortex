@@ -99,6 +99,8 @@ mod tests {
 
     #[test]
     fn test_tokenize_for_insert() {
+        // spellchecker:off
+
         // Let's have a little fun
         let sentence = "thîs 👀 ANd...THÉSË 🚀😂🫡";
 
@@ -108,6 +110,8 @@ mod tests {
                 "thîs", " ", "👀", " ", "ANd", ".", ".", ".", "THÉSË", " ", "🚀", "😂", "🫡",
             ],
         );
+
+        // spellchecker:on
     }
 
     #[test]

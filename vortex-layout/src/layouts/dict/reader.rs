@@ -164,17 +164,15 @@ impl LayoutReader for DictReader {
         // - In practice, all stats based pruning evaluation should be already done upstream of this dict reader
         let expr = expr.clone();
         Ok(MaskFuture::new(mask.len(), async move {
-            let Some(bloom_filter) = bloom_filter.await? else {
-                return Ok(mask);
-            };
-
-            // If the expression prunes this chunk, we yield a full pruning mask.
-            // Otherwise, we propagate the parent pruning mask.
-            if BloomPruner::can_prune(expr.as_ref(), &bloom_filter) {
-                return Ok(Mask::new_true(mask.len()));
+            // If there is a bloom filter for this layout, and the expression can be pruned using
+            // the filter, we emit a new full disabled mask.
+            if let Some(bloom_filter) = bloom_filter.await?
+                && BloomPruner::can_prune(expr.as_ref(), &bloom_filter)
+            {
+                Ok(Mask::new_false(mask.len()))
+            } else {
+                Ok(mask)
             }
-
-            Ok(mask)
         }))
     }
 
