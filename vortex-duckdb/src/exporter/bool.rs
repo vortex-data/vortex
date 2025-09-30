@@ -7,7 +7,7 @@ use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
 use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, invalid};
+use crate::exporter::{ColumnExporter, all_invalid};
 
 struct BoolExporter {
     array: BoolArray,
@@ -17,7 +17,7 @@ struct BoolExporter {
 pub(crate) fn new_exporter(array: &BoolArray) -> VortexResult<Box<dyn ColumnExporter>> {
     let validity_mask = array.validity_mask();
     if validity_mask.all_false() {
-        return Ok(invalid::new_exporter(
+        return Ok(all_invalid::new_exporter(
             array.len(),
             &array.dtype().try_into()?,
         ));

@@ -7,7 +7,7 @@ mod constant;
 mod decimal;
 mod dict;
 mod fixed_size_list;
-mod invalid;
+mod all_invalid;
 mod list;
 mod primitive;
 mod run_end;
@@ -175,7 +175,7 @@ fn new_array_exporter_with_flatten(
 
     // Otherwise, we fall back to canonical
     match array.to_canonical() {
-        Canonical::Null(_) => Ok(invalid::new_exporter(
+        Canonical::Null(_) => Ok(all_invalid::new_exporter(
             array.len(),
             &LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL),
         )),

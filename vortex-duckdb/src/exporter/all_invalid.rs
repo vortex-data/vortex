@@ -6,19 +6,19 @@ use vortex::error::{VortexResult, vortex_ensure};
 use crate::duckdb::{LogicalType, Value, Vector};
 use crate::exporter::ColumnExporter;
 
-struct InvalidExporter {
+struct AllInvalidExporter {
     len: usize,
     null_value: Value,
 }
 
 pub(crate) fn new_exporter(len: usize, logical_type: &LogicalType) -> Box<dyn ColumnExporter> {
-    Box::new(InvalidExporter {
+    Box::new(AllInvalidExporter {
         len,
         null_value: Value::null(logical_type),
     })
 }
 
-impl ColumnExporter for InvalidExporter {
+impl ColumnExporter for AllInvalidExporter {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         vortex_ensure!(
             offset + len <= self.len,

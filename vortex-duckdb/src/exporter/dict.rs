@@ -17,7 +17,7 @@ use vortex::{Array, ToCanonical};
 
 use crate::duckdb::{LogicalType, SelectionVector, Vector};
 use crate::exporter::cache::ConversionCache;
-use crate::exporter::{ColumnExporter, constant, invalid, new_array_exporter};
+use crate::exporter::{ColumnExporter, constant, all_invalid, new_array_exporter};
 
 struct DictExporter<I: NativePType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
@@ -50,7 +50,7 @@ pub(crate) fn new_exporter_with_flatten(
 
     match codes_mask {
         Mask::AllTrue(_) => {}
-        Mask::AllFalse(len) => return Ok(invalid::new_exporter(len, &values_type)),
+        Mask::AllFalse(len) => return Ok(all_invalid::new_exporter(len, &values_type)),
         Mask::Values(_) => {
             // duckdb cannot have a dictionary with validity in the codes, so flatten the array and
             // apply the validity mask there.

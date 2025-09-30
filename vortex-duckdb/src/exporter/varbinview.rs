@@ -9,7 +9,7 @@ use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
 use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, invalid};
+use crate::exporter::{ColumnExporter, all_invalid};
 
 struct VarBinViewExporter {
     views: Buffer<BinaryView>,
@@ -20,7 +20,7 @@ struct VarBinViewExporter {
 pub(crate) fn new_exporter(array: &VarBinViewArray) -> VortexResult<Box<dyn ColumnExporter>> {
     let validity = array.validity_mask();
     if validity.all_false() {
-        return Ok(invalid::new_exporter(
+        return Ok(all_invalid::new_exporter(
             array.len(),
             &array.dtype().try_into()?,
         ));

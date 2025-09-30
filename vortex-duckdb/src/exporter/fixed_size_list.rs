@@ -13,7 +13,7 @@ use vortex::arrays::FixedSizeListArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use super::{ConversionCache, invalid, new_array_exporter_with_flatten};
+use super::{ConversionCache, all_invalid, new_array_exporter_with_flatten};
 use crate::duckdb::{LogicalType, Vector};
 use crate::exporter::ColumnExporter;
 
@@ -37,7 +37,7 @@ pub(crate) fn new_exporter(
     let ltype: LogicalType = array.dtype().try_into()?;
 
     if let Mask::AllFalse(len) = array.validity_mask() {
-        return Ok(invalid::new_exporter(len, &ltype));
+        return Ok(all_invalid::new_exporter(len, &ltype));
     }
 
     Ok(Box::new(FixedSizeListExporter {
