@@ -22,6 +22,7 @@ use crate::layouts::dict::bloom::sbbf::{Block, Sbbf};
 /// Bloom Filters can be constructed at file write, and probed at query time to enable pruning of
 /// zones and avoid fetching and decoding entire blocks, greatly speeding up the execution time of
 /// string queries.
+#[derive(Clone)]
 pub enum BloomFilter {
     /// A split-block Bloom Filter that uses word-level tokenization.
     ///
@@ -200,6 +201,7 @@ impl BloomFilter {
 }
 
 impl BloomFilter {
+    /// Returns the fraction of bits in the filter that have been set.
     pub fn load(&self) -> f64 {
         match self {
             BloomFilter::SplitBlockWord(sbbf) => sbbf.load(),

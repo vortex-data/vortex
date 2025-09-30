@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod prune;
 mod tokenizer;
 
+pub use prune::*;
 pub use tokenizer::*;
 use twox_hash::XxHash64;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};

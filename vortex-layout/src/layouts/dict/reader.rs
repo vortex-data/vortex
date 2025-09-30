@@ -5,30 +5,36 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
-use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt, try_join};
+use futures::future::{BoxFuture, Shared};
+use futures::{FutureExt, TryFutureExt, TryStreamExt, try_join};
 use vortex_array::compute::{MinMaxResult, min_max, take};
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
+use crate::layouts::dict::bloom::BloomFilter;
+use crate::layouts::dict::bloom::sbbf::BloomPruner;
 use crate::segments::SegmentSource;
 use crate::{LayoutReader, LayoutReaderRef};
 
+type SharedBloomFilter = Shared<BoxFuture<'static, SharedVortexResult<Option<BloomFilter>>>>;
+
 pub struct DictReader {
     layout: DictLayout,
-    #[allow(dead_code)] // Typically used for logging
     name: Arc<str>,
+    segment_source: Arc<dyn SegmentSource>,
 
     /// Length of the values array
     values_len: usize,
+    /// Cached bloom filters
+    bloom_filters: OnceLock<SharedBloomFilter>,
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
@@ -50,17 +56,42 @@ impl DictReader {
             .new_reader(format!("{name}.values").into(), segment_source.clone())?;
         let codes = layout
             .codes
-            .new_reader(format!("{name}.codes").into(), segment_source)?;
+            .new_reader(format!("{name}.codes").into(), segment_source.clone())?;
 
         Ok(Self {
             layout,
             name,
+            segment_source,
             values_len,
+            bloom_filters: Default::default(),
             values_array: Default::default(),
             values_evals: Default::default(),
             values,
             codes,
         })
+    }
+
+    fn bloom_filter(&self) -> SharedBloomFilter {
+        let segment_id = self.layout.bloom_filter_segment();
+        let segment_source = self.segment_source.clone();
+
+        self.bloom_filters
+            .get_or_init(move || {
+                async move {
+                    let Some(segment_id) = segment_id else {
+                        return Ok(None);
+                    };
+
+                    let bloom_filter_segment = segment_source.request(segment_id).await?;
+                    // Deserialize a bunch of bloom filters
+                    let (filter, _) = BloomFilter::try_deserialize(&bloom_filter_segment)?;
+                    Ok(Some(filter))
+                }
+                .map_err(Arc::new)
+                .boxed()
+                .shared()
+            })
+            .clone()
     }
 
     fn values_array(&self) -> SharedArrayFuture {
@@ -121,14 +152,30 @@ impl LayoutReader for DictReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &ExprRef,
+        expr: &ExprRef,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
+        let bloom_filter = self.bloom_filter();
+        // Here we apply filtering operations that were not prunable in the layer above, using
+        // Bloom filters for approximate membership queries.
         // NOTE: we can get the values here, convert expression to the codes domain, and push down
         // to the codes child. We don't do that here because:
         // - Reading values only for an approx filter is expensive
         // - In practice, all stats based pruning evaluation should be already done upstream of this dict reader
-        Ok(MaskFuture::ready(mask))
+        let expr = expr.clone();
+        Ok(MaskFuture::new(mask.len(), async move {
+            let Some(bloom_filter) = bloom_filter.await? else {
+                return Ok(mask);
+            };
+
+            // If the expression prunes this chunk, we yield a full pruning mask.
+            // Otherwise, we propagate the parent pruning mask.
+            if BloomPruner::can_prune(expr.as_ref(), &bloom_filter) {
+                return Ok(Mask::new_true(mask.len()));
+            }
+
+            Ok(mask)
+        }))
     }
 
     fn filter_evaluation(
