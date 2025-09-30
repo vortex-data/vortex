@@ -11,6 +11,7 @@ use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_scalar::Scalar;
 
 pub use self::stats::FloatStats;
 use crate::float::dictionary::dictionary_encode;
@@ -142,18 +143,23 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let scalar_idx = (0..stats.source().len())
-            .position(|idx| stats.source().is_valid(idx))
-            .vortex_expect("Must have at least one valid value");
-        let scalar = stats.source().scalar_at(scalar_idx);
-        let scalar_is_valid = scalar.is_valid();
+        let scalar_idx = (0..stats.source().len()).position(|idx| stats.source().is_valid(idx));
 
-        let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
-
-        if !stats.source().all_valid() && scalar_is_valid {
-            Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
-        } else {
-            Ok(const_arr)
+        match scalar_idx {
+            Some(idx) => {
+                let scalar = stats.source().scalar_at(idx);
+                let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
+                if !stats.source().all_valid() {
+                    Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
+                } else {
+                    Ok(const_arr)
+                }
+            }
+            None => Ok(ConstantArray::new(
+                Scalar::null(stats.src.dtype().clone()),
+                stats.src.len(),
+            )
+            .into_array()),
         }
     }
 }

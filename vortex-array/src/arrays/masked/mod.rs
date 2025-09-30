@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
@@ -123,7 +125,7 @@ impl MaskedArray {
 }
 
 impl OperationsVTable<MaskedVTable> for MaskedVTable {
-    fn slice(array: &MaskedArray, range: std::ops::Range<usize>) -> ArrayRef {
+    fn slice(array: &MaskedArray, range: Range<usize>) -> ArrayRef {
         let child = array.child.slice(range.clone());
         let validity = array.validity.slice(range);
 
@@ -137,15 +139,15 @@ impl OperationsVTable<MaskedVTable> for MaskedVTable {
 
     fn scalar_at(array: &MaskedArray, index: usize) -> Scalar {
         if array.validity.is_null(index) {
-            return Scalar::null(array.dtype().as_nullable());
+            return Scalar::null(array.dtype().clone());
         }
 
-        let child = array.child.scalar_at(index);
+        let child_scalar = array.child.scalar_at(index);
 
         if matches!(array.nullability(), Nullability::Nullable) {
-            child.into_nullable()
+            child_scalar.into_nullable()
         } else {
-            child
+            child_scalar
         }
     }
 }

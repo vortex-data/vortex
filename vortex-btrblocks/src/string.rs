@@ -10,6 +10,7 @@ use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_fsst::{FSSTArray, fsst_compress, fsst_train_compressor};
+use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::integer::IntCompressor;
@@ -290,40 +291,6 @@ impl Scheme for ConstantScheme {
         true
     }
 
-    // fn expected_compression_ratio(
-    //     &self,
-    //     stats: &Self::StatsType,
-    //     is_sample: bool,
-    //     _allowed_cascading: usize,
-    //     _excludes: &[Self::CodeType],
-    // ) -> VortexResult<f64> {
-    //     if is_sample {
-    //         return Ok(0.0);
-    //     }
-
-    //     if stats.src.is_constant() {
-    //         // Force constant
-    //         Ok(f64::MAX)
-    //     } else {
-    //         Ok(0.0)
-    //     }
-    // }
-
-    // fn compress(
-    //     &self,
-    //     stats: &Self::StatsType,
-    //     _is_sample: bool,
-    //     _allowed_cascading: usize,
-    //     _excludes: &[Self::CodeType],
-    // ) -> VortexResult<ArrayRef> {
-    //     let scalar = stats
-    //         .src
-    //         .as_constant()
-    //         .vortex_expect("ConstantScheme::compress can only be called when array is constant");
-
-    //     Ok(ConstantArray::new(scalar, stats.src.len()).into_array())
-    // }
-
     fn expected_compression_ratio(
         &self,
         stats: &Self::StatsType,
@@ -335,11 +302,7 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
-        if stats.src.all_invalid() {
-            return Ok(0.0);
-        }
-
-        if stats.estimated_distinct_count != 1 || !stats.src.is_constant() {
+        if stats.estimated_distinct_count > 1 || !stats.src.is_constant() {
             return Ok(0.0);
         }
 
@@ -354,18 +317,23 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<ArrayRef> {
-        let scalar_idx = (0..stats.source().len())
-            .position(|idx| stats.source().is_valid(idx))
-            .vortex_expect("Must have at least one valid value");
-        let scalar = stats.source().scalar_at(scalar_idx);
-        let scalar_is_valid = scalar.is_valid();
+        let scalar_idx = (0..stats.source().len()).position(|idx| stats.source().is_valid(idx));
 
-        let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
-
-        if !stats.source().all_valid() && scalar_is_valid {
-            Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
-        } else {
-            Ok(const_arr)
+        match scalar_idx {
+            Some(idx) => {
+                let scalar = stats.source().scalar_at(idx);
+                let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
+                if !stats.source().all_valid() {
+                    Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
+                } else {
+                    Ok(const_arr)
+                }
+            }
+            None => Ok(ConstantArray::new(
+                Scalar::null(stats.src.dtype().clone()),
+                stats.src.len(),
+            )
+            .into_array()),
         }
     }
 }
