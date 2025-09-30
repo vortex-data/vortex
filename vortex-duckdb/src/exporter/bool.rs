@@ -7,24 +7,31 @@ use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
 use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, VectorExt};
+use crate::exporter::{ColumnExporter, invalid};
 
 struct BoolExporter {
     array: BoolArray,
-    validity: Mask,
+    validity_mask: Mask,
 }
 
 pub(crate) fn new_exporter(array: &BoolArray) -> VortexResult<Box<dyn ColumnExporter>> {
+    let validity_mask = array.validity_mask();
+    if validity_mask.all_false() {
+        return Ok(invalid::new_exporter(
+            array.len(),
+            &array.dtype().try_into()?,
+        ));
+    }
     Ok(Box::new(BoolExporter {
         array: array.clone(),
-        validity: array.validity_mask(),
+        validity_mask,
     }))
 }
 
 impl ColumnExporter for BoolExporter {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Set validity if necessary.
-        if unsafe { vector.set_validity(&self.validity, offset, len) } {
+        if unsafe { vector.set_validity(&self.validity_mask, offset, len) } {
             // All values are null, so no point copying the data.
             return Ok(());
         }

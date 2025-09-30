@@ -12,7 +12,7 @@ use vortex::mask::Mask;
 use vortex::scalar::{BigCast, DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
 
 use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, VectorExt};
+use crate::exporter::ColumnExporter;
 
 struct DecimalExporter<D: NativeDecimalType, N: NativeDecimalType> {
     values: Buffer<D>,

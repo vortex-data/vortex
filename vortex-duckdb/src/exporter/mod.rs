@@ -34,7 +34,7 @@ use vortex::mask::Mask;
 use vortex::{Array, Canonical, ToCanonical};
 
 use crate::cpp::DUCKDB_TYPE;
-use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, LogicalType, Vector};
+use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, LogicalType, Value, Vector};
 
 /// DuckDB exporter for an [`ArrayIterator`], sharing state and caches.
 pub struct ArrayIteratorExporter {
@@ -200,40 +200,36 @@ fn new_array_exporter_with_flatten(
     }
 }
 
-pub(crate) trait VectorExt {
-    /// Returns true if *all* values within the offset -> len slice are null.
-    /// Since we're iterating these values anyway, then it's cheaper for us to check it inline.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `len` is less than or equal to the capacity of this vector.
-    unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool;
-}
+// pub(crate) trait VectorExt {
+//     /// Returns true if *all* values within the offset -> len slice are null.
+//     /// Since we're iterating these values anyway, then it's cheaper for us to check it inline.
+//     ///
+//     /// # Safety
+//     ///
+//     /// The caller must ensure that `len` is less than or equal to the capacity of this vector.
+//     unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool;
+// }
 
-impl VectorExt for Vector {
+impl Vector {
     unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
         match mask {
             Mask::AllTrue(_) => {
                 // We only need to blank out validity if there is already a slice allocated.
                 // SAFETY: Caller guaranteees this.
-                if let Some(validity) = unsafe { self.validity_bitslice_mut(len) } {
-                    validity.fill(true);
-                }
+                unsafe { self.set_all_true_validity(len) }
                 false
             }
             Mask::AllFalse(_) => {
                 // SAFETY: Caller guaranteees this.
-                unsafe { self.ensure_validity_bitslice(len) }.fill(false);
+                unsafe { self.set_all_false_validity() }
                 true
             }
             Mask::Values(arr) => {
                 let true_count = arr.boolean_buffer().count_set_bits();
                 if true_count == len {
-                    if let Some(validity) = unsafe { self.validity_slice_mut(len) } {
-                        validity.view_bits_mut::<Lsb0>().fill(true);
-                    }
+                    unsafe { self.set_all_true_validity(len) }
                 } else if true_count == 0 {
-                    unsafe { self.ensure_validity_bitslice(len) }.fill(false);
+                    self.set_all_false_validity()
                 } else {
                     let source = arr.boolean_buffer().inner().as_slice();
                     copy_from_slice(
@@ -247,6 +243,16 @@ impl VectorExt for Vector {
                 true_count == 0
             }
         }
+    }
+
+    unsafe fn set_all_true_validity(&mut self, len: usize) {
+        if let Some(validity) = unsafe { self.validity_bitslice_mut(len) } {
+            validity.fill(true);
+        }
+    }
+
+    fn set_all_false_validity(&mut self) {
+        self.reference_value(&Value::null(&self.logical_type()));
     }
 }
 
@@ -268,7 +274,6 @@ mod tests {
     use arrow_buffer::buffer::BooleanBuffer;
     use vortex::mask::Mask;
 
-    use super::VectorExt;
     use crate::cpp::DUCKDB_TYPE;
     use crate::duckdb::{LogicalType, Vector};
     use crate::exporter::copy_from_slice;
@@ -288,14 +293,18 @@ mod tests {
     fn test_set_validity_all_false() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         let mut vector = Vector::with_capacity(logical_type, 100);
+        let len = 10;
 
-        let mask = Mask::AllFalse(10);
-        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
+        let mask = Mask::AllFalse(len);
+        let all_null = unsafe { vector.set_validity(&mask, 0, len) };
 
         assert!(all_null);
 
-        let validity = unsafe { vector.validity_bitslice_mut(10).unwrap() };
-        assert!(validity.iter().all(|v| !v));
+        vector.flatten(len as u64);
+
+        for i in 0..10 {
+            assert!(vector.row_is_null(i));
+        }
     }
 
     #[test]
@@ -323,16 +332,19 @@ mod tests {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         let mut vector = Vector::with_capacity(logical_type, 100);
 
-        let bits = vec![false; 10];
+        const LEN: usize = 10;
+        let bits = vec![false; LEN];
         let buffer = BooleanBuffer::from(bits.as_slice());
         let mask = Mask::from(buffer);
 
-        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
+        let all_null = unsafe { vector.set_validity(&mask, 0, LEN) };
 
         assert!(all_null);
 
-        let validity = unsafe { vector.validity_bitslice_mut(10).unwrap() };
-        assert!(validity.iter().all(|v| !v));
+        vector.flatten(LEN as u64);
+        for i in 0..10 {
+            assert!(vector.row_is_null(i));
+        }
     }
 
     #[test]

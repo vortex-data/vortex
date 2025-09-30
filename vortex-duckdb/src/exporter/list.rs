@@ -13,7 +13,7 @@ use vortex::mask::Mask;
 use super::{ConversionCache, new_array_exporter_with_flatten};
 use crate::cpp;
 use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, VectorExt};
+use crate::exporter::ColumnExporter;
 
 struct ListExporter<T> {
     validity: Mask,

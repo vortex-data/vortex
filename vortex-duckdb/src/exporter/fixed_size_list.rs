@@ -15,7 +15,7 @@ use vortex::mask::Mask;
 
 use super::{ConversionCache, invalid, new_array_exporter_with_flatten};
 use crate::duckdb::{LogicalType, Vector};
-use crate::exporter::{ColumnExporter, VectorExt};
+use crate::exporter::ColumnExporter;
 
 /// Exporter for converting Vortex [`FixedSizeListArray`] to DuckDB ARRAY vectors.
 struct FixedSizeListExporter {
