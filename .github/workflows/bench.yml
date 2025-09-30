@@ -73,7 +73,7 @@ jobs:
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"
           parca_agent_version: "0.42.0"
           project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-          extra_args: "--off-cpu-threshold=1"  # Personally tuned by @brancz
+          extra_args: "--off-cpu-threshold=0.001"  # Personally tuned by @brancz
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
