@@ -200,16 +200,6 @@ fn new_array_exporter_with_flatten(
     }
 }
 
-// pub(crate) trait VectorExt {
-//     /// Returns true if *all* values within the offset -> len slice are null.
-//     /// Since we're iterating these values anyway, then it's cheaper for us to check it inline.
-//     ///
-//     /// # Safety
-//     ///
-//     /// The caller must ensure that `len` is less than or equal to the capacity of this vector.
-//     unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool;
-// }
-
 impl Vector {
     unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
         match mask {

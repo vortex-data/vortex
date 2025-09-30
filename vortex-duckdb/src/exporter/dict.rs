@@ -32,6 +32,7 @@ struct DictExporter<I: NativePType> {
 pub(crate) fn new_exporter_with_flatten(
     array: &DictArray,
     cache: &ConversionCache,
+    /// Whether to return a duckdb flat vector or not.
     mut flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
@@ -51,7 +52,8 @@ pub(crate) fn new_exporter_with_flatten(
         Mask::AllTrue(_) => {}
         Mask::AllFalse(len) => return Ok(invalid::new_exporter(len, &values_type)),
         Mask::Values(_) => {
-            // duckdb cannot have a dictionary with validity in the codes, so flatten the array.
+            // duckdb cannot have a dictionary with validity in the codes, so flatten the array and
+            // apply the validity mask there.
             flatten = true;
         }
     }
