@@ -26,4 +26,7 @@ fn main() {
     let target_dir = manifest_dir.parent().unwrap().join("target");
     let lib_path = target_dir.join("duckdb-lib");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_path.display());
+
+    #[cfg(not(target_os = "macos"))]
+    custom_labels::build::emit_build_instructions();
 }

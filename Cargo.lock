@@ -614,6 +614,7 @@ dependencies = [
  "bytes",
  "bzip2",
  "clap",
+ "custom-labels",
  "datafusion",
  "datafusion-common",
  "datafusion-physical-plan",
@@ -692,6 +693,24 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
+version = "0.70.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f49d8fed880d473ea71efb9bf597651e77201bdd4893efe54c9e5d65ae04ce6f"
+dependencies = [
+ "bitflags",
+ "cexpr",
+ "clang-sys",
+ "itertools 0.13.0",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash 1.1.0",
+ "shlex",
+ "syn 2.0.106",
+]
+
+[[package]]
+name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
@@ -705,7 +724,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "rustc-hash",
+ "rustc-hash 2.1.1",
  "shlex",
  "syn 2.0.106",
 ]
@@ -1393,6 +1412,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d02f3b0da4c6504f86e9cd789d8dbafab48c2321be74e9987593de5a894d93d"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "custom-labels"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fd1c8a4320177bfad0514f5ee9525499030e2d48e6da0c2047da4a782190ce2"
+dependencies = [
+ "bindgen 0.70.1",
+ "cc",
+ "libc",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -4688,7 +4719,7 @@ dependencies = [
  "pin-project-lite",
  "quinn-proto",
  "quinn-udp",
- "rustc-hash",
+ "rustc-hash 2.1.1",
  "rustls",
  "socket2",
  "thiserror 2.0.16",
@@ -4708,7 +4739,7 @@ dependencies = [
  "lru-slab",
  "rand 0.9.2",
  "ring",
- "rustc-hash",
+ "rustc-hash 2.1.1",
  "rustls",
  "rustls-pki-types",
  "slab",
@@ -5038,6 +5069,12 @@ name = "rustc-demangle"
 version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56f7d92ca342cea22a06f2121d944b4fd82af56988c270852495420f961d4ace"
+
+[[package]]
+name = "rustc-hash"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc-hash"
@@ -6410,7 +6447,7 @@ dependencies = [
  "prost 0.14.1",
  "rand 0.9.2",
  "rstest",
- "rustc-hash",
+ "rustc-hash 2.1.1",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -6460,7 +6497,7 @@ dependencies = [
  "rand 0.9.2",
  "rstest",
  "rstest_reuse",
- "rustc-hash",
+ "rustc-hash 2.1.1",
  "serde",
  "simdutf8",
  "static_assertions",
@@ -6489,7 +6526,7 @@ dependencies = [
  "log",
  "num-traits",
  "rand 0.9.2",
- "rustc-hash",
+ "rustc-hash 2.1.1",
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
@@ -6631,7 +6668,7 @@ dependencies = [
  "prost 0.14.1",
  "rand 0.9.2",
  "rstest",
- "rustc-hash",
+ "rustc-hash 2.1.1",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -6676,7 +6713,7 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "async-compat",
- "bindgen",
+ "bindgen 0.72.1",
  "bitvec",
  "cbindgen",
  "cc",
@@ -6979,7 +7016,7 @@ dependencies = [
  "pin-project-lite",
  "prost 0.14.1",
  "rstest",
- "rustc-hash",
+ "rustc-hash 2.1.1",
  "tokio",
  "tracing",
  "uuid",

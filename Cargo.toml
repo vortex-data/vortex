@@ -85,6 +85,7 @@ clap = "4.5"
 crossbeam-deque = "0.8.6"
 crossbeam-queue = "0.3.12"
 crossterm = "0.29"
+custom-labels = "0.4"
 dashmap = "6.1.0"
 datafusion = { version = "50", default-features = false }
 datafusion-catalog = { version = "50" }

@@ -6,6 +6,8 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
+use custom_labels::Labelset;
+use custom_labels::asynchronous::Label;
 use indicatif::ProgressBar;
 use log::warn;
 use vortex::error::VortexExpect;
@@ -136,6 +138,11 @@ fn execute_queries<B: Benchmark>(
     let expected_row_counts = benchmark.expected_row_counts();
 
     for &(query_idx, ref query_string) in queries.iter() {
+        let mut label_set = Labelset::new();
+        label_set.set("query", format!("{query_idx}"));
+        label_set.set("format", format.name());
+        label_set.set("dataset", benchmark.dataset_name());
+
         // Start memory tracking before query
         if let Some(tracker) = global_memory_tracker.as_mut() {
             tracker.start_query();
@@ -143,10 +150,14 @@ fn execute_queries<B: Benchmark>(
 
         let row_count = match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
+                label_set.set("engine", "datafusion");
                 let (runs, (row_count, execution_plan)) = runtime.block_on(async {
                     benchmark_datafusion_query(iterations, || async {
-                        let (batches, plan) =
-                            ctx.execute_query(query_string).await.unwrap_or_else(|err| {
+                        let (batches, plan) = ctx
+                            .execute_query(query_string)
+                            .with_labelset(label_set.clone())
+                            .await
+                            .unwrap_or_else(|err| {
                                 vortex_panic!("query: {query_idx} failed with: {err}")
                             });
                         let row_count: usize = batches.iter().map(|batch| batch.num_rows()).sum();
@@ -184,6 +195,7 @@ fn execute_queries<B: Benchmark>(
                 row_count
             }
             EngineCtx::DuckDB(ctx) => {
+                label_set.set("engine", "duckdb");
                 let mut runs = Vec::with_capacity(iterations);
                 let mut row_count = None;
 
@@ -191,10 +203,11 @@ fn execute_queries<B: Benchmark>(
                     // Ensure we reopen the database to clear caches between runs.
                     ctx.reopen()?;
 
-                    let (duration, current_row_count) =
+                    let (duration, current_row_count) = label_set.enter(|| {
                         ctx.execute_query(query_string).unwrap_or_else(|err| {
                             vortex_panic!("query: {query_idx} failed with: {err}")
-                        });
+                        })
+                    });
 
                     runs.push(duration);
                     row_count.inspect(|rc| {
