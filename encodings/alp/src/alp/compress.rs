@@ -8,10 +8,9 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{NativePType, PType};
+use vortex_dtype::{NativeDType, NativePType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_scalar::ScalarType;
 
 use crate::Exponents;
 use crate::alp::{ALPArray, ALPFloat};
@@ -62,7 +61,7 @@ fn alp_encode_components_typed<T>(
 where
     T: ALPFloat + NativePType,
     T::ALPInt: NativePType,
-    T: ScalarType,
+    T: NativeDType,
 {
     let values_slice = values.as_slice::<T>();
 

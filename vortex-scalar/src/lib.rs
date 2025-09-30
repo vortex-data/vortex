@@ -28,7 +28,6 @@ mod primitive;
 mod proto;
 mod pvalue;
 mod scalar;
-mod scalar_type;
 mod scalar_value;
 mod struct_;
 #[cfg(test)]
@@ -44,7 +43,6 @@ pub use list::*;
 pub use primitive::*;
 pub use pvalue::*;
 pub use scalar::*;
-pub use scalar_type::*;
 pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;

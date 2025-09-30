@@ -20,13 +20,14 @@ mod extension;
 mod field;
 mod field_mask;
 mod field_names;
+mod native_dtype;
 mod nullability;
 mod ptype;
 mod serde;
 mod struct_;
 
 pub use decimal::*;
-pub use dtype::*;
+pub use dtype::{DType, NativeDType};
 pub use extension::*;
 pub use field::*;
 pub use field_mask::*;
