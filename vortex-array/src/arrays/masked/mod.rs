@@ -8,7 +8,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::compute::mask;
-use crate::stats::{ArrayStats, Precision, Stat, StatsSetRef};
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{
     ArrayVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
@@ -82,8 +82,8 @@ impl MaskedArray {
             vortex_bail!("MaskedArray children must not have nulls");
         }
 
-        if let Validity::Array(arr) = &validity
-            && arr.len() != child.len()
+        if let Some(validity_len) = validity.maybe_len()
+            && validity_len != child.len()
         {
             vortex_bail!("Validity must be the same length as a MaskedArray's child");
         }
@@ -93,21 +93,11 @@ impl MaskedArray {
         let nullability = validity.nullability();
         let dtype = child.dtype().with_nullability(nullability);
 
-        let stats = if validity.all_valid(child.len()) {
-            child.statistics().to_owned()
-        } else {
-            let invalid_count = validity.to_mask(child.len()).false_count();
-            let mut stats = child.statistics().to_owned();
-            stats.retain_only(&[Stat::UncompressedSizeInBytes]);
-            stats.set(Stat::NullCount, Precision::exact(invalid_count));
-            stats
-        };
-
         Ok(Self {
             child,
             validity,
             dtype,
-            stats: stats.into(),
+            stats: ArrayStats::default(),
         })
     }
 
@@ -120,13 +110,6 @@ impl MaskedArray {
         // Invert the validity mask - we want to set values to null where validity is false
         let inverted_mask = !self.validity.to_mask(self.len());
         mask(&self.child, &inverted_mask)
-    }
-
-    fn nullability(&self) -> Nullability {
-        match self.validity {
-            Validity::NonNullable => Nullability::NonNullable,
-            _ => Nullability::Nullable,
-        }
     }
 }
 
@@ -151,7 +134,7 @@ impl OperationsVTable<MaskedVTable> for MaskedVTable {
 
         let child_scalar = array.child.scalar_at(index);
 
-        if matches!(array.nullability(), Nullability::Nullable) {
+        if matches!(array.validity.nullability(), Nullability::Nullable) {
             child_scalar.into_nullable()
         } else {
             child_scalar
