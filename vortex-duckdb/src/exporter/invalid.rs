@@ -35,7 +35,6 @@ mod tests {
     use vortex::arrays::PrimitiveArray;
 
     use super::*;
-    
     use crate::duckdb::{DataChunk, LogicalType};
 
     #[test]

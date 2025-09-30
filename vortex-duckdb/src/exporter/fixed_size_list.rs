@@ -14,7 +14,7 @@ use vortex::error::VortexResult;
 use vortex::mask::Mask;
 use vortex::vtable::ValidityHelper;
 
-use super::{ConversionCache, invalid, new_array_exporter};
+use super::{ConversionCache, invalid, new_array_exporter, new_array_exporter_with_flatten};
 use crate::duckdb::{LogicalType, Vector};
 use crate::exporter::{ColumnExporter, VectorExt};
 
@@ -33,7 +33,7 @@ pub(crate) fn new_exporter(
     array: &FixedSizeListArray,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let elements_exporter = new_array_exporter(array.elements(), cache)?;
+    let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
 
     let ltype: LogicalType = array.dtype().try_into()?;
 

@@ -8,31 +8,45 @@ use bitvec::macros::internal::funty::Fundamental;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
 use vortex::arrays::{ConstantArray, ConstantVTable, PrimitiveArray};
+use vortex::compute::take;
 use vortex::dtype::{NativePType, match_each_integer_ptype};
 use vortex::encodings::dict::DictArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex::{Array, IntoArray, ToCanonical};
+use vortex::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 use crate::duckdb::{LogicalType, SelectionVector, Vector};
 use crate::exporter::cache::ConversionCache;
-use crate::exporter::{ColumnExporter, constant, invalid, new_array_exporter};
+use crate::exporter::{
+    ColumnExporter, constant, invalid, new_array_exporter, new_array_exporter_with_flatten,
+};
 
 struct DictExporter<I: NativePType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
-    values_vector: Arc<Mutex<Vector>>, // NOTE(ngates): not actually flat...
+    values_vector: ExporterValues, // NOTE(ngates): not actually flat...
     values_len: u32,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
     cache_id: u64,
     value_id: usize,
+}
 
-    flatten: bool,
+enum ExporterValues {
+    Flattened(ArrayRef),
+    Values(Arc<Mutex<Vector>>),
 }
 
 pub(crate) fn new_exporter(
     array: &DictArray,
     cache: &ConversionCache,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    new_exporter_with_flatten(array, cache, false)
+}
+
+pub(crate) fn new_exporter_with_flatten(
+    array: &DictArray,
+    cache: &ConversionCache,
+    flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
     let values = array.values();
@@ -59,50 +73,74 @@ pub(crate) fn new_exporter(
 
     let values_key = Arc::as_ptr(values).addr();
 
-    // Check if we have a cached vector and extract it if we do.
-    let cached_vector = cache
-        .values_cache
-        .get(&values_key)
-        .map(|entry| entry.value().1.clone());
+    let exporter_values = if flatten {
+        let canonical = cache
+            .canonical_cache
+            .get(&values_key)
+            .map(|entry| entry.value().1.clone());
+        let canonical = match canonical {
+            Some(c) => c,
+            None => {
+                let canonical = values.to_canonical();
+                cache
+                    .canonical_cache
+                    .insert(values_key, (values.clone(), canonical.clone()));
+                canonical
+            }
+        };
+        ExporterValues::Flattened(canonical.into_array())
+    } else {
+        // Check if we have a cached vector and extract it if we do.
+        let cached_vector = cache
+            .values_cache
+            .get(&values_key)
+            .map(|entry| entry.value().1.clone());
 
-    let values_vector = match cached_vector {
-        Some(vector) => vector,
-        None => {
-            let flatten = false;
-            let values  = if flatten {
-                values.to_canonical().into_array()
-            } else {
-                values.clone()
-            };
-            // Create a new DuckDB vector for the values.
-            let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
-            new_array_exporter(&values, cache)?.export(0, values.len(), &mut vector)?;
+        let values_vector = match cached_vector {
+            Some(vector) => vector,
+            None => {
+                // Create a new DuckDB vector for the values.
+                let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
+                new_array_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
 
-            let vector = Arc::new(Mutex::new(vector));
-            cache
-                .values_cache
-                .insert(values_key, (values.clone(), vector.clone()));
+                let vector = Arc::new(Mutex::new(vector));
+                cache
+                    .values_cache
+                    .insert(values_key, (values.clone(), vector.clone()));
 
-            vector
-        }
+                vector
+            }
+        };
+        ExporterValues::Values(values_vector)
     };
 
     let codes = array.codes().to_primitive();
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
-            values_vector,
+            values_vector: exporter_values,
             values_len: values.len().as_u32(),
             codes,
             codes_type: PhantomData::<I>,
             cache_id: cache.instance_id(),
             value_id: values_key,
-            flatten: false,
         }))
     })
 }
 
 impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+        let values_vector = match &self.values_vector {
+            ExporterValues::Flattened(canonical) => {
+                return new_array_exporter_with_flatten(
+                    &take(canonical, &self.codes.slice(offset..offset + len))?,
+                    &ConversionCache::default(),
+                    true,
+                )?
+                .export(offset, len, vector);
+            }
+            ExporterValues::Values(values) => values,
+        };
+
         // Create a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);
         let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
@@ -118,7 +156,7 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         // unique. Otherwise, DuckDB races on the values vector passed to the
         // dictionary.
         let new_values_vector = {
-            let values_vector = self.values_vector.lock();
+            let values_vector = values_vector.lock();
             let mut new_values_vector = Vector::new(values_vector.logical_type());
             // Shares the underlying data which determines the vectors length.
             new_values_vector.reference(&values_vector);

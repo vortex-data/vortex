@@ -144,10 +144,18 @@ pub trait ColumnExporter {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()>;
 }
 
-/// Create a DuckDB exporter for the given Vortex array.
 fn new_array_exporter(
     array: &dyn Array,
     cache: &ConversionCache,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    new_array_exporter_with_flatten(array, cache, false)
+}
+
+/// Create a DuckDB exporter for the given Vortex array.
+fn new_array_exporter_with_flatten(
+    array: &dyn Array,
+    cache: &ConversionCache,
+    flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     if let Some(array) = array.as_opt::<ConstantVTable>() {
         return constant::new_exporter(array);
@@ -158,7 +166,7 @@ fn new_array_exporter(
     }
 
     if let Some(array) = array.as_opt::<DictVTable>() {
-        return dict::new_exporter(array, cache);
+        return dict::new_exporter_with_flatten(array, cache, flatten);
     }
 
     if let Some(array) = array.as_opt::<SequenceVTable>() {
