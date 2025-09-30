@@ -103,7 +103,7 @@ impl Canonical {
     pub fn compact(&self) -> VortexResult<Canonical> {
         match self {
             Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers()?)),
-            Canonical::List(array) => Ok(Canonical::List(array.reset_offsets()?)),
+            Canonical::List(array) => Ok(Canonical::List(array.reset_offsets(true)?)),
             _ => Ok(self.clone()),
         }
     }

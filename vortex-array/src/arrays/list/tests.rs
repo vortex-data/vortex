@@ -401,7 +401,7 @@ fn test_offset_to_0() {
         )
         .vortex_unwrap();
     let list = builder.finish().slice(2..4);
-    let list = list.as_::<ListVTable>().reset_offsets().unwrap();
+    let list = list.as_::<ListVTable>().reset_offsets(false).unwrap();
     assert_eq!(list.len(), 2);
     assert_eq!(list.offsets().len(), 3);
     assert_eq!(list.elements().len(), 6);
@@ -849,4 +849,43 @@ fn test_offsets_constant() {
     assert_eq!(list.list_elements_at(0).len(), 0);
     assert_eq!(list.list_elements_at(1).len(), 0);
     assert_eq!(list.list_elements_at(2).len(), 0);
+}
+
+#[test]
+fn test_recursive_compact_list_of_lists() {
+    // Create a nested list structure: [[[1,2,3], [4,5]], [[6,7,8,9]], [[10], [11,12]]]
+    let nested_data = vec![
+        Some(vec![
+            Some(vec![Some(1), Some(2), Some(3)]),
+            Some(vec![Some(4), Some(5)]),
+        ]),
+        Some(vec![Some(vec![Some(6), Some(7), Some(8), Some(9)])]),
+        Some(vec![Some(vec![Some(10)]), Some(vec![Some(11), Some(12)])]),
+    ];
+
+    let original = create_list_of_lists_nullable(nested_data);
+    // Slice to remove prefix - creates wasted space since offsets no longer reference early elements
+    let sliced = original.slice(1..3);
+    let sliced_list = sliced.as_::<ListVTable>();
+
+    // Test non-recursive compaction: only resets outer list offsets
+    let non_recursive = sliced_list.reset_offsets(false).unwrap();
+    // Test recursive compaction: resets offsets and compacts inner canonical arrays
+    let recursive = sliced_list.reset_offsets(true).unwrap();
+
+    assert_eq!(non_recursive.len(), 2);
+    assert_eq!(recursive.len(), 2);
+
+    // Check the flattened elements - this shows the actual compaction difference
+    let non_recursive_flat_elements = non_recursive.elements().as_::<ListVTable>().elements();
+    let recursive_flat_elements = recursive.elements().as_::<ListVTable>().elements();
+
+    // Non-recursive should still have all original elements [1,2,3,4,5,6,7,8,9,10,11,12]
+    assert_eq!(non_recursive_flat_elements.len(), 12);
+
+    // Recursive should only have elements still referenced [6,7,8,9,10,11,12]
+    assert_eq!(recursive_flat_elements.len(), 7);
+
+    // Verify data integrity is preserved
+    assert_eq!(non_recursive.scalar_at(0), recursive.scalar_at(0));
 }
