@@ -13,34 +13,20 @@ use vortex::dtype::{NativePType, match_each_integer_ptype};
 use vortex::encodings::dict::DictArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+use vortex::{Array, IntoArray, ToCanonical};
 
 use crate::duckdb::{LogicalType, SelectionVector, Vector};
 use crate::exporter::cache::ConversionCache;
-use crate::exporter::{
-    ColumnExporter, constant, invalid, new_array_exporter, new_array_exporter_with_flatten,
-};
+use crate::exporter::{ColumnExporter, constant, invalid, new_array_exporter};
 
 struct DictExporter<I: NativePType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
-    values_vector: ExporterValues, // NOTE(ngates): not actually flat...
+    values_vector: Arc<Mutex<Vector>>, // NOTE(ngates): not actually flat...
     values_len: u32,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
     cache_id: u64,
     value_id: usize,
-}
-
-enum ExporterValues {
-    Flattened(ArrayRef),
-    Values(Arc<Mutex<Vector>>),
-}
-
-pub(crate) fn new_exporter(
-    array: &DictArray,
-    cache: &ConversionCache,
-) -> VortexResult<Box<dyn ColumnExporter>> {
-    new_exporter_with_flatten(array, cache, false)
 }
 
 pub(crate) fn new_exporter_with_flatten(
@@ -72,6 +58,7 @@ pub(crate) fn new_exporter_with_flatten(
     }
 
     let values_key = Arc::as_ptr(values).addr();
+    let codes = array.codes().to_primitive();
 
     let exporter_values = if flatten {
         let canonical = cache
@@ -88,7 +75,7 @@ pub(crate) fn new_exporter_with_flatten(
                 canonical
             }
         };
-        ExporterValues::Flattened(canonical.into_array())
+        return new_array_exporter(&take(canonical.as_ref(), codes.as_ref())?, cache);
     } else {
         // Check if we have a cached vector and extract it if we do.
         let cached_vector = cache
@@ -96,7 +83,7 @@ pub(crate) fn new_exporter_with_flatten(
             .get(&values_key)
             .map(|entry| entry.value().1.clone());
 
-        let values_vector = match cached_vector {
+        match cached_vector {
             Some(vector) => vector,
             None => {
                 // Create a new DuckDB vector for the values.
@@ -110,11 +97,9 @@ pub(crate) fn new_exporter_with_flatten(
 
                 vector
             }
-        };
-        ExporterValues::Values(values_vector)
+        }
     };
 
-    let codes = array.codes().to_primitive();
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
             values_vector: exporter_values,
@@ -129,18 +114,6 @@ pub(crate) fn new_exporter_with_flatten(
 
 impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
-        let values_vector = match &self.values_vector {
-            ExporterValues::Flattened(canonical) => {
-                return new_array_exporter_with_flatten(
-                    &take(canonical, &self.codes.slice(offset..offset + len))?,
-                    &ConversionCache::default(),
-                    true,
-                )?
-                .export(offset, len, vector);
-            }
-            ExporterValues::Values(values) => values,
-        };
-
         // Create a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);
         let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
@@ -156,7 +129,7 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         // unique. Otherwise, DuckDB races on the values vector passed to the
         // dictionary.
         let new_values_vector = {
-            let values_vector = values_vector.lock();
+            let values_vector = self.values_vector.lock();
             let mut new_values_vector = Vector::new(values_vector.logical_type());
             // Shares the underlying data which determines the vectors length.
             new_values_vector.reference(&values_vector);
@@ -178,11 +151,19 @@ mod tests {
     use vortex::IntoArray;
     use vortex::arrays::{ConstantArray, PrimitiveArray};
     use vortex::encodings::dict::DictArray;
+    use vortex::error::VortexResult;
 
     use crate::cpp;
     use crate::duckdb::{DataChunk, LogicalType};
-    use crate::exporter::dict::new_exporter;
-    use crate::exporter::{ConversionCache, new_array_exporter};
+    use crate::exporter::{ColumnExporter, ConversionCache, new_array_exporter};
+    use crate::exporter::dict::new_exporter_with_flatten;
+
+    pub(crate) fn new_exporter(
+        array: &DictArray,
+        cache: &ConversionCache,
+    ) -> VortexResult<Box<dyn ColumnExporter>> {
+        new_exporter_with_flatten(array, cache, false)
+    }
 
     #[test]
     fn test_constant_dict() {
@@ -233,13 +214,10 @@ mod tests {
         let mut flat_chunk =
             DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        new_array_exporter(
-            &arr.to_canonical().into_array(),
-            &ConversionCache::default(),
-        )
-        .unwrap()
-        .export(0, 3, &mut flat_chunk.get_vector(0))
-        .unwrap();
+        new_array_exporter(arr.to_canonical().as_ref(), &ConversionCache::default())
+            .unwrap()
+            .export(0, 3, &mut flat_chunk.get_vector(0))
+            .unwrap();
         flat_chunk.set_len(3);
 
         assert_eq!(

@@ -12,9 +12,8 @@
 use vortex::arrays::FixedSizeListArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex::vtable::ValidityHelper;
 
-use super::{ConversionCache, invalid, new_array_exporter, new_array_exporter_with_flatten};
+use super::{ConversionCache, invalid, new_array_exporter_with_flatten};
 use crate::duckdb::{LogicalType, Vector};
 use crate::exporter::{ColumnExporter, VectorExt};
 
