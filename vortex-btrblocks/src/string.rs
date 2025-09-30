@@ -301,7 +301,11 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
-        if stats.src.is_constant() {
+        if stats.src.all_invalid() {
+            return Ok(0.0);
+        }
+
+        if stats.estimated_distinct_count == 1 || stats.src.is_constant() {
             // Force constant
             Ok(f64::MAX)
         } else {

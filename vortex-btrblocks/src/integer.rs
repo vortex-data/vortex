@@ -186,6 +186,10 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
+        if stats.null_count as usize == stats.src.len() || stats.value_count == 0 {
+            return Ok(0.0);
+        }
+
         // Only arrays with one distinct values can be constant compressed.
         if stats.distinct_values_count != 1 {
             return Ok(0.0);
