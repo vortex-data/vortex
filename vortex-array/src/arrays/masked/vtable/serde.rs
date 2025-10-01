@@ -96,7 +96,7 @@ mod tests {
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
 
-        // Concat into a single buffer
+        // Concat into a single buffer.
         let mut concat = ByteBufferMut::empty();
         for buf in serialized {
             concat.extend_from_slice(buf.as_ref());

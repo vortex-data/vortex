@@ -64,7 +64,7 @@ mod tests {
         let canonical = array.to_canonical();
         let prim = canonical.as_ref().to_primitive();
 
-        // Check that null positions match validity
+        // Check that null positions match validity.
         assert_eq!(prim.valid_count(), 3);
         assert!(prim.is_valid(0));
         assert!(!prim.is_valid(1));
