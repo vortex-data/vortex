@@ -51,7 +51,7 @@ fn take_views<I: AsPrimitive<usize>>(
 ) -> Buffer<BinaryView> {
     // NOTE(ngates): this deref is not actually trivial, so we run it once.
     let views_ref = views.deref();
-    Buffer::<BinaryView>::from_iter(indices.iter().map(|i| views_ref[i.as_()]))
+    Buffer::<BinaryView>::from_trusted_len_iter(indices.iter().map(|i| views_ref[i.as_()]))
 }
 
 #[cfg(test)]
