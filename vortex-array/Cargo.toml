@@ -85,7 +85,8 @@ arrow-cast = { workspace = true }
 divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
-vortex-array = { path = ".", features = ["test-harness"] }
+vortex-array = { path = ".", features = ["test-harness", "table-display"] }
+insta = { workspace = true }
 
 [[bench]]
 name = "search_sorted"

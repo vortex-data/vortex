@@ -84,7 +84,7 @@ pub enum DisplayOptions {
     /// └──────┴──────┘".trim();
     /// assert_eq!(format!("{}", s.display_as(DisplayOptions::TableDisplay)), expected);
     /// ```
-    #[cfg(feature = "table-display")]
+    #[cfg(any(test, feature = "table-display"))]
     TableDisplay,
 }
 
@@ -214,7 +214,7 @@ impl dyn Array + '_ {
     /// assert_eq!(format!("{}", s.display_table()), expected);
     /// # }
     /// ```
-    #[cfg(feature = "table-display")]
+    #[cfg(any(test, feature = "table-display"))]
     pub fn display_table(&self) -> impl Display {
         DisplayArrayAs(self, DisplayOptions::TableDisplay)
     }
@@ -243,7 +243,7 @@ impl dyn Array + '_ {
                 write!(f, "]")
             }
             DisplayOptions::TreeDisplay => write!(f, "{}", TreeDisplayWrapper(self.to_array())),
-            #[cfg(feature = "table-display")]
+            #[cfg(any(test, feature = "table-display"))]
             DisplayOptions::TableDisplay => {
                 use vortex_dtype::DType;
 
@@ -370,7 +370,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "table-display")]
     fn test_table_display_primitive() {
         use crate::display::DisplayOptions;
 
@@ -393,7 +392,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "table-display")]
     fn test_table_display() {
         use crate::display::DisplayOptions;
 

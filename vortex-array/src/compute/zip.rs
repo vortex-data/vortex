@@ -192,7 +192,12 @@ pub(crate) fn zip_return_dtype(if_true: &dyn Array, if_false: &dyn Array) -> DTy
 }
 
 fn zip_impl(if_true: &dyn Array, if_false: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-    // if_true.len() == if_false.len() from ComputeFn::invoke
+    assert_eq!(
+        if_true.len(),
+        if_false.len(),
+        "ComputeFn::invoke checks that arrays have the same size"
+    );
+
     let return_type = zip_return_dtype(if_true, if_false);
     let capacity = if_true.len();
 
