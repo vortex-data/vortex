@@ -14,7 +14,7 @@ use crate::vtable::{
     ArrayVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{ArrayRef, EncodingId, EncodingRef, IntoArray, vtable};
+use crate::{Array, ArrayRef, EncodingId, EncodingRef, IntoArray, vtable};
 
 vtable!(Masked);
 
@@ -36,8 +36,8 @@ impl VTable for MaskedVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
+    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.masked")
@@ -78,7 +78,11 @@ impl ValidityHelper for MaskedArray {
 
 impl MaskedArray {
     pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
-        if child.valid_count() != child.len() {
+        if matches!(validity, Validity::NonNullable) {
+            vortex_bail!("MaskedArray must have nullable validity, got {validity:?}")
+        }
+
+        if !child.all_valid() {
             vortex_bail!("MaskedArray children must not have nulls");
         }
 
