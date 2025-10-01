@@ -370,7 +370,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "table-display")]
     fn test_table_display_primitive() {
         use crate::display::DisplayOptions;
 
@@ -393,7 +392,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "table-display")]
     fn test_table_display() {
         use crate::display::DisplayOptions;
 
