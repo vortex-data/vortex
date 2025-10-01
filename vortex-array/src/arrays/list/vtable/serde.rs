@@ -5,12 +5,12 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail};
 
-use super::{ListArray, ListVTable};
-use crate::arrays::ListEncoding;
+use super::ListArray;
+use crate::ProstMetadata;
+use crate::arrays::{ListEncoding, ListVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
+use crate::vtable::SerdeVTable;
 
 #[derive(Clone, prost::Message)]
 pub struct ListMetadata {
@@ -63,15 +63,5 @@ impl SerdeVTable<ListVTable> for ListVTable {
         )?;
 
         ListArray::try_new(elements, offsets, validity)
-    }
-}
-
-impl VisitorVTable<ListVTable> for ListVTable {
-    fn visit_buffers(_array: &ListArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &ListArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("elements", array.elements());
-        visitor.visit_child("offsets", array.offsets());
-        visitor.visit_validity(array.validity(), array.len());
     }
 }
