@@ -93,6 +93,12 @@ struct CommonArgs {
 
     #[arg(long, default_value_t = false)]
     skip_generate: bool,
+
+    #[arg(long, default_value_t = false)]
+    explain: bool,
+
+    #[arg(long, default_value_t = false)]
+    explain_analyze: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -254,6 +260,8 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
         hide_progress_bar: args.common.hide_progress_bar,
         track_memory: args.common.track_memory,
         skip_generate: args.common.skip_generate,
+        explain: args.common.explain,
+        explain_analyze: args.common.explain_analyze,
     };
 
     // Determine data URL
@@ -284,6 +292,8 @@ fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
         hide_progress_bar: args.common.hide_progress_bar,
         track_memory: args.common.track_memory,
         skip_generate: args.common.skip_generate,
+        explain: args.common.explain,
+        explain_analyze: args.common.explain_analyze,
     };
 
     // Run benchmark using the trait system
@@ -315,6 +325,8 @@ fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
         hide_progress_bar: args.common.hide_progress_bar,
         track_memory: args.common.track_memory,
         skip_generate: args.common.skip_generate,
+        explain: args.common.explain,
+        explain_analyze: args.common.explain_analyze,
     };
 
     // Run benchmark using the trait system
@@ -348,6 +360,8 @@ fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
         hide_progress_bar: args.common.hide_progress_bar,
         track_memory: args.common.track_memory,
         skip_generate: args.common.skip_generate,
+        explain: args.common.explain,
+        explain_analyze: args.common.explain_analyze,
     };
 
     // Run benchmark using the trait system

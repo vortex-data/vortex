@@ -38,10 +38,22 @@ pub struct DriverConfig {
     pub hide_progress_bar: bool,
     pub track_memory: bool,
     pub skip_generate: bool,
+    pub explain: bool,
+    pub explain_analyze: bool,
 }
 
 /// Run a benchmark using the provided implementation and configuration
 pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result<()> {
+    // If explain-analyze mode is enabled, run explain analyze
+    if config.explain_analyze {
+        return run_explain_analyze(benchmark, config);
+    }
+
+    // If explain mode is enabled, run explain (without execution)
+    if config.explain {
+        return run_explain(benchmark, config);
+    }
+
     // Generate data for each target (idempotent)
     if !config.skip_generate {
         for target in &config.targets {
@@ -282,4 +294,102 @@ fn print_metrics(engine_ctx: &EngineCtx) {
             }
         }
     }
+}
+
+/// Run EXPLAIN ANALYZE for each query instead of benchmarking
+fn run_explain_analyze<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result<()> {
+    // Generate data for each target (idempotent)
+    if !config.skip_generate {
+        for target in &config.targets {
+            benchmark.generate_data(target)?;
+        }
+    }
+
+    let filtered_queries = filter_queries(
+        benchmark.queries()?,
+        config.queries.as_ref(),
+        config.exclude_queries.as_ref(),
+    );
+
+    for target in config.targets.iter() {
+        println!("\n{}", "=".repeat(80));
+        println!("Target: {} - {}", target.engine(), target.format());
+        println!("{}\n", "=".repeat(80));
+
+        let tokio_runtime = new_tokio_runtime(config.threads)?;
+
+        let engine_ctx = benchmark.setup_engine_context(
+            target,
+            config.disable_datafusion_cache,
+            config.emit_plan,
+            config.delete_duckdb_database,
+        )?;
+
+        tokio_runtime.block_on(benchmark.register_tables(&engine_ctx, target.format()))?;
+
+        for &(query_idx, ref query_string) in filtered_queries.iter() {
+            println!("\n{}", "-".repeat(80));
+            println!("Query {}", query_idx);
+            println!("{}", "-".repeat(80));
+            println!("SQL: {}\n", query_string);
+
+            match &engine_ctx {
+                EngineCtx::DataFusion(ctx) => {
+                    let explain_query = format!("EXPLAIN ANALYZE {}", query_string);
+                    match tokio_runtime.block_on(async {
+                        let plan = ctx.session.sql(&explain_query).await?;
+                        let batches = plan.collect().await?;
+                        Ok::<_, anyhow::Error>(batches)
+                    }) {
+                        Ok(batches) => {
+                            for batch in batches {
+                                for row_idx in 0..batch.num_rows() {
+                                    for col_idx in 0..batch.num_columns() {
+                                        let array = batch.column(col_idx);
+                                        let string_array =
+                                            arrow_array::cast::as_string_array(array);
+                                        if let Some(value) =
+                                            string_array.iter().nth(row_idx).flatten()
+                                        {
+                                            println!("{}", value);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!(
+                                "Error running EXPLAIN ANALYZE for query {}: {}",
+                                query_idx, err
+                            );
+                        }
+                    }
+                }
+                EngineCtx::DuckDB(ctx) => {
+                    let explain_query = format!("EXPLAIN ANALYZE {}", query_string);
+                    match ctx.connection.query(&explain_query) {
+                        Ok(result) => {
+                            // DuckDB EXPLAIN ANALYZE returns a result set with data chunks
+                            for chunk in result {
+                                match String::try_from(&chunk) {
+                                    Ok(output) => println!("{}", output),
+                                    Err(err) => {
+                                        eprintln!("Error converting chunk to string: {}", err)
+                                    }
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!(
+                                "Error running EXPLAIN ANALYZE for query {}: {}",
+                                query_idx, err
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
