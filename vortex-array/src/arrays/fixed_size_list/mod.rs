@@ -166,6 +166,10 @@ impl FixedSizeListArray {
         validity: Validity,
         len: usize,
     ) -> Self {
+        #[cfg(debug_assertions)]
+        Self::validate(&elements, len, list_size, &validity)
+            .vortex_expect("[Debug Assertion]: Invalid `FixedSizeListArray` parameters");
+
         let nullability = validity.nullability();
 
         Self {

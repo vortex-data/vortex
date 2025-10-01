@@ -55,6 +55,10 @@ impl ChunkedArray {
     ///
     /// All chunks must have exactly the same [`DType`] as the provided `dtype`.
     pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
+        #[cfg(debug_assertions)]
+        Self::validate(&chunks, &dtype)
+            .vortex_expect("[Debug Assertion]: Invalid `ChunkedArray` parameters");
+
         let nchunks = chunks.len();
 
         let mut chunk_offsets = BufferMut::<u64>::with_capacity(nchunks + 1);

@@ -164,6 +164,10 @@ impl ListArray {
     /// - The maximum offset must not exceed `elements.len()`.
     /// - If validity is an array, its length must equal `offsets.len() - 1`.
     pub unsafe fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
+        #[cfg(debug_assertions)]
+        Self::validate(&elements, &offsets, &validity)
+            .vortex_expect("[Debug Assertion]: Invalid `ListViewArray` parameters");
+
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
             elements,

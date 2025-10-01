@@ -96,6 +96,10 @@ impl BoolArray {
         len: usize,
         validity: Validity,
     ) -> Self {
+        #[cfg(debug_assertions)]
+        Self::validate(&buffer, offset, len, &validity)
+            .vortex_expect("[Debug Assertion]: Invalid `BoolArray` parameters");
+
         let buffer = BooleanBuffer::new(buffer.into_arrow_buffer(), offset, len);
         let buffer = buffer.shrink_offset();
         Self {

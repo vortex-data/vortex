@@ -294,6 +294,10 @@ impl StructArray {
         length: usize,
         validity: Validity,
     ) -> Self {
+        #[cfg(debug_assertions)]
+        Self::validate(&fields, &dtype, length, &validity)
+            .vortex_expect("[Debug Assertion]: Invalid `StructArray` parameters");
+
         Self {
             len: length,
             dtype: DType::Struct(dtype, validity.nullability()),

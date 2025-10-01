@@ -189,6 +189,10 @@ impl DecimalArray {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
+        #[cfg(debug_assertions)]
+        Self::validate(&buffer, &validity)
+            .vortex_expect("[Debug Assertion]: Invalid `DecimalArray` parameters");
+
         Self {
             values: buffer.into_byte_buffer(),
             values_type: T::VALUES_TYPE,

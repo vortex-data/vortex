@@ -127,6 +127,10 @@ impl VarBinArray {
         dtype: DType,
         validity: Validity,
     ) -> Self {
+        #[cfg(debug_assertions)]
+        Self::validate(&offsets, &bytes, &dtype, &validity)
+            .vortex_expect("[Debug Assertion]: Invalid `VarBinArray` parameters");
+
         Self {
             dtype,
             bytes,

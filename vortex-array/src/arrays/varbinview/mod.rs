@@ -460,6 +460,10 @@ impl VarBinViewArray {
         dtype: DType,
         validity: Validity,
     ) -> Self {
+        #[cfg(debug_assertions)]
+        Self::validate(&views, &buffers, &dtype, &validity)
+            .vortex_expect("[Debug Assertion]: Invalid `VarBinViewArray` parameters");
+
         Self {
             dtype,
             buffers,

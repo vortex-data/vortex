@@ -143,6 +143,10 @@ impl PrimitiveArray {
     /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
     #[inline]
     pub unsafe fn new_unchecked<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
+        #[cfg(debug_assertions)]
+        Self::validate(&buffer, &validity)
+            .vortex_expect("[Debug Assertion]: Invalid `PrimitiveArray` parameters");
+
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
             buffer: buffer.into_byte_buffer(),
