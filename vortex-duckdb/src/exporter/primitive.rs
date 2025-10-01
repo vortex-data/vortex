@@ -39,7 +39,7 @@ impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
         let pos = unsafe { (self.buffer.as_ptr() as *const T).add(offset) };
         unsafe { vector.set_data_buffer(self.buffer.clone()) };
         // While we are setting a *mut T this is an artifact of the C API, this is in fact const.
-        unsafe { vector.set_data_ptr(pos as *mut T ) };
+        unsafe { vector.set_data_ptr(pos as *mut T) };
 
         Ok(())
     }
