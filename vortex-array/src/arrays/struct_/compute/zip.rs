@@ -68,31 +68,31 @@ register_kernel!(ZipKernelAdapter(StructVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::FieldNames;
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::arrays::{PrimitiveArray, StructArray};
-    use crate::canonical::ToCanonical;
     use crate::compute::zip;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray};
 
     #[test]
     fn test_validity_zip_both_validity_array() {
         // Both structs have Validity::Array
-        let if_true = StructArray::try_from_iter([(
-            "field",
-            PrimitiveArray::from_option_iter([Some(1), None, Some(3), None]).into_array(),
-        )])
-        .unwrap()
+        let if_true = StructArray::new(
+            FieldNames::from_iter(["field"]),
+            vec![PrimitiveArray::from_iter([1, 2, 3, 4]).into_array()],
+            4,
+            Validity::from_iter([true, false, true, false]),
+        )
         .into_array();
 
-        let if_false = StructArray::try_from_iter([(
-            "field",
-            PrimitiveArray::from_option_iter([None, Some(20), None, Some(40)]).into_array(),
-        )])
-        .unwrap()
+        let if_false = StructArray::new(
+            FieldNames::from_iter(["field"]),
+            vec![PrimitiveArray::from_iter([10, 20, 30, 40]).into_array()],
+            4,
+            Validity::from_iter([false, true, false, true]),
+        )
         .into_array();
 
         let mask = Mask::from_iter([false, false, true, false]);
@@ -116,19 +116,20 @@ mod tests {
 
     #[test]
     fn test_validity_zip_allvalid_and_array() {
-        // One struct is AllValid, the other has Validity::Array
-        let if_true = StructArray::try_from_iter([(
-            "field",
-            PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), Some(40)]).into_array(),
-        )])
-        .unwrap()
+        let if_true = StructArray::new(
+            FieldNames::from_iter(["a"]),
+            vec![PrimitiveArray::from_iter([1, 2, 3, 4]).into_array()],
+            4,
+            Validity::AllValid,
+        )
         .into_array();
 
-        let if_false = StructArray::try_from_iter([(
-            "field",
-            PrimitiveArray::from_option_iter([Some(1), None, Some(3), Some(4)]).into_array(),
-        )])
-        .unwrap()
+        let if_false = StructArray::new(
+            FieldNames::from_iter(["a"]),
+            vec![PrimitiveArray::from_iter([10, 20, 30, 40]).into_array()],
+            4,
+            Validity::from_iter([false, false, true, true]),
+        )
         .into_array();
 
         let mask = Mask::from_iter([true, false, false, false]);
@@ -137,15 +138,15 @@ mod tests {
 
         insta::assert_snapshot!(result.display_table(), @r"
         ┌───────┐
-        │ field │
+        │   a   │
         ├───────┤
-        │ 10i32 │
+        │ 1i32  │
         ├───────┤
         │ null  │
         ├───────┤
-        │ 3i32  │
+        │ 30i32 │
         ├───────┤
-        │ 4i32  │
+        │ 40i32 │
         └───────┘
         ");
     }
