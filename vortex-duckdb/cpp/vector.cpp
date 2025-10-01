@@ -83,26 +83,11 @@ extern "C" void duckdb_vx_vector_add_data_buffer(duckdb_vector ffi_vector, duckd
     dvector->SetDataBuffer(ext_buffer);
 }
 
-extern "C" void duckdb_vx_vector_set_aux_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer) {
-    auto vector = reinterpret_cast<Vector *>(ffi_vector);
-    auto data = reinterpret_cast<vortex::CData *>(buffer);
-    auto ext_buffer = duckdb::make_shared_ptr<vortex::ExternalVectorBuffer>(unique_ptr<vortex::CData>(data));
-    vector->SetAuxiliary(ext_buffer);
-}
-
-
 extern "C" void duckdb_vx_vector_add_data_ptr(duckdb_vector ffi_vector, void *ptr) {
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
     auto dvector = reinterpret_cast<vortex::DataVector *>(vector);
     dvector->SetDataPtr((data_ptr_t)ptr);
 }
-
-extern "C" void duckdb_vx_vector_copy_buffer(duckdb_vector ffi_to_vector, duckdb_vector ffi_from_vector) {
-    auto to_vector = reinterpret_cast<Vector *>(ffi_to_vector);
-    auto from_vector = reinterpret_cast<Vector *>(ffi_from_vector);
-    to_vector->CopyBuffer(*from_vector);
-}
-
 
 void duckdb_vector_flatten(duckdb_vector vector, unsigned long len) {
     auto dvector = reinterpret_cast<Vector *>(vector);
