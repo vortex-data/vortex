@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::marker::PhantomData;
-
 use vortex::arrays::PrimitiveArray;
-use vortex::buffer::{Buffer, ByteBuffer};
+use vortex::buffer::Buffer;
 use vortex::dtype::{NativePType, match_each_native_ptype};
 use vortex::error::VortexResult;
 
@@ -12,17 +10,13 @@ use crate::duckdb::Vector;
 use crate::exporter::{ColumnExporter, validity};
 
 struct PrimitiveExporter<T: NativePType> {
-    buffer: Buffer<u8>,
-    array_type: PhantomData<T>,
+    buffer: Buffer<T>,
 }
 
 pub fn new_exporter(array: &PrimitiveArray) -> VortexResult<Box<dyn ColumnExporter>> {
-    let buffer: ByteBuffer = array.byte_buffer().clone();
-
     let prim = match_each_native_ptype!(array.ptype(), |T| {
         Box::new(PrimitiveExporter {
-            buffer,
-            array_type: PhantomData::<T>,
+            buffer: array.buffer::<T>(),
         }) as Box<dyn ColumnExporter>
     });
     Ok(if array.dtype().is_nullable() {
@@ -34,9 +28,9 @@ pub fn new_exporter(array: &PrimitiveArray) -> VortexResult<Box<dyn ColumnExport
 
 impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
-        assert!(self.buffer.len() * size_of::<T>() >= offset + len);
+        assert!(self.buffer.len() >= offset + len);
 
-        let pos = unsafe { (self.buffer.as_ptr() as *const T).add(offset) };
+        let pos = unsafe { self.buffer.as_ptr().add(offset) };
         unsafe { vector.set_data_buffer(self.buffer.clone()) };
         // While we are setting a *mut T this is an artifact of the C API, this is in fact const.
         unsafe { vector.set_data_ptr(pos as *mut T) };

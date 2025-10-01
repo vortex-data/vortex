@@ -9,7 +9,7 @@ mod decimal;
 mod dict;
 mod fixed_size_list;
 mod list;
-pub mod primitive;
+mod primitive;
 mod run_end;
 mod sequence;
 mod temporal;

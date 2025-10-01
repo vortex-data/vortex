@@ -41,7 +41,6 @@ vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
-divan = { workspace = true }
 jiff = { workspace = true }
 rstest = { workspace = true }
 
