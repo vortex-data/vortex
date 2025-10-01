@@ -8,8 +8,8 @@ use std::sync::Arc;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
-use vortex_layout::layouts::compressed::{CompressingStrategy, CompressorPlugin};
-use vortex_layout::layouts::dict::writer::DictStrategy;
+use vortex_layout::layouts::compressed::{CompressingStrategy, Compressor};
+use vortex_layout::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
@@ -23,7 +23,7 @@ const ONE_MEG: u64 = 1 << 20;
 /// repartitioning and compressing them to strike a balance between size on-disk,
 /// bulk decoding performance, and IOPS required to perform an indexed read.
 pub struct WriteStrategyBuilder {
-    compressor: Option<Arc<dyn CompressorPlugin>>,
+    compressor: Option<Compressor>,
     row_block_size: usize,
     write_bloom_filters: bool,
 }
@@ -49,8 +49,8 @@ impl WriteStrategyBuilder {
     ///
     /// If not provided, this will use a BtrBlocks-style cascading compressor that tries to balance
     /// total size with decoding performance.
-    pub fn with_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
-        self.compressor = Some(Arc::new(compressor));
+    pub fn with_compressor(mut self, compressor: Compressor) -> Self {
+        self.compressor = Some(compressor);
         self
     }
 
@@ -76,11 +76,8 @@ impl WriteStrategyBuilder {
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
         // 5. compress each chunk
-        let compressing = if let Some(ref compressor) = self.compressor {
-            CompressingStrategy::new_opaque(buffered, compressor.clone())
-        } else {
-            CompressingStrategy::new_btrblocks(buffered, true)
-        };
+        let compressor = self.compressor.unwrap_or_default();
+        let compressing = CompressingStrategy::new(buffered, compressor.clone());
 
         // 4. prior to compression, coalesce up to a minimum size
         let coalescing = RepartitionStrategy::new(
@@ -93,18 +90,18 @@ impl WriteStrategyBuilder {
         );
 
         // 2.1. | 3.1. compress stats tables and dict values.
-        let compress_then_flat = if let Some(ref compressor) = self.compressor {
-            CompressingStrategy::new_opaque(FlatLayoutStrategy::default(), compressor.clone())
-        } else {
-            CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), false)
-        };
+        let compress_then_flat =
+            CompressingStrategy::new(FlatLayoutStrategy::default(), compressor);
 
         // 3. apply dict encoding or fallback
         let dict = DictStrategy::new(
             coalescing.clone(),
             compress_then_flat.clone(),
             coalescing,
-            Default::default(),
+            DictLayoutOptions {
+                experimental_bloom_filters: self.write_bloom_filters,
+                ..Default::default()
+            },
         );
 
         // 2. calculate stats for each row group

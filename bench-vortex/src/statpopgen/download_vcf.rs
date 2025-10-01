@@ -19,7 +19,8 @@ use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::file::VortexWriteOptions;
+use vortex::layout::layouts::compressed::Compressor;
 use vortex::stream::ArrayStreamAdapter;
 
 use super::StatPopGenBenchmark;
@@ -130,12 +131,11 @@ impl StatPopGenBenchmark {
 
     pub async fn parquet_to_vortex(&self, format: Format) -> Result<()> {
         let parquet_path = self.parquet_path()?;
-        let strategy = WriteStrategyBuilder::new();
-        let (output_path, strategy) = match format {
-            Format::OnDiskVortex => (self.vortex_path()?, strategy),
+        let (output_path, compressor) = match format {
+            Format::OnDiskVortex => (self.vortex_path()?, Compressor::default()),
             Format::VortexCompact => (
                 self.vortex_compact_path()?,
-                strategy.with_compressor(CompactCompressor::default()),
+                Compressor::Compact(CompactCompressor::default()),
             ),
             otherwise => {
                 bail!("you asked for vortex but gave me {}", otherwise)
@@ -176,7 +176,7 @@ impl StatPopGenBenchmark {
                 .boxed();
 
             VortexWriteOptions::default()
-                .with_strategy(strategy.build())
+                .with_compressor(compressor)
                 .write(
                     &mut File::create(output_path).await?,
                     ArrayStreamAdapter::new(dtype, vortex_stream),

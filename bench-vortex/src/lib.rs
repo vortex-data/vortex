@@ -14,8 +14,8 @@ use serde::Serialize;
 pub use utils::file_utils::*;
 pub use utils::logging::*;
 use vortex::error::{VortexUnwrap, vortex_err};
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
-use vortex::layout::layouts::compact::CompactCompressor;
+use vortex::file::VortexWriteOptions;
+use vortex::layout::layouts::compressed::compact::CompactCompressor;
 
 pub mod bench_run;
 pub mod benchmark_driver;
@@ -42,6 +42,7 @@ pub mod utils;
 pub use datasets::{BenchmarkDataset, file};
 pub use engines::df;
 pub use vortex::error::vortex_panic;
+use vortex::layout::layouts::compressed::Compressor;
 
 // All benchmarks run with mimalloc for consistency.
 #[global_allocator]
@@ -192,11 +193,9 @@ pub enum CompactionStrategy {
 impl CompactionStrategy {
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
         match self {
-            CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::new()
-                    .with_compressor(CompactCompressor::default())
-                    .build(),
-            ),
+            CompactionStrategy::Compact => {
+                options.with_compressor(Compressor::Compact(CompactCompressor::default()))
+            }
             CompactionStrategy::Default => options,
         }
     }

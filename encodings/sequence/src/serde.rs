@@ -108,7 +108,7 @@ mod tests {
 
         let mut file = tokio::fs::File::create("/tmp/abc.vx").await.unwrap();
         VortexWriteOptions::default()
-            .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+            .with_strategy_override(Arc::new(FlatLayoutStrategy::default()))
             .write(&mut file, st.to_array_stream())
             .await
             .unwrap();

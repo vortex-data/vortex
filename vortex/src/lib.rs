@@ -19,7 +19,7 @@ pub use {
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
     #[cfg(feature = "zstd")]
-    pub use vortex_layout::layouts::compact::CompactCompressor;
+    pub use vortex_layout::layouts::compressed::compact::CompactCompressor;
 }
 
 pub mod encodings {
@@ -48,8 +48,9 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_expr::{gt, lit, root};
-    use vortex_file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
-    use vortex_layout::layouts::compact::CompactCompressor;
+    use vortex_file::{VortexOpenOptions, VortexWriteOptions};
+    use vortex_layout::layouts::compressed::Compressor;
+    use vortex_layout::layouts::compressed::compact::CompactCompressor;
 
     use crate as vortex;
 
@@ -101,7 +102,7 @@ mod test {
         // Or apply generally stronger compression with the compact compressor
         let compressed = CompactCompressor::default()
             .with_values_per_page(8192)
-            .compress(array.as_ref())?;
+            .compress_chunk(array.as_ref())?;
         println!("Compact size: {} / {}", compressed.nbytes(), array.nbytes());
         // [compress]
 
@@ -148,11 +149,7 @@ mod test {
         let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
 
         VortexWriteOptions::default()
-            .with_strategy(
-                WriteStrategyBuilder::new()
-                    .with_compressor(CompactCompressor::default())
-                    .build(),
-            )
+            .with_compressor(Compressor::Compact(CompactCompressor::default()))
             .write(
                 &mut tokio::fs::File::create("example_compact.vortex").await?,
                 array.to_array_stream(),

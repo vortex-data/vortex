@@ -60,7 +60,7 @@ impl CompactCompressor {
         self
     }
 
-    pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
+    pub fn compress_chunk(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
         self.compress_canonical(array.to_canonical())
     }
 
@@ -120,7 +120,7 @@ impl CompactCompressor {
                 let fields = struct_array
                     .fields()
                     .iter()
-                    .map(|field| self.compress(field))
+                    .map(|field| self.compress_chunk(field))
                     .collect::<VortexResult<Vec<_>>>()?;
 
                 StructArray::try_new(
@@ -133,8 +133,8 @@ impl CompactCompressor {
             }
             Canonical::List(list_array) => {
                 // recurse
-                let compressed_elems = self.compress(list_array.elements())?;
-                let compressed_offsets = self.compress(list_array.offsets())?;
+                let compressed_elems = self.compress_chunk(list_array.elements())?;
+                let compressed_offsets = self.compress_chunk(list_array.offsets())?;
 
                 ListArray::try_new(
                     compressed_elems,
@@ -145,7 +145,7 @@ impl CompactCompressor {
             }
             Canonical::FixedSizeList(list_array) => {
                 // recurse
-                let compressed_elems = self.compress(list_array.elements())?;
+                let compressed_elems = self.compress_chunk(list_array.elements())?;
 
                 FixedSizeListArray::try_new(
                     compressed_elems,
@@ -157,7 +157,7 @@ impl CompactCompressor {
             }
             Canonical::Extension(ext_array) => {
                 // recurse
-                let compressed_storage = self.compress(ext_array.storage())?;
+                let compressed_storage = self.compress_chunk(ext_array.storage())?;
 
                 ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage).into_array()
             }
@@ -223,7 +223,7 @@ mod tests {
         .unwrap();
 
         // Compress the struct array
-        let compressed = compressor.compress(struct_array.as_ref()).unwrap();
+        let compressed = compressor.compress_chunk(struct_array.as_ref()).unwrap();
 
         // Verify we can decompress back to original
         let decompressed = compressed.to_canonical().into_array();

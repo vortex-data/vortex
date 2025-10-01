@@ -4,62 +4,24 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::StreamExt as _;
+use futures::StreamExt;
+use vortex_array::ArrayContext;
 use vortex_array::stats::Stat;
-use vortex_array::{Array, ArrayContext, ArrayRef};
-use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
+use crate::layouts::compressed::{Compressor, CompressorPlugin};
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{
     SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt,
 };
 use crate::{LayoutRef, LayoutStrategy};
 
-/// A boxed compressor function from arrays into compressed arrays.
-///
-/// Both the balanced `BtrBlocksCompressor` and the size-optimized `CompactCompressor`
-/// meet this interface.
-///
-/// API consumers are also free to implement this trait to provide new plugin compressors.
-pub trait CompressorPlugin: Send + Sync + 'static {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef>;
-}
-
-impl CompressorPlugin for Arc<dyn CompressorPlugin> {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef> {
-        self.as_ref().compress_chunk(chunk)
-    }
-}
-
-impl<F> CompressorPlugin for F
-where
-    F: Fn(&dyn Array) -> VortexResult<ArrayRef> + Send + Sync + 'static,
-{
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef> {
-        self(chunk)
-    }
-}
-
-impl CompressorPlugin for BtrBlocksCompressor {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef> {
-        self.compress(chunk)
-    }
-}
-
-#[cfg(feature = "zstd")]
-impl CompressorPlugin for crate::layouts::compact::CompactCompressor {
-    fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef> {
-        self.compress(chunk)
-    }
-}
-
 /// A layout writer that compresses chunks.
 #[derive(Clone)]
 pub struct CompressingStrategy {
     child: Arc<dyn LayoutStrategy>,
-    compressor: Arc<dyn CompressorPlugin>,
+    compressor: Compressor,
     concurrency: usize,
 }
 
@@ -70,13 +32,12 @@ impl CompressingStrategy {
     ///
     /// Set `exclude_int_dict_encoding` to true to prevent dictionary encoding of integer arrays,
     /// which is useful when compressing dictionary codes to avoid recursive dictionary encoding.
-    pub fn new_btrblocks<S: LayoutStrategy>(child: S, exclude_int_dict_encoding: bool) -> Self {
-        Self::new(
-            child,
-            Arc::new(BtrBlocksCompressor {
-                exclude_int_dict_encoding,
-            }),
-        )
+    pub fn new<S: LayoutStrategy>(child: S, compressor: Compressor) -> Self {
+        Self {
+            child: Arc::new(child),
+            concurrency: default_concurrency(),
+            compressor,
+        }
     }
 
     /// Create a new writer that compresses using a `CompactCompressor` to compress chunks.
@@ -85,34 +46,40 @@ impl CompressingStrategy {
     /// to decoding performance. This is only recommended for datasets that make heavy use of
     /// floating point numbers.
     ///
-    /// [`CompactCompressor`]: crate::layouts::compact::CompactCompressor
+    /// [`CompactCompressor`]: crate::layouts::compressed::compact::CompactCompressor
     #[cfg(feature = "zstd")]
     pub fn new_compact<S: LayoutStrategy>(
         child: S,
-        compressor: crate::layouts::compact::CompactCompressor,
+        compact: crate::layouts::compressed::compact::CompactCompressor,
     ) -> Self {
-        Self::new(child, Arc::new(compressor))
-    }
-
-    /// Create a new compressor from a plugin interface.
-    pub fn new_opaque<S: LayoutStrategy, C: CompressorPlugin>(child: S, compressor: C) -> Self {
-        Self::new(child, Arc::new(compressor))
-    }
-
-    fn new<S: LayoutStrategy>(child: S, compressor: Arc<dyn CompressorPlugin>) -> Self {
         Self {
             child: Arc::new(child),
-            compressor,
-            concurrency: std::thread::available_parallelism()
-                .map(|v| v.get())
-                .unwrap_or(1),
+            compressor: Compressor::Compact(compact),
+            concurrency: default_concurrency(),
         }
     }
 
+    /// Create a new compressor from a plugin interface.
+    pub fn new_plugin<S: LayoutStrategy, P: CompressorPlugin>(child: S, plugin: P) -> Self {
+        Self {
+            child: Arc::new(child),
+            compressor: Compressor::Plugin(Arc::new(plugin)),
+            concurrency: default_concurrency(),
+        }
+    }
+
+    /// Set the concurrency for the strategy
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.concurrency = concurrency;
         self
     }
+}
+
+#[inline]
+fn default_concurrency() -> usize {
+    std::thread::available_parallelism()
+        .map(|v| v.get())
+        .unwrap_or(1)
 }
 
 #[async_trait]

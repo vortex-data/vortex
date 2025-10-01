@@ -21,6 +21,7 @@ use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_io::{IoBuf, VortexWrite};
 use vortex_layout::LayoutStrategy;
+use vortex_layout::layouts::compressed::Compressor;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
 
@@ -34,26 +35,48 @@ use crate::{Footer, MAGIC_BYTES, WriteStrategyBuilder};
 /// Unless overridden, the default [write strategy][crate::WriteStrategyBuilder] will be used with no
 /// additional configuration.
 pub struct VortexWriteOptions {
-    strategy: Arc<dyn LayoutStrategy>,
     exclude_dtype: bool,
+    write_bloom_filters: bool,
+    compressor: Compressor,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
     handle: Option<Handle>,
+    strategy: Option<Arc<dyn LayoutStrategy>>,
 }
 
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: WriteStrategyBuilder::new().build(),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
+            write_bloom_filters: false,
+            compressor: Default::default(),
             handle: Handle::find(),
+            strategy: None,
         }
     }
 }
 
 impl VortexWriteOptions {
+    /// Convert into a strategy here as well.
+    fn build_strategy(&self) -> Arc<dyn LayoutStrategy> {
+        WriteStrategyBuilder::default()
+            .with_experimental_bloom_filters(self.write_bloom_filters)
+            .with_compressor(self.compressor.clone())
+            .build()
+    }
+}
+
+impl VortexWriteOptions {
+    /// Configure a new strategy that overrides the default strategy.
+    ///
+    /// Note: Any other configuration overrides previously set may no longer be applicable.
+    pub fn with_strategy_override(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
+        self.strategy = Some(strategy);
+        self
+    }
+
     /// Configure a [`Handle`] for driving async tasks.
     ///
     /// If not provided, a handle will try to be inferred from [`Handle::find`].
@@ -62,15 +85,11 @@ impl VortexWriteOptions {
         self
     }
 
-    /// See [`VortexWriteOptions::with_handle`].
-    pub fn with_some_handle(mut self, handle: Option<Handle>) -> Self {
-        self.handle = handle.or(self.handle);
-        self
-    }
-
-    /// Replace the default layout strategy with the provided one.
-    pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
-        self.strategy = strategy;
+    /// Override the [compressor][CompressorPlugin] used to compact array chunks.
+    ///
+    /// By default, we use a compressor based on BtrBlocks that balances size and decoding speed.
+    pub fn with_compressor(mut self, compressor: Compressor) -> Self {
+        self.compressor = compressor;
         self
     }
 
@@ -120,11 +139,11 @@ impl VortexWriteOptions {
     }
 
     async fn write_internal<W: VortexWrite + Unpin>(
-        self,
+        mut self,
         mut write: W,
         stream: SendableArrayStream,
     ) -> VortexResult<WriteSummary> {
-        let Some(handle) = self.handle else {
+        let Some(handle) = self.handle.take() else {
             vortex_panic!("Must provide a Handle to use the async writer API");
         };
 
@@ -159,9 +178,9 @@ impl VortexWriteOptions {
         // We spawn the layout future so it is driven in the background while we write the
         // buffer stream, so we don't need to poll it until all buffers have been drained.
         let ctx2 = ctx.clone();
+        let strategy = self.build_strategy();
         let layout_fut = handle.spawn_nested(|h| async move {
-            let layout = self
-                .strategy
+            let layout = strategy
                 .write_stream(ctx2, segments.clone(), stream, eof, h)
                 .await?;
             Ok::<_, VortexError>((layout, segments.segment_specs()))
@@ -222,7 +241,7 @@ impl VortexWriteOptions {
 
         let write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
-        let strategy = self.strategy.clone();
+        let strategy = self.build_strategy();
         let future = self.write(write, arrays).boxed_local().fuse();
 
         Writer {

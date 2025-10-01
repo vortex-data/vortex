@@ -60,6 +60,7 @@ impl Default for DictLayoutConstraints {
 #[derive(Clone, Default)]
 pub struct DictLayoutOptions {
     pub constraints: DictLayoutConstraints,
+    pub experimental_bloom_filters: bool,
 }
 
 /// A layout strategy that encodes chunk into values and codes, if found
@@ -175,21 +176,28 @@ impl LayoutStrategy for DictStrategy {
                     ).await
                 });
 
-                let bloom_eof = eof.split_off();
-                let segment_sink2 = segment_sink.clone();
+                // If bloom filter writing is enabled
+                let bloom_filter_fut = if options.experimental_bloom_filters {
+                    let bloom_eof = eof.split_off();
+                    let segment_sink2 = segment_sink.clone();
 
-                // Write bloom filter to segment if present
-                let bloom_filter_fut = handle.spawn_nested(move |h| async move {
-                    if let Some(filter) = bloom_filter.await? {
-                        let bloom_filter_id = bloom_eof.downgrade();
-                        let serialized = vec![filter.serialize()];
-                        Ok(Some(h.spawn_nested(move |_h| async move {
-                            segment_sink2.write(bloom_filter_id, serialized).await
-                        })))
-                    } else {
+                    // Write bloom filter to segment if present
+                    handle.spawn_nested(move |h| async move {
+                        if let Some(filter) = bloom_filter.await? {
+                            let bloom_filter_id = bloom_eof.downgrade();
+                            let serialized = vec![filter.serialize()];
+                            Ok(Some(h.spawn_nested(move |_h| async move {
+                                segment_sink2.write(bloom_filter_id, serialized).await
+                            })))
+                        } else {
+                            Ok(None)
+                        }
+                    })
+                } else {
+                    handle.spawn(async move {
                         Ok(None)
-                    }
-                });
+                    })
+                };
 
                 yield async move {
                     let (codes_layout, values_layout, bloom_filter_future) = try_join!(codes_fut, values_layout, bloom_filter_fut)?;
@@ -623,21 +631,6 @@ pub fn dict_layout_supported(dtype: &DType) -> bool {
         dtype,
         DType::Primitive(..) | DType::Utf8(_) | DType::Binary(_)
     )
-}
-
-#[derive(prost::Message)]
-pub struct DictLayoutMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
-    // i32 is required for proto, use the generated getter to read this field.
-    codes_ptype: i32,
-}
-
-impl DictLayoutMetadata {
-    pub fn new(codes_ptype: PType) -> Self {
-        let mut metadata = Self::default();
-        metadata.set_codes_ptype(codes_ptype);
-        metadata
-    }
 }
 
 enum EncodingState {
