@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, c_void};
 use std::ptr;
 
 use arrow_buffer;
@@ -139,6 +139,15 @@ impl Vector {
         let is_valid = (validity_entry & (1u64 << idx_in_entry)) != 0;
 
         !is_valid
+    }
+
+    pub fn add_data_buffer<T>(&self, buffer: T) {
+        let data = Data::from(Box::new(buffer));
+        unsafe { cpp::duckdb_vx_vector_add_data_buffer(self.as_ptr(), data.into_ptr()) }
+    }
+
+    pub fn add_data_ptr<T>(&self, ptr: *mut T) {
+        unsafe { cpp::duckdb_vx_vector_add_data_ptr(self.as_ptr(), ptr as *mut c_void) }
     }
 
     pub fn add_string_buffer<T>(&self, buffer: T) {
