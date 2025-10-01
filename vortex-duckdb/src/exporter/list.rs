@@ -91,10 +91,10 @@ mod tests {
     use vortex::IntoArray as _;
     use vortex::arrays::VarBinArray;
     use vortex::buffer::{Buffer, buffer};
+    use vortex::error::VortexUnwrap;
     use vortex::validity::Validity;
 
     use super::*;
-    use crate::cpp;
     use crate::duckdb::{DataChunk, LogicalType};
     use crate::exporter::new_array_exporter;
 
@@ -108,7 +108,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let list_type = LogicalType::new_list(cpp::duckdb_type::DUCKDB_TYPE_INTEGER);
+        let list_type = LogicalType::list_type(LogicalType::int32()).vortex_unwrap();
         let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(&list, &ConversionCache::default())
@@ -135,7 +135,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let list_type = LogicalType::new_list(cpp::duckdb_type::DUCKDB_TYPE_INTEGER);
+        let list_type = LogicalType::list_type(LogicalType::int32()).vortex_unwrap();
         let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(&list, &ConversionCache::default())
@@ -168,7 +168,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let list_type = LogicalType::new_list(cpp::duckdb_type::DUCKDB_TYPE_VARCHAR);
+        let list_type = LogicalType::list_type(LogicalType::int32()).vortex_unwrap();
         let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(&list, &ConversionCache::default())
