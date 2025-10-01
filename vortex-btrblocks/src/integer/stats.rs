@@ -15,6 +15,7 @@ use vortex_mask::AllOr;
 use vortex_scalar::{PValue, Scalar};
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::rle::RLEStats;
 use crate::sample::sample;
 use crate::{CompressorStats, GenerateStatsOptions};
 
@@ -149,6 +150,20 @@ impl CompressorStats for IntegerStats {
         let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_primitive();
 
         Self::generate_opts(&sampled, opts)
+    }
+}
+
+impl RLEStats for IntegerStats {
+    fn value_count(&self) -> u32 {
+        self.value_count
+    }
+
+    fn average_run_length(&self) -> u32 {
+        self.average_run_length
+    }
+
+    fn source(&self) -> &PrimitiveArray {
+        &self.src
     }
 }
 
