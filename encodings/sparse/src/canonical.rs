@@ -7,20 +7,22 @@ use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::arrays::{
-    BoolArray, BooleanBuffer, ConstantArray, FixedSizeListArray, ListArray, NullArray,
+    BoolArray, BooleanBuffer, ConstantArray, FixedSizeListArray, ListViewArray, NullArray,
     PrimitiveArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
 };
-use vortex_array::builders::{ArrayBuilder, DecimalBuilder, ListBuilder, builder_with_capacity};
+use vortex_array::builders::{
+    ArrayBuilder, DecimalBuilder, ListViewBuilder, builder_with_capacity,
+};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, BufferMut, BufferString, ByteBuffer, buffer, buffer_mut};
+use vortex_array::{Array, Canonical, ToCanonical as _};
+use vortex_buffer::{Buffer, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
     DType, DecimalDType, IntegerPType, NativePType, Nullability, StructFields,
     match_each_integer_ptype, match_each_native_ptype,
 };
-use vortex_error::{VortexError, VortexExpect, vortex_panic};
+use vortex_error::{VortexError, VortexExpect as _, vortex_panic};
 use vortex_scalar::{
     DecimalScalar, ListScalar, NativeDecimalType, Scalar, StructScalar,
     match_each_decimal_value_type,
@@ -79,13 +81,7 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
                 canonicalize_varbin(array, dtype.clone(), fill_value)
             }
             DType::List(values_dtype, nullability) => {
-                let resolved_patches = array.resolved_patches();
-                canonicalize_sparse_lists(
-                    array,
-                    resolved_patches,
-                    values_dtype.clone(),
-                    *nullability,
-                )
+                canonicalize_sparse_lists(array, values_dtype.clone(), *nullability)
             }
             DType::FixedSizeList(.., nullability) => {
                 canonicalize_sparse_fixed_size_list(array, *nullability)
@@ -95,42 +91,9 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
     }
 }
 
-/// The elements of this [ListScalar] as an array or `None` if scalar is null.
-fn list_scalar_to_elements_array(scalar: ListScalar) -> Option<ArrayRef> {
-    let elements = scalar.elements()?;
-
-    let mut builder = builder_with_capacity(scalar.element_dtype(), scalar.len());
-    for s in elements {
-        builder
-            .append_scalar(&s)
-            .vortex_expect("Scalar dtype must match");
-    }
-    Some(builder.finish())
-}
-
-/// Create a list-typed array containing one element, scalar, or `None` if scalar is null.
-fn list_scalar_to_singleton_list_array(scalar: ListScalar) -> Option<ArrayRef> {
-    let nullability = scalar.dtype().nullability();
-    let elements = list_scalar_to_elements_array(scalar)?;
-
-    let validity = match nullability {
-        Nullability::NonNullable => Validity::NonNullable,
-        Nullability::Nullable => Validity::AllValid,
-    };
-
-    let n = elements.len();
-    Some(
-        unsafe {
-            ListArray::new_unchecked(elements, buffer![0_u64, n as u64].into_array(), validity)
-        }
-        .into_array(),
-    )
-}
-
 #[allow(clippy::cognitive_complexity)]
 fn canonicalize_sparse_lists(
     array: &SparseArray,
-    resolved_patches: Patches,
     values_dtype: Arc<DType>,
     nullability: Nullability,
 ) -> Canonical {
@@ -154,8 +117,10 @@ fn canonicalize_sparse_lists(
         }};
     }
 
+    let resolved_patches = array.resolved_patches();
+
     let indices = resolved_patches.indices().to_primitive();
-    let values = resolved_patches.values().to_list();
+    let values = resolved_patches.values().to_listview();
     let fill_value = array.fill_scalar().as_list();
 
     let n_filled = array.len() - resolved_patches.num_patches();
@@ -178,93 +143,46 @@ fn canonicalize_sparse_lists(
     })
 }
 
-fn canonicalize_sparse_lists_inner<I: IntegerPType, SmallestViableOffsetType: IntegerPType>(
+fn canonicalize_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
     indices: &[I],
-    values: ListArray,
+    values: ListViewArray,
     fill_value: ListScalar,
     values_dtype: Arc<DType>,
     len: usize,
     total_canonical_values: usize,
     validity: Validity,
 ) -> Canonical {
-    let Some(fill_value_array) = list_scalar_to_singleton_list_array(fill_value) else {
-        let sparse_list_elements = values.elements().clone();
-        let sparse_list_offsets = values.offsets().to_primitive();
-        match_each_integer_ptype!(sparse_list_offsets.ptype(), |SparseValuesOffsetType| {
-            let sparse_list_offsets = sparse_list_offsets.as_slice::<SparseValuesOffsetType>();
-            // If the values are a small slice of a large array, their offsets may not fit in
-            // SmallestViableOffsetType. We avoid a copy by reusing values.elements(), but we
-            // therefore must use the offset type of values.offsets().
-            return canonicalize_sparse_lists_inner_with_null_fill_value(
-                indices,
-                sparse_list_elements,
-                sparse_list_offsets,
-                len,
-                validity,
-            );
-        });
-    };
-
-    let mut builder = ListBuilder::<SmallestViableOffsetType>::with_values_and_index_capacity(
+    // Create the builder with appropriate types.
+    let mut builder = ListViewBuilder::<O, O>::with_capacity(
         values_dtype,
         validity.nullability(),
         total_canonical_values,
-        len + 1,
+        len,
     );
-    let mut next_index = 0_usize;
-    let enumerated_indices_usize = indices
-        .iter()
-        .map(|x| (*x).to_usize().vortex_expect("index must fit in usize"))
-        .enumerate();
-    for (patch_values_index, next_patched_index) in enumerated_indices_usize {
-        for _ in next_index..next_patched_index {
-            builder.extend_from_array(&fill_value_array);
-        }
-        builder.extend_from_array(&values.slice(patch_values_index..patch_values_index + 1));
-        next_index = next_patched_index + 1;
-    }
 
-    for _ in next_index..len {
-        builder.extend_from_array(&fill_value_array);
+    let mut sparse_idx = 0;
+
+    for i in 0..len {
+        if sparse_idx < indices.len()
+            && indices[sparse_idx]
+                .to_usize()
+                .vortex_expect("index must fit in usize")
+                == i
+        {
+            // This position has a sparse value - get it as a scalar and append
+            builder
+                .append_value(values.scalar_at(sparse_idx).as_list())
+                .vortex_expect("Failed to append sparse value");
+            sparse_idx += 1;
+        } else {
+            // This position gets the fill value
+            builder
+                .append_value(fill_value.clone())
+                .vortex_expect("Failed to append fill value");
+        }
     }
 
     builder.finish_into_canonical()
-}
-
-fn canonicalize_sparse_lists_inner_with_null_fill_value<I: IntegerPType, O: IntegerPType>(
-    indices: &[I],
-    elements: ArrayRef,
-    offsets: &[O],
-    len: usize,
-    validity: Validity,
-) -> Canonical {
-    assert!(indices.len() < len + 1);
-    let mut dense_offsets = BufferMut::with_capacity(len + 1);
-
-    // We cannot use zero because elements may have leading junk values (e.g. the result of a slice).
-    dense_offsets.push(offsets[0]);
-    let mut dense_last_set_index = 0_usize;
-    for (sparse_start_index, dense_start_index) in indices.iter().enumerate() {
-        let sparse_end_index = sparse_start_index + 1;
-        let dense_start_index = (*dense_start_index)
-            .to_usize()
-            .vortex_expect("index must fit in usize");
-        let dense_end_index = dense_start_index + 1;
-
-        for _ in (dense_last_set_index + 1)..dense_end_index {
-            // For each null list, copy-forward the old index. These empty lists are masked by the validity.
-            dense_offsets.push(dense_offsets[dense_last_set_index]);
-        }
-        dense_offsets.push(offsets[sparse_end_index]);
-        dense_last_set_index = dense_end_index;
-    }
-    for _ in (dense_last_set_index + 1)..len {
-        // For each null list, copy-forward the old index. These empty lists are masked by the validity.
-        dense_offsets.push(dense_offsets[dense_last_set_index]);
-    }
-    Canonical::List(unsafe {
-        ListArray::new_unchecked(elements, dense_offsets.into_array(), validity)
-    })
 }
 
 /// Canonicalize a sparse [`FixedSizeListArray`] by expanding it into a dense representation.
@@ -577,7 +495,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::arrays::{
         BoolArray, BooleanBufferBuilder, DecimalArray, FixedSizeListArray, ListArray,
-        PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
+        ListViewArray, ListViewShape, PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
     };
     use vortex_array::arrow::IntoArrowArray as _;
     use vortex_array::validity::Validity;
@@ -590,7 +508,6 @@ mod test {
     use vortex_scalar::{DecimalValue, Scalar};
 
     use crate::SparseArray;
-    use crate::canonical::{list_scalar_to_elements_array, list_scalar_to_singleton_list_array};
 
     #[rstest]
     #[case(Some(true))]
@@ -1093,40 +1010,25 @@ mod test {
     }
 
     #[test]
-    fn test_list_scalar_to_elements_array() {
-        let scalar = Scalar::from(Some(vec![1, 2, 3]));
-        let array = list_scalar_to_elements_array(scalar.as_list());
-        assert_eq!(
-            array.unwrap().display_values().to_string(),
-            "[1i32, 2i32, 3i32]"
-        );
-
-        let scalar = Scalar::null_typed::<Vec<i32>>();
-        let array = list_scalar_to_elements_array(scalar.as_list());
-        assert!(array.is_none());
-    }
-
-    #[test]
-    fn test_list_scalar_to_singleton_list_array() {
-        let scalar = Scalar::from(Some(vec![1, 2, 3]));
-        let array = list_scalar_to_singleton_list_array(scalar.as_list());
-        assert!(array.is_some());
-        let array = array.unwrap();
-        assert_eq!(array.scalar_at(0), scalar);
-        assert_eq!(array.len(), 1);
-
-        let scalar = Scalar::null_typed::<Vec<i32>>();
-        let array = list_scalar_to_singleton_list_array(scalar.as_list());
-        assert!(array.is_none());
-    }
-
-    #[test]
     fn test_sparse_list_null_fill() {
+        // Use ListViewArray consistently
         let elements = buffer![1i32, 2, 1, 2].into_array();
-        let offsets = buffer![0u32, 1, 2, 3, 4].into_array();
-        let lists = ListArray::try_new(elements, offsets, Validity::AllValid)
-            .unwrap()
-            .into_array();
+        // Create ListView with offsets and sizes
+        // List 0: [1] at offset 0, size 1
+        // List 1: [2] at offset 1, size 1
+        // List 2: [1] at offset 2, size 1
+        // List 3: [2] at offset 3, size 1
+        let offsets = buffer![0u32, 1, 2, 3].into_array();
+        let sizes = buffer![1u32, 1, 1, 1].into_array();
+        let lists = ListViewArray::try_new(
+            elements,
+            offsets,
+            sizes,
+            Validity::AllValid,
+            ListViewShape::as_zero_copy_to_list(),
+        )
+        .unwrap()
+        .into_array();
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());
@@ -1135,30 +1037,53 @@ mod test {
             .into_array();
 
         let actual = sparse.to_canonical().into_array();
-        let expected = ListArray::try_new(
-            buffer![1i32, 2, 1, 2].into_array(),
-            buffer![0u32, 1, 1, 1, 2, 3, 4].into_array(),
-            Validity::Array(
-                BoolArray::from_iter([true, false, false, true, true, true]).into_array(),
-            ),
-        )
-        .unwrap()
-        .into_array();
+        let result_listview = actual.to_listview();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
+        // Check the structure
+        assert_eq!(result_listview.len(), 6);
 
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        // Verify sizes: positions 0,3,4,5 have data, positions 1,2 are null
+        assert_eq!(result_listview.size_at(0), 1); // [1]
+        assert_eq!(result_listview.size_at(1), 0); // null
+        assert_eq!(result_listview.size_at(2), 0); // null
+        assert_eq!(result_listview.size_at(3), 1); // [2]
+        assert_eq!(result_listview.size_at(4), 1); // [1]
+        assert_eq!(result_listview.size_at(5), 1); // [2]
+
+        // Verify actual values
+        let elements_array = result_listview.elements().to_primitive();
+        let elements_slice = elements_array.as_slice::<i32>();
+
+        let list0_offset = result_listview.offset_at(0);
+        assert_eq!(elements_slice[list0_offset], 1);
+
+        let list3_offset = result_listview.offset_at(3);
+        assert_eq!(elements_slice[list3_offset], 2);
+
+        let list4_offset = result_listview.offset_at(4);
+        assert_eq!(elements_slice[list4_offset], 1);
+
+        let list5_offset = result_listview.offset_at(5);
+        assert_eq!(elements_slice[list5_offset], 2);
     }
 
     #[test]
     fn test_sparse_list_null_fill_sliced_sparse_values() {
+        // Create ListViewArray with 8 elements forming 8 single-element lists
         let elements = buffer![1i32, 2, 1, 2, 1, 2, 1, 2].into_array();
-        let offsets = buffer![0u32, 1, 2, 3, 4, 5, 6, 7, 8].into_array();
-        let lists = ListArray::try_new(elements, offsets, Validity::AllValid)
-            .unwrap()
-            .into_array();
+        let offsets = buffer![0u32, 1, 2, 3, 4, 5, 6, 7].into_array();
+        let sizes = buffer![1u32, 1, 1, 1, 1, 1, 1, 1].into_array();
+        let lists = ListViewArray::try_new(
+            elements,
+            offsets,
+            sizes,
+            Validity::AllValid,
+            ListViewShape::as_zero_copy_to_list(),
+        )
+        .unwrap()
+        .into_array();
+
+        // Slice to get lists 2..6, which are: [1], [2], [1], [2]
         let lists = lists.slice(2..6);
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
@@ -1168,30 +1093,45 @@ mod test {
             .into_array();
 
         let actual = sparse.to_canonical().into_array();
-        let expected = ListArray::try_new(
-            buffer![1i32, 2, 1, 2].into_array(),
-            buffer![0u32, 1, 1, 1, 2, 3, 4].into_array(),
-            Validity::Array(
-                BoolArray::from_iter([true, false, false, true, true, true]).into_array(),
-            ),
-        )
-        .unwrap()
-        .into_array();
+        let result_listview = actual.to_listview();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
+        // Check the structure
+        assert_eq!(result_listview.len(), 6);
 
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        // Verify sizes: positions 0,3,4,5 have data (from the sliced lists), positions 1,2 are null
+        assert_eq!(result_listview.size_at(0), 1); // [1] - from slice index 0 (original index 2)
+        assert_eq!(result_listview.size_at(1), 0); // null
+        assert_eq!(result_listview.size_at(2), 0); // null
+        assert_eq!(result_listview.size_at(3), 1); // [2] - from slice index 3 (original index 5)
+        assert_eq!(result_listview.size_at(4), 1); // [1] - extra element beyond original slice
+        assert_eq!(result_listview.size_at(5), 1); // [2] - extra element beyond original slice
+
+        // Verify actual values
+        let elements_array = result_listview.elements().to_primitive();
+        let elements_slice = elements_array.as_slice::<i32>();
+
+        let list0_offset = result_listview.offset_at(0);
+        assert_eq!(elements_slice[list0_offset], 1);
+
+        let list3_offset = result_listview.offset_at(3);
+        assert_eq!(elements_slice[list3_offset], 2);
     }
 
     #[test]
     fn test_sparse_list_non_null_fill() {
+        // Create ListViewArray with 4 single-element lists
         let elements = buffer![1i32, 2, 1, 2].into_array();
-        let offsets = buffer![0u32, 1, 2, 3, 4].into_array();
-        let lists = ListArray::try_new(elements, offsets, Validity::AllValid)
-            .unwrap()
-            .into_array();
+        let offsets = buffer![0u32, 1, 2, 3].into_array();
+        let sizes = buffer![1u32, 1, 1, 1].into_array();
+        let lists = ListViewArray::try_new(
+            elements,
+            offsets,
+            sizes,
+            Validity::AllValid,
+            ListViewShape::as_zero_copy_to_list(),
+        )
+        .unwrap()
+        .into_array();
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::from(Some(vec![5i32, 6, 7, 8]));
@@ -1200,19 +1140,54 @@ mod test {
             .into_array();
 
         let actual = sparse.to_canonical().into_array();
-        let expected = ListArray::try_new(
-            buffer![1i32, 5, 6, 7, 8, 5, 6, 7, 8, 2, 1, 2].into_array(),
-            buffer![0u32, 1, 5, 9, 10, 11, 12].into_array(),
-            Validity::AllValid,
-        )
-        .unwrap()
-        .into_array();
+        let result_listview = actual.to_listview();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
+        // Check the structure
+        assert_eq!(result_listview.len(), 6);
 
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        // Verify sizes: positions 0,3,4,5 have sparse data, positions 1,2 have fill values
+        assert_eq!(result_listview.size_at(0), 1); // [1] from sparse
+        assert_eq!(result_listview.size_at(1), 4); // [5,6,7,8] fill value
+        assert_eq!(result_listview.size_at(2), 4); // [5,6,7,8] fill value
+        assert_eq!(result_listview.size_at(3), 1); // [2] from sparse
+        assert_eq!(result_listview.size_at(4), 1); // [1] from sparse
+        assert_eq!(result_listview.size_at(5), 1); // [2] from sparse
+
+        // Verify actual values
+        let elements_array = result_listview.elements().to_primitive();
+        let elements_slice = elements_array.as_slice::<i32>();
+
+        // List 0: [1]
+        let list0_offset = result_listview.offset_at(0) as usize;
+        assert_eq!(elements_slice[list0_offset], 1);
+
+        // List 1: [5,6,7,8]
+        let list1_offset = result_listview.offset_at(1) as usize;
+        let list1_size = result_listview.size_at(1) as usize;
+        assert_eq!(
+            &elements_slice[list1_offset..list1_offset + list1_size],
+            &[5, 6, 7, 8]
+        );
+
+        // List 2: [5,6,7,8]
+        let list2_offset = result_listview.offset_at(2) as usize;
+        let list2_size = result_listview.size_at(2) as usize;
+        assert_eq!(
+            &elements_slice[list2_offset..list2_offset + list2_size],
+            &[5, 6, 7, 8]
+        );
+
+        // List 3: [2]
+        let list3_offset = result_listview.offset_at(3) as usize;
+        assert_eq!(elements_slice[list3_offset], 2);
+
+        // List 4: [1]
+        let list4_offset = result_listview.offset_at(4) as usize;
+        assert_eq!(elements_slice[list4_offset], 1);
+
+        // List 5: [2]
+        let list5_offset = result_listview.offset_at(5) as usize;
+        assert_eq!(elements_slice[list5_offset], 2);
     }
 
     #[test]
@@ -1511,14 +1486,177 @@ mod test {
         .into_array();
 
         assert_eq!(
-            actual.to_list().offsets().dtype(),
+            actual.to_listview().offsets().dtype(),
             &DType::Primitive(PType::U16, NonNullable)
         );
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
+        // Note that the preferred arrow list representation is `List` (not `ListView`).
+        let arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
+        let actual = actual.into_arrow(&arrow_dtype).unwrap();
+        let expected = expected.into_arrow(&arrow_dtype).unwrap();
 
         assert_eq!(actual.data_type(), expected.data_type());
         assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    fn test_sparse_listview_null_fill_with_gaps() {
+        // This test specifically catches the bug where the old implementation
+        // incorrectly tracked `last_valid_offset` as the START of the last list
+        // instead of properly handling ListView's offset/size pairs.
+
+        // Create a ListViewArray with non-trivial offsets and sizes.
+        // Elements: [10, 11, 12, 20, 21, 30, 31, 32, 33]
+        // List 0: elements[0..3] = [10, 11, 12]
+        // List 1: elements[3..5] = [20, 21]
+        // List 2: elements[5..9] = [30, 31, 32, 33]
+        let elements = buffer![10i32, 11, 12, 20, 21, 30, 31, 32, 33].into_array();
+        let offsets = buffer![0u32, 3, 5].into_array();
+        let sizes = buffer![3u32, 2, 4].into_array();
+
+        let list_view = ListViewArray::try_new(
+            elements.clone(),
+            offsets,
+            sizes,
+            Validity::AllValid,
+            ListViewShape::as_zero_copy_to_list(),
+        )
+        .unwrap();
+
+        let list_dtype = list_view.dtype().clone();
+
+        // Create sparse array with indices [1, 4, 7] and length 10
+        // This means we have:
+        // - Index 0: null
+        // - Index 1: List 0 [10, 11, 12]
+        // - Index 2-3: null
+        // - Index 4: List 1 [20, 21]
+        // - Index 5-6: null
+        // - Index 7: List 2 [30, 31, 32, 33]
+        // - Index 8-9: null
+        let indices = buffer![1u8, 4, 7].into_array();
+        let sparse = SparseArray::try_new(
+            indices,
+            list_view.into_array(),
+            10,
+            Scalar::null(list_dtype),
+        )
+        .unwrap();
+
+        // Convert to canonical form - this triggers the function we're testing
+        let canonical = sparse.to_canonical().into_array();
+        let result_listview = canonical.to_listview();
+
+        // Verify the structure
+        assert_eq!(result_listview.len(), 10);
+
+        // Helper to get list values at an index
+        let get_list_values = |idx: usize| -> Vec<i32> {
+            let offset = result_listview.offset_at(idx);
+            let size = result_listview.size_at(idx);
+            if size == 0 {
+                vec![] // null/empty list
+            } else {
+                let elements = result_listview.elements().to_primitive();
+                let slice = elements.as_slice::<i32>();
+                slice[offset..offset + size].to_vec()
+            }
+        };
+
+        let empty: Vec<i32> = vec![];
+
+        // Verify all list values
+        assert_eq!(get_list_values(0), empty); // null
+        assert_eq!(get_list_values(1), vec![10, 11, 12]); // sparse index 0
+        assert_eq!(get_list_values(2), empty); // null
+        assert_eq!(get_list_values(3), empty); // null
+        assert_eq!(get_list_values(4), vec![20, 21]); // sparse index 1
+        assert_eq!(get_list_values(5), empty); // null
+        assert_eq!(get_list_values(6), empty); // null
+        assert_eq!(get_list_values(7), vec![30, 31, 32, 33]); // sparse index 2
+        assert_eq!(get_list_values(8), empty); // null
+        assert_eq!(get_list_values(9), empty); // null
+    }
+
+    #[test]
+    fn test_sparse_listview_sliced_values_null_fill() {
+        // This test uses sliced ListView values to ensure proper handling
+        // of non-zero starting offsets in the source data.
+
+        // Create a larger ListViewArray and then slice it
+        // Original elements: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
+
+        // Create 5 lists with different offsets and sizes
+        // List 0: [0, 1] at offset 0
+        // List 1: [2, 3, 4] at offset 2
+        // List 2: [5] at offset 5
+        // List 3: [6, 7] at offset 6
+        // List 4: [8, 9] at offset 8
+        let offsets = buffer![0u32, 2, 5, 6, 8].into_array();
+        let sizes = buffer![2u32, 3, 1, 2, 2].into_array();
+
+        let full_listview = ListViewArray::try_new(
+            elements,
+            offsets,
+            sizes,
+            Validity::AllValid,
+            ListViewShape::as_zero_copy_to_list(),
+        )
+        .unwrap()
+        .into_array();
+
+        // Slice to get lists 1, 2, 3 (indices 1..4)
+        // This gives us lists with elements:
+        // - Index 0: [2, 3, 4] (original list 1)
+        // - Index 1: [5] (original list 2)
+        // - Index 2: [6, 7] (original list 3)
+        let sliced = full_listview.slice(1..4);
+
+        // Create sparse array with indices [0, 1] and length 5
+        // Expected result:
+        // - Index 0: [2, 3, 4] (from sliced[0])
+        // - Index 1: [5] (from sliced[1])
+        // - Index 2: null
+        // - Index 3: null
+        // - Index 4: null
+        let indices = buffer![0u8, 1].into_array();
+        // Extract only the values we need from the sliced array
+        let values = sliced.slice(0..2);
+        let sparse =
+            SparseArray::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone())).unwrap();
+
+        let canonical = sparse.to_canonical().into_array();
+        let result_listview = canonical.to_listview();
+
+        assert_eq!(result_listview.len(), 5);
+
+        // Helper to get list values at an index
+        let get_list_values = |idx: usize| -> Vec<i32> {
+            let offset = result_listview.offset_at(idx);
+            let size = result_listview.size_at(idx);
+            if size == 0 {
+                vec![] // null/empty list
+            } else {
+                let elements = result_listview.elements().to_primitive();
+                let slice = elements.as_slice::<i32>();
+                slice[offset..offset + size].to_vec()
+            }
+        };
+
+        let empty: Vec<i32> = vec![];
+
+        // Verify all list values
+        // Original slice had lists at indices 1,2,3 which were: [2,3,4], [5], [6,7]
+        // We take indices 0 and 1 from the slice
+        assert_eq!(get_list_values(0), vec![2, 3, 4]); // From slice index 0 (original list 1)
+        assert_eq!(get_list_values(1), vec![5]); // From slice index 1 (original list 2)
+        assert_eq!(get_list_values(2), empty); // null
+        assert_eq!(get_list_values(3), empty); // null
+        assert_eq!(get_list_values(4), empty); // null
+
+        // The bug in the old implementation would have incorrectly used
+        // offsets[sparse_index] for filling nulls, which would be wrong
+        // when dealing with sliced arrays that have non-zero starting offsets.
     }
 }

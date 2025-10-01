@@ -5,7 +5,6 @@ use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_mask::Mask;
 
-use super::ToListView;
 use super::common::{
     create_basic_listview, create_empty_lists_listview, create_large_listview,
     create_nullable_listview, create_overlapping_listview,

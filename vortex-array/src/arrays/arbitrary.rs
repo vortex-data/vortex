@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
 use arrow_buffer::BooleanBuffer;
-use builders::ListBuilder;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, IntegerPType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
@@ -15,9 +14,9 @@ use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
 use crate::arrays::{VarBinArray, VarBinViewArray, smallest_decimal_value_type};
-use crate::builders::{ArrayBuilder, DecimalBuilder, FixedSizeListBuilder};
+use crate::builders::{ArrayBuilder, DecimalBuilder, FixedSizeListBuilder, ListViewBuilder};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, builders};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// A wrapper type to implement `Arbitrary` for `ArrayRef`.
 #[derive(Clone, Debug)]
@@ -210,7 +209,7 @@ fn random_list_with_offset_type<O: IntegerPType>(
 ) -> Result<ArrayRef> {
     let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
 
-    let mut builder = ListBuilder::<O>::with_capacity(elem_dtype.clone(), null, 10);
+    let mut builder = ListViewBuilder::<O, O>::with_capacity(elem_dtype.clone(), null, 20, 10);
 
     for _ in 0..array_length {
         if null == Nullability::Nullable && u.arbitrary::<bool>()? {

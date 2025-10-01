@@ -4,7 +4,6 @@
 use rstest::rstest;
 use vortex_buffer::buffer;
 
-use super::ToListView;
 use super::common::{
     create_basic_listview, create_empty_lists_listview, create_large_listview,
     create_nullable_listview, create_overlapping_listview,
@@ -23,7 +22,6 @@ use crate::{Array, IntoArray, ToCanonical};
 #[case::empty_lists(create_empty_lists_listview())]
 #[case::overlapping(create_overlapping_listview())]
 #[case::large(create_large_listview())]
-#[ignore = "TODO(connor)[ListView]: Enable once ListViewArray canonicalization is implemented."]
 fn test_take_listview_conformance(#[case] listview: ListViewArray) {
     test_take_conformance(listview.as_ref());
 }

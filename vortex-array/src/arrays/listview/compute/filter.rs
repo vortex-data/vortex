@@ -4,21 +4,10 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{ListViewArray, ListViewVTable};
+use crate::arrays::{ListViewArray, ListViewRebuildMode, ListViewVTable};
 use crate::compute::{self, FilterKernel, FilterKernelAdapter};
 use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
-
-/// The threshold for triggering a rebuild of the [`ListViewArray`].
-///
-/// By default, we will not touch the underlying `elements` array of the [`ListViewArray`] since it
-/// can be potentially expensive to reorganize the array based on what views we have into it.
-///
-/// However, we also do not want to carry around a large amount of garbage data. Below this
-/// threshold of the density of the selection mask, we will rebuild the [`ListViewArray`], removing
-/// any garbage data.
-#[allow(unused)]
-const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
 
 /// [`ListViewArray`] filter implementation.
 ///
@@ -57,7 +46,7 @@ impl FilterKernel for ListViewVTable {
         // - Offsets and sizes are derived from existing valid child arrays.
         // - Offsets and sizes have the same length (both filtered by `selection_mask`).
         // - Validity matches the filtered array's nullability.
-        let new_array = unsafe {
+        let mut new_array = unsafe {
             ListViewArray::new_unchecked(
                 elements.clone(),
                 new_offsets,
@@ -67,8 +56,9 @@ impl FilterKernel for ListViewVTable {
             )
         };
 
-        // TODO(connor)[ListView]: IsZeroCopyToList optimization.
-        // TODO(connor)[ListView]: Rebuild if the threshold is too low.
+        // if (selection_mask.true_count() as f64) < array.len() as f64 * 0.1 {
+        new_array = new_array.rebuild(ListViewRebuildMode::MakeZeroCopyToList);
+        // }
 
         Ok(new_array.into_array())
     }

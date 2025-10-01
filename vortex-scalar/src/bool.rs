@@ -14,7 +14,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 ///
 /// This type provides a view into a boolean scalar value, which can be either
 /// true, false, or null.
-#[derive(Debug, Hash, Eq)]
+#[derive(Debug, Clone, Hash, Eq)]
 pub struct BoolScalar<'a> {
     dtype: &'a DType,
     value: Option<bool>,

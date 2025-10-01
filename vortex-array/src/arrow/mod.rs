@@ -32,8 +32,8 @@ pub trait IntoArrowArray {
 }
 
 impl IntoArrowArray for crate::ArrayRef {
-    /// Convert this [`crate::ArrayRef`] into an Arrow [`crate::ArrayRef`] by using the array's preferred
-    /// Arrow [`DataType`].
+    /// Convert this [`crate::ArrayRef`] into an Arrow [`crate::ArrayRef`] by using the array's
+    /// preferred Arrow [`DataType`].
     fn into_arrow_preferred(self) -> VortexResult<ArrowArrayRef> {
         compute::to_arrow_opts(&self, &ToArrowOptions { arrow_type: None })
     }

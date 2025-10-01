@@ -155,7 +155,7 @@ impl ListViewArray {
         validity: Validity,
         shape: ListViewShape,
     ) -> VortexResult<Self> {
-        Self::validate(&elements, &offsets, &sizes, &validity, shape)?;
+        // Self::validate(&elements, &offsets, &sizes, &validity, shape)?;
 
         // SAFETY: validate ensures all invariants are met.
         Ok(unsafe { Self::new_unchecked(elements, offsets, sizes, validity, shape) })

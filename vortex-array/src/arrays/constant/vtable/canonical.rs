@@ -16,10 +16,10 @@ use crate::arrays::binary_view::BinaryView;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
-    BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray, ListArray,
-    NullArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
+    BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray,
+    ListViewShape, NullArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
 };
-use crate::builders::builder_with_capacity;
+use crate::builders::{ArrayBuilder, ListViewBuilder, builder_with_capacity};
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
 use crate::{Canonical, IntoArray};
@@ -100,14 +100,22 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                     .vortex_expect("Must be a utf8 scalar")
                     .value();
                 let const_value = value.as_ref().map(|v| v.as_bytes());
-                Canonical::VarBinView(canonical_byte_view(const_value, array.dtype(), array.len()))
+                Canonical::VarBinView(constant_canonical_byte_view(
+                    const_value,
+                    array.dtype(),
+                    array.len(),
+                ))
             }
             DType::Binary(_) => {
                 let value = BinaryScalar::try_from(scalar)
                     .vortex_expect("must be a binary scalar")
                     .value();
                 let const_value = value.as_ref().map(|v| v.as_slice());
-                Canonical::VarBinView(canonical_byte_view(const_value, array.dtype(), array.len()))
+                Canonical::VarBinView(constant_canonical_byte_view(
+                    const_value,
+                    array.dtype(),
+                    array.len(),
+                ))
             }
             DType::Struct(struct_dtype, _) => {
                 let value = StructScalar::try_from(scalar).vortex_expect("must be struct");
@@ -133,19 +141,11 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                     StructArray::new_unchecked(fields, struct_dtype.clone(), array.len(), validity)
                 })
             }
-            DType::List(..) => {
-                let value = ListScalar::try_from(scalar).vortex_expect("must be list");
-                Canonical::List(canonical_list_array(
-                    value.elements(),
-                    value.element_dtype(),
-                    value.dtype().nullability(),
-                    array.len(),
-                ))
-            }
+            DType::List(..) => Canonical::List(constant_canonical_list_array(scalar, array.len())),
             DType::FixedSizeList(element_dtype, list_size, _) => {
                 let value = ListScalar::try_from(scalar).vortex_expect("must be list");
 
-                Canonical::FixedSizeList(canonical_fixed_size_list_array(
+                Canonical::FixedSizeList(constant_canonical_fixed_size_list_array(
                     value.elements(),
                     element_dtype,
                     *list_size,
@@ -164,7 +164,11 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
     }
 }
 
-fn canonical_byte_view(scalar_bytes: Option<&[u8]>, dtype: &DType, len: usize) -> VarBinViewArray {
+fn constant_canonical_byte_view(
+    scalar_bytes: Option<&[u8]>,
+    dtype: &DType,
+    len: usize,
+) -> VarBinViewArray {
     match scalar_bytes {
         None => {
             let views = buffer![BinaryView::from(0_u128); len];
@@ -204,58 +208,55 @@ fn canonical_byte_view(scalar_bytes: Option<&[u8]>, dtype: &DType, len: usize) -
     }
 }
 
-fn canonical_list_array(
-    values: Option<Vec<Scalar>>,
-    element_dtype: &DType,
-    list_nullability: Nullability,
-    len: usize,
-) -> ListArray {
-    match values {
-        None => unsafe {
-            ListArray::new_unchecked(
-                Canonical::empty(element_dtype).into_array(),
-                ConstantArray::new(
-                    Scalar::new(
-                        DType::Primitive(PType::U64, Nullability::NonNullable),
-                        ScalarValue::from(0),
-                    ),
-                    len + 1,
-                )
-                .into_array(),
-                Validity::AllInvalid,
-            )
-        },
-        Some(values) => {
-            let mut elements_builder = builder_with_capacity(element_dtype, len * values.len());
-            for _ in 0..len {
-                for v in &values {
-                    elements_builder
-                        .append_scalar(v)
-                        .vortex_expect("must be a same dtype");
-                }
-            }
-            let offsets = if values.is_empty() {
-                Buffer::zeroed(len + 1)
-            } else {
-                Buffer::from_trusted_len_iter(
-                    (0..=len * values.len())
-                        .step_by(values.len())
-                        .map(|i| i as u64),
-                )
-            };
+/// Creates a [`ListViewArray`] with constant values.
+fn constant_canonical_list_array(scalar: &Scalar, len: usize) -> ListViewArray {
+    let value = ListScalar::try_from(scalar).vortex_expect("must be list");
 
-            unsafe {
-                ListArray::new_unchecked(
-                    elements_builder.finish(),
-                    offsets.into_array(),
-                    Validity::from(list_nullability),
-                )
-            }
-        }
+    let Some(elements) = value.elements() else {
+        // If all values are null, both the `offsets` and `sizes` should be all zeros.
+        let zeros = ConstantArray::new(
+            Scalar::new(
+                DType::Primitive(PType::U64, Nullability::NonNullable),
+                ScalarValue::from(0),
+            ),
+            len,
+        )
+        .into_array();
+
+        // SAFETY: Everything is length 0 so all invariants are satisfied.
+        return unsafe {
+            ListViewArray::new_unchecked(
+                Canonical::empty(value.element_dtype()).into_array(),
+                zeros.clone(),
+                zeros,
+                Validity::AllInvalid,
+                ListViewShape::as_zero_copy_to_list(),
+            )
+        };
+    };
+
+    let mut listview_builder = ListViewBuilder::<u64, u64>::with_capacity(
+        scalar
+            .dtype()
+            .as_list_element_opt()
+            .vortex_expect("somehow not a list")
+            .clone(),
+        scalar.dtype().nullability(),
+        elements.len() * len,
+        len,
+    );
+
+    // Simply append the same scalar to the `ListViewBuilder` `len` times.
+    for _ in 0..len {
+        listview_builder
+            .append_scalar(scalar)
+            .vortex_expect("somehow unable to append list scalar to listview builder");
     }
+
+    listview_builder.finish_into_listview()
 }
 
-fn canonical_fixed_size_list_array(
+fn constant_canonical_fixed_size_list_array(
     values: Option<Vec<Scalar>>,
     element_dtype: &DType,
     list_size: u32,
@@ -383,14 +384,18 @@ mod tests {
             Nullability::NonNullable,
         );
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
-        let canonical_const = const_array.to_list();
+        let canonical_const = const_array.to_listview();
         assert_eq!(
             canonical_const.elements().to_primitive().as_slice::<u64>(),
             [1u64, 2, 1, 2]
         );
         assert_eq!(
             canonical_const.offsets().to_primitive().as_slice::<u64>(),
-            [0u64, 2, 4]
+            [0u64, 2]
+        );
+        assert_eq!(
+            canonical_const.sizes().to_primitive().as_slice::<u64>(),
+            [2u64, 2]
         );
     }
 
@@ -402,11 +407,15 @@ mod tests {
             Nullability::NonNullable,
         );
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
-        let canonical_const = const_array.to_list();
+        let canonical_const = const_array.to_listview();
         assert!(canonical_const.elements().to_primitive().is_empty());
         assert_eq!(
             canonical_const.offsets().to_primitive().as_slice::<u64>(),
-            [0u64, 0, 0]
+            [0u64, 0]
+        );
+        assert_eq!(
+            canonical_const.sizes().to_primitive().as_slice::<u64>(),
+            [0u64, 0]
         );
     }
 
@@ -417,11 +426,15 @@ mod tests {
             Nullability::Nullable,
         ));
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
-        let canonical_const = const_array.to_list();
+        let canonical_const = const_array.to_listview();
         assert!(canonical_const.elements().to_primitive().is_empty());
         assert_eq!(
             canonical_const.offsets().to_primitive().as_slice::<u64>(),
-            [0u64, 0, 0]
+            [0u64, 0]
+        );
+        assert_eq!(
+            canonical_const.sizes().to_primitive().as_slice::<u64>(),
+            [0u64, 0]
         );
     }
 

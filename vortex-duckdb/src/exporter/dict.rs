@@ -150,6 +150,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 mod tests {
     use vortex::IntoArray;
     use vortex::arrays::{ConstantArray, PrimitiveArray};
+    use vortex::buffer::Buffer;
     use vortex::encodings::dict::DictArray;
     use vortex::error::VortexResult;
 
@@ -226,5 +227,29 @@ mod tests {
 - FLAT INTEGER: 3 = [ NULL, 10, NULL]
 "#
         )
+    }
+
+    #[ignore = "TODO(connor)[4809]: Exporters do not correctly handle empty vectors"]
+    #[test]
+    fn test_export_empty_dict() {
+        let arr = DictArray::new(
+            Buffer::<u32>::empty().into_array(),
+            Buffer::<u32>::empty().into_array(),
+        );
+
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+
+        new_exporter(&arr, &ConversionCache::default())
+            .unwrap()
+            .export(0, 0, &mut chunk.get_vector(0))
+            .unwrap();
+        chunk.set_len(0);
+
+        assert_eq!(
+            format!("{}", String::try_from(&chunk).unwrap()),
+            r#"Chunk - [1 Columns]
+- FLAT INTEGER: 0 = [ ]
+"#
+        );
     }
 }

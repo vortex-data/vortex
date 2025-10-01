@@ -8,14 +8,13 @@ use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_mask::Mask;
 
-use super::ToListView;
 use super::common::{create_basic_listview, create_large_listview, create_nullable_listview};
 use crate::arrays::listview::ListViewShape;
 use crate::arrays::{BoolArray, ConstantArray, ListViewArray, ListViewVTable};
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::{cast, is_constant, mask};
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
+use crate::{Array, IntoArray, ToCanonical};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Slice tests

@@ -35,7 +35,7 @@ use std::hash::Hash;
 
 use itertools::Itertools;
 use vortex_array::arrays::{
-    ExtensionArray, FixedSizeListArray, ListArray, StructArray, TemporalArray,
+    ExtensionArray, FixedSizeListArray, ListViewArray, StructArray, TemporalArray,
 };
 use vortex_array::vtable::{VTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
@@ -400,19 +400,31 @@ impl BtrBlocksCompressor {
                 .into_array())
             }
             Canonical::List(list_array) => {
-                // Compress the inner
+                // Compress the inner elements.
                 let compressed_elems = self.compress(list_array.elements())?;
+
+                // Compress the offsets.
                 let compressed_offsets = IntCompressor::compress_no_dict(
-                    &list_array.offsets().to_primitive().downcast()?,
+                    &list_array.offsets().to_primitive(),
                     false,
                     MAX_CASCADE,
                     &[],
                 )?;
 
-                Ok(ListArray::try_new(
+                // Compress the sizes.
+                let compressed_sizes = IntCompressor::compress_no_dict(
+                    &list_array.sizes().to_primitive(),
+                    false,
+                    MAX_CASCADE,
+                    &[],
+                )?;
+
+                Ok(ListViewArray::try_new(
                     compressed_elems,
                     compressed_offsets,
+                    compressed_sizes,
                     list_array.validity().clone(),
+                    list_array.shape(),
                 )?
                 .into_array())
             }
