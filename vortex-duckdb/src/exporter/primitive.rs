@@ -60,7 +60,6 @@ mod tests {
             .unwrap();
         chunk.set_len(3);
 
-        // some-invalid codes cannot be exported as a dictionary.
         assert_eq!(
             format!("{}", String::try_from(&chunk).unwrap()),
             r#"Chunk - [1 Columns]
@@ -91,7 +90,6 @@ mod tests {
                     .unwrap();
                 chunk[i].set_len(DUCKDB_STANDARD_VECTOR_SIZE);
 
-                // some-invalid codes cannot be exported as a dictionary.
                 assert_eq!(
                     format!("{}", String::try_from(&chunk[i]).unwrap()),
                     format!(
