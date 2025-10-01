@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
@@ -24,11 +25,12 @@ pub struct VarBinViewBuilder {
     completed: CompletedBuffers,
     in_progress: ByteBufferMut,
     growth_strategy: BufferGrowthStrategy,
+    compaction_threshold: f64,
 }
 
 impl VarBinViewBuilder {
     pub fn with_capacity(dtype: DType, capacity: usize) -> Self {
-        Self::new(dtype, capacity, Default::default(), Default::default())
+        Self::new(dtype, capacity, Default::default(), Default::default(), 0.0)
     }
 
     pub fn with_buffer_deduplication(dtype: DType, capacity: usize) -> Self {
@@ -37,6 +39,17 @@ impl VarBinViewBuilder {
             capacity,
             CompletedBuffers::Deduplicated(Default::default()),
             Default::default(),
+            0.0,
+        )
+    }
+
+    pub fn with_compaction(dtype: DType, capacity: usize, compaction_threshold: f64) -> Self {
+        Self::new(
+            dtype,
+            capacity,
+            Default::default(),
+            Default::default(),
+            compaction_threshold,
         )
     }
 
@@ -45,6 +58,7 @@ impl VarBinViewBuilder {
         capacity: usize,
         completed: CompletedBuffers,
         growth_strategy: BufferGrowthStrategy,
+        compaction_threshold: f64,
     ) -> Self {
         assert!(
             matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
@@ -57,6 +71,7 @@ impl VarBinViewBuilder {
             in_progress: ByteBufferMut::empty(),
             dtype,
             growth_strategy,
+            compaction_threshold,
         }
     }
 
@@ -68,22 +83,8 @@ impl VarBinViewBuilder {
             return;
         }
 
-        let required_cap = self.in_progress.len() + value.len();
-        if self.in_progress.capacity() < required_cap {
-            self.flush_in_progress();
-            let next_buffer_size = self.growth_strategy.next_size() as usize;
-            let to_reserve = next_buffer_size.max(value.len());
-            self.in_progress.reserve(to_reserve);
-        };
-
-        let offset = u32::try_from(self.in_progress.len()).vortex_expect("too many buffers");
-        self.in_progress.extend_from_slice(value);
-        let view = BinaryView::make_view(
-            value,
-            // buffer offset
-            self.completed.len(),
-            offset,
-        );
+        let (buffer_idx, offset) = self.append_value_to_buffer(value);
+        let view = BinaryView::make_view(value, buffer_idx, offset);
         self.views_builder.push(view);
     }
 
@@ -110,6 +111,24 @@ impl VarBinViewBuilder {
         );
     }
 
+    /// append a non inlined value to self.in_progress.
+    fn append_value_to_buffer(&mut self, value: &[u8]) -> (u32, u32) {
+        assert!(value.len() > 12, "must inline small strings");
+        let required_cap = self.in_progress.len() + value.len();
+        if self.in_progress.capacity() < required_cap {
+            self.flush_in_progress();
+            let next_buffer_size = self.growth_strategy.next_size() as usize;
+            let to_reserve = next_buffer_size.max(value.len());
+            self.in_progress.reserve(to_reserve);
+        }
+
+        let buffer_idx = self.completed.len();
+        let offset = u32::try_from(self.in_progress.len()).vortex_expect("too many buffers");
+        self.in_progress.extend_from_slice(value);
+
+        (buffer_idx, offset)
+    }
+
     pub fn completed_block_count(&self) -> u32 {
         self.completed.len()
     }
@@ -119,6 +138,11 @@ impl VarBinViewBuilder {
     // buffers adjusted.
     // The views must all point to sections of the buffers and the validity length must match
     // the view length.
+    //
+    /// ## Warning
+    /// This method does not check utilisation of the given buffers, callers must provide
+    /// buffers that are fully utilised by the given adjusted views.
+    ///
     /// ## Panics
     /// Panics if this builder deduplicates buffers and if any of the given buffers already
     /// exists on this builder
@@ -131,7 +155,7 @@ impl VarBinViewBuilder {
         self.flush_in_progress();
 
         let expected_completed_len = self.completed.len() as usize + buffer.len();
-        self.completed.extend_from_slice(buffer);
+        self.completed.extend_from_slice_unchecked(buffer);
         assert_eq!(
             self.completed.len() as usize,
             expected_completed_len,
@@ -166,9 +190,7 @@ impl VarBinViewBuilder {
             )
         }
     }
-}
 
-impl VarBinViewBuilder {
     // Pushes a validity mask into the builder not affecting the views or buffers
     fn push_only_validity_mask(&mut self, validity_mask: Mask) {
         self.nulls.append_validity_mask(validity_mask);
@@ -238,27 +260,39 @@ impl ArrayBuilder for VarBinViewBuilder {
         let array = array.to_varbinview();
         self.flush_in_progress();
 
-        let new_indices = self.completed.extend_from_slice(array.buffers());
+        self.push_only_validity_mask(array.validity_mask());
 
-        match new_indices {
-            NewIndices::ConstantOffset(offset) => {
-                self.views_builder
-                    .extend_trusted(array.views().iter().map(|view| view.offset_view(offset)));
-            }
-            NewIndices::LookupArray(lookup) => {
-                self.views_builder
-                    .extend_trusted(array.views().iter().map(|view| {
-                        if view.is_inlined() {
-                            *view
-                        } else {
-                            let new_buffer_idx = lookup[view.as_view().buffer_index() as usize];
-                            view.with_buffer_idx(new_buffer_idx)
-                        }
-                    }));
+        let view_adjustment =
+            self.completed
+                .extend_from_compaction(BuffersWithOffsets::from_array(
+                    &array,
+                    self.compaction_threshold,
+                ));
+
+        match view_adjustment {
+            ViewAdjustment::Precomputed(adjustment) => self.views_builder.extend_trusted(
+                array
+                    .views()
+                    .iter()
+                    .map(|view| adjustment.adjust_view(view)),
+            ),
+            ViewAdjustment::Rewriting(adjustment) => {
+                for (idx, &view) in array.views().iter().enumerate() {
+                    let new_view = if !array.is_valid(idx) {
+                        BinaryView::empty_view()
+                    } else if view.is_inlined() {
+                        view
+                    } else if let Some(adjusted) = adjustment.adjust_view(&view) {
+                        adjusted
+                    } else {
+                        let bytes = array.bytes_at(idx);
+                        let (new_buf_idx, new_offset) = self.append_value_to_buffer(&bytes);
+                        BinaryView::make_view(bytes.as_slice(), new_buf_idx, new_offset)
+                    };
+                    self.views_builder.push(new_view)
+                }
             }
         }
-
-        self.push_only_validity_mask(array.validity_mask());
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -315,15 +349,53 @@ impl CompletedBuffers {
         }
     }
 
-    fn extend_from_slice(&mut self, new_buffers: &[ByteBuffer]) -> NewIndices {
-        match self {
-            Self::Default(buffers) => {
-                let offset = buffers.len() as u32;
-                buffers.extend_from_slice(new_buffers);
-                NewIndices::ConstantOffset(offset)
+    /// Does not compact buffers, bypasses utilisation checks.
+    fn extend_from_slice_unchecked(&mut self, buffers: &[ByteBuffer]) {
+        for buffer in buffers {
+            self.push(buffer.clone());
+        }
+    }
+
+    fn extend_from_compaction(&mut self, buffers: BuffersWithOffsets) -> ViewAdjustment {
+        match (self, buffers) {
+            (
+                Self::Default(completed_buffers),
+                BuffersWithOffsets::AllKept { buffers, offsets },
+            ) => {
+                let buffer_offset = completed_buffers.len() as u32;
+                completed_buffers.extend_from_slice(&buffers);
+                ViewAdjustment::shift(buffer_offset, offsets)
             }
-            Self::Deduplicated(buffers) => {
-                NewIndices::LookupArray(buffers.extend_from_slice(new_buffers))
+            (
+                Self::Default(completed_buffers),
+                BuffersWithOffsets::SomeCompacted { buffers, offsets },
+            ) => {
+                let buffer_offset = completed_buffers.len() as u32;
+                let lookup = buffers
+                    .iter()
+                    .enumerate()
+                    .map(|(old_idx, maybe_buffer)| {
+                        maybe_buffer
+                            .as_ref()
+                            .map(|_| old_idx as u32 + buffer_offset)
+                    })
+                    .collect();
+                ViewAdjustment::rewriting(lookup, offsets)
+            }
+
+            (
+                Self::Deduplicated(completed_buffers),
+                BuffersWithOffsets::AllKept { buffers, offsets },
+            ) => {
+                let buffer_lookup = completed_buffers.extend_from_slice(&buffers);
+                ViewAdjustment::lookup(buffer_lookup, offsets)
+            }
+            (
+                Self::Deduplicated(completed_buffers),
+                BuffersWithOffsets::SomeCompacted { buffers, offsets },
+            ) => {
+                let buffer_lookup = completed_buffers.extend_from_option_slice(&buffers);
+                ViewAdjustment::rewriting(buffer_lookup, offsets)
             }
         }
     }
@@ -334,13 +406,6 @@ impl CompletedBuffers {
             Self::Deduplicated(buffers) => buffers.finish(),
         }
     }
-}
-
-enum NewIndices {
-    // add a constant offset to get the new idx
-    ConstantOffset(u32),
-    // lookup from the given array to get the new idx
-    LookupArray(Vec<u32>),
 }
 
 #[derive(Default)]
@@ -371,6 +436,13 @@ impl DeduplicatedBuffers {
                 idx
             }
         }
+    }
+
+    fn extend_from_option_slice(&mut self, buffers: &[Option<ByteBuffer>]) -> Vec<Option<u32>> {
+        buffers
+            .iter()
+            .map(|buffer| buffer.as_ref().map(|buf| self.push(buf.clone())))
+            .collect()
     }
 
     fn extend_from_slice(&mut self, buffers: &[ByteBuffer]) -> Vec<u32> {
@@ -446,6 +518,186 @@ impl BufferGrowthStrategy {
                 result
             }
         }
+    }
+}
+
+enum BuffersWithOffsets {
+    AllKept {
+        buffers: Vec<ByteBuffer>,
+        offsets: Vec<u32>,
+    },
+    SomeCompacted {
+        buffers: Vec<Option<ByteBuffer>>,
+        offsets: Vec<u32>,
+    },
+}
+
+impl BuffersWithOffsets {
+    pub fn from_array(array: &VarBinViewArray, compaction_threshold: f64) -> Self {
+        let array = array.clone();
+        let mut has_rewrite = false;
+        let strategies: Vec<_> = array
+            .buffer_utilisations()
+            .iter()
+            .map(|buffer| match buffer.overall_utilisation() {
+                // always rewrite empty or non-used buffers,
+                0.0 => {
+                    has_rewrite = true;
+                    CompactionStrategy::Rewrite
+                }
+
+                // at this point we know the buffer has some usage, keep if it is utilised above the threshold
+                utilised if utilised >= compaction_threshold => CompactionStrategy::KeepFull,
+
+                // if overall utilisation is low, check if it is high enough when sliced
+                _ if buffer.range_utilisation() >= compaction_threshold => {
+                    let Range { start, end } = buffer.range();
+                    CompactionStrategy::Slice { start, end }
+                }
+
+                // can't salvage this buffer, rewrite
+                _ => {
+                    has_rewrite = true;
+                    CompactionStrategy::Rewrite
+                }
+            })
+            .collect();
+
+        let buffers_with_offsets_iter = strategies.iter().zip(array.buffers().iter()).map(
+            |(strategy, buffer)| match strategy {
+                CompactionStrategy::KeepFull => (Some(buffer.clone()), 0u32),
+                CompactionStrategy::Slice { start, end } => {
+                    (Some(buffer.slice(*start as usize..*end as usize)), *start)
+                }
+                CompactionStrategy::Rewrite => (None, 0),
+            },
+        );
+
+        if has_rewrite {
+            let (buffers, offsets) = buffers_with_offsets_iter.unzip();
+            BuffersWithOffsets::SomeCompacted { buffers, offsets }
+        } else {
+            let (buffers, offsets) = buffers_with_offsets_iter
+                .map(|(buffer, offset)| {
+                    (buffer.vortex_expect("already checked for rewrite"), offset)
+                })
+                .unzip();
+            BuffersWithOffsets::AllKept { buffers, offsets }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CompactionStrategy {
+    KeepFull,
+    /// Slice the buffer to [start, end) range
+    Slice {
+        start: u32,
+        end: u32,
+    },
+    /// Rewrite data into new compacted buffer
+    Rewrite,
+}
+
+enum ViewAdjustment {
+    Precomputed(PrecomputedViewAdjustment),
+    Rewriting(RewritingViewAdjustment),
+}
+
+impl ViewAdjustment {
+    fn shift(buffer_offset: u32, offsets: Vec<u32>) -> Self {
+        if offsets.iter().sum::<u32>() == 0 {
+            Self::Precomputed(PrecomputedViewAdjustment::ShiftBuffer { buffer_offset })
+        } else {
+            Self::Precomputed(PrecomputedViewAdjustment::ShiftBoth {
+                buffer_offset,
+                offsets,
+            })
+        }
+    }
+
+    fn lookup(buffer_lookup: Vec<u32>, offsets: Vec<u32>) -> Self {
+        Self::Precomputed(PrecomputedViewAdjustment::Lookup {
+            buffer_lookup,
+            offsets,
+        })
+    }
+
+    fn rewriting(buffer_lookup: Vec<Option<u32>>, offsets: Vec<u32>) -> Self {
+        Self::Rewriting(RewritingViewAdjustment {
+            buffer_lookup,
+            offsets,
+        })
+    }
+}
+
+enum PrecomputedViewAdjustment {
+    ShiftBuffer {
+        buffer_offset: u32,
+    },
+    ShiftBoth {
+        buffer_offset: u32,
+        offsets: Vec<u32>,
+    },
+    Lookup {
+        buffer_lookup: Vec<u32>,
+        offsets: Vec<u32>,
+    },
+}
+
+impl PrecomputedViewAdjustment {
+    fn adjust_view(&self, view: &BinaryView) -> BinaryView {
+        if view.is_inlined() {
+            return *view;
+        }
+        let view_ref = view.as_view();
+
+        let view_ref = match self {
+            Self::ShiftBuffer { buffer_offset } => view_ref
+                .with_buffer_and_offset(view_ref.buffer_index() + buffer_offset, view_ref.offset()),
+            Self::ShiftBoth {
+                buffer_offset,
+                offsets,
+            } => {
+                let offset_shift = offsets[view_ref.buffer_index() as usize];
+                view_ref.with_buffer_and_offset(
+                    view_ref.buffer_index() + buffer_offset,
+                    view_ref.offset() + offset_shift,
+                )
+            }
+            Self::Lookup {
+                buffer_lookup,
+                offsets,
+            } => {
+                let buffer = buffer_lookup[view_ref.buffer_index() as usize];
+                let offset_shift = offsets[view_ref.buffer_index() as usize];
+                view_ref.with_buffer_and_offset(buffer, view_ref.offset() + offset_shift)
+            }
+        };
+        view_ref.into()
+    }
+}
+
+struct RewritingViewAdjustment {
+    buffer_lookup: Vec<Option<u32>>,
+    offsets: Vec<u32>,
+}
+
+impl RewritingViewAdjustment {
+    /// Can return None if this view can't be adjusted, because there is no precomputed lookup
+    /// for the current buffer.
+    fn adjust_view(&self, view: &BinaryView) -> Option<BinaryView> {
+        if view.is_inlined() {
+            return Some(*view);
+        }
+
+        let view_ref = view.as_view();
+        self.buffer_lookup[view_ref.buffer_index() as usize].map(|buffer| {
+            let offset_shift = self.offsets[view_ref.buffer_index() as usize];
+            view_ref
+                .with_buffer_and_offset(buffer, view_ref.offset() + offset_shift)
+                .into()
+        })
     }
 }
 
@@ -668,6 +920,7 @@ mod tests {
             10,
             Default::default(),
             BufferGrowthStrategy::exponential(1024, 4096),
+            0.0,
         );
 
         // Create a value larger than max_size
