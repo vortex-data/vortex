@@ -94,8 +94,7 @@ impl MaskedArray {
 
         // MaskedArray's nullability is determined solely by its validity, not the child's dtype
         // The child can have nullable dtype but must not have any actual null values
-        let nullability = validity.nullability();
-        let dtype = child.dtype().with_nullability(nullability);
+        let dtype = child.dtype().as_nullable();
 
         Ok(Self {
             child,
@@ -106,11 +105,6 @@ impl MaskedArray {
     }
 
     fn masked_child(&self) -> VortexResult<ArrayRef> {
-        // If validity is NonNullable, just return the child as-is
-        if matches!(self.validity, Validity::NonNullable) {
-            return Ok(self.child.clone());
-        }
-
         // Invert the validity mask - we want to set values to null where validity is false
         let inverted_mask = !self.validity.to_mask(self.len());
         mask(&self.child, &inverted_mask)
@@ -132,17 +126,8 @@ impl OperationsVTable<MaskedVTable> for MaskedVTable {
     }
 
     fn scalar_at(array: &MaskedArray, index: usize) -> Scalar {
-        if array.validity.is_null(index) {
-            return Scalar::null(array.dtype().clone());
-        }
-
-        let child_scalar = array.child.scalar_at(index);
-
-        if matches!(array.validity.nullability(), Nullability::Nullable) {
-            child_scalar.into_nullable()
-        } else {
-            child_scalar
-        }
+        // invalid indices are handled by the entrypoint function
+        array.child.scalar_at(index).into_nullable()
     }
 }
 
