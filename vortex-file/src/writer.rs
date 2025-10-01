@@ -50,7 +50,8 @@ impl Default for VortexWriteOptions {
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
-            write_bloom_filters: false,
+            // TODO(aduffy): make this false
+            write_bloom_filters: true,
             compressor: Default::default(),
             handle: Handle::find(),
             strategy: None,
@@ -61,10 +62,14 @@ impl Default for VortexWriteOptions {
 impl VortexWriteOptions {
     /// Convert into a strategy here as well.
     fn build_strategy(&self) -> Arc<dyn LayoutStrategy> {
-        WriteStrategyBuilder::default()
-            .with_experimental_bloom_filters(self.write_bloom_filters)
-            .with_compressor(self.compressor.clone())
-            .build()
+        if let Some(ref strategy) = self.strategy {
+            strategy.clone()
+        } else {
+            WriteStrategyBuilder::default()
+                .with_experimental_bloom_filters(self.write_bloom_filters)
+                .with_compressor(self.compressor.clone())
+                .build()
+        }
     }
 }
 
