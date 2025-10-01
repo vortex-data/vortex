@@ -3,7 +3,7 @@
 
 use std::ops::Range;
 
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
