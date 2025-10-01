@@ -235,13 +235,18 @@ pub(crate) fn zip_impl_with_builder(
 
 #[cfg(test)]
 mod tests {
+    use arrow_array::cast::AsArray;
+    use arrow_select::zip::zip as arrow_zip;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
+    use vortex_dtype::{DType, Nullability};
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{ConstantArray, PrimitiveArray};
+    use crate::arrays::{ConstantArray, PrimitiveArray, VarBinViewVTable};
+    use crate::arrow::IntoArrowArray;
+    use crate::builders::{ArrayBuilder, BufferGrowthStrategy};
     use crate::compute::zip;
+    use crate::compute::zip::VarBinViewBuilder;
     use crate::{Array, IntoArray, ToCanonical};
 
     #[test]
@@ -317,5 +322,57 @@ mod tests {
           buffer (align=1): 28 B (1.69%)
           buffer (align=16): 1.60 kB (96.56%)
         ");
+    }
+
+    #[test]
+    fn test_varbinview_zip() {
+        let if_true = {
+            let mut builder = VarBinViewBuilder::new(
+                DType::Utf8(Nullability::NonNullable),
+                10,
+                Default::default(),
+                BufferGrowthStrategy::fixed(64 * 1024),
+            );
+            for _ in 0..100 {
+                builder.append_value("Hello");
+                builder.append_value("Hello this is a long string that won't be inlined.");
+            }
+            builder.finish()
+        };
+
+        let if_false = {
+            let mut builder = VarBinViewBuilder::new(
+                DType::Utf8(Nullability::NonNullable),
+                10,
+                Default::default(),
+                BufferGrowthStrategy::fixed(64 * 1024),
+            );
+            for _ in 0..100 {
+                builder.append_value("Hello2");
+                builder.append_value("Hello2 this is a long string that won't be inlined.");
+            }
+            builder.finish()
+        };
+
+        // [1,2,4,5,7,8,..]
+        let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0).collect());
+
+        let zipped = zip(&if_true, &if_false, &mask).unwrap();
+        let zipped = zipped.as_opt::<VarBinViewVTable>().unwrap();
+        assert_eq!(zipped.nbuffers(), 2);
+
+        // assert the result is the same as arrow
+        let expected = arrow_zip(
+            mask.into_array()
+                .into_arrow_preferred()
+                .unwrap()
+                .as_boolean(),
+            &if_true.into_arrow_preferred().unwrap(),
+            &if_false.into_arrow_preferred().unwrap(),
+        )
+        .unwrap();
+
+        let actual = zipped.clone().into_array().into_arrow_preferred().unwrap();
+        assert_eq!(actual.as_ref(), expected.as_ref());
     }
 }
