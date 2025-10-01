@@ -168,7 +168,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let list_type = LogicalType::list_type(LogicalType::int32()).vortex_unwrap();
+        let list_type = LogicalType::list_type(LogicalType::varchar()).vortex_unwrap();
         let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(&list, &ConversionCache::default())
