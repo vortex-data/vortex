@@ -41,6 +41,16 @@ fn compact_large(bencher: Bencher, args: (usize, usize)) {
     compact_impl(bencher, args);
 }
 
+#[divan::bench(args = SMALL_ARGS)]
+fn compact_sliced(bencher: Bencher, args: (usize, usize)) {
+    compact_sliced_impl(bencher, args);
+}
+
+#[divan::bench(args = LARGE_ARGS, sample_count = 10)]
+fn compact_sliced_large(bencher: Bencher, args: (usize, usize)) {
+    compact_sliced_impl(bencher, args);
+}
+
 fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)) {
     let base_size = (output_size * 100) / utilization_pct;
     let base_array = build_varbinview_fixture(base_size);
@@ -50,6 +60,18 @@ fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)
         .with_inputs(|| {
             let taken = take(base_array.as_ref(), &indices).unwrap();
             taken.to_varbinview()
+        })
+        .bench_values(|array| array.compact_buffers().unwrap())
+}
+
+fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)) {
+    let base_size = (output_size * 100) / utilization_pct;
+    let base_array = build_varbinview_fixture(base_size);
+
+    bencher
+        .with_inputs(|| {
+            let sliced = base_array.as_ref().slice(0..output_size);
+            sliced.to_varbinview()
         })
         .bench_values(|array| array.compact_buffers().unwrap())
 }
