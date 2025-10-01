@@ -314,6 +314,7 @@ fn main() {
         .file("cpp/scalar_function.cpp")
         .file("cpp/table_filter.cpp")
         .file("cpp/table_function.cpp")
+        .file("cpp/value.cpp")
         .file("cpp/vector.cpp")
         .compile("vortex-duckdb-extras");
 
