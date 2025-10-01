@@ -14,20 +14,18 @@ use crate::duckdb::{LogicalType, Vector};
 use crate::exporter::{ColumnExporter, validity};
 
 struct PrimitiveExporter<T: NativePType> {
-    array: PrimitiveArray,
     vector: Arc<Mutex<Vector>>,
     buffer: Buffer<u8>,
     array_type: PhantomData<T>,
 }
 
-pub(crate) fn new_exporter(array: &PrimitiveArray) -> VortexResult<Box<dyn ColumnExporter>> {
+pub fn new_exporter(array: &PrimitiveArray) -> VortexResult<Box<dyn ColumnExporter>> {
     let vec = Vector::with_capacity(LogicalType::try_from(array.ptype())?, 0);
     let buffer: ByteBuffer = array.byte_buffer().clone();
     vec.add_data_buffer(buffer.clone());
 
     let prim = match_each_native_ptype!(array.ptype(), |T| {
         Box::new(PrimitiveExporter {
-            array: array.clone(),
             vector: Arc::new(Mutex::new(vec)),
             buffer,
             array_type: PhantomData::<T>,
@@ -45,9 +43,9 @@ impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
         assert!(self.buffer.len() * size_of::<T>() >= offset + len);
 
         let pos = unsafe { (self.buffer.as_ptr() as *mut T).add(offset) };
-        {
+        unsafe {
             let vec = self.vector.lock();
-            vector.reference(&vec);
+            vector.copy_buffer(&vec);
         }
         vector.add_data_ptr(pos);
 
@@ -60,7 +58,7 @@ struct PrimitiveExporterCopy<T: NativePType> {
     array_type: PhantomData<T>,
 }
 
-pub(crate) fn new_copy_exporter(array: &PrimitiveArray) -> VortexResult<Box<dyn ColumnExporter>> {
+pub fn new_copy_exporter(array: &PrimitiveArray) -> VortexResult<Box<dyn ColumnExporter>> {
     let prim = match_each_native_ptype!(array.ptype(), |T| {
         Box::new(PrimitiveExporterCopy {
             array: array.clone(),

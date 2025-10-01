@@ -6680,6 +6680,7 @@ dependencies = [
  "bitvec",
  "cbindgen",
  "cc",
+ "codspeed-divan-compat",
  "futures",
  "glob",
  "itertools 0.14.0",

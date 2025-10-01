@@ -89,6 +89,13 @@ extern "C" void duckdb_vx_vector_add_data_ptr(duckdb_vector ffi_vector, void *pt
     dvector->SetDataPtr((data_ptr_t)ptr);
 }
 
+extern "C" void duckdb_vx_vector_copy_buffer(duckdb_vector ffi_to_vector, duckdb_vector ffi_from_vector) {
+    auto to_vector = reinterpret_cast<Vector *>(ffi_to_vector);
+    auto from_vector = reinterpret_cast<Vector *>(ffi_from_vector);
+    to_vector->CopyBuffer(*from_vector);
+}
+
+
 
 void duckdb_vector_flatten(duckdb_vector vector, unsigned long len) {
     auto dvector = reinterpret_cast<Vector *>(vector);

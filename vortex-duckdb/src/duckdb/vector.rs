@@ -58,6 +58,10 @@ impl Vector {
         unsafe { cpp::duckdb_vector_reference_vector(self.as_ptr(), other.as_ptr()) }
     }
 
+     pub unsafe fn copy_buffer(&mut self, other: &Vector) {
+        unsafe { cpp::duckdb_vx_vector_copy_buffer(self.as_ptr(), other.as_ptr()) }
+    }
+
     /// Creates a dictionary vector for a given values vector and selection vector.
     ///
     /// A dictionary holds a strong reference to all memory it uses.
