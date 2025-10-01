@@ -88,7 +88,7 @@ mod tests {
 
     use super::*;
     use crate::cpp;
-    use crate::duckdb::{DataChunk, LogicalType};
+    use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, LogicalType};
 
     #[test]
     fn test_primitive_exporter() {
@@ -113,26 +113,69 @@ mod tests {
 
     #[test]
     fn test_long_primitive_exporter() {
-        const LEN: usize = 4_096;
+        const VECTOR_COUNT: usize = 2;
+        const LEN: usize = DUCKDB_STANDARD_VECTOR_SIZE * VECTOR_COUNT;
         let arr = PrimitiveArray::from_iter(0..LEN as i32);
 
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        {
+            let mut chunk = (0..VECTOR_COUNT)
+                .map(|_| DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]))
+                .collect_vec();
 
-        new_exporter(&arr)
-            .unwrap()
-            .export(0, LEN, &mut chunk.get_vector(0))
-            .unwrap();
-        chunk.set_len(LEN);
+            for i in 0..VECTOR_COUNT {
+                new_exporter(&arr)
+                    .unwrap()
+                    .export(
+                        i * DUCKDB_STANDARD_VECTOR_SIZE,
+                        DUCKDB_STANDARD_VECTOR_SIZE,
+                        &mut chunk[i].get_vector(0),
+                    )
+                    .unwrap();
+                chunk[i].set_len(DUCKDB_STANDARD_VECTOR_SIZE);
 
-        // some-invalid codes cannot be exported as a dictionary.
-        assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
-            format!(
-                r#"Chunk - [1 Columns]
-- FLAT INTEGER: {LEN} = [ {}]
+                // some-invalid codes cannot be exported as a dictionary.
+                assert_eq!(
+                    format!("{}", String::try_from(&chunk[i]).unwrap()),
+                    format!(
+                        r#"Chunk - [1 Columns]
+- FLAT INTEGER: {DUCKDB_STANDARD_VECTOR_SIZE} = [ {}]
 "#,
-                &(0..LEN).map(|i| i.to_string()).join(", ")
-            )
-        );
+                        &(i * DUCKDB_STANDARD_VECTOR_SIZE..(i + 1) * DUCKDB_STANDARD_VECTOR_SIZE)
+                            .map(|i| i.to_string())
+                            .join(", ")
+                    )
+                );
+            }
+        }
+
+        {
+            let mut chunk = (0..VECTOR_COUNT)
+                .map(|_| DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]))
+                .collect_vec();
+            for i in 0..VECTOR_COUNT {
+                new_copy_exporter(&arr)
+                    .unwrap()
+                    .export(
+                        i * DUCKDB_STANDARD_VECTOR_SIZE,
+                        DUCKDB_STANDARD_VECTOR_SIZE,
+                        &mut chunk[i].get_vector(0),
+                    )
+                    .unwrap();
+                chunk[i].set_len(DUCKDB_STANDARD_VECTOR_SIZE);
+
+                // some-invalid codes cannot be exported as a dictionary.
+                assert_eq!(
+                    format!("{}", String::try_from(&chunk[i]).unwrap()),
+                    format!(
+                        r#"Chunk - [1 Columns]
+- FLAT INTEGER: {DUCKDB_STANDARD_VECTOR_SIZE} = [ {}]
+"#,
+                        &(i * DUCKDB_STANDARD_VECTOR_SIZE..(i + 1) * DUCKDB_STANDARD_VECTOR_SIZE)
+                            .map(|i| i.to_string())
+                            .join(", ")
+                    )
+                );
+            }
+        }
     }
 }

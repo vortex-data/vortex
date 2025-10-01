@@ -18,7 +18,8 @@ use crate::{cpp, wrapper};
 
 pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
 
-wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
+// wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
+wrapper!(Vector, cpp::duckdb_vector, |_| {});
 
 /// Safety: It is safe to mark `Vector` as `Send` as the memory it points is `Send`.
 ///
@@ -58,7 +59,7 @@ impl Vector {
         unsafe { cpp::duckdb_vector_reference_vector(self.as_ptr(), other.as_ptr()) }
     }
 
-     pub unsafe fn copy_buffer(&mut self, other: &Vector) {
+    pub unsafe fn copy_buffer(&mut self, other: &Vector) {
         unsafe { cpp::duckdb_vx_vector_copy_buffer(self.as_ptr(), other.as_ptr()) }
     }
 

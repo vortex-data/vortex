@@ -96,7 +96,6 @@ extern "C" void duckdb_vx_vector_copy_buffer(duckdb_vector ffi_to_vector, duckdb
 }
 
 
-
 void duckdb_vector_flatten(duckdb_vector vector, unsigned long len) {
     auto dvector = reinterpret_cast<Vector *>(vector);
     dvector->Flatten(len);
