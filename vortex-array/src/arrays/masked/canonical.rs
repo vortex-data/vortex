@@ -30,13 +30,6 @@ mod tests {
     #[case(
         MaskedArray::try_new(
             PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
-            Validity::NonNullable
-        ).unwrap(),
-        Nullability::NonNullable
-    )]
-    #[case(
-        MaskedArray::try_new(
-            PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
             Validity::AllValid
         ).unwrap(),
         Nullability::Nullable
@@ -93,22 +86,6 @@ mod tests {
         assert_eq!(
             canonical.as_ref().dtype().nullability(),
             Nullability::Nullable
-        );
-    }
-
-    #[test]
-    fn test_canonical_non_nullable() {
-        let array = MaskedArray::try_new(
-            PrimitiveArray::from_iter([100i32, 200]).into_array(),
-            Validity::NonNullable,
-        )
-        .unwrap();
-
-        let canonical = array.to_canonical();
-        assert_eq!(canonical.as_ref().valid_count(), 2);
-        assert_eq!(
-            canonical.as_ref().dtype().nullability(),
-            Nullability::NonNullable
         );
     }
 }

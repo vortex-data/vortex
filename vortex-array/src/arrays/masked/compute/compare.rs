@@ -48,7 +48,7 @@ mod tests {
     fn test_compare_value() {
         let masked = MaskedArray::try_new(
             PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
-            Validity::NonNullable,
+            Validity::AllValid,
         )
         .unwrap();
 
@@ -69,7 +69,7 @@ mod tests {
     fn test_compare_non_eq() {
         let masked = MaskedArray::try_new(
             PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
-            Validity::NonNullable,
+            Validity::AllValid,
         )
         .unwrap();
 

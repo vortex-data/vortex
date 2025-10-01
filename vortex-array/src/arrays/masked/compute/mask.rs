@@ -45,12 +45,6 @@ mod tests {
     )]
     #[case(
         MaskedArray::try_new(
-            PrimitiveArray::from_iter([100i32]).into_array(),
-            Validity::NonNullable
-        ).unwrap()
-    )]
-    #[case(
-        MaskedArray::try_new(
             PrimitiveArray::from_iter(0..100).into_array(),
             Validity::from_iter((0..100).map(|i| i % 3 != 0))
         ).unwrap()
