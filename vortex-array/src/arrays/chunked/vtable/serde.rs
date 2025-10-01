@@ -6,12 +6,10 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
-use super::ChunkedEncoding;
-use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
+use crate::arrays::{ChunkedArray, ChunkedEncoding, ChunkedVTable};
 use crate::serde::ArrayChildren;
-use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata, ToCanonical};
+use crate::vtable::SerdeVTable;
+use crate::{EmptyMetadata, ToCanonical};
 
 impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
     type Metadata = EmptyMetadata;
@@ -60,19 +58,5 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
         // SAFETY: All chunks are deserialized with the same dtype that was serialized.
         // Each chunk was validated during deserialization to match the expected dtype.
         unsafe { Ok(ChunkedArray::new_unchecked(chunks, dtype.clone())) }
-    }
-}
-
-impl VisitorVTable<ChunkedVTable> for ChunkedVTable {
-    fn visit_buffers(_array: &ChunkedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &ChunkedArray, visitor: &mut dyn ArrayChildVisitor) {
-        let chunk_offsets =
-            PrimitiveArray::new(array.chunk_offsets().clone(), Validity::NonNullable);
-        visitor.visit_child("chunk_offsets", chunk_offsets.as_ref());
-
-        for (idx, chunk) in array.chunks().iter().enumerate() {
-            visitor.visit_child(format!("chunks[{idx}]").as_str(), chunk);
-        }
     }
 }

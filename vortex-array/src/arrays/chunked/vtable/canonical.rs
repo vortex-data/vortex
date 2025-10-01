@@ -5,13 +5,12 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType, StructFields};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_err};
 
-use super::ChunkedArray;
-use crate::arrays::{ChunkedVTable, ListArray, PrimitiveArray, StructArray};
+use crate::arrays::{ChunkedArray, ChunkedVTable, ListArray, PrimitiveArray, StructArray};
 use crate::builders::{ArrayBuilder, builder_with_capacity};
 use crate::compute::cast;
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-use crate::{Array as _, ArrayRef, Canonical, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
     fn canonicalize(array: &ChunkedArray) -> Canonical {

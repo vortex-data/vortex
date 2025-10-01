@@ -6,8 +6,7 @@ use std::ops::Range;
 use itertools::Itertools;
 use vortex_scalar::Scalar;
 
-use crate::arrays::ChunkedVTable;
-use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::vtable::OperationsVTable;
 use crate::{Array, ArrayRef, IntoArray};
 
