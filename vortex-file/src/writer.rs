@@ -37,11 +37,11 @@ use crate::{Footer, MAGIC_BYTES, WriteStrategyBuilder};
 pub struct VortexWriteOptions {
     exclude_dtype: bool,
     write_bloom_filters: bool,
-    compressor: Compressor,
+    compressor_override: Option<Compressor>,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
     handle: Option<Handle>,
-    strategy: Option<Arc<dyn LayoutStrategy>>,
+    strategy_override: Option<Arc<dyn LayoutStrategy>>,
 }
 
 impl Default for VortexWriteOptions {
@@ -52,9 +52,9 @@ impl Default for VortexWriteOptions {
             max_variable_length_statistics_size: 64,
             // TODO(aduffy): make this false
             write_bloom_filters: true,
-            compressor: Default::default(),
+            compressor_override: None,
             handle: Handle::find(),
-            strategy: None,
+            strategy_override: None,
         }
     }
 }
@@ -62,13 +62,15 @@ impl Default for VortexWriteOptions {
 impl VortexWriteOptions {
     /// Convert into a strategy here as well.
     fn build_strategy(&self) -> Arc<dyn LayoutStrategy> {
-        if let Some(ref strategy) = self.strategy {
+        if let Some(ref strategy) = self.strategy_override {
             strategy.clone()
         } else {
-            WriteStrategyBuilder::default()
-                .with_experimental_bloom_filters(self.write_bloom_filters)
-                .with_compressor(self.compressor.clone())
-                .build()
+            let mut strategy = WriteStrategyBuilder::default()
+                .with_experimental_bloom_filters(self.write_bloom_filters);
+            if let Some(ref compressor) = self.compressor_override {
+                strategy = strategy.with_compressor(compressor.clone());
+            }
+            strategy.build()
         }
     }
 }
@@ -78,7 +80,15 @@ impl VortexWriteOptions {
     ///
     /// Note: Any other configuration overrides previously set may no longer be applicable.
     pub fn with_strategy_override(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
-        self.strategy = Some(strategy);
+        self.strategy_override = Some(strategy);
+        self
+    }
+
+    /// Include bloom filters for chunks that are written with dictionary-layout.
+    ///
+    /// This is an experimental feature and may break in the future.
+    pub fn with_experimental_bloom_filters(mut self, write_bloom_filters: bool) -> Self {
+        self.write_bloom_filters = write_bloom_filters;
         self
     }
 
@@ -94,7 +104,7 @@ impl VortexWriteOptions {
     ///
     /// By default, we use a compressor based on BtrBlocks that balances size and decoding speed.
     pub fn with_compressor(mut self, compressor: Compressor) -> Self {
-        self.compressor = compressor;
+        self.compressor_override = Some(compressor);
         self
     }
 

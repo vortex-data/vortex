@@ -76,14 +76,14 @@ pub async fn exec_convert(flags: Flags) -> anyhow::Result<()> {
             .boxed();
     }
 
-    let compressor = match flags.strategy {
-        Strategy::Btrblocks => Compressor::default(),
-        Strategy::Compact => Compressor::Compact(CompactCompressor::default()),
+    let mut file = File::create(output_path).await?;
+    let options = match flags.strategy {
+        Strategy::Btrblocks => VortexWriteOptions::default(),
+        Strategy::Compact => VortexWriteOptions::default()
+            .with_compressor(Compressor::Compact(CompactCompressor::default())),
     };
 
-    let mut file = File::create(output_path).await?;
-    VortexWriteOptions::default()
-        .with_compressor(compressor)
+    options
         .write(&mut file, ArrayStreamAdapter::new(dtype, vortex_stream))
         .await?;
     file.shutdown().await?;

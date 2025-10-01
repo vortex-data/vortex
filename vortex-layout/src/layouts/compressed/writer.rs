@@ -29,9 +29,6 @@ impl CompressingStrategy {
     /// Create a new writer that uses the BtrBlocks-style cascading compressor to compress chunks.
     ///
     /// This provides a good balance between decoding speed and small file size.
-    ///
-    /// Set `exclude_int_dict_encoding` to true to prevent dictionary encoding of integer arrays,
-    /// which is useful when compressing dictionary codes to avoid recursive dictionary encoding.
     pub fn new<S: LayoutStrategy>(child: S, compressor: Compressor) -> Self {
         Self {
             child: Arc::new(child),

@@ -8,7 +8,7 @@ mod writer;
 use std::sync::Arc;
 
 use vortex_array::{Array, ArrayRef};
-use vortex_btrblocks::BtrBlocksCompressor;
+pub use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
 pub use writer::*;
 

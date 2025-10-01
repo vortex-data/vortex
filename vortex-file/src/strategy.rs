@@ -8,7 +8,7 @@ use std::sync::Arc;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
-use vortex_layout::layouts::compressed::{CompressingStrategy, Compressor};
+use vortex_layout::layouts::compressed::{BtrBlocksCompressor, CompressingStrategy, Compressor};
 use vortex_layout::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
@@ -76,8 +76,13 @@ impl WriteStrategyBuilder {
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
         // 5. compress each chunk
-        let compressor = self.compressor.unwrap_or_default();
-        let compressing = CompressingStrategy::new(buffered, compressor.clone());
+        let compressing = CompressingStrategy::new(
+            buffered,
+            match self.compressor {
+                Some(ref compressor) => compressor.clone(),
+                None => Compressor::Default(BtrBlocksCompressor::excluding_int_dict()),
+            },
+        );
 
         // 4. prior to compression, coalesce up to a minimum size
         let coalescing = RepartitionStrategy::new(
@@ -90,6 +95,7 @@ impl WriteStrategyBuilder {
         );
 
         // 2.1. | 3.1. compress stats tables and dict values.
+        let compressor = self.compressor.unwrap_or_default();
         let compress_then_flat =
             CompressingStrategy::new(FlatLayoutStrategy::default(), compressor);
 

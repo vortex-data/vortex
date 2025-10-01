@@ -131,11 +131,11 @@ impl StatPopGenBenchmark {
 
     pub async fn parquet_to_vortex(&self, format: Format) -> Result<()> {
         let parquet_path = self.parquet_path()?;
-        let (output_path, compressor) = match format {
-            Format::OnDiskVortex => (self.vortex_path()?, Compressor::default()),
+        let (output_path, compressor_override) = match format {
+            Format::OnDiskVortex => (self.vortex_path()?, None),
             Format::VortexCompact => (
                 self.vortex_compact_path()?,
-                Compressor::Compact(CompactCompressor::default()),
+                Some(Compressor::Compact(CompactCompressor::default())),
             ),
             otherwise => {
                 bail!("you asked for vortex but gave me {}", otherwise)
@@ -175,8 +175,12 @@ impl StatPopGenBenchmark {
                 .wrap_stream(vortex_stream)
                 .boxed();
 
-            VortexWriteOptions::default()
-                .with_compressor(compressor)
+            let mut options = VortexWriteOptions::default();
+            if let Some(compressor) = compressor_override {
+                options = options.with_compressor(compressor);
+            }
+
+            options
                 .write(
                     &mut File::create(output_path).await?,
                     ArrayStreamAdapter::new(dtype, vortex_stream),

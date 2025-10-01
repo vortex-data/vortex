@@ -351,6 +351,15 @@ pub struct BtrBlocksCompressor {
 }
 
 impl BtrBlocksCompressor {
+    /// Construct a new compressor that completely disables dictionary compression for integers.
+    ///
+    /// This is really only useful when you know you're encoding a stream of dictionary codes.
+    pub fn excluding_int_dict() -> Self {
+        Self {
+            exclude_int_dict_encoding: true,
+        }
+    }
+
     /// Compresses an array using BtrBlocks-inspired compression.
     ///
     /// First canonicalizes and compacts the array, then applies optimal compression schemes.
