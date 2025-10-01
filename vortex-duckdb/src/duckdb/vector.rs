@@ -144,12 +144,12 @@ impl Vector {
     /// Sets the data buffer for the vector.
     pub unsafe fn set_data_buffer<T>(&self, buffer: T) {
         let data = Data::from(Box::new(buffer));
-        unsafe { cpp::duckdb_vx_vector_add_data_buffer(self.as_ptr(), data.into_ptr()) }
+        unsafe { cpp::duckdb_vx_vector_set_data_buffer(self.as_ptr(), data.into_ptr()) }
     }
 
     /// Sets the data pointer for the vector. This is the start of the values array in the vector.
     pub unsafe fn set_data_ptr<T>(&self, ptr: *mut T) {
-        unsafe { cpp::duckdb_vx_vector_add_data_ptr(self.as_ptr(), ptr as *mut c_void) }
+        unsafe { cpp::duckdb_vx_vector_set_data_ptr(self.as_ptr(), ptr as *mut c_void) }
     }
 
     pub fn add_string_buffer<T>(&self, buffer: T) {
