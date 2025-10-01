@@ -44,7 +44,7 @@ impl Vector {
         unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), len as _)) }
     }
 
-    /// Append value to the vector.
+    /// Converts the vector is a constant vector with every element `value`.
     pub fn reference_value(&mut self, value: &Value) {
         unsafe {
             cpp::duckdb_vector_reference_value(self.as_ptr(), value.as_ptr());
@@ -56,10 +56,6 @@ impl Vector {
     /// After calling this, both vectors share ownership of the same underlying data.
     pub fn reference(&mut self, other: &Vector) {
         unsafe { cpp::duckdb_vector_reference_vector(self.as_ptr(), other.as_ptr()) }
-    }
-
-    pub unsafe fn copy_buffer(&mut self, other: &Vector) {
-        unsafe { cpp::duckdb_vx_vector_copy_buffer(self.as_ptr(), other.as_ptr()) }
     }
 
     /// Creates a dictionary vector for a given values vector and selection vector.
@@ -145,18 +141,15 @@ impl Vector {
         !is_valid
     }
 
-    pub fn add_data_buffer<T>(&self, buffer: T) {
+    /// Sets the data buffer for the vector.
+    pub unsafe fn set_data_buffer<T>(&self, buffer: T) {
         let data = Data::from(Box::new(buffer));
         unsafe { cpp::duckdb_vx_vector_add_data_buffer(self.as_ptr(), data.into_ptr()) }
     }
 
-    pub fn add_data_ptr<T>(&self, ptr: *mut T) {
+    /// Sets the data pointer for the vector. This is the start of the values array in the vector.
+    pub unsafe fn set_data_ptr<T>(&self, ptr: *mut T) {
         unsafe { cpp::duckdb_vx_vector_add_data_ptr(self.as_ptr(), ptr as *mut c_void) }
-    }
-
-    pub fn set_aux_buffer<T>(&self, buffer: T) {
-        let data = Data::from(Box::new(buffer));
-        unsafe { cpp::duckdb_vx_vector_set_aux_buffer(self.as_ptr(), data.into_ptr()) }
     }
 
     pub fn add_string_buffer<T>(&self, buffer: T) {

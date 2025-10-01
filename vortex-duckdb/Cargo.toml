@@ -45,10 +45,6 @@ divan = { workspace = true }
 jiff = { workspace = true }
 rstest = { workspace = true }
 
-[[bench]]
-name = "primitive_exporter_comparison"
-harness = false
-
 [lints]
 workspace = true
 
