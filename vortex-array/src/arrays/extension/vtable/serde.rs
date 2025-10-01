@@ -5,9 +5,8 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use super::ExtensionEncoding;
 use crate::EmptyMetadata;
-use crate::arrays::{ExtensionArray, ExtensionVTable};
+use crate::arrays::extension::{ExtensionArray, ExtensionEncoding, ExtensionVTable};
 use crate::serde::ArrayChildren;
 use crate::vtable::SerdeVTable;
 
