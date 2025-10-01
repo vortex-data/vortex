@@ -158,10 +158,6 @@ impl LayoutReader for DictReader {
         let bloom_filter = self.bloom_filter();
         // Here we apply filtering operations that were not prunable in the layer above, using
         // Bloom filters for approximate membership queries.
-        // NOTE: we can get the values here, convert expression to the codes domain, and push down
-        // to the codes child. We don't do that here because:
-        // - Reading values only for an approx filter is expensive
-        // - In practice, all stats based pruning evaluation should be already done upstream of this dict reader
         let expr = expr.clone();
         Ok(MaskFuture::new(mask.len(), async move {
             // If there is a bloom filter for this layout, and the expression can be pruned using

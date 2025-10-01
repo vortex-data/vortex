@@ -33,31 +33,44 @@ impl BloomPruner for dyn VortexExpr {
 
 impl BloomPruner for BinaryExpr {
     fn can_prune(&self, filter: &BloomFilter) -> bool {
-        // Only = can be pruned definitively with a bloom filter
-        if self.op() != Operator::Eq {
-            return false;
+        match self.op() {
+            Operator::Eq => {
+                // LHS must be the root "$" expression that is covered by the bloom filter.
+                let Some(_) = self.lhs().as_opt::<RootVTable>() else {
+                    return false;
+                };
+
+                // RHS must be a literal value
+                let Some(literal) = self.rhs().as_opt::<LiteralVTable>() else {
+                    return false;
+                };
+
+                // The literal cannot be null
+                let Some(value) = literal.value().as_utf8().value() else {
+                    return false;
+                };
+                let value_str = value.as_str();
+
+                !filter.check(value_str)
+            }
+            Operator::And => {
+                let lhs = self.lhs();
+                let rhs = self.rhs();
+
+                // AND can be pruned if EITHER the left or right hand operands can prune
+                BloomPruner::can_prune(lhs.as_ref(), filter)
+                    || BloomPruner::can_prune(rhs.as_ref(), filter)
+            }
+            Operator::Or => {
+                let lhs = self.lhs();
+                let rhs = self.rhs();
+
+                // OR can only be pruned if BOTH the left/right operands are pruned
+                BloomPruner::can_prune(lhs.as_ref(), filter)
+                    && BloomPruner::can_prune(rhs.as_ref(), filter)
+            }
+            _ => false,
         }
-
-        let lhs = self.lhs();
-        let rhs = self.rhs();
-
-        // LHS must be the root "$" expression that is covered by the bloom filter.
-        let Some(_) = lhs.as_opt::<RootVTable>() else {
-            return false;
-        };
-
-        // RHS must be a literal value
-        let Some(literal) = rhs.as_opt::<LiteralVTable>() else {
-            return false;
-        };
-
-        // The literal cannot be null
-        let Some(value) = literal.value().as_utf8().value() else {
-            return false;
-        };
-        let value_str = value.as_str();
-
-        !filter.check(value_str)
     }
 }
 
