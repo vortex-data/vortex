@@ -55,6 +55,7 @@ private:
     unique_ptr<vortex::CData> data;
 };
 
+// This is a complete hack to access the data buffer and pointer of a vector.
 class DataVector : public Vector {
 public:
 	inline void SetDataBuffer(buffer_ptr<VectorBuffer> new_buffer) {
