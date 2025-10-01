@@ -43,10 +43,11 @@ impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
         assert!(self.buffer.len() * size_of::<T>() >= offset + len);
 
         let pos = unsafe { (self.buffer.as_ptr() as *mut T).add(offset) };
-        unsafe {
-            let vec = self.vector.lock();
-            vector.copy_buffer(&vec);
-        }
+        // unsafe {
+        //     let vec = self.vector.lock();
+        //     vector.copy_buffer(&vec);
+        // }
+        vector.add_data_buffer(self.buffer.clone());
         vector.add_data_ptr(pos);
 
         Ok(())

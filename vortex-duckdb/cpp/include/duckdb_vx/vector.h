@@ -37,6 +37,9 @@ void duckdb_vx_string_vector_add_buffer(duckdb_vector ffi_vector, duckdb_vx_data
 // Add the buffer to the data vector (basically, keep it alive as long as the vector) and set the data pointer.
 // You must ensure that the ptr is valid for the lifetime of the vector and the ptr addr + size is valid.
 void duckdb_vx_vector_add_data_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer);
+
+void duckdb_vx_vector_set_aux_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer);
+
 void duckdb_vx_vector_add_data_ptr(duckdb_vector ffi_vector, void *ptr);
 
 void duckdb_vx_vector_copy_buffer(duckdb_vector ffi_to_vector, duckdb_vector ffi_from_vector);

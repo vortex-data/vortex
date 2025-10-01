@@ -154,6 +154,11 @@ impl Vector {
         unsafe { cpp::duckdb_vx_vector_add_data_ptr(self.as_ptr(), ptr as *mut c_void) }
     }
 
+    pub fn set_aux_buffer<T>(&self, buffer: T) {
+        let data = Data::from(Box::new(buffer));
+        unsafe { cpp::duckdb_vx_vector_set_aux_buffer(self.as_ptr(), data.into_ptr()) }
+    }
+
     pub fn add_string_buffer<T>(&self, buffer: T) {
         let data = Data::from(Box::new(buffer));
         unsafe { cpp::duckdb_vx_string_vector_add_buffer(self.as_ptr(), data.into_ptr()) }
