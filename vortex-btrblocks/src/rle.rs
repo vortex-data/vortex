@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_fastlanes::RLEArray;
@@ -116,7 +115,7 @@ where
         )?;
 
         let compressed_offsets = crate::integer::IntCompressor::compress_no_dict(
-            &rle_array.value_chunk_offsets().to_primitive(),
+            &rle_array.values_idx_offsets().to_primitive(),
             is_sample,
             allowed_cascading - 1,
             &[],
@@ -128,7 +127,6 @@ where
                 compressed_values,
                 compressed_indices,
                 compressed_offsets,
-                rle_array.validity().clone(),
                 rle_array.dtype().clone(),
                 rle_array.offset(),
                 rle_array.len(),

@@ -5,6 +5,7 @@ use arrayref::{array_mut_ref, array_ref};
 use fastlanes::RLE;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::PrimitiveBuilder;
+use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
@@ -38,13 +39,14 @@ where
 {
     let values = array.as_slice::<T>();
     let len = values.len();
+    let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
 
     // Allocate capacity up to the next multiple of chunk size.
-    let mut values_buf = BufferMut::<T>::with_capacity(len.next_multiple_of(FL_CHUNK_SIZE));
-    let mut indices_buf = BufferMut::<u16>::with_capacity(len.next_multiple_of(FL_CHUNK_SIZE));
+    let mut values_buf = BufferMut::<T>::with_capacity(padded_len);
+    let mut indices_buf = BufferMut::<u16>::with_capacity(padded_len);
 
     // Pre-allocate for one offset per chunk.
-    let mut value_chunk_offsets = BufferMut::<u64>::with_capacity(len.div_ceil(FL_CHUNK_SIZE));
+    let mut values_idx_offsets = BufferMut::<u64>::with_capacity(len.div_ceil(FL_CHUNK_SIZE));
 
     let values_uninit = values_buf.spare_capacity_mut();
     let indices_uninit = indices_buf.spare_capacity_mut();
@@ -63,7 +65,7 @@ where
 
         // Capture chunk start indices. This is necessary as indices
         // returned from `T::encode` are relative to the chunk.
-        value_chunk_offsets.push(value_count_acc as u64);
+        values_idx_offsets.push(value_count_acc as u64);
 
         let value_count = T::encode(
             input,
@@ -92,16 +94,35 @@ where
 
     unsafe {
         values_buf.set_len(value_count_acc);
-        indices_buf.set_len(array.len().next_multiple_of(FL_CHUNK_SIZE));
+        indices_buf.set_len(padded_len);
     }
 
     RLEArray::try_new(
         values_buf.into_array(),
-        indices_buf.into_array(),
-        value_chunk_offsets.into_array(),
-        array.validity().clone(),
+        PrimitiveArray::new(indices_buf.freeze(), padded_validity(array)).into_array(),
+        values_idx_offsets.into_array(),
         array.len(),
     )
+}
+
+/// Returns validity padded to the next 1024 chunk for a given array.
+fn padded_validity(array: &PrimitiveArray) -> Validity {
+    match array.validity() {
+        Validity::NonNullable => Validity::NonNullable,
+        Validity::AllValid => Validity::AllValid,
+        Validity::AllInvalid => Validity::AllInvalid,
+        Validity::Array(validity_array) => {
+            let padded_length = array.len().next_multiple_of(FL_CHUNK_SIZE);
+            let bool_array = validity_array.to_bool();
+            let bool_buffer = bool_array.boolean_buffer();
+            let padded_validity_iter = bool_buffer
+                .iter()
+                .take(array.len())
+                .chain(std::iter::repeat_n(false, padded_length - array.len()));
+
+            Validity::from_iter(padded_validity_iter)
+        }
+    }
 }
 
 /// Decompresses an `RLEArray` into to a primitive array of unsigned integers.
@@ -114,25 +135,26 @@ where
 
     let indices = array.indices().to_primitive();
     let indices = indices.as_slice::<u16>();
+    assert_eq!(indices.len() % FL_CHUNK_SIZE, 0);
 
     let chunk_start_idx = array.offset / FL_CHUNK_SIZE;
     let chunk_end_idx = (array.offset() + array.len()).div_ceil(FL_CHUNK_SIZE);
     let num_chunks = chunk_end_idx - chunk_start_idx;
 
     let mut builder = PrimitiveBuilder::<T>::with_capacity(
-        array.validity().nullability(),
+        array.dtype().nullability(),
         num_chunks * FL_CHUNK_SIZE,
     );
 
     let mut range = builder.uninit_range(num_chunks * FL_CHUNK_SIZE);
 
-    for (iter_idx, chunk_idx) in (chunk_start_idx..chunk_end_idx).enumerate() {
-        let chunk_values = &values[array.value_chunk_offset(chunk_idx)..];
+    for chunk_idx in 0..num_chunks {
+        let chunk_values = &values[array.values_idx_offset(chunk_idx)..];
         let chunk_indices = &indices[chunk_idx * FL_CHUNK_SIZE..];
 
         // SAFETY: `MaybeUninit<T>` and `T` have the same layout.
         let builder_values: &mut [T] = unsafe {
-            std::mem::transmute(range.slice_uninit_mut(iter_idx * FL_CHUNK_SIZE, FL_CHUNK_SIZE))
+            std::mem::transmute(range.slice_uninit_mut(chunk_idx * FL_CHUNK_SIZE, FL_CHUNK_SIZE))
         };
 
         T::decode(
@@ -146,7 +168,7 @@ where
         range.finish();
     }
 
-    let offset_within_chunk = array.offset_in_chunk(array.offset);
+    let offset_within_chunk = array.offset_in_chunk();
     let primitive_array = builder.finish_into_primitive();
 
     PrimitiveArray::new(
@@ -156,7 +178,7 @@ where
         // Validity needs to be set on the sliced array. After decoding but
         // before slicing the length of the validity array can be smaller than
         // the primitive array, as RLE decodes in 1024 chunks.
-        array.validity().clone(),
+        Validity::copy_from_array(array.as_ref()),
     )
 }
 
@@ -248,7 +270,7 @@ mod test {
         assert_eq!(encoded.len(), 1500);
         assert_eq!(decoded.as_slice::<u32>(), expected.as_slice());
         // 2 chunks: 1024 + 476 elements
-        assert_eq!(encoded.value_chunk_offsets().len(), 2);
+        assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
 
     #[test]
@@ -263,7 +285,7 @@ mod test {
 
         assert_eq!(encoded.len(), 2048);
         assert_eq!(decoded.as_slice::<u32>(), expected.as_slice());
-        assert_eq!(encoded.value_chunk_offsets().len(), 2);
+        assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
 
     #[rstest]

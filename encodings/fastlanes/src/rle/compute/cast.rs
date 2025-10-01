@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -11,18 +10,24 @@ use crate::rle::{RLEArray, RLEVTable};
 
 impl CastKernel for RLEVTable {
     fn cast(&self, array: &RLEArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Cast RLE values. Indices and offsets stay the same.
+        // Cast RLE values.
         let casted_values = cast(array.values(), dtype)?;
+
+        // Cast RLE indices such that validity matches the target dtype.
+        let casted_indices = if array.indices().dtype().nullability() != dtype.nullability() {
+            cast(
+                array.indices(),
+                &DType::Primitive(array.indices().dtype().as_ptype(), dtype.nullability()),
+            )?
+        } else {
+            array.indices().clone()
+        };
 
         Ok(Some(unsafe {
             RLEArray::new_unchecked(
                 casted_values,
-                array.indices().clone(),
-                array.value_chunk_offsets().clone(),
-                array
-                    .validity()
-                    .clone()
-                    .cast_nullability(dtype.nullability(), array.len())?,
+                casted_indices,
+                array.values_idx_offsets().clone(),
                 dtype.clone(),
                 array.offset(),
                 array.len(),
@@ -56,12 +61,12 @@ mod tests {
 
         let res = cast(
             rle.as_ref(),
-            &DType::Primitive(PType::U8, Nullability::NonNullable),
+            &DType::Primitive(PType::U16, Nullability::NonNullable),
         );
         assert!(res.is_ok());
         assert_eq!(
             res.unwrap().dtype(),
-            &DType::Primitive(PType::U8, Nullability::NonNullable)
+            &DType::Primitive(PType::U16, Nullability::NonNullable)
         );
     }
 
