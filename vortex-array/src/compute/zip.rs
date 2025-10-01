@@ -244,7 +244,7 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{ConstantArray, PrimitiveArray, VarBinViewVTable};
+    use crate::arrays::{ConstantArray, PrimitiveArray, StructArray, VarBinViewVTable};
     use crate::arrow::IntoArrowArray;
     use crate::builders::{ArrayBuilder, BufferGrowthStrategy};
     use crate::compute::zip;
@@ -323,6 +323,25 @@ mod tests {
           buffer (align=1): 29 B (1.75%)
           buffer (align=1): 28 B (1.69%)
           buffer (align=16): 1.60 kB (96.56%)
+        ");
+
+        // test wrapped in a struct
+        let wrapped1 = StructArray::try_from_iter([("nested", const1)])
+            .unwrap()
+            .to_array();
+        let wrapped2 = StructArray::try_from_iter([("nested", const2)])
+            .unwrap()
+            .to_array();
+
+        let wrapped_result = zip(&wrapped1, &wrapped2, &mask).unwrap();
+        insta::assert_snapshot!(wrapped_result.display_tree(), @r"
+        root: vortex.struct({nested=utf8?}, len=100) nbytes=1.66 kB (100.00%)
+          metadata: EmptyMetadata
+          nested: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%)
+            metadata: EmptyMetadata
+            buffer (align=1): 29 B (1.75%)
+            buffer (align=1): 28 B (1.69%)
+            buffer (align=16): 1.60 kB (96.56%)
         ");
     }
 
