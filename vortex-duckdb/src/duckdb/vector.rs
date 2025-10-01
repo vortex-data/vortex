@@ -18,8 +18,7 @@ use crate::{cpp, wrapper};
 
 pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
 
-// wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
-wrapper!(Vector, cpp::duckdb_vector, |_| {});
+wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 
 /// Safety: It is safe to mark `Vector` as `Send` as the memory it points is `Send`.
 ///

@@ -41,7 +41,6 @@ void duckdb_vx_vector_add_data_ptr(duckdb_vector ffi_vector, void *ptr);
 
 void duckdb_vx_vector_copy_buffer(duckdb_vector ffi_to_vector, duckdb_vector ffi_from_vector);
 
-
 // Converts a duckdb flat vector into a Sequence vector.
 void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step, idx_t capacity);
 

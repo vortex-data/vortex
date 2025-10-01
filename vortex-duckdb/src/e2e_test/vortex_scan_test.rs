@@ -441,7 +441,6 @@ fn test_vortex_scan_fixed_size_list_utf8() {
 }
 
 #[test]
-#[ignore = "Assertion fail in DuckDB (`child.GetVectorType() == VectorType::FLAT_VECTOR`) with debug"]
 fn test_vortex_scan_nested_fixed_size_list_utf8() {
     // Regression test for a segfault that occurs inside query 7 and 8 of the `statpopgen` benchmark
     // when running with `FixedSizeList` instead of `List`.
