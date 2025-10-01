@@ -197,6 +197,8 @@ fn zip_impl(if_true: &dyn Array, if_false: &dyn Array, mask: &Mask) -> VortexRes
     let capacity = if_true.len();
 
     let builder = match return_type {
+        // TODO(blaginin): once https://github.com/vortex-data/vortex/pull/4695 is merged, we can kill
+        //  these two special cases, but before that we need to manually use deduplicated buffers
         DType::Utf8(n) => Box::new(VarBinViewBuilder::with_buffer_deduplication(
             DType::Utf8(n),
             capacity,
