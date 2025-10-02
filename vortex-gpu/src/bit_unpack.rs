@@ -9,6 +9,7 @@ use std::sync::{Arc, LazyLock};
 use cudarc::driver::{CudaContext, CudaFunction, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::Ptx;
 use parking_lot::RwLock;
+use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::{Buffer, BufferMut};
@@ -72,6 +73,10 @@ pub fn cuda_bit_unpack(
     array: &BitPackedArray,
     ctx: Arc<CudaContext>,
 ) -> VortexResult<PrimitiveArray> {
+    if array.len() == 0 {
+        return Ok(Canonical::empty(array.dtype()).into_primitive());
+    }
+
     assert!(array.patches().is_none(), "Patches not supported");
     assert_eq!(array.offset(), 0, "Offset must be 0");
     assert_eq!(
@@ -88,7 +93,8 @@ pub fn cuda_bit_unpack(
         ),
         ctx.clone(),
     )?;
-    let num_chunks = u32::try_from(array.len() / 1024).vortex_expect("Too many grid elements");
+    let num_chunks =
+        u32::try_from(array.len().div_ceil(1024)).vortex_expect("Too many grid elements");
     let stream = ctx.default_stream();
 
     match_each_unsigned_integer_ptype!(array.dtype().as_ptype().to_unsigned(), |P| {
@@ -99,7 +105,7 @@ pub fn cuda_bit_unpack(
             .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
         let mut cu_out = unsafe {
             stream
-                .alloc::<P>(array.len())
+                .alloc::<P>(array.len().next_multiple_of(1024))
                 .map_err(|e| vortex_err!("Failed to allocate stream: {e}"))?
         };
 
