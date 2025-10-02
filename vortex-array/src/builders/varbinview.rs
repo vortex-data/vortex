@@ -662,7 +662,7 @@ impl PrecomputedViewAdjustment {
                 let offset_shift = offsets[view_ref.buffer_index() as usize];
                 view_ref.with_buffer_and_offset(
                     view_ref.buffer_index() + buffer_offset,
-                    view_ref.offset() + offset_shift,
+                    view_ref.offset() - offset_shift,
                 )
             }
             Self::Lookup {
@@ -671,7 +671,7 @@ impl PrecomputedViewAdjustment {
             } => {
                 let buffer = buffer_lookup[view_ref.buffer_index() as usize];
                 let offset_shift = offsets[view_ref.buffer_index() as usize];
-                view_ref.with_buffer_and_offset(buffer, view_ref.offset() + offset_shift)
+                view_ref.with_buffer_and_offset(buffer, view_ref.offset() - offset_shift)
             }
         };
         view_ref.into()
@@ -695,7 +695,7 @@ impl RewritingViewAdjustment {
         self.buffer_lookup[view_ref.buffer_index() as usize].map(|buffer| {
             let offset_shift = self.offsets[view_ref.buffer_index() as usize];
             view_ref
-                .with_buffer_and_offset(buffer, view_ref.offset() + offset_shift)
+                .with_buffer_and_offset(buffer, view_ref.offset() - offset_shift)
                 .into()
         })
     }
