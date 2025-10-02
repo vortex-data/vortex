@@ -35,7 +35,7 @@ pub(crate) fn new_exporter(array: &VarBinViewArray) -> VortexResult<Box<dyn Colu
             .buffers()
             .iter()
             .cloned()
-            .map(|b| VectorBuffer::new(b))
+            .map(VectorBuffer::new)
             .collect_vec(),
         validity: array.validity_mask(),
     }))
