@@ -21,7 +21,6 @@ use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_io::{IoBuf, VortexWrite};
 use vortex_layout::LayoutStrategy;
-use vortex_layout::layouts::compact::CompactCompressor;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
 
@@ -91,15 +90,6 @@ impl VortexWriteOptions {
 }
 
 impl VortexWriteOptions {
-    /// Prioritize small size over read-throughput and read-latency.
-    pub fn compact() -> Self {
-        Self::default().with_strategy(
-            WriteStrategyBuilder::new()
-                .with_compressor(CompactCompressor::default())
-                .build(),
-        )
-    }
-
     /// Drop into the blocking writer API using the given runtime.
     pub fn blocking<B: BlockingRuntime + Default>(self) -> BlockingWrite<B> {
         self.with_blocking(B::default())
