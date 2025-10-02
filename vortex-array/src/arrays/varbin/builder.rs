@@ -110,7 +110,7 @@ impl<O: IntegerPType> VarBinBuilder<O> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;

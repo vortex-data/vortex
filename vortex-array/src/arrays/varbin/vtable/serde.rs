@@ -9,8 +9,8 @@ use super::VarBinEncoding;
 use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
+use crate::vtable::SerdeVTable;
+use crate::{Array, ProstMetadata};
 
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {
@@ -57,16 +57,5 @@ impl SerdeVTable<VarBinVTable> for VarBinVTable {
         let bytes = buffers[0].clone();
 
         VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
-    }
-}
-
-impl VisitorVTable<VarBinVTable> for VarBinVTable {
-    fn visit_buffers(array: &VarBinArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(array.bytes()); // TODO(ngates): sliced bytes?
-    }
-
-    fn visit_children(array: &VarBinArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("offsets", array.offsets());
-        visitor.visit_validity(array.validity(), array.len());
     }
 }

@@ -52,7 +52,7 @@ impl CanonicalVTable<VarBinVTable> for VarBinVTable {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
 
