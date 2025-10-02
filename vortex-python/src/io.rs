@@ -8,10 +8,12 @@ use pyo3::prelude::*;
 use pyo3::pyfunction;
 use tokio::fs::File;
 use vortex::arrow::FromArrowArray;
+use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::file::VortexWriteOptions;
+use vortex::file::WriteStrategyBuilder;
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{ArrayRef, Canonical, IntoArray};
 
@@ -29,6 +31,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(read_url, &m)?)?;
     m.add_function(wrap_pyfunction!(write, &m)?)?;
+
+    m.add_class::<PyVortexWriteOptions>()?;
 
     Ok(())
 }
@@ -148,6 +152,10 @@ pub fn read_url<'py>(
 /// >>> vx.io.write(reader, "streamed.vortex")  # doctest: +SKIP
 /// ```
 ///
+/// See also
+/// --------
+///
+/// :func:`vortex.io.VortexWriteOptions`
 #[pyfunction]
 #[pyo3(signature = (iter, path))]
 pub fn write(iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
@@ -159,6 +167,125 @@ pub fn write(iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
     })?;
 
     Ok(())
+}
+
+/// Write Vortex files with custom configuration.
+///
+/// See also
+/// --------
+///
+/// :func:`vortex.io.write`.
+#[pyclass(name = "VortexWriteOptions", module = "io", frozen)]
+pub(crate) struct PyVortexWriteOptions {
+    // TODO(DK): This might need to be an Arc<dyn Compressor> if we actually have multiple
+    // compressors.
+    compressor: Option<CompactCompressor>,
+}
+
+#[pymethods]
+impl PyVortexWriteOptions {
+    /// Balance size, read-throughput, and read-latency.
+    #[staticmethod]
+    pub fn default() -> Self {
+        Self { compressor: None }
+    }
+
+    /// Prioritize small size over read-throughput and read-latency.
+    ///
+    /// Let's model some stock ticker data. As you may know, the stock market always (noisly) goes
+    /// up:
+    ///
+    /// ```python
+    /// >>> import os
+    /// >>> import random
+    /// >>> sprl = vx.array([random.randint(i, i + 10) for i in range(100_000)])
+    /// ```
+    ///
+    /// If we naively wrote 4-bytes for each of these integers to a file we'd have 400,000 bytes!
+    /// Let's see how small this is when we write with the default Vortex write options (which are
+    /// also used by :func:`vortex.io.write`):
+    ///
+    /// ```python
+    /// >>> vx.io.VortexWriteOptions.default().write_path(sprl, "chonky.vortex")
+    /// >>> import os
+    /// >>> os.path.getsize('chonky.vortex')
+    /// 215196
+    /// ```
+    ///
+    /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
+    ///
+    /// But can we do better?
+    ///
+    /// We sure can.
+    ///
+    /// ```python
+    /// >>> vx.io.VortexWriteOptions.compact().write_path(sprl, "tiny.vortex")
+    /// >>> os.path.getsize('tiny.vortex')
+    /// 54200
+    /// ```
+    ///
+    /// Random numbers are not (usually) composed of random bytes!
+    #[staticmethod]
+    pub fn compact() -> Self {
+        Self {
+            compressor: Some(CompactCompressor::default()),
+        }
+    }
+
+    /// Write an array or iterator of arrays into a local file.
+    ///
+    ///
+    /// Parameters
+    /// ----------
+    /// iter : vortex.Array | vortex.ArrayIterator | pyarrow.Table | pyarrow.RecordBatchReader
+    ///     The data to write. Can be a single array, an array iterator, or a PyArrow object that supports streaming.
+    ///     When using PyArrow objects, data is streamed directly without loading the entire dataset into memory.
+    ///
+    /// path : str
+    ///     The file path.
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// Write a single Vortex array `a` to the local file `a.vortex` using the default settings:
+    ///
+    /// ```python
+    /// >>> import vortex as vx
+    /// >>> import random
+    /// >>> a = vx.array([0, 1, 2, 3, None, 4])
+    /// >>> vx.io.VortexWriteOptions.default().write_path(a, "a.vortex") # doctest: +SKIP
+    /// ```
+    ///
+    /// Write the same array while preferring small file sizes over read-throughput and
+    /// read-latency:
+    ///
+    /// ```python
+    /// >>> import vortex as vx
+    /// >>> vx.io.VortexWriteOptions.compact().write_path(a, "a.vortex") # doctest: +SKIP
+    /// ```
+    ///
+    /// See also
+    /// --------
+    ///
+    /// :func:`vortex.io.write`
+    #[pyo3(signature = (iter, path))]
+    pub fn write_path(&self, iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
+        TOKIO_RUNTIME.block_on(async move {
+            let mut file = File::create(path).await?;
+
+            let mut strategy = WriteStrategyBuilder::new();
+            if let Some(compressor) = self.compressor.as_ref() {
+                strategy = strategy.with_compressor(compressor.clone())
+            }
+
+            VortexWriteOptions::default()
+                .with_strategy(strategy.build())
+                .write(&mut file, iter.into_inner().into_array_stream())
+                .await
+        })?;
+
+        Ok(())
+    }
 }
 
 /// Conversion type for converting Python objects into a [`vortex::ArrayIterator`].
