@@ -13,8 +13,8 @@ use futures::StreamExt;
 use log::info;
 use parquet::arrow::async_writer::AsyncFileWriter;
 use url::Url;
-use vortex::compressor::CompactCompressor;
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::compressor::{Compressor, CompactCompressor};
+use vortex::file::VortexWriteOptions;
 use vortex_datafusion::VortexFormat;
 
 use crate::benchmark_trait::Benchmark;
@@ -159,11 +159,7 @@ impl Benchmark for Fineweb {
                     let array_stream = parquet_to_vortex(parquet)?;
                     let w = tokio::fs::File::create(vortex_path).await?;
                     VortexWriteOptions::default()
-                        .with_strategy(
-                            WriteStrategyBuilder::new()
-                                .with_compressor(CompactCompressor::default())
-                                .build(),
-                        )
+                        .with_compressor(Compressor::Compact(CompactCompressor::default()))
                         .write(w, array_stream)
                         .await
                         .map_err(|e| anyhow::anyhow!("Failed to write to VortexWriter: {e}"))

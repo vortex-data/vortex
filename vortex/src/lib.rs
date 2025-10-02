@@ -18,6 +18,7 @@ pub use {
 
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
+    pub use vortex_layout::layouts::compressed::Compressor;
     #[cfg(feature = "zstd")]
     pub use vortex_layout::layouts::compressed::compact::CompactCompressor;
 }
