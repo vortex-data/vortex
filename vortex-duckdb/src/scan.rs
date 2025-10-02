@@ -411,7 +411,7 @@ impl TableFunction for VortexTableFunction {
             return Ok(false);
         };
         bind_data.filter_exprs.push(expr);
-        Ok(true)
+        Ok(false)
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
