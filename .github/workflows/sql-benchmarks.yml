@@ -69,6 +69,14 @@ on:
               "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "--scale-factor 100"
             },
+            {
+              "id": "fineweb",
+              "subcommand": "fineweb",
+              "name": "FineWeb",
+              "local_dir": "bench-vortex/data/fineweb",
+              "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact",
+              "scale_factor": "--scale-factor 100"
+            },
           ]
 
 jobs:

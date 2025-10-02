@@ -86,9 +86,10 @@ impl Benchmark for TpcHBenchmark {
                 };
 
                 // Skip CSV generation as it's not supported by tpchgen
-                if format == Format::Csv {
-                    anyhow::bail!("CSV format is not supported by tpchgen");
-                }
+                anyhow::ensure!(
+                    format != Format::Csv,
+                    "CSV format is not supported by tpchgen"
+                );
 
                 let base_data_dir = self
                     .data_url

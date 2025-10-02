@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use log::trace;
+use log::{info, trace};
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::{Config, Connection, Database};
@@ -51,6 +51,7 @@ impl DuckDBCtx {
             BenchmarkDataset::StatPopGen { n_rows } => {
                 format!("statpopgen/{n_rows}/{}", format.name()).to_data_path()
             }
+            BenchmarkDataset::Fineweb => format!("fineweb/{}", format.name()).to_data_path(),
         };
         std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");
@@ -163,7 +164,7 @@ impl DuckDBCtx {
 
         // Generate and execute table registration commands
         let commands = self.generate_table_commands(&effective_url, extension, dataset, object);
-        trace!("Executing table registration commands: {commands}");
+        info!("Executing table registration commands: {commands}");
         self.execute_query(&commands)?;
 
         Ok(())
@@ -199,7 +200,9 @@ impl DuckDBCtx {
     ) -> String {
         // Base path contains trailing /.
         let base_dir = base_url.as_str();
+        info!("base_dir1: {base_dir}");
         let base_dir = base_dir.strip_prefix("file://").unwrap_or(base_dir);
+        info!("base_dir2: {base_dir}");
         match dataset {
             BenchmarkDataset::TpcH { .. } => {
                 let mut commands = String::new();
@@ -242,6 +245,13 @@ impl DuckDBCtx {
                 format!(
                     "CREATE {} IF NOT EXISTS statpopgen AS SELECT * FROM read_{extension}('{path}');",
                     duckdb_object.to_str()
+                )
+            }
+            BenchmarkDataset::Fineweb => {
+                let path = format!("{base_dir}*.{extension}");
+                format!(
+                    "CREATE {} IF NOT EXISTS fineweb AS SELECT * FROM read_{extension}('{path}');",
+                    duckdb_object.to_str(),
                 )
             }
         }
