@@ -96,6 +96,7 @@ impl VTable for BinaryVTable {
             Operator::Sub => sub(&lhs, &rhs),
             Operator::Mul => mul(&lhs, &rhs),
             Operator::Div => div(&lhs, &rhs),
+            Operator::RDiv => div(&rhs, &lhs),
         }
     }
 
@@ -292,7 +293,7 @@ impl AnalysisExpr for BinaryExpr {
                 self.lhs.stat_falsification(catalog)?,
                 self.rhs.stat_falsification(catalog)?,
             )),
-            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
+            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div | Operator::RDiv => None,
         }
     }
 }

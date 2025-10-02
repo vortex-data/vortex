@@ -11,7 +11,9 @@ use datafusion_physical_plan::expressions as df_expr;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::{DType, Nullability};
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{BinaryExpr, ExprRef, LikeExpr, Operator, and, cast, get_item, lit, root};
+use vortex::expr::{
+    BinaryExpr, ExprRef, LikeExpr, Operator, and, cast, get_item, is_null, lit, not, root,
+};
 use vortex::scalar::Scalar;
 
 use crate::convert::{FromDataFusion, TryFromDataFusion};
@@ -66,6 +68,16 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
             return Ok(cast(child, cast_dtype));
         }
 
+        if let Some(is_null_expr) = df.as_any().downcast_ref::<df_expr::IsNullExpr>() {
+            let arg = ExprRef::try_from_df(is_null_expr.arg().as_ref())?;
+            return Ok(is_null(arg));
+        }
+
+        if let Some(is_not_null_expr) = df.as_any().downcast_ref::<df_expr::IsNotNullExpr>() {
+            let arg = ExprRef::try_from_df(is_not_null_expr.arg().as_ref())?;
+            return Ok(not(is_null(arg)));
+        }
+
         vortex_bail!("Couldn't convert DataFusion physical {df} expression to a vortex expression")
     }
 }
@@ -115,6 +127,7 @@ impl TryFromDataFusion<DFOperator> for Operator {
             | DFOperator::Question
             | DFOperator::QuestionAnd
             | DFOperator::QuestionPipe => {
+                eprintln!("Can't pushdown {value} operator");
                 Err(vortex_err!("Unsupported datafusion operator {value}"))
             }
         }
@@ -142,8 +155,12 @@ pub(crate) fn can_be_pushed_down(df_expr: &PhysicalExprRef, schema: &Schema) -> 
         supported_data_types(&lit.value().data_type())
     } else if let Some(cast) = expr.downcast_ref::<df_expr::CastExpr>() {
         supported_data_types(cast.cast_type()) && can_be_pushed_down(cast.expr(), schema)
+    } else if let Some(is_null) = expr.downcast_ref::<df_expr::IsNullExpr>() {
+        can_be_pushed_down(is_null.arg(), schema)
+    } else if let Some(is_not_null) = expr.downcast_ref::<df_expr::IsNotNullExpr>() {
+        can_be_pushed_down(is_not_null.arg(), schema)
     } else {
-        tracing::debug!(%df_expr, "DataFusion expression can't be pushed down");
+        tracing::warn!(%df_expr, "DataFusion expression can't be pushed down");
         false
     }
 }
@@ -163,8 +180,10 @@ fn supported_data_types(dt: &DataType) -> bool {
             dt,
             Boolean
                 | Utf8
+                | LargeUtf8
                 | Utf8View
                 | Binary
+                | LargeBinary
                 | BinaryView
                 | Date32
                 | Date64

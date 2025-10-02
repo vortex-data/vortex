@@ -53,6 +53,7 @@ message BinaryOpts {
     Sub = 9;
     Mul = 10;
     Div = 11;
+    RDiv = 12;
   }
 }
 

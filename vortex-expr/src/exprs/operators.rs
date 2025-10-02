@@ -46,6 +46,8 @@ pub enum Operator {
     Mul,
     /// Divide the left side by the right side
     Div,
+    /// Divide the right side by the left side
+    RDiv,
 }
 
 impl From<Operator> for i32 {
@@ -70,6 +72,7 @@ impl From<Operator> for BinaryOp {
             Operator::Sub => BinaryOp::Sub,
             Operator::Mul => BinaryOp::Mul,
             Operator::Div => BinaryOp::Div,
+            Operator::RDiv => BinaryOp::RDiv,
         }
     }
 }
@@ -97,6 +100,7 @@ impl From<BinaryOp> for Operator {
             BinaryOp::Sub => Operator::Sub,
             BinaryOp::Mul => Operator::Mul,
             BinaryOp::Div => Operator::Div,
+            BinaryOp::RDiv => Operator::RDiv,
         }
     }
 }
@@ -115,7 +119,7 @@ impl Display for Operator {
             Operator::Add => "+",
             Operator::Sub => "-",
             Operator::Mul => "*",
-            Operator::Div => "/",
+            Operator::Div | Operator::RDiv => "/",
         };
         Display::fmt(display, f)
     }
@@ -135,7 +139,8 @@ impl Operator {
             | Operator::Add
             | Operator::Sub
             | Operator::Mul
-            | Operator::Div => None,
+            | Operator::Div
+            | Operator::RDiv => None,
         }
     }
 
@@ -147,7 +152,7 @@ impl Operator {
         }
     }
 
-    /// Change the sides of the operator, where changing lhs and rhs won't change the result of the operation
+    /// Change the sides of the operator, so that changing lhs and rhs won't change the result of the operation
     pub fn swap(self) -> Self {
         match self {
             Operator::Eq => Operator::Eq,
@@ -161,7 +166,8 @@ impl Operator {
             Operator::Add => Operator::Add,
             Operator::Sub => Operator::Sub,
             Operator::Mul => Operator::Mul,
-            Operator::Div => Operator::Div, //RDiv?
+            Operator::Div => Operator::RDiv,
+            Operator::RDiv => Operator::Div,
         }
     }
 
