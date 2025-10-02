@@ -73,7 +73,7 @@ pub fn cuda_bit_unpack(
     array: &BitPackedArray,
     ctx: Arc<CudaContext>,
 ) -> VortexResult<PrimitiveArray> {
-    if array.len() == 0 {
+    if array.is_empty() {
         return Ok(Canonical::empty(array.dtype()).into_primitive());
     }
 
