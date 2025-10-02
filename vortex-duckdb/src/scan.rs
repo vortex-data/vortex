@@ -411,7 +411,9 @@ impl TableFunction for VortexTableFunction {
             return Ok(false);
         };
         bind_data.filter_exprs.push(expr);
-        Ok(true)
+        // It seems like there is a regression in the DuckDB planner we actually delete filters??
+        // TODO(joe): file and issue and fix.
+        Ok(false)
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
