@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+// This code is only exercised on CI with cuda and linux
+#![allow(dead_code)]
+
+use std::sync::{Arc, LazyLock};
 
 use cudarc::driver::{CudaContext, CudaFunction, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::Ptx;
+use parking_lot::RwLock;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::BitPackedArray;
+use vortex_utils::aliases::hash_map::HashMap;
 
 #[derive(Hash, PartialEq, Eq, Debug)]
 struct UnpackKernelId {
@@ -28,9 +32,10 @@ impl UnpackKernelId {
     }
 }
 
-static CUDA_KERNELS: RwLock<HashMap<UnpackKernelId, CudaFunction>> = RwLock::new(HashMap::new());
+static CUDA_KERNELS: LazyLock<RwLock<HashMap<UnpackKernelId, CudaFunction>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 
-pub fn cuda_bit_unpack_kernel(
+fn cuda_bit_unpack_kernel(
     kernel_id: UnpackKernelId,
     ctx: Arc<CudaContext>,
 ) -> VortexResult<CudaFunction> {
@@ -38,9 +43,10 @@ pub fn cuda_bit_unpack_kernel(
         return Ok(kernel.clone());
     }
     let module = ctx
-        .load_module(Ptx::from_file(
-            format!("kernels/fls_{}_bit_unpack.ptx", kernel_id.output_bit_width).as_ref(),
-        ))
+        .load_module(Ptx::from_file(format!(
+            "kernels/fls_{}_bit_unpack.ptx",
+            kernel_id.output_bit_width
+        )))
         .map_err(|e| vortex_err!("Failed to load kernel module: {e}"))?;
 
     let kernel_func = module
@@ -58,7 +64,7 @@ pub fn cuda_bit_unpack_kernel(
             .as_ref(),
         )
         .map_err(|e| vortex_err!("Failed to load function: {e}"))?;
-    CUDA_KERNELS.write()?.insert(kernel_id, kernel_func.clone());
+    CUDA_KERNELS.write().insert(kernel_id, kernel_func.clone());
     Ok(kernel_func)
 }
 
@@ -77,7 +83,8 @@ pub fn cuda_bit_unpack(
     let kernel_func = cuda_bit_unpack_kernel(
         UnpackKernelId::new(
             array.bit_width(),
-            array.dtype().as_ptype().bit_width() as u8,
+            u8::try_from(array.dtype().as_ptype().bit_width())
+                .vortex_expect("bit width must fit in u8"),
         ),
         ctx.clone(),
     )?;
@@ -119,7 +126,7 @@ pub fn cuda_bit_unpack(
             .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
         Ok(PrimitiveArray::new(buffer, array.validity().clone())
             .reinterpret_cast(array.dtype().as_ptype()))
-    });
+    })
 }
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]

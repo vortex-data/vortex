@@ -15,12 +15,13 @@ version = { workspace = true }
 
 [dependencies]
 cudarc = { workspace = true }
+parking_lot = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true, features = ["cuda"] }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
-vortex-mask = { workspace = true }
+vortex-utils = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }
