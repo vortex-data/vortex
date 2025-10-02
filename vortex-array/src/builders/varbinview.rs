@@ -536,32 +536,36 @@ impl BuffersWithOffsets {
     pub fn from_array(array: &VarBinViewArray, compaction_threshold: f64) -> Self {
         let array = array.clone();
         let mut has_rewrite = false;
-        let strategies: Vec<_> = array
-            .buffer_utilisations()
-            .iter()
-            .map(|buffer| match buffer.overall_utilisation() {
-                // always rewrite empty or non-used buffers,
-                0.0 => {
-                    has_rewrite = true;
-                    CompactionStrategy::Rewrite
-                }
+        let strategies: Vec<_> = if compaction_threshold == 0.0 {
+            vec![CompactionStrategy::KeepFull; array.buffers().len()]
+        } else {
+            array
+                .buffer_utilisations()
+                .iter()
+                .map(|buffer| match buffer.overall_utilisation() {
+                    // always rewrite empty or non-used buffers,
+                    0.0 => {
+                        has_rewrite = true;
+                        CompactionStrategy::Rewrite
+                    }
 
-                // at this point we know the buffer has some usage, keep if it is utilised above the threshold
-                utilised if utilised >= compaction_threshold => CompactionStrategy::KeepFull,
+                    // at this point we know the buffer has some usage, keep if it is utilised above the threshold
+                    utilised if utilised >= compaction_threshold => CompactionStrategy::KeepFull,
 
-                // if overall utilisation is low, check if it is high enough when sliced
-                _ if buffer.range_utilisation() >= compaction_threshold => {
-                    let Range { start, end } = buffer.range();
-                    CompactionStrategy::Slice { start, end }
-                }
+                    // if overall utilisation is low, check if it is high enough when sliced
+                    _ if buffer.range_utilisation() >= compaction_threshold => {
+                        let Range { start, end } = buffer.range();
+                        CompactionStrategy::Slice { start, end }
+                    }
 
-                // can't salvage this buffer, rewrite
-                _ => {
-                    has_rewrite = true;
-                    CompactionStrategy::Rewrite
-                }
-            })
-            .collect();
+                    // can't salvage this buffer, rewrite
+                    _ => {
+                        has_rewrite = true;
+                        CompactionStrategy::Rewrite
+                    }
+                })
+                .collect()
+        };
 
         let buffers_with_offsets_iter = strategies.iter().zip(array.buffers().iter()).map(
             |(strategy, buffer)| match strategy {
