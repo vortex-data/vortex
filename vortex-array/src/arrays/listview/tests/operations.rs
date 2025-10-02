@@ -174,7 +174,7 @@ fn test_slice_edge_cases(
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// Constant tests
+// Cast tests
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[rstest]
@@ -450,6 +450,10 @@ fn test_constant_repeated_same_lists() {
     assert_eq!(is_constant(&listview).unwrap(), Some(true));
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Mask tests
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 // Conformance tests for common mask scenarios.
 #[rstest]
 #[case::basic(create_basic_listview())]
@@ -458,8 +462,6 @@ fn test_constant_repeated_same_lists() {
 fn test_mask_listview_conformance(#[case] listview: ListViewArray) {
     test_mask_conformance(listview.as_ref());
 }
-
-// ListView-specific tests that aren't covered by conformance.
 
 #[test]
 fn test_mask_preserves_structure() {
