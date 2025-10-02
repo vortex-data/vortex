@@ -2,11 +2,31 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::{Itertools, MinMaxResult};
+use vortex_dtype::DecimalDType;
 use vortex_error::VortexExpect;
 use vortex_scalar::{BigCast, DecimalValueType, i256};
 
 use crate::arrays::DecimalArray;
 use crate::vtable::ValidityHelper;
+
+/// Maps a decimal precision into the smallest type that can represent it.
+pub fn smallest_decimal_value_type(decimal_dtype: &DecimalDType) -> DecimalValueType {
+    match decimal_dtype.precision() {
+        1..=2 => DecimalValueType::I8,
+        3..=4 => DecimalValueType::I16,
+        5..=9 => DecimalValueType::I32,
+        10..=18 => DecimalValueType::I64,
+        19..=38 => DecimalValueType::I128,
+        39..=76 => DecimalValueType::I256,
+        0 => unreachable!("precision must be greater than 0"),
+        p => unreachable!("precision larger than 76 is invalid found precision {p}"),
+    }
+}
+
+/// True if `value_type` can represent every value of the type `dtype`.
+pub fn is_compatible_decimal_value_type(value_type: DecimalValueType, dtype: DecimalDType) -> bool {
+    value_type >= smallest_decimal_value_type(&dtype)
+}
 
 macro_rules! try_downcast {
     ($array:expr, from: $src:ty, to: $($dst:ty),*) => {{

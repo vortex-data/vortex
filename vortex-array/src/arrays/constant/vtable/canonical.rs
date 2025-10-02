@@ -16,7 +16,7 @@ use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
     BinaryView, BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray,
-    ListArray, NullArray, StructArray, VarBinViewArray, smallest_storage_type,
+    ListArray, NullArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
 };
 use crate::builders::builder_with_capacity;
 use crate::validity::Validity;
@@ -66,7 +66,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 })
             }
             DType::Decimal(decimal_type, ..) => {
-                let size = smallest_storage_type(decimal_type);
+                let size = smallest_decimal_value_type(decimal_type);
                 let decimal = scalar.as_decimal();
                 let Some(value) = decimal.decimal_value() else {
                     let all_null = match_each_decimal_value_type!(size, |D| {

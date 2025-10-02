@@ -13,6 +13,7 @@ mod bool;
 mod chunked;
 mod constant;
 mod datetime;
+mod decimal;
 mod extension;
 mod fixed_size_list;
 mod list;
@@ -26,7 +27,8 @@ mod varbinview;
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
-mod decimal;
+
+// TODO(connor): Export exact types, not glob.
 
 pub use bool::*;
 pub use chunked::*;
