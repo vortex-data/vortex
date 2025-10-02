@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use log::{info, trace};
+use log::trace;
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::{Config, Connection, Database};
@@ -164,7 +164,7 @@ impl DuckDBCtx {
 
         // Generate and execute table registration commands
         let commands = self.generate_table_commands(&effective_url, extension, dataset, object);
-        info!("Executing table registration commands: {commands}");
+        trace!("Executing table registration commands: {commands}");
         self.execute_query(&commands)?;
 
         Ok(())
@@ -200,9 +200,7 @@ impl DuckDBCtx {
     ) -> String {
         // Base path contains trailing /.
         let base_dir = base_url.as_str();
-        info!("base_dir1: {base_dir}");
         let base_dir = base_dir.strip_prefix("file://").unwrap_or(base_dir);
-        info!("base_dir2: {base_dir}");
         match dataset {
             BenchmarkDataset::TpcH { .. } => {
                 let mut commands = String::new();

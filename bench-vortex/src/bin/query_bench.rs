@@ -222,6 +222,10 @@ struct FinewebArgs {
           ]
     )]
     targets: Vec<Target>,
+
+    // Dummy, unused but we are required to accept it to make the CI automation happy
+    #[arg(long)]
+    scale_factor: u64,
 }
 
 fn validate_scale_factor(val: &str) -> Result<String, String> {

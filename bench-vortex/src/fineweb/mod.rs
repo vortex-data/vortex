@@ -94,7 +94,10 @@ impl Benchmark for Fineweb {
     fn generate_data(&self, target: &Target) -> anyhow::Result<()> {
         // Before downloading anything, make sure we are using a supported target.
         anyhow::ensure!(
-            matches!(target.format, Format::Parquet | Format::OnDiskVortex),
+            matches!(
+                target.format,
+                Format::Parquet | Format::OnDiskVortex | Format::VortexCompact
+            ),
             "unsupported format for `fineweb` bench: {}",
             target.format
         );
