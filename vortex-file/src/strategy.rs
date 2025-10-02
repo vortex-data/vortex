@@ -45,7 +45,7 @@ impl WriteStrategyBuilder {
         }
     }
 
-    /// Override the [compressor][CompressorPlugin] used for compressing chunks in the file.
+    /// Override the [compressor][Compressor] used for compressing chunks in the file.
     ///
     /// If not provided, this will use a BtrBlocks-style cascading compressor that tries to balance
     /// total size with decoding performance.

@@ -100,7 +100,7 @@ impl VortexWriteOptions {
         self
     }
 
-    /// Override the [compressor][CompressorPlugin] used to compact array chunks.
+    /// Override the [compressor][Compressor] used to compact array chunks.
     ///
     /// By default, we use a compressor based on BtrBlocks that balances size and decoding speed.
     pub fn with_compressor(mut self, compressor: Compressor) -> Self {
