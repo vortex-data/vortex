@@ -33,8 +33,8 @@ pub struct DictReader {
 
     /// Length of the values array
     values_len: usize,
-    /// Cached bloom filters
-    bloom_filters: OnceLock<SharedBloomFilter>,
+    /// Cached bloom filter
+    bloom_filter: OnceLock<SharedBloomFilter>,
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
@@ -63,7 +63,7 @@ impl DictReader {
             name,
             segment_source,
             values_len,
-            bloom_filters: Default::default(),
+            bloom_filter: Default::default(),
             values_array: Default::default(),
             values_evals: Default::default(),
             values,
@@ -75,7 +75,7 @@ impl DictReader {
         let segment_id = self.layout.bloom_filter_segment();
         let segment_source = self.segment_source.clone();
 
-        self.bloom_filters
+        self.bloom_filter
             .get_or_init(move || {
                 async move {
                     let Some(segment_id) = segment_id else {

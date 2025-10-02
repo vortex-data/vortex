@@ -141,6 +141,10 @@ impl LayoutStrategy for DictStrategy {
         // Each of these pairs becomes a child dict layout.
         let runs = DictionaryTransformer::new(dict_stream);
 
+        // We make sure all the bloom filters get written into adjacent segment, so that
+        // at query time they can all get prefetched and cached together.
+        let mut bloom_eof = eof.split_off();
+
         let dtype2 = dtype.clone();
         let child_layouts = stream! {
             pin_mut!(runs);
@@ -178,16 +182,15 @@ impl LayoutStrategy for DictStrategy {
 
                 // If bloom filter writing is enabled
                 let bloom_filter_fut = if options.experimental_bloom_filters {
-                    let bloom_eof = eof.split_off();
+                    let bloom_id = bloom_eof.advance();
                     let segment_sink2 = segment_sink.clone();
 
                     // Write bloom filter to segment if present
                     handle.spawn_nested(move |h| async move {
                         if let Some(filter) = bloom_filter.await? {
-                            let bloom_filter_id = bloom_eof.downgrade();
                             let serialized = vec![filter.serialize()];
                             Ok(Some(h.spawn_nested(move |_h| async move {
-                                segment_sink2.write(bloom_filter_id, serialized).await
+                                segment_sink2.write(bloom_id, serialized).await
                             })))
                         } else {
                             Ok(None)
@@ -199,7 +202,7 @@ impl LayoutStrategy for DictStrategy {
                     })
                 };
 
-                yield async move {
+                let next = async move {
                     let (codes_layout, values_layout, bloom_filter_future) = try_join!(codes_fut, values_layout, bloom_filter_fut)?;
                     let bloom_segment_id = if let Some(fut) = bloom_filter_future {
                         Some(fut.await?)
@@ -208,6 +211,8 @@ impl LayoutStrategy for DictStrategy {
                     };
                     Ok::<_, VortexError>((codes_layout, values_layout, bloom_segment_id))
                 }.boxed();
+
+                yield next;
             }
         };
 
