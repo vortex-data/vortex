@@ -4,6 +4,8 @@
 use crate::duckdb::Data;
 use crate::{cpp, wrapper};
 
+// A wrapped buffer that give duckdb a strong reference to a vortex buffer.
+
 wrapper!(
     VectorBuffer,
     cpp::duckdb_vx_vector_buffer,
