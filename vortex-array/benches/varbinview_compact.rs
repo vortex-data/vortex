@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-
 use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -12,6 +10,7 @@ use vortex_array::compute::take;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
+use vortex_error::VortexUnwrap;
 
 fn main() {
     divan::main();
@@ -58,10 +57,10 @@ fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)
 
     bencher
         .with_inputs(|| {
-            let taken = take(base_array.as_ref(), &indices).unwrap();
+            let taken = take(base_array.as_ref(), &indices).vortex_unwrap();
             taken.to_varbinview()
         })
-        .bench_values(|array| array.compact_buffers().unwrap())
+        .bench_values(|array| array.compact_buffers().vortex_unwrap())
 }
 
 fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)) {
@@ -73,11 +72,10 @@ fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize,
             let sliced = base_array.as_ref().slice(0..output_size);
             sliced.to_varbinview()
         })
-        .bench_values(|array| array.compact_buffers().unwrap())
+        .bench_values(|array| array.compact_buffers().vortex_unwrap())
 }
 
 /// Creates a base VarBinViewArray with mix of inlined and outlined strings.
-/// Buffers are 100% utilized. Use with take() to create fragmentation.
 fn build_varbinview_fixture(len: usize) -> VarBinViewArray {
     let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), len);
     let mut rng = StdRng::seed_from_u64(42);
@@ -85,9 +83,9 @@ fn build_varbinview_fixture(len: usize) -> VarBinViewArray {
     for _ in 0..len {
         // Mix of inlined (<=12 bytes) and outlined (>12 bytes) strings
         let str_len = if rng.random_bool(0.5) {
-            rng.random_range(5..=12) // inlined
+            rng.random_range(5..=12)
         } else {
-            rng.random_range(13..=50) // outlined
+            rng.random_range(13..=50)
         };
 
         let s: String = (0..str_len)
