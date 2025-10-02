@@ -11,6 +11,13 @@
 extern "C" {
 #endif
 
+typedef struct duckdb_vx_shared_buffer_ *duckdb_vx_shared_buffer;
+
+duckdb_vx_shared_buffer duckdb_vx_shared_buffer_create(duckdb_vx_data buffer);
+
+void duckdb_vx_shared_buffer_destroy(duckdb_vx_shared_buffer *buffer);
+
+
 /// Slice the vector to a new dictionary vector, using the current vector's values and
 /// the provided selection vector.
 ///
@@ -37,6 +44,8 @@ void duckdb_vx_string_vector_add_buffer(duckdb_vector ffi_vector, duckdb_vx_data
 // Add the buffer to the data vector (basically, keep it alive as long as the vector) and set the data pointer.
 // You must ensure that the ptr is valid for the lifetime of the vector and the ptr addr + size is valid.
 void duckdb_vx_vector_set_data_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer);
+
+void duckdb_vx_vector_set_shared_data_buffer(duckdb_vector ffi_vector, duckdb_vx_shared_buffer buffer);
 
 // Set the data pointer for the vector. This is the start of the values array in the vector.
 void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *ptr);

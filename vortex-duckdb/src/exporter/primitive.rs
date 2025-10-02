@@ -6,17 +6,20 @@ use vortex::buffer::Buffer;
 use vortex::dtype::{NativePType, match_each_native_ptype};
 use vortex::error::VortexResult;
 
-use crate::duckdb::Vector;
+use crate::duckdb::{Vector, VectorBuffer};
 use crate::exporter::{ColumnExporter, validity};
 
 struct PrimitiveExporter<T: NativePType> {
     buffer: Buffer<T>,
+    shared_buffer: VectorBuffer,
 }
 
 pub fn new_exporter(array: &PrimitiveArray) -> VortexResult<Box<dyn ColumnExporter>> {
     let prim = match_each_native_ptype!(array.ptype(), |T| {
+        let buffer = array.buffer::<T>();
         Box::new(PrimitiveExporter {
-            buffer: array.buffer::<T>(),
+            buffer: buffer.clone(),
+            shared_buffer: VectorBuffer::new(buffer),
         }) as Box<dyn ColumnExporter>
     });
     Ok(if array.dtype().is_nullable() {
@@ -31,7 +34,7 @@ impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
         assert!(self.buffer.len() >= offset + len);
 
         let pos = unsafe { self.buffer.as_ptr().add(offset) };
-        unsafe { vector.set_data_buffer(self.buffer.clone()) };
+        unsafe { vector.set_vector_buffer(&self.shared_buffer) };
         // While we are setting a *mut T this is an artifact of the C API, this is in fact const.
         unsafe { vector.set_data_ptr(pos as *mut T) };
 

@@ -18,6 +18,23 @@ use crate::{cpp, wrapper};
 
 pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
 
+wrapper!(
+    VectorBuffer,
+    cpp::duckdb_vx_shared_buffer,
+    cpp::duckdb_vx_shared_buffer_destroy
+);
+
+impl VectorBuffer {
+    pub fn new<T>(data: T) -> Self {
+        let data = Data::from(Box::new(data));
+        Self::create(data)
+    }
+
+    pub fn create(buffer: Data) -> Self {
+        unsafe { Self::own(cpp::duckdb_vx_shared_buffer_create(buffer.as_ptr())) }
+    }
+}
+
 wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 
 /// Safety: It is safe to mark `Vector` as `Send` as the memory it points is `Send`.
@@ -145,6 +162,10 @@ impl Vector {
     pub unsafe fn set_data_buffer<T>(&self, buffer: T) {
         let data = Data::from(Box::new(buffer));
         unsafe { cpp::duckdb_vx_vector_set_data_buffer(self.as_ptr(), data.into_ptr()) }
+    }
+
+    pub unsafe fn set_vector_buffer(&self, buffer: &VectorBuffer) {
+        unsafe { cpp::duckdb_vx_vector_set_shared_data_buffer(self.as_ptr(), buffer.as_ptr()) }
     }
 
     /// Sets the data pointer for the vector. This is the start of the values array in the vector.

@@ -69,6 +69,23 @@ public:
 
 } // namespace vortex
 
+extern "C" duckdb_vx_shared_buffer duckdb_vx_shared_buffer_create(duckdb_vx_data buffer) {
+    auto data = reinterpret_cast<vortex::CData *>(buffer);
+//    auto shared_buffer = new duckdb::shared_ptr<vortex::ExternalVectorBuffer>(unique_ptr<vortex::CData>(data));
+    auto* shared_buffer = new duckdb::shared_ptr<vortex::ExternalVectorBuffer>(
+        duckdb::make_shared_ptr<vortex::ExternalVectorBuffer>(unique_ptr<vortex::CData>(data))
+    );
+    return reinterpret_cast<duckdb_vx_shared_buffer>(shared_buffer);
+}
+
+extern "C" void duckdb_vx_shared_buffer_destroy(duckdb_vx_shared_buffer *buffer) {
+    if (buffer != nullptr && *buffer != nullptr) {
+        auto shared_buffer = reinterpret_cast<shared_ptr<vortex::ExternalVectorBuffer> *>(*buffer);
+        delete shared_buffer;
+        *buffer = nullptr;
+    }
+}
+
 extern "C" void duckdb_vx_string_vector_add_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer) {
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
     auto data = reinterpret_cast<vortex::CData *>(buffer);
@@ -82,6 +99,13 @@ extern "C" void duckdb_vx_vector_set_data_buffer(duckdb_vector ffi_vector, duckd
     auto data = reinterpret_cast<vortex::CData *>(buffer);
     auto ext_buffer = duckdb::make_shared_ptr<vortex::ExternalVectorBuffer>(unique_ptr<vortex::CData>(data));
     dvector->SetDataBuffer(ext_buffer);
+}
+
+extern "C" void duckdb_vx_vector_set_shared_data_buffer(duckdb_vector ffi_vector, duckdb_vx_shared_buffer buffer) {
+    auto vector = reinterpret_cast<Vector *>(ffi_vector);
+    auto dvector = reinterpret_cast<vortex::DataVector *>(vector);
+    auto data = reinterpret_cast<shared_ptr<vortex::ExternalVectorBuffer> *>(buffer);
+    dvector->SetDataBuffer(*data);
 }
 
 extern "C" void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *ptr) {
