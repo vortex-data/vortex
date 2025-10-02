@@ -128,8 +128,10 @@ mod tests {
 
         assert_eq!(array.values_type(), dest_values_type);
         match_each_decimal_value_type!(array.values_type(), |D| {
+            let buffer = array.buffer::<D>();
             Ok(Box::new(DecimalZeroCopyExporter {
-                values: array.buffer::<D>(),
+                values: buffer.clone(),
+                shared_buffer: VectorBuffer::new(buffer),
                 validity,
             }))
         })
