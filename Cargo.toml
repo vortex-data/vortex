@@ -253,19 +253,6 @@ zstd = { version = "0.13.3", default-features = false, features = [
     "zdict_builder",
 ] }
 
-[patch.crates-io]
-datafusion = { version = "50.1", git = "https://github.com/apache/datafusion.git", rev = "d5065d6b3a2ed870926fa4f5e8fdb8b472a27ff1" }
-datafusion-catalog = { version = "50.1", git = "https://github.com/apache/datafusion.git", rev = "d5065d6b3a2ed870926fa4f5e8fdb8b472a27ff1" }
-datafusion-common = { version = "50.1", git = "https://github.com/apache/datafusion.git", rev = "d5065d6b3a2ed870926fa4f5e8fdb8b472a27ff1" }
-datafusion-common-runtime = { version = "50.1", git = "https://github.com/apache/datafusion.git", rev = "d5065d6b3a2ed870926fa4f5e8fdb8b472a27ff1" }
-datafusion-datasource = { version = "50.1", git = "https://github.com/apache/datafusion.git", rev = "d5065d6b3a2ed870926fa4f5e8fdb8b472a27ff1" }
-datafusion-execution = { version = "50.1", git = "https://github.com/apache/datafusion.git", rev = "d5065d6b3a2ed870926fa4f5e8fdb8b472a27ff1" }
-datafusion-expr = { version = "50.1", git = "https://github.com/apache/datafusion.git", rev = "d5065d6b3a2ed870926fa4f5e8fdb8b472a27ff1" }
-datafusion-physical-expr = { version = "50.1", git = "https://github.com/apache/datafusion.git", rev = "d5065d6b3a2ed870926fa4f5e8fdb8b472a27ff1" }
-datafusion-physical-expr-adapter = { version = "50.1", git = "https://github.com/apache/datafusion.git", rev = "d5065d6b3a2ed870926fa4f5e8fdb8b472a27ff1" }
-datafusion-physical-expr-common = { version = "50.1", git = "https://github.com/apache/datafusion.git", rev = "d5065d6b3a2ed870926fa4f5e8fdb8b472a27ff1" }
-datafusion-physical-plan = { version = "50.1", git = "https://github.com/apache/datafusion.git", rev = "d5065d6b3a2ed870926fa4f5e8fdb8b472a27ff1" }
-
 [workspace.dependencies.getrandom_v03]
 features = ["wasm_js"]
 package = "getrandom"
