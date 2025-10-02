@@ -5,12 +5,12 @@ use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::{DType, PType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 
-use super::PrimitiveEncoding;
-use crate::arrays::{PrimitiveArray, PrimitiveVTable};
+use super::PrimitiveArray;
+use crate::EmptyMetadata;
+use crate::arrays::{PrimitiveEncoding, PrimitiveVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
+use crate::vtable::SerdeVTable;
 
 impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
     type Metadata = EmptyMetadata;
@@ -63,15 +63,5 @@ impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
             let buffer = Buffer::<P>::from_byte_buffer(buffer);
             Ok(PrimitiveArray::new(buffer, validity))
         })
-    }
-}
-
-impl VisitorVTable<PrimitiveVTable> for PrimitiveVTable {
-    fn visit_buffers(array: &PrimitiveArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(array.byte_buffer());
-    }
-
-    fn visit_children(array: &PrimitiveArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(array.validity(), array.len());
     }
 }

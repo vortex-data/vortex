@@ -2,14 +2,47 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, PType};
-use vortex_error::VortexResult;
+use vortex_dtype::{DType, NativePType, PType};
+use vortex_error::{VortexResult, vortex_panic};
 
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{cast, min_max};
+use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
+    /// Return a slice of the array's buffer.
+    ///
+    /// NOTE: these values may be nonsense if the validity buffer indicates that the value is null.
+    pub fn as_slice<T: NativePType>(&self) -> &[T] {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get slice of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        let raw_slice = self.byte_buffer().as_ptr();
+        // SAFETY: alignment of Buffer is checked on construction
+        unsafe {
+            std::slice::from_raw_parts(raw_slice.cast(), self.byte_buffer().len() / size_of::<T>())
+        }
+    }
+
+    pub fn reinterpret_cast(&self, ptype: PType) -> Self {
+        if self.ptype() == ptype {
+            return self.clone();
+        }
+
+        assert_eq!(
+            self.ptype().byte_width(),
+            ptype.byte_width(),
+            "can't reinterpret cast between integers of two different widths"
+        );
+
+        PrimitiveArray::from_byte_buffer(self.byte_buffer().clone(), ptype, self.validity().clone())
+    }
+
     pub fn downcast(&self) -> VortexResult<PrimitiveArray> {
         if !self.ptype().is_int() {
             return Ok(self.clone());
