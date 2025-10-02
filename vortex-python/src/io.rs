@@ -12,8 +12,7 @@ use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexResult};
-use vortex::file::VortexWriteOptions;
-use vortex::file::WriteStrategyBuilder;
+use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{ArrayRef, Canonical, IntoArray};
 
