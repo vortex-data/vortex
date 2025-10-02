@@ -6,12 +6,11 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use super::StructEncoding;
-use crate::arrays::{StructArray, StructVTable};
+use crate::EmptyMetadata;
+use crate::arrays::struct_::{StructArray, StructEncoding, StructVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
+use crate::vtable::SerdeVTable;
 
 impl SerdeVTable<StructVTable> for StructVTable {
     type Metadata = EmptyMetadata;
@@ -57,16 +56,5 @@ impl SerdeVTable<StructVTable> for StructVTable {
             .try_collect()?;
 
         StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
-    }
-}
-
-impl VisitorVTable<StructVTable> for StructVTable {
-    fn visit_buffers(_array: &StructArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &StructArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(array.validity(), array.len());
-        for (idx, name) in array.names().iter().enumerate() {
-            visitor.visit_child(name.as_ref(), &array.fields()[idx]);
-        }
     }
 }
