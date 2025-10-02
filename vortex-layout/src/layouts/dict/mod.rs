@@ -48,8 +48,12 @@ impl VTable for DictVTable {
         ))
     }
 
-    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
-        vec![]
+    fn segment_ids(layout: &Self::Layout) -> Vec<SegmentId> {
+        if let Some(bloom_filter) = layout.bloom_filter {
+            vec![bloom_filter]
+        } else {
+            vec![]
+        }
     }
 
     fn nchildren(_layout: &Self::Layout) -> usize {

@@ -72,7 +72,11 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
             None => "N/A".to_string(),
             Some(segment_id) => {
                 let segment_spec = cursor.segment_spec(segment_id);
-                format!("Segment {}: {} bytes", *segment_id, segment_spec.length)
+                format!(
+                    "Segment {}: {} bytes",
+                    *segment_id,
+                    size_formatter(segment_spec.length as usize)
+                )
             }
         };
         rows.push(Text::from(format!("Bloom Filter: {bloom_filter_info}")).bold());
