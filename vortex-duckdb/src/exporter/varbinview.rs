@@ -3,17 +3,19 @@
 
 use std::ffi::c_char;
 
+use itertools::Itertools;
 use vortex::arrays::{BinaryView, Inlined, VarBinViewArray};
 use vortex::buffer::{Buffer, ByteBuffer};
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::duckdb::Vector;
+use crate::duckdb::{Vector, VectorBuffer};
 use crate::exporter::{ColumnExporter, all_invalid};
 
 struct VarBinViewExporter {
     views: Buffer<BinaryView>,
     buffers: Vec<ByteBuffer>,
+    vector_buffers: Vec<VectorBuffer>,
     validity: Mask,
 }
 
@@ -29,6 +31,12 @@ pub(crate) fn new_exporter(array: &VarBinViewArray) -> VortexResult<Box<dyn Colu
     Ok(Box::new(VarBinViewExporter {
         views: array.views().clone(),
         buffers: array.buffers().to_vec(),
+        vector_buffers: array
+            .buffers()
+            .iter()
+            .cloned()
+            .map(|b| VectorBuffer::new(b))
+            .collect_vec(),
         validity: array.validity_mask(),
     }))
 }
@@ -50,8 +58,8 @@ impl ColumnExporter for VarBinViewExporter {
         unsafe { vector.set_validity(&self.validity, offset, len) };
 
         // We register our buffers zero-copy with DuckDB and re-use them in each vector.
-        for buffer in &self.buffers {
-            vector.add_string_buffer(buffer.clone());
+        for buffer in &self.vector_buffers {
+            vector.add_string_vector_buffer(buffer.clone());
         }
 
         Ok(())
