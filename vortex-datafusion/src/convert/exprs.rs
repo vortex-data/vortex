@@ -8,11 +8,13 @@ use datafusion_expr::Operator as DFOperator;
 use datafusion_physical_expr::{PhysicalExpr, PhysicalExprRef};
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::expressions as df_expr;
+use itertools::Itertools;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::{DType, Nullability};
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    BinaryExpr, ExprRef, LikeExpr, Operator, and, cast, get_item, is_null, lit, not, root,
+    BinaryExpr, ExprRef, LikeExpr, Operator, and, cast, get_item, is_null, list_contains, lit, not,
+    root,
 };
 use vortex::scalar::Scalar;
 
@@ -76,6 +78,30 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
         if let Some(is_not_null_expr) = df.as_any().downcast_ref::<df_expr::IsNotNullExpr>() {
             let arg = ExprRef::try_from_df(is_not_null_expr.arg().as_ref())?;
             return Ok(not(is_null(arg)));
+        }
+
+        if let Some(in_list) = df.as_any().downcast_ref::<df_expr::InListExpr>() {
+            let value = ExprRef::try_from_df(in_list.expr().as_ref())?;
+            let list_elements: Vec<_> = in_list
+                .list()
+                .iter()
+                .map(|e| {
+                    if let Some(lit) = e.as_any().downcast_ref::<df_expr::Literal>() {
+                        Ok(Scalar::from_df(lit.value()))
+                    } else {
+                        Err(vortex_err!("Failed to cast sub-expression"))
+                    }
+                })
+                .try_collect()?;
+
+            let list = Scalar::list(
+                list_elements[0].dtype().clone(),
+                list_elements,
+                Nullability::Nullable,
+            );
+            let expr = list_contains(lit(list), value);
+
+            return Ok(if in_list.negated() { not(expr) } else { expr });
         }
 
         vortex_bail!("Couldn't convert DataFusion physical {df} expression to a vortex expression")
@@ -159,8 +185,11 @@ pub(crate) fn can_be_pushed_down(df_expr: &PhysicalExprRef, schema: &Schema) -> 
         can_be_pushed_down(is_null.arg(), schema)
     } else if let Some(is_not_null) = expr.downcast_ref::<df_expr::IsNotNullExpr>() {
         can_be_pushed_down(is_not_null.arg(), schema)
+    } else if let Some(in_list) = expr.downcast_ref::<df_expr::InListExpr>() {
+        can_be_pushed_down(in_list.expr(), schema)
+            && in_list.list().iter().all(|e| can_be_pushed_down(e, schema))
     } else {
-        tracing::warn!(%df_expr, "DataFusion expression can't be pushed down");
+        tracing::debug!(%df_expr, "DataFusion expression can't be pushed down");
         false
     }
 }
