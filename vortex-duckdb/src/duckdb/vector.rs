@@ -12,7 +12,6 @@ use bitvec::view::BitView;
 use vortex::error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 
 use crate::cpp::duckdb_vx_error;
-use crate::duckdb::data::Data;
 use crate::duckdb::vector_buffer::VectorBuffer;
 use crate::duckdb::{LogicalType, SelectionVector, Value};
 use crate::{cpp, wrapper};
@@ -146,7 +145,7 @@ impl Vector {
         unsafe { cpp::duckdb_vx_vector_set_vector_data_buffer(self.as_ptr(), buffer.as_ptr()) }
     }
 
-    pub fn add_string_vector_buffer<T>(&self, buffer: &VectorBuffer) {
+    pub fn add_string_vector_buffer(&self, buffer: &VectorBuffer) {
         unsafe {
             cpp::duckdb_vx_string_vector_add_vector_data_buffer(self.as_ptr(), buffer.as_ptr())
         }

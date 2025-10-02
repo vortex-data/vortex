@@ -35,14 +35,14 @@ void duckdb_vx_set_dictionary_vector_length(duckdb_vector dict, unsigned int len
 // Add the buffer to the string vector (basically, keep it alive as long as the vector).
 void duckdb_vx_string_vector_add_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer);
 
-void duckdb_vx_string_vector_add_shared_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer);
+void duckdb_vx_string_vector_add_vector_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer);
 
 
 // Add the buffer to the data vector (basically, keep it alive as long as the vector) and set the data pointer.
 // You must ensure that the ptr is valid for the lifetime of the vector and the ptr addr + size is valid.
 void duckdb_vx_vector_set_data_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer);
 
-void duckdb_vx_vector_set_shared_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer);
+void duckdb_vx_vector_set_vector_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer);
 
 // Set the data pointer for the vector. This is the start of the values array in the vector.
 void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *ptr);

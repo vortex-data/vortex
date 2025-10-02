@@ -59,7 +59,7 @@ impl ColumnExporter for VarBinViewExporter {
 
         // We register our buffers zero-copy with DuckDB and re-use them in each vector.
         for buffer in &self.vector_buffers {
-            vector.add_string_vector_buffer(buffer.clone());
+            vector.add_string_vector_buffer(buffer);
         }
 
         Ok(())

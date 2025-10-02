@@ -14,11 +14,11 @@ namespace vortex {
 // freed once the vector is done with the buffer.
 class ExternalVectorBuffer : public duckdb::VectorBuffer {
 public:
-    explicit ExternalVectorBuffer(unique_ptr<CData> data) : data(std::move(data)) {
+    explicit ExternalVectorBuffer(duckdb::unique_ptr<CData> data) : data(std::move(data)) {
     }
 
 private:
-    unique_ptr<CData> data;
+    duckdb::unique_ptr<CData> data;
 };
 
 } // namespace vortex
