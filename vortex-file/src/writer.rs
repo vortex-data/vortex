@@ -93,15 +93,11 @@ impl VortexWriteOptions {
 impl VortexWriteOptions {
     /// Prioritize small size over read-throughput and read-latency.
     pub fn compact() -> Self {
-        Self {
-            strategy: WriteStrategyBuilder::new()
+        Self::default().with_strategy(
+            WriteStrategyBuilder::new()
                 .with_compressor(CompactCompressor::default())
                 .build(),
-            exclude_dtype: false,
-            file_statistics: PRUNING_STATS.to_vec(),
-            max_variable_length_statistics_size: 64,
-            handle: Handle::find(),
-        }
+        )
     }
 
     /// Drop into the blocking writer API using the given runtime.
