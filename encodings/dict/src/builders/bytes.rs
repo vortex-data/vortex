@@ -6,9 +6,8 @@ use std::sync::Arc;
 
 use arrow_buffer::NullBufferBuilder;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{
-    BinaryView, PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable,
-};
+use vortex_array::arrays::binary_view::BinaryView;
+use vortex_array::arrays::{PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_buffer::{BufferMut, ByteBufferMut};
@@ -65,7 +64,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
             if bin_view.is_inlined() {
                 bin_view.as_inlined().value()
             } else {
-                &self.values[bin_view.as_view().to_range()]
+                &self.values[bin_view.as_view().as_range()]
             }
         })
     }

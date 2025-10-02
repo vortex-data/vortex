@@ -12,11 +12,12 @@ use vortex_scalar::{
     StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
 };
 
+use crate::arrays::binary_view::BinaryView;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
-    BinaryView, BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray,
-    ListArray, NullArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
+    BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray, ListArray,
+    NullArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
 };
 use crate::builders::builder_with_capacity;
 use crate::validity::Validity;

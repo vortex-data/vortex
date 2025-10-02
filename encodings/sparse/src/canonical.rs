@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use num_traits::NumCast;
+use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::arrays::{
-    BinaryView, BoolArray, BooleanBuffer, ConstantArray, FixedSizeListArray, ListArray, NullArray,
+    BoolArray, BooleanBuffer, ConstantArray, FixedSizeListArray, ListArray, NullArray,
     PrimitiveArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
 };
 use vortex_array::builders::{ArrayBuilder, DecimalBuilder, ListBuilder, builder_with_capacity};

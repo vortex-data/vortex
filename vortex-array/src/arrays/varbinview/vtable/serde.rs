@@ -7,12 +7,13 @@ use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use super::{BinaryView, VarBinViewVTable};
+use super::VarBinViewVTable;
+use crate::EmptyMetadata;
+use crate::arrays::binary_view::BinaryView;
 use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
+use crate::vtable::SerdeVTable;
 
 impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
     type Metadata = EmptyMetadata;
@@ -51,18 +52,5 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
         };
 
         VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
-    }
-}
-
-impl VisitorVTable<VarBinViewVTable> for VarBinViewVTable {
-    fn visit_buffers(array: &VarBinViewArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for buffer in array.buffers().as_ref() {
-            visitor.visit_buffer(buffer);
-        }
-        visitor.visit_buffer(&array.views().clone().into_byte_buffer());
-    }
-
-    fn visit_children(array: &VarBinViewArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(array.validity(), array.len())
     }
 }

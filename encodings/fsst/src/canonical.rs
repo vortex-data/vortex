@@ -3,7 +3,8 @@
 
 use std::sync::Arc;
 
-use vortex_array::arrays::{BinaryView, VarBinViewArray};
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
 use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
 use vortex_array::{Canonical, IntoArray, ToCanonical};
