@@ -9,6 +9,7 @@ use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_fastlanes::RLEArray;
 
+use crate::integer::IntCompressor;
 use crate::{Scheme, estimate_compression_ratio_with_sampling};
 
 /// Threshold for the average run length in an array before we consider run-length encoding.
@@ -112,14 +113,14 @@ where
         )?;
 
         // For indices and offsets, we always use integer compression without dictionary encoding.
-        let compressed_indices = crate::integer::IntCompressor::compress_no_dict(
+        let compressed_indices = IntCompressor::compress_no_dict(
             &rle_array.indices().to_primitive(),
             is_sample,
             allowed_cascading - 1,
             &[],
         )?;
 
-        let compressed_offsets = crate::integer::IntCompressor::compress_no_dict(
+        let compressed_offsets = IntCompressor::compress_no_dict(
             &rle_array.values_idx_offsets().to_primitive(),
             is_sample,
             allowed_cascading - 1,
