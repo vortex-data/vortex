@@ -370,14 +370,13 @@ impl CompletedBuffers {
                 Self::Default(completed_buffers),
                 BuffersWithOffsets::SomeCompacted { buffers, offsets },
             ) => {
-                let buffer_offset = completed_buffers.len() as u32;
                 let lookup = buffers
                     .iter()
-                    .enumerate()
-                    .map(|(old_idx, maybe_buffer)| {
-                        maybe_buffer
-                            .as_ref()
-                            .map(|_| old_idx as u32 + buffer_offset)
+                    .map(|maybe_buffer| {
+                        maybe_buffer.as_ref().map(|buffer| {
+                            completed_buffers.push(buffer.clone());
+                            completed_buffers.len() as u32 - 1
+                        })
                     })
                     .collect();
                 ViewAdjustment::rewriting(lookup, offsets)
