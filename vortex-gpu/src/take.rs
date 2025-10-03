@@ -25,11 +25,7 @@ where
         .load_module(Ptx::from_file("kernels/dict_take.ptx"))
         .map_err(|e| vortex_err!("Failed to load kernel module: {e}"))?;
 
-    let kernel_name = format!(
-        "dict_take_1024_c{}_v{}_values",
-        &Codes::PTYPE,
-        &Values::PTYPE
-    );
+    let kernel_name = format!("dict_take_c{}_v{}_values", &Codes::PTYPE, &Values::PTYPE);
 
     let kernel_func = module
         .load_function(&kernel_name)

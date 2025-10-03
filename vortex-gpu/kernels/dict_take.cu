@@ -7,7 +7,7 @@
 
 
 template<typename CodeT, typename ValueT>
-__device__ void dict_take_1024_values(
+__device__ void dict_take_values(
     const CodeT *__restrict codes_array,
     const ValueT *__restrict values,
     ValueT *__restrict values_out
@@ -28,12 +28,12 @@ __device__ void dict_take_1024_values(
 
 // Macro to generate the extern "C" wrapper for each type combination
 #define GENERATE_KERNEL(code_suffix, value_suffix, CodeType, ValueType) \
-extern "C" __global__ void dict_take_1024_c##code_suffix##_v##value_suffix##_values( \
+extern "C" __global__ void dict_take_c##code_suffix##_v##value_suffix##_values( \
     const CodeType *__restrict codes_array, \
     const ValueType *__restrict values, \
     ValueType *__restrict values_out \
 ) { \
-    dict_take_1024_values<CodeType, ValueType>(codes_array, values, values_out); \
+    dict_take_values<CodeType, ValueType>(codes_array, values, values_out); \
 }
 
 // Generate all combinations
