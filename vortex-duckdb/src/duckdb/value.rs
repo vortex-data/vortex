@@ -9,7 +9,7 @@ use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::NativeDType;
 use vortex::error::{VortexError, VortexExpect, vortex_err, vortex_panic};
 
-use crate::cpp::DUCKDB_TYPE;
+use crate::cpp::{DUCKDB_TYPE, idx_t};
 use crate::duckdb::LogicalType;
 use crate::{cpp, lifetime_wrapper};
 
@@ -28,7 +28,7 @@ impl<'a> ValueRef<'a> {
         string
     }
 
-    /// Extracts the value from the DuckDB `Value` into a `Val`.
+    /// Extracts the value from the DuckDB `Value` into a `ExtractedValue`.
     pub fn extract(&self) -> ExtractedValue {
         if unsafe { cpp::duckdb_is_null_value(self.as_ptr()) } {
             return ExtractedValue::Null;
@@ -97,6 +97,9 @@ impl<'a> ValueRef<'a> {
             DUCKDB_TYPE::DUCKDB_TYPE_TIME => {
                 ExtractedValue::Time(unsafe { cpp::duckdb_get_time(self.as_ptr()).micros })
             }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS => {
+                ExtractedValue::Time(unsafe { cpp::duckdb_get_time_ns(self.as_ptr()).nanos })
+            }
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => ExtractedValue::TimestampNs(unsafe {
                 cpp::duckdb_get_timestamp_ns(self.as_ptr()).nanos
             }),
@@ -109,6 +112,9 @@ impl<'a> ValueRef<'a> {
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => ExtractedValue::TimestampS(unsafe {
                 cpp::duckdb_get_timestamp_s(self.as_ptr()).seconds
             }),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => ExtractedValue::TimestampS(unsafe {
+                cpp::duckdb_get_timestamp_tz(self.as_ptr()).micros
+            }),
             DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
                 let decimal = unsafe { cpp::duckdb_get_decimal(self.as_ptr()) };
                 let value = i128_from_parts(decimal.value.upper, decimal.value.lower);
@@ -118,6 +124,33 @@ impl<'a> ValueRef<'a> {
                     value,
                 )
             }
+            DUCKDB_TYPE::DUCKDB_TYPE_LIST => {
+                let elem_count =
+                    usize::try_from(unsafe { cpp::duckdb_get_list_size(self.as_ptr()) })
+                        .vortex_expect("List size must fit usize");
+                ExtractedValue::List(
+                    (0..elem_count)
+                        .map(|i| {
+                            unsafe {
+                                Value::own(cpp::duckdb_get_list_child(self.as_ptr(), i as idx_t))
+                            }
+                            .as_ref()
+                            .extract()
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => ExtractedValue::List(
+                (0..self.logical_type().struct_type_child_count())
+                    .map(|i| {
+                        unsafe {
+                            Value::own(cpp::duckdb_get_struct_child(self.as_ptr(), i as idx_t))
+                        }
+                        .as_ref()
+                        .extract()
+                    })
+                    .collect::<Vec<_>>(),
+            ),
             // ...other types remain unimplemented..
             _ => vortex_panic!("Unsupported DuckDB value type {:?}", self),
         }
@@ -346,6 +379,7 @@ pub enum ExtractedValue {
     TimestampMs(i64),
     TimestampS(i64),
     Decimal(u8, i8, i128),
+    List(Vec<ExtractedValue>),
 }
 
 #[cfg(test)]
