@@ -20,7 +20,7 @@ pub struct RLEMetadata {
     #[prost(uint64, tag = "2")]
     pub indices_len: u64,
     #[prost(uint64, tag = "3")]
-    pub value_chunk_offsets_len: u64,
+    pub values_idx_offsets_len: u64,
 }
 
 impl SerdeVTable<RLEVTable> for RLEVTable {
@@ -30,7 +30,7 @@ impl SerdeVTable<RLEVTable> for RLEVTable {
         Ok(Some(ProstMetadata(RLEMetadata {
             values_len: array.values().len() as u64,
             indices_len: array.indices().len() as u64,
-            value_chunk_offsets_len: array.values_idx_offsets().len() as u64,
+            values_idx_offsets_len: array.values_idx_offsets().len() as u64,
         })))
     }
 
@@ -54,13 +54,13 @@ impl SerdeVTable<RLEVTable> for RLEVTable {
             usize::try_from(metadata.indices_len)?,
         )?;
 
-        let value_chunk_offsets = children.get(
+        let values_idx_offsets = children.get(
             2,
             &DType::Primitive(PType::U64, Nullability::NonNullable),
-            usize::try_from(metadata.value_chunk_offsets_len)?,
+            usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        RLEArray::try_new(values, indices, value_chunk_offsets, len)
+        RLEArray::try_new(values, indices, values_idx_offsets, len)
     }
 }
 
@@ -83,7 +83,7 @@ impl VisitorVTable<RLEVTable> for RLEVTable {
     fn visit_children(array: &RLEArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("values", array.values());
         visitor.visit_child("indices", array.indices());
-        visitor.visit_child("value_chunk_offsets", array.values_idx_offsets());
+        visitor.visit_child("values_idx_offsets", array.values_idx_offsets());
         // Don't call visit_validity since the nullability is stored in the indices array.
     }
 }
@@ -102,7 +102,7 @@ mod test {
             ProstMetadata(RLEMetadata {
                 values_len: u64::MAX,
                 indices_len: u64::MAX,
-                value_chunk_offsets_len: u64::MAX,
+                values_idx_offsets_len: u64::MAX,
             }),
         );
     }

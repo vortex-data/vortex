@@ -25,7 +25,7 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
 
         let sliced_values = array.values().slice(values_start_idx..values_end_idx);
 
-        let sliced_value_chunk_offsets = array
+        let sliced_values_idx_offsets = array
             .values_idx_offsets()
             .slice(chunk_start_idx..chunk_end_idx);
 
@@ -38,7 +38,7 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
             RLEArray::new_unchecked(
                 sliced_values,
                 sliced_indices,
-                sliced_value_chunk_offsets,
+                sliced_values_idx_offsets,
                 array.dtype.clone(),
                 // Keep the offset relative to the first chunk.
                 (array.offset + range.start) % FL_CHUNK_SIZE,
@@ -90,15 +90,15 @@ mod tests {
                     .copied(),
             )
             .into_array();
-            let value_chunk_offsets = PrimitiveArray::from_iter([0u64]).into_array();
+            let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
 
-            RLEArray::try_new(values, indices.clone(), value_chunk_offsets, indices.len()).unwrap()
+            RLEArray::try_new(values, indices.clone(), values_idx_offsets, indices.len()).unwrap()
         }
 
         pub(super) fn rle_array_with_nulls() -> RLEArray {
             let values = PrimitiveArray::from_iter([10u32, 20u32, 30u32]).into_array();
             let pattern = [0u16, 0u16, 1u16, 1u16, 1u16, 2u16, 0u16];
-            let value_chunk_offsets = PrimitiveArray::from_iter([0u64]).into_array();
+            let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
 
             // Repeat the validity pattern to match indices length
             let validity = Validity::from_iter(
@@ -120,7 +120,7 @@ mod tests {
             )
             .into_array();
 
-            RLEArray::try_new(values, indices.clone(), value_chunk_offsets, indices.len()).unwrap()
+            RLEArray::try_new(values, indices.clone(), values_idx_offsets, indices.len()).unwrap()
         }
     }
 
