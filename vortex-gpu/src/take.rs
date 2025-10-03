@@ -118,6 +118,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_dict::DictArray;
+    use vortex_error::VortexExpect;
 
     use crate::take::cuda_take;
 
@@ -159,7 +160,9 @@ mod tests {
     fn test_cuda_take_long_u8_i64() {
         const LEN: usize = 1024 * 8;
         let values: PrimitiveArray = (0i64..1024).map(|x| (x + 2) % 1024).collect();
-        let codes: PrimitiveArray = (0..LEN).map(|x| (((x + 1) % 255) as u8)).collect();
+        let codes: PrimitiveArray = (0..LEN)
+            .map(|x| (u8::try_from(((x + 1) % 255) as u8).vortex_expect("")))
+            .collect();
         let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
 
         let expect = dict.to_primitive();
