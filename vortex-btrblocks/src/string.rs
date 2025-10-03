@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{ConstantArray, VarBinArray, VarBinViewArray, VarBinViewVTable};
+use vortex_array::arrays::{
+    ConstantArray, MaskedArray, VarBinArray, VarBinViewArray, VarBinViewVTable,
+};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_fsst::{FSSTArray, fsst_compress, fsst_train_compressor};
+use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::integer::IntCompressor;
@@ -17,6 +20,7 @@ use crate::{
     estimate_compression_ratio_with_sampling, integer,
 };
 
+/// Array of variable-length byte arrays, and relevant stats for compression.
 #[derive(Clone, Debug)]
 pub struct StringStats {
     src: VarBinViewArray,
@@ -76,6 +80,7 @@ impl CompressorStats for StringStats {
     }
 }
 
+/// [`Compressor`] for strings.
 pub struct StringCompressor;
 
 impl Compressor for StringCompressor {
@@ -297,12 +302,12 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
-        if stats.src.is_constant() {
-            // Force constant
-            Ok(f64::MAX)
-        } else {
-            Ok(0.0)
+        if stats.estimated_distinct_count > 1 || !stats.src.is_constant() {
+            return Ok(0.0);
         }
+
+        // Force constant is these cases
+        Ok(f64::MAX)
     }
 
     fn compress(
@@ -312,12 +317,24 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<ArrayRef> {
-        let scalar = stats
-            .src
-            .as_constant()
-            .vortex_expect("ConstantScheme::compress can only be called when array is constant");
+        let scalar_idx = (0..stats.source().len()).position(|idx| stats.source().is_valid(idx));
 
-        Ok(ConstantArray::new(scalar, stats.src.len()).into_array())
+        match scalar_idx {
+            Some(idx) => {
+                let scalar = stats.source().scalar_at(idx);
+                let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
+                if !stats.source().all_valid() {
+                    Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
+                } else {
+                    Ok(const_arr)
+                }
+            }
+            None => Ok(ConstantArray::new(
+                Scalar::null(stats.src.dtype().clone()),
+                stats.src.len(),
+            )
+            .into_array()),
+        }
     }
 }
 

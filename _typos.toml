@@ -1,0 +1,16 @@
+[default]
+extend-ignore-identifiers-re = ["FoR", "typ"]
+# We support a few common special comments to tell the checker to ignore sections of code
+extend-ignore-re = [
+    "(#|//)\\s*spellchecker:ignore-next-line\\n.*",                      # Ignore the next line
+    "(?Rm)^.*(#|//)\\s*spellchecker:disable-line$",                      # Ignore line that ends with this hint
+    "(?s)(#|//)\\s*spellchecker:off.*?\\n\\s*(#|//)\\s*spellchecker:on", # Ignore block between hints
+]
+
+[files]
+extend-exclude = ["/bench-vortex/**", "/docs/references.bib"]
+
+[type.py]
+extend-ignore-identifiers-re = [
+    "Trafic", # Appears in some clickbench-related examples
+]

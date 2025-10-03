@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use humansize::{DECIMAL, make_format};
+use itertools::Itertools;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
@@ -15,8 +18,7 @@ use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
-use vortex::pipeline::operators::MaskFuture;
-use vortex::{Array, ArrayRef, ToCanonical};
+use vortex::{Array, ArrayRef, MaskFuture, ToCanonical};
 
 use crate::browse::app::{AppState, LayoutCursor};
 
@@ -218,44 +220,71 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let layout = app.cursor.layout();
 
     if layout.nchildren() > 0 {
-        let filter: Vec<bool> = layout
-            .child_names()
-            .map(|name| {
-                if search_filter.is_empty() {
-                    true
-                } else {
-                    name.contains(&search_filter)
-                }
-            })
-            .collect();
+        if search_filter.is_empty() {
+            // No search filter, show all items
+            let list_items = layout
+                .child_names()
+                .map(|name| name.to_string())
+                .collect_vec();
 
-        let list_items: Vec<String> = layout
-            .child_names()
-            .zip(filter.iter())
-            .filter_map(|(name, keep)| keep.then_some(name.to_string()))
-            .collect();
+            app.filter = None;
+            render_child_list_items(app, area, buf, list_items);
+        } else {
+            // Use fuzzy matching to rank and filter results
+            let matcher = SkimMatcherV2::default();
 
-        if !app.search_filter.is_empty() {
+            // Collect scored matches
+            let mut scored_matches = layout
+                .child_names()
+                .enumerate()
+                .filter_map(|(idx, name)| {
+                    matcher
+                        .fuzzy_match(&name, &search_filter)
+                        .map(|score| (idx, name.to_string(), score))
+                })
+                .collect_vec();
+
+            // Sort by score (higher is better)
+            scored_matches.sort_by(|a, b| b.2.cmp(&a.2));
+
+            // Create filter based on fuzzy matches
+            let mut filter = vec![false; layout.nchildren()];
+            let list_items = scored_matches
+                .iter()
+                .map(|(idx, name, _score)| {
+                    filter[*idx] = true;
+                    name.clone()
+                })
+                .collect_vec();
+
             app.filter = Some(filter);
+            render_child_list_items(app, area, buf, list_items);
         }
-
-        let container = Block::new()
-            .title("Child Layouts")
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::DarkGray));
-
-        let inner_area = container.inner(area);
-
-        container.render(area, buf);
-
-        // Render the List view.
-        // TODO: add state so we can scroll
-        StatefulWidget::render(
-            List::new(list_items).highlight_style(Style::default().black().on_white().bold()),
-            inner_area,
-            buf,
-            &mut app.layouts_list_state,
-        );
     }
+}
+
+fn render_child_list_items(
+    app: &mut AppState,
+    area: Rect,
+    buf: &mut Buffer,
+    list_items: Vec<String>,
+) {
+    let container = Block::new()
+        .title("Child Layouts")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::DarkGray));
+
+    let inner_area = container.inner(area);
+
+    container.render(area, buf);
+
+    // Render the List view.
+    // TODO: add state so we can scroll
+    StatefulWidget::render(
+        List::new(list_items).highlight_style(Style::default().black().on_white().bold()),
+        inner_area,
+        buf,
+        &mut app.layouts_list_state,
+    );
 }

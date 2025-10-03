@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use num_traits::{AsPrimitive, PrimInt, Zero};
-use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
+use num_traits::AsPrimitive;
+use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_mask::{AllOr, Mask, MaskIter};
 
@@ -63,7 +63,7 @@ fn filter_select_var_bin_by_slice_primitive_offset<O>(
     selection_count: usize,
 ) -> VortexResult<VarBinArray>
 where
-    O: NativePType + PrimInt + Zero,
+    O: IntegerPType,
     usize: AsPrimitive<O>,
 {
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
@@ -115,7 +115,7 @@ fn update_non_nullable_slice<O>(
     start: usize,
     end: usize,
 ) where
-    O: NativePType + PrimInt + Zero + Copy,
+    O: IntegerPType,
     usize: AsPrimitive<O>,
 {
     let new_data = {
@@ -152,7 +152,7 @@ fn filter_select_var_bin_by_index(
     })
 }
 
-fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
+fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],

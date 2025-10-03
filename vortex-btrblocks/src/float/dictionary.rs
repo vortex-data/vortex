@@ -43,6 +43,7 @@ macro_rules! typed_encode {
     }};
 }
 
+/// Compresses a floating-point array into a dictionary arrays according to attached stats.
 pub fn dictionary_encode(stats: &FloatStats) -> DictArray {
     let validity = stats.src.validity();
     match &stats.distinct_values {

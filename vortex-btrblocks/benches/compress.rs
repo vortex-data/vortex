@@ -11,8 +11,7 @@ mod benchmarks {
     use rand::prelude::StdRng;
     use rand::{RngCore, SeedableRng};
     use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-    use vortex_btrblocks::Compressor;
-    use vortex_btrblocks::integer::IntCompressor;
+    use vortex_btrblocks::{Compressor, IntCompressor};
     use vortex_buffer::buffer_mut;
     use vortex_utils::aliases::hash_set::HashSet;
 

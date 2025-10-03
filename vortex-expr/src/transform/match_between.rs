@@ -59,7 +59,7 @@ fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
             (
                 lhs.lhs().clone(),
                 lhs.rhs().clone(),
-                lhs.op().swap(),
+                lhs.op().swap()?,
                 rhs.rhs().clone(),
                 rhs.op(),
             )
@@ -67,9 +67,9 @@ fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
             (
                 lhs.lhs().clone(),
                 lhs.rhs().clone(),
-                lhs.op().swap(),
+                lhs.op().swap()?,
                 rhs.lhs().clone(),
-                rhs.op().swap(),
+                rhs.op().swap()?,
             )
         } else if GetItemExpr::is(lhs.rhs()) && lhs.rhs().eq(rhs.lhs()) {
             (
@@ -85,7 +85,7 @@ fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
                 lhs.lhs().clone(),
                 lhs.op(),
                 rhs.lhs().clone(),
-                rhs.op().swap(),
+                rhs.op().swap()?,
             )
         } else {
             return None;
@@ -111,10 +111,11 @@ fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
         maybe_strict_comparison(right_op),
     ) {
         (left_op, right_op)
-    } else if let (Some(left_op), Some(right_op)) = (
-        maybe_strict_comparison(left_op.swap()),
-        maybe_strict_comparison(right_op.swap()),
-    ) {
+    } else if let Some((left_op, right_op)) = left_op
+        .swap()
+        .zip(right_op.swap())
+        .and_then(|(l, r)| maybe_strict_comparison(l).zip(maybe_strict_comparison(r)))
+    {
         (left_op, right_op)
     } else {
         return None;

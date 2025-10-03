@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::sync::Arc;
+
+use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+
+use super::VarBinViewVTable;
+use crate::EmptyMetadata;
+use crate::arrays::binary_view::BinaryView;
+use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
+use crate::serde::ArrayChildren;
+use crate::validity::Validity;
+use crate::vtable::SerdeVTable;
+
+impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
+    type Metadata = EmptyMetadata;
+
+    fn metadata(_array: &VarBinViewArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(EmptyMetadata))
+    }
+
+    fn build(
+        _encoding: &VarBinViewEncoding,
+        dtype: &DType,
+        len: usize,
+        _metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<VarBinViewArray> {
+        if buffers.is_empty() {
+            vortex_bail!("Expected at least 1 buffer, got {}", buffers.len());
+        }
+        let mut buffers: Vec<ByteBuffer> = buffers.to_vec();
+        let views = buffers.pop().vortex_expect("buffers non-empty");
+
+        let views = Buffer::<BinaryView>::from_byte_buffer(views);
+
+        if views.len() != len {
+            vortex_bail!("Expected {} views, got {}", len, views.len());
+        }
+
+        let validity = if children.is_empty() {
+            Validity::from(dtype.nullability())
+        } else if children.len() == 1 {
+            let validity = children.get(0, &Validity::DTYPE, len)?;
+            Validity::Array(validity)
+        } else {
+            vortex_bail!("Expected 0 or 1 children, got {}", children.len());
+        };
+
+        VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
+    }
+}

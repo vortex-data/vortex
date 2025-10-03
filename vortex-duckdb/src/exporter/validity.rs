@@ -5,7 +5,7 @@ use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
 use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, VectorExt};
+use crate::exporter::ColumnExporter;
 
 struct ValidityExporter {
     mask: Mask,

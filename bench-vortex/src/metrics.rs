@@ -166,6 +166,7 @@ impl OtlpTraceCreator {
                 Default::default(),
             ),
             parent_span_id: parent_info.span_id,
+            parent_span_is_remote: false,
             span_kind: opentelemetry::trace::SpanKind::Internal,
             name: plan.name().to_string().into(),
             start_time: own_start.unwrap_or(parent_info.start_time),

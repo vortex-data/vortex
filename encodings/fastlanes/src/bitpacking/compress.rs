@@ -3,7 +3,7 @@
 
 use fastlanes::BitPacking;
 use itertools::Itertools;
-use num_traits::{AsPrimitive, PrimInt};
+use num_traits::PrimInt;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder, UninitRange};
 use vortex_array::patches::Patches;
@@ -12,7 +12,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
-    NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
+    IntegerPType, NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
 };
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
@@ -251,7 +251,7 @@ fn gather_patches_impl<T, P>(
 ) -> Option<Patches>
 where
     T: PrimInt + NativePType,
-    P: NativePType,
+    P: IntegerPType,
 {
     let mut indices: BufferMut<P> = BufferMut::with_capacity(num_exceptions_hint);
     let mut values: BufferMut<T> = BufferMut::with_capacity(num_exceptions_hint);
@@ -344,10 +344,7 @@ fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) {
     });
 }
 
-fn insert_values_and_validity_at_indices<
-    T: NativePType,
-    IndexT: NativePType + AsPrimitive<usize>,
->(
+fn insert_values_and_validity_at_indices<T: NativePType, IndexT: IntegerPType>(
     dst: &mut UninitRange<T>,
     indices: &[IndexT],
     values: &[T],

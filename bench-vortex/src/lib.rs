@@ -27,6 +27,7 @@ pub mod datasets;
 pub mod display;
 pub mod downloadable_dataset;
 pub mod engines;
+pub mod fineweb;
 pub mod measurements;
 pub mod memory;
 pub mod metrics;

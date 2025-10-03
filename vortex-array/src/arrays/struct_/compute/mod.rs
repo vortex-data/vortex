@@ -4,6 +4,7 @@
 mod cast;
 mod filter;
 mod mask;
+mod zip;
 
 use itertools::Itertools;
 use vortex_dtype::Nullability::NonNullable;

@@ -16,10 +16,9 @@ use std::arch::x86_64::{
 };
 use std::convert::identity;
 
-use num_traits::{AsPrimitive, PrimInt};
 use vortex_buffer::{Alignment, Buffer, BufferMut};
 use vortex_dtype::{
-    NativePType, PType, match_each_native_ptype, match_each_unsigned_integer_ptype,
+    NativePType, PType, UnsignedPType, match_each_native_ptype, match_each_unsigned_integer_ptype,
 };
 use vortex_error::VortexResult;
 
@@ -344,7 +343,7 @@ impl_gather!(u64,
 #[inline(always)]
 fn exec_take<Idx, Value, Gather>(indices: &[Idx], values: &[Value]) -> Buffer<Value>
 where
-    Idx: Copy + PrimInt + AsPrimitive<usize>,
+    Idx: UnsignedPType,
     Value: Copy,
     Gather: GatherFn<Idx, Value>,
 {
@@ -406,7 +405,7 @@ pub(crate) fn take_primitive_avx2<I, V>(
     validity: Validity,
 ) -> PrimitiveArray
 where
-    I: NativePType + AsPrimitive<usize>,
+    I: UnsignedPType,
     V: NativePType,
 {
     macro_rules! dispatch_avx2 {
@@ -473,7 +472,7 @@ pub fn take_primitive_avx2<I, V>(
     _nullability: Nullability,
 ) -> Option<PrimitiveArray>
 where
-    I: NativePType + AsPrimitive<usize>,
+    I: UnsignedPType,
     V: NativePType,
 {
     None

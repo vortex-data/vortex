@@ -2,12 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::{AllOr, Mask};
+use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::builders::builder_with_capacity;
+use crate::arrays::{ConstantArray, ConstantVTable, MaskedArray};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
+use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl TakeKernel for ConstantVTable {
@@ -39,11 +39,7 @@ impl TakeKernel for ConstantVTable {
                     return Ok(arr);
                 }
 
-                let mut result_builder =
-                    builder_with_capacity(&array.dtype().as_nullable(), indices.len());
-                result_builder.extend_from_array(&arr);
-                result_builder.set_validity(Mask::from_buffer(v.clone()));
-                Ok(result_builder.finish())
+                Ok(MaskedArray::try_new(arr, Validity::from(v.clone()))?.into_array())
             }
         }
     }

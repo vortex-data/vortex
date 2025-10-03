@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, c_void};
 use std::ptr;
 
 use arrow_buffer;
@@ -12,7 +12,7 @@ use bitvec::view::BitView;
 use vortex::error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 
 use crate::cpp::duckdb_vx_error;
-use crate::duckdb::data::Data;
+use crate::duckdb::vector_buffer::VectorBuffer;
 use crate::duckdb::{LogicalType, SelectionVector, Value};
 use crate::{cpp, wrapper};
 
@@ -34,35 +34,28 @@ wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 unsafe impl Send for Vector {}
 
 impl Vector {
+    /// Create a new vector with the given type.
+    pub fn new(logical_type: LogicalType) -> Self {
+        unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), 0)) }
+    }
+
     /// Create a new vector with the given type and capacity.
     pub fn with_capacity(logical_type: LogicalType, len: usize) -> Self {
         unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), len as _)) }
     }
 
-    /// Append value to the vector.
+    /// Converts the vector is a constant vector with every element `value`.
     pub fn reference_value(&mut self, value: &Value) {
         unsafe {
             cpp::duckdb_vector_reference_value(self.as_ptr(), value.as_ptr());
         }
     }
 
-    /// Copy values from other vector to this vector.
+    /// Reference the data from another vector.
+    ///
+    /// After calling this, both vectors share ownership of the same underlying data.
     pub fn reference(&mut self, other: &Vector) {
         unsafe { cpp::duckdb_vector_reference_vector(self.as_ptr(), other.as_ptr()) }
-    }
-
-    /// Slice the vector to a new dictionary vector, using the current vector's values and
-    /// the provided selection vector.
-    ///
-    /// A dictionary slice holds a strong reference to all memory it uses.
-    pub fn slice_to_dictionary(&mut self, sel_vec: SelectionVector, sel_vec_length: usize) {
-        unsafe {
-            cpp::duckdb_vx_vector_slice_to_dictionary(
-                self.as_ptr(),
-                sel_vec.as_ptr(),
-                sel_vec_length as _,
-            )
-        }
     }
 
     /// Creates a dictionary vector for a given values vector and selection vector.
@@ -95,7 +88,7 @@ impl Vector {
         unsafe { cpp::duckdb_vx_set_dictionary_vector_length(self.as_ptr(), len) }
     }
 
-    // A pipeline-scoped id to assert dictionary vector value uniqueness
+    // A operator-scoped id to assert dictionary vector value uniqueness
     pub fn set_dictionary_id(&mut self, dict_id: String) {
         let dict_id = CString::new(dict_id)
             .map_err(|e| vortex_err!("cstr creation error {e}"))
@@ -148,9 +141,19 @@ impl Vector {
         !is_valid
     }
 
-    pub fn add_string_buffer<T>(&self, buffer: T) {
-        let data = Data::from(Box::new(buffer));
-        unsafe { cpp::duckdb_vx_string_vector_add_buffer(self.as_ptr(), data.into_ptr()) }
+    pub unsafe fn set_vector_buffer(&self, buffer: &VectorBuffer) {
+        unsafe { cpp::duckdb_vx_vector_set_vector_data_buffer(self.as_ptr(), buffer.as_ptr()) }
+    }
+
+    pub fn add_string_vector_buffer(&self, buffer: &VectorBuffer) {
+        unsafe {
+            cpp::duckdb_vx_string_vector_add_vector_data_buffer(self.as_ptr(), buffer.as_ptr())
+        }
+    }
+
+    /// Sets the data pointer for the vector. This is the start of the values array in the vector.
+    pub unsafe fn set_data_ptr<T>(&self, ptr: *mut T) {
+        unsafe { cpp::duckdb_vx_vector_set_data_ptr(self.as_ptr(), ptr as *mut c_void) }
     }
 
     /// Assigns the element at the specified index with a string value.
@@ -567,27 +570,6 @@ mod tests {
         assert!(validity.is_valid(32), "Row 32 should be valid");
         assert!(validity.is_valid(62), "Row 62 should be valid");
         assert!(validity.is_valid(65), "Row 65 should be valid");
-    }
-
-    #[test]
-    fn test_slice_to_dictionary() {
-        let len = 2;
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
-
-        let slice = unsafe { vector.as_slice_mut::<i32>(len) };
-        slice[0] = 10;
-        slice[1] = 20;
-
-        let mut sel_vec = SelectionVector::with_capacity(2);
-        let sel_slice = unsafe { sel_vec.as_slice_mut(2) };
-        sel_slice[0] = 1;
-        sel_slice[1] = 0;
-
-        vector.slice_to_dictionary(sel_vec, 2);
-        vector.flatten(2);
-
-        assert_eq!(vector.as_slice_with_len::<i32>(2), &[20, 10]);
     }
 
     #[test]

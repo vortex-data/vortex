@@ -13,9 +13,9 @@ use vortex::arrays::FixedSizeListArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use super::{ConversionCache, new_array_exporter};
-use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, VectorExt};
+use super::{ConversionCache, all_invalid, new_array_exporter_with_flatten};
+use crate::duckdb::{LogicalType, Vector};
+use crate::exporter::ColumnExporter;
 
 /// Exporter for converting Vortex [`FixedSizeListArray`] to DuckDB ARRAY vectors.
 struct FixedSizeListExporter {
@@ -32,7 +32,13 @@ pub(crate) fn new_exporter(
     array: &FixedSizeListArray,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let elements_exporter = new_array_exporter(array.elements(), cache)?;
+    let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
+
+    let ltype: LogicalType = array.dtype().try_into()?;
+
+    if let Mask::AllFalse(len) = array.validity_mask() {
+        return Ok(all_invalid::new_exporter(len, &ltype));
+    }
 
     Ok(Box::new(FixedSizeListExporter {
         validity: array.validity_mask(),
@@ -101,7 +107,7 @@ mod tests {
         // TODO(connor): This mutable API is brittle. Maybe bundle this logic?
         let mut chunk = DataChunk::new([array_type]);
 
-        new_exporter(fsl, &ConversionCache::new(0))
+        new_exporter(fsl, &ConversionCache::default())
             .unwrap()
             .export(offset, len, &mut chunk.get_vector(0))
             .unwrap();
@@ -209,6 +215,7 @@ mod tests {
 
         // All lists should be null.
         let vector = chunk.get_vector(0);
+        vector.flatten(chunk.len());
         assert_nulls(&vector, &[false, false, false]);
     }
 
@@ -315,7 +322,7 @@ mod tests {
         let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
 
-        new_exporter(&outer_fsl, &ConversionCache::new(0))
+        new_exporter(&outer_fsl, &ConversionCache::default())
             .unwrap()
             .export(0, 2, &mut chunk.get_vector(0))
             .unwrap();
@@ -368,7 +375,7 @@ mod tests {
         let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
 
-        new_exporter(&outer_fsl, &ConversionCache::new(0))
+        new_exporter(&outer_fsl, &ConversionCache::default())
             .unwrap()
             .export(0, 3, &mut chunk.get_vector(0))
             .unwrap();

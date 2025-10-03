@@ -14,7 +14,7 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 /// When the mask density is below this threshold, we use indices. Otherwise, we use slices.
 ///
 /// Note that this is somewhat arbitrarily chosen...
-const FSL_MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.1;
+const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 
 /// Filter implementation for [`FixedSizeListArray`].
 ///
@@ -90,7 +90,7 @@ fn compute_fsl_elements_mask(selection_mask: &Mask, list_size: usize) -> Mask {
     };
 
     // Use threshold_iter to choose the optimal representation based on density.
-    let expanded_slices = match values.threshold_iter(FSL_MASK_EXPANSION_DENSITY_THRESHOLD) {
+    let expanded_slices = match values.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD) {
         MaskIter::Slices(slices) => {
             // Expand a dense mask (represented as slices) by scaling each slice by `list_size`.
             slices

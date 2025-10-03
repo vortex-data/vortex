@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
-
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
 use crate::pipeline::N;
 use crate::pipeline::bits::{BitView, BitViewMut};
 use crate::pipeline::types::{Element, VType};
+use crate::pipeline::vec::Selection;
 
 pub struct View<'a> {
     /// The physical type of the vector, which defines how the elements are stored.
@@ -22,8 +21,9 @@ pub struct View<'a> {
     // TODO: support validity
     #[allow(dead_code)]
     pub(super) validity: Option<BitView<'a>>,
-    // A selection mask over the elements and validity of the vector.
-    pub(super) len: usize,
+
+    // Indicates where the selected elements are positioned within the vector.
+    pub(super) selection: Selection,
 
     /// Additional buffers of data used by the vector, such as string data.
     #[allow(dead_code)]
@@ -35,21 +35,17 @@ pub struct View<'a> {
 
 impl<'a> View<'a> {
     #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.len
+    pub fn selection(&self) -> Selection {
+        self.selection
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    pub fn as_slice<T>(&self) -> &'a [T]
+    pub fn as_array<T>(&self) -> &'a [T; N]
     where
         T: Element,
     {
         debug_assert_eq!(self.vtype, T::vtype(), "Invalid type for canonical view");
         // SAFETY: We assume that the elements are of type T and that the view is valid.
-        unsafe { std::slice::from_raw_parts(self.elements.cast(), self.len) }
+        unsafe { &*(self.elements.cast::<T>() as *const [T; N]) }
     }
 
     /// Re-interpret cast the vector into a new type where the element has the same width.
@@ -84,6 +80,13 @@ pub struct ViewMut<'a> {
     #[allow(dead_code)]
     pub(super) data: Vec<ByteBuffer>,
 
+    /// The position of the selected values of this buffer.
+    /// One of:
+    /// * All - all N values are selected.
+    /// * Prefix - the first n values are selected where i is the true count of the kernel mask.
+    /// * Mask - the values are in the positions indicated by the kernel mask.
+    pub(super) selection: Selection,
+
     /// Marker defining the lifetime of the contents of the vector.
     pub(super) _marker: std::marker::PhantomData<&'a mut ()>,
 }
@@ -96,6 +99,7 @@ impl<'a> ViewMut<'a> {
             elements: elements.as_mut_ptr().cast(),
             validity,
             data: vec![],
+            selection: Selection::Prefix,
             _marker: Default::default(),
         }
     }
@@ -113,18 +117,18 @@ impl<'a> ViewMut<'a> {
         self.vtype = E::vtype();
     }
 
-    /// Returns an immutable slice of the elements in the vector.
+    /// Returns an immutable array of the elements in the vector.
     #[inline(always)]
-    pub fn as_slice<E: Element>(&self) -> &'a [E] {
+    pub fn as_array<E: Element>(&self) -> &'a [E; N] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), N) }
+        unsafe { &*(self.elements.cast::<E>() as *const [E; N]) }
     }
 
-    /// Returns a mutable slice of the elements in the vector, allowing for modification.
+    /// Returns a mutable array of the elements in the vector, allowing for modification.
     #[inline(always)]
-    pub fn as_slice_mut<E: Element>(&mut self) -> &'a mut [E] {
+    pub fn as_array_mut<E: Element>(&mut self) -> &'a mut [E; N] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), N) }
+        unsafe { &mut *(self.elements.cast::<E>() as *mut [E; N]) }
     }
 
     /// Access the validity mask of the vector.
@@ -143,31 +147,39 @@ impl<'a> ViewMut<'a> {
         self.data.push(buffer);
     }
 
+    #[inline(always)]
+    pub fn selection(&self) -> Selection {
+        self.selection
+    }
+
+    pub fn set_selection(&mut self, selection: Selection) {
+        self.selection = selection;
+    }
+
     /// Flatten the view by bringing the selected elements of the mask to the beginning of
-    /// the elements buffer.
-    ///
-    /// FIXME(ngates): also need to select validity bits.
-    pub fn select_mask<E: Element + Display>(&mut self, mask: &BitView) {
+    pub fn flatten<E: Element>(&mut self, selection: &BitView<'_>) {
         assert_eq!(
             self.vtype,
             E::vtype(),
             "ViewMut::flatten_mask: type mismatch"
         );
 
-        match mask.true_count() {
-            0 => {
-                // If the mask has no true bits, we set the length to 0.
-            }
-            N => {
-                // If the mask has N true bits, we copy all elements.
+        if matches!(self.selection, Selection::Prefix) {
+            // Nothing to do, all elements are already selected.
+            return;
+        }
+
+        match selection.true_count() {
+            0 | N => {
+                // If the mask has no true bits or all true bits, we are already flattened.
             }
             n if n > 3 * N / 4 => {
                 // High density: use iter_zeros to compact by removing gaps
-                let slice = self.as_slice_mut::<E>();
+                let slice = self.as_array_mut::<E>();
                 let mut write_idx = 0;
                 let mut read_idx = 0;
 
-                mask.iter_zeros(|zero_idx| {
+                selection.iter_zeros(|zero_idx| {
                     // Copy elements from read_idx to zero_idx (exclusive) to write_idx
                     let count = zero_idx - read_idx;
                     unsafe {
@@ -194,8 +206,8 @@ impl<'a> ViewMut<'a> {
             }
             _ => {
                 let mut offset = 0;
-                let slice = self.as_slice_mut::<E>();
-                mask.iter_ones(|idx| {
+                let slice = self.as_array_mut::<E>();
+                selection.iter_ones(|idx| {
                     unsafe {
                         // SAFETY: We assume that the elements are of type E and that the view is valid.
                         let value = *slice.get_unchecked(idx);
@@ -207,5 +219,7 @@ impl<'a> ViewMut<'a> {
                 });
             }
         }
+
+        self.selection = Selection::Prefix
     }
 }

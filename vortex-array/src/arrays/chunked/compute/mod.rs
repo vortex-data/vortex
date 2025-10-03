@@ -3,7 +3,6 @@
 
 mod cast;
 mod compare;
-mod elementwise;
 mod fill_null;
 mod filter;
 mod invert;

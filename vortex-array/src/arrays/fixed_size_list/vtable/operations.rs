@@ -49,7 +49,7 @@ impl OperationsVTable<FixedSizeListVTable> for FixedSizeListVTable {
         Scalar::fixed_size_list(
             list.dtype().clone(),
             children_elements,
-            array.dtype.nullability(),
+            array.dtype().nullability(),
         )
     }
 }

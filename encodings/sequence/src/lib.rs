@@ -4,6 +4,7 @@
 mod array;
 mod compress;
 mod compute;
+mod operator;
 mod serde;
 
 /// Represents the equation A\[i\] = a * i + b.

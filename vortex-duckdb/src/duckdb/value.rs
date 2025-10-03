@@ -6,7 +6,8 @@ use std::fmt::{Debug, Display, Formatter};
 
 use num_traits::AsPrimitive;
 use vortex::buffer::{BufferString, ByteBuffer};
-use vortex::error::{VortexExpect, vortex_err, vortex_panic};
+use vortex::dtype::NativeDType;
+use vortex::error::{VortexError, VortexExpect, vortex_err, vortex_panic};
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;
@@ -133,8 +134,12 @@ impl<'a> Debug for ValueRef<'a> {
 }
 
 impl Value {
-    pub fn null() -> Self {
+    pub fn sql_null() -> Self {
         unsafe { Self::own(cpp::duckdb_create_null_value()) }
+    }
+
+    pub fn null(logical_type: &LogicalType) -> Self {
+        unsafe { Self::own(cpp::duckdb_vx_value_create_null(logical_type.as_ptr())) }
     }
 
     /// Note the lifetime of logical type if tied to &self
@@ -220,14 +225,16 @@ impl Debug for Value {
     }
 }
 
-impl<T> From<Option<T>> for Value
+impl<T> TryFrom<Option<T>> for Value
 where
-    T: Into<Value>,
+    T: Into<Value> + NativeDType,
 {
-    fn from(value: Option<T>) -> Self {
+    type Error = VortexError;
+
+    fn try_from(value: Option<T>) -> Result<Self, Self::Error> {
         match value {
-            Some(v) => v.into(),
-            None => Value::null(),
+            Some(v) => Ok(v.into()),
+            None => Ok(Value::null(&LogicalType::try_from(&T::dtype())?)),
         }
     }
 }

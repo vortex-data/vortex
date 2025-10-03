@@ -94,6 +94,18 @@ pub enum DType {
     Extension(Arc<ExtDType>),
 }
 
+/// This trait is implemented by native Rust types that can be converted
+/// to and from Vortex scalar values.
+/// e.g. `&str` -> `DType::Utf8`
+///      `bool` -> `DType::Bool`
+///
+/// The dtype is the one closet matching the domain of the rust type
+/// e.g. `Option<T>` -> Nullable DType.
+pub trait NativeDType {
+    /// Returns the Vortex data type for this scalar type.
+    fn dtype() -> DType;
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 const_assert_eq!(size_of::<DType>(), 16);
 
@@ -304,6 +316,16 @@ impl DType {
     /// Check if `self` is a [`DType::Extension`] type
     pub fn is_extension(&self) -> bool {
         matches!(self, Extension(_))
+    }
+
+    /// Check if `self` is a nested type, i.e. list, fixed size list, struct, or extension of a
+    /// recursive type.
+    pub fn is_nested(&self) -> bool {
+        match self {
+            List(..) | FixedSizeList(..) | Struct(..) => true,
+            Extension(ext) => ext.storage_dtype().is_nested(),
+            _ => false,
+        }
     }
 
     /// Check returns the inner decimal type if the dtype is a [`DType::Decimal`].

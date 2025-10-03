@@ -9,7 +9,6 @@ use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_io::runtime::Handle;
-use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
@@ -56,10 +55,10 @@ impl LayoutStrategy for FlatLayoutStrategy {
         match chunk.dtype() {
             DType::Utf8(_) => {
                 if let Some(sv) = chunk.statistics().get(Stat::Min) {
-                    let (value, truncated) = lower_bound::<Utf8Scalar>(
-                        sv.into_inner(),
+                    let (value, truncated) = lower_bound(
+                        sv.into_inner().as_utf8(),
                         options.max_variable_length_statistics_size,
-                    )?;
+                    );
                     if truncated {
                         chunk
                             .statistics()
@@ -68,10 +67,10 @@ impl LayoutStrategy for FlatLayoutStrategy {
                 }
 
                 if let Some(sv) = chunk.statistics().get(Stat::Max) {
-                    let (value, truncated) = upper_bound::<Utf8Scalar>(
-                        sv.into_inner(),
+                    let (value, truncated) = upper_bound(
+                        sv.into_inner().as_utf8(),
                         options.max_variable_length_statistics_size,
-                    )?;
+                    );
                     if let Some(upper_bound) = value {
                         if truncated {
                             chunk
@@ -85,10 +84,10 @@ impl LayoutStrategy for FlatLayoutStrategy {
             }
             DType::Binary(_) => {
                 if let Some(sv) = chunk.statistics().get(Stat::Min) {
-                    let (value, truncated) = lower_bound::<BinaryScalar>(
-                        sv.into_inner(),
+                    let (value, truncated) = lower_bound(
+                        sv.into_inner().as_binary(),
                         options.max_variable_length_statistics_size,
-                    )?;
+                    );
                     if truncated {
                         chunk
                             .statistics()
@@ -97,10 +96,10 @@ impl LayoutStrategy for FlatLayoutStrategy {
                 }
 
                 if let Some(sv) = chunk.statistics().get(Stat::Max) {
-                    let (value, truncated) = upper_bound::<BinaryScalar>(
-                        sv.into_inner(),
+                    let (value, truncated) = upper_bound(
+                        sv.into_inner().as_binary(),
                         options.max_variable_length_statistics_size,
-                    )?;
+                    );
                     if let Some(upper_bound) = value {
                         if truncated {
                             chunk
@@ -147,10 +146,9 @@ mod tests {
     use arrow_buffer::BooleanBufferBuilder;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::stats::{Precision, Stat, StatsProviderExt};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
@@ -249,6 +247,7 @@ mod tests {
                 result.statistics().get_as::<String>(Stat::Min),
                 // The typo is correct, we need this to be truncated.
                 Some(Precision::Inexact(
+                    // spellchecker:ignore-next-line
                     "Another string that's meant to be smaller than the previous valu".to_string()
                 ))
             );

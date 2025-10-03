@@ -92,6 +92,6 @@ impl VisitorVTable<ZstdVTable> for ZstdVTable {
     }
 
     fn visit_children(array: &ZstdArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(&array.unsliced_validity, array.len());
+        visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
     }
 }

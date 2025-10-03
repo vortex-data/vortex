@@ -12,7 +12,7 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
+use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
@@ -305,7 +305,7 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
     }
 }
 
-fn patch_validity<I: NativePType>(
+fn patch_validity<I: IntegerPType>(
     is_valid_buffer: &mut BooleanBufferBuilder,
     indices: &[I],
     index_offset: usize,

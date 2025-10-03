@@ -5,16 +5,13 @@ use std::hash::BuildHasher;
 use std::sync::Arc;
 
 use arrow_buffer::NullBufferBuilder;
-use num_traits::AsPrimitive;
-use num_traits::sign::Unsigned;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{
-    BinaryView, PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable,
-};
+use vortex_array::arrays::binary_view::BinaryView;
+use vortex_array::arrays::{PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_buffer::{BufferMut, ByteBufferMut};
-use vortex_dtype::{DType, NativePType};
+use vortex_dtype::{DType, UnsignedPType};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
 use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashTable, HashTableEntry, RandomState};
 
@@ -42,7 +39,7 @@ pub fn bytes_dict_builder(dtype: DType, constraints: &DictConstraints) -> Box<dy
     }
 }
 
-impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
+impl<Code: UnsignedPType> BytesDictBuilder<Code> {
     pub fn new(dtype: DType, constraints: &DictConstraints) -> Self {
         Self {
             lookup: Some(HashTable::new()),
@@ -67,7 +64,7 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
             if bin_view.is_inlined() {
                 bin_view.as_inlined().value()
             } else {
-                &self.values[bin_view.as_view().to_range()]
+                &self.values[bin_view.as_view().as_range()]
             }
         })
     }
@@ -148,7 +145,7 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
     }
 }
 
-impl<Code: Unsigned + AsPrimitive<usize> + NativePType> DictEncoder for BytesDictBuilder<Code> {
+impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
     fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef> {
         if &self.dtype != array.dtype() {
             vortex_bail!(

@@ -16,8 +16,8 @@ pub use array::*;
 pub use canonical::*;
 pub use context::*;
 pub use encoding::*;
+pub use mask_future::*;
 pub use metadata::*;
-pub use offset::*;
 
 pub mod accessor;
 #[doc(hidden)]
@@ -30,9 +30,11 @@ mod canonical;
 pub mod compute;
 mod context;
 mod encoding;
+pub mod executor;
 pub mod iter;
+mod mask_future;
 mod metadata;
-mod offset;
+pub mod operator;
 mod partial_ord;
 pub mod patches;
 pub mod pipeline;
@@ -40,7 +42,7 @@ pub mod search_sorted;
 pub mod serde;
 pub mod stats;
 pub mod stream;
-#[cfg(feature = "test-harness")]
+#[cfg(any(test, feature = "test-harness"))]
 pub mod test_harness;
 pub mod validity;
 pub mod variants;

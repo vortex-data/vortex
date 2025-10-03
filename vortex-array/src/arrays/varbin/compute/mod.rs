@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub(crate) use min_max::compute_min_max;
+pub(crate) use min_max::varbin_compute_min_max;
 
 mod cast;
 mod compare;

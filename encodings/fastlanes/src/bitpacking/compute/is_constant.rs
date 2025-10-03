@@ -5,11 +5,10 @@ use std::ops::Range;
 
 use itertools::Itertools;
 use lending_iterator::LendingIterator;
-use num_traits::AsPrimitive;
 use vortex_array::arrays::{IS_CONST_LANE_WIDTH, PrimitiveArray, compute_is_constant};
 use vortex_array::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use vortex_array::{ToCanonical, register_kernel};
-use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_unsigned_integer_ptype};
+use vortex_dtype::{IntegerPType, match_each_integer_ptype, match_each_unsigned_integer_ptype};
 use vortex_error::VortexResult;
 
 use crate::unpack_iter::BitPacked;
@@ -142,7 +141,7 @@ fn apply_patches<T: BitPacked>(
     });
 }
 
-fn apply_patches_idx_typed<T: BitPacked, I: NativePType + AsPrimitive<usize>>(
+fn apply_patches_idx_typed<T: BitPacked, I: IntegerPType>(
     values: &mut [T],
     values_range: Range<usize>,
     patch_indices: &[I],

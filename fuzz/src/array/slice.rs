@@ -9,7 +9,7 @@ use vortex_array::arrays::{
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{
-    DType, NativePType, Nullability, match_each_integer_ptype, match_each_native_ptype,
+    DType, IntegerPType, Nullability, match_each_integer_ptype, match_each_native_ptype,
 };
 use vortex_error::VortexResult;
 use vortex_scalar::match_each_decimal_value_type;
@@ -115,7 +115,7 @@ pub fn slice_canonical_array(
     }
 }
 
-fn shift_offsets<O: NativePType>(offsets: &[O]) -> PrimitiveArray {
+fn shift_offsets<O: IntegerPType>(offsets: &[O]) -> PrimitiveArray {
     if offsets.is_empty() {
         return PrimitiveArray::empty::<O>(Nullability::NonNullable);
     }

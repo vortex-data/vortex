@@ -106,6 +106,6 @@ impl VisitorVTable<PcoVTable> for PcoVTable {
     }
 
     fn visit_children(array: &PcoArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(&array.unsliced_validity, array.len());
+        visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
     }
 }

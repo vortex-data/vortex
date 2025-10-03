@@ -10,7 +10,6 @@ use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::compute::{filter, warm_up_vtables};
-use vortex_array::pipeline::{Element, export_canonical_pipeline_expr};
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
@@ -68,31 +67,32 @@ pub fn decompress_for_early_filter<T: NativePType>(bencher: Bencher, fraction_ke
         .bench_local_values(|mask| filter(array.as_ref(), &mask).unwrap().to_canonical());
 }
 
-#[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]
-#[allow(dead_code)]
-pub fn decompress_for_pipeline_plan_filter<T: Element + NativePType>(
-    bencher: Bencher,
-    fraction_kept: f64,
-) {
-    let mut rng = StdRng::seed_from_u64(0);
-    let values = (0..LENGTH)
-        .map(|_| T::from(rng.random_range(26..127)).unwrap())
-        .collect::<BufferMut<T>>();
-
-    let array = create_for_bitpacked_array(values).unwrap();
-    let mask = (0..LENGTH)
-        .map(|_| rng.random_bool(fraction_kept))
-        .collect::<BooleanBuffer>();
-
-    bencher
-        .with_inputs(|| Mask::from_buffer(mask.clone()))
-        .bench_local_values(|mask| {
-            export_canonical_pipeline_expr(
-                array.dtype(),
-                array.len(),
-                array.to_operator().unwrap().unwrap().as_ref(),
-                &mask,
-            )
-            .unwrap()
-        });
-}
+// TODO(ngates): bring back benchmarks once operator API is stable.
+// #[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]
+// #[allow(dead_code)]
+// pub fn decompress_for_pipeline_plan_filter<T: Element + NativePType>(
+//     bencher: Bencher,
+//     fraction_kept: f64,
+// ) {
+//     let mut rng = StdRng::seed_from_u64(0);
+//     let values = (0..LENGTH)
+//         .map(|_| T::from(rng.random_range(26..127)).unwrap())
+//         .collect::<BufferMut<T>>();
+//
+//     let array = create_for_bitpacked_array(values).unwrap();
+//     let mask = (0..LENGTH)
+//         .map(|_| rng.random_bool(fraction_kept))
+//         .collect::<BooleanBuffer>();
+//
+//     bencher
+//         .with_inputs(|| Mask::from_buffer(mask.clone()))
+//         .bench_local_values(|mask| {
+//             export_canonical_pipeline_expr(
+//                 array.dtype(),
+//                 array.len(),
+//                 array.to_operator().unwrap().unwrap().as_ref(),
+//                 &mask,
+//             )
+//             .unwrap()
+//         });
+// }

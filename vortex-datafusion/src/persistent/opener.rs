@@ -13,6 +13,9 @@ use datafusion_datasource::{FileRange, PartitionedFile};
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::{PhysicalExprRef, split_conjunction};
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
+use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
+use datafusion_physical_plan::metrics::Count;
+use datafusion_pruning::FilePruner;
 use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
@@ -33,7 +36,13 @@ pub(crate) struct VortexOpener {
     pub object_store: Arc<dyn ObjectStore>,
     /// Projection by index of the file's columns
     pub projection: Option<Arc<[usize]>>,
+    /// Filter expression optimized for pushdown into Vortex scan operations.
+    /// This may be a subset of file_pruning_predicate containing only expressions
+    /// that Vortex can efficiently evaluate.
     pub filter: Option<PhysicalExprRef>,
+    /// Filter expression used by DataFusion's FilePruner to eliminate files based on
+    /// statistics and partition values without opening them.
+    pub file_pruning_predicate: Option<PhysicalExprRef>,
     pub expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
     pub schema_adapter_factory: Arc<dyn SchemaAdapterFactory>,
     /// Hive-style partitioning columns
@@ -53,6 +62,7 @@ impl FileOpener for VortexOpener {
         let object_store = self.object_store.clone();
         let projection = self.projection.clone();
         let mut filter = self.filter.clone();
+        let file_pruning_predicate = self.file_pruning_predicate.clone();
         let expr_adapter_factory = self.expr_adapter_factory.clone();
         let partition_fields = self.partition_fields.clone();
         let file_cache = self.file_cache.clone();
@@ -74,6 +84,38 @@ impl FileOpener for VortexOpener {
             .create(projected_schema, logical_schema.clone());
 
         Ok(async move {
+            // Create FilePruner when we have a predicate and either dynamic expressions
+            // or file statistics available. The pruner can eliminate files without
+            // opening them based on:
+            // - Partition column values (e.g., date=2024-01-01)
+            // - File-level statistics (min/max values per column)
+            let mut file_pruner = file_pruning_predicate
+                .map(|predicate| {
+                    // Only create pruner if we have dynamic expressions or file statistics
+                    // to work with. Static predicates without stats won't benefit from pruning.
+                    Ok::<_, DataFusionError>(
+                        (is_dynamic_physical_expr(&predicate) | file.has_statistics()).then_some(
+                            FilePruner::new(
+                                predicate.clone(),
+                                &logical_schema,
+                                partition_fields.clone(),
+                                file.clone(),
+                                Count::default(),
+                            )?,
+                        ),
+                    )
+                })
+                .transpose()?
+                .flatten();
+
+            // Check if this file should be pruned based on statistics/partition values.
+            // Returns empty stream if file can be skipped entirely.
+            if let Some(file_pruner) = &mut file_pruner
+                && file_pruner.should_prune()?
+            {
+                return Ok(stream::empty().boxed());
+            }
+
             let vxf = file_cache
                 .try_get(&file_meta.object_meta, object_store)
                 .await
@@ -257,14 +299,14 @@ mod tests {
     use chrono::Utc;
     use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::datatypes::{DataType, Schema};
-    use datafusion::arrow::util::pretty::print_batches;
+    use datafusion::arrow::util::display::FormatOptions;
     use datafusion::common::record_batch;
     use datafusion::datasource::schema_adapter::DefaultSchemaAdapterFactory;
     use datafusion::logical_expr::{col, lit};
     use datafusion::physical_expr::planner::logical2physical;
     use datafusion::physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
     use datafusion::scalar::ScalarValue;
-    use futures::stream::BoxStream;
+    use insta::assert_snapshot;
     use itertools::Itertools;
     use object_store::ObjectMeta;
     use object_store::memory::InMemory;
@@ -335,22 +377,6 @@ mod tests {
         Ok(summary.size())
     }
 
-    async fn count_data(
-        mut stream: BoxStream<'static, Result<RecordBatch, DataFusionError>>,
-    ) -> anyhow::Result<(usize, usize)> {
-        let mut batches = vec![];
-
-        while let Some(rb) = stream.next().await {
-            let rb = rb?;
-
-            batches.push(rb);
-        }
-
-        print_batches(&batches)?;
-        let num_rows = batches.iter().map(|v| v.num_rows()).sum::<usize>();
-        Ok((batches.len(), num_rows))
-    }
-
     fn make_meta(path: &str, data_size: u64) -> FileMeta {
         FileMeta {
             object_meta: ObjectMeta {
@@ -396,6 +422,7 @@ mod tests {
             object_store: object_store.clone(),
             projection: Some([0].into()),
             filter: Some(filter),
+            file_pruning_predicate: None,
             expr_adapter_factory: expr_adapter_factory.clone(),
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
             partition_fields: vec![Arc::new(Field::new("part", DataType::Int32, false))],
@@ -417,7 +444,11 @@ mod tests {
             .unwrap()
             .await
             .unwrap();
-        let (num_batches, num_rows) = count_data(stream).await?;
+
+        let data = stream.try_collect::<Vec<_>>().await?;
+        let num_batches = data.len();
+        let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
+
         assert_eq!((num_batches, num_rows), expected_result1);
 
         // filter doesn't matches partition value
@@ -430,7 +461,10 @@ mod tests {
             .unwrap()
             .await
             .unwrap();
-        let (num_batches, num_rows) = count_data(stream).await?;
+
+        let data = stream.try_collect::<Vec<_>>().await?;
+        let num_batches = data.len();
+        let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
         assert_eq!((num_batches, num_rows), expected_result2);
 
         Ok(())
@@ -447,6 +481,8 @@ mod tests {
     async fn test_open_files_different_table_schema(
         #[case] expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
     ) -> anyhow::Result<()> {
+        use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
+
         let vx_session = Arc::new(VortexSession::default());
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file1_path = "/path/file1.vortex";
@@ -466,6 +502,7 @@ mod tests {
             object_store: object_store.clone(),
             projection: Some([0].into()),
             filter: Some(filter),
+            file_pruning_predicate: None,
             expr_adapter_factory: expr_adapter_factory.clone(),
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
             partition_fields: vec![],
@@ -482,23 +519,39 @@ mod tests {
 
         let opener1 = make_opener(filter.clone());
         let stream = opener1
-            .open(make_meta(file1_path, data_size1), file1)
-            .unwrap()
-            .await
-            .unwrap();
-        let (num_batches, num_rows) = count_data(stream).await?;
-        assert_eq!(num_batches, 1);
-        assert_eq!(num_rows, 3);
+            .open(make_meta(file1_path, data_size1), file1)?
+            .await?;
+
+        let format_opts = FormatOptions::new().with_types_info(true);
+
+        let data = stream.try_collect::<Vec<_>>().await?;
+        assert_snapshot!(pretty_format_batches_with_options(&data, &format_opts)?.to_string(), @r"
+        +-------+
+        | a     |
+        | Int32 |
+        +-------+
+        | 1     |
+        | 2     |
+        | 3     |
+        +-------+
+        ");
 
         let opener2 = make_opener(filter.clone());
         let stream = opener2
-            .open(make_meta(file2_path, data_size2), file2)
-            .unwrap()
-            .await
-            .unwrap();
-        let (num_batches, num_rows) = count_data(stream).await?;
-        assert_eq!(num_batches, 1);
-        assert_eq!(num_rows, 3);
+            .open(make_meta(file2_path, data_size2), file2)?
+            .await?;
+
+        let data = stream.try_collect::<Vec<_>>().await?;
+        assert_snapshot!(pretty_format_batches_with_options(&data, &format_opts)?.to_string(), @r"
+        +-------+
+        | a     |
+        | Int32 |
+        +-------+
+        | -1    |
+        | -2    |
+        | -3    |
+        +-------+
+        ");
 
         Ok(())
     }

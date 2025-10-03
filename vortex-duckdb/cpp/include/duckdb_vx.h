@@ -15,4 +15,6 @@
 #include "duckdb_vx/scalar_function.h"
 #include "duckdb_vx/table_filter.h"
 #include "duckdb_vx/table_function.h"
+#include "duckdb_vx/value.h"
 #include "duckdb_vx/vector.h"
+#include "duckdb_vx/vector_buffer.h"

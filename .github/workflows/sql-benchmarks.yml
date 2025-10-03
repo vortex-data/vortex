@@ -69,6 +69,14 @@ on:
               "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "--scale-factor 100"
             },
+            {
+              "id": "fineweb",
+              "subcommand": "fineweb",
+              "name": "FineWeb",
+              "local_dir": "bench-vortex/data/fineweb",
+              "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact",
+              "scale_factor": "--scale-factor 100"
+            },
           ]
 
 jobs:
@@ -143,9 +151,9 @@ jobs:
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}"
-          parca_agent_version: "0.39.3"
+          parca_agent_version: "0.42.0"
           project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-          extra_args: "--off-cpu-threshold=1"  # Personally tuned by @brancz
+          extra_args: "--off-cpu-threshold=0.001"  # Personally tuned by @brancz
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage == null
@@ -187,7 +195,7 @@ jobs:
 
       - name: Install uv
         if: inputs.mode == 'pr'
-        uses: spiraldb/actions/.github/actions/setup-uv@0.16.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.2
         with:
           sync: false
       - name: Compare results

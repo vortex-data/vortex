@@ -11,7 +11,8 @@ use vortex_mask::Mask;
 use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
-use crate::arrays::{BinaryView, VarBinViewArray};
+use crate::arrays::VarBinViewArray;
+use crate::arrays::binary_view::BinaryView;
 use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
@@ -161,7 +162,7 @@ impl VarBinViewBuilder {
             VarBinViewArray::new_unchecked(
                 std::mem::take(&mut self.views_builder).freeze(),
                 buffers.finish(),
-                std::mem::replace(&mut self.dtype, DType::Null),
+                self.dtype.clone(),
                 validity,
             )
         }
@@ -269,7 +270,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         }
     }
 
-    fn set_validity(&mut self, validity: Mask) {
+    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
         self.nulls = LazyNullBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }

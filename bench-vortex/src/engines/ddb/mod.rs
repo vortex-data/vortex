@@ -51,6 +51,7 @@ impl DuckDBCtx {
             BenchmarkDataset::StatPopGen { n_rows } => {
                 format!("statpopgen/{n_rows}/{}", format.name()).to_data_path()
             }
+            BenchmarkDataset::Fineweb => format!("fineweb/{}", format.name()).to_data_path(),
         };
         std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");
@@ -242,6 +243,13 @@ impl DuckDBCtx {
                 format!(
                     "CREATE {} IF NOT EXISTS statpopgen AS SELECT * FROM read_{extension}('{path}');",
                     duckdb_object.to_str()
+                )
+            }
+            BenchmarkDataset::Fineweb => {
+                let path = format!("{base_dir}*.{extension}");
+                format!(
+                    "CREATE {} IF NOT EXISTS fineweb AS SELECT * FROM read_{extension}('{path}');",
+                    duckdb_object.to_str(),
                 )
             }
         }

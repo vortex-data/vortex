@@ -10,7 +10,6 @@ mod is_sorted;
 mod mask;
 mod min_max;
 mod nan_count;
-mod pipeline;
 mod sum;
 mod take;
 

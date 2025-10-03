@@ -2,22 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
+use std::env;
 use std::ops::{BitAnd, Range};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::compute::filter;
-use vortex_array::pipeline::operators::MaskFuture;
-use vortex_array::pipeline::{
-    N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
-};
+use vortex_array::executor::Executor;
+use vortex_array::operator::OperatorRef;
+use vortex_array::operator::filter::FilterOperator;
+use vortex_array::operator::slice::SliceOperator;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldMask, Nullability};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
+use vortex_array::{Array, ArrayRef, IntoArray, MaskFuture};
+use vortex_dtype::{DType, FieldMask};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _, vortex_bail};
+use vortex_expr::{ExprRef, Scope, is_root};
 use vortex_mask::Mask;
 
 use crate::LayoutReader;
@@ -31,6 +32,13 @@ use crate::segments::SegmentSource;
 // TODO(ngates): more experimentation is needed, and this should probably be dynamic based on the
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
+
+/// While we develop operator-based evaluation, we can enable it via an environment variable.
+static USE_OPERATOR_EVAL: LazyLock<bool> = LazyLock::new(|| {
+    env::var("VORTEX_USE_OPERATOR_EVAL")
+        .ok()
+        .is_some_and(|v| v == "1")
+});
 
 pub struct FlatReader {
     layout: FlatLayout,
@@ -126,9 +134,9 @@ impl LayoutReader for FlatReader {
             let mut array = array.clone().await?;
             let mask = mask.await?;
 
-            if let Some(array) =
-                try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask)?
-            {
+            if *USE_OPERATOR_EVAL {
+                let array =
+                    try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await?;
                 let array_mask = array.try_to_mask_fill_null_false()?;
                 let mask = mask.intersect_by_rank(&array_mask);
                 return Ok(mask);
@@ -193,10 +201,8 @@ impl LayoutReader for FlatReader {
             let mut array = array.clone().await?;
             let mask = mask.await?;
 
-            if let Some(array) =
-                try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask)?
-            {
-                return Ok(array);
+            if *USE_OPERATOR_EVAL {
+                return try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await;
             }
 
             // Slice the array based on the row mask.
@@ -220,53 +226,32 @@ impl LayoutReader for FlatReader {
     }
 }
 
-fn try_evaluate_using_operator(
+async fn try_evaluate_using_operator(
     row_range: Range<usize>,
     array: &ArrayRef,
     expr: &ExprRef,
     mask: &Mask,
-) -> VortexResult<Option<ArrayRef>> {
-    let Some(operator) = expr.to_operator(array)? else {
-        return Ok(None);
+) -> VortexResult<ArrayRef> {
+    let Some(operator) = array.to_operator()? else {
+        vortex_bail!(
+            "ArrayEvaluation: cannot convert array to operator {}",
+            array.display_tree()
+        );
+    };
+    let Some(operator) = expr.operator(&operator)? else {
+        vortex_bail!("ArrayEvaluation: cannot convert expr to operator {}", expr);
     };
 
-    let return_type = expr.return_dtype(array.dtype())?;
-    if !matches!(
-        return_type,
-        DType::Primitive(_, Nullability::NonNullable) | DType::Bool(Nullability::NonNullable)
-    ) {
-        return Ok(None);
+    let mut operator: OperatorRef = Arc::new(SliceOperator::try_new(operator, row_range)?);
+    if !mask.all_true() {
+        operator = Arc::new(FilterOperator::new(operator, mask.clone()));
     }
 
-    let result = if row_range.start % N != 0 {
-        // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
-        // we could do mask offsets instead, but this case is rare, due to split building.
-        let array = array.slice(row_range.clone());
-        let operator = expr
-            .to_operator(array.as_ref())?
-            .vortex_expect("already converted");
-        export_canonical_pipeline_expr(
-            &return_type,
-            row_range.end - row_range.start,
-            operator.as_ref(),
-            mask,
-        )?
-        .into_array()
-    } else {
-        log::trace!(
-            "ArrayEvaluation: export_canonical_pipeline_expr_offset {:?}",
-            operator
-        );
-        export_canonical_pipeline_expr_offset(
-            &return_type,
-            row_range.start / N,
-            row_range.end - row_range.start,
-            operator.as_ref(),
-            mask,
-        )?
-        .into_array()
-    };
-    Ok(Some(result))
+    // TODO(ngates): in the future we should be able to return operators from projection.
+    println!("Optimizing operator: {}", operator.display_tree());
+    let operator = operator.optimize()?;
+    println!("Executing operator: {}", operator.display_tree());
+    Ok(Executor::default().execute(operator).await?.into_array())
 }
 
 #[cfg(test)]
@@ -275,9 +260,8 @@ mod test {
 
     use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayContext, ToCanonical};
+    use vortex_array::{ArrayContext, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;

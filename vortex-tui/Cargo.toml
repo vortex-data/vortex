@@ -20,6 +20,7 @@ crossterm = { workspace = true }
 env_logger = { version = "0.11" }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
+fuzzy-matcher = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true, features = ["futures"] }
 itertools = { workspace = true }

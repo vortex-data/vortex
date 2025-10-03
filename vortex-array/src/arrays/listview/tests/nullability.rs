@@ -3,165 +3,140 @@
 
 use std::sync::Arc;
 
+use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_scalar::Scalar;
 
-use crate::arrays::ListViewArray;
+use crate::IntoArray;
+use crate::arrays::{BoolArray, ListViewArray, PrimitiveArray};
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
-use crate::{Array, IntoArray};
 
 #[test]
-fn test_nullable_listview() {
-    // Tests ListView's handling of nullable lists where entire lists can be null.
-    // Creates an array with a null list in the middle: [[1,2], null, [3,4,5]].
-    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
-    let offsets = buffer![0i32, 0, 2].into_array();
-    let sizes = buffer![2i32, 0, 3].into_array();
+fn test_nullable_listview_comprehensive() {
+    // Comprehensive test for nullable ListView including scalar_at with nulls.
+    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
+    let offsets = buffer![0i32, 2, 4].into_array();
+    let sizes = buffer![2i32, 2, 2].into_array();
     let validity = Validity::from_iter([true, false, true]);
 
-    let listview = ListViewArray::new(elements.into_array(), offsets, sizes, validity);
+    let listview = ListViewArray::try_new(elements, offsets, sizes, validity).unwrap();
 
     assert_eq!(listview.len(), 3);
 
-    // Check dtype has nullable lists.
+    // Check validity.
+    assert!(listview.is_valid(0));
+    assert!(listview.is_invalid(1));
+    assert!(listview.is_valid(2));
+
+    // Check dtype reflects nullability.
     assert!(matches!(
         listview.dtype(),
         DType::List(_, Nullability::Nullable)
     ));
 
-    // First list: [1, 2].
-    assert!(listview.validity.is_valid(0));
-    let first = listview.list_elements_at(0);
-    assert_eq!(first.len(), 2);
-    assert_eq!(first.scalar_at(0), 1i32.into());
-    assert_eq!(first.scalar_at(1), 2i32.into());
+    // Test scalar_at with nulls.
+    let first = listview.scalar_at(0);
+    assert!(!first.is_null());
+    assert_eq!(
+        first,
+        Scalar::list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![1i32.into(), 2i32.into()],
+            Nullability::Nullable,
+        )
+    );
 
-    // Second list: null.
-    assert!(!listview.validity.is_valid(1));
+    let second = listview.scalar_at(1);
+    assert!(second.is_null());
 
-    // Third list: [3, 4, 5].
-    assert!(listview.validity.is_valid(2));
-    let third = listview.list_elements_at(2);
-    assert_eq!(third.len(), 3);
-    assert_eq!(third.scalar_at(0), 3i32.into());
-    assert_eq!(third.scalar_at(1), 4i32.into());
-    assert_eq!(third.scalar_at(2), 5i32.into());
+    let third = listview.scalar_at(2);
+    assert!(!third.is_null());
+    assert_eq!(
+        third,
+        Scalar::list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![5i32.into(), 6i32.into()],
+            Nullability::Nullable,
+        )
+    );
+
+    // list_elements_at still returns data even for null lists.
+    let null_list_data = listview.list_elements_at(1);
+    assert_eq!(null_list_data.len(), 2);
+    assert_eq!(null_list_data.scalar_at(0), 3i32.into());
+    assert_eq!(null_list_data.scalar_at(1), 4i32.into());
 }
 
-#[test]
-fn test_all_nulls() {
-    // Verifies correct behavior when all lists in a ListView are null,
-    // ensuring validity tracking works properly for completely null arrays.
-    let elements = buffer![1i32].into_array(); // Some elements exist but unused.
-    let offsets = buffer![0i32, 0, 0].into_array();
-    let sizes = buffer![0i32, 0, 0].into_array();
-    let validity = Validity::from_iter([false, false, false]);
+// Parameterized tests for different null patterns.
+#[rstest]
+#[case::all_nulls(Validity::AllInvalid, vec![false, false, false])]
+#[case::all_valid(Validity::AllValid, vec![true, true, true])]
+#[case::mixed(Validity::from_iter([false, true, false]), vec![false, true, false])]
+fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity: Vec<bool>) {
+    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
+    let offsets = buffer![0i32, 2, 4].into_array();
+    let sizes = buffer![2i32, 2, 2].into_array();
 
-    let listview = ListViewArray::new(elements.into_array(), offsets, sizes, validity);
+    let listview = ListViewArray::try_new(elements, offsets, sizes, validity).unwrap();
 
-    assert_eq!(listview.len(), 3);
-
-    for i in 0..3 {
-        assert!(!listview.validity.is_valid(i));
+    for (i, &expected) in expected_validity.iter().enumerate() {
+        assert_eq!(listview.is_valid(i), expected);
     }
 }
 
 #[test]
 fn test_nullable_elements() {
-    // Tests nested nullability where individual elements within lists can be null,
-    // distinct from list-level nullability. Creates: [[1, null, 3], [null, 5]].
-    let element_validity = Validity::from_iter([true, false, true, false, true]);
-    let elements_with_validity =
-        crate::arrays::PrimitiveArray::new(buffer![1i32, 0, 3, 0, 5], element_validity)
+    // Test with nullable elements inside the lists.
+    let elements =
+        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5), Some(6)])
             .into_array();
+    let offsets = buffer![0i32, 2, 4].into_array();
+    let sizes = buffer![2i32, 2, 2].into_array();
 
-    let offsets = buffer![0i32, 3].into_array();
-    let sizes = buffer![3i32, 2].into_array();
+    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid).unwrap();
 
-    let listview = ListViewArray::new(
-        elements_with_validity,
-        offsets,
-        sizes,
-        Validity::NonNullable,
-    );
+    // First list: [Some(1), None].
+    let first_list = listview.list_elements_at(0);
+    assert_eq!(first_list.len(), 2);
+    assert!(!first_list.scalar_at(0).is_null());
+    assert_eq!(first_list.scalar_at(0), 1i32.into());
+    assert!(first_list.scalar_at(1).is_null());
 
-    assert_eq!(listview.len(), 2);
+    // Second list: [Some(3), None].
+    let second_list = listview.list_elements_at(1);
+    assert!(!second_list.scalar_at(0).is_null());
+    assert_eq!(second_list.scalar_at(0), 3i32.into());
+    assert!(second_list.scalar_at(1).is_null());
 
-    // First list: [1, null, 3].
-    let first = listview.list_elements_at(0);
-    assert_eq!(first.len(), 3);
+    // Third list: [Some(5), Some(6)].
+    let third_list = listview.list_elements_at(2);
+    assert!(!third_list.scalar_at(0).is_null());
+    assert_eq!(third_list.scalar_at(0), 5i32.into());
+    assert!(!third_list.scalar_at(1).is_null());
+    assert_eq!(third_list.scalar_at(1), 6i32.into());
 
-    // Check element validity through the PrimitiveArray
-    let first_prim = first
-        .as_opt::<crate::arrays::PrimitiveVTable>()
-        .expect("Expected PrimitiveArray");
-    assert!(first_prim.validity().is_valid(0));
-    assert!(!first_prim.validity().is_valid(1));
-    assert!(first_prim.validity().is_valid(2));
-
-    // Second list: [null, 5].
-    let second = listview.list_elements_at(1);
-    assert_eq!(second.len(), 2);
-
-    let second_prim = second
-        .as_opt::<crate::arrays::PrimitiveVTable>()
-        .expect("Expected PrimitiveArray");
-    assert!(!second_prim.validity().is_valid(0));
-    assert!(second_prim.validity().is_valid(1));
-}
-
-#[test]
-fn test_scalar_at_with_nulls() {
-    // Verifies that scalar_at correctly returns null scalars for null lists
-    // and properly formed list scalars for valid lists in a nullable ListView.
-    let elements = buffer![10i32, 20, 30].into_array();
-    let offsets = buffer![0i32, 0, 2].into_array();
-    let sizes = buffer![2i32, 0, 1].into_array();
-    let validity = Validity::from_iter([true, false, true]);
-
-    let listview = ListViewArray::new(elements.into_array(), offsets, sizes, validity);
-
-    // First list: [10, 20].
-    let first = listview.scalar_at(0);
-    assert_eq!(
-        first,
-        Scalar::list(
-            Arc::new(PType::I32.into()),
-            vec![10i32.into(), 20i32.into()],
-            Nullability::Nullable,
-        )
-    );
-
-    // Second list is null so scalar_at returns a null scalar.
-    let second = listview.scalar_at(1);
-    assert!(second.is_null());
-
-    // Third list: [30].
-    let third = listview.scalar_at(2);
-    assert_eq!(
-        third,
-        Scalar::list(
-            Arc::new(PType::I32.into()),
-            vec![30i32.into()],
-            Nullability::Nullable,
-        )
-    );
+    // Check dtype of elements.
+    assert!(matches!(
+        listview.elements().dtype(),
+        DType::Primitive(PType::I32, Nullability::Nullable)
+    ));
 }
 
 #[test]
 fn test_validity_length_mismatch() {
-    // Ensures that ListView construction fails when the validity array length
-    // doesn't match the number of lists, maintaining consistency in null tracking.
-    let elements = buffer![1i32, 2, 3].into_array();
-    let offsets = buffer![0i32, 1].into_array();
-    let sizes = buffer![1i32, 2].into_array();
-    let validity = Validity::from_iter([true, false, true]); // Length 3 but array has 2 lists.
+    let elements = buffer![1i32, 2, 3, 4].into_array();
+    let offsets = buffer![0i32, 2].into_array();
+    let sizes = buffer![2i32, 2].into_array();
+    // Wrong length validity.
+    let validity = Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array());
 
-    let result = ListViewArray::try_new(elements.into_array(), offsets, sizes, validity);
+    let result = ListViewArray::try_new(elements, offsets, sizes, validity);
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.to_string().contains("does not match"));
+    assert!(
+        err.to_string().contains("validity") && err.to_string().contains("size"),
+        "Unexpected error: {err}"
+    );
 }

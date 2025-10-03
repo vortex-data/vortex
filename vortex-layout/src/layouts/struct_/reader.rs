@@ -7,9 +7,8 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use itertools::Itertools;
-use vortex_array::ArrayRef;
-use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
+use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
@@ -261,8 +260,7 @@ mod tests {
     use itertools::Itertools;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::StructArray;
-    use vortex_array::pipeline::operators::MaskFuture;
-    use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayContext, IntoArray, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root};

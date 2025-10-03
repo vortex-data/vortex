@@ -2,16 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::min;
-use std::ops::AddAssign;
 
 use arrow_buffer::BooleanBuffer;
-use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_buffer::buffer_mut;
-use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
+use vortex_dtype::{IntegerPType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
 
@@ -88,7 +86,7 @@ pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef
 }
 
 // Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
-fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
+fn filter_run_end_primitive<R: IntegerPType + From<bool>>(
     run_ends: &[R],
     offset: u64,
     length: u64,
@@ -102,7 +100,7 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 
     let new_mask: Mask = BooleanBuffer::collect_bool(run_ends.len(), |i| {
         let mut keep = false;
-        let end = min(run_ends[i].as_() - offset, length);
+        let end = min(run_ends[i].as_() as u64 - offset, length);
 
         // Safety: predicate must be the same length as the array the ends have been taken from
         for pred in

@@ -35,7 +35,7 @@ use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
-use crate::arrays::smallest_storage_type;
+use crate::arrays::smallest_decimal_value_type;
 use crate::canonical::Canonical;
 use crate::{Array, ArrayRef};
 
@@ -47,6 +47,7 @@ mod decimal;
 mod extension;
 mod fixed_size_list;
 mod list;
+mod listview;
 mod null;
 mod primitive;
 mod struct_;
@@ -57,6 +58,7 @@ pub use decimal::*;
 pub use extension::*;
 pub use fixed_size_list::*;
 pub use list::*;
+pub use listview::*;
 pub use null::*;
 pub use primitive::*;
 pub use struct_::*;
@@ -174,7 +176,20 @@ pub trait ArrayBuilder: Send {
     /// Override builders validity with the one provided.
     ///
     /// Note that this will have no effect on the final array if the array builder is non-nullable.
-    fn set_validity(&mut self, validity: Mask);
+    fn set_validity(&mut self, validity: Mask) {
+        if !self.dtype().is_nullable() {
+            return;
+        }
+        assert_eq!(self.len(), validity.len());
+        unsafe { self.set_validity_unchecked(validity) }
+    }
+
+    /// override validity with the one provided, without checking lengths
+    ///
+    /// # Safety
+    ///
+    /// Given validity must have an equal length to [`self.len()`].
+    unsafe fn set_validity_unchecked(&mut self, validity: Mask);
 
     /// Constructs an Array from the builder components.
     ///
@@ -231,7 +246,7 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             })
         }
         DType::Decimal(decimal_type, n) => {
-            match_each_decimal_value_type!(smallest_storage_type(decimal_type), |D| {
+            match_each_decimal_value_type!(smallest_decimal_value_type(decimal_type), |D| {
                 Box::new(DecimalBuilder::with_capacity::<D>(
                     capacity,
                     *decimal_type,

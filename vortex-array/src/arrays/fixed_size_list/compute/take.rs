@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_buffer::BooleanBufferBuilder;
-use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
+use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
 use crate::arrays::{FixedSizeListArray, FixedSizeListVTable, PrimitiveArray};
@@ -14,7 +14,9 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 /// Take implementation for [`FixedSizeListArray`].
 ///
-/// Expands list indices into element indices and pushes them down to the child elements array.
+/// Unlike `ListView`, `FixedSizeListArray` must rebuild the elements array because it requires
+/// that elements start at offset 0 and be perfectly packed without gaps. We expand list indices
+/// into element indices and push them down to the child elements array.
 impl TakeKernel for FixedSizeListVTable {
     fn take(&self, array: &FixedSizeListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {
@@ -26,7 +28,7 @@ impl TakeKernel for FixedSizeListVTable {
 register_kernel!(TakeKernelAdapter(FixedSizeListVTable).lift());
 
 /// Dispatches to the appropriate take implementation based on list size and nullability.
-fn take_with_indices<I: NativePType>(
+fn take_with_indices<I: IntegerPType>(
     array: &FixedSizeListArray,
     indices: &dyn Array,
 ) -> VortexResult<ArrayRef> {
@@ -68,7 +70,7 @@ fn take_with_indices<I: NativePType>(
 }
 
 /// Takes from an array when both the array and indices are non-nullable.
-fn take_non_nullable_fsl<I: NativePType>(
+fn take_non_nullable_fsl<I: IntegerPType>(
     array: &FixedSizeListArray,
     indices_array: &PrimitiveArray,
 ) -> VortexResult<ArrayRef> {
@@ -114,7 +116,7 @@ fn take_non_nullable_fsl<I: NativePType>(
 }
 
 /// Takes from an array when either the array or indices are nullable.
-fn take_nullable_fsl<I: NativePType>(
+fn take_nullable_fsl<I: IntegerPType>(
     array: &FixedSizeListArray,
     indices_array: &PrimitiveArray,
 ) -> VortexResult<ArrayRef> {

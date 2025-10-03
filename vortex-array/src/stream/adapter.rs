@@ -20,7 +20,10 @@ pub struct ArrayStreamAdapter<S> {
     inner: S,
 }
 
-impl<S> ArrayStreamAdapter<S> {
+impl<S> ArrayStreamAdapter<S>
+where
+    S: Stream<Item = VortexResult<ArrayRef>>,
+{
     pub fn new(dtype: DType, inner: S) -> Self {
         Self { dtype, inner }
     }
