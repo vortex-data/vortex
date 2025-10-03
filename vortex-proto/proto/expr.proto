@@ -51,6 +51,8 @@ message BinaryOpts {
     Or = 7;
     Add = 8;
     Sub = 9;
+    Mul = 10;
+    Div = 11;
   }
 }
 
