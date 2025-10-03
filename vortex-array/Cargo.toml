@@ -77,7 +77,6 @@ arbitrary = [
     "vortex-scalar/arbitrary",
 ]
 canonical_counter = []
-codspeed = []
 table-display = ["dep:tabled"]
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 
@@ -87,9 +86,11 @@ futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness", "table-display"] }
+
+[target.'cfg(not(codspeed))'.dev-dependencies]
 divan = { workspace = true }
 
-[target.'cfg(feature = "codspeed")'.dev-dependencies]
+[target.'cfg(codspeed)'.dev-dependencies]
 divan = { workspace = true, package = "codspeed-divan-compat" }
 
 [[bench]]
