@@ -42,7 +42,7 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
                 array.dtype.clone(),
                 // Keep the offset relative to the first chunk.
                 (array.offset + range.start) % FL_CHUNK_SIZE,
-                range.end - range.start,
+                range.len(),
             )
             .into_array()
         }
@@ -50,11 +50,6 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
 
     fn scalar_at(array: &RLEArray, index: usize) -> Scalar {
         let offset_in_chunk = array.offset();
-
-        if !array.indices().is_valid(offset_in_chunk + index) {
-            return Scalar::null(array.dtype().clone());
-        }
-
         let chunk_relative_idx = array.indices().scalar_at(offset_in_chunk + index);
 
         let chunk_relative_idx = chunk_relative_idx

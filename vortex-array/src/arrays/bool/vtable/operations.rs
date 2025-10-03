@@ -28,12 +28,14 @@ impl OperationsVTable<BoolVTable> for BoolVTable {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
     use super::*;
     use crate::ToCanonical;
 
     #[test]
     fn test_slice_hundred_elements() {
-        let arr = BoolArray::from_iter(std::iter::repeat_n(Some(true), 100));
+        let arr = BoolArray::from_iter(iter::repeat_n(Some(true), 100));
         let sliced_arr = arr.slice(8..16).to_bool();
         assert_eq!(sliced_arr.len(), 8);
         assert_eq!(sliced_arr.boolean_buffer().len(), 8);

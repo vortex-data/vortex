@@ -375,6 +375,8 @@ impl Scheme for DictScheme {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray, ToCanonical};
@@ -416,9 +418,9 @@ mod tests {
     #[test]
     fn test_rle_compression() {
         let mut values = Vec::new();
-        values.extend(std::iter::repeat_n(1.5f32, 100));
-        values.extend(std::iter::repeat_n(2.7f32, 200));
-        values.extend(std::iter::repeat_n(3.15f32, 150));
+        values.extend(iter::repeat_n(1.5f32, 100));
+        values.extend(iter::repeat_n(2.7f32, 200));
+        values.extend(iter::repeat_n(3.15f32, 150));
 
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
         let stats = crate::float::FloatStats::generate(&array);

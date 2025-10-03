@@ -10,7 +10,7 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::RLEArray;
 
 use crate::integer::IntCompressor;
-use crate::{Scheme, estimate_compression_ratio_with_sampling};
+use crate::{CompressorStats, Scheme, estimate_compression_ratio_with_sampling};
 
 /// Threshold for the average run length in an array before we consider run-length encoding.
 pub const RUN_LENGTH_THRESHOLD: u32 = 4;
@@ -46,7 +46,7 @@ impl<S, C> RLEScheme<S, C> {
 
 impl<S, C> Scheme for RLEScheme<S, C>
 where
-    S: RLEStats + crate::CompressorStats,
+    S: RLEStats + CompressorStats,
     C: Copy + Clone + Debug + Hash + PartialEq + Eq,
 {
     type StatsType = S;
@@ -101,7 +101,7 @@ where
             return Ok(rle_array.into_array());
         }
 
-        // Set up excludes to prevent infinite recursion.
+        // Prevent RLE recursion.
         let mut new_excludes = vec![self.code()];
         new_excludes.extend_from_slice(excludes);
 
@@ -114,14 +114,14 @@ where
 
         // For indices and offsets, we always use integer compression without dictionary encoding.
         let compressed_indices = IntCompressor::compress_no_dict(
-            &rle_array.indices().to_primitive(),
+            &rle_array.indices().to_primitive().downcast()?,
             is_sample,
             allowed_cascading - 1,
             &[],
         )?;
 
         let compressed_offsets = IntCompressor::compress_no_dict(
-            &rle_array.values_idx_offsets().to_primitive(),
+            &rle_array.values_idx_offsets().to_primitive().downcast()?,
             is_sample,
             allowed_cascading - 1,
             &[],

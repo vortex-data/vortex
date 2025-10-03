@@ -103,6 +103,13 @@ impl RLEArray {
             value_idx_offsets.len()
         );
 
+        vortex_ensure!(
+            indices.len() >= values.len(),
+            "RLE must have at least as many indices as values, got {} indices and {} values",
+            indices.len(),
+            values.len()
+        );
+
         Ok(())
     }
 
@@ -184,9 +191,9 @@ impl RLEArray {
 
     /// Values index offset relative to the first chunk.
     ///
-    /// Offsets in the `values_idx_offsets` arrays are absolute and need to be
-    /// shifted by the offset of the first chunk, respective the current slice,
-    /// in order to make them relative.
+    /// Offsets in `values_idx_offsets` are absolute and need to be shifted
+    /// by the offset of the first chunk, respective the current slice, in
+    /// order to make them relative.
     #[allow(clippy::expect_used)]
     pub(crate) fn values_idx_offset(&self, chunk_idx: usize) -> usize {
         self.values_idx_offsets
@@ -236,9 +243,6 @@ impl CanonicalVTable<RLEVTable> for RLEVTable {
 
 impl ValidityVTable<RLEVTable> for RLEVTable {
     fn is_valid(array: &RLEArray, index: usize) -> bool {
-        // Indices get padded to 1024 chunks. Ensure the index is within the array's length.
-        assert!(index < array.len());
-
         array.indices().is_valid(array.offset() + index)
     }
 
