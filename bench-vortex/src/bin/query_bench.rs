@@ -64,9 +64,8 @@ struct CommonArgs {
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
 
-    /// TODO(joe): remove this flag and add a cache flag to common.
-    #[arg(long, default_value_t = false)]
-    disable_datafusion_cache: bool,
+    #[arg(long)]
+    max_memory_limit: Option<usize>,
 
     #[arg(long, default_value_t = false)]
     delete_duckdb_database: bool,
@@ -276,7 +275,6 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
         iterations: args.common.iterations,
         threads: args.common.threads,
         display_format: args.common.display_format,
-        disable_datafusion_cache: args.common.disable_datafusion_cache,
         delete_duckdb_database: args.common.delete_duckdb_database,
         queries: args.common.queries,
         exclude_queries: args.common.exclude_queries,
@@ -289,6 +287,7 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
         skip_generate: args.common.skip_generate,
         explain: args.common.explain,
         explain_analyze: args.common.explain_analyze,
+        max_memory_limit: args.common.max_memory_limit,
     };
 
     // Determine data URL
@@ -308,7 +307,6 @@ fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
         iterations: args.common.iterations,
         threads: args.common.threads,
         display_format: args.common.display_format,
-        disable_datafusion_cache: args.common.disable_datafusion_cache,
         delete_duckdb_database: args.common.delete_duckdb_database,
         queries: args.common.queries,
         exclude_queries: args.common.exclude_queries,
@@ -321,6 +319,7 @@ fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
         skip_generate: args.common.skip_generate,
         explain: args.common.explain,
         explain_analyze: args.common.explain_analyze,
+        max_memory_limit: args.common.max_memory_limit,
     };
 
     // Run benchmark using the trait system
@@ -341,7 +340,6 @@ fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
         iterations: args.common.iterations,
         threads: args.common.threads,
         display_format: args.common.display_format,
-        disable_datafusion_cache: args.common.disable_datafusion_cache,
         delete_duckdb_database: args.common.delete_duckdb_database,
         queries: args.common.queries,
         exclude_queries: args.common.exclude_queries,
@@ -354,6 +352,7 @@ fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
         skip_generate: args.common.skip_generate,
         explain: args.common.explain,
         explain_analyze: args.common.explain_analyze,
+        max_memory_limit: args.common.max_memory_limit,
     };
 
     // Run benchmark using the trait system
@@ -376,7 +375,6 @@ fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
         iterations: args.common.iterations,
         threads: args.common.threads,
         display_format: args.common.display_format,
-        disable_datafusion_cache: args.common.disable_datafusion_cache,
         delete_duckdb_database: args.common.delete_duckdb_database,
         queries: args.common.queries,
         exclude_queries: args.common.exclude_queries,
@@ -389,6 +387,7 @@ fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
         skip_generate: args.common.skip_generate,
         explain: args.common.explain,
         explain_analyze: args.common.explain_analyze,
+        max_memory_limit: args.common.max_memory_limit,
     };
 
     // Run benchmark using the trait system
@@ -408,7 +407,6 @@ fn run_fineweb(args: FinewebArgs) -> anyhow::Result<()> {
         iterations: args.common.iterations,
         threads: args.common.threads,
         display_format: args.common.display_format,
-        disable_datafusion_cache: args.common.disable_datafusion_cache,
         delete_duckdb_database: args.common.delete_duckdb_database,
         queries: args.common.queries,
         exclude_queries: args.common.exclude_queries,
@@ -421,6 +419,7 @@ fn run_fineweb(args: FinewebArgs) -> anyhow::Result<()> {
         skip_generate: args.common.skip_generate,
         explain: args.common.explain,
         explain_analyze: args.common.explain_analyze,
+        max_memory_limit: args.common.max_memory_limit,
     };
 
     run_benchmark(benchmark, config)

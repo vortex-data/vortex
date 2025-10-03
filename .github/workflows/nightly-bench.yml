@@ -25,7 +25,7 @@ jobs:
             "id": "tpch-nvme",
             "subcommand": "tpch",
             "name": "TPC-H on NVME",
-            "targets": "datafusion:vortex",
+            "targets": "datafusion:parquet,datafusion:vortex",
             "scale_factor": "--scale-factor 10.0"
           },
           {
@@ -34,15 +34,15 @@ jobs:
             "name": "TPC-H on S3",
             "local_dir": "bench-vortex/data/tpch/10.0",
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/10.0/",
-            "targets": "datafusion:vortex",
-            "scale_factor": "--scale-factor 10.0"
+            "targets": "datafusion:parquet,datafusion:vortex",
+            "scale_factor": "--scale-factor 10.0 --max-memory-limit 137438953472"
           },
           {
             "id": "tpch-nvme",
             "subcommand": "tpch",
             "name": "TPC-H on NVME",
-            "targets": "datafusion:vortex",
-            "scale_factor": "--scale-factor 100"
+            "targets": "datafusion:parquet,datafusion:vortex",
+            "scale_factor": "--scale-factor 100 --max-memory-limit 137438953472"
           },
           {
             "id": "tpch-s3",
@@ -50,21 +50,15 @@ jobs:
             "name": "TPC-H on S3",
             "local_dir": "bench-vortex/data/tpch/100.0",
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/100.0/",
-            "targets": "datafusion:vortex",
-            "scale_factor": "--scale-factor 100.0"
+            "targets": "datafusion:parquet,datafusion:vortex",
+            "scale_factor": "--scale-factor 100.0 --max-memory-limit 137438953472"
           },
           {
             "id": "tpch-nvme",
             "subcommand": "tpch",
             "name": "TPC-H on NVME",
             "targets": "duckdb:parquet,duckdb:vortex",
-            "scale_factor": "--scale-factor 1000"
-          },
-          {
-            "id": "clickbench-nvme",
-            "subcommand": "clickbench",
-            "name": "Clickbench on NVME",
-            "targets": "datafusion:vortex",
+            "scale_factor": "--scale-factor 1000 --max-memory-limit 137438953472"
           }
         ]
     strategy:

@@ -17,7 +17,7 @@ pub trait Benchmark {
     fn setup_engine_context(
         &self,
         target: &Target,
-        disable_datafusion_cache: bool,
+        max_memory_limit: Option<usize>,
         emit_plan: bool,
         delete_duckdb_database: bool,
     ) -> Result<EngineCtx> {
@@ -26,7 +26,7 @@ pub trait Benchmark {
 
         match engine {
             Engine::DataFusion => {
-                let session_ctx = df::get_session_context(disable_datafusion_cache);
+                let session_ctx = df::get_session_context(max_memory_limit);
                 df::make_object_store(&session_ctx, self.data_url())?;
                 Ok(EngineCtx::new_with_datafusion(session_ctx, emit_plan))
             }

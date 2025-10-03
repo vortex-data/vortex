@@ -46,7 +46,6 @@ pub struct DriverConfig {
     pub iterations: usize,
     pub threads: Option<usize>,
     pub display_format: DisplayFormat,
-    pub disable_datafusion_cache: bool,
     pub delete_duckdb_database: bool,
     pub queries: Option<Vec<usize>>,
     pub exclude_queries: Option<Vec<usize>>,
@@ -59,6 +58,7 @@ pub struct DriverConfig {
     pub skip_generate: bool,
     pub explain: bool,
     pub explain_analyze: bool,
+    pub max_memory_limit: Option<usize>,
 }
 
 /// Run a benchmark using the provided implementation and configuration
@@ -103,7 +103,7 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
 
         let mut engine_ctx = benchmark.setup_engine_context(
             target,
-            config.disable_datafusion_cache,
+            config.max_memory_limit,
             config.emit_plan,
             config.delete_duckdb_database,
         )?;
@@ -343,7 +343,7 @@ fn run_explain_query<B: Benchmark>(
 
         let engine_ctx = benchmark.setup_engine_context(
             target,
-            config.disable_datafusion_cache,
+            config.max_memory_limit,
             config.emit_plan,
             config.delete_duckdb_database,
         )?;

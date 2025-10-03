@@ -50,16 +50,18 @@ pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
     .to_string()
 });
 
-pub fn get_session_context(disable_datafusion_cache: bool) -> SessionContext {
+pub fn get_session_context(max_memory: Option<usize>) -> SessionContext {
     let mut rt_builder = RuntimeEnvBuilder::new();
 
-    if !disable_datafusion_cache {
-        let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
-        let list_file_cache = Arc::new(DefaultListFilesCache::default());
-        let cache_config = CacheManagerConfig::default()
-            .with_files_statistics_cache(Some(file_static_cache))
-            .with_list_files_cache(Some(list_file_cache));
-        rt_builder = rt_builder.with_cache_manager(cache_config);
+    let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
+    let list_file_cache = Arc::new(DefaultListFilesCache::default());
+    let cache_config = CacheManagerConfig::default()
+        .with_files_statistics_cache(Some(file_static_cache))
+        .with_list_files_cache(Some(list_file_cache));
+    rt_builder = rt_builder.with_cache_manager(cache_config);
+
+    if let Some(max_memory) = max_memory {
+        rt_builder = rt_builder.with_memory_limit(max_memory, 0.8);
     }
 
     let rt = rt_builder
