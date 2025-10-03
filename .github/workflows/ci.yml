@@ -471,7 +471,7 @@ jobs:
 
       - name: Build benchmarks (shard 1)
         env:
-          RUSTFLAGS: "-C target-feature=+avx2"
+          RUSTFLAGS: "-C target-feature=+avx2 --cfg codspeed"
         if: ${{ matrix.shard == 1 }}
         run: |
           cargo codspeed build --features test-harness \
@@ -483,7 +483,7 @@ jobs:
 
       - name: Build benchmarks (shard 2)
         env:
-          RUSTFLAGS: "-C target-feature=+avx2"
+          RUSTFLAGS: "-C target-feature=+avx2 --cfg codspeed"
         if: ${{ matrix.shard == 2 }}
         run: |
           cargo codspeed build --features test-harness \
