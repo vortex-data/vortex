@@ -213,8 +213,7 @@ mod tests {
 
     #[test]
     fn test_cuda_take_masked() {
-        // const LEN: u64 = 1024 * 8;
-        const LEN: u64 = 1024;
+        const LEN: u64 = 1024 * 8;
         let values: PrimitiveArray = (0u64..1024).map(|x| (x + 2) % 1024).collect();
         let codes: PrimitiveArray = (0u64..LEN).map(|x| (x + 1) % 1024).collect();
         let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
