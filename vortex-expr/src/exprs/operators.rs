@@ -46,8 +46,6 @@ pub enum Operator {
     Mul,
     /// Divide the left side by the right side
     Div,
-    /// Divide the right side by the left side
-    RDiv,
 }
 
 impl From<Operator> for i32 {
@@ -72,7 +70,6 @@ impl From<Operator> for BinaryOp {
             Operator::Sub => BinaryOp::Sub,
             Operator::Mul => BinaryOp::Mul,
             Operator::Div => BinaryOp::Div,
-            Operator::RDiv => BinaryOp::RDiv,
         }
     }
 }
@@ -100,7 +97,6 @@ impl From<BinaryOp> for Operator {
             BinaryOp::Sub => Operator::Sub,
             BinaryOp::Mul => Operator::Mul,
             BinaryOp::Div => Operator::Div,
-            BinaryOp::RDiv => Operator::RDiv,
         }
     }
 }
@@ -119,7 +115,7 @@ impl Display for Operator {
             Operator::Add => "+",
             Operator::Sub => "-",
             Operator::Mul => "*",
-            Operator::Div | Operator::RDiv => "/",
+            Operator::Div => "/",
         };
         Display::fmt(display, f)
     }
@@ -139,8 +135,7 @@ impl Operator {
             | Operator::Add
             | Operator::Sub
             | Operator::Mul
-            | Operator::Div
-            | Operator::RDiv => None,
+            | Operator::Div => None,
         }
     }
 
@@ -153,21 +148,19 @@ impl Operator {
     }
 
     /// Change the sides of the operator, so that changing lhs and rhs won't change the result of the operation
-    pub fn swap(self) -> Self {
+    pub fn swap(self) -> Option<Self> {
         match self {
-            Operator::Eq => Operator::Eq,
-            Operator::NotEq => Operator::NotEq,
-            Operator::Gt => Operator::Lt,
-            Operator::Gte => Operator::Lte,
-            Operator::Lt => Operator::Gt,
-            Operator::Lte => Operator::Gte,
-            Operator::And => Operator::And,
-            Operator::Or => Operator::Or,
-            Operator::Add => Operator::Add,
-            Operator::Sub => Operator::Sub,
-            Operator::Mul => Operator::Mul,
-            Operator::Div => Operator::RDiv,
-            Operator::RDiv => Operator::Div,
+            Operator::Eq => Some(Operator::Eq),
+            Operator::NotEq => Some(Operator::NotEq),
+            Operator::Gt => Some(Operator::Lt),
+            Operator::Gte => Some(Operator::Lte),
+            Operator::Lt => Some(Operator::Gt),
+            Operator::Lte => Some(Operator::Gte),
+            Operator::And => Some(Operator::And),
+            Operator::Or => Some(Operator::Or),
+            Operator::Add => Some(Operator::Add),
+            Operator::Mul => Some(Operator::Mul),
+            Operator::Sub | Operator::Div => None,
         }
     }
 
