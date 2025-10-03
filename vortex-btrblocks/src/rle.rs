@@ -62,6 +62,11 @@ where
         allowed_cascading: usize,
         excludes: &[C],
     ) -> VortexResult<f64> {
+        // RLE is only useful when we cascade it with another encoding.
+        if allowed_cascading == 0 {
+            return Ok(0.0);
+        }
+
         // Don't compress all-null or empty arrays.
         if stats.value_count() == 0 {
             return Ok(0.0);
