@@ -23,7 +23,7 @@ const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 impl FilterKernel for ListVTable {
     fn filter(&self, array: &ListArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
         let elements = array.elements();
-        let offsets = array.offsets.to_primitive();
+        let offsets = array.offsets().to_primitive();
 
         let new_validity = array.validity().filter(selection_mask)?;
         debug_assert!(

@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use itertools::Itertools as _;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{BinaryView, ConstantArray, PrimitiveArray, VarBinViewArray};
+use vortex_array::arrays::binary_view::BinaryView;
+use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinViewArray};
 use vortex_array::compute::filter;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;

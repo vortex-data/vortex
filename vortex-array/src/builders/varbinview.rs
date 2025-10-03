@@ -11,7 +11,8 @@ use vortex_mask::Mask;
 use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
-use crate::arrays::{BinaryView, VarBinViewArray};
+use crate::arrays::VarBinViewArray;
+use crate::arrays::binary_view::BinaryView;
 use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};

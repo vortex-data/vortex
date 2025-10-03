@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use num_traits::NumCast;
+use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::arrays::{
-    BinaryView, BoolArray, BooleanBuffer, ConstantArray, FixedSizeListArray, ListArray, NullArray,
-    PrimitiveArray, StructArray, VarBinViewArray, smallest_storage_type,
+    BoolArray, BooleanBuffer, ConstantArray, FixedSizeListArray, ListArray, NullArray,
+    PrimitiveArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
 };
 use vortex_array::builders::{ArrayBuilder, DecimalBuilder, ListBuilder, builder_with_capacity};
 use vortex_array::patches::Patches;
@@ -56,7 +57,7 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
                 array.len(),
             ),
             DType::Decimal(decimal_dtype, nullability) => {
-                let canonical_decimal_value_type = smallest_storage_type(decimal_dtype);
+                let canonical_decimal_value_type = smallest_decimal_value_type(decimal_dtype);
                 let fill_value = array.fill_scalar().as_decimal();
                 match_each_decimal_value_type!(canonical_decimal_value_type, |D| {
                     canonicalize_sparse_decimal::<D>(
