@@ -153,7 +153,7 @@ impl TryFromDataFusion<DFOperator> for Operator {
             | DFOperator::Question
             | DFOperator::QuestionAnd
             | DFOperator::QuestionPipe => {
-                eprintln!("Can't pushdown {value} operator");
+                tracing::debug!(operator = %value, "Can't pushdown binary_operator operator");
                 Err(vortex_err!("Unsupported datafusion operator {value}"))
             }
         }
