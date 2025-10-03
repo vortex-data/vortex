@@ -33,6 +33,7 @@ arrow-string = { workspace = true }
 async-trait = { workspace = true }
 bitvec = { workspace = true }
 cfg-if = { workspace = true }
+divan.workspace = true
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
@@ -82,16 +83,11 @@ test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 
 [dev-dependencies]
 arrow-cast = { workspace = true }
+divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness", "table-display"] }
-
-[target.'cfg(not(codspeed))'.dev-dependencies]
-divan = { workspace = true }
-
-[target.'cfg(codspeed)'.dev-dependencies]
-divan = { workspace = true, package = "codspeed-divan-compat" }
 
 [[bench]]
 name = "search_sorted"
