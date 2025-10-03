@@ -522,7 +522,7 @@ impl BufferGrowthStrategy {
 
 enum BuffersWithOffsets {
     AllKept {
-        buffers: Vec<ByteBuffer>,
+        buffers: Arc<[ByteBuffer]>,
         offsets: Vec<u32>,
     },
     SomeCompacted {
@@ -533,73 +533,50 @@ enum BuffersWithOffsets {
 
 impl BuffersWithOffsets {
     pub fn from_array(array: &VarBinViewArray, compaction_threshold: f64) -> Self {
-        let array = array.clone();
-        let mut has_rewrite = false;
-        let strategies: Vec<_> = if compaction_threshold == 0.0 {
-            vec![CompactionStrategy::KeepFull; array.buffers().len()]
-        } else {
-            array
-                .buffer_utilisations()
+        if compaction_threshold == 0.0 {
+            return Self::AllKept {
+                buffers: array.buffers().clone(),
+                offsets: vec![0; array.buffers().len()],
+            };
+        }
+        let buffer_utilisations = array.buffer_utilisations();
+        let has_rewrite = buffer_utilisations.iter().any(|buffer| {
+            buffer.overall_utilisation() == 0.0
+                || (buffer.overall_utilisation() < compaction_threshold
+                    && buffer.range_utilisation() < compaction_threshold)
+        });
+
+        let buffers_with_offsets_iter =
+            buffer_utilisations
                 .iter()
-                .map(|buffer| match buffer.overall_utilisation() {
-                    // always rewrite empty or non-used buffers,
-                    0.0 => {
-                        has_rewrite = true;
-                        CompactionStrategy::Rewrite
-                    }
-
-                    // at this point we know the buffer has some usage, keep if it is utilised above the threshold
-                    utilised if utilised >= compaction_threshold => CompactionStrategy::KeepFull,
-
-                    // if overall utilisation is low, check if it is high enough when sliced
-                    _ if buffer.range_utilisation() >= compaction_threshold => {
-                        let Range { start, end } = buffer.range();
-                        CompactionStrategy::Slice { start, end }
-                    }
-
-                    // can't salvage this buffer, rewrite
-                    _ => {
-                        has_rewrite = true;
-                        CompactionStrategy::Rewrite
-                    }
-                })
-                .collect()
-        };
-
-        let buffers_with_offsets_iter = strategies.iter().zip(array.buffers().iter()).map(
-            |(strategy, buffer)| match strategy {
-                CompactionStrategy::KeepFull => (Some(buffer.clone()), 0u32),
-                CompactionStrategy::Slice { start, end } => {
-                    (Some(buffer.slice(*start as usize..*end as usize)), *start)
-                }
-                CompactionStrategy::Rewrite => (None, 0),
-            },
-        );
+                .zip(array.buffers().iter())
+                .map(
+                    |(utilisation, buffer)| match utilisation.overall_utilisation() {
+                        0.0 => (None, 0),
+                        utilised if utilised >= compaction_threshold => (Some(buffer.clone()), 0),
+                        _ if utilisation.range_utilisation() > compaction_threshold => {
+                            let Range { start, end } = utilisation.range();
+                            (Some(buffer.slice(start as usize..end as usize)), start)
+                        }
+                        _ => (None, 0),
+                    },
+                );
 
         if has_rewrite {
             let (buffers, offsets) = buffers_with_offsets_iter.unzip();
-            BuffersWithOffsets::SomeCompacted { buffers, offsets }
+            Self::SomeCompacted { buffers, offsets }
         } else {
-            let (buffers, offsets) = buffers_with_offsets_iter
+            let (buffers, offsets): (Vec<_>, _) = buffers_with_offsets_iter
                 .map(|(buffer, offset)| {
                     (buffer.vortex_expect("already checked for rewrite"), offset)
                 })
                 .unzip();
-            BuffersWithOffsets::AllKept { buffers, offsets }
+            Self::AllKept {
+                buffers: Arc::from(buffers),
+                offsets,
+            }
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum CompactionStrategy {
-    KeepFull,
-    /// Slice the buffer to [start, end) range
-    Slice {
-        start: u32,
-        end: u32,
-    },
-    /// Rewrite data into new compacted buffer
-    Rewrite,
 }
 
 enum ViewAdjustment {
