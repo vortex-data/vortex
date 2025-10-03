@@ -11,9 +11,7 @@ macro_rules! assert_arrays_eq {
         let expected_contents: Vec<_> = (0..expected.len())
             .map(|idx| expected.scalar_at(idx))
             .collect();
-        let actual_contents: Vec<_> = (0..actual.len())
-            .map(|idx| expected.scalar_at(idx))
-            .collect();
+        let actual_contents: Vec<_> = (0..actual.len()).map(|idx| actual.scalar_at(idx)).collect();
 
         assert_eq!(expected_contents, actual_contents);
     };
