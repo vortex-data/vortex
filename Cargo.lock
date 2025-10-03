@@ -6925,6 +6925,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
+ "vortex-mask",
  "vortex-utils",
  "walkdir",
 ]

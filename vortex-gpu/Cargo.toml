@@ -22,6 +22,7 @@ vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
+vortex-mask = { workspace = true }
 vortex-utils = { workspace = true }
 
 [build-dependencies]
