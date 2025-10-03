@@ -77,9 +77,6 @@ pub enum DType {
     ///
     /// This is parameterized by a `DType` that represents the element type of the inner lists, as
     /// well as a `u32` size that determines the fixed length of each `FixedSizeList` scalar.
-    ///
-    /// This variant has not yet been implemented. Please add a comment with
-    /// `TODO(connor)[FixedSizeList]` if you need to match against `DType`.
     FixedSizeList(Arc<DType>, u32, Nullability),
 
     /// A logical struct type.
