@@ -3,3 +3,5 @@
 
 mod bit_unpack;
 mod take;
+
+pub use take::cuda_take;

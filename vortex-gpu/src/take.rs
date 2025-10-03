@@ -16,25 +16,8 @@ use vortex_dtype::{
 };
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
-fn cuda_take_kernel<Codes, Values>(ctx: Arc<CudaContext>) -> VortexResult<CudaFunction>
-where
-    Codes: NativePType,
-    Values: NativePType,
-{
-    let module = ctx
-        .load_module(Ptx::from_file("kernels/dict_take.ptx"))
-        .map_err(|e| vortex_err!("Failed to load kernel module: {e}"))?;
-
-    let kernel_name = format!("dict_take_c{}_v{}_values", &Codes::PTYPE, &Values::PTYPE);
-
-    let kernel_func = module
-        .load_function(&kernel_name)
-        .map_err(|e| vortex_err!("Failed to load function: {e}"))?;
-    Ok(kernel_func)
-}
-
 // For now we only support integer non-nullable codes and values.
-fn cuda_take(dict: &DictArray, ctx: Arc<CudaContext>) -> VortexResult<Option<ArrayRef>> {
+pub fn cuda_take(dict: &DictArray, ctx: Arc<CudaContext>) -> VortexResult<Option<ArrayRef>> {
     if !matches!(dict.dtype(), DType::Primitive(_, Nullability::NonNullable)) {
         return Ok(None);
     };
@@ -109,6 +92,23 @@ where
         .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
 
     Ok(PrimitiveArray::new(buffer, Validity::NonNullable).into_array())
+}
+
+fn cuda_take_kernel<Codes, Values>(ctx: Arc<CudaContext>) -> VortexResult<CudaFunction>
+where
+    Codes: NativePType,
+    Values: NativePType,
+{
+    let module = ctx
+        .load_module(Ptx::from_file("kernels/dict_take.ptx"))
+        .map_err(|e| vortex_err!("Failed to load kernel module: {e}"))?;
+
+    let kernel_name = format!("dict_take_c{}_v{}_values", &Codes::PTYPE, &Values::PTYPE);
+
+    let kernel_func = module
+        .load_function(&kernel_name)
+        .map_err(|e| vortex_err!("Failed to load function: {e}"))?;
+    Ok(kernel_func)
 }
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
