@@ -11,10 +11,10 @@ use vortex_array::{ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dict::DictArray;
 use vortex_dtype::{
-    DType, IntegerPType, NativePType, Nullability, UnsignedPType, match_each_integer_ptype,
+    DType, NativePType, Nullability, UnsignedPType, match_each_native_ptype,
     match_each_unsigned_integer_ptype,
 };
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 fn cuda_take_kernel<Codes, Values>(ctx: Arc<CudaContext>) -> VortexResult<CudaFunction>
 where
@@ -50,7 +50,7 @@ fn cuda_take(dict: &DictArray, ctx: Arc<CudaContext>) -> VortexResult<Option<Arr
     let values = dict.values().to_primitive();
     let codes = dict.codes().to_primitive();
 
-    let result = match_each_integer_ptype!(values.ptype(), |V| {
+    let result = match_each_native_ptype!(values.ptype(), |V| {
         match_each_unsigned_integer_ptype!(codes.ptype(), |C| {
             cuda_take_impl::<C, V>(codes, values, ctx)
         })
@@ -65,8 +65,7 @@ fn cuda_take_impl<Codes, Values>(
 ) -> VortexResult<ArrayRef>
 where
     Codes: UnsignedPType + DeviceRepr,
-    // TODO(joe): support f16 in DeviceRepr.
-    Values: IntegerPType + NativePType + DeviceRepr,
+    Values: NativePType + DeviceRepr,
 {
     let values_sl = values.as_slice::<Values>();
     let codes_sl = codes.as_slice::<Codes>();
@@ -75,7 +74,7 @@ where
     assert_eq!(codes.len() % 1024, 0);
 
     let kernel_func = cuda_take_kernel::<Codes, Values>(ctx.clone())?;
-    let num_chunks = 1;
+    let num_chunks = u32::try_from(codes.len().div_ceil(1024)).vortex_expect("num chunks overflow");
     let stream = ctx.default_stream();
 
     let cu_values = stream
@@ -152,6 +151,22 @@ mod tests {
         let expect: PrimitiveArray = (0i64..1024).map(|x| (x + 3) % 1024).collect();
         let dict_cpu = dict.to_primitive();
         assert_eq!(dict_cpu.as_slice::<i64>(), expect.as_slice::<i64>());
+
+        let ctx = CudaContext::new(0).unwrap();
+        ctx.set_blocking_synchronize().unwrap();
+        let result = cuda_take(&dict, ctx).unwrap().unwrap().to_primitive();
+
+        assert_eq!(result.as_slice::<i64>(), expect.as_slice::<i64>());
+    }
+
+    #[test]
+    fn test_cuda_take_long_u8_i64() {
+        const LEN: usize = 1024 * 8;
+        let values: PrimitiveArray = (0i64..1024).map(|x| (x + 2) % 1024).collect();
+        let codes: PrimitiveArray = (0..LEN).map(|x| (((x + 1) % 255) as u8)).collect();
+        let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
+
+        let expect = dict.to_primitive();
 
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();

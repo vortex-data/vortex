@@ -10,24 +10,19 @@ template<typename CodeT, typename ValueT>
 __device__ void dict_take_1024_values(
     const CodeT *__restrict codes_array,
     const ValueT *__restrict values,
-    //     const uint32_t *__restrict mask_array,
     ValueT *__restrict values_out
 ) {
     auto i = threadIdx.x;
+    auto block_offset = (blockIdx.x * 1024);
 
-
-    auto codes = codes_array + (blockIdx.x * 1024);
-//     auto mask = mask_array + (blockIdx.x * (1024 / sizeof(uint32_t)));
-    auto out = values_out + (blockIdx.x * 1024);
+    auto codes = codes_array + block_offset;
+    auto out = values_out + block_offset;
 
     const int thread_ops = 32;
 
-
     for (auto j = 0; j < thread_ops; j++) {
-//         if (mask[i] >> j & 1) {
             auto idx = i * thread_ops + j;
             out[idx] = values[codes[idx]];
-//         }
     }
 }
 
