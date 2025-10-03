@@ -12,9 +12,9 @@ use vortex_mask::Mask;
 use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
-use crate::arrays::compact::BufferUtilisation;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::binary_view::BinaryView;
+use crate::arrays::compact::BufferUtilization;
 use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
@@ -142,7 +142,7 @@ impl VarBinViewBuilder {
     // the view length.
     //
     /// ## Warning
-    /// This method does not check utilisation of the given buffers, callers must provide
+    /// This method does not check utilization of the given buffers, callers must provide
     /// buffers that are fully utilised by the given adjusted views.
     ///
     /// ## Panics
@@ -351,7 +351,7 @@ impl CompletedBuffers {
         }
     }
 
-    /// Does not compact buffers, bypasses utilisation checks.
+    /// Does not compact buffers, bypasses utilization checks.
     fn extend_from_slice_unchecked(&mut self, buffers: &[ByteBuffer]) {
         for buffer in buffers {
             self.push(buffer.clone());
@@ -542,11 +542,11 @@ impl BuffersWithOffsets {
             };
         }
 
-        let buffer_utilisations = array.buffer_utilisations();
+        let buffer_utilizations = array.buffer_utilizations();
         let mut has_rewrite = false;
         let mut has_nonzero_offset = false;
-        for utilisation in buffer_utilisations.iter() {
-            match compaction_strategy(utilisation, compaction_threshold) {
+        for utilization in buffer_utilizations.iter() {
+            match compaction_strategy(utilization, compaction_threshold) {
                 CompactionStrategy::KeepFull => continue,
                 CompactionStrategy::Slice { .. } => has_nonzero_offset = true,
                 CompactionStrategy::Rewrite => has_rewrite = true,
@@ -554,11 +554,11 @@ impl BuffersWithOffsets {
         }
 
         let buffers_with_offsets_iter =
-            buffer_utilisations
+            buffer_utilizations
                 .iter()
                 .zip(array.buffers().iter())
-                .map(|(utilisation, buffer)| {
-                    match compaction_strategy(utilisation, compaction_threshold) {
+                .map(|(utilization, buffer)| {
+                    match compaction_strategy(utilization, compaction_threshold) {
                         CompactionStrategy::KeepFull => (Some(buffer.clone()), 0),
                         CompactionStrategy::Slice { start, end } => {
                             (Some(buffer.slice(start as usize..end as usize)), 0)
@@ -623,15 +623,15 @@ enum CompactionStrategy {
 }
 
 fn compaction_strategy(
-    buffer_utilisation: &BufferUtilisation,
+    buffer_utilization: &BufferUtilization,
     threshold: f64,
 ) -> CompactionStrategy {
-    match buffer_utilisation.overall_utilisation() {
+    match buffer_utilization.overall_utilization() {
         // rewrite empty or not used buffers TODO(os): maybe keep them
         0.0 => CompactionStrategy::Rewrite,
         utilised if utilised >= threshold => CompactionStrategy::KeepFull,
-        _ if buffer_utilisation.range_utilisation() >= threshold => {
-            let Range { start, end } = buffer_utilisation.range();
+        _ if buffer_utilization.range_utilization() >= threshold => {
+            let Range { start, end } = buffer_utilization.range();
             CompactionStrategy::Slice { start, end }
         }
         _ => CompactionStrategy::Rewrite,

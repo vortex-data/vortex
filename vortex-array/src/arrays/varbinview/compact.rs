@@ -29,7 +29,7 @@ impl VarBinViewArray {
         }
 
         // Use selective compaction with threshold of 1.0 (compact any buffer with any waste)
-        self.compact_buffers_selective(1.0)
+        self.compact_with_threshold(1.0)
     }
 
     fn should_compact(&self) -> bool {
@@ -66,18 +66,18 @@ impl VarBinViewArray {
         }
     }
 
-    pub(crate) fn buffer_utilisations(&self) -> Vec<BufferUtilisation> {
-        let mut utilisations = self
+    pub(crate) fn buffer_utilizations(&self) -> Vec<BufferUtilization> {
+        let mut utilizations = self
             .buffers()
             .iter()
             .map(|buf| {
                 let len = u32::try_from(buf.len()).vortex_expect("buffer sizes must fit in u32");
-                BufferUtilisation::zero(len)
+                BufferUtilization::zero(len)
             })
             .collect();
 
         if matches!(self.validity(), Validity::AllInvalid) {
-            return utilisations;
+            return utilizations;
         }
 
         for (idx, &view) in self.views().iter().enumerate() {
@@ -86,46 +86,46 @@ impl VarBinViewArray {
             }
             let view = view.as_view();
 
-            utilisations[view.buffer_index() as usize].add(view.offset(), view.size)
+            utilizations[view.buffer_index() as usize].add(view.offset(), view.size)
         }
 
-        utilisations
+        utilizations
     }
 
     /// Returns a compacted copy of the input array using selective buffer compaction.
     ///
-    /// Buffers with utilization >= `buffer_utilisation_threshold` are kept as-is (zero-copy).
+    /// Buffers with utilization >= `buffer_utilization_threshold` are kept as-is (zero-copy).
     /// Buffers below the threshold are compacted into new buffers, reclaiming wasted space.
     ///
     /// # Arguments
     ///
-    /// * `buffer_utilisation_threshold` - Threshold in range [0, 1]. Buffers with utilization
+    /// * `buffer_utilization_threshold` - Threshold in range [0, 1]. Buffers with utilization
     ///   below this value will be compacted. Use 0.0 for no compaction, 1.0 for aggressive
     ///   compaction of any buffer with wasted space.
-    pub fn compact_buffers_selective(
+    pub fn compact_with_threshold(
         &self,
-        buffer_utilisation_threshold: f64, // [0, 1]
+        buffer_utilization_threshold: f64, // [0, 1]
     ) -> VortexResult<VarBinViewArray> {
         let mut builder = VarBinViewBuilder::with_compaction(
             self.dtype().clone(),
             self.len(),
-            buffer_utilisation_threshold,
+            buffer_utilization_threshold,
         );
         builder.extend_from_array(self.as_ref());
         Ok(builder.finish_into_varbinview())
     }
 }
 
-pub(crate) struct BufferUtilisation {
+pub(crate) struct BufferUtilization {
     len: u32,
     used: u32,
     min_offset: u32,
     max_offset_end: u32,
 }
 
-impl BufferUtilisation {
+impl BufferUtilization {
     fn zero(len: u32) -> Self {
-        BufferUtilisation {
+        BufferUtilization {
             len,
             used: 0u32,
             min_offset: u32::MAX,
@@ -139,14 +139,14 @@ impl BufferUtilisation {
         self.max_offset_end = self.max_offset_end.max(offset + size);
     }
 
-    pub fn overall_utilisation(&self) -> f64 {
+    pub fn overall_utilization(&self) -> f64 {
         match self.len {
             0 => 0.0,
             len => self.used as f64 / len as f64,
         }
     }
 
-    pub fn range_utilisation(&self) -> f64 {
+    pub fn range_utilization(&self) -> f64 {
         match self.range_span() {
             0 => 0.0,
             span => self.used as f64 / span as f64,
@@ -299,7 +299,7 @@ mod tests {
         let taken_array = taken.as_::<VarBinViewVTable>();
 
         // Compact with threshold=0 (should not compact)
-        let compacted = taken_array.compact_buffers_selective(0.0).unwrap();
+        let compacted = taken_array.compact_with_threshold(0.0).unwrap();
 
         // Should still have the same number of buffers as the taken array
         assert_eq!(compacted.nbuffers(), taken_array.nbuffers());
@@ -329,7 +329,7 @@ mod tests {
         let original_buffers = taken_array.nbuffers();
 
         // Compact with threshold=1.0 (aggressive compaction)
-        let compacted = taken_array.compact_buffers_selective(1.0).unwrap();
+        let compacted = taken_array.compact_with_threshold(1.0).unwrap();
 
         // Should have compacted buffers
         assert!(compacted.nbuffers() <= original_buffers);
@@ -356,7 +356,7 @@ mod tests {
         assert_eq!(original.nbuffers(), 1);
 
         // Compact with high threshold
-        let compacted = original.compact_buffers_selective(0.8).unwrap();
+        let compacted = original.compact_with_threshold(0.8).unwrap();
 
         // Well-utilized buffer should be preserved
         assert_eq!(compacted.nbuffers(), 1);
@@ -389,7 +389,7 @@ mod tests {
         let taken_array = taken.as_::<VarBinViewVTable>();
 
         // Compact with moderate threshold
-        let compacted = taken_array.compact_buffers_selective(0.7).unwrap();
+        let compacted = taken_array.compact_with_threshold(0.7).unwrap();
 
         // Verify correctness
         assert_eq!(compacted.len(), 5);
@@ -416,12 +416,12 @@ mod tests {
         let taken_array = taken.as_::<VarBinViewVTable>();
 
         // Get buffer stats before compaction
-        let utils_before = taken_array.buffer_utilisations();
+        let utils_before = taken_array.buffer_utilizations();
         let original_buffer_count = taken_array.nbuffers();
 
         // Compact with a threshold that should trigger slicing
         // The range utilization should be high even if overall utilization is low
-        let compacted = taken_array.compact_buffers_selective(0.8).unwrap();
+        let compacted = taken_array.compact_with_threshold(0.8).unwrap();
 
         // After compaction, we should still have buffers (sliced, not rewritten)
         assert!(
@@ -437,7 +437,7 @@ mod tests {
 
         // Verify that if there was only one buffer, the compacted version also has one
         // (it was sliced, not rewritten into multiple buffers)
-        if original_buffer_count == 1 && utils_before[0].range_utilisation() >= 0.8 {
+        if original_buffer_count == 1 && utils_before[0].range_utilization() >= 0.8 {
             assert_eq!(
                 compacted.nbuffers(),
                 1,
