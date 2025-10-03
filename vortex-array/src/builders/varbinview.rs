@@ -561,7 +561,7 @@ impl BuffersWithOffsets {
                     match compaction_strategy(utilization, compaction_threshold) {
                         CompactionStrategy::KeepFull => (Some(buffer.clone()), 0),
                         CompactionStrategy::Slice { start, end } => {
-                            (Some(buffer.slice(start as usize..end as usize)), 0)
+                            (Some(buffer.slice(start as usize..end as usize)), start)
                         }
                         CompactionStrategy::Rewrite => (None, 0),
                     }
