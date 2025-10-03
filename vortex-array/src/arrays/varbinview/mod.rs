@@ -284,9 +284,9 @@ impl Debug for BinaryView {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("BinaryView");
         if self.is_inlined() {
-            s.field("inline", &"i".to_string());
+            s.field("inline", &self.as_inlined());
         } else {
-            s.field("ref", &"r".to_string());
+            s.field("ref", &self.as_view());
         }
         s.finish()
     }
