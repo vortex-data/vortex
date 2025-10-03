@@ -95,6 +95,7 @@ impl Ref {
         self.offset as usize..(self.offset + self.size) as usize
     }
 
+    #[inline]
     pub fn with_buffer_and_offset(&self, buffer_index: u32, offset: u32) -> Ref {
         Self::new(self.size, self.prefix, buffer_index, offset)
     }

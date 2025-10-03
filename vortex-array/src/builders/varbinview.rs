@@ -12,6 +12,7 @@ use vortex_mask::Mask;
 use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
+use crate::arrays::compact::BufferUtilisation;
 use crate::arrays::{BinaryView, VarBinViewArray};
 use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
@@ -523,11 +524,11 @@ impl BufferGrowthStrategy {
 enum BuffersWithOffsets {
     AllKept {
         buffers: Arc<[ByteBuffer]>,
-        offsets: Vec<u32>,
+        offsets: Option<Vec<u32>>,
     },
     SomeCompacted {
         buffers: Vec<Option<ByteBuffer>>,
-        offsets: Vec<u32>,
+        offsets: Option<Vec<u32>>,
     },
 }
 
@@ -536,46 +537,103 @@ impl BuffersWithOffsets {
         if compaction_threshold == 0.0 {
             return Self::AllKept {
                 buffers: array.buffers().clone(),
-                offsets: vec![0; array.buffers().len()],
+                offsets: None,
             };
         }
+
         let buffer_utilisations = array.buffer_utilisations();
-        let has_rewrite = buffer_utilisations.iter().any(|buffer| {
-            buffer.overall_utilisation() == 0.0
-                || (buffer.overall_utilisation() < compaction_threshold
-                    && buffer.range_utilisation() < compaction_threshold)
-        });
+        let mut has_rewrite = false;
+        let mut has_nonzero_offset = false;
+        for utilisation in buffer_utilisations.iter() {
+            match compaction_strategy(utilisation, compaction_threshold) {
+                CompactionStrategy::KeepFull => continue,
+                CompactionStrategy::Slice { .. } => has_nonzero_offset = true,
+                CompactionStrategy::Rewrite => has_rewrite = true,
+            }
+        }
 
         let buffers_with_offsets_iter =
             buffer_utilisations
                 .iter()
                 .zip(array.buffers().iter())
-                .map(
-                    |(utilisation, buffer)| match utilisation.overall_utilisation() {
-                        0.0 => (None, 0),
-                        utilised if utilised >= compaction_threshold => (Some(buffer.clone()), 0),
-                        _ if utilisation.range_utilisation() > compaction_threshold => {
-                            let Range { start, end } = utilisation.range();
-                            (Some(buffer.slice(start as usize..end as usize)), start)
+                .map(|(utilisation, buffer)| {
+                    match compaction_strategy(utilisation, compaction_threshold) {
+                        CompactionStrategy::KeepFull => (Some(buffer.clone()), 0),
+                        CompactionStrategy::Slice { start, end } => {
+                            (Some(buffer.slice(start as usize..end as usize)), 0)
                         }
-                        _ => (None, 0),
-                    },
-                );
+                        CompactionStrategy::Rewrite => (None, 0),
+                    }
+                });
 
-        if has_rewrite {
-            let (buffers, offsets) = buffers_with_offsets_iter.unzip();
-            Self::SomeCompacted { buffers, offsets }
-        } else {
-            let (buffers, offsets): (Vec<_>, _) = buffers_with_offsets_iter
-                .map(|(buffer, offset)| {
-                    (buffer.vortex_expect("already checked for rewrite"), offset)
-                })
-                .unzip();
-            Self::AllKept {
-                buffers: Arc::from(buffers),
-                offsets,
+        match (has_rewrite, has_nonzero_offset) {
+            // keep all buffers
+            (false, false) => {
+                let buffers: Vec<_> = buffers_with_offsets_iter
+                    .map(|(b, _)| b.vortex_expect("already checked for rewrite"))
+                    .collect();
+                Self::AllKept {
+                    buffers: Arc::from(buffers),
+                    offsets: None,
+                }
+            }
+            // rewrite, all zero offsets
+            (true, false) => {
+                let buffers: Vec<_> = buffers_with_offsets_iter.map(|(b, _)| b).collect();
+                Self::SomeCompacted {
+                    buffers,
+                    offsets: None,
+                }
+            }
+            // keep all buffers, but some have offsets
+            (false, true) => {
+                let (buffers, offsets): (Vec<_>, _) = buffers_with_offsets_iter
+                    .map(|(buffer, offset)| {
+                        (buffer.vortex_expect("already checked for rewrite"), offset)
+                    })
+                    .collect();
+                Self::AllKept {
+                    buffers: Arc::from(buffers),
+                    offsets: Some(offsets),
+                }
+            }
+            // rewrite and some have offsets
+            (true, true) => {
+                let (buffers, offsets) = buffers_with_offsets_iter.collect();
+                Self::SomeCompacted {
+                    buffers,
+                    offsets: Some(offsets),
+                }
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompactionStrategy {
+    KeepFull,
+    /// Slice the buffer to [start, end) range
+    Slice {
+        start: u32,
+        end: u32,
+    },
+    /// Rewrite data into new compacted buffer
+    Rewrite,
+}
+
+fn compaction_strategy(
+    buffer_utilisation: &BufferUtilisation,
+    threshold: f64,
+) -> CompactionStrategy {
+    match buffer_utilisation.overall_utilisation() {
+        // rewrite empty or not used buffers TODO(os): maybe keep them
+        0.0 => CompactionStrategy::Rewrite,
+        utilised if utilised >= threshold => CompactionStrategy::KeepFull,
+        _ if buffer_utilisation.range_utilisation() >= threshold => {
+            let Range { start, end } = buffer_utilisation.range();
+            CompactionStrategy::Slice { start, end }
+        }
+        _ => CompactionStrategy::Rewrite,
     }
 }
 
@@ -585,25 +643,24 @@ enum ViewAdjustment {
 }
 
 impl ViewAdjustment {
-    fn shift(buffer_offset: u32, offsets: Vec<u32>) -> Self {
-        if offsets.iter().sum::<u32>() == 0 {
-            Self::Precomputed(PrecomputedViewAdjustment::ShiftBuffer { buffer_offset })
-        } else {
-            Self::Precomputed(PrecomputedViewAdjustment::ShiftBoth {
+    fn shift(buffer_offset: u32, offsets: Option<Vec<u32>>) -> Self {
+        match offsets {
+            None => Self::Precomputed(PrecomputedViewAdjustment::ShiftBuffer { buffer_offset }),
+            Some(offsets) => Self::Precomputed(PrecomputedViewAdjustment::Shift {
                 buffer_offset,
                 offsets,
-            })
+            }),
         }
     }
 
-    fn lookup(buffer_lookup: Vec<u32>, offsets: Vec<u32>) -> Self {
+    fn lookup(buffer_lookup: Vec<u32>, offsets: Option<Vec<u32>>) -> Self {
         Self::Precomputed(PrecomputedViewAdjustment::Lookup {
             buffer_lookup,
             offsets,
         })
     }
 
-    fn rewriting(buffer_lookup: Vec<Option<u32>>, offsets: Vec<u32>) -> Self {
+    fn rewriting(buffer_lookup: Vec<Option<u32>>, offsets: Option<Vec<u32>>) -> Self {
         Self::Rewriting(RewritingViewAdjustment {
             buffer_lookup,
             offsets,
@@ -612,55 +669,59 @@ impl ViewAdjustment {
 }
 
 enum PrecomputedViewAdjustment {
+    // no offsets variant for better inlining
     ShiftBuffer {
         buffer_offset: u32,
     },
-    ShiftBoth {
+    Shift {
         buffer_offset: u32,
         offsets: Vec<u32>,
     },
     Lookup {
         buffer_lookup: Vec<u32>,
-        offsets: Vec<u32>,
+        offsets: Option<Vec<u32>>,
     },
 }
 
 impl PrecomputedViewAdjustment {
+    #[inline]
     fn adjust_view(&self, view: &BinaryView) -> BinaryView {
         if view.is_inlined() {
             return *view;
         }
         let view_ref = view.as_view();
-
-        let view_ref = match self {
+        match self {
             Self::ShiftBuffer { buffer_offset } => view_ref
                 .with_buffer_and_offset(view_ref.buffer_index() + buffer_offset, view_ref.offset()),
-            Self::ShiftBoth {
+            Self::Shift {
                 buffer_offset,
                 offsets,
             } => {
-                let offset_shift = offsets[view_ref.buffer_index() as usize];
-                view_ref.with_buffer_and_offset(
-                    view_ref.buffer_index() + buffer_offset,
-                    view_ref.offset() - offset_shift,
-                )
+                let b_idx = view_ref.buffer_index();
+                let offset_shift = offsets[b_idx as usize];
+                view_ref
+                    .with_buffer_and_offset(b_idx + buffer_offset, view_ref.offset() - offset_shift)
             }
             Self::Lookup {
                 buffer_lookup,
                 offsets,
             } => {
-                let buffer = buffer_lookup[view_ref.buffer_index() as usize];
-                let offset_shift = offsets[view_ref.buffer_index() as usize];
+                let b_idx = view_ref.buffer_index();
+                let buffer = buffer_lookup[b_idx as usize];
+                let offset_shift = offsets
+                    .as_ref()
+                    .map(|o| o[b_idx as usize])
+                    .unwrap_or_default();
                 view_ref.with_buffer_and_offset(buffer, view_ref.offset() - offset_shift)
             }
-        };
-        view_ref.into()
+        }
+        .into()
     }
 }
 
 struct RewritingViewAdjustment {
     buffer_lookup: Vec<Option<u32>>,
-    offsets: Vec<u32>,
+    offsets: Option<Vec<u32>>,
 }
 
 impl RewritingViewAdjustment {
@@ -673,7 +734,11 @@ impl RewritingViewAdjustment {
 
         let view_ref = view.as_view();
         self.buffer_lookup[view_ref.buffer_index() as usize].map(|buffer| {
-            let offset_shift = self.offsets[view_ref.buffer_index() as usize];
+            let offset_shift = self
+                .offsets
+                .as_ref()
+                .map(|o| o[view_ref.buffer_index() as usize])
+                .unwrap_or_default();
             view_ref
                 .with_buffer_and_offset(buffer, view_ref.offset() - offset_shift)
                 .into()
