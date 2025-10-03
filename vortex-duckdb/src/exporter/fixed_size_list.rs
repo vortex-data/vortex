@@ -89,6 +89,7 @@ impl ColumnExporter for FixedSizeListExporter {
 mod tests {
     use vortex::IntoArray as _;
     use vortex::buffer::buffer;
+    use vortex::error::VortexExpect;
     use vortex::validity::Validity;
 
     use super::*;
@@ -102,7 +103,11 @@ mod tests {
         offset: usize,
         len: usize,
     ) -> DataChunk {
-        let array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, list_size);
+        let array_type = LogicalType::fixed_size_list_type(
+            LogicalType::new(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+            list_size,
+        )
+        .vortex_expect("Failed to create array type");
 
         // TODO(connor): This mutable API is brittle. Maybe bundle this logic?
         let mut chunk = DataChunk::new([array_type]);
@@ -280,8 +285,11 @@ mod tests {
 
     /// Helper to create nested array type for DuckDB.
     fn create_nested_array_type(inner_list_size: u32, outer_list_size: u32) -> LogicalType {
-        let inner_array_type =
-            LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, inner_list_size);
+        let inner_array_type = LogicalType::fixed_size_list_type(
+            LogicalType::new(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+            inner_list_size,
+        )
+        .vortex_expect("Failed to create inner array type");
         // SAFETY: inner_array_type is a valid LogicalType created above.
         unsafe {
             LogicalType::own(cpp::duckdb_create_array_type(

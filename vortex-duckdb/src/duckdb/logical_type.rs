@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fmt::{Debug, Formatter};
 
-use vortex::dtype::ExtDType;
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::dtype::{ExtDType, FieldName};
+use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 
 use crate::cpp::*;
 use crate::wrapper;
@@ -150,18 +150,6 @@ impl LogicalType {
         Ok(Self::new(duckdb_type))
     }
 
-    pub fn new_array(element_dtype: DUCKDB_TYPE, array_size: u32) -> Self {
-        let element_dtype = Self::new(element_dtype);
-
-        // SAFETY: The element_dtype is created by `Self::new` which ensures it is valid.
-        unsafe {
-            Self::own(duckdb_create_array_type(
-                element_dtype.as_ptr(),
-                array_size as idx_t,
-            ))
-        }
-    }
-
     pub fn as_type_id(&self) -> DUCKDB_TYPE {
         unsafe { duckdb_get_type_id(self.as_ptr()) }
     }
@@ -199,8 +187,9 @@ impl LogicalType {
         unsafe { LogicalType::own(duckdb_array_type_child_type(self.as_ptr())) }
     }
 
-    pub fn array_type_array_size(&self) -> idx_t {
-        unsafe { duckdb_array_type_array_size(self.as_ptr()) }
+    pub fn array_type_array_size(&self) -> u32 {
+        u32::try_from(unsafe { duckdb_array_type_array_size(self.as_ptr()) })
+            .vortex_expect("Array size must fit in u32")
     }
 
     pub fn list_child_type(&self) -> Self {
@@ -215,23 +204,82 @@ impl LogicalType {
         unsafe { LogicalType::own(duckdb_map_type_value_type(self.as_ptr())) }
     }
 
-    pub fn struct_child_type(&self, idx: idx_t) -> Self {
-        unsafe { LogicalType::own(duckdb_struct_type_child_type(self.as_ptr(), idx)) }
+    pub fn struct_child_type(&self, idx: usize) -> Self {
+        unsafe { LogicalType::own(duckdb_struct_type_child_type(self.as_ptr(), idx as idx_t)) }
     }
 
-    pub fn union_member_type(&self, idx: idx_t) -> Self {
-        unsafe { LogicalType::own(duckdb_union_type_member_type(self.as_ptr(), idx)) }
+    pub fn struct_child_name(&self, idx: usize) -> DDBString {
+        DDBString::new(unsafe { duckdb_struct_type_child_name(self.as_ptr(), idx as idx_t) })
+    }
+
+    pub fn struct_type_child_count(&self) -> usize {
+        usize::try_from(unsafe { duckdb_struct_type_child_count(self.as_ptr()) })
+            .vortex_expect("Struct type child count must fit in usize")
+    }
+
+    pub fn union_member_type(&self, idx: usize) -> Self {
+        unsafe { LogicalType::own(duckdb_union_type_member_type(self.as_ptr(), idx as idx_t)) }
+    }
+
+    pub fn union_member_name(&self, idx: usize) -> DDBString {
+        DDBString::new(unsafe { duckdb_union_type_member_name(self.as_ptr(), idx as idx_t) })
+    }
+
+    pub fn union_member_count(&self) -> usize {
+        usize::try_from(unsafe { duckdb_union_type_member_count(self.as_ptr()) })
+            .vortex_expect("Union member count must fit in usize")
     }
 }
 
 impl Debug for LogicalType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let debug = unsafe { duckdb_vx_logical_type_stringify(self.as_ptr()) };
-        write!(f, "{}", unsafe {
-            std::ffi::CStr::from_ptr(debug).to_string_lossy()
-        })?;
+        write!(f, "{}", unsafe { CStr::from_ptr(debug).to_string_lossy() })?;
         unsafe { duckdb_free(debug.cast()) };
         Ok(())
+    }
+}
+
+/// String wrapper that represents strings returned from duckdb C API. These need to be freed using `duckdb_free`.
+#[derive(Debug)]
+pub struct DDBString(*mut std::ffi::c_char);
+
+impl DDBString {
+    pub fn new(ptr: *mut std::ffi::c_char) -> Self {
+        Self(ptr)
+    }
+}
+
+impl AsRef<str> for DDBString {
+    fn as_ref(&self) -> &str {
+        unsafe { CStr::from_ptr(self.0) }
+            .to_str()
+            .map_err(|e| vortex_err!("Failed to convert CStr to str: {e}"))
+            .vortex_unwrap()
+    }
+}
+
+impl PartialEq for DDBString {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref() == other.as_ref()
+    }
+}
+
+impl PartialEq<str> for DDBString {
+    fn eq(&self, other: &str) -> bool {
+        self.as_ref() == other
+    }
+}
+
+impl Drop for DDBString {
+    fn drop(&mut self) {
+        unsafe { duckdb_free(self.0.cast()) };
+    }
+}
+
+impl From<DDBString> for FieldName {
+    fn from(value: DDBString) -> Self {
+        FieldName::from(value.as_ref())
     }
 }
 
@@ -395,18 +443,17 @@ mod tests {
 
     #[test]
     fn test_clone_decimal_logical_type() {
-        let decimal_type = unsafe { LogicalType::own(duckdb_create_decimal_type(10, 2)) };
+        let decimal_type =
+            LogicalType::decimal_type(10, 2).vortex_expect("Failed to create decimal type");
         #[allow(clippy::redundant_clone)]
         let cloned = decimal_type.clone();
 
         assert_eq!(decimal_type.as_type_id(), cloned.as_type_id());
 
         // Further verify the parameters are preserved.
-        let original_width = unsafe { duckdb_decimal_width(decimal_type.as_ptr()) };
-        let original_scale = unsafe { duckdb_decimal_scale(decimal_type.as_ptr()) };
+        let (original_width, original_scale) = decimal_type.as_decimal();
 
-        let cloned_width = unsafe { duckdb_decimal_width(cloned.as_ptr()) };
-        let cloned_scale = unsafe { duckdb_decimal_scale(cloned.as_ptr()) };
+        let (cloned_width, cloned_scale) = cloned.as_decimal();
 
         assert_eq!(original_width, cloned_width);
         assert_eq!(original_scale, cloned_scale);
@@ -415,10 +462,9 @@ mod tests {
     #[test]
     fn test_clone_list_logical_type() {
         // Create a list of integers
-        let int_type = unsafe {
-            LogicalType::own(duckdb_create_logical_type(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
-        };
-        let list_type = unsafe { LogicalType::own(duckdb_create_list_type(int_type.as_ptr())) };
+        let int_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let list_type =
+            LogicalType::list_type(int_type).vortex_expect("Failed to create list type");
 
         #[allow(clippy::redundant_clone)]
         let cloned = list_type.clone();
@@ -430,8 +476,8 @@ mod tests {
         let original_child = list_type.list_child_type();
         let cloned_child = cloned.list_child_type();
 
-        let original_child_type_id = unsafe { duckdb_get_type_id(original_child.as_ptr()) };
-        let cloned_child_type_id = unsafe { duckdb_get_type_id(cloned_child.as_ptr()) };
+        let original_child_type_id = original_child.as_type_id();
+        let cloned_child_type_id = cloned_child.as_type_id();
 
         assert_eq!(original_child_type_id, cloned_child_type_id);
         assert_eq!(original_child_type_id, DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
@@ -440,11 +486,11 @@ mod tests {
     #[test]
     fn test_clone_array_logical_type() {
         // Create an array of strings with size 5
-        let varchar_type = unsafe {
-            LogicalType::own(duckdb_create_logical_type(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR))
-        };
-        let array_type =
-            unsafe { LogicalType::own(duckdb_create_array_type(varchar_type.as_ptr(), 5)) };
+        let array_type = LogicalType::fixed_size_list_type(
+            LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR),
+            5,
+        )
+        .vortex_expect("Failed to create array type");
         #[allow(clippy::redundant_clone)]
         let cloned = array_type.clone();
 
@@ -455,15 +501,15 @@ mod tests {
         let original_child = array_type.array_child_type();
         let cloned_child = cloned.array_child_type();
 
-        let original_child_type_id = unsafe { duckdb_get_type_id(original_child.as_ptr()) };
-        let cloned_child_type_id = unsafe { duckdb_get_type_id(cloned_child.as_ptr()) };
+        let original_child_type_id = original_child.as_type_id();
+        let cloned_child_type_id = cloned_child.as_type_id();
 
         assert_eq!(original_child_type_id, cloned_child_type_id);
         assert_eq!(original_child_type_id, DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
 
         // Verify the array size is preserved
-        let original_size = unsafe { duckdb_array_type_array_size(array_type.as_ptr()) };
-        let cloned_size = unsafe { duckdb_array_type_array_size(cloned.as_ptr()) };
+        let original_size = array_type.array_type_array_size();
+        let cloned_size = cloned.array_type_array_size();
 
         assert_eq!(original_size, cloned_size);
         assert_eq!(original_size, 5);
@@ -472,12 +518,8 @@ mod tests {
     #[test]
     fn test_clone_map_logical_type() {
         // Create a map of string -> integer
-        let key_type = unsafe {
-            LogicalType::own(duckdb_create_logical_type(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR))
-        };
-        let value_type = unsafe {
-            LogicalType::own(duckdb_create_logical_type(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
-        };
+        let key_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
+        let value_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
         let map_type = unsafe {
             LogicalType::own(duckdb_create_map_type(
                 key_type.as_ptr(),
@@ -509,25 +551,14 @@ mod tests {
     #[test]
     fn test_clone_struct_logical_type() {
         // Create a struct with two fields: {name: VARCHAR, age: INTEGER}
-        let name_type = unsafe {
-            LogicalType::own(duckdb_create_logical_type(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR))
-        };
-        let age_type = unsafe {
-            LogicalType::own(duckdb_create_logical_type(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
-        };
+        let name_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
+        let age_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
 
-        let mut member_types = vec![name_type.as_ptr(), age_type.as_ptr()];
-        let name_cstr = CString::new("name").unwrap();
-        let age_cstr = CString::new("age").unwrap();
-        let mut member_names = vec![name_cstr.as_ptr(), age_cstr.as_ptr()];
+        let member_types = vec![name_type, age_type];
+        let member_names = vec![CString::new("name").unwrap(), CString::new("age").unwrap()];
 
-        let struct_type = unsafe {
-            LogicalType::own(duckdb_create_struct_type(
-                member_types.as_mut_ptr(),
-                member_names.as_mut_ptr(),
-                2,
-            ))
-        };
+        let struct_type = LogicalType::struct_type(member_types, member_names)
+            .vortex_expect("Failed to create struct type");
 
         #[allow(clippy::redundant_clone)]
         let cloned = struct_type.clone();
@@ -536,8 +567,8 @@ mod tests {
         assert_eq!(struct_type.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_STRUCT);
 
         // Verify the child count is preserved
-        let original_count = unsafe { duckdb_struct_type_child_count(struct_type.as_ptr()) };
-        let cloned_count = unsafe { duckdb_struct_type_child_count(cloned.as_ptr()) };
+        let original_count = struct_type.struct_type_child_count();
+        let cloned_count = cloned.struct_type_child_count();
         assert_eq!(original_count, cloned_count);
         assert_eq!(original_count, 2);
 
@@ -545,36 +576,23 @@ mod tests {
         for idx in 0..original_count {
             let original_child_type = struct_type.struct_child_type(idx);
             let cloned_child_type = cloned.struct_child_type(idx);
-            let original_child_name =
-                unsafe { duckdb_struct_type_child_name(struct_type.as_ptr(), idx) };
-            let cloned_child_name = unsafe { duckdb_struct_type_child_name(cloned.as_ptr(), idx) };
+            let original_child_name = struct_type.struct_child_name(idx);
+            let cloned_child_name = cloned.struct_child_name(idx);
 
             assert_eq!(
                 original_child_type.as_type_id(),
                 cloned_child_type.as_type_id()
             );
 
-            let original_name = unsafe { std::ffi::CStr::from_ptr(original_child_name) };
-            let cloned_name = unsafe { std::ffi::CStr::from_ptr(cloned_child_name) };
-            assert_eq!(original_name, cloned_name);
-
-            // Free strings
-            unsafe {
-                duckdb_free(original_child_name.cast());
-                duckdb_free(cloned_child_name.cast());
-            }
+            assert_eq!(original_child_name, cloned_child_name);
         }
     }
 
     #[test]
     fn test_clone_union_logical_type() {
         // Create a union with two members: {str: VARCHAR, num: INTEGER}
-        let str_type = unsafe {
-            LogicalType::own(duckdb_create_logical_type(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR))
-        };
-        let num_type = unsafe {
-            LogicalType::own(duckdb_create_logical_type(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
-        };
+        let str_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
+        let num_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
 
         let mut member_types = vec![str_type.as_ptr(), num_type.as_ptr()];
         let str_cstr = CString::new("str").unwrap();
@@ -596,8 +614,8 @@ mod tests {
         assert_eq!(union_type.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_UNION);
 
         // Verify the member count is preserved
-        let original_count = unsafe { duckdb_union_type_member_count(union_type.as_ptr()) };
-        let cloned_count = unsafe { duckdb_union_type_member_count(cloned.as_ptr()) };
+        let original_count = union_type.union_member_count();
+        let cloned_count = cloned.union_member_count();
         assert_eq!(original_count, cloned_count);
         assert_eq!(original_count, 2);
 
@@ -605,25 +623,15 @@ mod tests {
         for idx in 0..original_count {
             let original_member_type = union_type.union_member_type(idx);
             let cloned_member_type = cloned.union_member_type(idx);
-            let original_member_name =
-                unsafe { duckdb_union_type_member_name(union_type.as_ptr(), idx) };
-            let cloned_member_name = unsafe { duckdb_union_type_member_name(cloned.as_ptr(), idx) };
+            let original_member_name = union_type.union_member_name(idx);
+            let cloned_member_name = cloned.union_member_name(idx);
 
             assert_eq!(
                 original_member_type.as_type_id(),
                 cloned_member_type.as_type_id(),
             );
 
-            assert_eq!(
-                unsafe { std::ffi::CStr::from_ptr(original_member_name) },
-                unsafe { std::ffi::CStr::from_ptr(cloned_member_name) }
-            );
-
-            // Free strings
-            unsafe {
-                duckdb_free(original_member_name.cast());
-                duckdb_free(cloned_member_name.cast());
-            }
+            assert_eq!(original_member_name, cloned_member_name);
         }
     }
 }
