@@ -168,7 +168,7 @@ where
         range.finish();
     }
 
-    let offset_within_chunk = array.offset_in_chunk();
+    let offset_within_chunk = array.offset();
     let primitive_array = builder.finish_into_primitive();
 
     PrimitiveArray::new(

@@ -65,6 +65,7 @@ pub struct RLEArray {
     values_idx_offsets: ArrayRef,
 
     stats_set: ArrayStats,
+    // Offset relative to the start of the chunk.
     offset: usize,
     length: usize,
 }
@@ -176,11 +177,6 @@ impl RLEArray {
         &self.indices
     }
 
-    /// Returns the current offset within the chunk.
-    pub(crate) fn offset_in_chunk(&self) -> usize {
-        self.offset & (FL_CHUNK_SIZE - 1) // Equivalent to % 1024
-    }
-
     #[inline]
     pub fn values_idx_offsets(&self) -> &ArrayRef {
         &self.values_idx_offsets
@@ -243,21 +239,21 @@ impl ValidityVTable<RLEVTable> for RLEVTable {
         // Indices get padded to 1024 chunks. Ensure the index is within the array's length.
         assert!(index < array.len());
 
-        array.indices().is_valid(array.offset_in_chunk() + index)
+        array.indices().is_valid(array.offset() + index)
     }
 
     fn all_valid(array: &RLEArray) -> bool {
-        let (start, len) = (array.offset_in_chunk(), array.len());
+        let (start, len) = (array.offset(), array.len());
         array.indices().slice(start..start + len).all_valid()
     }
 
     fn all_invalid(array: &RLEArray) -> bool {
-        let (start, len) = (array.offset_in_chunk(), array.len());
+        let (start, len) = (array.offset(), array.len());
         array.indices().slice(start..start + len).all_invalid()
     }
 
     fn validity_mask(array: &RLEArray) -> Mask {
-        let (start, len) = (array.offset_in_chunk(), array.len());
+        let (start, len) = (array.offset(), array.len());
         array.indices().slice(start..start + len).validity_mask()
     }
 }

@@ -12,7 +12,7 @@ use crate::{FL_CHUNK_SIZE, RLEArray, RLEVTable};
 
 impl OperationsVTable<RLEVTable> for RLEVTable {
     fn slice(array: &RLEArray, range: Range<usize>) -> ArrayRef {
-        let offset_in_chunk = array.offset_in_chunk();
+        let offset_in_chunk = array.offset();
         let chunk_start_idx = (offset_in_chunk + range.start) / FL_CHUNK_SIZE;
         let chunk_end_idx = (offset_in_chunk + range.end).div_ceil(FL_CHUNK_SIZE);
 
@@ -40,7 +40,8 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
                 sliced_indices,
                 sliced_value_chunk_offsets,
                 array.dtype.clone(),
-                array.offset + range.start,
+                // Keep the offset relative to the first chunk.
+                (array.offset + range.start) % FL_CHUNK_SIZE,
                 range.end - range.start,
             )
             .into_array()
@@ -48,7 +49,7 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
     }
 
     fn scalar_at(array: &RLEArray, index: usize) -> Scalar {
-        let offset_in_chunk = array.offset_in_chunk();
+        let offset_in_chunk = array.offset();
 
         if !array.indices().is_valid(offset_in_chunk + index) {
             return Scalar::null(array.dtype().clone());
