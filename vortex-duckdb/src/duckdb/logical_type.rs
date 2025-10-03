@@ -55,7 +55,7 @@ impl LogicalType {
         };
 
         if struct_type_ptr.is_null() {
-            return Err(vortex_err!("Failed to create struct logical type"));
+            return vortex_bail!("Failed to create struct logical type");
         }
 
         Ok(unsafe { Self::own(struct_type_ptr) })
@@ -71,7 +71,7 @@ impl LogicalType {
         unsafe {
             let ptr = duckdb_create_decimal_type(precision, scale);
             if ptr.is_null() {
-                return Err(vortex_err!("Failed to create decimal type"));
+                return vortex_bail!("Failed to create decimal type");
             }
             Ok(Self::own(ptr))
         }
