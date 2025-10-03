@@ -13,6 +13,9 @@ use datafusion_datasource::{FileRange, PartitionedFile};
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::{PhysicalExprRef, split_conjunction};
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
+use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
+use datafusion_physical_plan::metrics::Count;
+use datafusion_pruning::FilePruner;
 use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
@@ -74,6 +77,30 @@ impl FileOpener for VortexOpener {
             .create(projected_schema, logical_schema.clone());
 
         Ok(async move {
+            let mut file_pruner = filter
+                .as_ref()
+                .map(|predicate| {
+                    Ok::<_, DataFusionError>(
+                        (is_dynamic_physical_expr(predicate) | file.has_statistics()).then_some(
+                            FilePruner::new(
+                                predicate.clone(),
+                                &logical_schema,
+                                partition_fields.clone(),
+                                file.clone(),
+                                Count::default(),
+                            )?,
+                        ),
+                    )
+                })
+                .transpose()?
+                .flatten();
+
+            if let Some(file_pruner) = &mut file_pruner
+                && file_pruner.should_prune()?
+            {
+                return Ok(stream::empty().boxed());
+            }
+
             let vxf = file_cache
                 .try_get(&file_meta.object_meta, object_store)
                 .await
