@@ -644,13 +644,10 @@ enum ViewAdjustment {
 
 impl ViewAdjustment {
     fn shift(buffer_offset: u32, offsets: Option<Vec<u32>>) -> Self {
-        match offsets {
-            None => Self::Precomputed(PrecomputedViewAdjustment::ShiftBuffer { buffer_offset }),
-            Some(offsets) => Self::Precomputed(PrecomputedViewAdjustment::Shift {
-                buffer_offset,
-                offsets,
-            }),
-        }
+        Self::Precomputed(PrecomputedViewAdjustment::Shift {
+            buffer_offset,
+            offsets,
+        })
     }
 
     fn lookup(buffer_lookup: Vec<u32>, offsets: Option<Vec<u32>>) -> Self {
@@ -668,14 +665,11 @@ impl ViewAdjustment {
     }
 }
 
+// Care when adding new variants or fields in this enum, it will mess with inlining if it gets too big
 enum PrecomputedViewAdjustment {
-    // no offsets variant for better inlining
-    ShiftBuffer {
-        buffer_offset: u32,
-    },
     Shift {
         buffer_offset: u32,
-        offsets: Vec<u32>,
+        offsets: Option<Vec<u32>>,
     },
     Lookup {
         buffer_lookup: Vec<u32>,
@@ -691,14 +685,15 @@ impl PrecomputedViewAdjustment {
         }
         let view_ref = view.as_view();
         match self {
-            Self::ShiftBuffer { buffer_offset } => view_ref
-                .with_buffer_and_offset(view_ref.buffer_index() + buffer_offset, view_ref.offset()),
             Self::Shift {
                 buffer_offset,
                 offsets,
             } => {
                 let b_idx = view_ref.buffer_index();
-                let offset_shift = offsets[b_idx as usize];
+                let offset_shift = offsets
+                    .as_ref()
+                    .map(|o| o[b_idx as usize])
+                    .unwrap_or_default();
                 view_ref
                     .with_buffer_and_offset(b_idx + buffer_offset, view_ref.offset() - offset_shift)
             }
