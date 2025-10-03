@@ -13,7 +13,8 @@ use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use crate::arrays::compact::BufferUtilisation;
-use crate::arrays::{BinaryView, VarBinViewArray};
+use crate::arrays::VarBinViewArray;
+use crate::arrays::binary_view::BinaryView;
 use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
@@ -186,7 +187,7 @@ impl VarBinViewBuilder {
             VarBinViewArray::new_unchecked(
                 std::mem::take(&mut self.views_builder).freeze(),
                 buffers.finish(),
-                std::mem::replace(&mut self.dtype, DType::Null),
+                self.dtype.clone(),
                 validity,
             )
         }

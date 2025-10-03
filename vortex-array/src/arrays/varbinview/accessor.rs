@@ -30,7 +30,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
                     } else {
                         Some(
                             &bytes[view.as_view().buffer_index() as usize]
-                                [view.as_view().to_range()],
+                                [view.as_view().as_range()],
                         )
                     }
                 });
@@ -49,7 +49,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
                             } else {
                                 Some(
                                     &bytes[view.as_view().buffer_index() as usize]
-                                        [view.as_view().to_range()],
+                                        [view.as_view().as_range()],
                                 )
                             }
                         } else {

@@ -81,7 +81,7 @@ impl BitPackedArray {
         offset: u16,
     ) -> VortexResult<()> {
         vortex_ensure!(ptype.is_int(), MismatchedTypes: "integer", ptype);
-        vortex_ensure!(bit_width <= 64, "Unsupported bit width {}", bit_width);
+        vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
 
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
@@ -93,8 +93,7 @@ impl BitPackedArray {
         // Validate offset for sliced arrays
         vortex_ensure!(
             offset < 1024,
-            "Offset must be less than full block, i.e. 1024, got {}",
-            offset
+            "Offset must be less than the full block i.e., 1024, got {offset}"
         );
 
         // Validate patches

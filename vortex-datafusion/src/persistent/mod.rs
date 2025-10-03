@@ -34,12 +34,19 @@ fn register_vortex_format_factory(
 mod tests {
     use std::sync::Arc;
 
+    use arrow_schema::{DataType, Field, Schema};
+    use datafusion::arrow::array::{Int8Array, RecordBatch};
+    use datafusion::arrow::util::pretty::pretty_format_batches;
     use datafusion::datasource::listing::{
         ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
     };
+    use datafusion::execution::SessionStateBuilder;
     use datafusion::prelude::SessionContext;
+    use datafusion_datasource::file_format::format_as_file_type;
+    use datafusion_expr::LogicalPlanBuilder;
+    use insta::assert_snapshot;
     use rstest::rstest;
-    use tempfile::tempdir;
+    use tempfile::{TempDir, tempdir};
     use tokio::fs::OpenOptions;
     use vortex::IntoArray;
     use vortex::arrays::{ChunkedArray, StructArray, VarBinArray};
@@ -48,7 +55,8 @@ mod tests {
     use vortex::file::VortexWriteOptions;
     use vortex::validity::Validity;
 
-    use crate::persistent::VortexFormat;
+    use crate::VortexFormatFactory;
+    use crate::persistent::{VortexFormat, register_vortex_format_factory};
 
     #[rstest]
     #[case(Some(1))]
@@ -119,6 +127,64 @@ mod tests {
             .await?;
 
         assert_eq!(row_count, limit.unwrap_or(total_row_count));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_addition_pushdown() -> anyhow::Result<()> {
+        let dir = TempDir::new()?;
+
+        let factory = VortexFormatFactory::new();
+        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
+        register_vortex_format_factory(factory, &mut session_state_builder);
+        let session = SessionContext::new_with_state(session_state_builder.build());
+
+        let data = session.read_batch(RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("a", DataType::Int8, false)])),
+            vec![Arc::new(Int8Array::from_iter_values(0_i8..5))],
+        )?)?;
+
+        let logical_plan = LogicalPlanBuilder::copy_to(
+            data.logical_plan().clone(),
+            dir.path().to_str().unwrap().to_string(),
+            format_as_file_type(Arc::new(VortexFormatFactory::new())),
+            Default::default(),
+            vec![],
+        )?
+        .build()?;
+
+        session
+            .execute_logical_plan(logical_plan)
+            .await?
+            .collect()
+            .await?;
+
+        // Validate the output by reading back the written files
+        session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE written_data \
+                    (a TINYINT NOT NULL) \
+                STORED AS vortex 
+                LOCATION '{}/';",
+                dir.path().to_str().unwrap()
+            ))
+            .await?;
+
+        let result = session
+            .sql("SELECT a, a + 5 as five, a + 6 as six FROM written_data WHERE a + 5 > 7;")
+            .await?
+            .collect()
+            .await?;
+
+        assert_snapshot!(pretty_format_batches(&result)?, @r"
+        +---+------+-----+
+        | a | five | six |
+        +---+------+-----+
+        | 3 | 8    | 9   |
+        | 4 | 9    | 10  |
+        +---+------+-----+
+        ");
 
         Ok(())
     }

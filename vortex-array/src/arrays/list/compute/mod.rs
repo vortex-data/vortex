@@ -4,45 +4,19 @@
 mod cast;
 mod filter;
 mod is_constant;
+mod is_sorted;
 mod mask;
+mod min_max;
 mod take;
 
-use vortex_error::VortexResult;
-
-use crate::arrays::{ListArray, ListVTable};
-use crate::compute::{
-    IsSortedKernel, IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
-};
-use crate::register_kernel;
-
-impl MinMaxKernel for ListVTable {
-    fn min_max(&self, _array: &ListArray) -> VortexResult<Option<MinMaxResult>> {
-        // TODO(joe): Implement list min max
-        Ok(None)
-    }
-}
-
-register_kernel!(MinMaxKernelAdapter(ListVTable).lift());
-
-// TODO(ngates): Implement is sorted
-impl IsSortedKernel for ListVTable {
-    fn is_sorted(&self, _array: &ListArray) -> VortexResult<Option<bool>> {
-        Ok(None)
-    }
-
-    fn is_strict_sorted(&self, _array: &ListArray) -> VortexResult<Option<bool>> {
-        Ok(None)
-    }
-}
-
-register_kernel!(IsSortedKernelAdapter(ListVTable).lift());
-
 #[cfg(test)]
-mod test {
+mod tests {
+    use rstest::rstest;
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::ListArray;
+    use crate::arrays::{BoolArray, ListArray, PrimitiveArray};
+    use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::validity::Validity;
@@ -68,17 +42,6 @@ mod test {
 
         test_filter_conformance(array.as_ref());
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-    use vortex_buffer::buffer;
-
-    use crate::IntoArray;
-    use crate::arrays::{BoolArray, ListArray, PrimitiveArray};
-    use crate::compute::conformance::consistency::test_array_consistency;
-    use crate::validity::Validity;
 
     #[rstest]
     // From test_all_consistency

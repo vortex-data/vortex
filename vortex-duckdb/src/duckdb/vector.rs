@@ -12,7 +12,7 @@ use bitvec::view::BitView;
 use vortex::error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 
 use crate::cpp::duckdb_vx_error;
-use crate::duckdb::data::Data;
+use crate::duckdb::vector_buffer::VectorBuffer;
 use crate::duckdb::{LogicalType, SelectionVector, Value};
 use crate::{cpp, wrapper};
 
@@ -141,20 +141,19 @@ impl Vector {
         !is_valid
     }
 
-    /// Sets the data buffer for the vector.
-    pub unsafe fn set_data_buffer<T>(&self, buffer: T) {
-        let data = Data::from(Box::new(buffer));
-        unsafe { cpp::duckdb_vx_vector_set_data_buffer(self.as_ptr(), data.into_ptr()) }
+    pub unsafe fn set_vector_buffer(&self, buffer: &VectorBuffer) {
+        unsafe { cpp::duckdb_vx_vector_set_vector_data_buffer(self.as_ptr(), buffer.as_ptr()) }
+    }
+
+    pub fn add_string_vector_buffer(&self, buffer: &VectorBuffer) {
+        unsafe {
+            cpp::duckdb_vx_string_vector_add_vector_data_buffer(self.as_ptr(), buffer.as_ptr())
+        }
     }
 
     /// Sets the data pointer for the vector. This is the start of the values array in the vector.
     pub unsafe fn set_data_ptr<T>(&self, ptr: *mut T) {
         unsafe { cpp::duckdb_vx_vector_set_data_ptr(self.as_ptr(), ptr as *mut c_void) }
-    }
-
-    pub fn add_string_buffer<T>(&self, buffer: T) {
-        let data = Data::from(Box::new(buffer));
-        unsafe { cpp::duckdb_vx_string_vector_add_buffer(self.as_ptr(), data.into_ptr()) }
     }
 
     /// Assigns the element at the specified index with a string value.

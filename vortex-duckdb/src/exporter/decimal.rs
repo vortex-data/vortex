@@ -11,7 +11,7 @@ use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 use vortex::mask::Mask;
 use vortex::scalar::{BigCast, DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
 
-use crate::duckdb::Vector;
+use crate::duckdb::{Vector, VectorBuffer};
 use crate::exporter::ColumnExporter;
 
 struct DecimalExporter<D: NativeDecimalType, N: NativeDecimalType> {
@@ -23,6 +23,7 @@ struct DecimalExporter<D: NativeDecimalType, N: NativeDecimalType> {
 
 struct DecimalZeroCopyExporter<D: NativeDecimalType> {
     values: Buffer<D>,
+    shared_buffer: VectorBuffer,
     validity: Mask,
 }
 
@@ -32,8 +33,10 @@ pub(crate) fn new_exporter(array: &DecimalArray) -> VortexResult<Box<dyn ColumnE
 
     if array.values_type() == dest_values_type {
         match_each_decimal_value_type!(array.values_type(), |D| {
+            let buffer = array.buffer::<D>();
             return Ok(Box::new(DecimalZeroCopyExporter {
-                values: array.buffer::<D>(),
+                values: buffer.clone(),
+                shared_buffer: VectorBuffer::new(buffer),
                 validity,
             }));
         })
@@ -100,7 +103,7 @@ impl<D: NativeDecimalType> ColumnExporter for DecimalZeroCopyExporter<D> {
         assert!(self.values.len() >= offset + len);
 
         let pos = unsafe { self.values.as_ptr().add(offset) };
-        unsafe { vector.set_data_buffer(self.values.clone()) };
+        unsafe { vector.set_vector_buffer(&self.shared_buffer) };
         // While we are setting a *mut T this is an artifact of the C API, this is in fact const.
         unsafe { vector.set_data_ptr(pos as *mut D) };
 
@@ -125,8 +128,10 @@ mod tests {
 
         assert_eq!(array.values_type(), dest_values_type);
         match_each_decimal_value_type!(array.values_type(), |D| {
+            let buffer = array.buffer::<D>();
             Ok(Box::new(DecimalZeroCopyExporter {
-                values: array.buffer::<D>(),
+                values: buffer.clone(),
+                shared_buffer: VectorBuffer::new(buffer),
                 validity,
             }))
         })

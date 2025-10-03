@@ -5,7 +5,7 @@
 #include "duckdb/common/types/vector.hpp"
 
 #include "duckdb_vx.h"
-#include "duckdb_vx/data.hpp"
+#include "duckdb_vx/vector_buffer.hpp"
 
 using namespace duckdb;
 
@@ -44,17 +44,6 @@ extern "C" void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start,
 
 namespace vortex {
 
-// This is a wrapper around an externally managed buffer, which can be assigned to a Vector and
-// freed once the vector is done with the buffer.
-class ExternalVectorBuffer : public VectorBuffer {
-public:
-    explicit ExternalVectorBuffer(unique_ptr<vortex::CData> data) : data(std::move(data)) {
-    }
-
-private:
-    unique_ptr<vortex::CData> data;
-};
-
 // This is a complete hack to access the data buffer and pointer of a vector.
 class DataVector : public Vector {
 public:
@@ -69,19 +58,17 @@ public:
 
 } // namespace vortex
 
-extern "C" void duckdb_vx_string_vector_add_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer) {
+extern "C" void duckdb_vx_string_vector_add_vector_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer) {
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
-    auto data = reinterpret_cast<vortex::CData *>(buffer);
-    auto ext_buffer = duckdb::make_shared_ptr<vortex::ExternalVectorBuffer>(unique_ptr<vortex::CData>(data));
-    StringVector::AddBuffer(*vector, ext_buffer);
+    auto data = reinterpret_cast<shared_ptr<vortex::ExternalVectorBuffer> *>(buffer);
+    StringVector::AddBuffer(*vector, *data);
 }
 
-extern "C" void duckdb_vx_vector_set_data_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer) {
+extern "C" void duckdb_vx_vector_set_vector_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer) {
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
     auto dvector = reinterpret_cast<vortex::DataVector *>(vector);
-    auto data = reinterpret_cast<vortex::CData *>(buffer);
-    auto ext_buffer = duckdb::make_shared_ptr<vortex::ExternalVectorBuffer>(unique_ptr<vortex::CData>(data));
-    dvector->SetDataBuffer(ext_buffer);
+    auto data = reinterpret_cast<shared_ptr<vortex::ExternalVectorBuffer> *>(buffer);
+    dvector->SetDataBuffer(*data);
 }
 
 extern "C" void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *ptr) {

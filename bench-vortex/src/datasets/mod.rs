@@ -11,7 +11,7 @@ use url::Url;
 use vortex::ArrayRef;
 
 use crate::clickbench::Flavor;
-use crate::{Format, clickbench, statpopgen};
+use crate::{Format, clickbench, fineweb, statpopgen};
 
 pub mod data_downloads;
 pub mod file;
@@ -38,6 +38,8 @@ pub enum BenchmarkDataset {
     PublicBi { name: String },
     #[serde(rename = "statpopgen")]
     StatPopGen { n_rows: u64 },
+    #[serde(rename = "fineweb")]
+    Fineweb,
 }
 
 impl BenchmarkDataset {
@@ -48,6 +50,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::ClickBench { .. } => "clickbench",
             BenchmarkDataset::PublicBi { .. } => "public-bi",
             BenchmarkDataset::StatPopGen { .. } => "statpopgen",
+            BenchmarkDataset::Fineweb => "fineweb",
         }
     }
 }
@@ -63,6 +66,7 @@ impl Display for BenchmarkDataset {
             },
             BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),
             BenchmarkDataset::StatPopGen { n_rows } => write!(f, "statpopgen(n_rows={n_rows})"),
+            BenchmarkDataset::Fineweb => write!(f, "fineweb"),
         }
     }
 }
@@ -102,6 +106,7 @@ impl BenchmarkDataset {
             ],
             BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
             BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
+            BenchmarkDataset::Fineweb => &["fineweb"],
         }
     }
 
@@ -152,6 +157,9 @@ impl BenchmarkDataset {
             }
             (BenchmarkDataset::StatPopGen { .. }, format) => {
                 anyhow::bail!("StatPopGen in {format} unsupported in DataFusion")
+            }
+            (BenchmarkDataset::Fineweb, format) => {
+                fineweb::register_table(session, base_url, format).await?
             }
         }
 

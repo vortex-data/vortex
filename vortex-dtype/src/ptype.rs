@@ -49,7 +49,6 @@ pub enum PType {
     F64 = 10,
 }
 
-// TODO(connor): Remove the `AsPrimitive<usize>` bound from `IntegerPType` and move it to `UnsignedPType`
 /// Trait for integer primitive types that can be used as indices, offsets, or codes.
 ///
 /// Includes all signed and unsigned integer types (u8, u16, u32, u64, i8, i16, i32, i64).
@@ -77,10 +76,10 @@ impl<T> IntegerPType for T where
 ///
 /// You can use the `match_each_unsigned_integer_ptype` macro to help with writing "generic" code
 /// over dynamically typed code.
-pub trait UnsignedPType: Unsigned + IntegerPType {}
+pub trait UnsignedPType: IntegerPType + Unsigned {}
 
 /// Implements [`UnsignedPType`] for all possible `T` that have the correct bounds.
-impl<T> UnsignedPType for T where T: Unsigned + IntegerPType {}
+impl<T> UnsignedPType for T where T: IntegerPType + Unsigned {}
 
 /// A trait for native Rust types that correspond 1:1 to a PType.
 ///

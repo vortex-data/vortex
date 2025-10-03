@@ -436,9 +436,14 @@ impl Scheme for SparseScheme {
         &self,
         stats: &IntegerStats,
         _is_sample: bool,
-        _allowed_cascading: usize,
+        allowed_cascading: usize,
         _excludes: &[IntCode],
     ) -> VortexResult<f64> {
+        // Only use `SparseScheme` if we can cascade.
+        if allowed_cascading == 0 {
+            return Ok(0.0);
+        }
+
         if stats.value_count == 0 {
             // All nulls should use ConstantScheme
             return Ok(0.0);

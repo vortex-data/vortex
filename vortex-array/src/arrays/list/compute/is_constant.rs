@@ -37,9 +37,9 @@ impl IsConstantKernel for ListVTable {
         // If the array is long, do an optimistic check on the remainder of the list lengths.
         if array.len() > SMALL_ARRAY_THRESHOLD {
             // check the rest of the element lengths
-            let start_offsets = array.offsets.slice(SMALL_ARRAY_THRESHOLD..array.len());
+            let start_offsets = array.offsets().slice(SMALL_ARRAY_THRESHOLD..array.len());
             let end_offsets = array
-                .offsets
+                .offsets()
                 .slice(SMALL_ARRAY_THRESHOLD + 1..array.len() + 1);
             let list_lengths = numeric(&end_offsets, &start_offsets, NumericOperator::Sub)?;
 

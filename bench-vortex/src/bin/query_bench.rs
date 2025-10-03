@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use bench_vortex::benchmark_driver::{DriverConfig, run_benchmark};
 use bench_vortex::clickbench::{ClickBenchBenchmark, Flavor};
 use bench_vortex::display::DisplayFormat;
+use bench_vortex::fineweb::Fineweb;
 use bench_vortex::statpopgen::StatPopGenBenchmark;
 use bench_vortex::tpcds::TpcDsBenchmark;
 use bench_vortex::tpch::tpch_benchmark::TpcHBenchmark;
@@ -37,6 +38,9 @@ enum Commands {
     /// Run Statisical & Population Genetics queries
     #[command(name = "statpopgen")]
     StatPopGen(StatPopGenArgs),
+
+    #[command(name = "fineweb")]
+    Fineweb(FinewebArgs),
 }
 
 /// Common arguments shared across benchmarks
@@ -202,6 +206,28 @@ struct StatPopGenArgs {
     scale_factor: u64,
 }
 
+#[derive(Parser, Debug)]
+struct FinewebArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+
+    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
+        default_values = vec![
+              "duckdb:parquet",
+              "duckdb:vortex",
+              "duckdb:vortex-compact",
+              "datafusion:parquet",
+              "datafusion:vortex",
+              "datafusion:vortex-compact",
+          ]
+    )]
+    targets: Vec<Target>,
+
+    // Dummy, unused but we are required to accept it to make the CI automation happy
+    #[arg(long)]
+    scale_factor: u64,
+}
+
 fn validate_scale_factor(val: &str) -> Result<String, String> {
     match val.parse::<f32>() {
         Ok(n) if [0.01, 0.1, 1., 10., 100., 1000.].contains(&n) => {
@@ -230,6 +256,7 @@ fn main() -> anyhow::Result<()> {
         Commands::TpcH(tpch_args) => run_tpch(tpch_args),
         Commands::TpcDS(tpcds_args) => run_tpcds(tpcds_args),
         Commands::StatPopGen(stat_pop_gen_args) => run_statpopgen(stat_pop_gen_args),
+        Commands::Fineweb(fineweb_args) => run_fineweb(fineweb_args),
     }
 }
 
@@ -365,5 +392,36 @@ fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
     };
 
     // Run benchmark using the trait system
+    run_benchmark(benchmark, config)
+}
+
+fn run_fineweb(args: FinewebArgs) -> anyhow::Result<()> {
+    setup_logging_and_tracing(args.common.verbose, args.common.tracing)?;
+
+    let data_url = Url::from_directory_path("fineweb".to_data_path())
+        .map_err(|_| anyhow::anyhow!("bad data path"))?;
+
+    let benchmark = Fineweb::new(data_url);
+
+    let config = DriverConfig {
+        targets: args.targets,
+        iterations: args.common.iterations,
+        threads: args.common.threads,
+        display_format: args.common.display_format,
+        disable_datafusion_cache: args.common.disable_datafusion_cache,
+        delete_duckdb_database: args.common.delete_duckdb_database,
+        queries: args.common.queries,
+        exclude_queries: args.common.exclude_queries,
+        output_path: args.common.output_path,
+        emit_plan: args.common.emit_plan,
+        export_spans: args.common.export_spans,
+        show_metrics: args.common.show_metrics,
+        hide_progress_bar: args.common.hide_progress_bar,
+        track_memory: args.common.track_memory,
+        skip_generate: args.common.skip_generate,
+        explain: args.common.explain,
+        explain_analyze: args.common.explain_analyze,
+    };
+
     run_benchmark(benchmark, config)
 }

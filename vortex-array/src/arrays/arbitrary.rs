@@ -13,10 +13,8 @@ use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
-use super::{
-    BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray, smallest_storage_type,
-};
-use crate::arrays::{VarBinArray, VarBinViewArray};
+use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
+use crate::arrays::{VarBinArray, VarBinViewArray, smallest_decimal_value_type};
 use crate::builders::{ArrayBuilder, DecimalBuilder, FixedSizeListBuilder};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, builders};
@@ -99,7 +97,7 @@ fn random_array_chunk(
         },
         DType::Decimal(decimal, n) => {
             let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
-            match_each_decimal_value_type!(smallest_storage_type(decimal), |DVT| {
+            match_each_decimal_value_type!(smallest_decimal_value_type(decimal), |DVT| {
                 let mut builder =
                     DecimalBuilder::new::<DVT>(decimal.precision(), decimal.scale(), *n);
                 for _i in 0..elem_len {

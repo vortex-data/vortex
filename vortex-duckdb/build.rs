@@ -316,6 +316,7 @@ fn main() {
         .file("cpp/table_function.cpp")
         .file("cpp/value.cpp")
         .file("cpp/vector.cpp")
+        .file("cpp/vector_buffer.cpp")
         .compile("vortex-duckdb-extras");
 
     // Generate the _exported_ bindings from our Rust code.

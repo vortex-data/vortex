@@ -1,0 +1,36 @@
+[package]
+name = "vortex-gpu"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex gpu compute functions"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+cudarc = { workspace = true, features = ["f16"] }
+parking_lot = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true, features = ["cuda"] }
+vortex-dict = { workspace = true }
+vortex-dtype = { workspace = true }
+vortex-error = { workspace = true }
+vortex-fastlanes = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-utils = { workspace = true }
+
+[build-dependencies]
+anyhow = { workspace = true }
+walkdir = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+cuda = []

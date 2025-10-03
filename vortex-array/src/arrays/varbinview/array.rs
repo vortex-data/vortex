@@ -1,0 +1,426 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::sync::Arc;
+
+use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_dtype::{DType, Nullability};
+use vortex_error::{
+    VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err, vortex_panic,
+};
+
+use crate::arrays::binary_view::BinaryView;
+use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+use crate::stats::ArrayStats;
+use crate::validity::Validity;
+
+/// A variable-length binary view array that stores strings and binary data efficiently.
+///
+/// This mirrors the Apache Arrow StringView/BinaryView array encoding and provides
+/// an optimized representation for variable-length data with excellent performance
+/// characteristics for both short and long strings.
+///
+/// ## Data Layout
+///
+/// The array uses a hybrid storage approach with two main components:
+/// - **Views buffer**: Array of 16-byte `BinaryView` entries (one per logical element)
+/// - **Data buffers**: Shared backing storage for strings longer than 12 bytes
+///
+/// ## View Structure
+///
+/// Commonly referred to as "German Strings", each 16-byte view entry contains either:
+/// - **Inlined data**: For strings ≤ 12 bytes, the entire string is stored directly in the view
+/// - **Reference data**: For strings > 12 bytes, contains:
+///   - String length (4 bytes)
+///   - First 4 bytes of string as prefix (4 bytes)
+///   - Buffer index and offset (8 bytes total)
+///
+/// The following ASCII graphic is reproduced verbatim from the Arrow documentation:
+///
+/// ```text
+///                         ┌──────┬────────────────────────┐
+///                         │length│      string value      │
+///    Strings (len <= 12)  │      │    (padded with 0)     │
+///                         └──────┴────────────────────────┘
+///                          0    31                      127
+///
+///                         ┌───────┬───────┬───────┬───────┐
+///                         │length │prefix │  buf  │offset │
+///    Strings (len > 12)   │       │       │ index │       │
+///                         └───────┴───────┴───────┴───────┘
+///                          0    31       63      95    127
+/// ```
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::VarBinViewArray;
+/// use vortex_dtype::{DType, Nullability};
+/// use vortex_array::IntoArray;
+///
+/// // Create from an Iterator<Item = &str>
+/// let array = VarBinViewArray::from_iter_str([
+///         "inlined",
+///         "this string is outlined"
+/// ]);
+///
+/// assert_eq!(array.len(), 2);
+///
+/// // Access individual strings
+/// let first = array.bytes_at(0);
+/// assert_eq!(first.as_slice(), b"inlined"); // "short"
+///
+/// let second = array.bytes_at(1);
+/// assert_eq!(second.as_slice(), b"this string is outlined"); // Long string
+/// ```
+#[derive(Clone, Debug)]
+pub struct VarBinViewArray {
+    pub(super) dtype: DType,
+    pub(super) buffers: Arc<[ByteBuffer]>,
+    pub(super) views: Buffer<BinaryView>,
+    pub(super) validity: Validity,
+    pub(super) stats_set: ArrayStats,
+}
+
+impl VarBinViewArray {
+    /// Creates a new [`VarBinViewArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided components do not satisfy the invariants documented
+    /// in [`VarBinViewArray::new_unchecked`].
+    pub fn new(
+        views: Buffer<BinaryView>,
+        buffers: Arc<[ByteBuffer]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Self::try_new(views, buffers, dtype, validity)
+            .vortex_expect("VarBinViewArray construction failed")
+    }
+
+    /// Constructs a new `VarBinViewArray`.
+    ///
+    /// See [`VarBinViewArray::new_unchecked`] for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided components do not satisfy the invariants documented in
+    /// [`VarBinViewArray::new_unchecked`].
+    pub fn try_new(
+        views: Buffer<BinaryView>,
+        buffers: Arc<[ByteBuffer]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Self::validate(&views, &buffers, &dtype, &validity)?;
+
+        // SAFETY: validate ensures all invariants are met.
+        Ok(unsafe { Self::new_unchecked(views, buffers, dtype, validity) })
+    }
+
+    /// Creates a new [`VarBinViewArray`] without validation from these components:
+    ///
+    /// * `views` is a buffer of 16-byte view entries (one per logical element).
+    /// * `buffers` contains the backing storage for strings longer than 12 bytes.
+    /// * `dtype` specifies whether this contains UTF-8 strings or binary data.
+    /// * `validity` holds the null values.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure all of the following invariants are satisfied:
+    ///
+    /// ## View Requirements
+    ///
+    /// - Views must be properly formatted 16-byte [`BinaryView`] entries.
+    /// - Inlined views (length ≤ 12) must have valid data in the first `length` bytes.
+    /// - Reference views (length > 12) must:
+    ///   - Have a valid buffer index < `buffers.len()`.
+    ///   - Have valid offsets that don't exceed the referenced buffer's bounds.
+    ///   - Have a 4-byte prefix that matches the actual data at the referenced location.
+    ///
+    /// ## Type Requirements
+    ///
+    /// - `dtype` must be either [`DType::Utf8`] or [`DType::Binary`].
+    /// - For [`DType::Utf8`], all string data (both inlined and referenced) must be valid UTF-8.
+    ///
+    /// ## Validity Requirements
+    ///
+    /// - The validity must have the same nullability as the dtype.
+    /// - If validity is an array, its length must match `views.len()`.
+    pub unsafe fn new_unchecked(
+        views: Buffer<BinaryView>,
+        buffers: Arc<[ByteBuffer]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        #[cfg(debug_assertions)]
+        Self::validate(&views, &buffers, &dtype, &validity)
+            .vortex_expect("[Debug Assertion]: Invalid `VarBinViewArray` parameters");
+
+        Self {
+            dtype,
+            buffers,
+            views,
+            validity,
+            stats_set: Default::default(),
+        }
+    }
+
+    /// Validates the components that would be used to create a [`VarBinViewArray`].
+    ///
+    /// This function checks all the invariants required by [`VarBinViewArray::new_unchecked`].
+    pub(crate) fn validate(
+        views: &Buffer<BinaryView>,
+        buffers: &Arc<[ByteBuffer]>,
+        dtype: &DType,
+        validity: &Validity,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            validity.nullability() == dtype.nullability(),
+            "validity {:?} incompatible with nullability {:?}",
+            validity,
+            dtype.nullability()
+        );
+
+        match dtype {
+            DType::Utf8(_) => Self::validate_views(views, buffers, validity, |string| {
+                simdutf8::basic::from_utf8(string).is_ok()
+            })?,
+            DType::Binary(_) => Self::validate_views(views, buffers, validity, |_| true)?,
+            _ => vortex_bail!("invalid DType {dtype} for `VarBinViewArray`"),
+        }
+
+        Ok(())
+    }
+
+    fn validate_views<F>(
+        views: &Buffer<BinaryView>,
+        buffers: &Arc<[ByteBuffer]>,
+        validity: &Validity,
+        validator: F,
+    ) -> VortexResult<()>
+    where
+        F: Fn(&[u8]) -> bool,
+    {
+        for (idx, &view) in views.iter().enumerate() {
+            if validity.is_null(idx) {
+                continue;
+            }
+
+            if view.is_inlined() {
+                // Validate the inline bytestring
+                let bytes = &unsafe { view.inlined }.data[..view.len() as usize];
+                vortex_ensure!(
+                    validator(bytes),
+                    "view at index {idx}: inlined bytes failed utf-8 validation"
+                );
+            } else {
+                // Validate the view pointer
+                let view = view.as_view();
+                let buf_index = view.buffer_index as usize;
+                let start_offset = view.offset as usize;
+                let end_offset = start_offset.saturating_add(view.size as usize);
+
+                let buf = buffers.get(buf_index).ok_or_else(||
+                    vortex_err!("view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewArray with {} buffers",
+                        buffers.len()))?;
+
+                vortex_ensure!(
+                    start_offset < buf.len(),
+                    "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
+                    buf.len(),
+                );
+
+                vortex_ensure!(
+                    end_offset <= buf.len(),
+                    "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
+                    buf.len(),
+                );
+
+                // Make sure the prefix data matches the buffer data.
+                let bytes = &buf[start_offset..end_offset];
+                vortex_ensure!(
+                    view.prefix == bytes[..4],
+                    "VarBinView prefix does not match full string"
+                );
+
+                // Validate the full string
+                vortex_ensure!(
+                    validator(bytes),
+                    "view at index {idx}: outlined bytes fails utf-8 validation"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Number of raw string data buffers held by this array.
+    pub fn nbuffers(&self) -> usize {
+        self.buffers.len()
+    }
+
+    /// Access to the primitive views buffer.
+    ///
+    /// Variable-sized binary view buffer contain a "view" child array, with 16-byte entries that
+    /// contain either a pointer into one of the array's owned `buffer`s OR an inlined copy of
+    /// the string (if the string has 12 bytes or fewer).
+    #[inline]
+    pub fn views(&self) -> &Buffer<BinaryView> {
+        &self.views
+    }
+
+    /// Access value bytes at a given index
+    ///
+    /// Will return a `ByteBuffer` containing the data without performing a copy.
+    #[inline]
+    pub fn bytes_at(&self, index: usize) -> ByteBuffer {
+        let views = self.views();
+        let view = &views[index];
+        // Expect this to be the common case: strings > 12 bytes.
+        if !view.is_inlined() {
+            let view_ref = view.as_view();
+            self.buffer(view_ref.buffer_index() as usize)
+                .slice(view_ref.as_range())
+        } else {
+            // Return access to the range of bytes around it.
+            views
+                .clone()
+                .into_byte_buffer()
+                .slice_ref(view.as_inlined().value())
+        }
+    }
+
+    /// Access one of the backing data buffers.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the provided index is out of bounds for the set of buffers provided
+    /// at construction time.
+    #[inline]
+    pub fn buffer(&self, idx: usize) -> &ByteBuffer {
+        if idx >= self.nbuffers() {
+            vortex_panic!(
+                "{idx} buffer index out of bounds, there are {} buffers",
+                self.nbuffers()
+            );
+        }
+        &self.buffers[idx]
+    }
+
+    /// Iterate over the underlying raw data buffers, not including the views buffer.
+    #[inline]
+    pub fn buffers(&self) -> &Arc<[ByteBuffer]> {
+        &self.buffers
+    }
+
+    /// Accumulate an iterable set of values into our type here.
+    #[allow(clippy::same_name_method)]
+    pub fn from_iter<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
+        iter: I,
+        dtype: DType,
+    ) -> Self {
+        let iter = iter.into_iter();
+        let mut builder = VarBinViewBuilder::with_capacity(dtype, iter.size_hint().0);
+
+        for item in iter {
+            match item {
+                None => builder.append_null(),
+                Some(v) => builder.append_value(v),
+            }
+        }
+
+        builder.finish_into_varbinview()
+    }
+
+    pub fn from_iter_str<T: AsRef<str>, I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let iter = iter.into_iter();
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::NonNullable),
+            iter.size_hint().0,
+        );
+
+        for item in iter {
+            builder.append_value(item.as_ref());
+        }
+
+        builder.finish_into_varbinview()
+    }
+
+    pub fn from_iter_nullable_str<T: AsRef<str>, I: IntoIterator<Item = Option<T>>>(
+        iter: I,
+    ) -> Self {
+        let iter = iter.into_iter();
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::Nullable),
+            iter.size_hint().0,
+        );
+
+        for item in iter {
+            match item {
+                None => builder.append_null(),
+                Some(v) => builder.append_value(v.as_ref()),
+            }
+        }
+
+        builder.finish_into_varbinview()
+    }
+
+    pub fn from_iter_bin<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let iter = iter.into_iter();
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Binary(Nullability::NonNullable),
+            iter.size_hint().0,
+        );
+
+        for item in iter {
+            builder.append_value(item.as_ref());
+        }
+
+        builder.finish_into_varbinview()
+    }
+
+    pub fn from_iter_nullable_bin<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
+        iter: I,
+    ) -> Self {
+        let iter = iter.into_iter();
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Binary(Nullability::Nullable),
+            iter.size_hint().0,
+        );
+
+        for item in iter {
+            match item {
+                None => builder.append_null(),
+                Some(v) => builder.append_value(v.as_ref()),
+            }
+        }
+
+        builder.finish_into_varbinview()
+    }
+}
+
+impl<'a> FromIterator<Option<&'a [u8]>> for VarBinViewArray {
+    fn from_iter<T: IntoIterator<Item = Option<&'a [u8]>>>(iter: T) -> Self {
+        Self::from_iter_nullable_bin(iter)
+    }
+}
+
+impl FromIterator<Option<Vec<u8>>> for VarBinViewArray {
+    fn from_iter<T: IntoIterator<Item = Option<Vec<u8>>>>(iter: T) -> Self {
+        Self::from_iter_nullable_bin(iter)
+    }
+}
+
+impl FromIterator<Option<String>> for VarBinViewArray {
+    fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
+        Self::from_iter_nullable_str(iter)
+    }
+}
+
+impl<'a> FromIterator<Option<&'a str>> for VarBinViewArray {
+    fn from_iter<T: IntoIterator<Item = Option<&'a str>>>(iter: T) -> Self {
+        Self::from_iter_nullable_str(iter)
+    }
+}

@@ -1,30 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
-use std::hash::{Hash, Hasher};
-use std::ops::Range;
-use std::sync::Arc;
-
-use static_assertions::{assert_eq_align, assert_eq_size};
-use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{
-    VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure, vortex_err, vortex_panic,
-};
-
-use crate::builders::{ArrayBuilder, VarBinViewBuilder};
-use crate::stats::{ArrayStats, StatsSetRef};
-use crate::validity::Validity;
-use crate::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
-    ValidityVTableFromValidityHelper,
-};
-use crate::{Canonical, EncodingId, EncodingRef, vtable};
+mod array;
+pub use array::VarBinViewArray;
 
 mod accessor;
 pub(crate) mod compact;
+
+pub mod binary_view;
+
 mod compute;
+mod vtable;
+pub use vtable::{VarBinViewEncoding, VarBinViewVTable};
+
 mod ops;
 mod serde;
 
@@ -735,46 +723,4 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinViewArray {
 }
 
 #[cfg(test)]
-mod test {
-    use vortex_scalar::Scalar;
-
-    use crate::arrays::varbinview::{BinaryView, VarBinViewArray};
-    use crate::{Array, ToCanonical};
-
-    #[test]
-    pub fn varbin_view() {
-        let binary_arr =
-            VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"]);
-        assert_eq!(binary_arr.len(), 2);
-        assert_eq!(binary_arr.scalar_at(0), Scalar::from("hello world"));
-        assert_eq!(
-            binary_arr.scalar_at(1),
-            Scalar::from("hello world this is a long string")
-        );
-    }
-
-    #[test]
-    pub fn slice_array() {
-        let binary_arr =
-            VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
-                .slice(1..2);
-        assert_eq!(
-            binary_arr.scalar_at(0),
-            Scalar::from("hello world this is a long string")
-        );
-    }
-
-    #[test]
-    pub fn flatten_array() {
-        let binary_arr = VarBinViewArray::from_iter_str(["string1", "string2"]);
-        let var_bin = binary_arr.to_varbinview();
-        assert_eq!(var_bin.scalar_at(0), Scalar::from("string1"));
-        assert_eq!(var_bin.scalar_at(1), Scalar::from("string2"));
-    }
-
-    #[test]
-    pub fn binary_view_size_and_alignment() {
-        assert_eq!(size_of::<BinaryView>(), 16);
-        assert_eq!(align_of::<BinaryView>(), 16);
-    }
-}
+mod tests;
