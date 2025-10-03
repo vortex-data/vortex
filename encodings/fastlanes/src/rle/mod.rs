@@ -9,7 +9,6 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTable,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
-use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_ensure};
 use vortex_mask::Mask;
@@ -86,14 +85,14 @@ impl RLEArray {
         );
 
         vortex_ensure!(
-            matches!(indices.dtype(), DType::Primitive(PType::U16, _)),
-            "RLE indices must be u16, got {}",
+            matches!(indices.dtype().as_ptype(), PType::U8 | PType::U16),
+            "RLE indices must be u8 or u16, got {}",
             indices.dtype()
         );
 
         vortex_ensure!(
-            *value_idx_offsets.dtype() == DType::Primitive(PType::U64, NonNullable),
-            "RLE value idx offsets must be non-nullable u64, got {}",
+            value_idx_offsets.dtype().is_unsigned_int() && !value_idx_offsets.dtype().is_nullable(),
+            "RLE value idx offsets must be non-nullable unsigned integer, got {}",
             value_idx_offsets.dtype()
         );
 
