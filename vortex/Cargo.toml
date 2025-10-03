@@ -54,13 +54,18 @@ vortex-zstd = { workspace = true, optional = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
-divan = { workspace = true }
 itertools = { workspace = true }
 mimalloc = { workspace = true }
 parquet = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex = { path = ".", features = ["tokio"] }
+
+[target.'cfg(not(codspeed))'.dev-dependencies]
+divan = { workspace = true }
+
+[target.'cfg(codspeed)'.dev-dependencies]
+divan = { workspace = true, package = "codspeed-divan-compat" }
 
 [features]
 default = ["files", "zstd"]

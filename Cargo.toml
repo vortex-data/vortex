@@ -106,7 +106,8 @@ datafusion-physical-expr-common = { version = "50" }
 datafusion-physical-plan = { version = "50" }
 datafusion-pruning = { version = "50" }
 dirs = "6.0.0"
-divan = { package = "codspeed-divan-compat", version = "4.0" }
+codspeed-divan-compat = { version = "4.0" }
+divan = "0.1"
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
 erased-serde = "0.4"

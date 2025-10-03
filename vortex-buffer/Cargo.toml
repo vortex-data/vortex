@@ -40,7 +40,12 @@ workspace = true
 
 [dev-dependencies]
 arrow-buffer = { workspace = true }
+
+[target.'cfg(not(codspeed))'.dev-dependencies]
 divan = { workspace = true }
+
+[target.'cfg(codspeed)'.dev-dependencies]
+divan = { workspace = true, package = "codspeed-divan-compat" }
 
 [[bench]]
 name = "vortex_buffer"
