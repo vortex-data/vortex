@@ -88,6 +88,7 @@ where
             assert_eq!(buffer.offset(), 0);
             assert_eq!(buffer.len() % 1024, 0);
             assert!((buffer.values().as_ptr() as *const u32).is_aligned());
+            // SAFETY: we've checked alignment and the layout is the same.
             let slice: &[u32] = unsafe { transmute(buffer.values()) };
             stream
                 .memcpy_stod(slice)
