@@ -4,6 +4,8 @@
 mod array;
 pub use array::{ListViewArray, list_view_from_list};
 
+mod compute;
+
 mod vtable;
 pub use vtable::{ListViewEncoding, ListViewVTable};
 
@@ -12,5 +14,3 @@ pub use rebuild::ListViewRebuildMode;
 
 #[cfg(test)]
 mod tests;
-
-mod compute;
