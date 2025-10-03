@@ -6907,6 +6907,7 @@ dependencies = [
  "parking_lot",
  "vortex-array",
  "vortex-buffer",
+ "vortex-dict",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",

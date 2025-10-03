@@ -35,14 +35,11 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    println!("cargo:rerun-if-env-changed=CUDA_ROOT");
-    println!("cargo:rerun-if-env-changed=CUDA_PATH");
-    println!("cargo:rerun-if-env-changed=CUDA_TOOLKIT_ROOT_DIR");
-    println!("cargo:rerun-if-env-changed=CUDARC_CUDA_VERSION");
     println!("cargo:rerun-if-changed={}", generator_dir.to_str().unwrap());
 
     for entry in WalkDir::new(kernels_dir).into_iter().flatten() {
         if entry.path().extension().is_some_and(|ext| ext == "cu") {
+            println!("cargo:rerun-if-changed={}", entry.path().display());
             nvcc_compile_ptx(entry.path())?;
         }
     }

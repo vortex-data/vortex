@@ -18,6 +18,7 @@ cudarc = { workspace = true }
 parking_lot = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true, features = ["cuda"] }
+vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }

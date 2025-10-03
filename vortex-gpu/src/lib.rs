@@ -2,3 +2,4 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod bit_unpack;
+mod take;
