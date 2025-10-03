@@ -76,7 +76,7 @@ where
         .memcpy_stod(codes_sl)
         .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
     let mut cu_out = {
-        // use uninit memory
+        // TODO(joe): use uninit memory
         stream
             .alloc_zeros::<Values>(codes.len().next_multiple_of(1024))
             .map_err(|e| vortex_err!("Failed to allocate stream: {e}"))?
@@ -87,6 +87,7 @@ where
             let buffer = mask.to_boolean_buffer();
             assert_eq!(buffer.offset(), 0);
             assert_eq!(buffer.len() % 1024, 0);
+            assert!((buffer.values().as_ptr() as *const u32).is_aligned());
             let slice: &[u32] = unsafe { transmute(buffer.values()) };
             stream
                 .memcpy_stod(slice)
