@@ -35,6 +35,7 @@ vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
 mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
@@ -42,12 +43,6 @@ vortex-alp = { path = "../alp" }
 vortex-array = { workspace = true, features = ["test-harness"] }
 vortex-expr = { workspace = true }
 vortex-fastlanes = { path = ".", features = ["test-harness"] }
-
-[target.'cfg(not(codspeed))'.dev-dependencies]
-divan = { workspace = true }
-
-[target.'cfg(codspeed)'.dev-dependencies]
-divan = { workspace = true, package = "codspeed-divan-compat" }
 
 [features]
 test-harness = ["dep:rand"]

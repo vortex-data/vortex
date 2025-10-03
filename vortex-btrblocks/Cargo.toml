@@ -40,13 +40,8 @@ vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
-env_logger = "0.11"
-
-[target.'cfg(not(codspeed))'.dev-dependencies]
 divan = { workspace = true }
-
-[target.'cfg(codspeed)'.dev-dependencies]
-divan = { workspace = true, package = "codspeed-divan-compat" }
+env_logger = "0.11"
 
 [lints]
 workspace = true
