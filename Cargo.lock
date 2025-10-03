@@ -6585,6 +6585,7 @@ dependencies = [
  "datafusion-physical-expr-adapter",
  "datafusion-physical-expr-common",
  "datafusion-physical-plan",
+ "datafusion-pruning",
  "futures",
  "itertools 0.14.0",
  "log",
