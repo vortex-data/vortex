@@ -256,7 +256,8 @@ impl FileSource for VortexSource {
         {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 vec![PushedDown::No; supported_filters.len()],
-            ));
+            )
+            .with_updated_node(Arc::new(source) as _));
         }
 
         let supported = supported_filters
@@ -276,19 +277,10 @@ impl FileSource for VortexSource {
 
         source.vortex_predicate = Some(predicate);
 
-        let pushdown_propagation = if source.vortex_predicate.clone().is_some() {
-            FilterPushdownPropagation::with_parent_pushdown_result(
-                supported_filters.iter().map(|f| f.discriminant).collect(),
-            )
-            .with_updated_node(Arc::new(source) as _)
-        } else {
-            FilterPushdownPropagation::with_parent_pushdown_result(vec![
-                PushedDown::No;
-                supported_filters.len()
-            ])
-        };
-
-        Ok(pushdown_propagation)
+        Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+            supported_filters.iter().map(|f| f.discriminant).collect(),
+        )
+        .with_updated_node(Arc::new(source) as _))
     }
 
     fn with_schema_adapter_factory(
