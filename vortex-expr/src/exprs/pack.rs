@@ -1,18 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-
+use async_trait::async_trait;
+use futures::future::try_join_all;
+use futures::try_join;
 use itertools::Itertools as _;
+use std::any::Any;
+use std::hash::Hash;
+use std::sync::Arc;
 use vortex_array::arrays::StructArray;
+use vortex_array::operator::getitem::GetItemOperator;
+use vortex_array::operator::{
+    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, MaskExecution, Operator,
+    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+};
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
+use vortex_array::{ArrayRef, Canonical, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::{vtable, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable};
 
 vtable!(Pack);
 
@@ -131,6 +140,24 @@ impl VTable for PackVTable {
             expr.nullability,
         ))
     }
+
+    fn operator(expr: &Self::Expr, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
+        let mut values = Vec::with_capacity(expr.values.len());
+        for value in &expr.values {
+            if let Some(op) = value.operator(scope)? {
+                values.push(op);
+            } else {
+                // One of the children cannot be converted to an operator, so the whole pack cannot
+                return Ok(None);
+            }
+        }
+
+        Ok(Some(Arc::new(PackOperator::try_new(
+            expr.names.clone(),
+            values,
+            expr.nullability,
+        )?)))
+    }
 }
 
 impl PackExpr {
@@ -232,18 +259,175 @@ impl DisplayAs for PackExpr {
 
 impl AnalysisExpr for PackExpr {}
 
+#[derive(Debug)]
+pub struct PackOperator {
+    names: FieldNames,
+    values: Vec<OperatorRef>,
+    nullability: Nullability,
+
+    dtype: DType,
+    len: usize,
+}
+
+impl PackOperator {
+    pub fn try_new(
+        names: FieldNames,
+        values: Vec<OperatorRef>,
+        nullability: Nullability,
+    ) -> VortexResult<Self> {
+        if names.len() != values.len() {
+            vortex_bail!("length mismatch {} {}", names.len(), values.len());
+        }
+        let len = values
+            .iter()
+            .map(|v| v.len())
+            .all_equal_value()
+            .map_err(|_| vortex_err!("length mismatch among values"))?;
+        let value_dtypes = values.iter().map(|v| v.dtype().clone()).collect();
+        let dtype = DType::Struct(StructFields::new(names.clone(), value_dtypes), nullability);
+        Ok(PackOperator {
+            names,
+            values,
+            nullability,
+            dtype,
+            len,
+        })
+    }
+}
+
+impl OperatorHash for PackOperator {
+    fn operator_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.names.hash(state);
+        self.nullability.hash(state);
+        for value in &self.values {
+            value.operator_hash(state);
+        }
+    }
+}
+
+impl OperatorEq for PackOperator {
+    fn operator_eq(&self, other: &Self) -> bool {
+        self.names == other.names
+            && self.nullability == other.nullability
+            && self.values.len() == other.values.len()
+            && self
+                .values
+                .iter()
+                .zip(&other.values)
+                .all(|(a, b)| a.operator_eq(b))
+    }
+}
+
+impl Operator for PackOperator {
+    fn id(&self) -> OperatorId {
+        OperatorId::from("vortex.pack")
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn children(&self) -> &[OperatorRef] {
+        &self.values
+    }
+
+    fn with_children(self: Arc<Self>, children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
+        Ok(Arc::new(PackOperator::try_new(
+            self.names.clone(),
+            children,
+            self.nullability,
+        )?))
+    }
+
+    fn reduce_parent(
+        &self,
+        parent: OperatorRef,
+        _child_idx: usize,
+    ) -> VortexResult<Option<OperatorRef>> {
+        if parent.as_any().downcast_ref::<GetItemOperator>().is_some() {
+            vortex_bail!("TODO: PackOperator should reduce a GetItemOperator into its children");
+        }
+
+        Ok(None)
+    }
+
+    fn as_batch(&self) -> Option<&dyn BatchOperator> {
+        Some(self)
+    }
+}
+
+impl BatchOperator for PackOperator {
+    fn project(
+        &self,
+        mask: &OperatorRef,
+        ctx: &mut dyn BatchBindCtx,
+    ) -> VortexResult<BatchExecutionRef> {
+        let values: Vec<_> = self
+            .values
+            .iter()
+            .map(|value| ctx.bind_project(value, Some(mask)))
+            .try_collect()?;
+
+        let DType::Struct(fields, nullability) = &self.dtype else {
+            vortex_bail!("PackOperator must have Struct dtype");
+        };
+
+        let validity = match nullability {
+            Nullability::NonNullable => Validity::NonNullable,
+            Nullability::Nullable => Validity::AllValid,
+        };
+
+        Ok(Box::new(PackExecution {
+            values,
+            mask: ctx.bind_mask(mask)?,
+            fields: fields.clone(),
+            validity,
+        }))
+    }
+}
+
+struct PackExecution {
+    values: Vec<BatchExecutionRef>,
+    mask: MaskExecution,
+    fields: StructFields,
+    validity: Validity,
+}
+
+#[async_trait]
+impl BatchExecution for PackExecution {
+    async fn execute(self: Box<Self>) -> VortexResult<Canonical> {
+        let values = try_join_all(self.values.into_iter().map(|exec| exec.execute()));
+        let (values, mask) = try_join!(values, self.mask)?;
+        let values = values.into_iter().map(|c| c.into_array()).collect();
+
+        Ok(Canonical::Struct(StructArray::try_new_with_dtype(
+            values,
+            self.fields.clone(),
+            mask.true_count(),
+            self.validity,
+        )?))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{FieldNames, Nullability};
-    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_error::{vortex_bail, VortexResult};
 
-    use crate::{IntoExpr, PackExpr, Scope, col, pack};
+    use crate::{col, pack, IntoExpr, PackExpr, Scope};
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[

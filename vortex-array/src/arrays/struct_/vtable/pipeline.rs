@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::arrays::{StructArray, StructVTable};
 use crate::operator::getitem::GetItemOperator;
@@ -131,6 +131,10 @@ impl Operator for StructOperator {
         }
 
         Ok(None)
+    }
+
+    fn as_batch(&self) -> Option<&dyn BatchOperator> {
+        Some(self)
     }
 }
 
