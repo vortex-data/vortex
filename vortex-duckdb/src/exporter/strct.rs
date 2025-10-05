@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use vortex::arrays::StructArray;
+use vortex::error::VortexResult;
+
+use crate::duckdb::Vector;
+use crate::exporter::{ColumnExporter, ConversionCache, new_array_exporter, validity};
+
+struct StructExporter {
+    children: Vec<Box<dyn ColumnExporter>>,
+}
+
+pub(crate) fn new_exporter(
+    array: &StructArray,
+    cache: &ConversionCache,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let children = array
+        .children()
+        .into_iter()
+        .map(|child| new_array_exporter(&child, cache))
+        .collect::<VortexResult<Vec<_>>>()?;
+    let struct_exporter = Box::new(StructExporter { children });
+    Ok(if array.dtype().is_nullable() {
+        validity::new_exporter(array.validity_mask(), struct_exporter)
+    } else {
+        struct_exporter
+    })
+}
+
+impl ColumnExporter for StructExporter {
+    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+        for (idx, child) in self.children.iter().enumerate() {
+            child.export(offset, len, &mut vector.struct_vector_get_child(idx))?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::CString;
+
+    use vortex::IntoArray;
+    use vortex::arrays::{PrimitiveArray, VarBinViewArray};
+    use vortex::error::{VortexExpect, VortexUnwrap};
+
+    use super::*;
+    use crate::cpp;
+    use crate::duckdb::{DataChunk, LogicalType};
+
+    #[test]
+    fn test_struct_exporter() {
+        let prim = PrimitiveArray::from_iter(0..10).into_array();
+        let strings =
+            VarBinViewArray::from_iter_str(vec!["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"])
+                .into_array();
+        let arr =
+            StructArray::from_fields(&[("a", prim), ("b", strings)]).vortex_expect("struct array");
+        let mut chunk = DataChunk::new([LogicalType::struct_type(
+            vec![
+                LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
+                LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_VARCHAR),
+            ],
+            vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
+        )
+        .vortex_unwrap()]);
+
+        new_exporter(&arr, &ConversionCache::default())
+            .unwrap()
+            .export(0, 10, &mut chunk.get_vector(0))
+            .unwrap();
+        chunk.set_len(10);
+
+        assert_eq!(
+            format!("{}", String::try_from(&chunk).unwrap()),
+            r#"Chunk - [1 Columns]
+- FLAT STRUCT(col1 INTEGER, col2 VARCHAR): 10 = [ {'col1': 0, 'col2': a}, {'col1': 1, 'col2': b}, {'col1': 2, 'col2': c}, {'col1': 3, 'col2': d}, {'col1': 4, 'col2': e}, {'col1': 5, 'col2': f}, {'col1': 6, 'col2': g}, {'col1': 7, 'col2': h}, {'col1': 8, 'col2': i}, {'col1': 9, 'col2': j}]
+"#
+        );
+    }
+}

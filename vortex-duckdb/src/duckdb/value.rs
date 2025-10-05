@@ -130,24 +130,16 @@ impl<'a> ValueRef<'a> {
                         .vortex_expect("List size must fit usize");
                 ExtractedValue::List(
                     (0..elem_count)
-                        .map(|i| {
-                            unsafe {
-                                Value::own(cpp::duckdb_get_list_child(self.as_ptr(), i as idx_t))
-                            }
-                            .as_ref()
-                            .extract()
+                        .map(|i| unsafe {
+                            Value::own(cpp::duckdb_get_list_child(self.as_ptr(), i as idx_t))
                         })
                         .collect::<Vec<_>>(),
                 )
             }
             DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => ExtractedValue::List(
                 (0..self.logical_type().struct_type_child_count())
-                    .map(|i| {
-                        unsafe {
-                            Value::own(cpp::duckdb_get_struct_child(self.as_ptr(), i as idx_t))
-                        }
-                        .as_ref()
-                        .extract()
+                    .map(|i| unsafe {
+                        Value::own(cpp::duckdb_get_struct_child(self.as_ptr(), i as idx_t))
                     })
                     .collect::<Vec<_>>(),
             ),
@@ -379,7 +371,7 @@ pub enum ExtractedValue {
     TimestampMs(i64),
     TimestampS(i64),
     Decimal(u8, i8, i128),
-    List(Vec<ExtractedValue>),
+    List(Vec<Value>),
 }
 
 #[cfg(test)]

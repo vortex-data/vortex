@@ -139,7 +139,7 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => DType::Struct(
                 (0..logical_type.struct_type_child_count())
                     .map(|i| {
-                        let child_name = logical_type.struct_child_name(i);
+                        let child_name = logical_type.struct_child_name(i)?;
                         let child_type = logical_type.struct_child_type(i);
                         Ok((
                             child_name,

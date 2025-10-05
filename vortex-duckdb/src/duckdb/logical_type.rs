@@ -5,7 +5,7 @@ use std::ffi::{CStr, CString};
 use std::fmt::{Debug, Formatter};
 
 use vortex::dtype::{ExtDType, FieldName};
-use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::cpp::*;
 use crate::wrapper;
@@ -55,7 +55,7 @@ impl LogicalType {
         };
 
         if struct_type_ptr.is_null() {
-            return vortex_bail!("Failed to create struct logical type");
+            vortex_bail!("Failed to create struct logical type");
         }
 
         Ok(unsafe { Self::own(struct_type_ptr) })
@@ -68,24 +68,21 @@ impl LogicalType {
             "DuckDB decimal type precision must be <= 38. precision: {precision}"
         );
 
-        unsafe {
-            let ptr = duckdb_create_decimal_type(precision, scale);
-            if ptr.is_null() {
-                return vortex_bail!("Failed to create decimal type");
-            }
-            Ok(Self::own(ptr))
+        let ptr = unsafe { duckdb_create_decimal_type(precision, scale) };
+        if ptr.is_null() {
+            vortex_bail!("Failed to create decimal type");
         }
+        Ok(unsafe { Self::own(ptr) })
     }
 
     /// Creates a DuckDB list logical type with the specified element type.
     pub fn list_type(element_type: LogicalType) -> VortexResult<Self> {
-        unsafe {
-            let ptr = duckdb_create_list_type(element_type.as_ptr());
-            if ptr.is_null() {
-                vortex_bail!("Failed to create list type");
-            }
-            Ok(Self::own(ptr))
+        let ptr = unsafe { duckdb_create_list_type(element_type.as_ptr()) };
+
+        if ptr.is_null() {
+            vortex_bail!("Failed to create list type");
         }
+        Ok(unsafe { Self::own(ptr) })
     }
 
     /// Creates a DuckDB fixed-size list logical type with the specified element type and list size.
@@ -150,6 +147,18 @@ impl LogicalType {
         Ok(Self::new(duckdb_type))
     }
 
+    pub fn new_array(element_dtype: DUCKDB_TYPE, array_size: u32) -> Self {
+        let element_dtype = Self::new(element_dtype);
+
+        // SAFETY: The element_dtype is created by `Self::new` which ensures it is valid.
+        unsafe {
+            Self::own(duckdb_create_array_type(
+                element_dtype.as_ptr(),
+                array_size as idx_t,
+            ))
+        }
+    }
+
     pub fn as_type_id(&self) -> DUCKDB_TYPE {
         unsafe { duckdb_get_type_id(self.as_ptr()) }
     }
@@ -208,8 +217,8 @@ impl LogicalType {
         unsafe { LogicalType::own(duckdb_struct_type_child_type(self.as_ptr(), idx as idx_t)) }
     }
 
-    pub fn struct_child_name(&self, idx: usize) -> DDBString {
-        DDBString::new(unsafe { duckdb_struct_type_child_name(self.as_ptr(), idx as idx_t) })
+    pub fn struct_child_name(&self, idx: usize) -> VortexResult<DDBString> {
+        unsafe { DDBString::new(duckdb_struct_type_child_name(self.as_ptr(), idx as idx_t)) }
     }
 
     pub fn struct_type_child_count(&self) -> usize {
@@ -221,8 +230,8 @@ impl LogicalType {
         unsafe { LogicalType::own(duckdb_union_type_member_type(self.as_ptr(), idx as idx_t)) }
     }
 
-    pub fn union_member_name(&self, idx: usize) -> DDBString {
-        DDBString::new(unsafe { duckdb_union_type_member_name(self.as_ptr(), idx as idx_t) })
+    pub fn union_member_name(&self, idx: usize) -> VortexResult<DDBString> {
+        unsafe { DDBString::new(duckdb_union_type_member_name(self.as_ptr(), idx as idx_t)) }
     }
 
     pub fn union_member_count(&self) -> usize {
@@ -245,17 +254,23 @@ impl Debug for LogicalType {
 pub struct DDBString(*mut std::ffi::c_char);
 
 impl DDBString {
-    pub fn new(ptr: *mut std::ffi::c_char) -> Self {
-        Self(ptr)
+    pub unsafe fn new(ptr: *mut std::ffi::c_char) -> VortexResult<Self> {
+        if ptr.is_null() {
+            vortex_bail!("DuckDB returned a null string");
+        }
+
+        unsafe { CStr::from_ptr(ptr) }
+            .to_str()
+            .map_err(|e| vortex_err!("Failed to convert C string to str {e}"))?;
+
+        Ok(Self(ptr))
     }
 }
 
 impl AsRef<str> for DDBString {
     fn as_ref(&self) -> &str {
-        unsafe { CStr::from_ptr(self.0) }
-            .to_str()
-            .map_err(|e| vortex_err!("Failed to convert CStr to str: {e}"))
-            .vortex_unwrap()
+        // SAFETY: The string have been validated on construction.
+        unsafe { str::from_utf8_unchecked(CStr::from_ptr(self.0).to_bytes()) }
     }
 }
 
@@ -271,15 +286,15 @@ impl PartialEq<str> for DDBString {
     }
 }
 
-impl Drop for DDBString {
-    fn drop(&mut self) {
-        unsafe { duckdb_free(self.0.cast()) };
-    }
-}
-
 impl From<DDBString> for FieldName {
     fn from(value: DDBString) -> Self {
         FieldName::from(value.as_ref())
+    }
+}
+
+impl Drop for DDBString {
+    fn drop(&mut self) {
+        unsafe { duckdb_free(self.0.cast()) }
     }
 }
 
@@ -576,8 +591,10 @@ mod tests {
         for idx in 0..original_count {
             let original_child_type = struct_type.struct_child_type(idx);
             let cloned_child_type = cloned.struct_child_type(idx);
-            let original_child_name = struct_type.struct_child_name(idx);
-            let cloned_child_name = cloned.struct_child_name(idx);
+            let original_child_name = struct_type
+                .struct_child_name(idx)
+                .vortex_expect("valid utf-8");
+            let cloned_child_name = cloned.struct_child_name(idx).vortex_expect("valid utf-8");
 
             assert_eq!(
                 original_child_type.as_type_id(),
@@ -623,8 +640,10 @@ mod tests {
         for idx in 0..original_count {
             let original_member_type = union_type.union_member_type(idx);
             let cloned_member_type = cloned.union_member_type(idx);
-            let original_member_name = union_type.union_member_name(idx);
-            let cloned_member_name = cloned.union_member_name(idx);
+            let original_member_name = union_type
+                .union_member_name(idx)
+                .vortex_expect("valid utf-8");
+            let cloned_member_name = cloned.union_member_name(idx).vortex_expect("valid utf-8");
 
             assert_eq!(
                 original_member_type.as_type_id(),
