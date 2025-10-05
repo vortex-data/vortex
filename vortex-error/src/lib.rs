@@ -515,7 +515,11 @@ impl From<jiff::Error> for VortexError {
 #[cfg(feature = "tokio")]
 impl From<tokio::task::JoinError> for VortexError {
     fn from(value: tokio::task::JoinError) -> Self {
-        VortexError::JoinError(value, Box::new(Backtrace::capture()))
+        if value.is_panic() {
+            std::panic::resume_unwind(value.into_panic())
+        } else {
+            VortexError::JoinError(value, Box::new(Backtrace::capture()))
+        }
     }
 }
 

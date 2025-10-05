@@ -181,3 +181,12 @@ fn test_zstd_decompress_var_bin_view() {
     assert_nth_scalar!(decompressed, 3, "Lorem ipsum dolor sit amet");
     assert_nth_scalar!(decompressed, 4, "baz");
 }
+
+#[test]
+fn test_sliced_array_children() {
+    let data: Vec<Option<i32>> = (0..10).map(|v| (v != 5).then_some(v)).collect();
+    let compressed =
+        ZstdArray::from_primitive(&PrimitiveArray::from_option_iter(data), 0, 100).unwrap();
+    let sliced = compressed.slice(0..4);
+    let _ = sliced.children();
+}

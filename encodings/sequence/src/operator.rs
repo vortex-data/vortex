@@ -14,7 +14,7 @@ use vortex_array::pipeline::vec::Selection;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{BindContext, Element, Kernel, KernelContext, N, PipelinedOperator};
 use vortex_array::vtable::PipelineVTable;
-use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
+use vortex_dtype::{DType, IntegerPType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::{SequenceArray, SequenceVTable};
@@ -125,7 +125,7 @@ struct SequenceKernel<T> {
     len: usize,
 }
 
-impl<T: Element + NativePType + PrimInt> Kernel for SequenceKernel<T> {
+impl<T: Element + IntegerPType> Kernel for SequenceKernel<T> {
     fn step(
         &self,
         _ctx: &KernelContext,

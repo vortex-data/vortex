@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::AddAssign;
-
 use arrow_buffer::BooleanBufferBuilder;
-use num_traits::AsPrimitive;
 use vortex_buffer::BufferMut;
-use vortex_dtype::{NativePType, match_each_integer_ptype};
+use vortex_dtype::{IntegerPType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
@@ -26,7 +23,7 @@ const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 impl FilterKernel for ListVTable {
     fn filter(&self, array: &ListArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
         let elements = array.elements();
-        let offsets = array.offsets.to_primitive();
+        let offsets = array.offsets().to_primitive();
 
         let new_validity = array.validity().filter(selection_mask)?;
         debug_assert!(
@@ -62,7 +59,7 @@ register_kernel!(FilterKernelAdapter(ListVTable).lift());
 /// Note that unlike `ListViewArray`, we **must** push the filter down into our child `elements`
 /// array because our output array must have lists that are contiguous (something that
 /// `ListViewArray` can get away with because it additionally stores a `sizes` child array).
-fn compute_filtered_elements_and_offsets<O: NativePType + AsPrimitive<usize> + AddAssign>(
+fn compute_filtered_elements_and_offsets<O: IntegerPType>(
     elements: &dyn Array,
     offsets: &[O],
     selection_mask: &Mask,

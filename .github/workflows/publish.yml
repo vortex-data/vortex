@@ -206,7 +206,7 @@ jobs:
         with:
           distribution: "corretto"
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
       - uses: actions/download-artifact@v5
         with:
           pattern: libvortex_jni_*.zip

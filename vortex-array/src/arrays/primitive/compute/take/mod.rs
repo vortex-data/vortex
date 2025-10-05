@@ -9,9 +9,10 @@ mod portable;
 
 use std::sync::LazyLock;
 
-use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, match_each_integer_ptype, match_each_native_ptype};
+use vortex_dtype::{
+    DType, IntegerPType, NativePType, match_each_integer_ptype, match_each_native_ptype,
+};
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::PrimitiveVTable;
@@ -95,10 +96,7 @@ register_kernel!(TakeKernelAdapter(PrimitiveVTable).lift());
 // Compiler may see this as unused based on enabled features
 #[allow(unused)]
 #[inline(always)]
-fn take_primitive_scalar<T: NativePType, I: NativePType + AsPrimitive<usize>>(
-    array: &[T],
-    indices: &[I],
-) -> Buffer<T> {
+fn take_primitive_scalar<T: NativePType, I: IntegerPType>(array: &[T], indices: &[I]) -> Buffer<T> {
     indices.iter().map(|idx| array[idx.as_()]).collect()
 }
 

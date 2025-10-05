@@ -21,6 +21,7 @@ mod table_filter;
 mod table_function;
 mod value;
 mod vector;
+mod vector_buffer;
 
 use std::ffi::c_void;
 use std::ptr;
@@ -43,6 +44,7 @@ pub use table_filter::*;
 pub use table_function::*;
 pub use value::*;
 pub use vector::*;
+pub use vector_buffer::*;
 use vortex::error::VortexResult;
 
 use crate::cpp;

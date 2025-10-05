@@ -41,7 +41,7 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     fn child(&self, idx: usize) -> VortexResult<LayoutRef>;
 
     /// Get the relative row offset of the child at the given index, returning `None` for
-    /// any auxilliary children, e.g. dictionary values, zone maps, etc.
+    /// any auxiliary children, e.g. dictionary values, zone maps, etc.
     fn child_type(&self, idx: usize) -> LayoutChildType;
 
     /// Get the metadata for this layout.
@@ -127,7 +127,7 @@ impl dyn Layout + '_ {
         self.child_types().map(|child| child.name())
     }
 
-    /// The row offsets of the children of this layout, where `None` indicates an auxilliary child.
+    /// The row offsets of the children of this layout, where `None` indicates an auxiliary child.
     pub fn child_row_offsets(&self) -> impl Iterator<Item = Option<u64>> {
         self.child_types().map(|child| child.row_offset())
     }

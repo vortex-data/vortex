@@ -77,6 +77,7 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
 mod test {
     use itertools::Itertools;
     use vortex_array::ToCanonical;
+    use vortex_array::stats::StatsProvider;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::PType;
@@ -111,7 +112,7 @@ mod test {
     #[test]
     fn test_zeros() {
         let array = PrimitiveArray::new(buffer![0i32; 100], Validity::NonNullable);
-        assert!(array.statistics().to_owned().into_iter().next().is_none());
+        assert_eq!(array.statistics().len(), 0);
 
         let dtype = array.dtype().clone();
         let compressed = FoRArray::encode(array).unwrap();

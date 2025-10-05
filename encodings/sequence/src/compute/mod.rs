@@ -3,6 +3,7 @@
 
 mod cast;
 mod compare;
+mod filter;
 mod is_sorted;
 mod list_contains;
 mod min_max;

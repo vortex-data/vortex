@@ -163,15 +163,16 @@ The Vortex project benefits enormously from groundbreaking work from the academi
 - [FSST](https://www.vldb.org/pvldb/vol13/p2649-boncz.pdf) - Fast random access string compression
 - [ALP](https://ir.cwi.nl/pub/33334/33334.pdf) & [G-ALP](https://dl.acm.org/doi/pdf/10.1145/3736227.3736242) - Adaptive lossless floating-point compression
 - [Procella](https://dl.acm.org/citation.cfm?id=3360438) - YouTube's unified data system
-- [Anyblob](https://www.durner.dev/app/media/papers/anyblob-vldb23.pdf) - High-performance
-  access to object storage
+- [Anyblob](https://www.durner.dev/app/media/papers/anyblob-vldb23.pdf) - High-performance access to object storage
 - [ClickHouse](https://www.vldb.org/pvldb/vol17/p3731-schulze.pdf) - Fast analytics for everyone
+- [MonetDB/X100](https://www.cidrdb.org/cidr2005/papers/P19.pdf) - Hyper-Pipelining Query Execution
 - [Morsel-Driven Parallelism](https://db.in.tum.de/~leis/papers/morsels.pdf): A NUMA-Aware Query Evaluation Format for the Many-Core Age
 - [The FastLanes File Format](https://github.com/cwida/FastLanes/blob/dev/docs/specification.pdf) - Expression Operators
 
 ### Vortex in Research
 
 - [Anyblox](https://gienieczko.com/anyblox-paper) - A Framework for Self-Decoding Datasets
+- [F3](https://dl.acm.org/doi/pdf/10.1145/3749163) - Open-Source Data File Format for the Future
 
 ### Open Source Inspiration
 

@@ -1,0 +1,13 @@
+[package]
+name = "fls-gpu-kernel-gen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+clap = { version = "4.5.48", features = ["derive"] }
+fastlanes = "0.3.0"
+
+[[bin]]
+name = "fls-gpu-kernel-gen"
+path = "src/main.rs"

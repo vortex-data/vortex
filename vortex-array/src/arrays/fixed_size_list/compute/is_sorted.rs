@@ -7,14 +7,15 @@ use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
 use crate::compute::{IsSortedKernel, IsSortedKernelAdapter};
 use crate::register_kernel;
 
-// TODO(connor): Right now this does nothing.
 /// IsSorted implementation for [`FixedSizeListArray`].
 impl IsSortedKernel for FixedSizeListVTable {
     fn is_sorted(&self, _array: &FixedSizeListArray) -> VortexResult<Option<bool>> {
+        // This would require comparing lists lexicographically.
         Ok(None)
     }
 
     fn is_strict_sorted(&self, _array: &FixedSizeListArray) -> VortexResult<Option<bool>> {
+        // This would require comparing lists lexicographically without duplicates.
         Ok(None)
     }
 }

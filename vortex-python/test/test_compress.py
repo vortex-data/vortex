@@ -25,7 +25,7 @@ def test_for_compress():
     assert not isinstance(arr_compressed, vortex.PrimitiveArray)
 
 
-def test_arange_encode():
+def test_arrange_encode():
     a = vortex.array(pa.array(np.arange(10_000), type=pa.uint32()))
     compressed = vortex.compress(a)
     assert isinstance(compressed, vortex.FastLanesDeltaArray | vortex.SequenceArray)

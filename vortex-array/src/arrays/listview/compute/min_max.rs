@@ -9,7 +9,6 @@ use crate::register_kernel;
 
 impl MinMaxKernel for ListViewVTable {
     fn min_max(&self, _array: &ListViewArray) -> VortexResult<Option<MinMaxResult>> {
-        // TODO(connor)[ListView]: Implement min_max for ListView.
         // This would require finding the lexicographically minimum and maximum lists.
         Ok(None)
     }

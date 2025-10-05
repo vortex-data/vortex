@@ -184,7 +184,7 @@ mod test {
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, NativePType, PType};
+    use vortex_dtype::{DType, NativePType, PType, UnsignedPType};
     use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
     use vortex_mask::AllOr;
 
@@ -266,7 +266,7 @@ mod test {
         assert_eq!(indices, [0, 2, 4]);
     }
 
-    fn make_dict_primitive_chunks<T: NativePType, U: NativePType>(
+    fn make_dict_primitive_chunks<T: NativePType, Code: UnsignedPType>(
         len: usize,
         unique_values: usize,
         chunk_count: usize,
@@ -283,7 +283,7 @@ mod test {
                     .collect::<PrimitiveArray>();
                 let codes = (0..len)
                     .map(|_| {
-                        U::from(rng.random_range(0..unique_values)).vortex_expect("valid value")
+                        Code::from(rng.random_range(0..unique_values)).vortex_expect("valid value")
                     })
                     .collect::<PrimitiveArray>();
 

@@ -6,11 +6,10 @@
 
 use divan::Bencher;
 use itertools::repeat_n;
-use num_traits::PrimInt;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_dtype::NativePType;
+use vortex_dtype::IntegerPType;
 use vortex_fastlanes::RLEArray;
 
 fn main() {
@@ -54,7 +53,7 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
 }
 
 #[divan::bench(types = [u8, u16, u32, u64], args = BENCH_ARGS)]
-fn decompress<T: NativePType + PrimInt>(bencher: Bencher, (length, run_step): (usize, usize)) {
+fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
         (0..length)
             .step_by(run_step)

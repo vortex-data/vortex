@@ -7,13 +7,13 @@ use std::hash::Hash;
 use std::ops::Range;
 
 use arrow_buffer::BooleanBuffer;
-use itertools::Itertools as _;
-use num_traits::{NumCast, ToPrimitive};
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
-    DType, NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
+    DType, IntegerPType, NativePType, PType, match_each_integer_ptype,
+    match_each_unsigned_integer_ptype,
 };
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
@@ -460,7 +460,7 @@ impl Patches {
         let Some((new_indices, values_indices)) =
             match_each_unsigned_integer_ptype!(indices.ptype(), |Indices| {
                 match_each_integer_ptype!(take_indices.ptype(), |TakeIndices| {
-                    take_search::<_, TakeIndices>(
+                    take_search_inner::<_, TakeIndices>(
                         indices.as_slice::<Indices>(),
                         take_indices,
                         self.offset(),
@@ -529,7 +529,7 @@ impl Patches {
     }
 }
 
-fn take_search<I: NativePType + NumCast + PartialOrd, T: NativePType + NumCast>(
+fn take_search_inner<I: IntegerPType, T: IntegerPType>(
     indices: &[I],
     take_indices: PrimitiveArray,
     indices_offset: usize,
@@ -641,7 +641,7 @@ where
 /// The filter mask may contain indices that are non-patched. The return value of this function
 /// is a new set of `Patches` with the indices relative to the provided `mask` rank, and the
 /// patch values.
-fn filter_patches_with_mask<T: ToPrimitive + Copy + Ord>(
+fn filter_patches_with_mask<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
     patch_values: &dyn Array,

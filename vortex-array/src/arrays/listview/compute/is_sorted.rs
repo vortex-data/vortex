@@ -9,13 +9,11 @@ use crate::register_kernel;
 
 impl IsSortedKernel for ListViewVTable {
     fn is_sorted(&self, _array: &ListViewArray) -> VortexResult<Option<bool>> {
-        // TODO(connor)[ListView]: Implement is_sorted for ListView.
         // This would require comparing lists lexicographically.
         Ok(None)
     }
 
     fn is_strict_sorted(&self, _array: &ListViewArray) -> VortexResult<Option<bool>> {
-        // TODO(connor)[ListView]: Implement is_strict_sorted for ListView.
         // This would require comparing lists lexicographically without duplicates.
         Ok(None)
     }

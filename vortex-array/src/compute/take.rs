@@ -8,9 +8,9 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
+use crate::arrays::ConstantArray;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
-use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
+use crate::stats::{Precision, Stat, StatsProvider, StatsProviderExt, StatsSet};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
@@ -79,19 +79,8 @@ impl ComputeFnVTable for Take {
 
         // We know that constant array don't need stats propagation, so we can avoid the overhead of
         // computing derived stats and merging them in.
-        if !taken_array.is::<ConstantVTable>() {
-            let derived_stats = derive_take_stats(array);
-
-            // TODO(robert): Ideally, we want to have a `combine_sets` method available on a
-            // `StatsSetRef` so we don't have to incur a clone here in `.to_owned()`.
-            let mut stats = taken_array.statistics().to_owned();
-            stats.combine_sets(&derived_stats, array.dtype())?;
-
-            for (stat, val) in stats {
-                // Alternatively, use a monoidal pattern here to set `stat = val`, or if it already
-                // exists, combine the two stats (similar to how `combine_sets` does it).
-                taken_array.statistics().set(stat, val)
-            }
+        if !taken_array.is_constant() {
+            propagate_take_stats(array, &taken_array)?;
         }
 
         Ok(taken_array.into())
@@ -122,23 +111,26 @@ impl ComputeFnVTable for Take {
     }
 }
 
-fn derive_take_stats(arr: &dyn Array) -> StatsSet {
-    let stats = arr.statistics().to_owned();
-
-    let is_constant = arr.statistics().get_as::<bool>(Stat::IsConstant);
-
-    let mut stats = stats.keep_inexact_stats(&[
-        // Cannot create values smaller than min or larger than max
-        Stat::Min,
-        Stat::Max,
-    ]);
-
-    if is_constant == Some(Precision::Exact(true)) {
-        // Any combination of elements from a constant array is still const
-        stats.set(Stat::IsConstant, Precision::exact(true));
-    }
-
-    stats
+fn propagate_take_stats(source: &dyn Array, target: &dyn Array) -> VortexResult<()> {
+    target.statistics().with_mut_typed_stats_set(|mut st| {
+        let is_constant = source.statistics().get_as::<bool>(Stat::IsConstant);
+        if is_constant == Some(Precision::Exact(true)) {
+            // Any combination of elements from a constant array is still const
+            st.set(Stat::IsConstant, Precision::exact(true));
+        }
+        let inexact_min_max = [Stat::Min, Stat::Max]
+            .into_iter()
+            .filter_map(|stat| {
+                source
+                    .statistics()
+                    .get(stat)
+                    .map(|v| (stat, v.map(|s| s.into_value()).into_inexact()))
+            })
+            .collect::<Vec<_>>();
+        st.combine_sets(
+            &(unsafe { StatsSet::new_unchecked(inexact_min_max) }).as_typed_ref(source.dtype()),
+        )
+    })
 }
 
 fn take_impl(

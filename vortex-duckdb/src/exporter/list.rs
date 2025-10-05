@@ -6,14 +6,14 @@ use std::marker::PhantomData;
 use itertools::Itertools as _;
 use vortex::ToCanonical as _;
 use vortex::arrays::{ListArray, PrimitiveArray};
-use vortex::dtype::{NativePType, match_each_integer_ptype};
+use vortex::dtype::{IntegerPType, match_each_integer_ptype};
 use vortex::error::{VortexResult, vortex_err};
 use vortex::mask::Mask;
 
-use super::{ConversionCache, new_array_exporter};
+use super::{ConversionCache, new_array_exporter_with_flatten};
 use crate::cpp;
 use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, VectorExt};
+use crate::exporter::ColumnExporter;
 
 struct ListExporter<T> {
     validity: Mask,
@@ -26,7 +26,7 @@ pub(crate) fn new_exporter(
     array: &ListArray,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let elements_exporter = new_array_exporter(array.elements(), cache)?;
+    let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
     let offsets = array.offsets().to_primitive();
     let boxed = match_each_integer_ptype!(offsets.ptype(), |T| {
         Box::new(ListExporter {
@@ -39,7 +39,7 @@ pub(crate) fn new_exporter(
     Ok(boxed)
 }
 
-impl<T: NativePType> ColumnExporter for ListExporter<T> {
+impl<T: IntegerPType> ColumnExporter for ListExporter<T> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Set validity if necessary.
         if unsafe { vector.set_validity(&self.validity, offset, len) } {
@@ -91,11 +91,12 @@ mod tests {
     use vortex::IntoArray as _;
     use vortex::arrays::VarBinArray;
     use vortex::buffer::{Buffer, buffer};
+    use vortex::error::VortexUnwrap;
     use vortex::validity::Validity;
 
     use super::*;
-    use crate::cpp;
     use crate::duckdb::{DataChunk, LogicalType};
+    use crate::exporter::new_array_exporter;
 
     #[test]
     fn test_export_empty_list() {
@@ -107,7 +108,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let list_type = LogicalType::new_list(cpp::duckdb_type::DUCKDB_TYPE_INTEGER);
+        let list_type = LogicalType::list_type(LogicalType::int32()).vortex_unwrap();
         let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(&list, &ConversionCache::default())
@@ -134,7 +135,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let list_type = LogicalType::new_list(cpp::duckdb_type::DUCKDB_TYPE_INTEGER);
+        let list_type = LogicalType::list_type(LogicalType::int32()).vortex_unwrap();
         let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(&list, &ConversionCache::default())
@@ -167,7 +168,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let list_type = LogicalType::new_list(cpp::duckdb_type::DUCKDB_TYPE_VARCHAR);
+        let list_type = LogicalType::list_type(LogicalType::varchar()).vortex_unwrap();
         let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(&list, &ConversionCache::default())

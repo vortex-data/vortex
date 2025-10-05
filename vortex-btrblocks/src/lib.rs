@@ -55,6 +55,7 @@ mod decimal;
 mod float;
 mod integer;
 mod patches;
+mod rle;
 mod sample;
 mod string;
 mod temporal;

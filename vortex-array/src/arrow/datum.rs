@@ -32,6 +32,15 @@ impl Datum {
         }
     }
 
+    /// Create a new [`Datum`] from an [`Array`], which can then be passed to Arrow compute.
+    /// This not try and convert the array to a scalar if it is constant.
+    pub fn try_new_array(array: &dyn Array) -> VortexResult<Self> {
+        Ok(Self {
+            array: array.to_array().into_arrow_preferred()?,
+            is_scalar: false,
+        })
+    }
+
     pub fn with_target_datatype(
         array: &dyn Array,
         target_datatype: &DataType,

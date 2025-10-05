@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use itertools::{Itertools, MinMaxResult};
+use vortex_dtype::DecimalDType;
+use vortex_error::VortexExpect;
+use vortex_scalar::{BigCast, DecimalValueType, i256};
+
+use crate::arrays::DecimalArray;
+use crate::vtable::ValidityHelper;
+
+/// Maps a decimal precision into the smallest type that can represent it.
+pub fn smallest_decimal_value_type(decimal_dtype: &DecimalDType) -> DecimalValueType {
+    match decimal_dtype.precision() {
+        1..=2 => DecimalValueType::I8,
+        3..=4 => DecimalValueType::I16,
+        5..=9 => DecimalValueType::I32,
+        10..=18 => DecimalValueType::I64,
+        19..=38 => DecimalValueType::I128,
+        39..=76 => DecimalValueType::I256,
+        0 => unreachable!("precision must be greater than 0"),
+        p => unreachable!("precision larger than 76 is invalid found precision {p}"),
+    }
+}
+
+/// True if `value_type` can represent every value of the type `dtype`.
+pub fn is_compatible_decimal_value_type(value_type: DecimalValueType, dtype: DecimalDType) -> bool {
+    value_type >= smallest_decimal_value_type(&dtype)
+}
+
+macro_rules! try_downcast {
+    ($array:expr, from: $src:ty, to: $($dst:ty),*) => {{
+        // Collect the min/max of the values
+        let minmax = $array.buffer::<$src>().iter().copied().minmax();
+        match minmax {
+            MinMaxResult::NoElements => return $array,
+            MinMaxResult::OneElement(_) => return $array,
+            MinMaxResult::MinMax(min, max) => {
+                $(
+                    if <$dst as BigCast>::from(min).is_some() && <$dst as BigCast>::from(max).is_some() {
+                        return DecimalArray::new::<$dst>(
+                            $array
+                                .buffer::<$src>()
+                                .into_iter()
+                                .map(|v| <$dst as BigCast>::from(v).vortex_expect("decimal conversion failure"))
+                                .collect(),
+                            $array.decimal_dtype(),
+                            $array.validity().clone(),
+                        );
+                    }
+                )*
+
+                return $array;
+            }
+        }
+    }};
+}
+
+/// Attempt to narrow the decimal array to any smaller supported type.
+pub fn narrowed_decimal(decimal_array: DecimalArray) -> DecimalArray {
+    match decimal_array.values_type() {
+        // Cannot narrow any more
+        DecimalValueType::I8 => decimal_array,
+        DecimalValueType::I16 => {
+            try_downcast!(decimal_array, from: i16, to: i8)
+        }
+        DecimalValueType::I32 => {
+            try_downcast!(decimal_array, from: i32, to: i8, i16)
+        }
+        DecimalValueType::I64 => {
+            try_downcast!(decimal_array, from: i64, to: i8, i16, i32)
+        }
+        DecimalValueType::I128 => {
+            try_downcast!(decimal_array, from: i128, to: i8, i16, i32, i64)
+        }
+        DecimalValueType::I256 => {
+            try_downcast!(decimal_array, from: i256, to: i8, i16, i32, i64, i128)
+        }
+        _ => decimal_array,
+    }
+}

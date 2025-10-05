@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::ToPrimitive;
+
 use crate::i256;
 
-/// Checked conversion from one primitive type to another.
-///
-/// This is meant to extend the `ToPrimitive` trait from `num-traits` with awareness of `i256`.
-pub trait ToPrimitive: num_traits::ToPrimitive {
-    /// Converts the value of `self` to an `i256`. If the value cannot be
-    /// represented by an `i256`, then `None` is returned.
+/// Types that can potentially be converted to an [`i256`].
+pub trait ToI256 {
+    /// Converts the value of `self` to an `i256`. If the value cannot be represented by an `i256`,
+    /// then `None` is returned.
     fn to_i256(&self) -> Option<i256>;
 }
 
 /// Implementation for primitive types that already implement ToPrimitive from num-traits.
 macro_rules! impl_toprimitive_lossless {
     ($T:ty) => {
-        impl ToPrimitive for $T {
+        impl ToI256 for $T {
             #[inline]
             fn to_i256(&self) -> Option<i256> {
                 Some(i256::from_i128(*self as i128))
@@ -38,14 +38,14 @@ impl_toprimitive_lossless!(i64);
 impl_toprimitive_lossless!(i128);
 
 // u128 -> i256 always lossless
-impl ToPrimitive for u128 {
+impl ToI256 for u128 {
     fn to_i256(&self) -> Option<i256> {
         Some(i256::from_parts(*self, 0))
     }
 }
 
 // identity
-impl ToPrimitive for i256 {
+impl ToI256 for i256 {
     fn to_i256(&self) -> Option<i256> {
         Some(*self)
     }
@@ -54,16 +54,16 @@ impl ToPrimitive for i256 {
 /// Checked numeric casts up to and including i256 support.
 ///
 /// This is meant as a more inclusive version of `NumCast` from the `num-traits` crate.
-pub trait BigCast: Sized + ToPrimitive {
+pub trait BigCast: Sized + ToPrimitive + ToI256 {
     /// Cast the value `n` to Self using the relevant `ToPrimitive` method. If the value cannot
     /// be represented by Self, `None` is returned.
-    fn from<T: ToPrimitive>(n: T) -> Option<Self>;
+    fn from<T: ToPrimitive + ToI256>(n: T) -> Option<Self>;
 }
 
 macro_rules! impl_big_cast {
     ($T:ty, $conv:ident) => {
         impl BigCast for $T {
-            fn from<T: ToPrimitive>(n: T) -> Option<Self> {
+            fn from<T: ToPrimitive + ToI256>(n: T) -> Option<Self> {
                 n.$conv()
             }
         }
