@@ -26,6 +26,7 @@
 //! different execution resources.
 
 pub mod canonical;
+pub mod cast;
 mod display;
 pub mod getitem;
 mod hash;
