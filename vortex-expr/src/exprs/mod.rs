@@ -3,6 +3,7 @@
 
 pub(crate) mod between;
 pub(crate) mod binary;
+mod binary_operator;
 pub(crate) mod cast;
 pub mod dynamic;
 pub(crate) mod get_item;

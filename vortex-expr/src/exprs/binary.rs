@@ -6,16 +6,16 @@ use std::sync::Arc;
 
 use vortex_array::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
 use vortex_array::operator::OperatorRef;
-use vortex_array::operator::compare::CompareOperator;
-use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, compute};
+use vortex_array::{compute, ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
+use crate::exprs::binary_operator::BinaryOperator;
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, StatsCatalog,
-    VTable, lit, vtable,
+    lit, vtable, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator,
+    Scope, StatsCatalog, VTable,
 };
 
 vtable!(Binary);
@@ -120,10 +120,11 @@ impl VTable for BinaryVTable {
         let Some(rhs) = expr.rhs.operator(scope)? else {
             return Ok(None);
         };
-        let Ok(op): VortexResult<compute::Operator> = expr.operator.try_into() else {
-            return Ok(None);
-        };
-        Ok(Some(Arc::new(CompareOperator::try_new(lhs, rhs, op)?)))
+        Ok(Some(Arc::new(BinaryOperator::try_new(
+            lhs,
+            rhs,
+            expr.operator,
+        )?)))
     }
 }
 
@@ -536,8 +537,8 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
 
     use crate::{
-        VortexExpr, and, and_collect, and_collect_right, col, eq, gt, gt_eq, lit, lt, lt_eq,
-        not_eq, or, test_harness,
+        and, and_collect, and_collect_right, col, eq, gt, gt_eq, lit, lt, lt_eq, not_eq,
+        or, test_harness, VortexExpr,
     };
 
     #[test]

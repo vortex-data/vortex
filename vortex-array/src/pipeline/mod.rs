@@ -32,9 +32,9 @@ use vortex_error::VortexResult;
 
 use self::vec::Vector;
 use self::view::ViewMut;
-use crate::Canonical;
 use crate::operator::Operator;
 use crate::pipeline::bits::BitView;
+use crate::Canonical;
 
 /// The number of elements in each step of a Vortex evaluation operator.
 pub const N: usize = 1024;
@@ -59,6 +59,7 @@ pub trait PipelinedOperator: Operator {
     fn vector_children(&self) -> Vec<usize>;
 
     /// Returns the child indices of this operator that are passed to the kernel as batch inputs.
+    // FIXME(ngates): are these just implicitly all the non-vector children?
     fn batch_children(&self) -> Vec<usize>;
 }
 

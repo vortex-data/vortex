@@ -3,11 +3,12 @@
 
 use crate::arrays::BoolArray;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::{vtable, EncodingId, EncodingRef};
 
 mod array;
 mod canonical;
 mod operations;
+mod operator;
 mod serde;
 mod validity;
 mod visitor;
@@ -25,7 +26,7 @@ impl VTable for BoolVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type PipelineVTable = NotSupported;
+    type PipelineVTable = Self;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
