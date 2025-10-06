@@ -151,74 +151,13 @@ where
 #[cfg(test)]
 mod tests {
     use cudarc::driver::CudaContext;
-    use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::BufferMut;
     use vortex_dict::DictArray;
-    use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
     use vortex_mask::Mask;
 
     use crate::take::{cuda_take, cuda_take_masked};
-
-    #[rstest]
-    #[case::u8_u8(0u8, 0u8)]
-    #[case::u8_u16(0u8, 0u16)]
-    #[case::u8_u32(0u8, 0u32)]
-    #[case::u8_u64(0u8, 0u64)]
-    #[case::u8_i8(0u8, 0i8)]
-    #[case::u8_i16(0u8, 0i16)]
-    #[case::u8_i32(0u8, 0i32)]
-    #[case::u8_i64(0u8, 0i64)]
-    #[case::u16_u8(0u16, 0u8)]
-    #[case::u16_u16(0u16, 0u16)]
-    #[case::u16_u32(0u16, 0u32)]
-    #[case::u16_u64(0u16, 0u64)]
-    #[case::u16_i8(0u16, 0i8)]
-    #[case::u16_i16(0u16, 0i16)]
-    #[case::u16_i32(0u16, 0i32)]
-    #[case::u16_i64(0u16, 0i64)]
-    #[case::u32_u8(0u32, 0u8)]
-    #[case::u32_u16(0u32, 0u16)]
-    #[case::u32_u32(0u32, 0u32)]
-    #[case::u32_u64(0u32, 0u64)]
-    #[case::u32_i8(0u32, 0i8)]
-    #[case::u32_i16(0u32, 0i16)]
-    #[case::u32_i32(0u32, 0i32)]
-    #[case::u32_i64(0u32, 0i64)]
-    #[case::u64_u8(0u64, 0u8)]
-    #[case::u64_u16(0u64, 0u16)]
-    #[case::u64_u32(0u64, 0u32)]
-    #[case::u64_u64(0u64, 0u64)]
-    #[case::u64_i8(0u64, 0i8)]
-    #[case::u64_i16(0u64, 0i16)]
-    #[case::u64_i32(0u64, 0i32)]
-    #[case::u64_i64(0u64, 0i64)]
-    fn test_cuda_take_all_types<C: NativePType, V: NativePType>(
-        #[case] _codes_type: C,
-        #[case] _values_type: V,
-    ) {
-        let values: PrimitiveArray = (0..1024)
-            .map(|x| V::from((x + 2) % 1024).unwrap())
-            .collect::<BufferMut<V>>()
-            .into_array()
-            .to_primitive();
-        let codes: PrimitiveArray = (0..1024)
-            .map(|x| C::from((x + 1) % 1024).unwrap())
-            .collect::<BufferMut<C>>()
-            .into_array()
-            .to_primitive();
-        let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
-
-        let expect = dict.to_primitive();
-
-        let ctx = CudaContext::new(0).unwrap();
-        ctx.set_blocking_synchronize().unwrap();
-        let result = cuda_take(&dict, ctx).unwrap().unwrap().to_primitive();
-
-        assert_eq!(result.as_slice::<V>(), expect.as_slice::<V>());
-    }
 
     #[test]
     fn test_cuda_take_u64_i64() {

@@ -74,3 +74,8 @@ fn cpu_canonicalize<T: NativePType>(bencher: Bencher, (len, _label): (usize, &st
         .with_inputs(|| array.clone())
         .bench_values(|array| array.into_array().to_canonical());
 }
+
+pub fn main() {
+    vortex_array::compute::warm_up_vtables();
+    divan::main();
+}
