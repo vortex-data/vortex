@@ -4,15 +4,13 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_err};
+use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
 
-use crate::arrays::{ListArray, PrimitiveVTable};
-use crate::builders::PrimitiveBuilder;
+use crate::arrays::{ListViewShape, PrimitiveArray, PrimitiveVTable};
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical};
 
 /// The canonical encoding for variable-length list arrays.
 ///
@@ -39,23 +37,27 @@ use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 /// # Examples
 ///
 /// ```
-/// use vortex_array::arrays::{ListViewArray, PrimitiveArray};
-/// use vortex_array::validity::Validity;
-/// use vortex_array::IntoArray;
-/// use vortex_buffer::buffer;
-/// use std::sync::Arc;
+/// # use vortex_array::arrays::{ListViewArray, ListViewShape, PrimitiveArray};
+/// # use vortex_array::validity::Validity;
+/// # use vortex_array::IntoArray;
+/// # use vortex_buffer::buffer;
+/// # use std::sync::Arc;
+/// #
+/// // Create a list view array representing [[3, 4], [1], [2, 3]].
+/// // Note: Unlike `ListArray`, offsets don't need to be monotonic.
 ///
-/// // Create a list view array representing [[3, 4], [1], [2, 5]]
-/// // Note: Unlike ListArray, offsets don't need to be monotonic
 /// let elements = buffer![1i32, 2, 3, 4, 5].into_array();
 /// let offsets = buffer![2u32, 0, 1].into_array();  // Out-of-order offsets
-/// let sizes = buffer![2u32, 1, 2].into_array();  // Corresponding sizes
+/// let sizes = buffer![2u32, 1, 2].into_array();  // The sizes cause overlaps
 ///
 /// let list_view = ListViewArray::try_new(
 ///     elements.into_array(),
 ///     offsets.into_array(),
 ///     sizes.into_array(),
 ///     Validity::NonNullable,
+///     ListViewShape::as_zero_copy_to_list()
+///         .with_sorted_offsets(false)
+///         .with_no_overlaps(false),
 /// ).unwrap();
 ///
 /// assert_eq!(list_view.len(), 3);
@@ -95,6 +97,13 @@ pub struct ListViewArray {
     /// we want to access.
     sizes: ArrayRef,
 
+    /// The "shape" of the `ListViewArray` data.
+    ///
+    /// We use this information to help us more efficiently rebuild / compact our data.
+    ///
+    /// See the documentation for [`ListViewShape`] for more information.
+    shape: ListViewShape,
+
     /// The validity / null map of the array.
     ///
     /// Note that this null map refers to which list scalars are null, **not** which sub-elements of
@@ -123,8 +132,14 @@ impl ListViewArray {
     ///
     /// Panics if the provided components do not satisfy the invariants documented
     /// in [`ListViewArray::new_unchecked`].
-    pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
-        Self::try_new(elements, offsets, sizes, validity)
+    pub fn new(
+        elements: ArrayRef,
+        offsets: ArrayRef,
+        sizes: ArrayRef,
+        validity: Validity,
+        shape: ListViewShape,
+    ) -> Self {
+        Self::try_new(elements, offsets, sizes, validity, shape)
             .vortex_expect("ListViewArray construction failed")
     }
 
@@ -138,11 +153,12 @@ impl ListViewArray {
         offsets: ArrayRef,
         sizes: ArrayRef,
         validity: Validity,
+        shape: ListViewShape,
     ) -> VortexResult<Self> {
-        Self::validate(&elements, &offsets, &sizes, &validity)?;
+        Self::validate(&elements, &offsets, &sizes, &validity, shape)?;
 
         // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked(elements, offsets, sizes, validity) })
+        Ok(unsafe { Self::new_unchecked(elements, offsets, sizes, validity, shape) })
     }
 
     /// Creates a new [`ListViewArray`] without validation.
@@ -154,16 +170,19 @@ impl ListViewArray {
     /// - `offsets` and `sizes` must be non-nullable integer arrays.
     /// - `offsets` and `sizes` must have the same length.
     /// - Size integer width must be smaller than or equal to offset type (to prevent overflow).
-    /// - For each `i`, `offsets[i] + sizes[i]` must not overflow and must be `<= elements.len()`.
+    /// - For each `i`, `offsets[i] + sizes[i]` must not overflow and must be `<= elements.len()`
+    ///   (even if the corresponding view is defined as null by the validity array).
     /// - If validity is an array, its length must equal `offsets.len()`.
+    /// - The `shape` that is passed in correctly describes the shape of the `ListViewArray` data.
     pub unsafe fn new_unchecked(
         elements: ArrayRef,
         offsets: ArrayRef,
         sizes: ArrayRef,
         validity: Validity,
+        shape: ListViewShape,
     ) -> Self {
         #[cfg(debug_assertions)]
-        Self::validate(&elements, &offsets, &sizes, &validity)
+        Self::validate(&elements, &offsets, &sizes, &validity, shape)
             .vortex_expect("[Debug Assertion]: Invalid `ListViewArray` parameters");
 
         Self {
@@ -172,6 +191,7 @@ impl ListViewArray {
             offsets,
             sizes,
             validity,
+            shape,
             stats_set: Default::default(),
         }
     }
@@ -182,6 +202,7 @@ impl ListViewArray {
         offsets: &dyn Array,
         sizes: &dyn Array,
         validity: &Validity,
+        shape: ListViewShape,
     ) -> VortexResult<()> {
         // Check that offsets and sizes are integer arrays and non-nullable.
         vortex_ensure!(
@@ -218,6 +239,15 @@ impl ListViewArray {
             offset_max
         );
 
+        // If a validity array is present, it must be the same length as the `ListViewArray`.
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == offsets.len(),
+                "validity with size {validity_len} does not match array size {}",
+                offsets.len()
+            );
+        }
+
         let offsets_primitive = offsets.to_primitive();
         let sizes_primitive = sizes.to_primitive();
 
@@ -235,19 +265,17 @@ impl ListViewArray {
             })
         });
 
-        // If a validity array is present, it must be the same length as the ListView.
-        if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == offsets.len(),
-                "validity with size {validity_len} does not match array size {}",
-                offsets.len()
-            );
-        }
+        // Validate the `ListViewShape`.
+        validate_shape(shape, elements, offsets_primitive, sizes_primitive)?;
 
         Ok(())
     }
 
     /// Returns the offset at the given index.
+    ///
+    /// Note that it is possible the corresponding list view is null (which is only defined by the
+    /// validity map). Regardless, we are still guaranteed that this offset is valid by the
+    /// invariants of [`ListViewArray`].
     pub fn offset_at(&self, index: usize) -> usize {
         assert!(
             index < self.len(),
@@ -270,6 +298,10 @@ impl ListViewArray {
     }
 
     /// Returns the size at the given index.
+    ///
+    /// Note that it is possible the corresponding list view is null (which is only defined by the
+    /// validity map). Regardless, we are still guaranteed that this size is valid by the invariants
+    /// of [`ListViewArray`].
     pub fn size_at(&self, index: usize) -> usize {
         assert!(
             index < self.len(),
@@ -312,6 +344,13 @@ impl ListViewArray {
     /// Returns the elements array.
     pub fn elements(&self) -> &ArrayRef {
         &self.elements
+    }
+
+    /// Returns the shape of the `ListViewArray`.
+    ///
+    /// See the documentation of [`ListViewShape`] for more information.
+    pub fn shape(&self) -> ListViewShape {
+        self.shape
     }
 }
 
@@ -357,73 +396,76 @@ where
     Ok(())
 }
 
-/// Create a [`ListViewArray`] from a [`ListArray`](crate::arrays::ListArray) by computing `sizes`
-/// from `offsets`.
-pub fn list_view_from_list(list: ListArray) -> ListViewArray {
-    // TODO(connor)[ListView]: Create a version of `Canonical::empty` for `ListView`. It might
-    // also be worth specializing that for all canonical encodings.
-    // If the list is empty, create an empty `ListView` with the same offset dtype as the input.
-    if list.is_empty() {
-        let empty_offsets = Canonical::empty(list.offsets().dtype()).into_array();
-        let empty_sizes = Canonical::empty(list.offsets().dtype()).into_array();
-        let empty_validity = list.validity().clone();
-
-        // SAFETY: Everything is empty so all the variants are satisfied.
-        return unsafe {
-            ListViewArray::new_unchecked(
-                list.elements().clone(),
-                empty_offsets,
-                empty_sizes,
-                empty_validity,
-            )
-        };
+/// Helper function to validate if the [`ListViewShape`] correctly describes the data.
+fn validate_shape(
+    shape: ListViewShape,
+    elements: &dyn Array,
+    offsets_primitive: PrimitiveArray,
+    sizes_primitive: PrimitiveArray,
+) -> VortexResult<()> {
+    if shape.has_sorted_offsets() {
+        // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
+        // if there are null views.
+        if let Some(is_sorted) = offsets_primitive.statistics().compute_is_sorted() {
+            vortex_ensure!(is_sorted, "offsets must be sorted");
+        } else {
+            vortex_bail!("offsets must report is_sorted statistic");
+        }
     }
 
-    let len = list.len();
+    if !(shape.has_no_gaps() || shape.has_no_overlaps()) {
+        return Ok(());
+    }
 
-    // Get the `offsets` array directly from the `ListArray` (preserving its type).
-    let list_offsets = list.offsets().clone();
+    let mut element_references = vec![0usize; elements.len()];
 
-    // We need to slice the `offsets` to remove the last element (`ListArray` has n+1 offsets).
-    let adjusted_offsets = list_offsets.slice(0..len);
+    fn count_references<O: IntegerPType, S: IntegerPType>(
+        element_references: &mut [usize],
+        offsets_primitive: PrimitiveArray,
+        sizes_primitive: PrimitiveArray,
+    ) {
+        let offsets_slice = offsets_primitive.as_slice::<O>();
+        let sizes_slice = sizes_primitive.as_slice::<S>();
 
-    // Create sizes array by computing differences between consecutive offsets.
-    // Use the same dtype as the offsets array to ensure compatibility.
-    let sizes = match_each_integer_ptype!(list_offsets.dtype().as_ptype(), |P| {
-        let mut sizes_builder = PrimitiveBuilder::<P>::with_capacity(Nullability::NonNullable, len);
-
-        // Create uninit range for direct memory access.
-        let mut sizes_range = sizes_builder.uninit_range(len);
-
-        // Compute sizes as the difference between consecutive offsets.
-        for i in 0..len {
-            let start = list.offset_at(i);
-            let end = list.offset_at(i + 1);
-            let size = end - start;
-
-            // Set size value directly without creating scalar.
-            sizes_range.set_value(
-                i,
-                P::try_from(size).vortex_expect("size must fit in offset type"),
-            );
+        // Note that we ignore nulls here, as the "null" view metadata must still
+        // maintain the same invariants as non-null views.
+        for i in 0..offsets_slice.len() {
+            let offset: usize = offsets_slice[i].as_();
+            let size: usize = sizes_slice[i].as_();
+            for j in offset..offset + size {
+                element_references[j] += 1;
+            }
         }
+    }
 
-        // SAFETY: We have initialized all values in the range.
-        unsafe {
-            sizes_range.finish();
-        }
-
-        sizes_builder.finish_into_primitive().into_array()
+    match_each_integer_ptype!(offsets_primitive.ptype(), |O| {
+        match_each_integer_ptype!(sizes_primitive.ptype(), |S| {
+            count_references::<O, S>(&mut element_references, offsets_primitive, sizes_primitive);
+        })
     });
 
-    // SAFETY: Since everything came from an existing valid `ListArray`, and the `sizes` were
-    // derived from valid and in-order `offsets`, we know these fields are valid.
-    unsafe {
-        ListViewArray::new_unchecked(
-            list.elements().clone(),
-            adjusted_offsets,
-            sizes,
-            list.validity().clone(),
-        )
+    if shape.has_no_gaps() {
+        // Allow leading and trailing unreferenced elements, but not gaps in the middle.
+        let leftmost_used = element_references
+            .iter()
+            .position(|&references| references != 0);
+        let rightmost_used = element_references
+            .iter()
+            .rposition(|&references| references != 0);
+
+        if let (Some(first_ref), Some(last_ref)) = (leftmost_used, rightmost_used) {
+            vortex_ensure!(
+                element_references[first_ref..=last_ref]
+                    .iter()
+                    .all(|&references| references != 0),
+                "found gap in elements array between first and last referenced elements"
+            );
+        }
     }
+
+    if shape.has_no_overlaps() {
+        vortex_ensure!(element_references.iter().all(|&references| references <= 1))
+    }
+
+    Ok(())
 }
