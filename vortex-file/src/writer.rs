@@ -50,8 +50,7 @@ impl Default for VortexWriteOptions {
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
-            // TODO(aduffy): make this false
-            write_bloom_filters: true,
+            write_bloom_filters: false,
             compressor_override: None,
             handle: Handle::find(),
             strategy_override: None,
@@ -87,8 +86,8 @@ impl VortexWriteOptions {
     /// Include bloom filters for chunks that are written with dictionary-layout.
     ///
     /// This is an experimental feature and may break in the future.
-    pub fn with_experimental_bloom_filters(mut self, write_bloom_filters: bool) -> Self {
-        self.write_bloom_filters = write_bloom_filters;
+    pub fn with_experimental_bloom_filters(mut self) -> Self {
+        self.write_bloom_filters = true;
         self
     }
 
