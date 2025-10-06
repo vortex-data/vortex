@@ -11,13 +11,18 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for ListViewVTable {
     fn mask(&self, array: &ListViewArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        ListViewArray::try_new(
-            array.elements().clone(),
-            array.offsets().clone(),
-            array.sizes().clone(),
-            array.validity().mask(mask),
-        )
-        .map(|a| a.into_array())
+        // SAFETY: Since we are only masking the validity and everything else comes from an already
+        // valid `ListViewArray`, all of the invariants are still upheld.
+        Ok(unsafe {
+            ListViewArray::new_unchecked(
+                array.elements().clone(),
+                array.offsets().clone(),
+                array.sizes().clone(),
+                array.validity().mask(mask),
+                array.is_zero_copy_to_list(),
+            )
+        }
+        .into_array())
     }
 }
 

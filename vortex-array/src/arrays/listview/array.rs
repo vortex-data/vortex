@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use num_traits::AsPrimitive;
 use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
 
-use crate::arrays::PrimitiveVTable;
+use crate::arrays::{PrimitiveArray, PrimitiveVTable, bool};
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, ToCanonical};
@@ -50,12 +50,12 @@ use crate::{Array, ArrayRef, ToCanonical};
 /// let offsets = buffer![2u32, 0, 1].into_array();  // Out-of-order offsets
 /// let sizes = buffer![2u32, 1, 2].into_array();  // The sizes cause overlaps
 ///
-/// let list_view = ListViewArray::try_new(
+/// let list_view = ListViewArray::new(
 ///     elements.into_array(),
 ///     offsets.into_array(),
 ///     sizes.into_array(),
 ///     Validity::NonNullable,
-/// ).unwrap();
+/// );
 ///
 /// assert_eq!(list_view.len(), 3);
 ///
@@ -94,6 +94,15 @@ pub struct ListViewArray {
     /// we want to access.
     sizes: ArrayRef,
 
+    // TODO(connor)[ListView]: Add the n+1 memory allocation optimization.
+    /// A flag denoting if the array is zero-copyable* to a [`ListArray`](crate::arrays::ListArray).
+    ///
+    /// We use this information to help us more efficiently rebuild / compact our data.
+    ///
+    /// When this flag is true (indicating sorted offsets with no gaps and no overlaps), conversions
+    /// can bypass the very expensive rebuild process (which just calls `append_scalar` in a loop).
+    is_zero_copy_to_list: bool,
+
     /// The validity / null map of the array.
     ///
     /// Note that this null map refers to which list scalars are null, **not** which sub-elements of
@@ -113,7 +122,7 @@ impl ListViewArray {
     /// in [`ListViewArray::new_unchecked`].
     pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
         Self::try_new(elements, offsets, sizes, validity)
-            .vortex_expect("ListViewArray construction failed")
+            .vortex_expect("`ListViewArray` construction failed")
     }
 
     /// Constructs a new `ListViewArray`.
@@ -128,13 +137,29 @@ impl ListViewArray {
         sizes: ArrayRef,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Self::validate(&elements, &offsets, &sizes, &validity)?;
+        Self::validate(&elements, &offsets, &sizes, &validity, false)?;
 
-        // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked(elements, offsets, sizes, validity) })
+        Ok(Self {
+            dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
+            elements,
+            offsets,
+            sizes,
+            validity,
+            is_zero_copy_to_list: false,
+            stats_set: Default::default(),
+        })
     }
 
     /// Creates a new [`ListViewArray`] without validation.
+    ///
+    /// Note that this constructor is slightly different from [`new()`] and [`try_new()`] in that it
+    /// also takes an `is_zctl` flag. This is an optimization flag that allows conversion to a
+    /// [`ListArray`] more efficient. The caller must ensure that the flag is correct when passing
+    /// it to this unsafe constructor.
+    ///
+    /// [`ListArray`]: crate::arrays::ListArray
+    /// [`new()`]: Self::new
+    /// [`try_new()`]: Self::try_new
     ///
     /// # Safety
     ///
@@ -143,17 +168,22 @@ impl ListViewArray {
     /// - `offsets` and `sizes` must be non-nullable integer arrays.
     /// - `offsets` and `sizes` must have the same length.
     /// - Size integer width must be smaller than or equal to offset type (to prevent overflow).
-    /// - For each `i`, `offsets[i] + sizes[i]` must not overflow and must be `<= elements.len()`.
+    /// - For each `i`, `offsets[i] + sizes[i]` must not overflow and must be `<= elements.len()`
+    ///   (even if the corresponding view is defined as null by the validity array).
     /// - If validity is an array, its length must equal `offsets.len()`.
+    /// - If the `is_zctl` flag is true, then the [`ListViewArray`] is zero-copyable to a
+    ///   [`ListArray`].
     pub unsafe fn new_unchecked(
         elements: ArrayRef,
         offsets: ArrayRef,
         sizes: ArrayRef,
         validity: Validity,
+        is_zctl: bool,
     ) -> Self {
-        #[cfg(debug_assertions)]
-        Self::validate(&elements, &offsets, &sizes, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `ListViewArray` parameters");
+        if cfg!(debug_assertions) {
+            Self::validate(&elements, &offsets, &sizes, &validity, is_zctl)
+                .vortex_expect("Failed to crate `ListViewArray`");
+        }
 
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
@@ -161,6 +191,7 @@ impl ListViewArray {
             offsets,
             sizes,
             validity,
+            is_zero_copy_to_list: is_zctl,
             stats_set: Default::default(),
         }
     }
@@ -171,6 +202,7 @@ impl ListViewArray {
         offsets: &dyn Array,
         sizes: &dyn Array,
         validity: &Validity,
+        is_zctl: bool,
     ) -> VortexResult<()> {
         // Check that offsets and sizes are integer arrays and non-nullable.
         vortex_ensure!(
@@ -207,6 +239,15 @@ impl ListViewArray {
             offset_max
         );
 
+        // If a validity array is present, it must be the same length as the `ListViewArray`.
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == offsets.len(),
+                "validity with size {validity_len} does not match array size {}",
+                offsets.len()
+            );
+        }
+
         let offsets_primitive = offsets.to_primitive();
         let sizes_primitive = sizes.to_primitive();
 
@@ -224,13 +265,9 @@ impl ListViewArray {
             })
         });
 
-        // If a validity array is present, it must be the same length as the ListView.
-        if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == offsets.len(),
-                "validity with size {validity_len} does not match array size {}",
-                offsets.len()
-            );
+        // Validate the zero-copy to `ListArray` flag.
+        if is_zctl {
+            validate_zctl(elements, offsets_primitive, sizes_primitive)?;
         }
 
         Ok(())
@@ -310,6 +347,12 @@ impl ListViewArray {
     pub fn elements(&self) -> &ArrayRef {
         &self.elements
     }
+
+    /// Returns true if the `ListViewArray` is zero-copyable to a
+    /// [`ListArray`](crate::arrays::ListArray).
+    pub fn is_zero_copy_to_list(&self) -> bool {
+        self.is_zero_copy_to_list
+    }
 }
 
 /// Helper function to validate `offsets` and `sizes` with specific types.
@@ -345,11 +388,87 @@ where
             vortex_err!("offset[{i}] ({offset_u64}) + size[{i}] ({size_u64}) would overflow u64")
         })?;
 
+        if offset_u64 == elements_len {
+            vortex_ensure!(
+                size_u64 == 0,
+                "views to the end of the elements array (length {elements_len}) must have size 0"
+            );
+        }
+
         vortex_ensure!(
             end <= elements_len,
-            "offset[{i}] + size[{i}] = {end} exceeds elements length {elements_len}",
+            "offset[{i}] + size[{i}] = {offset_u64} + {size_u64} = {end} \
+            exceeds elements length {elements_len}",
         );
     }
+
+    Ok(())
+}
+
+/// Helper function to validate if the [`ListViewArray`] components are actually zero-copyable to
+/// [`ListArray`](crate::arrays::ListArray).
+fn validate_zctl(
+    elements: &dyn Array,
+    offsets_primitive: PrimitiveArray,
+    sizes_primitive: PrimitiveArray,
+) -> VortexResult<()> {
+    // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
+    // if there are null views.
+    if let Some(is_sorted) = offsets_primitive.statistics().compute_is_sorted() {
+        vortex_ensure!(is_sorted, "offsets must be sorted");
+    } else {
+        vortex_bail!("offsets must report is_sorted statistic");
+    }
+
+    // TODO(connor)[ListView]: Making this allocation is expensive, but the more efficient
+    // implementation would be even more complicated than this. We could use a bit buffer denoting
+    // if positions in `elements` are used, and then additionally store a separate flag that tells
+    // us if a position is used more than once.
+    let mut element_references = vec![0u8; elements.len()];
+
+    fn count_references<O: IntegerPType, S: IntegerPType>(
+        element_references: &mut [u8],
+        offsets_primitive: PrimitiveArray,
+        sizes_primitive: PrimitiveArray,
+    ) {
+        let offsets_slice = offsets_primitive.as_slice::<O>();
+        let sizes_slice = sizes_primitive.as_slice::<S>();
+
+        // Note that we ignore nulls here, as the "null" view metadata must still maintain the same
+        // invariants as non-null views, even for a `bool` information.
+        for i in 0..offsets_slice.len() {
+            let offset: usize = offsets_slice[i].as_();
+            let size: usize = sizes_slice[i].as_();
+            for j in offset..offset + size {
+                element_references[j] = element_references[j].saturating_add(1);
+            }
+        }
+    }
+
+    match_each_integer_ptype!(offsets_primitive.ptype(), |O| {
+        match_each_integer_ptype!(sizes_primitive.ptype(), |S| {
+            count_references::<O, S>(&mut element_references, offsets_primitive, sizes_primitive);
+        })
+    });
+
+    // Allow leading and trailing unreferenced elements, but not gaps in the middle.
+    let leftmost_used = element_references
+        .iter()
+        .position(|&references| references != 0);
+    let rightmost_used = element_references
+        .iter()
+        .rposition(|&references| references != 0);
+
+    if let (Some(first_ref), Some(last_ref)) = (leftmost_used, rightmost_used) {
+        vortex_ensure!(
+            element_references[first_ref..=last_ref]
+                .iter()
+                .all(|&references| references != 0),
+            "found gap in elements array between first and last referenced elements"
+        );
+    }
+
+    vortex_ensure!(element_references.iter().all(|&references| references <= 1));
 
     Ok(())
 }

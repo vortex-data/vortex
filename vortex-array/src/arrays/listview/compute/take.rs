@@ -6,11 +6,12 @@ use vortex_dtype::{Nullability, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ListViewArray, ListViewRebuildMode, ListViewVTable};
+use crate::arrays::{ListViewArray, ListViewVTable};
 use crate::compute::{self, TakeKernel, TakeKernelAdapter};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
+// TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
 /// The threshold for triggering a rebuild of the [`ListViewArray`].
 ///
 /// By default, we will not touch the underlying `elements` array of the [`ListViewArray`] since it
@@ -63,7 +64,6 @@ impl TakeKernel for ListViewVTable {
                 &Scalar::primitive(S::zero(), Nullability::NonNullable),
             )?
         });
-
         // SAFETY: Take operation maintains all `ListViewArray` invariants:
         // - `new_offsets` and `new_sizes` are derived from existing valid child arrays.
         // - `new_offsets` and `new_sizes` are non-nullable.
@@ -71,16 +71,18 @@ impl TakeKernel for ListViewVTable {
         //   `indices`).
         // - Validity correctly reflects the combination of array and indices validity.
         let new_array = unsafe {
-            ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
+            ListViewArray::new_unchecked(
+                elements.clone(),
+                new_offsets,
+                new_sizes,
+                new_validity,
+                // Take can reorder offsets, create gaps, and may introduce overlaps if the
+                // `indices` contain duplicates.
+                false,
+            )
         };
 
-        // TODO(connor)[ListView]: Ideally, we would only rebuild after all `take`s and `filter`
-        // compute functions have run, at the "top" of the operator tree. However, we cannot do this
-        // right now, so we will just rebuild every time (similar to `ListArray`).
-
-        Ok(new_array
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
-            .into_array())
+        Ok(new_array.into_array())
     }
 }
 

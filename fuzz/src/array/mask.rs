@@ -57,13 +57,18 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
         }
         Canonical::List(array) => {
             let new_validity = apply_mask_to_validity(array.validity(), mask);
-            ListViewArray::try_new(
-                array.elements().clone(),
-                array.offsets().clone(),
-                array.sizes().clone(),
-                new_validity,
-            )
-            .vortex_unwrap()
+
+            // SAFETY: Since we are only masking the validity and everything else comes from an
+            // already valid `ListViewArray`, all of the invariants are still upheld.
+            unsafe {
+                ListViewArray::new_unchecked(
+                    array.elements().clone(),
+                    array.offsets().clone(),
+                    array.sizes().clone(),
+                    new_validity,
+                    array.is_zero_copy_to_list(),
+                )
+            }
             .into_array()
         }
         Canonical::FixedSizeList(array) => {
@@ -243,9 +248,15 @@ mod tests {
         let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]).into_array();
         let offsets = PrimitiveArray::from_iter([0i32, 2, 4]).into_array();
         let sizes = PrimitiveArray::from_iter([2i32, 2, 2]).into_array();
-        let array =
-            ListViewArray::try_new(elements, offsets, sizes, Nullability::NonNullable.into())
-                .unwrap();
+        let array = unsafe {
+            ListViewArray::new_unchecked(
+                elements,
+                offsets,
+                sizes,
+                Nullability::NonNullable.into(),
+                true, // Is zero-copy to list.
+            )
+        };
 
         let mask = Mask::from_iter([false, true, false]);
 

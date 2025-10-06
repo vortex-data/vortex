@@ -931,9 +931,16 @@ mod test {
         // List 3: [2] at offset 3, size 1
         let offsets = buffer![0u32, 1, 2, 3].into_array();
         let sizes = buffer![1u32, 1, 1, 1].into_array();
-        let lists = ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid)
-            .unwrap()
-            .into_array();
+        let lists = unsafe {
+            ListViewArray::new_unchecked(
+                elements,
+                offsets,
+                sizes,
+                Validity::AllValid,
+                true, // Is zero-copy to list.
+            )
+        }
+        .into_array();
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());
@@ -978,9 +985,16 @@ mod test {
         let elements = buffer![1i32, 2, 1, 2, 1, 2, 1, 2].into_array();
         let offsets = buffer![0u32, 1, 2, 3, 4, 5, 6, 7].into_array();
         let sizes = buffer![1u32, 1, 1, 1, 1, 1, 1, 1].into_array();
-        let lists = ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid)
-            .unwrap()
-            .into_array();
+        let lists = unsafe {
+            ListViewArray::new_unchecked(
+                elements,
+                offsets,
+                sizes,
+                Validity::AllValid,
+                true, // Is zero-copy to list.
+            )
+        }
+        .into_array();
 
         // Slice to get lists 2..6, which are: [1], [2], [1], [2]
         let lists = lists.slice(2..6);
@@ -1022,9 +1036,16 @@ mod test {
         let elements = buffer![1i32, 2, 1, 2].into_array();
         let offsets = buffer![0u32, 1, 2, 3].into_array();
         let sizes = buffer![1u32, 1, 1, 1].into_array();
-        let lists = ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid)
-            .unwrap()
-            .into_array();
+        let lists = unsafe {
+            ListViewArray::new_unchecked(
+                elements,
+                offsets,
+                sizes,
+                Validity::AllValid,
+                true, // Is zero-copy to list.
+            )
+        }
+        .into_array();
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::from(Some(vec![5i32, 6, 7, 8]));
@@ -1384,8 +1405,15 @@ mod test {
         let offsets = buffer![0u32, 3, 5].into_array();
         let sizes = buffer![3u32, 2, 4].into_array();
 
-        let list_view =
-            ListViewArray::try_new(elements.clone(), offsets, sizes, Validity::AllValid).unwrap();
+        let list_view = unsafe {
+            ListViewArray::new_unchecked(
+                elements.clone(),
+                offsets,
+                sizes,
+                Validity::AllValid,
+                true, // Is zero-copy to list.
+            )
+        };
 
         let list_dtype = list_view.dtype().clone();
 
@@ -1460,9 +1488,16 @@ mod test {
         let offsets = buffer![0u32, 2, 5, 6, 8].into_array();
         let sizes = buffer![2u32, 3, 1, 2, 2].into_array();
 
-        let full_listview = ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid)
-            .unwrap()
-            .into_array();
+        let full_listview = unsafe {
+            ListViewArray::new_unchecked(
+                elements,
+                offsets,
+                sizes,
+                Validity::AllValid,
+                true, // Is zero-copy to list.
+            )
+        }
+        .into_array();
 
         // Slice to get lists 1, 2, 3 (indices 1..4)
         // This gives us lists with elements:

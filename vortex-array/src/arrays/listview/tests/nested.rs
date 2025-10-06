@@ -30,8 +30,7 @@ fn test_listview_of_listview_with_overlapping() {
     let inner_sizes = buffer![3u32, 3, 3, 3, 2, 2].into_array();
 
     let inner_listview =
-        ListViewArray::try_new(elements, inner_offsets, inner_sizes, Validity::NonNullable)
-            .unwrap();
+        ListViewArray::new(elements, inner_offsets, inner_sizes, Validity::NonNullable);
 
     // Create outer ListView that groups the inner lists:
     // Logical outer lists: [inner[0..3], inner[3..6]]
@@ -40,13 +39,15 @@ fn test_listview_of_listview_with_overlapping() {
     let outer_offsets = buffer![0u32, 3].into_array();
     let outer_sizes = buffer![3u32, 3].into_array();
 
-    let outer_listview = ListViewArray::try_new(
-        inner_listview.into_array(),
-        outer_offsets,
-        outer_sizes,
-        Validity::NonNullable,
-    )
-    .unwrap();
+    let outer_listview = unsafe {
+        ListViewArray::new_unchecked(
+            inner_listview.into_array(),
+            outer_offsets,
+            outer_sizes,
+            Validity::NonNullable,
+            true, // Is zero-copy to list.,
+        )
+    };
 
     assert_eq!(outer_listview.len(), 2);
 
@@ -91,8 +92,7 @@ fn test_deeply_nested_out_of_order() {
     let l1_offsets = buffer![8u32, 0, 4, 12, 2, 10, 6, 14].into_array();
     let l1_sizes = buffer![2u32, 2, 2, 2, 2, 2, 2, 2].into_array();
 
-    let level1 =
-        ListViewArray::try_new(elements, l1_offsets, l1_sizes, Validity::NonNullable).unwrap();
+    let level1 = ListViewArray::new(elements, l1_offsets, l1_sizes, Validity::NonNullable);
 
     // Level 2: Group level1 lists, also out-of-order.
     // 4 lists of 2 inner lists each.
@@ -100,13 +100,12 @@ fn test_deeply_nested_out_of_order() {
     let l2_offsets = buffer![6u32, 2, 0, 4].into_array();
     let l2_sizes = buffer![2u32, 2, 2, 2].into_array();
 
-    let level2 = ListViewArray::try_new(
+    let level2 = ListViewArray::new(
         level1.into_array(),
         l2_offsets,
         l2_sizes,
         Validity::NonNullable,
-    )
-    .unwrap();
+    );
 
     // Level 3: Top level groups.
     // 2 lists of 2 level2 lists each.
@@ -114,13 +113,12 @@ fn test_deeply_nested_out_of_order() {
     let l3_offsets = buffer![2u32, 0].into_array();
     let l3_sizes = buffer![2u32, 2].into_array();
 
-    let level3 = ListViewArray::try_new(
+    let level3 = ListViewArray::new(
         level2.into_array(),
         l3_offsets,
         l3_sizes,
         Validity::NonNullable,
-    )
-    .unwrap();
+    );
 
     assert_eq!(level3.len(), 2);
 
@@ -162,13 +160,12 @@ fn test_mixed_offset_size_types() {
     let inner_offsets = buffer![0u32, 10, 20, 30, 40, 50, 100, 150, 200].into_array();
     let inner_sizes = buffer![5u16, 8, 10, 7, 15, 20, 25, 30, 50].into_array();
 
-    let inner_listview = ListViewArray::try_new(
+    let inner_listview = ListViewArray::new(
         elements,
         inner_offsets.clone(),
         inner_sizes.clone(),
         Validity::NonNullable,
-    )
-    .unwrap();
+    );
 
     // Outer ListView with u64 offsets and u8 sizes.
     // Using small sizes that fit in u8 to test the type difference.
@@ -176,13 +173,12 @@ fn test_mixed_offset_size_types() {
     let outer_offsets = buffer![0u64, 3, 6].into_array();
     let outer_sizes = buffer![3u8, 3, 3].into_array();
 
-    let outer_listview = ListViewArray::try_new(
+    let outer_listview = ListViewArray::new(
         inner_listview.into_array(),
         outer_offsets,
         outer_sizes,
         Validity::NonNullable,
-    )
-    .unwrap();
+    );
 
     assert_eq!(outer_listview.len(), 3);
 
@@ -223,8 +219,7 @@ fn test_listview_zero_and_overlapping() {
     let inner_sizes = buffer![0u32, 3, 0, 3, 1, 0, 5, 0].into_array();
 
     let inner_listview =
-        ListViewArray::try_new(elements, inner_offsets, inner_sizes, Validity::NonNullable)
-            .unwrap();
+        ListViewArray::new(elements, inner_offsets, inner_sizes, Validity::NonNullable);
 
     // Create outer lists that group these:
     // Logical lists: [inner[0..3], inner[3..6], inner[6..8]]
@@ -234,13 +229,12 @@ fn test_listview_zero_and_overlapping() {
     let outer_offsets = buffer![0u32, 3, 6].into_array();
     let outer_sizes = buffer![3u32, 3, 2].into_array();
 
-    let outer_listview = ListViewArray::try_new(
+    let outer_listview = ListViewArray::new(
         inner_listview.into_array(),
         outer_offsets,
         outer_sizes,
         Validity::NonNullable,
-    )
-    .unwrap();
+    );
 
     assert_eq!(outer_listview.len(), 3);
 
@@ -317,13 +311,12 @@ fn test_listview_of_struct_with_nulls() {
     let offsets = buffer![0u32, 1, 3].into_array();
     let sizes = buffer![2u32, 3, 3].into_array();
 
-    let listview = ListViewArray::try_new(
+    let listview = ListViewArray::new(
         struct_array.into_array(),
         offsets,
         sizes,
         Validity::NonNullable,
-    )
-    .unwrap();
+    );
 
     assert_eq!(listview.len(), 3);
 

@@ -74,7 +74,19 @@ pub fn slice_canonical_array(
             // Since the list view elements can be stored out of order, we cannot slice it.
             let elements = list_array.elements().clone();
 
-            ListViewArray::try_new(elements, offsets, sizes, validity).map(|a| a.into_array())
+            // SAFETY: If the array was already zero-copyable to list, slicing the offsets and sizes
+            // only causes there to be leading and trailing garbage data, which is still
+            // zero-copyable to a `ListArray`.
+            Ok(unsafe {
+                ListViewArray::new_unchecked(
+                    elements,
+                    offsets,
+                    sizes,
+                    validity,
+                    list_array.is_zero_copy_to_list(),
+                )
+            }
+            .into_array())
         }
         DType::FixedSizeList(..) => {
             let fsl_array = array.to_fixed_size_list();

@@ -27,9 +27,7 @@ fn test_slice_comprehensive() {
     let offsets = buffer![0i32, 3, 5, 7].into_array();
     let sizes = buffer![3i32, 2, 3, 2].into_array();
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .into_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
 
     // Test basic slice [1..3] - middle portion.
     let sliced = listview.slice(1..3);
@@ -70,9 +68,7 @@ fn test_slice_out_of_order() {
     let offsets = buffer![6i32, 0, 3, 8, 2].into_array(); // Out of order.
     let sizes = buffer![2i32, 3, 3, 1, 1].into_array();
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .into_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
 
     // Slice [1..4] should maintain the out-of-order offsets.
     let sliced = listview.slice(1..4);
@@ -123,9 +119,12 @@ fn test_slice_with_nulls() {
     let validity =
         Validity::Array(BoolArray::from_iter(vec![true, false, true, false]).into_array());
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, validity)
-        .unwrap()
-        .into_array();
+    let listview = unsafe {
+        ListViewArray::new_unchecked(
+            elements, offsets, sizes, validity, true, // Is zero-copy to list.
+        )
+    }
+    .into_array();
 
     // Slice [1..3] should preserve nulls.
     let sliced = listview.slice(1..3);
@@ -156,9 +155,16 @@ fn test_slice_edge_cases(
     let offsets = buffer![0i32, 2, 4].into_array();
     let sizes = buffer![2i32, 2, 2].into_array();
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .into_array();
+    let listview = unsafe {
+        ListViewArray::new_unchecked(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            true, // Is zero-copy to list.
+        )
+    }
+    .into_array();
 
     match expected_len {
         Some(len) => {
@@ -204,9 +210,16 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
         _ => panic!("Unexpected type"),
     };
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .to_array();
+    let listview = unsafe {
+        ListViewArray::new_unchecked(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            true, // Is zero-copy to list.
+        )
+    }
+    .to_array();
 
     let target_dtype = DType::List(
         Arc::new(DType::Primitive(to_ptype, Nullability::NonNullable)),
@@ -238,9 +251,12 @@ fn test_cast_with_nulls() {
     let sizes = buffer![2u32, 2].into_array();
     let validity = Validity::Array(BoolArray::from_iter(vec![true, false]).into_array());
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, validity)
-        .unwrap()
-        .to_array();
+    let listview = unsafe {
+        ListViewArray::new_unchecked(
+            elements, offsets, sizes, validity, true, // Is zero-copy to list.
+        )
+    }
+    .to_array();
 
     let target_dtype = DType::List(
         Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
@@ -277,9 +293,7 @@ fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_c
         )
     };
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .to_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
 
     let target_dtype = if is_empty_case {
         DType::List(
@@ -314,9 +328,16 @@ fn test_cast_large_dataset() {
     .into_array();
     let sizes = buffer![4u32; 20].into_array();
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .to_array();
+    let listview = unsafe {
+        ListViewArray::new_unchecked(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            true, // Is zero-copy to list.
+        )
+    }
+    .to_array();
 
     let target_dtype = DType::List(
         Arc::new(DType::Primitive(PType::U32, Nullability::NonNullable)),
@@ -380,14 +401,13 @@ fn test_is_constant_basic(
     #[case] validity: Validity,
     #[case] expected: bool,
 ) {
-    let listview = ListViewArray::try_new(
+    let listview = ListViewArray::new(
         elements.into_array(),
         offsets.into_array(),
         sizes.into_array(),
         validity,
     )
-    .unwrap()
-    .into_array();
+    .to_array();
 
     assert_eq!(is_constant(&listview).unwrap(), Some(expected));
 }
@@ -400,9 +420,16 @@ fn test_constant_with_constant_elements() {
     let offsets = buffer![0i32, 2, 4].into_array();
     let sizes = buffer![2i32, 2, 2].into_array();
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .into_array();
+    let listview = unsafe {
+        ListViewArray::new_unchecked(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            true, // Is zero-copy to list.
+        )
+    }
+    .into_array();
 
     // All lists contain [42, 42] so should be constant.
     assert_eq!(is_constant(&listview).unwrap(), Some(true));
@@ -418,25 +445,29 @@ fn test_constant_with_nulls() {
 
     // Case 1: Mixed valid and null - not constant.
     let validity_mixed = Validity::Array(BoolArray::from_iter(vec![true, false]).into_array());
-    let listview_mixed = ListViewArray::try_new(
-        elements.clone(),
-        offsets.clone(),
-        sizes.clone(),
-        validity_mixed,
-    )
-    .unwrap()
+    let listview_mixed = unsafe {
+        ListViewArray::new_unchecked(
+            elements.clone(),
+            offsets.clone(),
+            sizes.clone(),
+            validity_mixed,
+            true, // Is zero-copy to list.
+        )
+    }
     .into_array();
     assert_eq!(is_constant(&listview_mixed).unwrap(), Some(false));
 
     // Case 2: All nulls - should be constant.
     let validity_all_null = Validity::AllInvalid;
-    let listview_all_null = ListViewArray::try_new(
-        elements.clone(),
-        offsets.clone(),
-        sizes.clone(),
-        validity_all_null,
-    )
-    .unwrap()
+    let listview_all_null = unsafe {
+        ListViewArray::new_unchecked(
+            elements.clone(),
+            offsets.clone(),
+            sizes.clone(),
+            validity_all_null,
+            true, // Is zero-copy to list.
+        )
+    }
     .into_array();
     assert_eq!(is_constant(&listview_all_null).unwrap(), Some(true));
 }
@@ -449,9 +480,7 @@ fn test_constant_repeated_same_lists() {
     let offsets = buffer![0i32, 0, 0, 0].into_array(); // All point to same start.
     let sizes = buffer![3i32, 3, 3, 3].into_array(); // All same size.
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .into_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
 
     // All lists are [10, 20, 30] so should be constant.
     assert_eq!(is_constant(&listview).unwrap(), Some(true));
@@ -478,9 +507,16 @@ fn test_mask_preserves_structure() {
     let offsets = buffer![0u32, 2, 4, 6].into_array();
     let sizes = buffer![2u32, 2, 2, 2].into_array();
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .to_array();
+    let listview = unsafe {
+        ListViewArray::new_unchecked(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            true, // Is zero-copy to list.
+        )
+    }
+    .to_array();
 
     // Mask sets elements to null where true.
     let selection = Mask::from_iter([true, false, true, true]);
@@ -515,9 +551,12 @@ fn test_mask_with_existing_nulls() {
     let sizes = buffer![2u32, 2, 2].into_array();
     let validity = Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array());
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, validity)
-        .unwrap()
-        .to_array();
+    let listview = unsafe {
+        ListViewArray::new_unchecked(
+            elements, offsets, sizes, validity, true, // Is zero-copy to list.
+        )
+    }
+    .to_array();
 
     // Mask additional elements.
     let selection = Mask::from_iter([false, true, true]);
@@ -538,9 +577,7 @@ fn test_mask_with_gaps() {
     let offsets = buffer![0u32, 4, 8].into_array();
     let sizes = buffer![2u32, 2, 2].into_array();
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .to_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
 
     let selection = Mask::from_iter([true, false, false]);
     let result = mask(&listview, &selection).unwrap();
@@ -566,13 +603,12 @@ fn test_mask_constant_arrays() {
     let constant_offsets = ConstantArray::new(1u32, 3).into_array();
     let constant_sizes = ConstantArray::new(2u32, 3).into_array();
 
-    let const_list = ListViewArray::try_new(
+    let const_list = ListViewArray::new(
         elements,
         constant_offsets,
         constant_sizes,
         Validity::NonNullable,
     )
-    .unwrap()
     .to_array();
 
     let selection = Mask::from_iter([false, true, false]);

@@ -885,13 +885,15 @@ mod tests {
         let offsets = PrimitiveArray::new(buffer![0i32, 3], Validity::NonNullable);
         let sizes = PrimitiveArray::new(buffer![3i32, 2], Validity::NonNullable);
 
-        let list_array = ListViewArray::try_new(
-            elements.into_array(),
-            offsets.into_array(),
-            sizes.into_array(),
-            Validity::AllValid,
-        )
-        .unwrap();
+        let list_array = unsafe {
+            ListViewArray::new_unchecked(
+                elements.into_array(),
+                offsets.into_array(),
+                sizes.into_array(),
+                Validity::AllValid,
+                true, // Is zero-copy to list.
+            )
+        };
 
         // Convert to Arrow List with i32 offsets.
         let field = Field::new("item", DataType::Int32, false);
@@ -940,13 +942,15 @@ mod tests {
         let offsets = PrimitiveArray::new(buffer![0i64, 2], Validity::NonNullable);
         let sizes = PrimitiveArray::new(buffer![2i64, 1], Validity::NonNullable);
 
-        let list_array = ListViewArray::try_new(
-            elements.into_array(),
-            offsets.into_array(),
-            sizes.into_array(),
-            Validity::AllValid,
-        )
-        .unwrap();
+        let list_array = unsafe {
+            ListViewArray::new_unchecked(
+                elements.into_array(),
+                offsets.into_array(),
+                sizes.into_array(),
+                Validity::AllValid,
+                true, // Is zero-copy to list.
+            )
+        };
 
         // Convert to Arrow LargeList with i64 offsets.
         let field = Field::new("item", DataType::Int64, false);
@@ -974,13 +978,12 @@ mod tests {
         let offsets = PrimitiveArray::new(buffer![0i32, 1, 2], Validity::NonNullable);
         let sizes = PrimitiveArray::new(buffer![2i32, 2, 2], Validity::NonNullable);
 
-        let list_array = ListViewArray::try_new(
+        let list_array = ListViewArray::new(
             elements.into_array(),
             offsets.into_array(),
             sizes.into_array(),
             Validity::AllValid,
-        )
-        .unwrap();
+        );
 
         // Convert to Arrow ListView with i32 offsets.
         let field = Field::new("item", DataType::Int32, false);
@@ -1027,13 +1030,15 @@ mod tests {
         let sizes = PrimitiveArray::new(buffer![1i64, 0, 2], Validity::NonNullable);
         let validity = Validity::from_iter([true, false, true]);
 
-        let list_array = ListViewArray::try_new(
-            elements.into_array(),
-            offsets.into_array(),
-            sizes.into_array(),
-            validity,
-        )
-        .unwrap();
+        let list_array = unsafe {
+            ListViewArray::new_unchecked(
+                elements.into_array(),
+                offsets.into_array(),
+                sizes.into_array(),
+                validity,
+                true, // Is zero-copy to list.
+            )
+        };
 
         // Convert to Arrow LargeListView with i64 offsets.
         let field = Field::new("item", DataType::Int64, false);

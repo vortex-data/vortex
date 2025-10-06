@@ -31,6 +31,7 @@ impl CastKernel for ListViewVTable {
                     array.offsets().clone(),
                     array.sizes().clone(),
                     validity,
+                    array.is_zero_copy_to_list(),
                 )
             }
             .to_array(),
