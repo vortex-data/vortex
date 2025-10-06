@@ -267,6 +267,7 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
         DType::List(dtype, n) => Box::new(ListBuilder::<u64>::with_capacity(
             dtype.clone(),
             *n,
+            2 * capacity,
             capacity,
         )),
         DType::FixedSizeList(elem_dtype, list_size, null) => Box::new(

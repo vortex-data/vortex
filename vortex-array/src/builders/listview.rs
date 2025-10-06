@@ -23,7 +23,8 @@ use crate::builders::{
 };
 use crate::{Canonical, ToCanonical};
 
-/// A builder for creating [`ListViewArray`] instances.
+/// A builder for creating [`ListViewArray`] instances, parameterized by the [`IntegerPType`] of
+/// the `offsets` and the `sizes` builders.
 ///
 /// This builder tracks both offsets and sizes using potentially different integer types for memory
 /// efficiency. For example, you might use `u64` for offsets but only `u8` for sizes if your lists
@@ -31,19 +32,20 @@ use crate::{Canonical, ToCanonical};
 ///
 /// Any combination of [`IntegerPType`] types are valid, as long as the type of `sizes` can fit into
 /// the type of `offsets`.
-///
-/// # Example
-/// ```ignore
-/// let mut builder = ListViewBuilder::<u32, u8>::new(&DType::I32, NonNullable);
-/// builder.append_value(&[1, 2, 3]);
-/// builder.append_value(&[4, 5]);
-/// let array = builder.finish();
-/// ```
 pub struct ListViewBuilder<O: IntegerPType, S: IntegerPType> {
+    /// The [`DType`] of the [`ListViewArray`]. This **must** be a [`DType::List`].
     dtype: DType,
+
+    /// The builder for the underlying elements of the [`ListArray`].
     elements_builder: Box<dyn ArrayBuilder>,
+
+    /// The builder for the `offsets` into the `elements` array.
     offsets_builder: PrimitiveBuilder<O>,
+
+    /// The builder for the `sizes` of each list view.
     sizes_builder: PrimitiveBuilder<S>,
+
+    /// The null map builder of the [`ListViewArray`].
     nulls: LazyNullBufferBuilder,
 }
 
@@ -60,7 +62,9 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         )
     }
 
-    /// Create a new builder with a custom value builder.
+    /// Create a new [`ListViewArray`] builder with a with the given `capacity`, as well as an
+    /// initial capacity for the `elements` builder (since we cannot know that ahead of time solely
+    /// based on the outer array `capacity`).
     ///
     /// # Panics
     ///
