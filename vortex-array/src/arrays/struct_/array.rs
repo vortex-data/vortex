@@ -272,7 +272,7 @@ impl StructArray {
     /// Validates the components that would be used to create a [`StructArray`].
     ///
     /// This function checks all the invariants required by [`StructArray::new_unchecked`].
-    pub(crate) fn validate(
+    pub fn validate(
         fields: &[ArrayRef],
         dtype: &StructFields,
         length: usize,

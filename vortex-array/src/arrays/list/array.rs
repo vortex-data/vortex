@@ -137,7 +137,7 @@ impl ListArray {
     /// Validates the components that would be used to create a [`ListArray`].
     ///
     /// This function checks all the invariants required by [`ListArray::new_unchecked`].
-    pub(crate) fn validate(
+    pub fn validate(
         elements: &dyn Array,
         offsets: &dyn Array,
         validity: &Validity,

@@ -80,7 +80,7 @@ impl ChunkedArray {
     /// Validates the components that would be used to create a [`ChunkedArray`].
     ///
     /// This function checks all the invariants required by [`ChunkedArray::new_unchecked`].
-    pub(crate) fn validate(chunks: &[ArrayRef], dtype: &DType) -> VortexResult<()> {
+    pub fn validate(chunks: &[ArrayRef], dtype: &DType) -> VortexResult<()> {
         for chunk in chunks {
             if chunk.dtype() != dtype {
                 vortex_bail!(MismatchedTypes: dtype, chunk.dtype());
