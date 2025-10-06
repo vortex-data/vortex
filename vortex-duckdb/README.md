@@ -26,12 +26,12 @@ Opt into DuckDB debug build: `VX_DUCKDB_DEBUG=1`.
 VX_DUCKDB_DEBUG=1 cargo build -p vortex-duckdb
 ```
 
-### AddressSanitizer
+### AddressSanitizer & ThreadSanitizer
 
-Enable ASAN: `VX_DUCKDB_ASAN=1`.
+Enable both ASAN & TSAN: `VX_DUCKDB_SAN=1`.
 
 ```bash
-VX_DUCKDB_DEBUG=1 VX_DUCKDB_ASAN=1 cargo build -p vortex-duckdb
+VX_DUCKDB_DEBUG=1 VX_DUCKDB_SAN=1 cargo build -p vortex-duckdb
 ```
 
 ## Environment Variables
@@ -50,6 +50,6 @@ cargo test -p vortex-duckdb
 # Link against the DuckDB debug build from source.
 VX_DUCKDB_DEBUG=1 cargo test -p vortex-duckdb
 
-# Link against the DuckDB debug build from source with ASAN.
-ASAN_OPTIONS=detect_container_overflow=0 VX_DUCKDB_DEBUG=1 VX_DUCKDB_ASAN=1 cargo test -p vortex-duckdb
+# Link against the DuckDB debug build from source with ASAN & TSAN.
+ASAN_OPTIONS=detect_container_overflow=0 VX_DUCKDB_DEBUG=1 VX_DUCKDB_SAN=1 cargo test -p vortex-duckdb
 ```
