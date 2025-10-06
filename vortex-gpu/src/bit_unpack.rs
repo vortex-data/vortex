@@ -5,7 +5,9 @@
 #![allow(dead_code)]
 
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 
+use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::driver::{
     CudaContext, CudaFunction, CudaSlice, CudaStream, CudaViewMut, DeviceRepr, LaunchConfig,
     PushKernelArg,
@@ -82,6 +84,43 @@ pub fn cuda_bit_unpack(
     let mut task = new_task(array, ctx, stream)?;
     task.launch_task()?;
     task.export_result().map(|c| c.into_primitive())
+}
+
+/// Returns the time (in nanoseconds) to execute just the GPU kernel, excluding memory transfers.
+/// The input array must already be allocated on the GPU.
+pub fn cuda_bit_unpack_timed(
+    array: &BitPackedArray,
+    ctx: Arc<CudaContext>,
+) -> VortexResult<Duration> {
+    let stream = ctx.default_stream();
+    let mut task = new_task(array, ctx.clone(), stream.clone())?;
+
+    let start = stream
+        .record_event(Some(CU_EVENT_DEFAULT))
+        .ok()
+        .vortex_expect("Failed to record event");
+
+    task.launch_task()?;
+
+    // Synchronize to ensure kernel completes
+    ctx.synchronize()
+        .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
+
+    let end = stream
+        .record_event(Some(CU_EVENT_DEFAULT))
+        .ok()
+        .vortex_expect("Failed to record event");
+
+    // Get elapsed time in milliseconds
+    let elapsed_ms = Duration::from_secs_f32(
+        start
+            .elapsed_ms(&end)
+            .map_err(|e| vortex_err!("Failed to get elapsed time: {e}"))?
+            / 1000.0,
+    );
+
+    // Convert to nanoseconds
+    Ok(elapsed_ms)
 }
 
 struct BitPackingTask<P> {

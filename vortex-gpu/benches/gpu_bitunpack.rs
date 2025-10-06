@@ -4,21 +4,19 @@
 #![allow(clippy::unwrap_used)]
 
 use std::sync::Arc;
+use std::time::Duration;
 
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use cudarc::driver::CudaContext;
-use divan::Bencher;
-use divan::counter::BytesCount;
-use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_fastlanes::BitPackedArray;
-use vortex_gpu::cuda_bit_unpack;
-
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+use vortex_error::VortexUnwrap;
+use vortex_fastlanes::{BitPackedArray, FoRArray};
+use vortex_gpu::{cuda_bit_unpack_timed, cuda_for_unpack_timed};
+use vortex_scalar::Scalar;
 
 // Data sizes: 1GB, 2.5GB, 5GB, 10GB
 // These are approximate sizes in bytes, accounting for bit-packing compression
@@ -44,38 +42,55 @@ fn make_bitpackable_array<T: NativePType>(len: usize) -> BitPackedArray {
     BitPackedArray::encode(values.as_ref(), 6).unwrap()
 }
 
-// #[divan::bench(types = [u32, u64], args = DATA_SIZES)]
-#[divan::bench(types = [u32], args = DATA_SIZES)]
-fn gpu_decompress<T: NativePType>(bencher: Bencher, (len, _label): (usize, &str)) {
-    // Round up to next multiple of 1024 (GPU kernel requirement)
-    let len = len.next_multiple_of(1024);
-    let array = make_bitpackable_array::<T>(len);
+fn benchmark_gpu_decompress_kernel_only(c: &mut Criterion) {
+    let mut group = c.benchmark_group("gpu_decompress_kernel_only");
 
     // Initialize CUDA context once
-    let ctx = CudaContext::new(0).unwrap();
-    ctx.set_blocking_synchronize().unwrap();
-    let ctx = Arc::new(ctx);
 
-    bencher
-        .counter(BytesCount::of_many::<T>(len))
-        .with_inputs(|| array.clone())
-        .bench_values(|array| cuda_bit_unpack(&array, Arc::clone(&ctx)).unwrap());
+    for (len, label) in DATA_SIZES {
+        let len = len.next_multiple_of(1024);
+        let array = make_bitpackable_array::<u32>(len);
+
+        let ctx = CudaContext::new(0).unwrap();
+        ctx.set_blocking_synchronize().unwrap();
+        let ctx = Arc::new(ctx);
+
+        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+        group.bench_with_input(BenchmarkId::new("u32", label), &array, |b, array| {
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::ZERO;
+                for _ in 0..iters {
+                    // This only measures kernel execution time, not memory transfers
+                    let kernel_time_ns = cuda_bit_unpack_timed(array, Arc::clone(&ctx)).unwrap();
+                    total_time += kernel_time_ns;
+                }
+                total_time
+            });
+        });
+    }
+
+    group.finish();
 }
 
-// #[divan::bench(types = [u32, u64], args = DATA_SIZES)]
-#[divan::bench(types = [u32], args = DATA_SIZES)]
-fn cpu_canonicalize<T: NativePType>(bencher: Bencher, (len, _label): (usize, &str)) {
-    // Round up to next multiple of 1024 for fair comparison
-    let len = len.next_multiple_of(1024);
-    let array = make_bitpackable_array::<T>(len);
+fn benchmark_cpu_canonicalize(c: &mut Criterion) {
+    let mut group = c.benchmark_group("cpu_canonicalize");
 
-    bencher
-        .counter(BytesCount::of_many::<T>(len))
-        .with_inputs(|| array.clone())
-        .bench_values(|array| array.into_array().to_canonical());
+    for (len, label) in DATA_SIZES {
+        let len = len.next_multiple_of(1024);
+        let array = make_bitpackable_array::<u32>(len);
+
+        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+        group.bench_with_input(BenchmarkId::new("u32", label), &array, |b, array| {
+            b.iter(|| array.clone().into_array().to_canonical());
+        });
+    }
+
+    group.finish();
 }
 
-pub fn main() {
-    vortex_array::compute::warm_up_vtables();
-    divan::main();
-}
+criterion_group!(
+    benches,
+    benchmark_gpu_decompress_kernel_only,
+    benchmark_cpu_canonicalize
+);
+criterion_main!(benches);

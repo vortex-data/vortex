@@ -6,5 +6,6 @@ pub mod for_;
 mod take;
 mod task;
 
-pub use bit_unpack::cuda_bit_unpack;
+pub use bit_unpack::{cuda_bit_unpack, cuda_bit_unpack_timed};
+pub use for_::{cuda_for_unpack, cuda_for_unpack_timed};
 pub use take::cuda_take;

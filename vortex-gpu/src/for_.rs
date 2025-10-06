@@ -120,14 +120,16 @@ impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {
 pub fn cuda_for_unpack_timed(
     array: &FoRArray,
     ctx: Arc<CudaContext>,
-) -> VortexResult<PrimitiveArray> {
+) -> VortexResult<(PrimitiveArray, Duration)> {
     let stream = ctx.default_stream();
-    let mut task = new_task(array, ctx, stream.clone())?;
+    let mut task = new_task(array, ctx.clone(), stream.clone())?;
     let start = stream
         .record_event(Some(CU_EVENT_DEFAULT))
         .ok()
         .vortex_expect("Failed to record event");
     task.launch_task()?;
+    ctx.synchronize()
+        .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
     let end = stream
         .record_event(Some(CU_EVENT_DEFAULT))
         .ok()
@@ -139,8 +141,9 @@ pub fn cuda_for_unpack_timed(
             .vortex_expect("Failed to get elapsed time")
             / 1000.0,
     );
-    println!("time {:2}s", time.as_secs_f32());
-    task.export_result().map(|c| c.into_primitive())
+    task.export_result()
+        .map(|c| c.into_primitive())
+        .map(|x| (x, time))
 }
 
 pub fn cuda_for_unpack(array: &FoRArray, ctx: Arc<CudaContext>) -> VortexResult<PrimitiveArray> {
@@ -173,7 +176,7 @@ mod tests {
         let array = FoRArray::try_new(array.into_array(), 1u32.into()).vortex_unwrap();
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
-        let unpacked = cuda_for_unpack_timed(&array, ctx).unwrap();
+        let unpacked = cuda_for_unpack(&array, ctx).unwrap();
         let primitive_array = array.into_array().to_primitive();
         assert_eq!(
             primitive_array.as_slice::<u32>(),
