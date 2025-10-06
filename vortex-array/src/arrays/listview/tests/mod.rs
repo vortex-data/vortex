@@ -21,8 +21,9 @@ impl ToListView for ArrayRef {
     }
 }
 
+pub(super) mod common;
+
 mod basic;
-mod common;
 mod filter;
 mod nested;
 mod nullability;

@@ -5,7 +5,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 
-use crate::arrays::{ListViewArray, ListViewEncoding, ListViewVTable};
+use crate::arrays::{ListViewArray, ListViewEncoding, ListViewShape, ListViewVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
@@ -19,16 +19,26 @@ pub struct ListViewMetadata {
     offset_ptype: i32,
     #[prost(enumeration = "PType", tag = "3")]
     size_ptype: i32,
+    #[prost(bool, tag = "4", default = false)]
+    has_sorted_offsets: bool,
+    #[prost(bool, tag = "5", default = false)]
+    has_no_overlaps: bool,
+    #[prost(bool, tag = "6", default = false)]
+    has_no_gaps: bool,
 }
 
 impl SerdeVTable<ListViewVTable> for ListViewVTable {
     type Metadata = ProstMetadata<ListViewMetadata>;
 
     fn metadata(array: &ListViewArray) -> VortexResult<Option<Self::Metadata>> {
+        let shape = array.shape();
         Ok(Some(ProstMetadata(ListViewMetadata {
             elements_len: array.elements().len() as u64,
             offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
             size_ptype: PType::try_from(array.sizes().dtype())? as i32,
+            has_sorted_offsets: shape.has_sorted_offsets(),
+            has_no_overlaps: shape.has_no_overlaps(),
+            has_no_gaps: shape.has_no_gaps(),
         })))
     }
 
@@ -82,6 +92,13 @@ impl SerdeVTable<ListViewVTable> for ListViewVTable {
             len,
         )?;
 
-        ListViewArray::try_new(elements, offsets, sizes, validity)
+        // Extract shape from metadata.
+        let shape = ListViewShape::new(
+            metadata.has_sorted_offsets,
+            metadata.has_no_overlaps,
+            metadata.has_no_gaps,
+        );
+
+        ListViewArray::try_new(elements, offsets, sizes, validity, shape)
     }
 }

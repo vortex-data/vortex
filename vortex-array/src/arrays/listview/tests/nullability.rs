@@ -9,18 +9,27 @@ use vortex_dtype::{DType, Nullability, PType};
 use vortex_scalar::Scalar;
 
 use crate::IntoArray;
+use crate::arrays::listview::ListViewShape;
 use crate::arrays::{BoolArray, ListViewArray, PrimitiveArray};
 use crate::validity::Validity;
 
 #[test]
 fn test_nullable_listview_comprehensive() {
     // Comprehensive test for nullable ListView including scalar_at with nulls.
+    // Logical lists: [[1,2], null, [5,6]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let offsets = buffer![0i32, 2, 4].into_array();
     let sizes = buffer![2i32, 2, 2].into_array();
     let validity = Validity::from_iter([true, false, true]);
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, validity).unwrap();
+    let listview = ListViewArray::try_new(
+        elements,
+        offsets,
+        sizes,
+        validity,
+        ListViewShape::as_zero_copy_to_list(),
+    )
+    .unwrap();
 
     assert_eq!(listview.len(), 3);
 
@@ -74,11 +83,19 @@ fn test_nullable_listview_comprehensive() {
 #[case::all_valid(Validity::AllValid, vec![true, true, true])]
 #[case::mixed(Validity::from_iter([false, true, false]), vec![false, true, false])]
 fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity: Vec<bool>) {
+    // Logical lists: [[1,2], [3,4], [5,6]] with varying validity
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let offsets = buffer![0i32, 2, 4].into_array();
     let sizes = buffer![2i32, 2, 2].into_array();
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, validity).unwrap();
+    let listview = ListViewArray::try_new(
+        elements,
+        offsets,
+        sizes,
+        validity,
+        ListViewShape::default(), // Don't bother checking this in this test.
+    )
+    .unwrap();
 
     for (i, &expected) in expected_validity.iter().enumerate() {
         assert_eq!(listview.is_valid(i), expected);
@@ -88,13 +105,21 @@ fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity:
 #[test]
 fn test_nullable_elements() {
     // Test with nullable elements inside the lists.
+    // Logical lists: [[Some(1), None], [Some(3), None], [Some(5), Some(6)]]
     let elements =
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5), Some(6)])
             .into_array();
     let offsets = buffer![0i32, 2, 4].into_array();
     let sizes = buffer![2i32, 2, 2].into_array();
 
-    let listview = ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid).unwrap();
+    let listview = ListViewArray::try_new(
+        elements,
+        offsets,
+        sizes,
+        Validity::AllValid,
+        ListViewShape::as_zero_copy_to_list(),
+    )
+    .unwrap();
 
     // First list: [Some(1), None].
     let first_list = listview.list_elements_at(0);
@@ -125,13 +150,20 @@ fn test_nullable_elements() {
 
 #[test]
 fn test_validity_length_mismatch() {
+    // Logical lists (invalid due to validity length mismatch): [[1,2], [3,4]]
     let elements = buffer![1i32, 2, 3, 4].into_array();
     let offsets = buffer![0i32, 2].into_array();
     let sizes = buffer![2i32, 2].into_array();
     // Wrong length validity.
     let validity = Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array());
 
-    let result = ListViewArray::try_new(elements, offsets, sizes, validity);
+    let result = ListViewArray::try_new(
+        elements,
+        offsets,
+        sizes,
+        validity,
+        ListViewShape::as_zero_copy_to_list(),
+    );
 
     assert!(result.is_err());
     let err = result.unwrap_err();

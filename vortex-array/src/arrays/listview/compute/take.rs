@@ -6,7 +6,7 @@ use vortex_dtype::{Nullability, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ListViewArray, ListViewVTable};
+use crate::arrays::{ListViewArray, ListViewShape, ListViewVTable};
 use crate::compute::{self, TakeKernel, TakeKernelAdapter};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
@@ -62,6 +62,10 @@ impl TakeKernel for ListViewVTable {
             )?
         });
 
+        // Take can reorder offsets, create gaps, and may introduce overlaps if the `indices`
+        // contain duplicates.
+        let new_shape = ListViewShape::default();
+
         // SAFETY: Take operation maintains all `ListViewArray` invariants:
         // - `new_offsets` and `new_sizes` are derived from existing valid child arrays.
         // - `new_offsets` and `new_sizes` are non-nullable.
@@ -69,11 +73,14 @@ impl TakeKernel for ListViewVTable {
         //   `indices`).
         // - Validity correctly reflects the combination of array and indices validity.
         let new_array = unsafe {
-            ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
+            ListViewArray::new_unchecked(
+                elements.clone(),
+                new_offsets,
+                new_sizes,
+                new_validity,
+                new_shape,
+            )
         };
-
-        // TODO(connor)[ListView]: IsZeroCopyToList optimization.
-        // TODO(connor)[ListView]: Rebuild if the threshold is too low.
 
         Ok(new_array.into_array())
     }

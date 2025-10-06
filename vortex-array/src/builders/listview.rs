@@ -17,7 +17,7 @@ use vortex_scalar::{ListScalar, Scalar};
 
 use super::lazy_null_builder::LazyNullBufferBuilder;
 use crate::array::{Array, ArrayRef, IntoArray};
-use crate::arrays::{ListViewArray, list_view_from_list};
+use crate::arrays::{ListViewArray, ListViewShape, list_view_from_list};
 use crate::builders::{
     ArrayBuilder, DEFAULT_BUILDER_CAPACITY, PrimitiveBuilder, builder_with_capacity,
 };
@@ -150,7 +150,11 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         let sizes = self.sizes_builder.finish();
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
-        ListViewArray::try_new(elements, offsets, sizes, validity)
+        // Because we built the `ListViewArray` up list by list, and we did not create any overlaps
+        // or gaps, we can guarantee that this is zero-copyable to `ListArray`.
+        let shape = ListViewShape::as_zero_copy_to_list();
+
+        ListViewArray::try_new(elements, offsets, sizes, validity, shape)
             .vortex_expect("Failed to create ListViewArray")
     }
 
