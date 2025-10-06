@@ -6744,6 +6744,7 @@ dependencies = [
  "arbitrary",
  "arcref",
  "async-trait",
+ "codspeed-divan-compat",
  "dyn-hash",
  "futures",
  "insta",
