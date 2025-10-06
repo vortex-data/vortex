@@ -13,7 +13,7 @@ use futures::StreamExt;
 use log::info;
 use parquet::arrow::async_writer::AsyncFileWriter;
 use url::Url;
-use vortex::compressor::{Compressor, CompactCompressor};
+use vortex::compressor::{CompactCompressor, Compressor};
 use vortex::file::VortexWriteOptions;
 use vortex_datafusion::VortexFormat;
 
