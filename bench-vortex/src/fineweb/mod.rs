@@ -147,7 +147,6 @@ impl Benchmark for Fineweb {
                     let array_stream = parquet_to_vortex(parquet)?;
                     let w = tokio::fs::File::create(vortex_path).await?;
                     VortexWriteOptions::default()
-                        .with_experimental_bloom_filters()
                         .write(w, array_stream)
                         .await
                         .map_err(|e| anyhow::anyhow!("Failed to write to VortexWriter: {e}"))
@@ -161,7 +160,6 @@ impl Benchmark for Fineweb {
                     let w = tokio::fs::File::create(vortex_path).await?;
                     VortexWriteOptions::default()
                         .with_compressor(Compressor::Compact(CompactCompressor::default()))
-                        .with_experimental_bloom_filters()
                         .write(w, array_stream)
                         .await
                         .map_err(|e| anyhow::anyhow!("Failed to write to VortexWriter: {e}"))
