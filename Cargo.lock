@@ -682,6 +682,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -996,13 +1005,12 @@ dependencies = [
 
 [[package]]
 name = "codspeed"
-version = "4.0.1"
+version = "3.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "877928176a982bb1f893bc34134ac9f8ee846d9588c92e63ba6bfd8d58f9a9c4"
+checksum = "35584c5fcba8059780748866387fb97c5a203bcfc563fc3d0790af406727a117"
 dependencies = [
  "anyhow",
- "bindgen",
- "cc",
+ "bincode",
  "colored",
  "glob",
  "libc",
@@ -1015,22 +1023,20 @@ dependencies = [
 
 [[package]]
 name = "codspeed-divan-compat"
-version = "4.0.1"
+version = "3.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7400ded48cf76cfe323060168c5c44780bcb06cc04477838ff5270c4b9f3c97"
+checksum = "adf64eda57508448d59efd940bad62ede7c50b0d451a150b8d6a0eca642792a6"
 dependencies = [
- "clap",
  "codspeed",
  "codspeed-divan-compat-macros",
  "codspeed-divan-compat-walltime",
- "regex",
 ]
 
 [[package]]
 name = "codspeed-divan-compat-macros"
-version = "4.0.1"
+version = "3.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94d61dee61d9811a82b9f176d942d2b558eba14ae0e0854a1d799e70c83b4b94"
+checksum = "058167258e819b16a4ba601fdfe270349ef191154758dbce122c62a698f70ba8"
 dependencies = [
  "divan-macros",
  "itertools 0.14.0",
@@ -1042,9 +1048,9 @@ dependencies = [
 
 [[package]]
 name = "codspeed-divan-compat-walltime"
-version = "4.0.1"
+version = "3.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a9857f85b8498c4c3c1b3c84478007c985e547ff5016820375a8dcd4b7a31f4"
+checksum = "48f9866ee3a4ef9d2868823ea5811886763af244f2df584ca247f49281c43f1f"
 dependencies = [
  "cfg-if",
  "clap",
@@ -3767,9 +3773,9 @@ checksum = "cf5a574dadd7941adeaa71823ecba5e28331b8313fb2e1c6a5c7e5981ea53ad6"
 
 [[package]]
 name = "nix"
-version = "0.30.1"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
+checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
 dependencies = [
  "bitflags",
  "cfg-if",
