@@ -7,11 +7,14 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
-use vortex_array::{Array, ArrayContext, ToCanonical};
+use vortex_array::arrays::StructArray;
+use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
+use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::struct_::StructLayout;
@@ -52,6 +55,9 @@ impl LayoutStrategy for StructStrategy {
                 .write_stream(ctx, segment_sink, stream, eof, handle)
                 .await;
         };
+
+        // TODO(aduffy): stitch nested fields all back together
+
         if HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
             != struct_dtype.names().len()
         {
@@ -77,23 +83,86 @@ impl LayoutStrategy for StructStrategy {
             return Ok(StructLayout::new(row_count, dtype, vec![]).into_layout());
         }
 
+        fn extract_field(chunk: &StructArray, field_path: &[usize]) -> ArrayRef {
+            match *field_path {
+                [] => chunk.to_array(),
+                [idx] => chunk.fields()[idx].clone(),
+                [idx, ref rest @ ..] => {
+                    let parent = chunk.fields()[idx].clone();
+                    extract_field(&parent.to_struct(), rest)
+                }
+            }
+        }
+
+        fn assign_field_paths(
+            fields: &StructFields,
+            field_path: Vec<usize>,
+            field_name: Vec<String>,
+            field_paths: &mut Vec<Vec<usize>>,
+            field_types: &mut HashMap<Vec<usize>, DType>,
+            field_names: &mut HashMap<Vec<usize>, FieldName>,
+        ) {
+            for (index, dtype) in fields.fields().enumerate() {
+                let name = fields.field_name(index).vortex_expect("field name");
+                let mut new_field = field_path.clone();
+                let mut new_name = field_name.clone();
+                new_field.push(index);
+                new_name.push(name.to_string());
+
+                if let Some(struct_field) = dtype.as_struct_fields_opt() {
+                    // recursively assign field paths
+                    assign_field_paths(
+                        struct_field,
+                        new_field,
+                        new_name,
+                        field_paths,
+                        field_types,
+                        field_names,
+                    );
+                } else {
+                    field_types.insert(new_field.clone(), dtype);
+                    field_names.insert(
+                        new_field.clone(),
+                        FieldName::from(new_name.iter().join(".")),
+                    );
+                    field_paths.push(new_field);
+                }
+            }
+        }
+
+        let mut field_paths = Vec::with_capacity(struct_dtype.nfields());
+        let mut field_dtypes = HashMap::new();
+        let mut field_names = HashMap::new();
+        assign_field_paths(
+            &struct_dtype,
+            vec![],
+            vec![],
+            &mut field_paths,
+            &mut field_dtypes,
+            &mut field_names,
+        );
+
+        let field_paths2 = field_paths.clone();
+
         // stream<struct_chunk> -> stream<vec<column_chunk>>
-        let columns_vec_stream = stream.map(|chunk| {
+        let columns_vec_stream = stream.map(move |chunk| {
             let (sequence_id, chunk) = chunk?;
             let mut sequence_pointer = sequence_id.descend();
             let struct_chunk = chunk.to_struct();
-            let columns: Vec<_> = (0..struct_chunk.struct_fields().nfields())
-                .map(|idx| {
+            let columns: Vec<_> = field_paths2
+                .iter()
+                .map(|field_path| {
                     (
                         sequence_pointer.advance(),
-                        struct_chunk.fields()[idx].to_array(),
+                        extract_field(&struct_chunk, field_path),
                     )
                 })
                 .collect();
+
             Ok(columns)
         });
 
-        let (column_streams_tx, column_streams_rx): (Vec<_>, Vec<_>) = (0..struct_dtype.nfields())
+        let (column_streams_tx, column_streams_rx): (Vec<_>, Vec<_>) = (0..field_paths.len())
             .map(|_| kanal::bounded_async(1))
             .unzip();
 
@@ -121,11 +190,9 @@ impl LayoutStrategy for StructStrategy {
             })
             .detach();
 
-        let column_dtypes = (0..struct_dtype.nfields()).map(move |idx| {
-            struct_dtype
-                .field_by_index(idx)
-                .vortex_expect("bound checked")
-        });
+        let column_dtypes = field_paths
+            .iter()
+            .map(|path| field_dtypes.get(path).vortex_expect("must work").clone());
 
         let layout_futures: Vec<_> = column_dtypes
             .zip_eq(column_streams_rx)
@@ -150,7 +217,23 @@ impl LayoutStrategy for StructStrategy {
         // TODO(os): transposed stream could count row counts as well,
         // This must hold though, all columns must have the same row count of the struct layout
         let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
-        Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
+
+        let flat_names = field_paths
+            .iter()
+            .map(|path| field_names.get(path).vortex_expect("must work").clone())
+            .collect_vec();
+        let flat_dtypes = field_paths
+            .iter()
+            .map(|path| field_dtypes.get(path).vortex_expect("must work").clone())
+            .collect_vec();
+        let flattened_struct_dtype = StructFields::new(FieldNames::from(flat_names), flat_dtypes);
+
+        Ok(StructLayout::new(
+            row_count,
+            DType::Struct(flattened_struct_dtype, dtype.nullability()),
+            column_layouts,
+        )
+        .into_layout())
     }
 
     fn buffered_bytes(&self) -> u64 {
