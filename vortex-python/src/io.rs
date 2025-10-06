@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 use pyo3::pyfunction;
 use tokio::fs::File;
 use vortex::arrow::FromArrowArray;
-use vortex::compressor::CompactCompressor;
+use vortex::compressor::{CompactCompressor, Compressor};
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexResult};
@@ -274,11 +274,11 @@ impl PyVortexWriteOptions {
 
             let mut strategy = WriteStrategyBuilder::new();
             if let Some(compressor) = self.compressor.as_ref() {
-                strategy = strategy.with_compressor(compressor.clone())
+                strategy = strategy.with_compressor(Compressor::Compact(compressor.clone()))
             }
 
             VortexWriteOptions::default()
-                .with_strategy(strategy.build())
+                .with_strategy_override(strategy.build())
                 .write(&mut file, iter.into_inner().into_array_stream())
                 .await
         })?;
