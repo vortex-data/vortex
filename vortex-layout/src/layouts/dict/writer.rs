@@ -388,7 +388,7 @@ const FP_TARGET: f64 = 0.01;
 /// one of the supported types.
 fn build_bloom_filter_from_dictionary_values(values: &dyn Array) -> Option<BloomFilter> {
     let ndv = values.len() - values.invalid_count();
-    let mut bloom = BloomFilter::new_sbbf_ndv_fp(ndv, FP_TARGET);
+    let mut bloom = BloomFilter::new_sbbf_ndv_fp(10 * ndv, FP_TARGET);
 
     fn insert_utf8(utf8: &VarBinViewArray, filter: &mut BloomFilter) {
         assert!(
