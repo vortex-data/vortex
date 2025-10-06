@@ -491,6 +491,7 @@ jobs:
             --exclude vortex-datafusion \
             --exclude vortex-duckdb \
             --exclude vortex-fuzz \
+            --exclude vortex-gpu \
             --exclude vortex-python \
             --exclude vortex-tui \
             --exclude xtask \

@@ -4,4 +4,5 @@
 mod bit_unpack;
 mod take;
 
+pub use bit_unpack::cuda_bit_unpack;
 pub use take::cuda_take;
