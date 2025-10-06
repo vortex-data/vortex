@@ -4,6 +4,7 @@
 pub mod bit_unpack;
 pub mod for_;
 mod for_bp;
+mod rle_decompress;
 mod take;
 mod task;
 

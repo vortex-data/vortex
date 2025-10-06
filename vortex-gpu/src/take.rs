@@ -41,12 +41,12 @@ pub fn cuda_take_masked(
     let values = dict.values().to_primitive();
     let codes = dict.codes().to_primitive();
 
-    let result = match_each_native_ptype!(values.ptype(), |V| {
+    match_each_native_ptype!(values.ptype(), |V| {
         match_each_unsigned_integer_ptype!(codes.ptype(), |C| {
             cuda_take_impl::<C, V>(codes, values, mask, ctx)
         })
-    });
-    result.map(Some)
+    })
+    .map(Some)
 }
 
 fn cuda_take_impl<Codes, Values>(
@@ -75,10 +75,9 @@ where
     let cu_codes = stream
         .memcpy_stod(codes_sl)
         .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
-    let mut cu_out = {
-        // TODO(joe): use uninit memory
+    let mut cu_out = unsafe {
         stream
-            .alloc_zeros::<Values>(codes.len().next_multiple_of(1024))
+            .alloc::<Values>(codes.len().next_multiple_of(1024))
             .map_err(|e| vortex_err!("Failed to allocate stream: {e}"))?
     };
 

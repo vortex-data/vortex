@@ -75,9 +75,9 @@ checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
 
 [[package]]
 name = "arrow-arith"
-version = "55.2.0"
+version = "56.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30feb679425110209ae35c3fbf82404a39a4c0436bb3ec36164d8bffed2a4ce4"
+checksum = "ad08897b81588f60ba983e3ca39bda2b179bdd84dced378e7df81a5313802ef8"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -89,9 +89,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-array"
-version = "55.2.0"
+version = "56.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70732f04d285d49054a48b72c54f791bb3424abae92d27aafdf776c98af161c8"
+checksum = "8548ca7c070d8db9ce7aa43f37393e4bfcf3f2d3681df278490772fd1673d08d"
 dependencies = [
  "ahash",
  "arrow-buffer",
@@ -99,15 +99,15 @@ dependencies = [
  "arrow-schema",
  "chrono",
  "half",
- "hashbrown 0.15.5",
+ "hashbrown 0.16.0",
  "num",
 ]
 
 [[package]]
 name = "arrow-buffer"
-version = "55.2.0"
+version = "56.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "169b1d5d6cb390dd92ce582b06b23815c7953e9dfaaea75556e89d890d19993d"
+checksum = "e003216336f70446457e280807a73899dd822feaf02087d31febca1363e2fccc"
 dependencies = [
  "bytes",
  "half",
@@ -116,9 +116,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-data"
-version = "55.2.0"
+version = "56.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8de1ce212d803199684b658fc4ba55fb2d7e87b213de5af415308d2fee3619c2"
+checksum = "a5c64fff1d142f833d78897a772f2e5b55b36cb3e6320376f0961ab0db7bd6d0"
 dependencies = [
  "arrow-buffer",
  "arrow-schema",
@@ -128,9 +128,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-ord"
-version = "55.2.0"
+version = "56.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6506e3a059e3be23023f587f79c82ef0bcf6d293587e3272d20f2d30b969b5a7"
+checksum = "3c8f82583eb4f8d84d4ee55fd1cb306720cddead7596edce95b50ee418edf66f"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -141,18 +141,18 @@ dependencies = [
 
 [[package]]
 name = "arrow-schema"
-version = "55.2.0"
+version = "56.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af7686986a3bf2254c9fb130c623cdcb2f8e1f15763e7c71c310f0834da3d292"
+checksum = "b3aa9e59c611ebc291c28582077ef25c97f1975383f1479b12f3b9ffee2ffabe"
 dependencies = [
  "bitflags",
 ]
 
 [[package]]
 name = "arrow-select"
-version = "55.2.0"
+version = "56.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd2b45757d6a2373faa3352d02ff5b54b098f5e21dccebc45a21806bc34501e5"
+checksum = "8c41dbbd1e97bfcaee4fcb30e29105fb2c75e4d82ae4de70b792a5d3f66b2e7a"
 dependencies = [
  "ahash",
  "arrow-array",
@@ -164,9 +164,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-string"
-version = "55.2.0"
+version = "56.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0377d532850babb4d927a06294314b316e23311503ed580ec6ce6a0158f49d40"
+checksum = "53f5183c150fbc619eede22b861ea7c0eebed8eaac0333eaa7f6da5205fd504d"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -465,6 +465,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "console"
+version = "0.15.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
+dependencies = [
+ "encode_unicode",
+ "libc",
+ "once_cell",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "const-random"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -589,6 +601,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
+name = "encode_unicode"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
+
+[[package]]
 name = "enum-iterator"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -686,9 +704,9 @@ dependencies = [
 
 [[package]]
 name = "fastlanes"
-version = "0.2.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "251dd75b23378272e82d385f00937c6b81c772fba85e69ffa4e01e5f5b7717c5"
+checksum = "38b79094ac813a000b92adff4231a6d291d063dc6312b3b88c154a5ea0a195d0"
 dependencies = [
  "arrayref",
  "const_for",
@@ -918,12 +936,6 @@ checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 
 [[package]]
 name = "hashbrown"
-version = "0.15.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
-
-[[package]]
-name = "hashbrown"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5419bdc4f6a9207fbeba6d11b604d481addf78ecd10c11ad51e76c2f6482748d"
@@ -1077,6 +1089,17 @@ checksum = "3acae9609540aa318d1bc588455225fb2085b9ed0c4f6bd0d9d5bcd86f1a0344"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "insta"
+version = "1.43.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46fdb647ebde000f43b5b53f773c30cf9b0cb4300453208713fa38b2c70935a0"
+dependencies = [
+ "console",
+ "once_cell",
+ "similar",
 ]
 
 [[package]]
@@ -1965,6 +1988,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
 name = "sketches-ddsketch"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2314,14 +2343,15 @@ dependencies = [
  "arrow-schema",
  "arrow-select",
  "arrow-string",
+ "async-trait",
  "bitvec",
  "cfg-if",
- "dyn-hash",
  "enum-iterator",
  "flatbuffers",
  "futures",
  "getrandom 0.3.3",
  "humansize",
+ "insta",
  "inventory",
  "itertools",
  "log",
@@ -2334,14 +2364,15 @@ dependencies = [
  "prost",
  "rand",
  "rustc-hash",
- "serde",
  "simdutf8",
  "static_assertions",
+ "termtree",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-mask",
+ "vortex-metrics",
  "vortex-scalar",
  "vortex-utils",
 ]
@@ -2463,6 +2494,7 @@ dependencies = [
  "prost",
  "serde",
  "static_assertions",
+ "vortex-buffer",
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-proto",
@@ -2485,7 +2517,9 @@ name = "vortex-expr"
 version = "0.1.0"
 dependencies = [
  "arcref",
+ "async-trait",
  "dyn-hash",
+ "futures",
  "itertools",
  "parking_lot",
  "paste",
@@ -2519,6 +2553,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -2574,6 +2609,7 @@ dependencies = [
 name = "vortex-fsst"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "fsst-rs",
  "prost",
  "vortex-array",
