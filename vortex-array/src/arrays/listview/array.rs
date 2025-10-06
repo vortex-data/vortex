@@ -106,17 +106,6 @@ pub struct ListViewArray {
 }
 
 impl ListViewArray {
-    /// Get the length of the array.
-    pub fn len(&self) -> usize {
-        debug_assert_eq!(self.offsets.len(), self.sizes.len());
-        self.offsets.len()
-    }
-
-    /// Check if the array is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     /// Creates a new [`ListViewArray`].
     ///
     /// # Panics
@@ -177,7 +166,7 @@ impl ListViewArray {
     }
 
     /// Validates the components that would be used to create a [`ListViewArray`].
-    pub(crate) fn validate(
+    pub fn validate(
         elements: &dyn Array,
         offsets: &dyn Array,
         sizes: &dyn Array,

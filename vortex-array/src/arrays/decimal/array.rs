@@ -150,7 +150,7 @@ impl DecimalArray {
     /// Validates the components that would be used to create a [`DecimalArray`].
     ///
     /// This function checks all the invariants required by [`DecimalArray::new_unchecked`].
-    pub(crate) fn validate<T: NativeDecimalType>(
+    pub fn validate<T: NativeDecimalType>(
         buffer: &Buffer<T>,
         validity: &Validity,
     ) -> VortexResult<()> {

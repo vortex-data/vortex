@@ -116,10 +116,7 @@ impl PrimitiveArray {
     ///
     /// This function checks all the invariants required by [`PrimitiveArray::new_unchecked`].
     #[inline]
-    pub(crate) fn validate<T: NativePType>(
-        buffer: &Buffer<T>,
-        validity: &Validity,
-    ) -> VortexResult<()> {
+    pub fn validate<T: NativePType>(buffer: &Buffer<T>, validity: &Validity) -> VortexResult<()> {
         if let Some(len) = validity.maybe_len()
             && buffer.len() != len
         {
