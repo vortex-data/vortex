@@ -254,4 +254,20 @@ mod tests {
             unpacked.as_slice::<u32>()
         );
     }
+
+    #[test]
+    fn test_cuda_bitunpack_u64() {
+        let primitive_array = PrimitiveArray::new(
+            (0u64..4096).map(|i| i % 63).collect::<Buffer<_>>(),
+            Validity::NonNullable,
+        );
+        let array = BitPackedArray::encode(primitive_array.as_ref(), 6).vortex_unwrap();
+        let ctx = CudaContext::new(0).unwrap();
+        ctx.set_blocking_synchronize().unwrap();
+        let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
+        assert_eq!(
+            primitive_array.as_slice::<u64>(),
+            unpacked.as_slice::<u64>()
+        );
+    }
 }
