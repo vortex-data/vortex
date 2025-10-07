@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use cudarc::driver::CudaViewMut;
+use cudarc::driver::{CudaEvent, CudaViewMut};
 use vortex_array::Canonical;
 use vortex_error::VortexResult;
 
 pub trait GPUTask {
     // Must call `launch_task` or `launch_task_timed` once
-    fn launch_task(&mut self) -> VortexResult<()>;
+    fn launch_task(&mut self) -> VortexResult<(CudaEvent, CudaEvent)>;
 
     // Must call this after launch_task
     fn export_result(&mut self) -> VortexResult<Canonical>;

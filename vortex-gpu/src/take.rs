@@ -7,6 +7,7 @@ use std::sync::Arc;
 use cudarc::driver::{
     CudaContext, CudaFunction, DeviceRepr, LaunchConfig, PushKernelArg, ValidAsZeroBits,
 };
+use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::nvrtc::Ptx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
@@ -97,6 +98,7 @@ where
         .transpose()?;
 
     let mut launch = stream.launch_builder(&kernel_func);
+    launch.record_kernel_launch(CU_EVENT_DEFAULT);
     launch.arg(&cu_codes);
     launch.arg(&cu_values);
     if let Some(cu_mask) = cu_mask.as_ref() {

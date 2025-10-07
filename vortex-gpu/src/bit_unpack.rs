@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::driver::{
-    CudaContext, CudaFunction, CudaSlice, CudaStream, CudaViewMut, DeviceRepr, LaunchConfig,
-    PushKernelArg,
+    CudaContext, CudaEvent, CudaFunction, CudaSlice, CudaStream, CudaViewMut, DeviceRepr,
+    LaunchConfig, PushKernelArg,
 };
 use cudarc::nvrtc::Ptx;
 use parking_lot::RwLock;
@@ -95,21 +95,11 @@ pub fn cuda_bit_unpack_timed(
     let stream = ctx.default_stream();
     let mut task = new_task(array, ctx.clone(), stream.clone())?;
 
-    let start = stream
-        .record_event(Some(CU_EVENT_DEFAULT))
-        .ok()
-        .vortex_expect("Failed to record event");
-
-    task.launch_task()?;
+    let (start, end) = task.launch_task()?;
 
     // Synchronize to ensure kernel completes
     ctx.synchronize()
         .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
-
-    let end = stream
-        .record_event(Some(CU_EVENT_DEFAULT))
-        .ok()
-        .vortex_expect("Failed to record event");
 
     // Get elapsed time in milliseconds
     let elapsed_ms = Duration::from_secs_f32(
@@ -190,13 +180,14 @@ pub fn new_task(
 }
 
 impl<P: NativePType + DeviceRepr> GPUTask for BitPackingTask<P> {
-    fn launch_task(&mut self) -> VortexResult<()> {
+    fn launch_task(&mut self) -> VortexResult<(CudaEvent, CudaEvent)> {
         let mut launch = self.stream.launch_builder(&self.func);
+        launch.record_kernel_launch(CU_EVENT_DEFAULT);
         launch.arg(&self.packed);
         launch.arg(&self.unpacked);
         unsafe { launch.launch(self.launch_config) }
             .map_err(|e| vortex_err!("Failed to launch: {e}"))
-            .map(|_| ())
+            .map(|ev| ev.vortex_expect("Failed to get event"))
     }
 
     fn export_result(&mut self) -> VortexResult<Canonical> {

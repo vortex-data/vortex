@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::driver::{
-    CudaContext, CudaFunction, CudaStream, CudaViewMut, DeviceRepr, LaunchConfig, PushKernelArg,
+    CudaContext, CudaEvent, CudaFunction, CudaStream, CudaViewMut, DeviceRepr, LaunchConfig,
+    PushKernelArg,
 };
 use cudarc::nvrtc::Ptx;
 use vortex_array::Canonical;
@@ -64,17 +65,17 @@ fn cuda_for_kernel(ptype: PType, ctx: &Arc<CudaContext>) -> VortexResult<CudaFun
         .load_module(Ptx::from_file("kernels/for.ptx"))
         .map_err(|e| vortex_err!("Failed to load kernel module: {e}"))?;
 
-    let kernel_func = module
+    module
         .load_function(format!("for_v{}", ptype).as_ref())
-        .map_err(|e| vortex_err!("Failed to load function: {e}"))?;
-    Ok(kernel_func)
+        .map_err(|e| vortex_err!("Failed to load function: {e}"))
 }
 
 impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {
-    fn launch_task(&mut self) -> VortexResult<()> {
+    fn launch_task(&mut self) -> VortexResult<(CudaEvent, CudaEvent)> {
         let len = self.len();
         self.bp_task.launch_task()?;
         let mut launch = self.stream.launch_builder(&self.func);
+        launch.record_kernel_launch(CU_EVENT_DEFAULT);
         let mut view = unsafe {
             self.bp_task
                 .output()
@@ -85,7 +86,7 @@ impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {
         launch.arg(&self.reference);
         unsafe { launch.launch(self.launch_config) }
             .map_err(|e| vortex_err!("Failed to launch: {e}"))
-            .map(|_| ())
+            .map(|ev| ev.vortex_expect("Failed to get event"))
     }
 
     fn export_result(&mut self) -> VortexResult<Canonical> {
@@ -123,17 +124,9 @@ pub fn cuda_for_unpack_timed(
 ) -> VortexResult<(PrimitiveArray, Duration)> {
     let stream = ctx.default_stream();
     let mut task = new_task(array, ctx.clone(), stream.clone())?;
-    let start = stream
-        .record_event(Some(CU_EVENT_DEFAULT))
-        .ok()
-        .vortex_expect("Failed to record event");
-    task.launch_task()?;
+    let (start, end) = task.launch_task()?;
     ctx.synchronize()
         .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
-    let end = stream
-        .record_event(Some(CU_EVENT_DEFAULT))
-        .ok()
-        .vortex_expect("Failed to record event");
     let time = Duration::from_secs_f32(
         start
             .elapsed_ms(&end)
