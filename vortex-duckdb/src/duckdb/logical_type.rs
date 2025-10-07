@@ -5,7 +5,7 @@ use std::ffi::{CStr, CString};
 use std::fmt::{Debug, Formatter};
 
 use vortex::dtype::{ExtDType, FieldName};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 
 use crate::cpp::*;
 use crate::wrapper;
@@ -217,8 +217,8 @@ impl LogicalType {
         unsafe { LogicalType::own(duckdb_struct_type_child_type(self.as_ptr(), idx as idx_t)) }
     }
 
-    pub fn struct_child_name(&self, idx: usize) -> VortexResult<DDBString> {
-        unsafe { DDBString::new(duckdb_struct_type_child_name(self.as_ptr(), idx as idx_t)) }
+    pub fn struct_child_name(&self, idx: usize) -> DDBString {
+        unsafe { DDBString::own(duckdb_struct_type_child_name(self.as_ptr(), idx as idx_t)) }
     }
 
     pub fn struct_type_child_count(&self) -> usize {
@@ -230,8 +230,8 @@ impl LogicalType {
         unsafe { LogicalType::own(duckdb_union_type_member_type(self.as_ptr(), idx as idx_t)) }
     }
 
-    pub fn union_member_name(&self, idx: usize) -> VortexResult<DDBString> {
-        unsafe { DDBString::new(duckdb_union_type_member_name(self.as_ptr(), idx as idx_t)) }
+    pub fn union_member_name(&self, idx: usize) -> DDBString {
+        unsafe { DDBString::own(duckdb_union_type_member_name(self.as_ptr(), idx as idx_t)) }
     }
 
     pub fn union_member_count(&self) -> usize {
@@ -249,28 +249,23 @@ impl Debug for LogicalType {
     }
 }
 
-/// String wrapper that represents strings returned from duckdb C API. These need to be freed using `duckdb_free`.
-#[derive(Debug)]
-pub struct DDBString(*mut std::ffi::c_char);
-
-impl DDBString {
-    pub unsafe fn new(ptr: *mut std::ffi::c_char) -> VortexResult<Self> {
-        if ptr.is_null() {
-            vortex_bail!("DuckDB returned a null string");
-        }
-
+wrapper!(
+    #[derive(Debug)]
+    DDBString,
+    *mut std::ffi::c_char,
+    |ptr: *mut std::ffi::c_char| {
         unsafe { CStr::from_ptr(ptr) }
             .to_str()
-            .map_err(|e| vortex_err!("Failed to convert C string to str {e}"))?;
-
-        Ok(Self(ptr))
-    }
-}
+            .map_err(|e| vortex_err!("Failed to convert C string to str: {e}"))
+            .vortex_unwrap()
+    },
+    |ptr: &mut *mut std::ffi::c_char| unsafe { duckdb_free((*ptr).cast()) }
+);
 
 impl AsRef<str> for DDBString {
     fn as_ref(&self) -> &str {
         // SAFETY: The string have been validated on construction.
-        unsafe { str::from_utf8_unchecked(CStr::from_ptr(self.0).to_bytes()) }
+        unsafe { str::from_utf8_unchecked(CStr::from_ptr(self.ptr).to_bytes()) }
     }
 }
 
@@ -289,12 +284,6 @@ impl PartialEq<str> for DDBString {
 impl From<DDBString> for FieldName {
     fn from(value: DDBString) -> Self {
         FieldName::from(value.as_ref())
-    }
-}
-
-impl Drop for DDBString {
-    fn drop(&mut self) {
-        unsafe { duckdb_free(self.0.cast()) }
     }
 }
 
@@ -591,10 +580,8 @@ mod tests {
         for idx in 0..original_count {
             let original_child_type = struct_type.struct_child_type(idx);
             let cloned_child_type = cloned.struct_child_type(idx);
-            let original_child_name = struct_type
-                .struct_child_name(idx)
-                .vortex_expect("valid utf-8");
-            let cloned_child_name = cloned.struct_child_name(idx).vortex_expect("valid utf-8");
+            let original_child_name = struct_type.struct_child_name(idx);
+            let cloned_child_name = cloned.struct_child_name(idx);
 
             assert_eq!(
                 original_child_type.as_type_id(),
@@ -640,10 +627,8 @@ mod tests {
         for idx in 0..original_count {
             let original_member_type = union_type.union_member_type(idx);
             let cloned_member_type = cloned.union_member_type(idx);
-            let original_member_name = union_type
-                .union_member_name(idx)
-                .vortex_expect("valid utf-8");
-            let cloned_member_name = cloned.union_member_name(idx).vortex_expect("valid utf-8");
+            let original_member_name = union_type.union_member_name(idx);
+            let cloned_member_name = cloned.union_member_name(idx);
 
             assert_eq!(
                 original_member_type.as_type_id(),
