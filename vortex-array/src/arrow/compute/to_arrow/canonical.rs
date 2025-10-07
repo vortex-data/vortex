@@ -420,7 +420,7 @@ fn to_arrow_struct(
 
     let field_arrays = fields
         .iter()
-        .zip_eq(array.fields())
+        .zip_eq(array.fields().iter())
         .map(|(field, arr)| {
             // We check that the Vortex array nullability is compatible with the field
             // nullability. In other words, make sure we don't return any nulls for a

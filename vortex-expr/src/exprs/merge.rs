@@ -98,9 +98,11 @@ impl VTable for MergeVTable {
 
             let struct_array = value_array.to_struct();
 
-            for (i, field_name) in struct_array.names().iter().enumerate() {
-                let array = struct_array.fields()[i].clone();
-
+            for (field_name, array) in struct_array
+                .names()
+                .iter()
+                .zip_eq(struct_array.fields().iter().cloned())
+            {
                 // Update or insert field.
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
                     arrays[idx] = array;

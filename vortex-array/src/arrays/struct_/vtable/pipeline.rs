@@ -23,7 +23,7 @@ use crate::{Array, ArrayRef, Canonical, IntoArray};
 impl PipelineVTable<StructVTable> for StructVTable {
     fn to_operator(array: &StructArray) -> VortexResult<Option<OperatorRef>> {
         let mut children = Vec::with_capacity(array.fields.len());
-        for field in array.fields() {
+        for field in array.fields().iter() {
             if let Some(operator) = field.to_operator()? {
                 children.push(operator);
             } else {

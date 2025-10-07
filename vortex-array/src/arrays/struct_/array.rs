@@ -141,8 +141,8 @@ pub struct StructArray {
 }
 
 impl StructArray {
-    pub fn fields(&self) -> &[ArrayRef] {
-        &self.fields
+    pub fn fields(&self) -> Arc<[ArrayRef]> {
+        self.fields.clone()
     }
 
     pub fn field_by_name(&self, name: impl AsRef<str>) -> VortexResult<&ArrayRef> {
@@ -378,6 +378,7 @@ impl StructArray {
         let mut children = Vec::with_capacity(projection.len());
         let mut names = Vec::with_capacity(projection.len());
 
+        let fields = self.fields();
         for f_name in projection.iter() {
             let idx = self
                 .names()
@@ -386,7 +387,7 @@ impl StructArray {
                 .ok_or_else(|| vortex_err!("Unknown field {f_name}"))?;
 
             names.push(self.names()[idx].clone());
-            children.push(self.fields()[idx].clone());
+            children.push(fields[idx].clone());
         }
 
         StructArray::try_new(
@@ -409,10 +410,7 @@ impl StructArray {
             .iter()
             .position(|field_name| field_name.as_ref() == name.as_ref())?;
 
-        // Get the field being removed (clone it since we need to return it)
         let field = self.fields[position].clone();
-
-        // Reconstruct the Arc without the removed field
         let new_fields: Arc<[ArrayRef]> = self
             .fields
             .iter()

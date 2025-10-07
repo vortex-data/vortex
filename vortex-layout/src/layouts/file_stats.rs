@@ -87,7 +87,12 @@ impl FileStatsAccumulator {
         let (sequence_id, chunk) = chunk?;
         if chunk.dtype().is_struct() {
             let chunk = chunk.to_struct();
-            for (acc, field) in self.accumulators.lock().iter_mut().zip_eq(chunk.fields()) {
+            for (acc, field) in self
+                .accumulators
+                .lock()
+                .iter_mut()
+                .zip_eq(chunk.fields().iter())
+            {
                 acc.push_chunk(field)?;
             }
         } else {
