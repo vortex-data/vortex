@@ -261,8 +261,11 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array =
-            BitPackedArray::encode(primitive_array.as_ref(), bit_width as u8).vortex_unwrap();
+        let array = BitPackedArray::encode(
+            primitive_array.as_ref(),
+            u8::try_from(bit_width).vortex_expect(""),
+        )
+        .vortex_unwrap();
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
@@ -301,8 +304,11 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array =
-            BitPackedArray::encode(primitive_array.as_ref(), bit_width as u8).vortex_unwrap();
+        let array = BitPackedArray::encode(
+            primitive_array.as_ref(),
+            u8::try_from(bit_width).vortex_expect(""),
+        )
+        .vortex_unwrap();
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
@@ -357,8 +363,11 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array =
-            BitPackedArray::encode(primitive_array.as_ref(), bit_width as u8).vortex_unwrap();
+        let array = BitPackedArray::encode(
+            primitive_array.as_ref(),
+            u8::try_from(bit_width).vortex_expect(""),
+        )
+        .vortex_unwrap();
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
@@ -445,8 +454,11 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array =
-            BitPackedArray::encode(primitive_array.as_ref(), bit_width as u8).vortex_unwrap();
+        let array = BitPackedArray::encode(
+            primitive_array.as_ref(),
+            u8::try_from(bit_width).vortex_expect(""),
+        )
+        .vortex_unwrap();
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
