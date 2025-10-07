@@ -47,9 +47,9 @@ fn make_for_bitpackable_array(len: usize) -> FoRArray {
     let mut rng = StdRng::seed_from_u64(42);
     let reference = 100u32;
 
-    // Generate values that are reference + (0-63), so they fit in 6 bits after FoR encoding
+    // Generate values that fit in 6 bits (0-63)
     let values = (0..len)
-        .map(|_| rng.random_range(0..064))
+        .map(|_| rng.random_range(0..64))
         .collect::<BufferMut<u32>>()
         .into_array()
         .to_primitive();
@@ -124,6 +124,7 @@ fn benchmark_gpu_for_decompress_kernel_only(c: &mut Criterion) {
     group.finish();
 }
 
+#[allow(dead_code)]
 fn benchmark_cpu_canonicalize(c: &mut Criterion) {
     let mut group = c.benchmark_group("cpu_canonicalize");
 
