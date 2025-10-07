@@ -184,7 +184,7 @@ pub fn new_task(
             launch_config,
             stream,
             len: array.len(),
-            ptype: P::PTYPE,
+            ptype: array.ptype(),
         }))
     })
 }

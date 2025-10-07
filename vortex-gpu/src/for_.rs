@@ -64,10 +64,9 @@ fn cuda_for_kernel(ptype: PType, ctx: &Arc<CudaContext>) -> VortexResult<CudaFun
         .load_module(Ptx::from_file("kernels/for.ptx"))
         .map_err(|e| vortex_err!("Failed to load kernel module: {e}"))?;
 
-    let kernel_func = module
+    module
         .load_function(format!("for_v{}", ptype).as_ref())
-        .map_err(|e| vortex_err!("Failed to load function: {e}"))?;
-    Ok(kernel_func)
+        .map_err(|e| vortex_err!("Failed to load function: {e}"))
 }
 
 impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {

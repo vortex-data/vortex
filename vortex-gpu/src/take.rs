@@ -141,10 +141,9 @@ where
         &Values::PTYPE
     );
 
-    let kernel_func = module
+    module
         .load_function(&kernel_name)
-        .map_err(|e| vortex_err!("Failed to load function: {e}"))?;
-    Ok(kernel_func)
+        .map_err(|e| vortex_err!("Failed to load function: {e}"))
 }
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
