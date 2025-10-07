@@ -44,3 +44,8 @@ runs:
     - name: Export Path
       shell: bash
       run: echo "PATH=$PATH" >> $GITHUB_ENV
+
+    - name: Install Protoc (for lance-encoding build step)
+      uses: arduino/setup-protoc@v3
+      with:
+        version: "29.3"

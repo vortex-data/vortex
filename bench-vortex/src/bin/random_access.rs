@@ -9,7 +9,7 @@ use bench_vortex::bench_run::run_with_setup;
 use bench_vortex::datasets::taxi_data::*;
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::TimingMeasurement;
-use bench_vortex::random_access::take::{take_parquet, take_vortex_tokio};
+use bench_vortex::random_access::take::{take_lance, take_parquet, take_vortex_tokio};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{Engine, Format, Target, setup_logging_and_tracing};
@@ -29,7 +29,7 @@ struct Args {
         long,
         value_delimiter = ',',
         value_enum,
-        default_values_t = vec![Format::Parquet, Format::OnDiskVortex]
+        default_values_t = vec![Format::Parquet, Format::Lance, Format::OnDiskVortex]
     )]
     formats: Vec<Format>,
     #[arg(short, long, default_value_t = 10)]
@@ -106,7 +106,7 @@ fn random_access(
     for format in formats {
         let engine = match format {
             Format::OnDiskVortex | Format::VortexCompact => Engine::Vortex,
-            Format::Parquet => Engine::Arrow,
+            Format::Parquet | Format::Lance => Engine::Arrow,
             Format::Csv | Format::Arrow | Format::OnDiskDuckDB => unimplemented!(),
         };
         let target = Target::new(engine, format);
@@ -149,6 +149,19 @@ fn random_access(
                 create_timing_measurement(
                     |indices| async { take_parquet(&taxi_parquet, indices).await },
                     "random-access/parquet-tokio-local-disk".to_string(),
+                    STORAGE_NVME.to_owned(),
+                    &runtime,
+                    &indices,
+                    iterations,
+                    target,
+                )
+            }
+            Format::Lance => {
+                let taxi_lance = runtime.block_on(taxi_data_lance())?;
+
+                create_timing_measurement(
+                    |indices| async { take_lance(&taxi_lance, indices).await },
+                    "random-access/lance-tokio-local-disk".to_string(),
                     STORAGE_NVME.to_owned(),
                     &runtime,
                     &indices,

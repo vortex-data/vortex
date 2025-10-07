@@ -605,10 +605,6 @@ jobs:
         with:
           toolchain: nightly
       - uses: ./.github/actions/setup-flatc
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: "regenerate all .fbs/.proto Rust code"
         run: |
           cargo xtask generate-fbs
