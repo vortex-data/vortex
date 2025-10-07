@@ -156,10 +156,7 @@ impl StructArray {
 
     pub fn field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
         let name = name.as_ref();
-        self.names()
-            .iter()
-            .position(|field_name| field_name.as_ref() == name)
-            .map(|idx| &self.fields[idx])
+        self.struct_fields().find(name).map(|idx| &self.fields[idx])
     }
 
     pub fn names(&self) -> &FieldNames {
