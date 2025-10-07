@@ -8,7 +8,6 @@ use std::ops::Range;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
@@ -26,7 +25,7 @@ use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-#[derive(Copy, Clone, Serialize, Deserialize, prost::Message)]
+#[derive(Copy, Clone, prost::Message)]
 pub struct PatchesMetadata {
     #[prost(uint64, tag = "1")]
     len: u64,

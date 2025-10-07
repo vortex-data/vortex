@@ -6483,7 +6483,6 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "rustc-hash",
- "serde",
  "simdutf8",
  "static_assertions",
  "tabled",
@@ -6543,7 +6542,7 @@ dependencies = [
  "log",
  "memmap2",
  "num-traits",
- "serde",
+ "serde_core",
  "simdutf8",
  "vortex-error",
 ]
