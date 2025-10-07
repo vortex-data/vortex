@@ -135,19 +135,22 @@ impl VarBinViewBuilder {
         self.completed.len()
     }
 
-    // Pushes an array of values into the buffer, where the buffers are sections of a
-    // VarBinView and the views are the BinaryView's of the VarBinView *already with their*
-    // buffers adjusted.
-    // The views must all point to sections of the buffers and the validity length must match
-    // the view length.
-    //
-    /// ## Warning
-    /// This method does not check utilization of the given buffers, callers must provide
-    /// buffers that are fully utilised by the given adjusted views.
+    /// Pushes buffers and pre-adjusted views into the builder.
     ///
-    /// ## Panics
-    /// Panics if this builder deduplicates buffers and if any of the given buffers already
-    /// exists on this builder
+    /// The provided `buffer` slices contain sections of data from a `VarBinViewArray`, and the
+    /// `views` are `BinaryView`s that have already been adjusted to reference the correct buffer
+    /// indices and offsets for this builder. All views must point to valid sections within the
+    /// provided buffers, and the validity length must match the view length.
+    ///
+    /// # Warning
+    ///
+    /// This method does not check utilization of the given buffers. Callers must provide
+    /// buffers that are fully utilized by the given adjusted views.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this builder deduplicates buffers and any of the given buffers already
+    /// exist in this builder.
     pub fn push_buffer_and_adjusted_views(
         &mut self,
         buffer: &[ByteBuffer],
