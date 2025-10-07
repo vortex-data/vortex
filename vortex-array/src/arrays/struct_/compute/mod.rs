@@ -6,7 +6,6 @@ mod filter;
 mod mask;
 mod zip;
 
-use itertools::Itertools;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -44,7 +43,7 @@ impl TakeKernel for StructVTable {
                 .fields()
                 .iter()
                 .map(|field| take(field, inner_indices))
-                .try_collect()?,
+                .collect::<Result<Vec<_>, _>>()?,
             array.struct_fields().clone(),
             indices.len(),
             array.validity().take(indices)?,

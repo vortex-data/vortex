@@ -322,7 +322,7 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
                         Self::from_arrow(c.as_ref(), field.is_nullable())
                     }
                 })
-                .collect(),
+                .collect::<Vec<_>>(),
             value.len(),
             nulls(value.nulls(), nullable),
         )

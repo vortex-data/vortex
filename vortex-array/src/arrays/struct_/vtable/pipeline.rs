@@ -18,7 +18,7 @@ use crate::operator::{
 };
 use crate::validity::Validity;
 use crate::vtable::PipelineVTable;
-use crate::{Array, Canonical, IntoArray};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 impl PipelineVTable<StructVTable> for StructVTable {
     fn to_operator(array: &StructArray) -> VortexResult<Option<OperatorRef>> {
@@ -168,7 +168,7 @@ impl BatchExecution for StructExecution {
     async fn execute(self: Box<Self>) -> VortexResult<Canonical> {
         let children: Vec<_> =
             try_join_all(self.children.into_iter().map(|child| child.execute())).await?;
-        let children = children
+        let children: Vec<ArrayRef> = children
             .into_iter()
             .map(|canonical| canonical.into_array())
             .collect();
