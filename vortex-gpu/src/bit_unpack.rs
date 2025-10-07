@@ -248,7 +248,7 @@ mod tests {
     #[case::bw_5(5)]
     #[case::bw_6(6)]
     #[case::bw_7(7)]
-    fn test_cuda_bitunpack_u8_all_widths(#[case] bit_width: usize) {
+    fn test_cuda_bitunpack_u8(#[case] bit_width: u8) {
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
 
@@ -261,11 +261,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array = BitPackedArray::encode(
-            primitive_array.as_ref(),
-            u8::try_from(bit_width).vortex_expect(""),
-        )
-        .vortex_unwrap();
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
@@ -291,7 +287,7 @@ mod tests {
     #[case::bw_13(13)]
     #[case::bw_14(14)]
     #[case::bw_15(15)]
-    fn test_cuda_bitunpack_u16_all_widths(#[case] bit_width: usize) {
+    fn test_cuda_bitunpack_u16(#[case] bit_width: u8) {
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
 
@@ -304,11 +300,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array = BitPackedArray::encode(
-            primitive_array.as_ref(),
-            u8::try_from(bit_width).vortex_expect(""),
-        )
-        .vortex_unwrap();
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
@@ -350,7 +342,7 @@ mod tests {
     #[case::bw_29(29)]
     #[case::bw_30(30)]
     #[case::bw_31(31)]
-    fn test_cuda_bitunpack_u32_all_widths(#[case] bit_width: usize) {
+    fn test_cuda_bitunpack_u32(#[case] bit_width: u8) {
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
 
@@ -363,11 +355,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array = BitPackedArray::encode(
-            primitive_array.as_ref(),
-            u8::try_from(bit_width).vortex_expect(""),
-        )
-        .vortex_unwrap();
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
@@ -441,7 +429,7 @@ mod tests {
     #[case::bw_61(61)]
     #[case::bw_62(62)]
     #[case::bw_63(63)]
-    fn test_cuda_bitunpack_u64_all_widths(#[case] bit_width: usize) {
+    fn test_cuda_bitunpack_u64(#[case] bit_width: u8) {
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
 
@@ -454,11 +442,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array = BitPackedArray::encode(
-            primitive_array.as_ref(),
-            u8::try_from(bit_width).vortex_expect(""),
-        )
-        .vortex_unwrap();
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
