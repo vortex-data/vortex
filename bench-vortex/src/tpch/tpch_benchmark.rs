@@ -218,6 +218,7 @@ impl TpcHBenchmark {
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
                 Format::Csv => todo!("csv unsupported for tpch benchmark"),
+                Format::Lance => unimplemented!(),
             }
         }
 

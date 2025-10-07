@@ -171,7 +171,7 @@ fn generate_table_files(
         Format::Parquet | Format::Arrow | Format::OnDiskDuckDB => Format::Parquet,
         Format::OnDiskVortex => Format::OnDiskVortex,
         Format::VortexCompact => Format::VortexCompact,
-        f @ Format::Csv => {
+        f @ Format::Csv | f @ Format::Lance => {
             anyhow::bail!("{f} format is not supported by tpchgen");
         }
     };
