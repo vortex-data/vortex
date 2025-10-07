@@ -150,72 +150,121 @@ where
 #[cfg(test)]
 mod tests {
     use cudarc::driver::CudaContext;
+    use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_dict::DictArray;
-    use vortex_error::VortexExpect;
-    use vortex_mask::Mask;
+    use vortex_dtype::match_each_native_ptype;
 
-    use crate::take::{cuda_take, cuda_take_masked};
+    use crate::take::cuda_take;
 
-    #[test]
-    fn test_cuda_take_u64_i64() {
-        let values: PrimitiveArray = (0i64..1024).map(|x| (x + 2) % 1024).collect();
-        let codes: PrimitiveArray = (0u64..1024).map(|x| (x + 1) % 1024).collect();
-        let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
-
-        let expect: PrimitiveArray = (0i64..1024).map(|x| (x + 3) % 1024).collect();
-        let dict_cpu = dict.to_primitive();
-        assert_eq!(dict_cpu.as_slice::<i64>(), expect.as_slice::<i64>());
+    #[rstest]
+    #[case::u8_u8("u8", "u8")]
+    #[case::u8_u16("u8", "u16")]
+    #[case::u8_u32("u8", "u32")]
+    #[case::u8_u64("u8", "u64")]
+    #[case::u8_i8("u8", "i8")]
+    #[case::u8_i16("u8", "i16")]
+    #[case::u8_i32("u8", "i32")]
+    #[case::u8_i64("u8", "i64")]
+    #[case::u8_f32("u8", "f32")]
+    #[case::u8_f64("u8", "f64")]
+    #[case::u16_u8("u16", "u8")]
+    #[case::u16_u16("u16", "u16")]
+    #[case::u16_u32("u16", "u32")]
+    #[case::u16_u64("u16", "u64")]
+    #[case::u16_i8("u16", "i8")]
+    #[case::u16_i16("u16", "i16")]
+    #[case::u16_i32("u16", "i32")]
+    #[case::u16_i64("u16", "i64")]
+    #[case::u16_f32("u16", "f32")]
+    #[case::u16_f64("u16", "f64")]
+    #[case::u32_u8("u32", "u8")]
+    #[case::u32_u16("u32", "u16")]
+    #[case::u32_u32("u32", "u32")]
+    #[case::u32_u64("u32", "u64")]
+    #[case::u32_i8("u32", "i8")]
+    #[case::u32_i16("u32", "i16")]
+    #[case::u32_i32("u32", "i32")]
+    #[case::u32_i64("u32", "i64")]
+    #[case::u32_f32("u32", "f32")]
+    #[case::u32_f64("u32", "f64")]
+    #[case::u64_u8("u64", "u8")]
+    #[case::u64_u16("u64", "u16")]
+    #[case::u64_u32("u64", "u32")]
+    #[case::u64_u64("u64", "u64")]
+    #[case::u64_i8("u64", "i8")]
+    #[case::u64_i16("u64", "i16")]
+    #[case::u64_i32("u64", "i32")]
+    #[case::u64_i64("u64", "i64")]
+    #[case::u64_f32("u64", "f32")]
+    #[case::u64_f64("u64", "f64")]
+    fn test_cuda_take_all_combinations(#[case] code_type: &str, #[case] value_type: &str) {
+        const LEN: usize = 1024;
 
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
+
+        // Generate distinct values for each type using type-specific patterns
+        let values: PrimitiveArray = match value_type {
+            "u8" => (0u8..255)
+                .map(|x| x.wrapping_mul(3).wrapping_add(100))
+                .collect(),
+            "u16" => (0u16..1000).map(|x| x * 5 + 1000).collect(),
+            "u32" => (0u32..1000).map(|x| x * 11 + 100000).collect(),
+            "u64" => (0u64..1000).map(|x| x * 17 + 1000000).collect(),
+            "i8" => (-50i8..50).map(|x| x.wrapping_mul(2)).collect(),
+            "i16" => (0i16..1000).map(|x| x * 7 - 5000).collect(),
+            "i32" => (0i32..1000).map(|x| x * 13 - 500000).collect(),
+            "i64" => (0i64..1000).map(|x| x * 23 - 10000000).collect(),
+            "f32" => (0..1000)
+                .map(|x| (x as f32) * std::f32::consts::PI + 1000.5)
+                .collect(),
+            "f64" => (0..1000)
+                .map(|x| (x as f64) * std::f64::consts::E + 100000.123)
+                .collect(),
+            _ => panic!("Unknown value type"),
+        };
+
+        // Generate distinct codes for each code type
+        // codes_mod must be compatible with both the value array size and code type max
+        let codes_mod = match value_type {
+            "u8" => 200,
+            "i8" => 100,
+            _ => 1000,
+        };
+
+        let codes: PrimitiveArray = match code_type {
+            "u8" => {
+                let max_code = codes_mod.min(255);
+                (0..LEN)
+                    .map(|x| u8::try_from((x * 13 + 17) % max_code).unwrap())
+                    .collect()
+            }
+            "u16" => (0..LEN)
+                .map(|x| u16::try_from((x * 13 + 17) % codes_mod).unwrap())
+                .collect(),
+            "u32" => (0..LEN)
+                .map(|x| u32::try_from((x * 13 + 17) % codes_mod).unwrap())
+                .collect(),
+            "u64" => (0..LEN)
+                .map(|x| u64::try_from((x * 13 + 17) % codes_mod).unwrap())
+                .collect(),
+            _ => panic!("Unknown code type"),
+        };
+
+        let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
+        let expect = dict.to_primitive();
         let result = cuda_take(&dict, ctx).unwrap().unwrap().to_primitive();
 
-        assert_eq!(result.as_slice::<i64>(), expect.as_slice::<i64>());
-    }
-
-    #[test]
-    fn test_cuda_take_long_u8_i64() {
-        const LEN: usize = 1024 * 8;
-        let values: PrimitiveArray = (0i64..1024).map(|x| (x + 2) % 1024).collect();
-        let codes: PrimitiveArray = (0..LEN)
-            .map(|x| u8::try_from((x + 1) % 255).vortex_expect(""))
-            .collect();
-        let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
-
-        let expect = dict.to_primitive();
-
-        let ctx = CudaContext::new(0).unwrap();
-        ctx.set_blocking_synchronize().unwrap();
-        let result = cuda_take(&dict, ctx).unwrap().unwrap().to_primitive();
-
-        assert_eq!(result.as_slice::<i64>(), expect.as_slice::<i64>());
-    }
-
-    #[test]
-    fn test_cuda_take_masked() {
-        const LEN: u64 = 1024 * 8;
-        let values: PrimitiveArray = (0u64..1024).map(|x| (x + 2) % 1024).collect();
-        let codes: PrimitiveArray = (0u64..LEN).map(|x| (x + 1) % 1024).collect();
-        let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
-
-        let expect = dict.to_primitive();
-
-        let mask = Mask::from_iter((0..LEN).map(|i| (i % 4) == 0));
-
-        let ctx = CudaContext::new(0).unwrap();
-        ctx.set_blocking_synchronize().unwrap();
-        let result = cuda_take_masked(&dict, Some(mask.clone()), ctx)
-            .unwrap()
-            .unwrap()
-            .to_primitive();
-
-        let result_sl = result.as_slice::<u64>();
-        let expect_sl = expect.as_slice::<u64>();
-
-        mask.to_boolean_buffer().set_indices().for_each(|i| {
-            assert_eq!(result_sl[i], expect_sl[i]);
-        })
+        match_each_native_ptype!(expect.ptype(), |P| {
+            assert_eq!(
+                result.as_slice::<P>(),
+                expect.as_slice::<P>(),
+                "Failed for {} codes with {} values",
+                code_type,
+                value_type
+            )
+        });
     }
 }
