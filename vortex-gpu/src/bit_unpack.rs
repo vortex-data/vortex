@@ -93,7 +93,7 @@ pub fn cuda_bit_unpack_timed(
     ctx: Arc<CudaContext>,
 ) -> VortexResult<Duration> {
     let stream = ctx.default_stream();
-    let mut task = new_task(array, ctx.clone(), stream.clone())?;
+    let mut task = new_task(array, ctx.clone(), stream)?;
 
     let (start, end) = task.launch_task()?;
 

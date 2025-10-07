@@ -123,7 +123,7 @@ pub fn cuda_for_unpack_timed(
     ctx: Arc<CudaContext>,
 ) -> VortexResult<(PrimitiveArray, Duration)> {
     let stream = ctx.default_stream();
-    let mut task = new_task(array, ctx.clone(), stream.clone())?;
+    let mut task = new_task(array, ctx.clone(), stream)?;
     let (start, end) = task.launch_task()?;
     ctx.synchronize()
         .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
