@@ -3,7 +3,7 @@
 
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use itertools::Itertools;
 use vortex_error::{
@@ -221,20 +221,26 @@ struct StructFieldsInner {
     names: FieldNames,
     dtypes: Arc<[FieldDType]>,
     // Derived from names, maps from field name to first index.
-    indices: HashMap<FieldName, usize>,
+    indices: OnceLock<HashMap<FieldName, usize>>,
 }
 
 impl StructFieldsInner {
     fn from_fields(names: FieldNames, dtypes: Arc<[FieldDType]>) -> Self {
-        let mut indices = HashMap::with_capacity(names.len());
-        for (idx, name) in names.iter().enumerate() {
-            indices.entry(name.clone()).or_insert(idx);
-        }
         Self {
             names,
             dtypes,
-            indices,
+            indices: OnceLock::new(),
         }
+    }
+
+    fn indices(&self) -> &HashMap<FieldName, usize> {
+        self.indices.get_or_init(|| {
+            let mut map = HashMap::with_capacity(self.names.len());
+            for (idx, name) in self.names.iter().enumerate() {
+                map.entry(name.clone()).or_insert(idx);
+            }
+            map
+        })
     }
 }
 
@@ -297,7 +303,7 @@ impl StructFields {
         Self(Arc::new(StructFieldsInner {
             names: FieldNames::default(),
             dtypes: Arc::from([]),
-            indices: HashMap::new(),
+            indices: OnceLock::new(),
         }))
     }
 
@@ -354,7 +360,7 @@ impl StructFields {
     /// Find the index of a field by name
     /// Returns `None` if the field is not found
     pub fn find(&self, name: impl AsRef<str>) -> Option<usize> {
-        self.0.indices.get(name.as_ref()).copied()
+        self.0.indices().get(name.as_ref()).copied()
     }
 
     /// Get the [`DType`] of a field.
