@@ -4,6 +4,7 @@
 mod cast;
 mod compare;
 mod filter;
+mod zip;
 
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
