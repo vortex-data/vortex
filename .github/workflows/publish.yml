@@ -44,7 +44,7 @@ jobs:
         # Latest macOS doesn't allow maturin to install stuff into the global Python interpreter
         if: "${{ matrix.target.runs-on == 'macos-latest' }}"
         with:
-          python-version: "3.11"
+          python-version: "3.14"
 
       - name: Build wheel
         uses: PyO3/maturin-action@v1
