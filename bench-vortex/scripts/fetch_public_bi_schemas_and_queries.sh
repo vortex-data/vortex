@@ -8,7 +8,10 @@ set -Eeuox pipefail
 # https://stackoverflow.com/questions/59895/how-do-i-get-the-directory-where-a-bash-script-is-located-from-within-the-script
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-cd "${SCRIPT_DIR}"
+# Set up the public_bi directory relative to the script directory.
+PUBLIC_BI_DIR="${SCRIPT_DIR}/../public_bi"
+mkdir -p "${PUBLIC_BI_DIR}"
+cd "${PUBLIC_BI_DIR}"
 
 if [ -d ".git" ]; then
     git reset --hard  # restore deleted files if any

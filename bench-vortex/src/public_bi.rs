@@ -98,10 +98,10 @@ pub enum PBIDataset {
 }
 
 pub fn fetch_schemas_and_queries() -> anyhow::Result<PathBuf> {
-    let base_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("public_bi");
+    let scripts_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
     let output = Command::new(
-        base_dir
-            .join("fetch_schemas_and_queries.sh")
+        scripts_dir
+            .join("fetch_public_bi_schemas_and_queries.sh")
             .to_str()
             .unwrap(),
     )
@@ -112,7 +112,9 @@ pub fn fetch_schemas_and_queries() -> anyhow::Result<PathBuf> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!("public_bi fetch failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
     }
-    Ok(base_dir)
+
+    // Return the public_bi directory where the git repo is initialized.
+    Ok(Path::new(env!("CARGO_MANIFEST_DIR")).join("public_bi"))
 }
 
 #[derive(Debug)]
