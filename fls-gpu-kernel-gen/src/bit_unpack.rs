@@ -45,7 +45,7 @@ pub fn generate_common_header(output_dir: &Path) -> anyhow::Result<()> {
     writeln!(file, "// Compute the index in the FastLanes layout")?;
     writeln!(
         file,
-        "#define INDEX(row, lane) (FL_ORDER[(row) / 8] * 16 + ((row) % 8) * 128 + (lane))"
+        "#define INDEX(row, lane) (FL_ORDER[row / 8] * 16 + (row % 8) * 128 + lane)"
     )?;
     writeln!(file)?;
     writeln!(file, "// Create a mask with 'width' bits set")?;
@@ -63,6 +63,7 @@ fn generate_kernel_for_width<T: FastLanes, W: Write>(
 ) -> anyhow::Result<()> {
     let bits = <T>::T;
     let lanes = T::LANES;
+    let per_thread_loop_count = lanes / thread_count;
 
     writeln!(
         output,
@@ -76,7 +77,6 @@ fn generate_kernel_for_width<T: FastLanes, W: Write>(
         if bit_width == 0 {
             writeln!(output, "uint{bits}_t zero = 0ULL;")?;
             writeln!(output)?;
-            let per_thread_loop_count = lanes / thread_count;
             for thread_lane in 0..per_thread_loop_count {
                 for row in 0..bits {
                     writeln!(output, "out[INDEX({row}, (i * {per_thread_loop_count} + {thread_lane}))] = zero;")?;
@@ -84,7 +84,6 @@ fn generate_kernel_for_width<T: FastLanes, W: Write>(
             }
         } else if bit_width == bits {
             writeln!(output)?;
-            let per_thread_loop_count = lanes / thread_count;
             for thread_lane in 0..per_thread_loop_count {
                 for row in 0..bits {
                     writeln!(
@@ -97,7 +96,6 @@ fn generate_kernel_for_width<T: FastLanes, W: Write>(
             writeln!(output, "uint{bits}_t src;")?;
             writeln!(output, "uint{bits}_t tmp;")?;
 
-            let per_thread_loop_count = lanes / thread_count;
             for thread_lane in 0..per_thread_loop_count {
                 writeln!(output)?;
                 writeln!(output, "src = in[i * {per_thread_loop_count} + {thread_lane}];")?;
@@ -115,7 +113,7 @@ fn generate_kernel_for_width<T: FastLanes, W: Write>(
                         )?;
 
                         if next_word < bit_width {
-                            writeln!(output, "src = in[i * {per_thread_loop_count} + {thread_lane} + {bits} * {next_word}];")?;
+                            writeln!(output, "src = in[i * {per_thread_loop_count} + {thread_lane} + {lanes} * {next_word}];")?;
                             writeln!(
                                 output,
                                 "tmp |= (src & MASK(uint{bits}_t, {remaining_bits})) << {current_bits};"

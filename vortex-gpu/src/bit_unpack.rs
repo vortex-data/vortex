@@ -231,6 +231,7 @@ impl<P: NativePType + DeviceRepr> GPUTask for BitPackingTask<P> {
 #[cfg(test)]
 mod tests {
     use cudarc::driver::CudaContext;
+    use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -239,19 +240,215 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_cuda_bitunpack() {
-        let primitive_array = PrimitiveArray::new(
-            (0u32..4096).map(|i| i % 63).collect::<Buffer<_>>(),
-            Validity::NonNullable,
-        );
-        let array = BitPackedArray::encode(primitive_array.as_ref(), 6).vortex_unwrap();
+    #[rstest]
+    #[case::bw_1(1)]
+    #[case::bw_2(2)]
+    #[case::bw_3(3)]
+    #[case::bw_4(4)]
+    #[case::bw_5(5)]
+    #[case::bw_6(6)]
+    #[case::bw_7(7)]
+    fn test_cuda_bitunpack_u8(#[case] bit_width: u8) {
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
+
+        let max_val = (1u8 << bit_width).saturating_sub(1);
+
+        let primitive_array = PrimitiveArray::new(
+            (0u16..1024)
+                .map(|i| u8::try_from(i % (max_val as u16 + 1)).vortex_expect(""))
+                .collect::<Buffer<_>>(),
+            Validity::NonNullable,
+        );
+
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
+
+        assert_eq!(
+            primitive_array.as_slice::<u8>(),
+            unpacked.as_slice::<u8>(),
+            "Mismatch at bit_width {bit_width}"
+        );
+    }
+
+    #[rstest]
+    #[case::bw_1(1)]
+    #[case::bw_2(2)]
+    #[case::bw_3(3)]
+    #[case::bw_4(4)]
+    #[case::bw_5(5)]
+    #[case::bw_6(6)]
+    #[case::bw_7(7)]
+    #[case::bw_8(8)]
+    #[case::bw_9(9)]
+    #[case::bw_10(10)]
+    #[case::bw_11(11)]
+    #[case::bw_12(12)]
+    #[case::bw_13(13)]
+    #[case::bw_14(14)]
+    #[case::bw_15(15)]
+    fn test_cuda_bitunpack_u16(#[case] bit_width: u8) {
+        let ctx = CudaContext::new(0).unwrap();
+        ctx.set_blocking_synchronize().unwrap();
+
+        let max_val = (1u16 << bit_width).saturating_sub(1);
+
+        let primitive_array = PrimitiveArray::new(
+            (0u16..1024)
+                .map(|i| i % (max_val + 1))
+                .collect::<Buffer<_>>(),
+            Validity::NonNullable,
+        );
+
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
+        let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
+
+        assert_eq!(
+            primitive_array.as_slice::<u16>(),
+            unpacked.as_slice::<u16>(),
+            "Mismatch at bit_width {bit_width}"
+        );
+    }
+
+    #[rstest]
+    #[case::bw_1(1)]
+    #[case::bw_2(2)]
+    #[case::bw_3(3)]
+    #[case::bw_4(4)]
+    #[case::bw_5(5)]
+    #[case::bw_6(6)]
+    #[case::bw_7(7)]
+    #[case::bw_8(8)]
+    #[case::bw_9(9)]
+    #[case::bw_10(10)]
+    #[case::bw_11(11)]
+    #[case::bw_12(12)]
+    #[case::bw_13(13)]
+    #[case::bw_14(14)]
+    #[case::bw_15(15)]
+    #[case::bw_16(16)]
+    #[case::bw_17(17)]
+    #[case::bw_18(18)]
+    #[case::bw_19(19)]
+    #[case::bw_20(20)]
+    #[case::bw_21(21)]
+    #[case::bw_22(22)]
+    #[case::bw_23(23)]
+    #[case::bw_24(24)]
+    #[case::bw_25(25)]
+    #[case::bw_26(26)]
+    #[case::bw_27(27)]
+    #[case::bw_28(28)]
+    #[case::bw_29(29)]
+    #[case::bw_30(30)]
+    #[case::bw_31(31)]
+    fn test_cuda_bitunpack_u32(#[case] bit_width: u8) {
+        let ctx = CudaContext::new(0).unwrap();
+        ctx.set_blocking_synchronize().unwrap();
+
+        let max_val = (1u32 << bit_width).saturating_sub(1);
+
+        let primitive_array = PrimitiveArray::new(
+            (0u32..4096)
+                .map(|i| i % (max_val + 1))
+                .collect::<Buffer<_>>(),
+            Validity::NonNullable,
+        );
+
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
+        let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
+
         assert_eq!(
             primitive_array.as_slice::<u32>(),
-            unpacked.as_slice::<u32>()
+            unpacked.as_slice::<u32>(),
+            "Mismatch at bit_width {bit_width}"
+        );
+    }
+
+    #[rstest]
+    #[case::bw_1(1)]
+    #[case::bw_2(2)]
+    #[case::bw_3(3)]
+    #[case::bw_4(4)]
+    #[case::bw_5(5)]
+    #[case::bw_6(6)]
+    #[case::bw_7(7)]
+    #[case::bw_8(8)]
+    #[case::bw_9(9)]
+    #[case::bw_10(10)]
+    #[case::bw_11(11)]
+    #[case::bw_12(12)]
+    #[case::bw_13(13)]
+    #[case::bw_14(14)]
+    #[case::bw_15(15)]
+    #[case::bw_16(16)]
+    #[case::bw_17(17)]
+    #[case::bw_18(18)]
+    #[case::bw_19(19)]
+    #[case::bw_20(20)]
+    #[case::bw_21(21)]
+    #[case::bw_22(22)]
+    #[case::bw_23(23)]
+    #[case::bw_24(24)]
+    #[case::bw_25(25)]
+    #[case::bw_26(26)]
+    #[case::bw_27(27)]
+    #[case::bw_28(28)]
+    #[case::bw_29(29)]
+    #[case::bw_30(30)]
+    #[case::bw_31(31)]
+    #[case::bw_32(32)]
+    #[case::bw_33(33)]
+    #[case::bw_34(34)]
+    #[case::bw_35(35)]
+    #[case::bw_36(36)]
+    #[case::bw_37(37)]
+    #[case::bw_38(38)]
+    #[case::bw_39(39)]
+    #[case::bw_40(40)]
+    #[case::bw_41(41)]
+    #[case::bw_42(42)]
+    #[case::bw_43(43)]
+    #[case::bw_44(44)]
+    #[case::bw_45(45)]
+    #[case::bw_46(46)]
+    #[case::bw_47(47)]
+    #[case::bw_48(48)]
+    #[case::bw_49(49)]
+    #[case::bw_50(50)]
+    #[case::bw_51(51)]
+    #[case::bw_52(52)]
+    #[case::bw_53(53)]
+    #[case::bw_54(54)]
+    #[case::bw_55(55)]
+    #[case::bw_56(56)]
+    #[case::bw_57(57)]
+    #[case::bw_58(58)]
+    #[case::bw_59(59)]
+    #[case::bw_60(60)]
+    #[case::bw_61(61)]
+    #[case::bw_62(62)]
+    #[case::bw_63(63)]
+    fn test_cuda_bitunpack_u64(#[case] bit_width: u8) {
+        let ctx = CudaContext::new(0).unwrap();
+        ctx.set_blocking_synchronize().unwrap();
+
+        let max_val = (1u64 << bit_width).saturating_sub(1);
+
+        let primitive_array = PrimitiveArray::new(
+            (0u64..1024)
+                .map(|i| i % (max_val + 1))
+                .collect::<Buffer<_>>(),
+            Validity::NonNullable,
+        );
+
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
+        let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
+
+        assert_eq!(
+            primitive_array.as_slice::<u64>(),
+            unpacked.as_slice::<u64>(),
+            "Mismatch at bit_width {bit_width}"
         );
     }
 }

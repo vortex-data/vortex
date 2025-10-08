@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::iter::once;
+use std::sync::Arc;
 
 use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -134,14 +135,14 @@ use crate::{Array, ArrayRef, IntoArray};
 pub struct StructArray {
     pub(super) len: usize,
     pub(super) dtype: DType,
-    pub(super) fields: Vec<ArrayRef>,
+    pub(super) fields: Arc<[ArrayRef]>,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
 impl StructArray {
-    pub fn fields(&self) -> &[ArrayRef] {
-        &self.fields
+    pub fn fields(&self) -> Arc<[ArrayRef]> {
+        self.fields.clone()
     }
 
     pub fn field_by_name(&self, name: impl AsRef<str>) -> VortexResult<&ArrayRef> {
@@ -191,7 +192,7 @@ impl StructArray {
     /// in [`StructArray::new_unchecked`].
     pub fn new(
         names: FieldNames,
-        fields: Vec<ArrayRef>,
+        fields: impl Into<Arc<[ArrayRef]>>,
         length: usize,
         validity: Validity,
     ) -> Self {
@@ -209,10 +210,11 @@ impl StructArray {
     /// [`StructArray::new_unchecked`].
     pub fn try_new(
         names: FieldNames,
-        fields: Vec<ArrayRef>,
+        fields: impl Into<Arc<[ArrayRef]>>,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
+        let fields = fields.into();
         let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype()).cloned().collect();
         let dtype = StructFields::new(names, field_dtypes);
 
@@ -248,11 +250,13 @@ impl StructArray {
     ///
     /// - If `validity` is [`Validity::Array`], its length must exactly equal `length`.
     pub unsafe fn new_unchecked(
-        fields: Vec<ArrayRef>,
+        fields: impl Into<Arc<[ArrayRef]>>,
         dtype: StructFields,
         length: usize,
         validity: Validity,
     ) -> Self {
+        let fields = fields.into();
+
         #[cfg(debug_assertions)]
         Self::validate(&fields, &dtype, length, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `StructArray` parameters");
@@ -320,11 +324,12 @@ impl StructArray {
     }
 
     pub fn try_new_with_dtype(
-        fields: Vec<ArrayRef>,
+        fields: impl Into<Arc<[ArrayRef]>>,
         dtype: StructFields,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
+        let fields = fields.into();
         Self::validate(&fields, &dtype, length, &validity)?;
 
         // SAFETY: validate ensures all invariants are met.
@@ -373,6 +378,7 @@ impl StructArray {
         let mut children = Vec::with_capacity(projection.len());
         let mut names = Vec::with_capacity(projection.len());
 
+        let fields = self.fields();
         for f_name in projection.iter() {
             let idx = self
                 .names()
@@ -381,7 +387,7 @@ impl StructArray {
                 .ok_or_else(|| vortex_err!("Unknown field {f_name}"))?;
 
             names.push(self.names()[idx].clone());
-            children.push(self.fields()[idx].clone());
+            children.push(fields[idx].clone());
         }
 
         StructArray::try_new(
@@ -404,9 +410,17 @@ impl StructArray {
             .iter()
             .position(|field_name| field_name.as_ref() == name.as_ref())?;
 
-        let field = self.fields.remove(position);
+        let field = self.fields[position].clone();
+        let new_fields: Arc<[ArrayRef]> = self
+            .fields
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != position)
+            .map(|(_, f)| f.clone())
+            .collect();
 
         if let Ok(new_dtype) = struct_dtype.without_field(position) {
+            self.fields = new_fields;
             self.dtype = DType::Struct(new_dtype, self.dtype.nullability());
             return Some(field);
         }
@@ -422,8 +436,7 @@ impl StructArray {
         let types = struct_dtype.fields().chain(once(array.dtype().clone()));
         let new_fields = StructFields::new(names.collect(), types.collect());
 
-        let mut children = self.fields.clone();
-        children.push(array);
+        let children: Arc<[ArrayRef]> = self.fields.iter().cloned().chain(once(array)).collect();
 
         Self::try_new_with_dtype(children, new_fields, self.len, self.validity.clone())
     }

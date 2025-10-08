@@ -26,7 +26,7 @@ vortex-mask = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.7", features = ["html_reports"] }
 cudarc = { workspace = true, features = ["f16"] }
 rand = { workspace = true }
 rstest = { workspace = true }

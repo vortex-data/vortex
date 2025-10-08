@@ -7,7 +7,8 @@
     ":automergeRequireAllStatusChecks",
     ":combinePatchMinorReleases",
     ":dependencyDashboard",
-    ":separateMultipleMajorReleases"
+    ":separateMultipleMajorReleases",
+    "docker:disable"
   ],
   "lockFileMaintenance": {
     "enabled": true
@@ -26,10 +27,7 @@
   ],
   "packageRules": [
     {
-      "matchPackageNames": [
-        "arrow{/,}**",
-        "parquet{/,}**"
-      ],
+      "matchManagers": ["pyenv"],
       "enabled": false
     },
     {
@@ -39,23 +37,20 @@
       "enabled": false
     },
     {
+      "groupName": "arrow-rs",
       "matchUpdateTypes": [
         "major",
         "minor",
         "patch"
       ],
-      "groupName": "datafusion and friends",
-      "matchPackageNames": [
-        "arrow{/,}**",
-        "parquet{/,}**",
-        "datafusion{/,}**"
+      "matchSourceUrls": [
+        "https://github.com/apache/arrow-rs"
       ]
     },
     {
       "groupName": "flatbuffers",
-      "matchPackageNames": [
-        "flatbuffers{/,}**",
-        "flexbuffers{/,}**"
+      "matchSourceUrls": [
+        "https://github.com/google/flatbuffers"
       ]
     },
     {
