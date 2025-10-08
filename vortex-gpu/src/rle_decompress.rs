@@ -21,6 +21,16 @@ use vortex_fastlanes::RLEArray;
 
 #[allow(clippy::cognitive_complexity)]
 pub fn cuda_rle_decompress(rle: &RLEArray, ctx: Arc<CudaContext>) -> VortexResult<ArrayRef> {
+    assert_eq!(rle.offset(), 0);
+    assert_eq!(
+        rle.values_idx_offsets()
+            .scalar_at(0)
+            .as_primitive()
+            .as_::<u64>()
+            .vortex_expect("non null offset"),
+        0u64
+    );
+
     match_each_native_ptype!(rle.values().dtype().as_ptype(), |V| {
         match_each_unsigned_integer_ptype!(rle.values_idx_offsets().dtype().as_ptype(), |O| {
             // RLE indices are always u16 (or u8 if downcasted).
@@ -60,8 +70,6 @@ where
     Indices: UnsignedPType + DeviceRepr,
     Offsets: UnsignedPType + DeviceRepr,
 {
-    assert_eq!(indices.len() % 1024, 0);
-
     let kernel_func = cuda_rle_kernel::<Indices, Values, Offsets>(ctx.clone())?;
     let num_chunks =
         u32::try_from(indices.len().div_ceil(1024)).vortex_expect("num chunks overflow");
