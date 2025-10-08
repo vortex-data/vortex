@@ -30,7 +30,6 @@ struct FoRBPTask<P> {
     reference: P,
 
     len: usize,
-    ptype: PType,
 }
 
 pub fn new_task(
@@ -74,7 +73,6 @@ pub fn new_task(
             .as_::<u32>()
             .vortex_expect("cannot have a null ref"),
         len: array.len(),
-        ptype: bp.ptype().to_unsigned(),
     }))
 }
 
@@ -132,7 +130,6 @@ pub fn cuda_for_bp_unpack_timed(
     ctx: Arc<CudaContext>,
 ) -> VortexResult<(PrimitiveArray, Duration)> {
     let stream = ctx.default_stream();
-    ctx.set_blocking_synchronize().unwrap();
     let mut task = new_task(array, ctx.clone(), stream.clone())?;
     let start = stream
         .record_event(Some(CU_EVENT_DEFAULT))

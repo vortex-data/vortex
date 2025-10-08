@@ -172,15 +172,10 @@ fn benchmark_cpu_canonicalize(c: &mut Criterion) {
     group.finish();
 }
 
-// criterion_group!(
-//     benches,
-//     benchmark_gpu_decompress_kernel_only,
-//     benchmark_gpu_for_decompress_kernel_only,
-//     benchmark_gpu_for_bp_fused_decompress_kernel_only
-// );
 criterion_group!(
     benches,
     benchmark_gpu_decompress_kernel_only,
+    benchmark_gpu_for_decompress_kernel_only,
     benchmark_gpu_for_bp_fused_decompress_kernel_only
 );
 criterion_main!(benches);
