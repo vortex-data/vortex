@@ -7,8 +7,7 @@ use std::iter::once;
 use vortex_array::stats::StatBound;
 use vortex_dtype::FieldMask;
 use vortex_error::{VortexResult, vortex_err};
-
-use crate::LayoutReader;
+use vortex_layout::LayoutReader;
 
 /// Defines how the Vortex file is split into batches for reading.
 ///
