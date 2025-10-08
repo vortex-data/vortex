@@ -246,10 +246,10 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 # END crates published by this project
 
 # No version contraints for unpublished crates.
-vortex-gpu-kernels = { version = "0.1.0", path = "./vortex-gpu-kernels", default-features = false }
 vortex-cxx = { path = "./vortex-cxx", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
+vortex-gpu-kernels = { version = "0.1.0", path = "./vortex-gpu-kernels", default-features = false }
 
 xshell = "0.2.6"
 zigzag = "0.1.0"
