@@ -17,16 +17,21 @@ pub(crate) fn new_exporter(
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let validity = array.validity_mask();
+    let validity_for_mask = if array.dtype().is_nullable() {
+        Some(!&validity)
+    } else {
+        None
+    };
+
     let children = array
-        .children()
-        .into_iter()
+        .fields()
+        .iter()
         .map(|child| {
-            let masked_child = if child.dtype().is_nullable() {
-                mask(&child, &validity)?
+            if let Some(mv) = validity_for_mask.as_ref() {
+                new_array_exporter(&mask(child, mv)?, cache)
             } else {
-                child
-            };
-            new_array_exporter(&masked_child, cache)
+                new_array_exporter(child, cache)
+            }
         })
         .collect::<VortexResult<Vec<_>>>()?;
     let struct_exporter = Box::new(StructExporter { children });
@@ -50,9 +55,11 @@ impl ColumnExporter for StructExporter {
 mod tests {
     use std::ffi::CString;
 
+    use arrow_buffer::BooleanBuffer;
     use vortex::IntoArray;
     use vortex::arrays::{PrimitiveArray, VarBinViewArray};
     use vortex::error::{VortexExpect, VortexUnwrap};
+    use vortex::validity::Validity;
 
     use super::*;
     use crate::cpp;
@@ -85,6 +92,66 @@ mod tests {
             format!("{}", String::try_from(&chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT STRUCT(col1 INTEGER, col2 VARCHAR): 10 = [ {'col1': 0, 'col2': a}, {'col1': 1, 'col2': b}, {'col1': 2, 'col2': c}, {'col1': 3, 'col2': d}, {'col1': 4, 'col2': e}, {'col1': 5, 'col2': f}, {'col1': 6, 'col2': g}, {'col1': 7, 'col2': h}, {'col1': 8, 'col2': i}, {'col1': 9, 'col2': j}]
+"#
+        );
+    }
+
+    #[test]
+    fn test_struct_exporter_with_nulls() {
+        let prim = PrimitiveArray::from_option_iter([
+            Some(1),
+            None,
+            Some(2),
+            None,
+            Some(3),
+            None,
+            Some(4),
+            None,
+            Some(5),
+            None,
+        ])
+        .into_array();
+        let strings = VarBinViewArray::from_iter_nullable_str(vec![
+            None,
+            Some("b"),
+            Some("c"),
+            Some("d"),
+            None,
+            None,
+            Some("g"),
+            Some("h"),
+            None,
+            Some("j"),
+        ])
+        .into_array();
+        let arr = StructArray::try_new(
+            ["col1", "col2"].into(),
+            vec![prim, strings],
+            10,
+            Validity::from(BooleanBuffer::from_iter([
+                true, true, true, false, false, false, true, true, true, true,
+            ])),
+        )
+        .vortex_unwrap();
+        let mut chunk = DataChunk::new([LogicalType::struct_type(
+            vec![
+                LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
+                LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_VARCHAR),
+            ],
+            vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
+        )
+        .vortex_unwrap()]);
+
+        new_exporter(&arr, &ConversionCache::default())
+            .unwrap()
+            .export(0, 10, &mut chunk.get_vector(0))
+            .unwrap();
+        chunk.set_len(10);
+
+        assert_eq!(
+            format!("{}", String::try_from(&chunk).unwrap()),
+            r#"Chunk - [1 Columns]
+- FLAT STRUCT(col1 INTEGER, col2 VARCHAR): 10 = [ {'col1': 1, 'col2': NULL}, {'col1': NULL, 'col2': b}, {'col1': 2, 'col2': c}, NULL, NULL, NULL, {'col1': 4, 'col2': g}, {'col1': NULL, 'col2': h}, {'col1': 5, 'col2': NULL}, {'col1': NULL, 'col2': j}]
 "#
         );
     }
