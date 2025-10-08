@@ -7,7 +7,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <stdint.h>
-#include "gen_fastlanes_common.cuh"
+#include "fastlanes_common.cuh"
 
 
 __device__ void fls_unpack_6bw_32ow_device(const uint32_t *__restrict in, uint32_t *__restrict out, int thread_idx) {
@@ -119,7 +119,7 @@ extern "C" __global__ void fused_bitpack6_for_u32(
 ) {
     int i = threadIdx.x;
     auto in = packed_in + (blockIdx.x * (128 * 6 / sizeof(uint32_t)));
-    const fl_lane_count = 32;
+    const uint32_t fl_lane_count = 32;
     auto blockSize = blockDim.x * fl_lane_count;
     auto out = unpacked_out + (blockIdx.x * 1024);
 

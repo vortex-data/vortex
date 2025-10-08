@@ -1,2 +1,2 @@
-kernels/gen_*
+kernels/gen/*
 *.ptx

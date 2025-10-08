@@ -13,7 +13,7 @@ __device__ void for_device(
     int thread_idx
 ) {
     auto i = thread_idx;
-    const int thread_ops = blockDim.x;
+    const uint32_t thread_ops = blockDim.x;
 
     for (auto j = 0; j < thread_ops; j++) {
         auto idx = i * thread_ops + j;
@@ -28,7 +28,7 @@ __device__ void for_(
     ValueT reference
 ) {
     auto i = threadIdx.x;
-    const fl_lane_count = 32;
+    const uint32_t fl_lane_count = 32;
     auto blockSize = blockDim.x * fl_lane_count;
     auto block_size = 1024;
     auto block_offset = (blockIdx.x * block_size);

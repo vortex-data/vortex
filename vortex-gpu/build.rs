@@ -37,21 +37,23 @@ fn main() -> anyhow::Result<()> {
 
     println!("cargo:rerun-if-changed={}", generator_dir.to_str().unwrap());
 
-    for entry in WalkDir::new(kernels_dir).into_iter().flatten() {
+    for entry in WalkDir::new(&kernels_dir).into_iter().flatten() {
         if entry.path().extension().is_some_and(|ext| ext == "cu") {
             println!("cargo:rerun-if-changed={}", entry.path().display());
-            nvcc_compile_ptx(entry.path())?;
+            nvcc_compile_ptx(kernels_dir.as_path(), entry.path())?;
         }
     }
 
     Ok(())
 }
 
-fn nvcc_compile_ptx(cu_path: &Path) -> anyhow::Result<()> {
+fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> anyhow::Result<()> {
     let res = Command::new("nvcc")
         .arg("-arch=sm_80")
         .arg("--restrict")
         .arg("--ptx")
+        .arg("--include-path")
+        .arg(kernel_dir)
         .arg("-c")
         .arg(cu_path)
         .arg("-o")
