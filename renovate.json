@@ -27,12 +27,9 @@
   ],
   "packageRules": [
     {
-      "matchManagers": ["pyenv"],
-      "enabled": false
-    },
-    {
       "matchPackageNames": [
-        "ubuntu"
+        "ubuntu",
+        "python"
       ],
       "enabled": false
     },
