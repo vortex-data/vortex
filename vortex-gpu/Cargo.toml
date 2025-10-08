@@ -34,7 +34,7 @@ rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
 
 [build-dependencies]
-fls-gpu-kernel-gen = { workspace = true }
+vortex-gpu-kernels = { workspace = true }
 anyhow = { workspace = true }
 walkdir = { workspace = true }
 

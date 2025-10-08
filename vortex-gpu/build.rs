@@ -8,11 +8,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::{env, fs};
 
-use fls_gpu_kernel_gen::generate_unpack;
+use vortex_gpu_kernels::generate_unpack;
 use walkdir::WalkDir;
 
 fn main() -> anyhow::Result<()> {
-    let project_name = "fls-gpu-kernel-gen";
+    let project_name = "vortex-gpu-kernels";
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir"));
     let kernels_dir = manifest_dir.join("kernels");

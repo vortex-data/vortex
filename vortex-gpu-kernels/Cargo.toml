@@ -1,8 +1,8 @@
 [package]
-name = "fls-gpu-kernel-gen"
+name = "vortex-gpu-kernels"
 authors = { workspace = true }
 categories = { workspace = true }
-description = "Vortex Sparse array"
+description = "Vortex GPU kernel generation"
 edition = { workspace = true }
 homepage = { workspace = true }
 include = { workspace = true }
@@ -14,7 +14,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [lib]
-name = "fls_gpu_kernel_gen"
+name = "vortex_gpu_kernels"
 
 [dependencies]
 anyhow = { workspace = true }
