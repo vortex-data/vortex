@@ -52,6 +52,8 @@ jobs:
           sccache: s3
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install DuckDB
         run: |

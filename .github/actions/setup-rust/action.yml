@@ -2,6 +2,9 @@ name: "Setup Rust"
 description: "Toolchain setup and Initial compilation"
 
 inputs:
+  repo-token:
+    description: "GitHub token for accessing the repository (typically secrets.GITHUB_TOKEN)"
+    required: true
   toolchain:
     description: "optional override for the toolchain version (e.g. nightly)"
     required: false
@@ -49,3 +52,4 @@ runs:
       uses: arduino/setup-protoc@v3
       with:
         version: "29.3"
+        repo-token: ${{ inputs.repo-token }}
