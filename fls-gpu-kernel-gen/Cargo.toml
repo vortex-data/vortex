@@ -1,13 +1,22 @@
 [package]
 name = "fls-gpu-kernel-gen"
-version = "0.1.0"
-edition = "2024"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex Sparse array"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lib]
+name = "fls_gpu_kernel_gen"
 
 [dependencies]
-anyhow = "1.0.100"
-clap = { version = "4.5.48", features = ["derive"] }
-fastlanes = "0.4.0"
-
-[[bin]]
-name = "fls-gpu-kernel-gen"
-path = "src/main.rs"
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+fastlanes = { workspace = true }

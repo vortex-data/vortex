@@ -4,31 +4,27 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
-use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::{env, fs};
 
+use fls_gpu_kernel_gen::generate_unpack;
 use walkdir::WalkDir;
 
 fn main() -> anyhow::Result<()> {
+    let project_name = "fls-gpu-kernel-gen";
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir"));
     let kernels_dir = manifest_dir.join("kernels");
-    let generator_dir = manifest_dir.parent().unwrap().join("fls-gpu-kernel-gen");
-    let fls_gen_output = Command::new("cargo")
-        .current_dir(&generator_dir)
-        .arg("run")
-        .arg("--")
-        .arg("--output-dir")
-        .arg(&kernels_dir)
-        .output()
-        .expect("Failed to run fls-gpu-kernel-gen");
+    let generator_dir = manifest_dir.parent().unwrap().join(project_name);
 
-    assert!(
-        fls_gen_output.status.success(),
-        "Failed to run fls-gpu-kernel-gen: {}",
-        str::from_utf8(&fls_gen_output.stderr)?
-    );
+    fs::create_dir_all(&kernels_dir)?;
+
+    // Generate for all bit widths and both features
+    generate_unpack::<u8>(&kernels_dir, 32)?;
+    generate_unpack::<u16>(&kernels_dir, 32)?;
+    generate_unpack::<u32>(&kernels_dir, 32)?;
+    generate_unpack::<u64>(&kernels_dir, 16)?;
 
     if !has_nvcc() {
         // Don't run cuda compilation if nvcc is not available.

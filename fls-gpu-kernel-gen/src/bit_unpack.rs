@@ -9,7 +9,79 @@ use fastlanes::FastLanes;
 
 use crate::indent::IndentedWriter;
 
-fn generate_kernel_for_width<T: FastLanes, W: Write>(
+fn generate_lane_decoder<T: FastLanes, W: Write>(
+    output: &mut IndentedWriter<W>,
+    bit_width: usize,
+) -> anyhow::Result<()> {
+    let bits = <T>::T;
+    let lanes = T::LANES;
+
+    let func_name = format!("fls_unpack_{bit_width}bw_{bits}ow_lane");
+
+    writeln!(
+        output,
+        "__device__ void _{func_name}(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, unsigned int lane) {{"
+    )?;
+
+    output.indent(|output| {
+        writeln!(output, "unsigned int LANE_COUNT = {lanes};")?;
+        if bit_width == 0 {
+            writeln!(output, "uint{bits}_t zero = 0ULL;")?;
+            writeln!(output)?;
+            for row in 0..bits {
+                writeln!(output, "out[INDEX({row}, lane)] = zero;")?;
+            }
+        } else if bit_width == bits {
+            writeln!(output)?;
+            for row in 0..bits {
+                writeln!(
+                    output,
+                    "out[INDEX({row}, lane)] = in[LANE_COUNT * {row} + lane];",
+                )?;
+            }
+        } else {
+            writeln!(output, "uint{bits}_t src;")?;
+            writeln!(output, "uint{bits}_t tmp;")?;
+
+            writeln!(output)?;
+            writeln!(output, "src = in[lane];")?;
+            for row in 0..bits {
+                let curr_word = (row * bit_width) / bits;
+                let next_word = ((row + 1) * bit_width) / bits;
+                let shift = (row * bit_width) % bits;
+
+                if next_word > curr_word {
+                    let remaining_bits = ((row + 1) * bit_width) % bits;
+                    let current_bits = bit_width - remaining_bits;
+                    writeln!(
+                        output,
+                        "tmp = (src >> {shift}) & MASK(uint{bits}_t, {current_bits});"
+                    )?;
+
+                    if next_word < bit_width {
+                        writeln!(output, "src = in[lane + LANE_COUNT * {next_word}];")?;
+                        writeln!(
+                            output,
+                            "tmp |= (src & MASK(uint{bits}_t, {remaining_bits})) << {current_bits};"
+                        )?;
+                    }
+                } else {
+                    writeln!(
+                        output,
+                        "tmp = (src >> {shift}) & MASK(uint{bits}_t, {bit_width});"
+                    )?;
+                }
+
+                writeln!(output, "out[INDEX({row}, lane)] = tmp;")?;
+            }
+        }
+        Ok(())
+    })?;
+
+    Ok(writeln!(output, "}}")?)
+}
+
+fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
     output: &mut IndentedWriter<W>,
     bit_width: usize,
     thread_count: usize,
@@ -18,76 +90,52 @@ fn generate_kernel_for_width<T: FastLanes, W: Write>(
     let lanes = T::LANES;
     let per_thread_loop_count = lanes / thread_count;
 
-    writeln!(
-        output,
-        "extern \"C\" __global__ void fls_unpack_{bit_width}bw_{bits}ow_{thread_count}t(const uint{bits}_t *__restrict full_in, uint{bits}_t *__restrict full_out) {{"
-    )?;
+    let func_name = format!("fls_unpack_{bit_width}bw_{bits}ow_{thread_count}t");
+
+    let local_func_params = format!(
+        "(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, int thread_idx)"
+    );
+
+    writeln!(output, "__device__ void _{func_name}{local_func_params} {{")?;
 
     output.indent(|output| {
-        writeln!(output, "int i = threadIdx.x;")?;
-        writeln!(output, "auto in = full_in + (blockIdx.x * (128 * {bit_width} / sizeof(uint{bits}_t)));")?;
-        writeln!(output, "auto out = full_out + (blockIdx.x * 1024);")?;
-        if bit_width == 0 {
-            writeln!(output, "uint{bits}_t zero = 0ULL;")?;
-            writeln!(output)?;
-            for thread_lane in 0..per_thread_loop_count {
-                for row in 0..bits {
-                    writeln!(output, "out[INDEX({row}, (i * {per_thread_loop_count} + {thread_lane}))] = zero;")?;
-                }
-            }
-        } else if bit_width == bits {
-            writeln!(output)?;
-            for thread_lane in 0..per_thread_loop_count {
-                for row in 0..bits {
-                    writeln!(
-                        output,
-                        "out[INDEX({row}, (i * {per_thread_loop_count} + {thread_lane}))] = in[{lanes} * {row} + (i * {per_thread_loop_count} + {thread_lane})];",
-                    )?;
-                }
-            }
-        } else {
-            writeln!(output, "uint{bits}_t src;")?;
-            writeln!(output, "uint{bits}_t tmp;")?;
-
-            for thread_lane in 0..per_thread_loop_count {
-                writeln!(output)?;
-                writeln!(output, "src = in[i * {per_thread_loop_count} + {thread_lane}];")?;
-                for row in 0..bits {
-                    let curr_word = (row * bit_width) / bits;
-                    let next_word = ((row + 1) * bit_width) / bits;
-                    let shift = (row * bit_width) % bits;
-
-                    if next_word > curr_word {
-                        let remaining_bits = ((row + 1) * bit_width) % bits;
-                        let current_bits = bit_width - remaining_bits;
-                        writeln!(
-                            output,
-                            "tmp = (src >> {shift}) & MASK(uint{bits}_t, {current_bits});"
-                        )?;
-
-                        if next_word < bit_width {
-                            writeln!(output, "src = in[i * {per_thread_loop_count} + {thread_lane} + {lanes} * {next_word}];")?;
-                            writeln!(
-                                output,
-                                "tmp |= (src & MASK(uint{bits}_t, {remaining_bits})) << {current_bits};"
-                            )?;
-                        }
-                    } else {
-                        writeln!(
-                            output,
-                            "tmp = (src >> {shift}) & MASK(uint{bits}_t, {bit_width});"
-                        )?;
-                    }
-
-                    writeln!(output, "out[INDEX({row}, (i * {per_thread_loop_count} + {thread_lane}))] = tmp;")?;
-                }
-            }
+        for thread_lane in 0..per_thread_loop_count {
+            writeln!(output, "_fls_unpack_{bit_width}bw_{bits}ow_lane(in, out, thread_idx * {per_thread_loop_count} + {thread_lane});")?;
         }
         Ok(())
     })?;
 
-    writeln!(output, "}}")?;
-    Ok(())
+    Ok(writeln!(output, "}}")?)
+}
+
+fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
+    output: &mut IndentedWriter<W>,
+    bit_width: usize,
+    thread_count: usize,
+) -> anyhow::Result<()> {
+    let bits = <T>::T;
+
+    let func_name = format!("fls_unpack_{bit_width}bw_{bits}ow_{thread_count}t");
+    let func_params =
+        format!("(const uint{bits}_t *__restrict full_in, uint{bits}_t *__restrict full_out)");
+
+    writeln!(
+        output,
+        "extern \"C\" __global__ void {func_name}{func_params} {{"
+    )?;
+
+    output.indent(|output| {
+        writeln!(output, "int thread_idx = threadIdx.x;")?;
+        writeln!(
+            output,
+            "auto in = full_in + (blockIdx.x * (128 * {bit_width} / sizeof(uint{bits}_t)));"
+        )?;
+        writeln!(output, "auto out = full_out + (blockIdx.x * 1024);")?;
+
+        writeln!(output, "_{func_name}(in, out, thread_idx);")
+    })?;
+
+    Ok(writeln!(output, "}}")?)
 }
 
 fn generate_unpack_for_width<T: FastLanes, W: Write>(
@@ -105,7 +153,11 @@ fn generate_unpack_for_width<T: FastLanes, W: Write>(
     writeln!(output)?;
 
     for bit_width in 0..=<T>::T {
-        generate_kernel_for_width::<T, _>(output, bit_width, thread_count)?;
+        generate_lane_decoder::<T, _>(output, bit_width)?;
+        writeln!(output)?;
+        generate_device_kernel_for_width::<T, _>(output, bit_width, thread_count)?;
+        writeln!(output)?;
+        generate_global_kernel_for_width::<T, _>(output, bit_width, thread_count)?;
         writeln!(output)?;
     }
 
