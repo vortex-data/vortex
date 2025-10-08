@@ -179,6 +179,10 @@ impl FileSource for VortexSource {
         Arc::new(source)
     }
 
+    fn filter(&self) -> Option<Arc<dyn PhysicalExpr>> {
+        self.vortex_predicate.clone()
+    }
+
     fn metrics(&self) -> &ExecutionPlanMetricsSet {
         &self._unused_df_metrics
     }
@@ -293,6 +297,6 @@ impl FileSource for VortexSource {
     }
 
     fn schema_adapter_factory(&self) -> Option<Arc<dyn SchemaAdapterFactory>> {
-        None
+        self.schema_adapter_factory.clone()
     }
 }
