@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::{CStr, CString};
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use vortex::dtype::{ExtDType, FieldName};
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
@@ -242,10 +242,8 @@ impl LogicalType {
 
 impl Debug for LogicalType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let debug = unsafe { duckdb_vx_logical_type_stringify(self.as_ptr()) };
-        write!(f, "{}", unsafe { CStr::from_ptr(debug).to_string_lossy() })?;
-        unsafe { duckdb_free(debug.cast()) };
-        Ok(())
+        let debug = unsafe { DDBString::own(duckdb_vx_logical_type_stringify(self.as_ptr())) };
+        write!(f, "{}", debug)
     }
 }
 
@@ -261,6 +259,12 @@ wrapper!(
     },
     |ptr: &mut *mut std::ffi::c_char| unsafe { duckdb_free((*ptr).cast()) }
 );
+
+impl Display for DDBString {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ref())
+    }
+}
 
 impl AsRef<str> for DDBString {
     fn as_ref(&self) -> &str {

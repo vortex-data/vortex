@@ -55,7 +55,9 @@ mod tests {
 
     use arrow_buffer::BooleanBuffer;
     use vortex::IntoArray;
-    use vortex::arrays::{PrimitiveArray, VarBinViewArray};
+    use vortex::arrays::{ConstantArray, PrimitiveArray, VarBinViewArray};
+    use vortex::buffer::buffer;
+    use vortex::encodings::dict::DictArray;
     use vortex::error::{VortexExpect, VortexUnwrap};
     use vortex::validity::Validity;
 
@@ -150,6 +152,47 @@ mod tests {
             format!("{}", String::try_from(&chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT STRUCT(col1 INTEGER, col2 VARCHAR): 10 = [ {'col1': 1, 'col2': NULL}, {'col1': NULL, 'col2': b}, {'col1': 2, 'col2': c}, NULL, NULL, NULL, {'col1': 4, 'col2': g}, {'col1': NULL, 'col2': h}, {'col1': 5, 'col2': NULL}, {'col1': NULL, 'col2': j}]
+"#
+        );
+    }
+
+    #[test]
+    fn struct_export_non_flat_vectors() {
+        let prim = ConstantArray::new(42, 10).into_array();
+        let strings = DictArray::try_new(
+            buffer![0u8, 1, 1, 2, 2, 2, 2, 3, 3, 4].into_array(),
+            VarBinViewArray::from_iter_str(vec!["b", "c", "d", "g", "h"]).into_array(),
+        )
+        .vortex_unwrap()
+        .into_array();
+        let arr = StructArray::try_new(
+            ["col1", "col2"].into(),
+            vec![prim, strings],
+            10,
+            Validity::from(BooleanBuffer::from_iter([
+                true, true, true, false, false, false, true, true, true, true,
+            ])),
+        )
+        .vortex_unwrap();
+        let mut chunk = DataChunk::new([LogicalType::struct_type(
+            vec![
+                LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
+                LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_VARCHAR),
+            ],
+            vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
+        )
+        .vortex_unwrap()]);
+
+        new_exporter(&arr, &ConversionCache::default())
+            .unwrap()
+            .export(0, 10, &mut chunk.get_vector(0))
+            .unwrap();
+        chunk.set_len(10);
+
+        assert_eq!(
+            format!("{}", String::try_from(&chunk).unwrap()),
+            r#"Chunk - [1 Columns]
+- FLAT STRUCT(col1 INTEGER, col2 VARCHAR): 10 = [ {'col1': 42, 'col2': b}, {'col1': 42, 'col2': c}, {'col1': 42, 'col2': c}, NULL, NULL, NULL, {'col1': 42, 'col2': d}, {'col1': 42, 'col2': g}, {'col1': 42, 'col2': g}, {'col1': 42, 'col2': h}]
 "#
         );
     }
