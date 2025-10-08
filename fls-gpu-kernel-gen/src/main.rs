@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use crate::bit_unpack::generate_unpack;
+use crate::bit_unpack::{generate_common_header, generate_unpack};
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -21,6 +21,9 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let output_dir = args.output_dir.unwrap_or_else(|| PathBuf::from("kernels"));
     fs::create_dir_all(&output_dir)?;
+
+    // Generate the common header first
+    generate_common_header(&output_dir)?;
 
     // Generate for all bit widths and both features
     generate_unpack::<u8>(&output_dir, 32)?;
