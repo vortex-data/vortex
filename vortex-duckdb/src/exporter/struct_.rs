@@ -17,6 +17,8 @@ pub(crate) fn new_exporter(
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let validity = array.validity_mask();
+    // DuckDB requires that the validity of the child be a subset of the parent struct so we mask out children with
+    // parents nullability
     let validity_for_mask = if array.dtype().is_nullable() {
         Some(!&validity)
     } else {
