@@ -20,5 +20,3 @@ name = "fls_gpu_kernel_gen"
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 fastlanes = { workspace = true }
-
-
