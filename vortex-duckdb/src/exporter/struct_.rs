@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::arrays::StructArray;
+use vortex::compute::mask;
 use vortex::error::VortexResult;
 
 use crate::duckdb::Vector;
@@ -15,14 +16,22 @@ pub(crate) fn new_exporter(
     array: &StructArray,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    let validity = array.validity_mask();
     let children = array
         .children()
         .into_iter()
-        .map(|child| new_array_exporter(&child, cache))
+        .map(|child| {
+            let masked_child = if child.dtype().is_nullable() {
+                mask(&child, &validity)?
+            } else {
+                child
+            };
+            new_array_exporter(&masked_child, cache)
+        })
         .collect::<VortexResult<Vec<_>>>()?;
     let struct_exporter = Box::new(StructExporter { children });
     Ok(if array.dtype().is_nullable() {
-        validity::new_exporter(array.validity_mask(), struct_exporter)
+        validity::new_exporter(validity, struct_exporter)
     } else {
         struct_exporter
     })

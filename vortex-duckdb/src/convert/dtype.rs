@@ -229,7 +229,7 @@ impl TryFrom<&DType> for LogicalType {
             }
             DType::FixedSizeList(element_dtype, list_size, _) => {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
-                return LogicalType::fixed_size_list_type(element_logical_type, *list_size);
+                return LogicalType::array_type(element_logical_type, *list_size);
             }
             DType::Extension(ext_dtype) => {
                 if datetime::is_temporal_ext_type(ext_dtype.id()) {

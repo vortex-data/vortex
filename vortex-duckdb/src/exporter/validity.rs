@@ -31,3 +31,30 @@ impl ColumnExporter for ValidityExporter {
         Ok(())
     }
 }
+
+struct MergingValidityExporter {
+    mask: Mask,
+    parent_mask: Mask,
+    exporter: Box<dyn ColumnExporter>,
+}
+
+pub(crate) fn new_merging_exporter(
+    mask: Mask,
+    parent_mask: Mask,
+    exporter: Box<dyn ColumnExporter>,
+) -> Box<dyn ColumnExporter> {
+    Box::new(MergingValidityExporter { mask, parent_mask, exporter })
+}
+
+impl ColumnExporter for MergingValidityExporter {
+    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+        if unsafe { vector.set_validity(&self.mask, offset, len) } {
+            // All values are null, so no point copying the data.
+            return Ok(());
+        }
+
+        self.exporter.export(offset, len, vector)?;
+
+        Ok(())
+    }
+}

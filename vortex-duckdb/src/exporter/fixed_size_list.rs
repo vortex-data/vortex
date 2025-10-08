@@ -284,7 +284,7 @@ mod tests {
         let inner_array_type =
             LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, inner_list_size);
 
-        LogicalType::fixed_size_list_type(inner_array_type, outer_list_size)
+        LogicalType::array_type(inner_array_type, outer_list_size)
             .vortex_expect("failed to create nested array type")
     }
 

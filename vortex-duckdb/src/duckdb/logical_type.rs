@@ -88,7 +88,7 @@ impl LogicalType {
     /// Creates a DuckDB fixed-size list logical type with the specified element type and list size.
     ///
     /// Note that DuckDB calls what we call a fixed-size list the ARRAY type.
-    pub fn fixed_size_list_type(element_type: LogicalType, list_size: u32) -> VortexResult<Self> {
+    pub fn array_type(element_type: LogicalType, list_size: u32) -> VortexResult<Self> {
         // SAFETY: We trust that DuckDB correctly gives us a valid pointer or `NULL`.
         let ptr = unsafe { duckdb_create_array_type(element_type.as_ptr(), list_size as idx_t) };
 
@@ -490,11 +490,9 @@ mod tests {
     #[test]
     fn test_clone_array_logical_type() {
         // Create an array of strings with size 5
-        let array_type = LogicalType::fixed_size_list_type(
-            LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR),
-            5,
-        )
-        .vortex_expect("Failed to create array type");
+        let array_type =
+            LogicalType::array_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR), 5)
+                .vortex_expect("Failed to create array type");
         #[allow(clippy::redundant_clone)]
         let cloned = array_type.clone();
 

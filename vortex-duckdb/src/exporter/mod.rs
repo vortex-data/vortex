@@ -12,7 +12,7 @@ mod list;
 mod primitive;
 mod run_end;
 mod sequence;
-mod strct;
+mod struct_;
 mod temporal;
 mod validity;
 mod varbinview;
@@ -183,7 +183,7 @@ fn new_array_exporter_with_flatten(
         Canonical::Bool(array) => bool::new_exporter(&array),
         Canonical::Primitive(array) => primitive::new_exporter(&array),
         Canonical::Decimal(array) => decimal::new_exporter(&array),
-        Canonical::Struct(array) => strct::new_exporter(&array, cache),
+        Canonical::Struct(array) => struct_::new_exporter(&array, cache),
         Canonical::List(array) => list::new_exporter(&array, cache),
         Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(&array, cache),
         Canonical::VarBinView(array) => varbinview::new_exporter(&array),
