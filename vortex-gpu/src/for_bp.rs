@@ -20,7 +20,7 @@ use vortex_fastlanes::{BitPackedVTable, FoRArray};
 
 use crate::task::GPUTask;
 
-struct ForBPTask<P> {
+struct FoRBPTask<P> {
     stream: Arc<CudaStream>,
     func: CudaFunction,
     launch_config: LaunchConfig,
@@ -41,6 +41,8 @@ pub fn new_task(
     assert!(!array.is_empty());
     assert_eq!(array.ptype(), PType::U32);
     let bp = array.encoded().as_::<BitPackedVTable>();
+    assert_eq!(bp.offset(), 0);
+    assert_eq!(bp.bit_width(), 6);
 
     let num_chunks =
         u32::try_from(array.len().div_ceil(1024)).vortex_expect("Too many grid elements");
@@ -56,7 +58,7 @@ pub fn new_task(
             .map_err(|e| vortex_err!("Failed to allocate stream: {e}"))?
     };
 
-    Ok(Box::new(ForBPTask {
+    Ok(Box::new(FoRBPTask {
         stream,
         func: cuda_for_bp_kernel(array.ptype(), &ctx)?,
         launch_config: LaunchConfig {
@@ -87,7 +89,7 @@ fn cuda_for_bp_kernel(_ptype: PType, ctx: &Arc<CudaContext>) -> VortexResult<Cud
     Ok(kernel_func)
 }
 
-impl<P: NativePType + DeviceRepr> GPUTask for ForBPTask<P> {
+impl<P: NativePType + DeviceRepr> GPUTask for FoRBPTask<P> {
     fn launch_task(&mut self) -> VortexResult<()> {
         let mut launch = self.stream.launch_builder(&self.func);
         launch.arg(&self.packed);
