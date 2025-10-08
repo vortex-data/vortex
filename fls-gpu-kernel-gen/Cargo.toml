@@ -3,11 +3,12 @@ name = "fls-gpu-kernel-gen"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-anyhow = "1.0.100"
-clap = { version = "4.5.48", features = ["derive"] }
-fastlanes = "0.4.0"
+[lib]
+name = "fls_gpu_kernel_gen"
 
-[[bin]]
-name = "fls-gpu-kernel-gen"
-path = "src/main.rs"
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+fastlanes = { workspace = true }
+
+
