@@ -46,7 +46,7 @@ impl SerdeVTable<StructVTable> for StructVTable {
             );
         };
 
-        let children = (0..struct_dtype.nfields())
+        let children: Vec<_> = (0..struct_dtype.nfields())
             .map(|i| {
                 let child_dtype = struct_dtype
                     .field_by_index(i)

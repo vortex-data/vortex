@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
+
 use crate::arrays::struct_::{StructArray, StructVTable};
 use crate::vtable::{ValidityHelper, VisitorVTable};
 use crate::{ArrayBufferVisitor, ArrayChildVisitor};
@@ -10,8 +12,8 @@ impl VisitorVTable<StructVTable> for StructVTable {
 
     fn visit_children(array: &StructArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(array.validity(), array.len());
-        for (idx, name) in array.names().iter().enumerate() {
-            visitor.visit_child(name.as_ref(), &array.fields()[idx]);
+        for (name, field) in array.names().iter().zip_eq(array.fields().iter()) {
+            visitor.visit_child(name.as_ref(), field);
         }
     }
 }
