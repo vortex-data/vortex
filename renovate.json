@@ -7,7 +7,8 @@
     ":automergeRequireAllStatusChecks",
     ":combinePatchMinorReleases",
     ":dependencyDashboard",
-    ":separateMultipleMajorReleases"
+    ":separateMultipleMajorReleases",
+    "docker:disable"
   ],
   "lockFileMaintenance": {
     "enabled": true
