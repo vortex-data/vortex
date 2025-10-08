@@ -5,6 +5,9 @@ all-features = true
 
 no-default-features = false
 
+# Lance seems to have vulnerabilities (RUSTSEC-2023-0071)
+exclude = ["lance"]
+
 [output]
 feature-depth = 1
 
@@ -24,6 +27,7 @@ allow = [
     "Apache-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "BSL-1.0",
     "bzip2-1.0.6",
     "CC0-1.0",
     "CDLA-Permissive-2.0",

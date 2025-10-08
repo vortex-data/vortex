@@ -10,6 +10,7 @@ use arrow_select::concat::concat_batches;
 use arrow_select::take::take_record_batch;
 use futures::stream;
 use itertools::Itertools;
+use lance::dataset::{Dataset, ProjectionRequest};
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
@@ -31,11 +32,6 @@ pub async fn take_vortex_tokio(
     Ok(result)
 }
 
-pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> anyhow::Result<RecordBatch> {
-    let file = tokio::fs::File::open(path).await?;
-    parquet_take_from_stream(file, indices).await
-}
-
 async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
     Ok(VortexOpenOptions::new()
         .open(reader.as_ref())
@@ -45,9 +41,14 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::
         .into_array_stream()?
         .read_all()
         .await?
-        // For equivalence.... we decompress to make sure we're not cheating too much.
+        // We canonicalize / decompress for equivalence to Arrow's `RecordBatch`es.
         .to_canonical()
         .into_array())
+}
+
+pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> anyhow::Result<RecordBatch> {
+    let file = tokio::fs::File::open(path).await?;
+    parquet_take_from_stream(file, indices).await
 }
 
 async fn parquet_take_from_stream<T: AsyncFileReader + Unpin + Send + 'static>(
@@ -110,4 +111,11 @@ async fn parquet_take_from_stream<T: AsyncFileReader + Unpin + Send + 'static>(
         .await;
 
     Ok(concat_batches(&schema, &batches)?)
+}
+
+pub async fn take_lance(path: &Path, indices: Buffer<u64>) -> anyhow::Result<RecordBatch> {
+    let dataset = Dataset::open(path.to_str().unwrap()).await?;
+    let projection = ProjectionRequest::from_schema(dataset.schema().clone()); // All columns.
+    let result = dataset.take(indices.as_slice(), projection).await?;
+    Ok(result)
 }

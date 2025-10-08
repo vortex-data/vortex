@@ -106,6 +106,8 @@ jobs:
       - uses: actions/checkout@v5
         if: inputs.mode != 'pr'
       - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install DuckDB
         run: |
