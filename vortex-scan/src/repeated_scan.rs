@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 use std::{cmp, iter};
 
 use futures::Stream;
 use futures::future::BoxFuture;
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use vortex_array::ArrayRef;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
@@ -20,6 +19,7 @@ use vortex_layout::LayoutReaderRef;
 
 use crate::filter::FilterExpr;
 use crate::selection::Selection;
+use crate::splits::Splits;
 use crate::tasks::{TaskContext, split_exec};
 
 /// A projected subset (by indices, range, and filter) of rows from a Vortex data source.
@@ -39,7 +39,7 @@ pub struct RepeatedScan<A: 'static + Send> {
     /// The selection mask to apply to the selected row range.
     selection: Selection,
     /// The natural splits of the file.
-    splits: BTreeSet<u64>,
+    splits: Splits,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
@@ -83,7 +83,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         ordered: bool,
         row_range: Option<Range<u64>>,
         selection: Selection,
-        splits: BTreeSet<u64>,
+        splits: Splits,
         concurrency: usize,
         map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
         limit: Option<usize>,
@@ -118,34 +118,50 @@ impl<A: 'static + Send> RepeatedScan<A> {
         });
 
         let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
-        let splits_iter: Box<dyn Iterator<Item = _>> = match row_range {
-            None => Box::new(self.splits.iter().copied()),
-            Some(range) => {
-                if range.start > range.end {
-                    return Ok(Vec::new());
-                }
-                Box::new(
-                    iter::once(range.start)
-                        .chain(self.splits.range(range.clone()).copied())
-                        .chain(iter::once(range.end)),
-                )
+
+        let ranges = match &self.splits {
+            Splits::Natural(btree_set) => {
+                let splits_iter = match row_range {
+                    None => Either::Left(btree_set.iter().copied()),
+                    Some(range) => {
+                        if range.is_empty() {
+                            return Ok(Vec::new());
+                        }
+                        Either::Right(
+                            iter::once(range.start)
+                                .chain(btree_set.range(range.clone()).copied())
+                                .chain(iter::once(range.end)),
+                        )
+                    }
+                };
+
+                Either::Left(splits_iter.tuple_windows().map(|(start, end)| start..end))
             }
+            Splits::Ranges(ranges) => Either::Right(match row_range {
+                None => Either::Left(ranges.iter().cloned()),
+                Some(range) => {
+                    if range.is_empty() {
+                        return Ok(Vec::new());
+                    }
+                    Either::Right(ranges.iter().filter_map(move |r| {
+                        let start = cmp::max(r.start, range.start);
+                        let end = cmp::min(r.end, range.end);
+                        (start < end).then_some(start..end)
+                    }))
+                }
+            }),
         };
 
-        // Create a task that executes the full scan operator for each split.
         let mut limit = self.limit;
-        let split_tasks = splits_iter
-            .tuple_windows()
-            .filter_map(|(start, end)| {
-                if limit.is_some_and(|l| l == 0) || start >= end {
+        ranges
+            .filter_map(|range| {
+                if range.start >= range.end || limit.is_some_and(|l| l == 0) {
                     None
                 } else {
-                    Some(split_exec(ctx.clone(), start..end, limit.as_mut()))
+                    Some(split_exec(ctx.clone(), range, limit.as_mut()))
                 }
             })
-            .try_collect()?;
-
-        Ok(split_tasks)
+            .try_collect()
     }
 
     pub fn execute_stream(

@@ -4,12 +4,17 @@
 pub mod arrow;
 mod filter;
 pub mod row_mask;
-mod selection;
-mod split_by;
+mod splits;
 mod tasks;
 
+mod selection;
+pub use selection::Selection;
+
+mod split_by;
+pub use split_by::SplitBy;
+
 mod scan_builder;
-pub use scan_builder::*;
+pub use scan_builder::ScanBuilder;
 
 mod repeated_scan;
-pub use repeated_scan::*;
+pub use repeated_scan::RepeatedScan;

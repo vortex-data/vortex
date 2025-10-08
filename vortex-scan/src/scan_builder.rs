@@ -25,6 +25,7 @@ use vortex_metrics::VortexMetrics;
 use crate::RepeatedScan;
 use crate::selection::Selection;
 use crate::split_by::SplitBy;
+use crate::splits::{Splits, attempt_split_ranges};
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
@@ -231,7 +232,14 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let (filter_mask, projection_mask) =
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
-        let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
+
+        let splits =
+            if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
+                Splits::Ranges(ranges)
+            } else {
+                Splits::Natural(self.split_by.splits(layout_reader.as_ref(), &field_mask)?)
+            };
+
         Ok(RepeatedScan::new(
             handle,
             layout_reader,
