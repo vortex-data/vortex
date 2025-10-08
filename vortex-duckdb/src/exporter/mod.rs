@@ -24,7 +24,7 @@ use bitvec::view::BitView;
 pub use cache::ConversionCache;
 pub use decimal::precision_to_duckdb_storage_size;
 use itertools::Itertools;
-use vortex::arrays::{ConstantVTable, StructArray, TemporalArray};
+use vortex::arrays::{ConstantVTable, MaskedVTable, StructArray, TemporalArray};
 use vortex::dtype::datetime::is_temporal_ext_type;
 use vortex::encodings::dict::DictVTable;
 use vortex::encodings::runend::RunEndVTable;
@@ -172,6 +172,13 @@ fn new_array_exporter_with_flatten(
 
     if let Some(array) = array.as_opt::<SequenceVTable>() {
         return sequence::new_exporter(array);
+    }
+
+    if let Some(array) = array.as_opt::<MaskedVTable>() {
+        return Ok(validity::new_exporter(
+            array.validity_mask(),
+            new_array_exporter_with_flatten(array.child(), cache, flatten)?,
+        ));
     }
 
     // Otherwise, we fall back to canonical
