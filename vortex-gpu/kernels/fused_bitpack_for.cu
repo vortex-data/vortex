@@ -123,9 +123,16 @@ extern "C" __global__ void fused_bitpack6_for_u32(
     auto blockSize = blockDim.x * fl_lane_count;
     auto out = unpacked_out + (blockIdx.x * 1024);
 
+    __shared__ uint32_t shared_data[1024];
+
     // Step 1: Unpack bitpacked data directly to output
-    fls_unpack_6bw_32ow_device(in, out, i);
+    fls_unpack_6bw_32ow_device(in, shared_data, i);
 
     // Step 2: Add reference value in-place (FoR operation)
-    for_device(out, reference, i);
+    for_device(shared_data, reference, i);
+
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + threadIdx.x;
+        out[idx] = shared_data[idx];
+    }
 }
