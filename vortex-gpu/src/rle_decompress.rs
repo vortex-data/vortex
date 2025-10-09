@@ -144,26 +144,31 @@ where
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 #[cfg(test)]
 mod tests {
-    use std::iter;
-
     use cudarc::driver::CudaContext;
+    use rstest::rstest;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
+    use vortex_dtype::NativePType;
     use vortex_error::VortexUnwrap;
     use vortex_fastlanes::RLEArray;
 
     use crate::rle_decompress::cuda_rle_decompress;
 
-    #[test]
-    fn test_cuda_rle_decompress() {
-        let primitive_array = PrimitiveArray::new(
-            (0u32..4096)
-                .flat_map(|i| iter::repeat_n(i, i as usize % 10))
-                .collect::<Buffer<_>>(),
-            Validity::NonNullable,
-        );
+    #[rstest]
+    #[case::u8((0u8..100).collect::<Buffer<u8>>())]
+    #[case::u16((0u16..2000).collect::<Buffer<u16>>())]
+    #[case::u32((0u32..2000).collect::<Buffer<u32>>())]
+    #[case::u64((0u64..2000).collect::<Buffer<u64>>())]
+    #[case::i8((-100i8..100).collect::<Buffer<i8>>())]
+    #[case::i16((-2000i16..2000).collect::<Buffer<i16>>())]
+    #[case::i32((-2000i32..2000).collect::<Buffer<i32>>())]
+    #[case::i64((-2000i64..2000).collect::<Buffer<i64>>())]
+    #[case::f32((-2000..2000).map(|i| i as f32).collect::<Buffer<f32>>())]
+    #[case::f64((-2000..2000).map(|i| i as f64).collect::<Buffer<f64>>())]
+    fn test_cuda_rle_decompress<T: NativePType>(#[case] values: Buffer<T>) {
+        let primitive_array = PrimitiveArray::new(values, Validity::NonNullable);
         let array = RLEArray::encode(&primitive_array).vortex_unwrap();
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
