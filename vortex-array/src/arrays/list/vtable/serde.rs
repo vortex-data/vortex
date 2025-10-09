@@ -2,12 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 
 use super::ListArray;
 use crate::ProstMetadata;
-use crate::arrays::{ListEncoding, ListVTable};
+use crate::arrays::{
+    ListEncoding,
+    ListVTable,
+};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;

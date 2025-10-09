@@ -5,10 +5,16 @@ use std::sync::Arc;
 
 use moka::sync::Cache;
 use vortex::dtype::DType;
-use vortex::file::{Footer, SegmentSpec};
+use vortex::file::{
+    Footer,
+    SegmentSpec,
+};
 use vortex::layout::segments::SegmentId;
 use vortex::scalar::ScalarValue;
-use vortex::stats::{Precision, Stat};
+use vortex::stats::{
+    Precision,
+    Stat,
+};
 use vortex::utils::aliases::DefaultHashBuilder;
 
 use crate::box_wrapper;

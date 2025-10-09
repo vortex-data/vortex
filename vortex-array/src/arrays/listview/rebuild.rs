@@ -1,13 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
+use vortex_dtype::{
+    IntegerPType,
+    Nullability,
+    match_each_integer_ptype,
+};
 use vortex_error::VortexExpect;
 
 use crate::arrays::ListViewArray;
-use crate::builders::{ArrayBuilder, ListViewBuilder, PrimitiveBuilder, builder_with_capacity};
+use crate::builders::{
+    ArrayBuilder,
+    ListViewBuilder,
+    PrimitiveBuilder,
+    builder_with_capacity,
+};
 use crate::vtable::ValidityHelper;
-use crate::{Array, IntoArray, ToCanonical};
+use crate::{
+    Array,
+    IntoArray,
+    ToCanonical,
+};
 
 /// Modes for rebuilding a [`ListViewArray`].
 pub enum ListViewRebuildMode {
@@ -176,10 +189,16 @@ impl ListViewArray {
 mod tests {
     use vortex_dtype::Nullability;
 
-    use crate::arrays::{ListViewArray, PrimitiveArray};
+    use crate::arrays::{
+        ListViewArray,
+        PrimitiveArray,
+    };
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{IntoArray, ToCanonical};
+    use crate::{
+        IntoArray,
+        ToCanonical,
+    };
 
     #[test]
     fn test_rebuild_remove_gaps_with_leading_garbage() {

@@ -6,14 +6,27 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
+use vortex_buffer::{
+    Buffer,
+    BufferMut,
+};
 use vortex_dtype::PType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 use vortex_mask::Mask;
 
 use crate::Exponents;
-use crate::alp::{ALPArray, ALPFloat};
+use crate::alp::{
+    ALPArray,
+    ALPFloat,
+};
 
 #[macro_export]
 macro_rules! match_each_alp_float_ptype {
@@ -132,7 +145,10 @@ mod tests {
     use core::f64;
 
     use vortex_array::validity::Validity;
-    use vortex_buffer::{Buffer, buffer};
+    use vortex_buffer::{
+        Buffer,
+        buffer,
+    };
     use vortex_dtype::NativePType;
     use vortex_scalar::Scalar;
 

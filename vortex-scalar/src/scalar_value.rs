@@ -7,14 +7,25 @@ use std::sync::Arc;
 use bytes::BufMut;
 use itertools::Itertools;
 use prost::Message;
-use vortex_buffer::{BufferString, ByteBuffer};
+use vortex_buffer::{
+    BufferString,
+    ByteBuffer,
+};
 use vortex_dtype::NativeDType;
-use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexResult,
+    VortexUnwrap,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_proto::scalar as pb;
 
 use crate::decimal::DecimalValue;
 use crate::pvalue::PValue;
-use crate::{Scalar, i256};
+use crate::{
+    Scalar,
+    i256,
+};
 
 /// Represents the internal data of a scalar value. Must be interpreted by wrapping up with a
 /// [`vortex_dtype::DType`] to make a [`super::Scalar`].

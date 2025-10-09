@@ -3,12 +3,33 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
-use vortex_expr::display::{DisplayAs, DisplayFormat};
+use vortex_array::{
+    ArrayRef,
+    DeserializeMetadata,
+    EmptyMetadata,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
+use vortex_expr::display::{
+    DisplayAs,
+    DisplayFormat,
+};
 use vortex_expr::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
+    AnalysisExpr,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    Scope,
+    VTable,
+    vtable,
 };
 
 vtable!(RowIdx);
@@ -90,10 +111,23 @@ mod tests {
     use rstest::rstest;
     use vortex_array::EmptyMetadata;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
-    use vortex_expr::{ExprRef, IntoExpr, VTable};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
+    use vortex_expr::{
+        ExprRef,
+        IntoExpr,
+        VTable,
+    };
 
-    use crate::layouts::row_idx::{RowIdxExpr, RowIdxExprEncoding, RowIdxVTable, row_idx};
+    use crate::layouts::row_idx::{
+        RowIdxExpr,
+        RowIdxExprEncoding,
+        RowIdxVTable,
+        row_idx,
+    };
 
     #[test]
     fn test_row_idx_expr_creation() {

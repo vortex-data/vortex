@@ -4,14 +4,20 @@
 //! Conversion methods and trait implementations of [`From`] and [`Into`] for [`PrimitiveArray`].
 
 use arrow_buffer::BooleanBufferBuilder;
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::{
+    Buffer,
+    BufferMut,
+};
 use vortex_dtype::NativePType;
 use vortex_error::vortex_panic;
 
 use crate::arrays::PrimitiveArray;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray};
+use crate::{
+    ArrayRef,
+    IntoArray,
+};
 
 impl PrimitiveArray {
     /// Create a PrimitiveArray from an iterator of `T`.

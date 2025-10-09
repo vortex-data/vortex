@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::types::ArrowDictionaryKeyType;
-use arrow_array::{AnyDictionaryArray, DictionaryArray};
+use arrow_array::{
+    AnyDictionaryArray,
+    DictionaryArray,
+};
 use vortex_array::ArrayRef;
 use vortex_array::arrow::FromArrowArray;
 

@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{
+    Arc,
+    OnceLock,
+};
 
 use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
-use vortex::error::{VortexResult, vortex_err};
+use vortex::error::{
+    VortexResult,
+    vortex_err,
+};
 use vortex_utils::aliases::dash_map::DashMap;
 
 // Global S3 object store cache.

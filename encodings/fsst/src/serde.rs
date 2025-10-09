@@ -1,18 +1,47 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use fsst::{Compressor, Symbol};
+use fsst::{
+    Compressor,
+    Symbol,
+};
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
-use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
+use vortex_array::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+    VisitorVTable,
 };
-use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_array::{
+    Array,
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    Canonical,
+    DeserializeMetadata,
+    ProstMetadata,
+};
+use vortex_buffer::{
+    Buffer,
+    ByteBuffer,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
-use crate::{FSSTArray, FSSTEncoding, FSSTVTable, fsst_compress, fsst_train_compressor};
+use crate::{
+    FSSTArray,
+    FSSTEncoding,
+    FSSTVTable,
+    fsst_compress,
+    fsst_train_compressor,
+};
 
 #[derive(Clone, prost::Message)]
 pub struct FSSTMetadata {

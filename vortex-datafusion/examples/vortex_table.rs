@@ -4,13 +4,20 @@
 use std::sync::Arc;
 
 use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+    ListingOptions,
+    ListingTable,
+    ListingTableConfig,
+    ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
 use tempfile::tempdir;
 use tokio::fs::OpenOptions;
 use vortex::IntoArray;
-use vortex::arrays::{ChunkedArray, StructArray, VarBinArray};
+use vortex::arrays::{
+    ChunkedArray,
+    StructArray,
+    VarBinArray,
+};
 use vortex::buffer::buffer;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;

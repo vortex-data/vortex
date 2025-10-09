@@ -3,13 +3,29 @@
 
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
-use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
+use vortex_array::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+    VisitorVTable,
+};
+use vortex_array::{
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    ProstMetadata,
+};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_ensure,
+};
 
-use crate::{PcoArray, PcoEncoding, PcoVTable};
+use crate::{
+    PcoArray,
+    PcoEncoding,
+    PcoVTable,
+};
 
 #[derive(Clone, prost::Message)]
 pub struct PcoPageInfo {

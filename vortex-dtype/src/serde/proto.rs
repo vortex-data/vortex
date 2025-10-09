@@ -3,13 +3,28 @@
 
 use std::sync::Arc;
 
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    vortex_err,
+};
 
-use crate::field::{Field, FieldPath};
+use crate::field::{
+    Field,
+    FieldPath,
+};
 use crate::proto::dtype as pb;
 use crate::proto::dtype::d_type::DtypeType;
 use crate::proto::dtype::field::FieldType;
-use crate::{DType, DecimalDType, ExtDType, ExtID, ExtMetadata, PType, StructFields};
+use crate::{
+    DType,
+    DecimalDType,
+    ExtDType,
+    ExtID,
+    ExtMetadata,
+    PType,
+    StructFields,
+};
 
 impl TryFrom<&pb::DType> for DType {
     type Error = VortexError;
@@ -193,7 +208,15 @@ mod tests {
     use crate::proto::dtype::d_type::DtypeType;
     use crate::proto::dtype::field::FieldType;
     use crate::{
-        DType, DecimalDType, ExtDType, ExtID, ExtMetadata, Field, FieldPath, Nullability, PType,
+        DType,
+        DecimalDType,
+        ExtDType,
+        ExtID,
+        ExtMetadata,
+        Field,
+        FieldPath,
+        Nullability,
+        PType,
         StructFields,
     };
 

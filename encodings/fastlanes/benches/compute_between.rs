@@ -4,10 +4,17 @@
 use num_traits::NumCast;
 use rand::Rng;
 use rand::rngs::StdRng;
-use vortex_alp::{ALPArray, alp_encode};
+use vortex_alp::{
+    ALPArray,
+    alp_encode,
+};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_to_best_bit_width;
@@ -65,12 +72,20 @@ mod primitive {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
-        BetweenOptions, BooleanOperator, Operator, between, boolean, compare,
+        BetweenOptions,
+        BooleanOperator,
+        Operator,
+        between,
+        boolean,
+        compare,
     };
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
-    use crate::{BENCH_ARGS, generate_primitive_array};
+    use crate::{
+        BENCH_ARGS,
+        generate_primitive_array,
+    };
 
     #[divan::bench(
         types = [i32, i64, u32, u64, f32, f64],
@@ -143,12 +158,20 @@ mod bitpack {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
-        BetweenOptions, BooleanOperator, Operator, between, boolean, compare,
+        BetweenOptions,
+        BooleanOperator,
+        Operator,
+        between,
+        boolean,
+        compare,
     };
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
-    use crate::{BENCH_ARGS, generate_bit_pack_primitive_array};
+    use crate::{
+        BENCH_ARGS,
+        generate_bit_pack_primitive_array,
+    };
 
     #[divan::bench(
         types = [i16, i32, i64],
@@ -219,12 +242,20 @@ mod alp {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
-        BetweenOptions, BooleanOperator, Operator, between, boolean, compare,
+        BetweenOptions,
+        BooleanOperator,
+        Operator,
+        between,
+        boolean,
+        compare,
     };
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
-    use crate::{BENCH_ARGS, generate_alp_bit_pack_primitive_array};
+    use crate::{
+        BENCH_ARGS,
+        generate_alp_bit_pack_primitive_array,
+    };
 
     #[divan::bench(
         types = [f32, f64],

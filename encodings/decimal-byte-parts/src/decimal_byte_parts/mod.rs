@@ -7,17 +7,44 @@ mod serde;
 use std::ops::Range;
 
 use vortex_array::arrays::DecimalArray;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::stats::{
+    ArrayStats,
+    StatsSetRef,
+};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityChild,
-    ValidityHelper, ValidityVTableFromChild,
+    ArrayVTable,
+    CanonicalVTable,
+    NotSupported,
+    OperationsVTable,
+    VTable,
+    ValidityChild,
+    ValidityHelper,
+    ValidityVTableFromChild,
 };
 use vortex_array::{
-    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
+    Array,
+    ArrayRef,
+    Canonical,
+    EncodingId,
+    EncodingRef,
+    IntoArray,
+    ToCanonical,
+    vtable,
 };
-use vortex_dtype::{DType, DecimalDType, match_each_signed_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_scalar::{DecimalValue, Scalar};
+use vortex_dtype::{
+    DType,
+    DecimalDType,
+    match_each_signed_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
+use vortex_scalar::{
+    DecimalValue,
+    Scalar,
+};
 
 vtable!(DecimalByteParts);
 
@@ -166,11 +193,21 @@ impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 #[cfg(test)]
 mod tests {
     use vortex_array::Array;
-    use vortex_array::arrays::{BoolArray, PrimitiveArray};
+    use vortex_array::arrays::{
+        BoolArray,
+        PrimitiveArray,
+    };
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, DecimalDType, Nullability};
-    use vortex_scalar::{DecimalValue, Scalar};
+    use vortex_dtype::{
+        DType,
+        DecimalDType,
+        Nullability,
+    };
+    use vortex_scalar::{
+        DecimalValue,
+        Scalar,
+    };
 
     use crate::DecimalBytePartsArray;
 

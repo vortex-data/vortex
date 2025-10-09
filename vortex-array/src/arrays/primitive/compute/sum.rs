@@ -3,14 +3,30 @@
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
-use num_traits::{CheckedAdd, Float, ToPrimitive};
-use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use num_traits::{
+    CheckedAdd,
+    Float,
+    ToPrimitive,
+};
+use vortex_dtype::{
+    NativePType,
+    match_each_native_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::compute::{SumKernel, SumKernelAdapter};
+use crate::arrays::{
+    PrimitiveArray,
+    PrimitiveVTable,
+};
+use crate::compute::{
+    SumKernel,
+    SumKernelAdapter,
+};
 use crate::register_kernel;
 use crate::stats::Stat;
 

@@ -10,10 +10,20 @@ pub use vortex_array::*;
 #[cfg(feature = "files")]
 pub use vortex_file as file;
 pub use {
-    vortex_buffer as buffer, vortex_dtype as dtype, vortex_error as error, vortex_expr as expr,
-    vortex_flatbuffers as flatbuffers, vortex_io as io, vortex_ipc as ipc, vortex_layout as layout,
-    vortex_mask as mask, vortex_metrics as metrics, vortex_proto as proto, vortex_scalar as scalar,
-    vortex_scan as scan, vortex_utils as utils,
+    vortex_buffer as buffer,
+    vortex_dtype as dtype,
+    vortex_error as error,
+    vortex_expr as expr,
+    vortex_flatbuffers as flatbuffers,
+    vortex_io as io,
+    vortex_ipc as ipc,
+    vortex_layout as layout,
+    vortex_mask as mask,
+    vortex_metrics as metrics,
+    vortex_proto as proto,
+    vortex_scalar as scalar,
+    vortex_scan as scan,
+    vortex_utils as utils,
 };
 
 pub mod compressor {
@@ -26,10 +36,17 @@ pub mod encodings {
     #[cfg(feature = "zstd")]
     pub use vortex_zstd as zstd;
     pub use {
-        vortex_alp as alp, vortex_bytebool as bytebool, vortex_datetime_parts as datetime_parts,
-        vortex_decimal_byte_parts as decimal_byte_parts, vortex_dict as dict,
-        vortex_fastlanes as fastlanes, vortex_fsst as fsst, vortex_pco as pco,
-        vortex_runend as runend, vortex_sequence as sequence, vortex_sparse as sparse,
+        vortex_alp as alp,
+        vortex_bytebool as bytebool,
+        vortex_datetime_parts as datetime_parts,
+        vortex_decimal_byte_parts as decimal_byte_parts,
+        vortex_dict as dict,
+        vortex_fastlanes as fastlanes,
+        vortex_fsst as fsst,
+        vortex_pco as pco,
+        vortex_runend as runend,
+        vortex_sequence as sequence,
+        vortex_sparse as sparse,
         vortex_zigzag as zigzag,
     };
 }
@@ -44,11 +61,23 @@ mod test {
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{
+        ArrayRef,
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_expr::{gt, lit, root};
-    use vortex_file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
+    use vortex_expr::{
+        gt,
+        lit,
+        root,
+    };
+    use vortex_file::{
+        VortexOpenOptions,
+        VortexWriteOptions,
+        WriteStrategyBuilder,
+    };
     use vortex_layout::layouts::compact::CompactCompressor;
 
     use crate as vortex;
@@ -86,7 +115,10 @@ mod test {
     #[test]
     fn compress() -> VortexResult<()> {
         // [compress]
-        use vortex::compressor::{BtrBlocksCompressor, CompactCompressor};
+        use vortex::compressor::{
+            BtrBlocksCompressor,
+            CompactCompressor,
+        };
 
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 

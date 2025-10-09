@@ -4,7 +4,12 @@
 //! Memory measurement and reclamation utilities for benchmarks
 
 use parking_lot::Mutex;
-use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
+use sysinfo::{
+    ProcessRefreshKind,
+    ProcessesToUpdate,
+    RefreshKind,
+    System,
+};
 
 /// Memory statistics for a process
 #[derive(Debug, Clone, Copy)]

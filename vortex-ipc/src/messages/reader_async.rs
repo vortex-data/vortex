@@ -2,15 +2,26 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::pin::Pin;
-use std::task::{Context, Poll, ready};
+use std::task::{
+    Context,
+    Poll,
+    ready,
+};
 
 use bytes::BytesMut;
-use futures::{AsyncRead, Stream};
+use futures::{
+    AsyncRead,
+    Stream,
+};
 use pin_project_lite::pin_project;
 use vortex_array::ArrayRegistry;
 use vortex_error::VortexResult;
 
-use crate::messages::{DecoderMessage, MessageDecoder, PollRead};
+use crate::messages::{
+    DecoderMessage,
+    MessageDecoder,
+    PollRead,
+};
 
 pin_project! {
     /// An IPC message reader backed by an `AsyncRead` stream.

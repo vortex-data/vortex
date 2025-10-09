@@ -6,7 +6,13 @@ use std::sync::Arc;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
-use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
+use pyo3::{
+    Bound,
+    FromPyObject,
+    Py,
+    PyAny,
+    PyResult,
+};
 use vortex::EncodingId;
 
 /// Wrapper struct encapsulating a Python encoding.

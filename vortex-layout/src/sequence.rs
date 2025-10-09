@@ -4,18 +4,34 @@
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, Waker};
+use std::task::{
+    Context,
+    Poll,
+    Waker,
+};
 
-use futures::{Stream, StreamExt};
+use futures::{
+    Stream,
+    StreamExt,
+};
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{
+    Array,
+    ArrayRef,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 use vortex_utils::aliases::hash_map::HashMap;
 
 /// A hierarchical sequence identifier that exists within a shared universe.

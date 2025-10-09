@@ -4,10 +4,20 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::{VarBinViewArray, VarBinViewVTable};
-use crate::compute::{CastKernel, CastKernelAdapter};
+use crate::arrays::{
+    VarBinViewArray,
+    VarBinViewVTable,
+};
+use crate::compute::{
+    CastKernel,
+    CastKernelAdapter,
+};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl CastKernel for VarBinViewVTable {
     fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -42,7 +52,10 @@ register_kernel!(CastKernelAdapter(VarBinViewVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
     use crate::arrays::VarBinViewArray;
     use crate::compute::cast;

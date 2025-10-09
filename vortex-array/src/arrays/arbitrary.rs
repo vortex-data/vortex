@@ -4,20 +4,56 @@
 use std::iter;
 use std::sync::Arc;
 
-use arbitrary::{Arbitrary, Result, Unstructured};
+use arbitrary::{
+    Arbitrary,
+    Result,
+    Unstructured,
+};
 use arrow_buffer::BooleanBuffer;
 use builders::ListBuilder;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, IntegerPType, NativePType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexUnwrap};
+use vortex_dtype::{
+    DType,
+    IntegerPType,
+    NativePType,
+    Nullability,
+    PType,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexUnwrap,
+};
 use vortex_scalar::arbitrary::random_scalar;
-use vortex_scalar::{Scalar, match_each_decimal_value_type};
+use vortex_scalar::{
+    Scalar,
+    match_each_decimal_value_type,
+};
 
-use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
-use crate::arrays::{VarBinArray, VarBinViewArray, smallest_decimal_value_type};
-use crate::builders::{ArrayBuilder, DecimalBuilder, FixedSizeListBuilder};
+use super::{
+    BoolArray,
+    ChunkedArray,
+    NullArray,
+    PrimitiveArray,
+    StructArray,
+};
+use crate::arrays::{
+    VarBinArray,
+    VarBinViewArray,
+    smallest_decimal_value_type,
+};
+use crate::builders::{
+    ArrayBuilder,
+    DecimalBuilder,
+    FixedSizeListBuilder,
+};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, builders};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    builders,
+};
 
 /// A wrapper type to implement `Arbitrary` for `ArrayRef`.
 #[derive(Clone, Debug)]

@@ -6,13 +6,33 @@ use std::hash::Hash;
 use arrow_buffer::NullBufferBuilder;
 use rustc_hash::FxBuildHasher;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{NativeValue, PrimitiveArray};
+use vortex_array::arrays::{
+    NativeValue,
+    PrimitiveArray,
+};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_buffer::BufferMut;
-use vortex_dtype::{NativePType, Nullability, PType, UnsignedPType};
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
-use vortex_utils::aliases::hash_map::{Entry, HashMap};
+use vortex_dtype::{
+    NativePType,
+    Nullability,
+    PType,
+    UnsignedPType,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_panic,
+};
+use vortex_utils::aliases::hash_map::{
+    Entry,
+    HashMap,
+};
 
 use super::DictConstraints;
 use crate::builders::DictEncoder;
@@ -145,7 +165,11 @@ where
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{Array, IntoArray as _, ToCanonical};
+    use vortex_array::{
+        Array,
+        IntoArray as _,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;

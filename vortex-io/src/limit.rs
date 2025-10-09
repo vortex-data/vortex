@@ -4,12 +4,20 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, ready};
+use std::task::{
+    Context,
+    Poll,
+    ready,
+};
 
 use futures::Stream;
 use futures::stream::FuturesUnordered;
 use pin_project_lite::pin_project;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use tokio::sync::{
+    OwnedSemaphorePermit,
+    Semaphore,
+    TryAcquireError,
+};
 use vortex_error::VortexUnwrap;
 
 pin_project! {
@@ -146,11 +154,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{future, io};
+    use std::{
+        future,
+        io,
+    };
 
     use bytes::Bytes;
     use futures::future::BoxFuture;
-    use futures::{FutureExt, StreamExt};
+    use futures::{
+        FutureExt,
+        StreamExt,
+    };
 
     use crate::limit::SizeLimitedStream;
 

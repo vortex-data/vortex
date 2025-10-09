@@ -1,14 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{
+    VortexResult,
+    vortex_err,
+};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolVTable, ConstantArray};
-use crate::compute::{FillNullKernel, FillNullKernelAdapter};
+use crate::arrays::{
+    BoolArray,
+    BoolVTable,
+    ConstantArray,
+};
+use crate::compute::{
+    FillNullKernel,
+    FillNullKernelAdapter,
+};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 
 impl FillNullKernel for BoolVTable {
     fn fill_null(&self, array: &BoolArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
@@ -45,7 +60,10 @@ register_kernel!(FillNullKernelAdapter(BoolVTable).lift());
 mod tests {
     use arrow_buffer::BooleanBuffer;
     use rstest::rstest;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
     use crate::arrays::BoolArray;
     use crate::canonical::ToCanonical;

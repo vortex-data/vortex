@@ -4,16 +4,34 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::future::{BoxFuture, Shared, WeakShared};
-use futures::{FutureExt, TryFutureExt};
+use futures::future::{
+    BoxFuture,
+    Shared,
+    WeakShared,
+};
+use futures::{
+    FutureExt,
+    TryFutureExt,
+};
 use itertools::Itertools;
 use vortex_error::{
-    SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err,
+    SharedVortexResult,
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
 };
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::Canonical;
-use crate::operator::{BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorKey, OperatorRef};
+use crate::operator::{
+    BatchBindCtx,
+    BatchExecution,
+    BatchExecutionRef,
+    OperatorKey,
+    OperatorRef,
+};
 use crate::pipeline::operator::PipelineOperator;
 
 /// An executor that runs an operator tree.
@@ -134,7 +152,10 @@ mod tests {
     use crate::compute::Operator as Op;
     use crate::operator::compare::CompareOperator;
     use crate::operator::metrics::MetricsOperator;
-    use crate::{IntoArray, ToCanonical};
+    use crate::{
+        IntoArray,
+        ToCanonical,
+    };
 
     #[test]
     fn test_basic_execution() {

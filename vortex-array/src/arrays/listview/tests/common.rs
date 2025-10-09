@@ -6,7 +6,11 @@
 use vortex_buffer::buffer;
 
 use crate::IntoArray;
-use crate::arrays::{BoolArray, ListViewArray, PrimitiveArray};
+use crate::arrays::{
+    BoolArray,
+    ListViewArray,
+    PrimitiveArray,
+};
 use crate::validity::Validity;
 
 /// Creates a basic ListView for testing: [[0,1,2], [3,4], [5,6], [7,8,9]]

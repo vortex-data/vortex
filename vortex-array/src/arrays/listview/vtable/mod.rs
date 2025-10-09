@@ -2,8 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::arrays::ListViewArray;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::vtable::{
+    NotSupported,
+    VTable,
+    ValidityVTableFromValidityHelper,
+};
+use crate::{
+    EncodingId,
+    EncodingRef,
+    vtable,
+};
 
 mod array;
 mod canonical;

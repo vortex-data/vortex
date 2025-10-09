@@ -3,11 +3,19 @@
 
 use std::sync::Arc;
 
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_flatbuffers::FlatBuffer;
 
 use crate::field::Field;
-use crate::{DType, StructFields, flatbuffers as fb};
+use crate::{
+    DType,
+    StructFields,
+    flatbuffers as fb,
+};
 
 /// Convert name references in projection list into index references.
 ///
@@ -88,7 +96,13 @@ mod tests {
     use vortex_flatbuffers::WriteFlatBufferExt;
 
     use super::*;
-    use crate::{DType, FieldName, Nullability, PType, StructFields};
+    use crate::{
+        DType,
+        FieldName,
+        Nullability,
+        PType,
+        StructFields,
+    };
 
     fn create_test_struct_dtype() -> DType {
         DType::Struct(

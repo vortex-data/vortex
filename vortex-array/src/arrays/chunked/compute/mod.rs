@@ -17,10 +17,17 @@ mod take;
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
     use crate::IntoArray;
-    use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::arrays::{
+        ChunkedArray,
+        PrimitiveArray,
+    };
     use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
     use crate::compute::conformance::consistency::test_array_consistency;
 

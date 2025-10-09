@@ -7,7 +7,12 @@ use jni::JNIEnv;
 use jni::objects::JClass;
 use jni::sys::jint;
 use log::LevelFilter;
-use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
+use simplelog::{
+    ColorChoice,
+    Config,
+    TermLogger,
+    TerminalMode,
+};
 
 // Ensure the logger is initialized only once
 static LOGGER_INIT: OnceLock<()> = OnceLock::new();

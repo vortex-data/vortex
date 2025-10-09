@@ -3,13 +3,30 @@
 
 use std::sync::Arc;
 
-use futures::future::{BoxFuture, WeakShared};
-use futures::{FutureExt, TryFutureExt};
+use futures::future::{
+    BoxFuture,
+    WeakShared,
+};
+use futures::{
+    FutureExt,
+    TryFutureExt,
+};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{SharedVortexResult, VortexError, VortexExpect};
-use vortex_utils::aliases::dash_map::{DashMap, Entry};
+use vortex_error::{
+    SharedVortexResult,
+    VortexError,
+    VortexExpect,
+};
+use vortex_utils::aliases::dash_map::{
+    DashMap,
+    Entry,
+};
 
-use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
+use crate::segments::{
+    SegmentFuture,
+    SegmentId,
+    SegmentSource,
+};
 
 /// A [`SegmentSource`] that allows multiple requesters to await the same underlying segment
 /// request.
@@ -58,12 +75,18 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    };
 
     use vortex_buffer::ByteBuffer;
 
     use super::*;
-    use crate::segments::{SegmentSink, TestSegments};
+    use crate::segments::{
+        SegmentSink,
+        TestSegments,
+    };
     use crate::sequence::SequenceId;
 
     // Custom source that tracks how many times a segment is requested

@@ -1,11 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 
 use crate::arrays::varbinview::binary_view::Ref;
-use crate::arrays::{VarBinViewArray, VarBinViewVTable};
-use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
+use crate::arrays::{
+    VarBinViewArray,
+    VarBinViewVTable,
+};
+use crate::compute::{
+    IsConstantKernel,
+    IsConstantKernelAdapter,
+    IsConstantOpts,
+};
 use crate::register_kernel;
 
 impl IsConstantKernel for VarBinViewVTable {

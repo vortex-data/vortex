@@ -3,14 +3,28 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::{Buffer, buffer};
+use vortex_buffer::{
+    Buffer,
+    buffer,
+};
 use vortex_dtype::PType::I32;
-use vortex_dtype::{DType, NativePType, Nullability, PType};
+use vortex_dtype::{
+    DType,
+    NativePType,
+    Nullability,
+    PType,
+};
 
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
 use crate::array::Array;
-use crate::arrays::{ChunkedArray, ChunkedVTable, ListArray, StructArray, VarBinViewArray};
+use crate::arrays::{
+    ChunkedArray,
+    ChunkedVTable,
+    ListArray,
+    StructArray,
+    VarBinViewArray,
+};
 use crate::canonical::ToCanonical;
 use crate::validity::Validity;
 

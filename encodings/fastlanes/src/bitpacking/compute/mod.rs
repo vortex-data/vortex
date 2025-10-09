@@ -46,7 +46,10 @@ mod tests {
     use vortex_array::compute::conformance::consistency::test_array_consistency;
 
     use crate::bitpacking::compute::chunked_indices;
-    use crate::{BitPackedArray, bitpack_encode};
+    use crate::{
+        BitPackedArray,
+        bitpack_encode,
+    };
 
     #[test]
     fn chunk_indices_repeated() {

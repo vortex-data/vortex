@@ -7,7 +7,10 @@ use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
 use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, all_invalid};
+use crate::exporter::{
+    ColumnExporter,
+    all_invalid,
+};
 
 struct BoolExporter {
     array: BoolArray,
@@ -57,7 +60,10 @@ mod tests {
 
     use super::*;
     use crate::cpp;
-    use crate::duckdb::{DataChunk, LogicalType};
+    use crate::duckdb::{
+        DataChunk,
+        LogicalType,
+    };
 
     #[test]
     fn test_bool() {

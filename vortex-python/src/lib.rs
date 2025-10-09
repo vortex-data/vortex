@@ -24,9 +24,15 @@ mod scan;
 mod serde;
 
 use log::LevelFilter;
-use pyo3_log::{Caching, Logger};
+use pyo3_log::{
+    Caching,
+    Logger,
+};
 use tokio::runtime::Runtime;
-use vortex::error::{VortexError, VortexExpect as _};
+use vortex::error::{
+    VortexError,
+    VortexExpect as _,
+};
 use vortex::io::runtime::tokio::TokioRuntime;
 
 #[global_allocator]

@@ -5,9 +5,16 @@
 
 use divan::Bencher;
 use vortex_array::IntoArray;
-use vortex_array::arrays::{BoolArray, PrimitiveArray};
+use vortex_array::arrays::{
+    BoolArray,
+    PrimitiveArray,
+};
 use vortex_array::validity::Validity;
-use vortex_btrblocks::{CompressorStats, IntegerStats, integer_dictionary_encode};
+use vortex_btrblocks::{
+    CompressorStats,
+    IntegerStats,
+    integer_dictionary_encode,
+};
 use vortex_buffer::BufferMut;
 use vortex_dict::builders::dict_encode;
 

@@ -6,18 +6,28 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use lance::dataset::{Dataset as LanceDataset, WriteParams};
+use lance::dataset::{
+    Dataset as LanceDataset,
+    WriteParams,
+};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
 use vortex::ArrayRef;
-use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{
+    VortexOpenOptions,
+    VortexWriteOptions,
+};
 use vortex::stream::ArrayStreamExt;
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
-use crate::{CompactionStrategy, IdempotentPath, idempotent_async};
+use crate::{
+    CompactionStrategy,
+    IdempotentPath,
+    idempotent_async,
+};
 
 pub struct TaxiData;
 

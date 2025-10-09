@@ -3,14 +3,28 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{DType, Nullability};
+use vortex_buffer::{
+    Buffer,
+    ByteBuffer,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
 use vortex_error::{
-    VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err, vortex_panic,
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_ensure,
+    vortex_err,
+    vortex_panic,
 };
 
 use crate::arrays::binary_view::BinaryView;
-use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+use crate::builders::{
+    ArrayBuilder,
+    VarBinViewBuilder,
+};
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 

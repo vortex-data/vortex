@@ -8,8 +8,16 @@ mod serde;
 mod validity;
 
 use crate::arrays::masked::MaskedArray;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::vtable::{
+    NotSupported,
+    VTable,
+    ValidityVTableFromValidityHelper,
+};
+use crate::{
+    EncodingId,
+    EncodingRef,
+    vtable,
+};
 
 vtable!(Masked);
 

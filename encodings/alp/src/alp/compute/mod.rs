@@ -17,7 +17,10 @@ mod tests {
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
 
-    use crate::{ALPArray, alp_encode};
+    use crate::{
+        ALPArray,
+        alp_encode,
+    };
 
     #[rstest]
     // Basic float arrays

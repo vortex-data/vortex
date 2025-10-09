@@ -11,13 +11,27 @@ mod decimal;
 use std::iter;
 use std::sync::Arc;
 
-use arbitrary::{Result, Unstructured};
+use arbitrary::{
+    Result,
+    Unstructured,
+};
 pub use decimal::random_decimal;
-use vortex_buffer::{BufferString, ByteBuffer};
+use vortex_buffer::{
+    BufferString,
+    ByteBuffer,
+};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{
+    DType,
+    PType,
+};
 
-use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
+use crate::{
+    InnerScalarValue,
+    PValue,
+    Scalar,
+    ScalarValue,
+};
 
 /// Generate an arbitrary scalar value of the given data type.
 pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {

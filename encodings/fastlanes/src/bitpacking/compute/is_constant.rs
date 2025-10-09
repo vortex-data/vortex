@@ -5,14 +5,32 @@ use std::ops::Range;
 
 use itertools::Itertools;
 use lending_iterator::LendingIterator;
-use vortex_array::arrays::{IS_CONST_LANE_WIDTH, PrimitiveArray, compute_is_constant};
-use vortex_array::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
-use vortex_array::{ToCanonical, register_kernel};
-use vortex_dtype::{IntegerPType, match_each_integer_ptype, match_each_unsigned_integer_ptype};
+use vortex_array::arrays::{
+    IS_CONST_LANE_WIDTH,
+    PrimitiveArray,
+    compute_is_constant,
+};
+use vortex_array::compute::{
+    IsConstantKernel,
+    IsConstantKernelAdapter,
+    IsConstantOpts,
+};
+use vortex_array::{
+    ToCanonical,
+    register_kernel,
+};
+use vortex_dtype::{
+    IntegerPType,
+    match_each_integer_ptype,
+    match_each_unsigned_integer_ptype,
+};
 use vortex_error::VortexResult;
 
 use crate::unpack_iter::BitPacked;
-use crate::{BitPackedArray, BitPackedVTable};
+use crate::{
+    BitPackedArray,
+    BitPackedVTable,
+};
 
 impl IsConstantKernel for BitPackedVTable {
     fn is_constant(

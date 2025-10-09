@@ -4,10 +4,18 @@
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 
 use crate::EmptyMetadata;
-use crate::arrays::struct_::{StructArray, StructEncoding, StructVTable};
+use crate::arrays::struct_::{
+    StructArray,
+    StructEncoding,
+    StructVTable,
+};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;

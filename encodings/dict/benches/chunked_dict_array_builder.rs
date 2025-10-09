@@ -2,12 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use divan::Bencher;
-use rand::distr::{Distribution, StandardUniform};
+use rand::distr::{
+    Distribution,
+    StandardUniform,
+};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::warm_up_vtables;
-use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_dict::test::{gen_dict_fsst_test_data, gen_dict_primitive_chunks};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
+use vortex_dict::test::{
+    gen_dict_fsst_test_data,
+    gen_dict_primitive_chunks,
+};
 use vortex_dtype::NativePType;
 
 fn main() {

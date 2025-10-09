@@ -3,9 +3,25 @@
 
 use std::iter;
 
-use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_buffer::{
+    Alignment,
+    Buffer,
+    BufferMut,
+    ByteBuffer,
+    ByteBufferMut,
+};
+use vortex_dtype::{
+    DType,
+    NativePType,
+    Nullability,
+    PType,
+    match_each_native_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 
 use crate::ToCanonical;
 use crate::stats::ArrayStats;

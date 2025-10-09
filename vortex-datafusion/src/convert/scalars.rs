@@ -6,13 +6,33 @@ use std::sync::Arc;
 use datafusion_common::ScalarValue;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::datetime::arrow::make_temporal_ext_dtype;
-use vortex::dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
+use vortex::dtype::datetime::{
+    TemporalMetadata,
+    TimeUnit,
+    is_temporal_ext_type,
+};
 use vortex::dtype::half::f16;
-use vortex::dtype::{DECIMAL128_MAX_PRECISION, DType, DecimalDType, Nullability, PType};
-use vortex::error::{VortexResult, vortex_bail};
-use vortex::scalar::{DecimalValue, Scalar, i256};
+use vortex::dtype::{
+    DECIMAL128_MAX_PRECISION,
+    DType,
+    DecimalDType,
+    Nullability,
+    PType,
+};
+use vortex::error::{
+    VortexResult,
+    vortex_bail,
+};
+use vortex::scalar::{
+    DecimalValue,
+    Scalar,
+    i256,
+};
 
-use crate::convert::{FromDataFusion, TryToDataFusion};
+use crate::convert::{
+    FromDataFusion,
+    TryToDataFusion,
+};
 
 impl TryToDataFusion<ScalarValue> for Scalar {
     fn try_to_df(&self) -> VortexResult<ScalarValue> {
@@ -247,8 +267,17 @@ mod tests {
     use datafusion_common::arrow::datatypes::i256 as arrow_i256;
     use rstest::rstest;
     use vortex::buffer::ByteBuffer;
-    use vortex::dtype::{DType, DecimalDType, Nullability, PType};
-    use vortex::scalar::{DecimalValue, Scalar, i256};
+    use vortex::dtype::{
+        DType,
+        DecimalDType,
+        Nullability,
+        PType,
+    };
+    use vortex::scalar::{
+        DecimalValue,
+        Scalar,
+        i256,
+    };
 
     use super::*;
 

@@ -4,12 +4,21 @@
 // This code is only exercised on CI with cuda and linux
 #![allow(dead_code)]
 
-use std::sync::{Arc, LazyLock};
+use std::sync::{
+    Arc,
+    LazyLock,
+};
 use std::time::Duration;
 
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::driver::{
-    CudaContext, CudaFunction, CudaSlice, CudaStream, CudaViewMut, DeviceRepr, LaunchConfig,
+    CudaContext,
+    CudaFunction,
+    CudaSlice,
+    CudaStream,
+    CudaViewMut,
+    DeviceRepr,
+    LaunchConfig,
     PushKernelArg,
 };
 use cudarc::nvrtc::Ptx;
@@ -17,9 +26,20 @@ use parking_lot::RwLock;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{NativePType, PType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_buffer::{
+    Buffer,
+    BufferMut,
+};
+use vortex_dtype::{
+    NativePType,
+    PType,
+    match_each_unsigned_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 use vortex_fastlanes::BitPackedArray;
 use vortex_utils::aliases::hash_map::HashMap;
 

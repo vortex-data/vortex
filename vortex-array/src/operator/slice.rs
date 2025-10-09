@@ -9,13 +9,30 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx,
+    BatchExecution,
+    BatchExecutionRef,
+    BatchOperator,
+    LengthBounds,
+    Operator,
+    OperatorEq,
+    OperatorHash,
+    OperatorId,
+    OperatorRef,
 };
-use crate::{Array, Canonical, IntoArray};
+use crate::{
+    Array,
+    Canonical,
+    IntoArray,
+};
 
 #[derive(Debug, Clone)]
 pub struct SliceOperator {

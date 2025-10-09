@@ -2,13 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{
+    Debug,
+    Display,
+    Formatter,
+};
 
 use arcref::ArcRef;
 use vortex_array::DeserializeMetadata;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 
-use crate::{ExprRef, IntoExpr, VTable};
+use crate::{
+    ExprRef,
+    IntoExpr,
+    VTable,
+};
 
 pub type ExprId = ArcRef<str>;
 pub type ExprEncodingRef = ArcRef<dyn ExprEncoding>;

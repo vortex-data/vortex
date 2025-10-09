@@ -3,7 +3,10 @@
 
 //! TPC-DS benchmark implementation
 
-use anyhow::{Result, anyhow};
+use anyhow::{
+    Result,
+    anyhow,
+};
 use datafusion::prelude::SessionContext;
 use log::info;
 use url::Url;
@@ -12,7 +15,12 @@ use crate::benchmark_trait::Benchmark;
 use crate::engines::EngineCtx;
 use crate::tpcds::duckdb::generate_tpcds;
 use crate::tpcds::tpcds_queries;
-use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
+use crate::{
+    BenchmarkDataset,
+    Format,
+    IdempotentPath,
+    Target,
+};
 
 /// TPC-DS benchmark implementation
 pub struct TpcDsBenchmark {
@@ -152,7 +160,10 @@ impl TpcDsBenchmark {
         format: Format,
     ) -> Result<()> {
         use crate::tpch::{
-            register_arrow, register_parquet, register_vortex_compact_file, register_vortex_file,
+            register_arrow,
+            register_parquet,
+            register_vortex_compact_file,
+            register_vortex_file,
         };
 
         let dataset = self.dataset();

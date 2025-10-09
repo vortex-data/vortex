@@ -4,7 +4,10 @@
 use vortex::error::vortex_panic;
 
 use crate::duckdb::ObjectCacheRef;
-use crate::{cpp, wrapper};
+use crate::{
+    cpp,
+    wrapper,
+};
 
 wrapper!(
     /// A DuckDB client context wrapper.

@@ -6,7 +6,10 @@ use vortex::arrays::TemporalArray;
 use vortex::error::VortexResult;
 
 use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, primitive};
+use crate::exporter::{
+    ColumnExporter,
+    primitive,
+};
 
 struct TemporalExporter {
     storage_type_exporter: Box<dyn ColumnExporter>,
@@ -29,12 +32,18 @@ impl ColumnExporter for TemporalExporter {
 #[cfg(test)]
 mod tests {
     use vortex::IntoArray as _;
-    use vortex::arrays::{PrimitiveArray, TemporalArray};
+    use vortex::arrays::{
+        PrimitiveArray,
+        TemporalArray,
+    };
     use vortex::buffer::buffer;
     use vortex::dtype::datetime::TimeUnit;
 
     use crate::cpp;
-    use crate::duckdb::{DataChunk, LogicalType};
+    use crate::duckdb::{
+        DataChunk,
+        LogicalType,
+    };
     use crate::exporter::temporal::new_exporter;
 
     #[test]

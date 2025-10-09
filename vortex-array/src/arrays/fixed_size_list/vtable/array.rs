@@ -3,7 +3,10 @@
 
 use vortex_dtype::DType;
 
-use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
+use crate::arrays::{
+    FixedSizeListArray,
+    FixedSizeListVTable,
+};
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayVTable;
 

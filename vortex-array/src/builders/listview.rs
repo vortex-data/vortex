@@ -10,18 +10,43 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::{DType, IntegerPType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
+use vortex_dtype::{
+    DType,
+    IntegerPType,
+    Nullability,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_ensure,
+    vortex_panic,
+};
 use vortex_mask::Mask;
-use vortex_scalar::{ListScalar, Scalar};
+use vortex_scalar::{
+    ListScalar,
+    Scalar,
+};
 
 use super::lazy_null_builder::LazyNullBufferBuilder;
-use crate::array::{Array, ArrayRef, IntoArray};
-use crate::arrays::{ListViewArray, list_view_from_list};
-use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, PrimitiveBuilder, builder_with_capacity,
+use crate::array::{
+    Array,
+    ArrayRef,
+    IntoArray,
 };
-use crate::{Canonical, ToCanonical};
+use crate::arrays::{
+    ListViewArray,
+    list_view_from_list,
+};
+use crate::builders::{
+    ArrayBuilder,
+    DEFAULT_BUILDER_CAPACITY,
+    PrimitiveBuilder,
+    builder_with_capacity,
+};
+use crate::{
+    Canonical,
+    ToCanonical,
+};
 
 /// A builder for creating [`ListViewArray`] instances, parameterized by the [`IntegerPType`] of
 /// the `offsets` and the `sizes` builders.
@@ -279,7 +304,10 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_dtype::DType;
-    use vortex_dtype::Nullability::{NonNullable, Nullable};
+    use vortex_dtype::Nullability::{
+        NonNullable,
+        Nullable,
+    };
     use vortex_dtype::PType::I32;
     use vortex_scalar::Scalar;
 

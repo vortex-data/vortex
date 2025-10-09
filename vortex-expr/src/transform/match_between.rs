@@ -1,11 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{BetweenOptions, StrictComparison};
+use vortex_array::compute::{
+    BetweenOptions,
+    StrictComparison,
+};
 
 use crate::forms::conjuncts;
 use crate::{
-    BetweenExpr, BinaryVTable, ExprRef, GetItemExpr, IntoExpr, LiteralExpr, Operator, and, lit,
+    BetweenExpr,
+    BinaryVTable,
+    ExprRef,
+    GetItemExpr,
+    IntoExpr,
+    LiteralExpr,
+    Operator,
+    and,
+    lit,
 };
 
 /// This pass looks for expression of the form
@@ -143,10 +154,20 @@ fn maybe_strict_comparison(op: Operator) -> Option<StrictComparison> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::{BetweenOptions, StrictComparison};
+    use vortex_array::compute::{
+        BetweenOptions,
+        StrictComparison,
+    };
 
     use crate::transform::match_between::find_between;
-    use crate::{and, between, col, gt_eq, lit, lt};
+    use crate::{
+        and,
+        between,
+        col,
+        gt_eq,
+        lit,
+        lt,
+    };
 
     #[test]
     fn test_match_between() {

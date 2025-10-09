@@ -6,18 +6,46 @@ use std::sync::Arc;
 use humansize::DECIMAL;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::prelude::{Alignment, Line, Margin, StatefulWidget, Widget};
+use ratatui::prelude::{
+    Alignment,
+    Line,
+    Margin,
+    StatefulWidget,
+    Widget,
+};
 use ratatui::widgets::{
-    Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
+    Block,
+    Borders,
+    Paragraph,
+    Scrollbar,
+    ScrollbarOrientation,
+    ScrollbarState,
+    Wrap,
 };
 use taffy::{
-    AvailableSpace, Dimension, FlexDirection, LengthPercentage, NodeId, PrintTree, Size, Style,
-    TaffyTree, TraversePartialTree,
+    AvailableSpace,
+    Dimension,
+    FlexDirection,
+    LengthPercentage,
+    NodeId,
+    PrintTree,
+    Size,
+    Style,
+    TaffyTree,
+    TraversePartialTree,
 };
 use vortex::dtype::FieldName;
-use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
+use vortex::error::{
+    VortexExpect,
+    VortexResult,
+    VortexUnwrap,
+    vortex_err,
+};
 use vortex::file::SegmentSpec;
-use vortex::layout::{Layout, LayoutChildType};
+use vortex::layout::{
+    Layout,
+    LayoutChildType,
+};
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::browse::app::AppState;

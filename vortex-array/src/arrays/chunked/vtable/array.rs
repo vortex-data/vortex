@@ -3,7 +3,10 @@
 
 use vortex_dtype::DType;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable};
+use crate::arrays::{
+    ChunkedArray,
+    ChunkedVTable,
+};
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayVTable;
 

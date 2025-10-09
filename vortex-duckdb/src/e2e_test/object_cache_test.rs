@@ -5,11 +5,20 @@
 
 use std::ffi::CString;
 
-use vortex::error::{VortexResult, vortex_err};
+use vortex::error::{
+    VortexResult,
+    vortex_err,
+};
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::{
-    BindInput, BindResult, ClientContext, DataChunk, LogicalType, TableFunction, TableInitInput,
+    BindInput,
+    BindResult,
+    ClientContext,
+    DataChunk,
+    LogicalType,
+    TableFunction,
+    TableInitInput,
 };
 
 #[derive(Debug, Clone)]

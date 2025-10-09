@@ -1,16 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitAnd, BitOr, Not};
+use std::ops::{
+    BitAnd,
+    BitOr,
+    Not,
+};
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{StructArray, StructVTable};
-use crate::compute::{ZipKernel, ZipKernelAdapter, zip};
+use crate::arrays::{
+    StructArray,
+    StructVTable,
+};
+use crate::compute::{
+    ZipKernel,
+    ZipKernelAdapter,
+    zip,
+};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    register_kernel,
+};
 
 impl ZipKernel for StructVTable {
     fn zip(
@@ -72,7 +87,10 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::arrays::{PrimitiveArray, StructArray};
+    use crate::arrays::{
+        PrimitiveArray,
+        StructArray,
+    };
     use crate::compute::zip;
     use crate::validity::Validity;
 

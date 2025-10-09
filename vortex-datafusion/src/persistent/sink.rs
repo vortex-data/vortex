@@ -3,19 +3,37 @@
 
 use std::any::Any;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{
+    AtomicU64,
+    Ordering,
+};
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
-use datafusion_common::{DataFusionError, Result as DFResult};
-use datafusion_common_runtime::{JoinSet, SpawnedTask};
-use datafusion_datasource::file_sink_config::{FileSink, FileSinkConfig};
+use datafusion_common::{
+    DataFusionError,
+    Result as DFResult,
+};
+use datafusion_common_runtime::{
+    JoinSet,
+    SpawnedTask,
+};
+use datafusion_datasource::file_sink_config::{
+    FileSink,
+    FileSinkConfig,
+};
 use datafusion_datasource::sink::DataSink;
 use datafusion_datasource::write::demux::DemuxedStreamReceiver;
 use datafusion_datasource::write::get_writer_schema;
-use datafusion_execution::{SendableRecordBatchStream, TaskContext};
+use datafusion_execution::{
+    SendableRecordBatchStream,
+    TaskContext,
+};
 use datafusion_physical_plan::metrics::MetricsSet;
-use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
+use datafusion_physical_plan::{
+    DisplayAs,
+    DisplayFormatType,
+};
 use futures::StreamExt;
 use object_store::ObjectStore;
 use object_store::path::Path;
@@ -26,7 +44,10 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
 use vortex::file::VortexWriteOptions;
-use vortex::io::{ObjectStoreWriter, VortexWrite};
+use vortex::io::{
+    ObjectStoreWriter,
+    VortexWrite,
+};
 use vortex::stream::ArrayStreamAdapter;
 
 pub struct VortexSink {
@@ -171,11 +192,23 @@ mod tests {
 
     use std::sync::Arc;
 
-    use arrow_schema::{DataType, Field, Schema};
-    use datafusion::arrow::array::{Int8Array, RecordBatch};
+    use arrow_schema::{
+        DataType,
+        Field,
+        Schema,
+    };
+    use datafusion::arrow::array::{
+        Int8Array,
+        RecordBatch,
+    };
     use datafusion::datasource::DefaultTableSource;
     use datafusion::execution::SessionStateBuilder;
-    use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
+    use datafusion::logical_expr::{
+        Expr,
+        LogicalPlan,
+        LogicalPlanBuilder,
+        Values,
+    };
     use datafusion::prelude::SessionContext;
     use datafusion_common::ScalarValue;
     use datafusion_datasource::file_format::format_as_file_type;
@@ -183,7 +216,10 @@ mod tests {
     use tempfile::TempDir;
     use walkdir::WalkDir;
 
-    use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
+    use crate::persistent::{
+        VortexFormatFactory,
+        register_vortex_format_factory,
+    };
 
     #[tokio::test]
     async fn test_insert_into() {

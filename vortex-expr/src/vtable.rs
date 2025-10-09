@@ -6,13 +6,24 @@ use std::hash::Hash;
 use std::ops::Deref;
 
 use vortex_array::operator::OperatorRef;
-use vortex_array::{ArrayRef, DeserializeMetadata, SerializeMetadata};
+use vortex_array::{
+    ArrayRef,
+    DeserializeMetadata,
+    SerializeMetadata,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::display::DisplayAs;
 use crate::{
-    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VortexExpr,
+    AnalysisExpr,
+    ExprEncoding,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    Scope,
+    VortexExpr,
 };
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
@@ -127,10 +138,16 @@ macro_rules! vtable {
 
 #[cfg(test)]
 mod tests {
-    use rstest::{fixture, rstest};
+    use rstest::{
+        fixture,
+        rstest,
+    };
 
     use super::*;
-    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::proto::{
+        ExprSerializeProtoExt,
+        deserialize_expr_proto,
+    };
     use crate::*;
 
     #[fixture]

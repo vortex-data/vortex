@@ -3,7 +3,12 @@
 
 use futures::future::BoxFuture;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, Executor, IoTask};
+use crate::runtime::{
+    AbortHandle,
+    AbortHandleRef,
+    Executor,
+    IoTask,
+};
 
 // NOTE(ngates): we implement this for a Weak reference to adhere to the constraint that this
 //  trait should not hold strong references to the underlying runtime.

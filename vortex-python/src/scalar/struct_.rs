@@ -1,12 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use pyo3::{IntoPyObject, Py, PyAny, PyRef, PyResult, pyclass, pymethods};
+use pyo3::{
+    IntoPyObject,
+    Py,
+    PyAny,
+    PyRef,
+    PyResult,
+    pyclass,
+    pymethods,
+};
 use vortex::error::vortex_err;
 use vortex::scalar::StructScalar;
 
 use crate::PyVortex;
-use crate::scalar::{AsScalarRef, PyScalar, ScalarSubclass};
+use crate::scalar::{
+    AsScalarRef,
+    PyScalar,
+    ScalarSubclass,
+};
 
 /// Concrete class for struct scalars.
 #[pyclass(name = "StructScalar", module = "vortex", extends=PyScalar, frozen)]

@@ -14,12 +14,37 @@ use vortex_scalar::Scalar;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
-    FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    IsSortedKernel, IsSortedKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
-    MinMaxKernelAdapter, MinMaxResult, SumKernel, SumKernelAdapter, TakeKernel, TakeKernelAdapter,
-    filter, is_constant_opts, is_sorted, is_strict_sorted, mask, min_max, sum, take,
+    FilterKernel,
+    FilterKernelAdapter,
+    IsConstantKernel,
+    IsConstantKernelAdapter,
+    IsConstantOpts,
+    IsSortedKernel,
+    IsSortedKernelAdapter,
+    MaskKernel,
+    MaskKernelAdapter,
+    MinMaxKernel,
+    MinMaxKernelAdapter,
+    MinMaxResult,
+    SumKernel,
+    SumKernelAdapter,
+    TakeKernel,
+    TakeKernelAdapter,
+    filter,
+    is_constant_opts,
+    is_sorted,
+    is_strict_sorted,
+    mask,
+    min_max,
+    sum,
+    take,
 };
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl FilterKernel for ExtensionVTable {
     fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -121,10 +146,19 @@ mod test {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        ExtDType,
+        ExtID,
+        Nullability,
+        PType,
+    };
 
     use crate::IntoArray;
-    use crate::arrays::{ExtensionArray, PrimitiveArray};
+    use crate::arrays::{
+        ExtensionArray,
+        PrimitiveArray,
+    };
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::take::test_take_conformance;
 
@@ -207,10 +241,16 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{ExtDType, ExtID};
+    use vortex_dtype::{
+        ExtDType,
+        ExtID,
+    };
 
     use crate::IntoArray;
-    use crate::arrays::{ExtensionArray, PrimitiveArray};
+    use crate::arrays::{
+        ExtensionArray,
+        PrimitiveArray,
+    };
     use crate::compute::conformance::consistency::test_array_consistency;
 
     #[rstest]

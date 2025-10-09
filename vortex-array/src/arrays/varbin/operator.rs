@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 
 use crate::arrays::VarBinArray;
-use crate::operator::{OperatorEq, OperatorHash};
+use crate::operator::{
+    OperatorEq,
+    OperatorHash,
+};
 use crate::vtable::ValidityHelper;
 
 impl OperatorHash for VarBinArray {

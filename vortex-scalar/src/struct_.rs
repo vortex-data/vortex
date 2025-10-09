@@ -2,18 +2,38 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter};
-use std::hash::{Hash, Hasher};
+use std::fmt::{
+    Display,
+    Formatter,
+};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
+use vortex_dtype::{
+    DType,
+    FieldName,
+    FieldNames,
+    StructFields,
+};
 use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+    vortex_panic,
 };
 
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::{
+    InnerScalarValue,
+    Scalar,
+    ScalarValue,
+};
 
 /// A scalar value representing a struct with named fields.
 ///
@@ -308,7 +328,11 @@ impl<'a> TryFrom<&'a Scalar> for StructScalar<'a> {
 #[cfg(test)]
 mod tests {
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability, StructFields};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        StructFields,
+    };
 
     use super::*;
 
@@ -621,7 +645,10 @@ mod tests {
     #[test]
     fn test_struct_hash() {
         use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        use std::hash::{
+            Hash,
+            Hasher,
+        };
 
         let (_, _, dtype) = setup_types();
 

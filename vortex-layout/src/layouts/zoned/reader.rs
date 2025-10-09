@@ -2,21 +2,50 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::ops::{BitAnd, Range};
-use std::sync::{Arc, OnceLock};
+use std::ops::{
+    BitAnd,
+    Range,
+};
+use std::sync::{
+    Arc,
+    OnceLock,
+};
 
 use arrow_buffer::BooleanBufferBuilder;
-use futures::future::{BoxFuture, Shared};
-use futures::{FutureExt, TryFutureExt};
+use futures::future::{
+    BoxFuture,
+    Shared,
+};
+use futures::{
+    FutureExt,
+    TryFutureExt,
+};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayRef, MaskFuture, ToCanonical};
-use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
-use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
+use vortex_array::{
+    ArrayRef,
+    MaskFuture,
+    ToCanonical,
+};
+use vortex_dtype::{
+    DType,
+    FieldMask,
+    FieldPath,
+    FieldPathSet,
+};
+use vortex_error::{
+    SharedVortexResult,
+    VortexError,
+    VortexExpect,
+    VortexResult,
+};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::{
+    ExprRef,
+    root,
+};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -344,20 +373,44 @@ impl PruningResult {
 mod test {
     use std::sync::Arc;
 
-    use rstest::{fixture, rstest};
+    use rstest::{
+        fixture,
+        rstest,
+    };
     use vortex_array::arrays::ChunkedArray;
-    use vortex_array::{ArrayContext, IntoArray, MaskFuture, ToCanonical};
+    use vortex_array::{
+        ArrayContext,
+        IntoArray,
+        MaskFuture,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
-    use vortex_expr::{gt, lit, root};
+    use vortex_expr::{
+        gt,
+        lit,
+        root,
+    };
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
-    use crate::segments::{SegmentSource, TestSegments};
-    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
-    use crate::{LayoutRef, LayoutStrategy};
+    use crate::layouts::zoned::writer::{
+        ZonedLayoutOptions,
+        ZonedStrategy,
+    };
+    use crate::segments::{
+        SegmentSource,
+        TestSegments,
+    };
+    use crate::sequence::{
+        SequenceId,
+        SequentialArrayStreamExt,
+    };
+    use crate::{
+        LayoutRef,
+        LayoutStrategy,
+    };
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.

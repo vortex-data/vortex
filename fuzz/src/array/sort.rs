@@ -4,10 +4,27 @@
 use std::cmp::Ordering;
 
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, VarBinViewArray};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_array::arrays::{
+    BoolArray,
+    DecimalArray,
+    PrimitiveArray,
+    VarBinViewArray,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
+use vortex_dtype::{
+    DType,
+    NativePType,
+    match_each_native_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 use vortex_scalar::match_each_decimal_value_type;
 
 use crate::array::take_canonical_array_non_nullable_indices;

@@ -4,7 +4,10 @@
 use arrow_buffer::NullBufferBuilder;
 use num_traits::AsPrimitive;
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, IntegerPType};
+use vortex_dtype::{
+    DType,
+    IntegerPType,
+};
 use vortex_error::vortex_panic;
 
 use crate::IntoArray;

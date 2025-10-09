@@ -3,7 +3,10 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
+use clap::{
+    Parser,
+    ValueEnum,
+};
 use futures::StreamExt;
 use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
@@ -14,8 +17,14 @@ use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, VortexExpect};
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::error::{
+    VortexError,
+    VortexExpect,
+};
+use vortex::file::{
+    VortexWriteOptions,
+    WriteStrategyBuilder,
+};
 use vortex::stream::ArrayStreamAdapter;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]

@@ -2,12 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::{ListViewArray, list_view_from_list};
+pub use array::{
+    ListViewArray,
+    list_view_from_list,
+};
 
 mod compute;
 
 mod vtable;
-pub use vtable::{ListViewEncoding, ListViewVTable};
+pub use vtable::{
+    ListViewEncoding,
+    ListViewVTable,
+};
 
 mod rebuild;
 pub use rebuild::ListViewRebuildMode;

@@ -9,7 +9,11 @@ mod opener;
 mod sink;
 mod source;
 
-pub use format::{VortexFormat, VortexFormatFactory, VortexOptions};
+pub use format::{
+    VortexFormat,
+    VortexFormatFactory,
+    VortexOptions,
+};
 pub use source::VortexSource;
 
 #[cfg(test)]
@@ -34,11 +38,21 @@ fn register_vortex_format_factory(
 mod tests {
     use std::sync::Arc;
 
-    use arrow_schema::{DataType, Field, Schema};
-    use datafusion::arrow::array::{Int8Array, RecordBatch};
+    use arrow_schema::{
+        DataType,
+        Field,
+        Schema,
+    };
+    use datafusion::arrow::array::{
+        Int8Array,
+        RecordBatch,
+    };
     use datafusion::arrow::util::pretty::pretty_format_batches;
     use datafusion::datasource::listing::{
-        ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+        ListingOptions,
+        ListingTable,
+        ListingTableConfig,
+        ListingTableUrl,
     };
     use datafusion::execution::SessionStateBuilder;
     use datafusion::prelude::SessionContext;
@@ -46,17 +60,27 @@ mod tests {
     use datafusion_expr::LogicalPlanBuilder;
     use insta::assert_snapshot;
     use rstest::rstest;
-    use tempfile::{TempDir, tempdir};
+    use tempfile::{
+        TempDir,
+        tempdir,
+    };
     use tokio::fs::OpenOptions;
     use vortex::IntoArray;
-    use vortex::arrays::{ChunkedArray, StructArray, VarBinArray};
+    use vortex::arrays::{
+        ChunkedArray,
+        StructArray,
+        VarBinArray,
+    };
     use vortex::buffer::buffer;
     use vortex::error::vortex_err;
     use vortex::file::VortexWriteOptions;
     use vortex::validity::Validity;
 
     use crate::VortexFormatFactory;
-    use crate::persistent::{VortexFormat, register_vortex_format_factory};
+    use crate::persistent::{
+        VortexFormat,
+        register_vortex_format_factory,
+    };
 
     #[rstest]
     #[case(Some(1))]

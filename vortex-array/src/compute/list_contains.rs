@@ -9,18 +9,50 @@ use arcref::ArcRef;
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_iterator::BitIndexIterator;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_scalar::{ListScalar, Scalar};
+use vortex_dtype::{
+    DType,
+    IntegerPType,
+    Nullability,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
+use vortex_scalar::{
+    ListScalar,
+    Scalar,
+};
 
-use crate::arrays::{BoolArray, ConstantArray, ListArray};
+use crate::arrays::{
+    BoolArray,
+    ConstantArray,
+    ListArray,
+};
 use crate::compute::{
-    BinaryArgs, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Output, compare,
-    fill_null, or,
+    BinaryArgs,
+    ComputeFn,
+    ComputeFnVTable,
+    InvocationArgs,
+    Kernel,
+    Operator,
+    Output,
+    compare,
+    fill_null,
+    or,
 };
 use crate::validity::Validity;
-use crate::vtable::{VTable, ValidityHelper};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::vtable::{
+    VTable,
+    ValidityHelper,
+};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 
 static LIST_CONTAINS_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("list_contains".into(), ArcRef::new_ref(&ListContains));
@@ -415,17 +447,30 @@ mod tests {
     use itertools::Itertools;
     use rstest::rstest;
     use vortex_buffer::Buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
     use vortex_scalar::Scalar;
 
     use crate::arrays::{
-        BoolArray, ConstantArray, ConstantVTable, ListArray, PrimitiveArray, VarBinArray,
+        BoolArray,
+        ConstantArray,
+        ConstantVTable,
+        ListArray,
+        PrimitiveArray,
+        VarBinArray,
     };
     use crate::canonical::ToCanonical;
     use crate::compute::list_contains;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{Array, ArrayRef, IntoArray};
+    use crate::{
+        Array,
+        ArrayRef,
+        IntoArray,
+    };
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
         ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))

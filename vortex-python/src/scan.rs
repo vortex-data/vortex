@@ -4,11 +4,17 @@
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
 use vortex::scan::RepeatedScan;
-use vortex::{Array, ArrayRef};
+use vortex::{
+    Array,
+    ArrayRef,
+};
 
 use crate::iter::PyArrayIterator;
 use crate::scalar::PyScalar;
-use crate::{RUNTIME, install_module};
+use crate::{
+    RUNTIME,
+    install_module,
+};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "scan")?;

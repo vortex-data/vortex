@@ -8,18 +8,44 @@ use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::patches::Patches;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::stats::{
+    ArrayStats,
+    StatsSetRef,
+};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
+    ArrayVTable,
+    CanonicalVTable,
+    NotSupported,
+    VTable,
+    ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use vortex_array::{Array, Canonical, EncodingId, EncodingRef, vtable};
+use vortex_array::{
+    Array,
+    Canonical,
+    EncodingId,
+    EncodingRef,
+    vtable,
+};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
+use vortex_dtype::{
+    DType,
+    NativePType,
+    PType,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_ensure,
+};
 
-use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
+use crate::unpack_iter::{
+    BitPacked,
+    BitUnpackedChunks,
+};
 
 mod compress;
 mod compute;
@@ -353,7 +379,10 @@ impl CanonicalVTable<BitPackedVTable> for BitPackedVTable {
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::Buffer;
 
     use crate::BitPackedArray;

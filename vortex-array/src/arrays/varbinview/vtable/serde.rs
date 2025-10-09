@@ -3,14 +3,24 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_buffer::{
+    Buffer,
+    ByteBuffer,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 
 use super::VarBinViewVTable;
 use crate::EmptyMetadata;
 use crate::arrays::binary_view::BinaryView;
-use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
+use crate::arrays::{
+    VarBinViewArray,
+    VarBinViewEncoding,
+};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;

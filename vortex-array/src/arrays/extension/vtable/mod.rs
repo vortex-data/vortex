@@ -9,8 +9,16 @@ mod validity;
 mod visitor;
 
 use crate::arrays::extension::ExtensionArray;
-use crate::vtable::{NotSupported, VTable, ValidityVTableFromChild};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::vtable::{
+    NotSupported,
+    VTable,
+    ValidityVTableFromChild,
+};
+use crate::{
+    EncodingId,
+    EncodingRef,
+    vtable,
+};
 
 vtable!(Extension);
 

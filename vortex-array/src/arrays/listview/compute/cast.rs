@@ -4,10 +4,20 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::{ListViewArray, ListViewVTable};
-use crate::compute::{self, CastKernel, CastKernelAdapter};
+use crate::arrays::{
+    ListViewArray,
+    ListViewVTable,
+};
+use crate::compute::{
+    self,
+    CastKernel,
+    CastKernelAdapter,
+};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, register_kernel};
+use crate::{
+    ArrayRef,
+    register_kernel,
+};
 
 impl CastKernel for ListViewVTable {
     fn cast(&self, array: &ListViewArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

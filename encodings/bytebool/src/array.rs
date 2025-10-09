@@ -6,13 +6,28 @@ use std::ops::Range;
 
 use arrow_buffer::BooleanBuffer;
 use vortex_array::arrays::BoolArray;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::stats::{
+    ArrayStats,
+    StatsSetRef,
+};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
+    ArrayVTable,
+    CanonicalVTable,
+    NotSupported,
+    OperationsVTable,
+    VTable,
+    ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use vortex_array::{
+    ArrayRef,
+    Canonical,
+    EncodingId,
+    EncodingRef,
+    IntoArray,
+    vtable,
+};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;

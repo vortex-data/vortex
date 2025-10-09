@@ -1,20 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+    VisitorVTable,
+};
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, SerializeMetadata,
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    Canonical,
+    DeserializeMetadata,
+    SerializeMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
+use vortex_scalar::{
+    Scalar,
+    ScalarValue,
+};
 
 use super::FoREncoding;
-use crate::{FoRArray, FoRVTable};
+use crate::{
+    FoRArray,
+    FoRVTable,
+};
 
 impl SerdeVTable<FoRVTable> for FoRVTable {
     type Metadata = ScalarValueMetadata;

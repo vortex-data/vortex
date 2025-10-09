@@ -6,8 +6,14 @@
 use divan::Bencher;
 use rand::distr::Uniform;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
-use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
+use rand::{
+    Rng,
+    SeedableRng,
+};
+use vortex_array::search_sorted::{
+    SearchSorted,
+    SearchSortedSide,
+};
 
 fn main() {
     divan::main();

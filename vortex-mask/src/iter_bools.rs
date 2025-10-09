@@ -3,7 +3,10 @@
 
 use std::iter;
 
-use crate::{AllOr, Mask};
+use crate::{
+    AllOr,
+    Mask,
+};
 
 impl Mask {
     /// Provides a closure with an iterator over the boolean values of the mask.

@@ -2,7 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::datetime::TimeUnit;
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_panic,
+};
 
 pub const SECONDS_PER_DAY: i64 = 86_400; // 24 * 60 * 60
 

@@ -5,10 +5,21 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, DecimalDType, ExtDType, ExtID, Nullability, PType, StructFields};
+use vortex_dtype::{
+    DType,
+    DecimalDType,
+    ExtDType,
+    ExtID,
+    Nullability,
+    PType,
+    StructFields,
+};
 use vortex_scalar::Scalar;
 
-use crate::builders::{ArrayBuilder, builder_with_capacity};
+use crate::builders::{
+    ArrayBuilder,
+    builder_with_capacity,
+};
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.
 ///

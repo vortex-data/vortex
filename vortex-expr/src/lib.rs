@@ -11,8 +11,15 @@
 //! [Apache Datafusion]: https://github.com/apache/datafusion/tree/5fac581efbaffd0e6a9edf931182517524526afd/datafusion/expr
 
 use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
+use std::fmt::{
+    Debug,
+    Display,
+    Formatter,
+};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::sync::Arc;
 
 use dyn_hash::DynHash;
@@ -55,17 +62,36 @@ pub use scope::*;
 pub use scope_vars::*;
 pub use select::*;
 use vortex_array::operator::OperatorRef;
-use vortex_array::{Array, ArrayRef, SerializeMetadata};
-use vortex_dtype::{DType, FieldName, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    SerializeMetadata,
+};
+use vortex_dtype::{
+    DType,
+    FieldName,
+    FieldPath,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    VortexUnwrap,
+    vortex_bail,
+};
 use vortex_utils::aliases::hash_set::HashSet;
 pub use vtable::*;
 
 pub mod display;
 
-use crate::display::{DisplayAs, DisplayFormat};
+use crate::display::{
+    DisplayAs,
+    DisplayFormat,
+};
 use crate::dyn_traits::DynEq;
-use crate::traversal::{NodeExt, ReferenceCollector};
+use crate::traversal::{
+    NodeExt,
+    ReferenceCollector,
+};
 
 pub trait IntoExpr {
     /// Convert this type into an expression reference.
@@ -388,7 +414,12 @@ impl Hash for ExactExpr {
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
-    use vortex_dtype::{DType, Nullability, PType, StructFields};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+        StructFields,
+    };
 
     pub fn struct_dtype() -> DType {
         DType::Struct(
@@ -409,7 +440,13 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
+    use vortex_dtype::{
+        DType,
+        FieldNames,
+        Nullability,
+        PType,
+        StructFields,
+    };
     use vortex_scalar::Scalar;
 
     use super::*;

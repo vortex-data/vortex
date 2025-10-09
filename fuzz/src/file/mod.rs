@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use libfuzzer_sys::arbitrary::{Arbitrary, Unstructured};
+use libfuzzer_sys::arbitrary::{
+    Arbitrary,
+    Unstructured,
+};
 use vortex_array::ArrayRef;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_expr::ExprRef;
-use vortex_expr::arbitrary::{filter_expr, projection_expr};
+use vortex_expr::arbitrary::{
+    filter_expr,
+    projection_expr,
+};
 
 #[derive(Debug)]
 pub struct FuzzFileAction {

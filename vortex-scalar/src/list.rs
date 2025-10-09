@@ -1,17 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{
+    Display,
+    Formatter,
+};
 use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
 use vortex_error::{
-    VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_err, vortex_panic,
+    VortexError,
+    VortexExpect as _,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+    vortex_panic,
 };
 
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::{
+    InnerScalarValue,
+    Scalar,
+    ScalarValue,
+};
 
 /// A scalar value representing a list or fixed-size list (array) of elements.
 ///
@@ -289,7 +304,11 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
     use super::*;
 
@@ -472,7 +491,10 @@ mod tests {
     #[test]
     fn test_list_hash() {
         use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        use std::hash::{
+            Hash,
+            Hasher,
+        };
 
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
         let children = vec![

@@ -4,17 +4,37 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::stats::{Precision, Stat, StatsProvider};
-use vortex_array::{Array, ArrayContext};
+use vortex_array::stats::{
+    Precision,
+    Stat,
+    StatsProvider,
+};
+use vortex_array::{
+    Array,
+    ArrayContext,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 use vortex_io::runtime::Handle;
 
 use crate::layouts::flat::FlatLayout;
-use crate::layouts::zoned::{lower_bound, upper_bound};
+use crate::layouts::zoned::{
+    lower_bound,
+    upper_bound,
+};
 use crate::segments::SegmentSinkRef;
-use crate::sequence::{SendableSequentialStream, SequencePointer};
-use crate::{IntoLayout, LayoutRef, LayoutStrategy};
+use crate::sequence::{
+    SendableSequentialStream,
+    SequencePointer,
+};
+use crate::{
+    IntoLayout,
+    LayoutRef,
+    LayoutStrategy,
+};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -144,13 +164,36 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_buffer::BooleanBufferBuilder;
-    use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
-    use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-    use vortex_array::stats::{Precision, Stat, StatsProviderExt};
+    use vortex_array::arrays::{
+        BoolArray,
+        PrimitiveArray,
+        StructArray,
+    };
+    use vortex_array::builders::{
+        ArrayBuilder,
+        VarBinViewBuilder,
+    };
+    use vortex_array::stats::{
+        Precision,
+        Stat,
+        StatsProviderExt,
+    };
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, MaskFuture, ToCanonical};
+    use vortex_array::{
+        Array,
+        ArrayContext,
+        ArrayRef,
+        IntoArray,
+        MaskFuture,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
+    use vortex_dtype::{
+        DType,
+        FieldName,
+        FieldNames,
+        Nullability,
+    };
     use vortex_error::VortexUnwrap;
     use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
@@ -159,7 +202,10 @@ mod tests {
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
-    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::sequence::{
+        SequenceId,
+        SequentialArrayStreamExt,
+    };
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.

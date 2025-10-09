@@ -4,15 +4,35 @@
 use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_ensure};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_ensure,
+};
 use vortex_mask::Mask;
-use vortex_scalar::{BoolScalar, Scalar};
+use vortex_scalar::{
+    BoolScalar,
+    Scalar,
+};
 
 use crate::arrays::BoolArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
-use crate::canonical::{Canonical, ToCanonical};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::builders::{
+    ArrayBuilder,
+    DEFAULT_BUILDER_CAPACITY,
+    LazyNullBufferBuilder,
+};
+use crate::canonical::{
+    Canonical,
+    ToCanonical,
+};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 
 pub struct BoolBuilder {
     dtype: DType,
@@ -135,16 +155,32 @@ impl ArrayBuilder for BoolBuilder {
 #[cfg(test)]
 mod tests {
     use rand::prelude::StdRng;
-    use rand::{Rng, SeedableRng};
-    use vortex_dtype::{DType, Nullability};
+    use rand::{
+        Rng,
+        SeedableRng,
+    };
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
     use vortex_scalar::Scalar;
 
     use crate::array::Array;
-    use crate::arrays::{BoolArray, ChunkedArray};
-    use crate::builders::{ArrayBuilder, BoolBuilder, builder_with_capacity};
+    use crate::arrays::{
+        BoolArray,
+        ChunkedArray,
+    };
+    use crate::builders::{
+        ArrayBuilder,
+        BoolBuilder,
+        builder_with_capacity,
+    };
     use crate::canonical::ToCanonical;
     use crate::vtable::ValidityHelper;
-    use crate::{ArrayRef, IntoArray};
+    use crate::{
+        ArrayRef,
+        IntoArray,
+    };
 
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(0);

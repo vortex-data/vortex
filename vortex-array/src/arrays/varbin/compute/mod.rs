@@ -15,7 +15,10 @@ mod take;
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
     use crate::arrays::VarBinArray;
     use crate::compute::conformance::consistency::test_array_consistency;

@@ -11,7 +11,12 @@ use url::Url;
 use vortex::ArrayRef;
 
 use crate::clickbench::Flavor;
-use crate::{Format, clickbench, fineweb, statpopgen};
+use crate::{
+    Format,
+    clickbench,
+    fineweb,
+    statpopgen,
+};
 
 pub mod data_downloads;
 pub mod file;

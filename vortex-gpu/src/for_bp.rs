@@ -6,17 +6,36 @@ use std::time::Duration;
 
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::driver::{
-    CudaContext, CudaFunction, CudaSlice, CudaStream, CudaViewMut, DeviceRepr, LaunchConfig,
+    CudaContext,
+    CudaFunction,
+    CudaSlice,
+    CudaStream,
+    CudaViewMut,
+    DeviceRepr,
+    LaunchConfig,
     PushKernelArg,
 };
 use cudarc::nvrtc::Ptx;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{NativePType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_fastlanes::{BitPackedVTable, FoRArray};
+use vortex_buffer::{
+    Buffer,
+    BufferMut,
+};
+use vortex_dtype::{
+    NativePType,
+    PType,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
+use vortex_fastlanes::{
+    BitPackedVTable,
+    FoRArray,
+};
 
 use crate::task::GPUTask;
 
@@ -167,10 +186,16 @@ mod tests {
     use cudarc::driver::CudaContext;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::Buffer;
     use vortex_error::VortexUnwrap;
-    use vortex_fastlanes::{BitPackedArray, FoRArray};
+    use vortex_fastlanes::{
+        BitPackedArray,
+        FoRArray,
+    };
 
     use super::*;
 

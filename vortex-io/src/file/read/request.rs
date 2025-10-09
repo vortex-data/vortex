@@ -2,12 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_buffer::{
+    Alignment,
+    ByteBuffer,
+};
+use vortex_error::{
+    VortexError,
+    VortexExpect,
+    VortexResult,
+};
 
 /// An I/O request, either a single read or a coalesced set of reads.
 pub struct IoRequest(IoRequestInner);

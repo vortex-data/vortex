@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::{Any, TypeId};
-use std::hash::{BuildHasherDefault, Hasher};
+use std::any::{
+    Any,
+    TypeId,
+};
+use std::hash::{
+    BuildHasherDefault,
+    Hasher,
+};
 
 use vortex_utils::aliases::hash_map::HashMap;
 

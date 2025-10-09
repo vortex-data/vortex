@@ -2,13 +2,31 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_buffer::BooleanBuffer;
-use vortex_dtype::{NativePType, Nullability, match_each_native_ptype};
+use vortex_dtype::{
+    NativePType,
+    Nullability,
+    match_each_native_ptype,
+};
 use vortex_error::VortexResult;
 
-use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveVTable};
-use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
+use crate::arrays::{
+    BoolArray,
+    PrimitiveArray,
+    PrimitiveVTable,
+};
+use crate::compute::{
+    BetweenKernel,
+    BetweenKernelAdapter,
+    BetweenOptions,
+    StrictComparison,
+};
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl BetweenKernel for PrimitiveVTable {
     fn between(

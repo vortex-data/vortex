@@ -1,11 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 
 use crate::pipeline::operator::PipelineNode;
 use crate::pipeline::operator::buffers::VectorAllocationPlan;
-use crate::pipeline::{BatchId, BindContext, Kernel, VectorId};
+use crate::pipeline::{
+    BatchId,
+    BindContext,
+    Kernel,
+    VectorId,
+};
 
 pub(crate) fn bind_kernels(
     dag: &[PipelineNode],

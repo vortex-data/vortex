@@ -7,7 +7,11 @@ use bytes::BytesMut;
 use vortex_array::ArrayRegistry;
 use vortex_error::VortexResult;
 
-use crate::messages::{DecoderMessage, MessageDecoder, PollRead};
+use crate::messages::{
+    DecoderMessage,
+    MessageDecoder,
+    PollRead,
+};
 
 /// An IPC message reader backed by a `Read` stream.
 pub struct SyncMessageReader<R> {

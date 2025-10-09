@@ -5,13 +5,27 @@ use std::fmt::Debug;
 use std::iter::once;
 use std::sync::Arc;
 
-use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{
+    DType,
+    FieldName,
+    FieldNames,
+    StructFields,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 
 /// A struct array that stores multiple named fields as columns, similar to a database row.
 ///

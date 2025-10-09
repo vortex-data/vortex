@@ -5,7 +5,10 @@ use std::io::Write;
 
 use vortex_error::VortexResult;
 
-use crate::messages::{EncoderMessage, MessageEncoder};
+use crate::messages::{
+    EncoderMessage,
+    MessageEncoder,
+};
 
 pub struct SyncMessageWriter<W> {
     write: W,

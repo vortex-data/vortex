@@ -4,23 +4,47 @@
 pub(crate) mod dictionary;
 mod stats;
 
-use vortex_alp::{ALPArray, ALPEncoding, ALPVTable, RDEncoder};
-use vortex_array::arrays::{ConstantArray, MaskedArray, PrimitiveVTable};
+use vortex_alp::{
+    ALPArray,
+    ALPEncoding,
+    ALPVTable,
+    RDEncoder,
+};
+use vortex_array::arrays::{
+    ConstantArray,
+    MaskedArray,
+    PrimitiveVTable,
+};
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_panic,
+};
 use vortex_scalar::Scalar;
 
 pub use self::stats::FloatStats;
 use crate::float::dictionary::dictionary_encode;
-use crate::integer::{IntCompressor, IntegerStats};
+use crate::integer::{
+    IntCompressor,
+    IntegerStats,
+};
 use crate::patches::compress_patches;
 use crate::rle::RLEScheme;
 use crate::{
-    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
-    estimate_compression_ratio_with_sampling, integer,
+    Compressor,
+    CompressorStats,
+    GenerateStatsOptions,
+    Scheme,
+    estimate_compression_ratio_with_sampling,
+    integer,
 };
 
 pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
@@ -379,11 +403,26 @@ mod tests {
 
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical};
-    use vortex_buffer::{Buffer, buffer_mut};
+    use vortex_array::{
+        Array,
+        IntoArray,
+        ToCanonical,
+    };
+    use vortex_buffer::{
+        Buffer,
+        buffer_mut,
+    };
 
-    use crate::float::{FloatCompressor, RLE_FLOAT_SCHEME};
-    use crate::{Compressor, CompressorStats, MAX_CASCADE, Scheme};
+    use crate::float::{
+        FloatCompressor,
+        RLE_FLOAT_SCHEME,
+    };
+    use crate::{
+        Compressor,
+        CompressorStats,
+        MAX_CASCADE,
+        Scheme,
+    };
 
     #[test]
     fn test_empty() {

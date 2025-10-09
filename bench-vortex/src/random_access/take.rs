@@ -5,12 +5,18 @@ use std::iter;
 use std::path::Path;
 
 use arrow_array::types::Int64Type;
-use arrow_array::{PrimitiveArray, RecordBatch};
+use arrow_array::{
+    PrimitiveArray,
+    RecordBatch,
+};
 use arrow_select::concat::concat_batches;
 use arrow_select::take::take_record_batch;
 use futures::stream;
 use itertools::Itertools;
-use lance::dataset::{Dataset, ProjectionRequest};
+use lance::dataset::{
+    Dataset,
+    ProjectionRequest,
+};
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
@@ -20,7 +26,11 @@ use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
 use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex::{Array, ArrayRef, IntoArray};
+use vortex::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 
 pub async fn take_vortex_tokio(
     path: &Path,

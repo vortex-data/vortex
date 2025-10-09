@@ -8,14 +8,35 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use itertools::Itertools;
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayRef, MaskFuture};
-use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_array::{
+    ArrayRef,
+    MaskFuture,
+};
+use vortex_dtype::{
+    DType,
+    FieldMask,
+    FieldName,
+    StructFields,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
-    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
+    PartitionedExpr,
+    partition,
+    replace,
+    replace_root_fields,
+    simplify_typed,
 };
-use vortex_expr::{ExactExpr, ExprRef, col, root};
+use vortex_expr::{
+    ExactExpr,
+    ExprRef,
+    col,
+    root,
+};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -23,7 +44,11 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
-use crate::{LayoutReader, LayoutReaderRef, LazyReaderChildren};
+use crate::{
+    LayoutReader,
+    LayoutReaderRef,
+    LazyReaderChildren,
+};
 
 pub struct StructReader {
     layout: StructLayout,
@@ -258,20 +283,47 @@ mod tests {
     use std::sync::Arc;
 
     use itertools::Itertools;
-    use rstest::{fixture, rstest};
+    use rstest::{
+        fixture,
+        rstest,
+    };
     use vortex_array::arrays::StructArray;
-    use vortex_array::{Array, ArrayContext, IntoArray, MaskFuture, ToCanonical};
+    use vortex_array::{
+        Array,
+        ArrayContext,
+        IntoArray,
+        MaskFuture,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root};
+    use vortex_expr::{
+        col,
+        eq,
+        get_item,
+        gt,
+        lit,
+        or,
+        pack,
+        root,
+    };
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
-    use crate::segments::{SegmentSource, TestSegments};
-    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
-    use crate::{LayoutRef, LayoutStrategy};
+    use crate::segments::{
+        SegmentSource,
+        TestSegments,
+    };
+    use crate::sequence::{
+        SequenceId,
+        SequentialArrayStreamExt,
+    };
+    use crate::{
+        LayoutRef,
+        LayoutStrategy,
+    };
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.

@@ -7,16 +7,34 @@ use std::iter;
 use std::sync::Arc;
 
 use arrow_array::cast::AsArray;
-use arrow_array::{RecordBatch, RecordBatchIterator, RecordBatchReader};
-use arrow_schema::{ArrowError, DataType};
+use arrow_array::{
+    RecordBatch,
+    RecordBatchIterator,
+    RecordBatchReader,
+};
+use arrow_schema::{
+    ArrowError,
+    DataType,
+};
 use parking_lot::Mutex;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
-use pyo3::{Bound, PyResult, Python};
+use pyo3::{
+    Bound,
+    PyResult,
+    Python,
+};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::DType;
-use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
-use vortex::{Canonical, IntoArray};
+use vortex::iter::{
+    ArrayIterator,
+    ArrayIteratorAdapter,
+    ArrayIteratorExt,
+};
+use vortex::{
+    Canonical,
+    IntoArray,
+};
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;

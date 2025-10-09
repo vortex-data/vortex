@@ -1,16 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_err};
-use vortex_mask::{AllOr, Mask};
+use vortex_buffer::{
+    Buffer,
+    BufferMut,
+};
+use vortex_dtype::{
+    DType,
+    NativePType,
+    match_each_native_ptype,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_err,
+};
+use vortex_mask::{
+    AllOr,
+    Mask,
+};
 
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::{CastKernel, CastKernelAdapter};
+use crate::compute::{
+    CastKernel,
+    CastKernelAdapter,
+};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl CastKernel for PrimitiveVTable {
     fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -90,7 +110,11 @@ mod test {
     use arrow_buffer::BooleanBuffer;
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
     use vortex_error::VortexError;
     use vortex_mask::Mask;
 

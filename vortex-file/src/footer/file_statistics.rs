@@ -8,11 +8,20 @@
 //! and data exploration.
 use std::sync::Arc;
 
-use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
+use flatbuffers::{
+    FlatBufferBuilder,
+    Follow,
+    WIPOffset,
+};
 use itertools::Itertools;
 use vortex_array::stats::StatsSet;
 use vortex_error::VortexError;
-use vortex_flatbuffers::{FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, footer as fb};
+use vortex_flatbuffers::{
+    FlatBufferRoot,
+    ReadFlatBuffer,
+    WriteFlatBuffer,
+    footer as fb,
+};
 
 /// Contains statistical information about the data in a Vortex file.
 ///

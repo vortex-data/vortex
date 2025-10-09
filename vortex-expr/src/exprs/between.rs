@@ -3,26 +3,63 @@
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::try_join;
 use itertools::Itertools;
-use vortex_array::compute::{BetweenOptions, StrictComparison, between as between_compute};
-use vortex_array::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+use vortex_array::compute::{
+    BetweenOptions,
+    StrictComparison,
+    between as between_compute,
 };
-use vortex_array::{Array, ArrayRef, Canonical, DeserializeMetadata, IntoArray, ProstMetadata};
+use vortex_array::operator::{
+    BatchBindCtx,
+    BatchExecution,
+    BatchExecutionRef,
+    BatchOperator,
+    LengthBounds,
+    Operator,
+    OperatorEq,
+    OperatorHash,
+    OperatorId,
+    OperatorRef,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    Canonical,
+    DeserializeMetadata,
+    IntoArray,
+    ProstMetadata,
+};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 use vortex_proto::expr as pb;
 
-use crate::display::{DisplayAs, DisplayFormat};
+use crate::display::{
+    DisplayAs,
+    DisplayFormat,
+};
 use crate::{
-    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
+    AnalysisExpr,
+    BinaryExpr,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    Scope,
+    VTable,
+    vtable,
 };
 
 vtable!(Between);
@@ -355,9 +392,17 @@ impl BatchExecution for BetweenExecution {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::{BetweenOptions, StrictComparison};
+    use vortex_array::compute::{
+        BetweenOptions,
+        StrictComparison,
+    };
 
-    use crate::{between, get_item, lit, root};
+    use crate::{
+        between,
+        get_item,
+        lit,
+        root,
+    };
 
     #[test]
     fn test_display() {

@@ -3,33 +3,86 @@
 
 use std::cmp::max;
 use std::fmt;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::task::{Context, Poll};
+use std::sync::atomic::{
+    AtomicU64,
+    Ordering,
+};
+use std::task::{
+    Context,
+    Poll,
+};
 
 use async_compat::Compat;
-use futures::stream::{BoxStream, SelectAll};
-use futures::{FutureExt, Stream, StreamExt, stream};
+use futures::stream::{
+    BoxStream,
+    SelectAll,
+};
+use futures::{
+    FutureExt,
+    Stream,
+    StreamExt,
+    stream,
+};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
 use vortex::dtype::FieldNames;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
-use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
+use vortex::expr::{
+    ExprRef,
+    and,
+    and_collect,
+    col,
+    lit,
+    root,
+    select,
+};
+use vortex::file::{
+    VortexFile,
+    VortexOpenOptions,
+};
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::runtime::current::{CurrentThreadRuntime, ThreadSafeIterator};
-use vortex::{ArrayRef, ToCanonical};
+use vortex::io::runtime::current::{
+    CurrentThreadRuntime,
+    ThreadSafeIterator,
+};
+use vortex::{
+    ArrayRef,
+    ToCanonical,
+};
 
-use crate::convert::{try_from_bound_expression, try_from_table_filter};
+use crate::convert::{
+    try_from_bound_expression,
+    try_from_table_filter,
+};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
-    BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
-    TableFunction, TableInitInput, VirtualColumnsResult,
+    BindInput,
+    BindResult,
+    Cardinality,
+    ClientContext,
+    DataChunk,
+    Expression,
+    LogicalType,
+    TableFunction,
+    TableInitInput,
+    VirtualColumnsResult,
 };
-use crate::exporter::{ArrayExporter, ConversionCache};
+use crate::exporter::{
+    ArrayExporter,
+    ConversionCache,
+};
 use crate::utils::glob::expand_glob;
 use crate::utils::object_store::s3_store;
 

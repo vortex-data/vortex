@@ -1,15 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{
+    Display,
+    Formatter,
+};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_dtype::datetime::{TemporalMetadata, is_temporal_ext_type};
-use vortex_dtype::{DType, ExtDType};
-use vortex_error::{VortexError, VortexResult, vortex_bail};
+use vortex_dtype::datetime::{
+    TemporalMetadata,
+    is_temporal_ext_type,
+};
+use vortex_dtype::{
+    DType,
+    ExtDType,
+};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    vortex_bail,
+};
 
-use crate::{Scalar, ScalarValue};
+use crate::{
+    Scalar,
+    ScalarValue,
+};
 
 /// A scalar value representing an extension type.
 ///
@@ -145,9 +161,21 @@ impl Scalar {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::{DType, ExtDType, ExtID, ExtMetadata, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        ExtDType,
+        ExtID,
+        ExtMetadata,
+        Nullability,
+        PType,
+    };
 
-    use crate::{ExtScalar, InnerScalarValue, Scalar, ScalarValue};
+    use crate::{
+        ExtScalar,
+        InnerScalarValue,
+        Scalar,
+        ScalarValue,
+    };
 
     #[test]
     fn test_ext_scalar_equality() {

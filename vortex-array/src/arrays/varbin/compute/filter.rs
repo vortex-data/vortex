@@ -3,17 +3,38 @@
 
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
-use vortex_mask::{AllOr, Mask, MaskIter};
+use vortex_dtype::{
+    DType,
+    IntegerPType,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+    vortex_panic,
+};
+use vortex_mask::{
+    AllOr,
+    Mask,
+    MaskIter,
+};
 
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
-use crate::compute::{FilterKernel, FilterKernelAdapter};
+use crate::compute::{
+    FilterKernel,
+    FilterKernelAdapter,
+};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 
 impl FilterKernel for VarBinVTable {
     fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -182,16 +203,23 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::{ByteBuffer, buffer};
+    use vortex_buffer::{
+        ByteBuffer,
+        buffer,
+    };
     use vortex_dtype::DType;
-    use vortex_dtype::Nullability::{NonNullable, Nullable};
+    use vortex_dtype::Nullability::{
+        NonNullable,
+        Nullable,
+    };
     use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::arrays::varbin::compute::filter::{
-        filter_select_var_bin_by_index, filter_select_var_bin_by_slice,
+        filter_select_var_bin_by_index,
+        filter_select_var_bin_by_slice,
     };
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::validity::Validity;

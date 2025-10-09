@@ -2,10 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{
-    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, is_constant_opts,
+    IsConstantKernel,
+    IsConstantKernelAdapter,
+    IsConstantOpts,
+    is_constant_opts,
 };
 use vortex_array::stats::Stat;
-use vortex_array::{Array, register_kernel};
+use vortex_array::{
+    Array,
+    register_kernel,
+};
 use vortex_error::VortexResult;
 
 use crate::RunEndVTable;

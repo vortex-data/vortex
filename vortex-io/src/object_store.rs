@@ -8,10 +8,18 @@ use bytes::BytesMut;
 use futures::TryStreamExt;
 use futures::stream::FuturesUnordered;
 use object_store::path::Path;
-use object_store::{MultipartUpload, ObjectStore, PutPayload, PutResult};
+use object_store::{
+    MultipartUpload,
+    ObjectStore,
+    PutPayload,
+    PutResult,
+};
 use vortex_error::VortexResult;
 
-use crate::{IoBuf, VortexWrite};
+use crate::{
+    IoBuf,
+    VortexWrite,
+};
 
 /// Adapter type to write data through a [`ObjectStore`] instance.
 ///

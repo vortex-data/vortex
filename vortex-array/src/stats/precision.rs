@@ -1,13 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{
+    Debug,
+    Display,
+    Formatter,
+};
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::{
+    Scalar,
+    ScalarValue,
+};
 
-use crate::stats::precision::Precision::{Exact, Inexact};
+use crate::stats::precision::Precision::{
+    Exact,
+    Inexact,
+};
 
 /// A statistic has a precision `Exact` or `Inexact`. This represents uncertainty in that value.
 /// Exact values are computed, where can inexact values are likely inferred from compute functions.

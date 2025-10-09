@@ -2,16 +2,37 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::pin::Pin;
-use std::sync::{Arc, Weak};
-use std::task::{Context, Poll, ready};
+use std::sync::{
+    Arc,
+    Weak,
+};
+use std::task::{
+    Context,
+    Poll,
+    ready,
+};
 
 use futures::channel::mpsc;
-use futures::{FutureExt, StreamExt};
-use vortex_error::{VortexResult, vortex_panic};
+use futures::{
+    FutureExt,
+    StreamExt,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_panic,
+};
 use vortex_metrics::VortexMetrics;
 
-use crate::file::{FileRead, IntoReadSource, IoRequestStream};
-use crate::runtime::{AbortHandleRef, Executor, IoTask};
+use crate::file::{
+    FileRead,
+    IntoReadSource,
+    IoRequestStream,
+};
+use crate::runtime::{
+    AbortHandleRef,
+    Executor,
+    IoTask,
+};
 
 /// A handle to an active Vortex runtime.
 ///

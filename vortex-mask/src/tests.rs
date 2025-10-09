@@ -7,7 +7,11 @@
 use arrow_buffer::BooleanBuffer;
 use rstest::rstest;
 
-use crate::{AllOr, Mask, MaskIter};
+use crate::{
+    AllOr,
+    Mask,
+    MaskIter,
+};
 
 // Basic mask creation and properties tests
 #[test]

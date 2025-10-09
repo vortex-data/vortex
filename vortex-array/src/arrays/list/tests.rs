@@ -6,7 +6,10 @@ use std::sync::Arc;
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::buffer;
 use vortex_dtype::PType::I32;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
 use vortex_error::VortexUnwrap;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -14,7 +17,10 @@ use vortex_scalar::Scalar;
 use super::*;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
-use crate::builders::{ArrayBuilder, ListBuilder};
+use crate::builders::{
+    ArrayBuilder,
+    ListBuilder,
+};
 use crate::compute::filter;
 use crate::validity::Validity;
 

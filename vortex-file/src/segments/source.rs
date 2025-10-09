@@ -3,10 +3,20 @@
 
 use std::sync::Arc;
 
-use futures::{FutureExt, TryFutureExt};
-use vortex_error::{VortexError, vortex_err};
+use futures::{
+    FutureExt,
+    TryFutureExt,
+};
+use vortex_error::{
+    VortexError,
+    vortex_err,
+};
 use vortex_io::VortexReadAt;
-use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
+use vortex_layout::segments::{
+    SegmentFuture,
+    SegmentId,
+    SegmentSource,
+};
 
 use crate::SegmentSpec;
 

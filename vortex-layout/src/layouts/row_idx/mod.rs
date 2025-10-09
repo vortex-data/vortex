@@ -4,8 +4,14 @@
 mod expr;
 
 use std::collections::BTreeSet;
-use std::fmt::{Display, Formatter};
-use std::ops::{BitAnd, Range};
+use std::fmt::{
+    Display,
+    Formatter,
+};
+use std::ops::{
+    BitAnd,
+    Range,
+};
 use std::sync::Arc;
 
 use Nullability::NonNullable;
@@ -14,18 +20,43 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayRef, IntoArray, MaskFuture};
-use vortex_dtype::{DType, FieldMask, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::transform::{PartitionedExpr, partition, replace};
-use vortex_expr::{ExactExpr, ExprRef, Scope, is_root, root};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    MaskFuture,
+};
+use vortex_dtype::{
+    DType,
+    FieldMask,
+    Nullability,
+    PType,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
+use vortex_expr::transform::{
+    PartitionedExpr,
+    partition,
+    replace,
+};
+use vortex_expr::{
+    ExactExpr,
+    ExprRef,
+    Scope,
+    is_root,
+    root,
+};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::layouts::partitioned::PartitionedExprEval;
-use crate::{ArrayFuture, LayoutReader};
+use crate::{
+    ArrayFuture,
+    LayoutReader,
+};
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,
@@ -251,16 +282,36 @@ mod tests {
 
     use arrow_buffer::BooleanBuffer;
     use itertools::Itertools;
-    use vortex_array::{ArrayContext, IntoArray as _, MaskFuture, ToCanonical};
+    use vortex_array::{
+        ArrayContext,
+        IntoArray as _,
+        MaskFuture,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
-    use vortex_expr::{eq, gt, lit, or, root};
+    use vortex_expr::{
+        eq,
+        gt,
+        lit,
+        or,
+        root,
+    };
     use vortex_io::runtime::single::block_on;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
+    use crate::layouts::row_idx::{
+        RowIdxLayoutReader,
+        row_idx,
+    };
     use crate::segments::TestSegments;
-    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
-    use crate::{LayoutReader, LayoutStrategy};
+    use crate::sequence::{
+        SequenceId,
+        SequentialArrayStreamExt,
+    };
+    use crate::{
+        LayoutReader,
+        LayoutStrategy,
+    };
 
     #[test]
     fn flat_expr_no_row_id() {

@@ -9,10 +9,24 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolVTable, ConstantArray};
-use crate::compute::{TakeKernel, TakeKernelAdapter, fill_null};
+use crate::arrays::{
+    BoolArray,
+    BoolVTable,
+    ConstantArray,
+};
+use crate::compute::{
+    TakeKernel,
+    TakeKernelAdapter,
+    fill_null,
+};
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 
 impl TakeKernel for BoolVTable {
     fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -69,7 +83,10 @@ fn take_bool<I: AsPrimitive<usize>>(bools: &BooleanBuffer, indices: &[I]) -> Boo
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
     use vortex_scalar::Scalar;
 
     use crate::arrays::BoolArray;
@@ -77,7 +94,11 @@ mod test {
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray as _, ToCanonical};
+    use crate::{
+        Array,
+        IntoArray as _,
+        ToCanonical,
+    };
 
     #[test]
     fn take_nullable() {

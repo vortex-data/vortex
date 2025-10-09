@@ -9,14 +9,31 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
-use vortex::dtype::{DType, FieldNames, PType};
+use vortex::dtype::{
+    DType,
+    FieldNames,
+    PType,
+};
 use vortex::error::VortexResult;
-use vortex::expr::{ExprRef, root, select};
-use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::expr::{
+    ExprRef,
+    root,
+    select,
+};
+use vortex::file::{
+    VortexFile,
+    VortexOpenOptions,
+};
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::segments::MokaSegmentCache;
-use vortex::scan::{ScanBuilder, SplitBy};
-use vortex::{ArrayRef, ToCanonical};
+use vortex::scan::{
+    ScanBuilder,
+    SplitBy,
+};
+use vortex::{
+    ArrayRef,
+    ToCanonical,
+};
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
@@ -25,7 +42,10 @@ use crate::dtype::PyDType;
 use crate::expr::PyExpr;
 use crate::iter::PyArrayIterator;
 use crate::scan::PyRepeatedScan;
-use crate::{RUNTIME, install_module};
+use crate::{
+    RUNTIME,
+    install_module,
+};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "file")?;

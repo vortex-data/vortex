@@ -7,7 +7,10 @@ pub use array::MaskedArray;
 mod compute;
 
 mod vtable;
-pub use vtable::{MaskedEncoding, MaskedVTable};
+pub use vtable::{
+    MaskedEncoding,
+    MaskedVTable,
+};
 
 #[cfg(test)]
 mod tests;

@@ -2,12 +2,30 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{FillNullKernel, FillNullKernelAdapter, Operator, compare, fill_null};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use vortex_array::compute::{
+    FillNullKernel,
+    FillNullKernelAdapter,
+    Operator,
+    compare,
+    fill_null,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 use vortex_error::VortexResult;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::{
+    Scalar,
+    ScalarValue,
+};
 
-use crate::{DictArray, DictVTable};
+use crate::{
+    DictArray,
+    DictVTable,
+};
 
 impl FillNullKernel for DictVTable {
     fn fill_null(&self, array: &DictArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
@@ -54,7 +72,10 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::fill_null;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_error::VortexUnwrap;

@@ -7,7 +7,10 @@ pub use array::FixedSizeListArray;
 mod compute;
 
 mod vtable;
-pub use vtable::{FixedSizeListEncoding, FixedSizeListVTable};
+pub use vtable::{
+    FixedSizeListEncoding,
+    FixedSizeListVTable,
+};
 
 #[cfg(test)]
 mod tests;

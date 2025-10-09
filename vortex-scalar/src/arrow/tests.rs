@@ -5,8 +5,19 @@ use std::sync::Arc;
 
 use arrow_array::Datum;
 use rstest::rstest;
-use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex_dtype::{DType, ExtDType, Nullability, PType};
+use vortex_dtype::datetime::{
+    DATE_ID,
+    TIME_ID,
+    TIMESTAMP_ID,
+    TemporalMetadata,
+    TimeUnit,
+};
+use vortex_dtype::{
+    DType,
+    ExtDType,
+    Nullability,
+    PType,
+};
 
 use crate::Scalar;
 
@@ -214,7 +225,10 @@ fn test_null_decimal_to_arrow() {
 #[test]
 #[should_panic(expected = "struct scalar conversion")]
 fn test_struct_scalar_to_arrow_todo() {
-    use vortex_dtype::{FieldDType, StructFields};
+    use vortex_dtype::{
+        FieldDType,
+        StructFields,
+    };
 
     let struct_dtype = DType::Struct(
         StructFields::from_iter([(
@@ -250,7 +264,11 @@ fn test_list_scalar_to_arrow_todo() {
 #[test]
 #[should_panic(expected = "Non temporal extension scalar conversion")]
 fn test_non_temporal_extension_to_arrow_todo() {
-    use vortex_dtype::{ExtDType, ExtID, ExtMetadata};
+    use vortex_dtype::{
+        ExtDType,
+        ExtID,
+        ExtMetadata,
+    };
 
     let ext_dtype = Arc::new(ExtDType::new(
         ExtID::new("test_ext".into()),

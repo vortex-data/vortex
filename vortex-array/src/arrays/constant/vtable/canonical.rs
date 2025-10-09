@@ -4,25 +4,53 @@
 use std::sync::Arc;
 
 use arrow_buffer::BooleanBuffer;
-use vortex_buffer::{Buffer, buffer};
-use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
+use vortex_buffer::{
+    Buffer,
+    buffer,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+    match_each_native_ptype,
+};
 use vortex_error::VortexExpect;
 use vortex_scalar::{
-    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, ScalarValue,
-    StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
+    BinaryScalar,
+    BoolScalar,
+    DecimalValue,
+    ExtScalar,
+    ListScalar,
+    Scalar,
+    ScalarValue,
+    StructScalar,
+    Utf8Scalar,
+    match_each_decimal_value,
+    match_each_decimal_value_type,
 };
 
 use crate::arrays::binary_view::BinaryView;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
-    BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray, ListArray,
-    NullArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
+    BoolArray,
+    ConstantVTable,
+    DecimalArray,
+    ExtensionArray,
+    FixedSizeListArray,
+    ListArray,
+    NullArray,
+    StructArray,
+    VarBinViewArray,
+    smallest_decimal_value_type,
 };
 use crate::builders::builder_with_capacity;
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-use crate::{Canonical, IntoArray};
+use crate::{
+    Canonical,
+    IntoArray,
+};
 
 impl CanonicalVTable<ConstantVTable> for ConstantVTable {
     fn canonicalize(array: &ConstantArray) -> Canonical {
@@ -305,15 +333,25 @@ mod tests {
     use enum_iterator::all;
     use itertools::Itertools;
     use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
     use vortex_scalar::Scalar;
 
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
-    use crate::stats::{Stat, StatsProvider};
+    use crate::stats::{
+        Stat,
+        StatsProvider,
+    };
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{Array, IntoArray};
+    use crate::{
+        Array,
+        IntoArray,
+    };
 
     #[test]
     fn test_canonicalize_null() {

@@ -4,9 +4,19 @@
 use std::marker::PhantomData;
 
 use serde_core::de::Visitor;
-use serde_core::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_core::{
+    Deserialize,
+    Deserializer,
+    Serialize,
+    Serializer,
+};
 
-use crate::{Alignment, Buffer, BufferMut, ByteBuffer};
+use crate::{
+    Alignment,
+    Buffer,
+    BufferMut,
+    ByteBuffer,
+};
 
 impl<T> Serialize for Buffer<T>
 where

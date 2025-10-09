@@ -4,7 +4,10 @@
 use vortex_error::VortexResult;
 
 use crate::Canonical;
-use crate::vtable::{NotSupported, VTable};
+use crate::vtable::{
+    NotSupported,
+    VTable,
+};
 
 pub trait EncodeVTable<V: VTable> {
     /// Try to encode a canonical array into this encoding.

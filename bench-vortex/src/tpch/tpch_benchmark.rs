@@ -3,25 +3,63 @@
 
 //! TPCH benchmark implementation
 
-use std::path::{Path, PathBuf};
-use std::{env, fs};
+use std::path::{
+    Path,
+    PathBuf,
+};
+use std::{
+    env,
+    fs,
+};
 
-use anyhow::{Result, anyhow};
+use anyhow::{
+    Result,
+    anyhow,
+};
 use datafusion::prelude::SessionContext;
 use ddb::DuckDBCtx;
 use glob::Pattern;
-use log::{info, warn};
-use similar::{ChangeTag, TextDiff};
+use log::{
+    info,
+    warn,
+};
+use similar::{
+    ChangeTag,
+    TextDiff,
+};
 use url::Url;
 
 use crate::benchmark_trait::Benchmark;
-use crate::engines::{EngineCtx, ddb};
-use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
-use crate::tpch::{
-    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, register_arrow, register_parquet,
-    register_vortex_compact_file, register_vortex_file, tpch_queries, tpchgen,
+use crate::engines::{
+    EngineCtx,
+    ddb,
 };
-use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
+use crate::tpch::schema::{
+    CUSTOMER,
+    LINEITEM,
+    NATION,
+    ORDERS,
+    PART,
+    PARTSUPP,
+    REGION,
+    SUPPLIER,
+};
+use crate::tpch::{
+    EXPECTED_ROW_COUNTS_SF1,
+    EXPECTED_ROW_COUNTS_SF10,
+    register_arrow,
+    register_parquet,
+    register_vortex_compact_file,
+    register_vortex_file,
+    tpch_queries,
+    tpchgen,
+};
+use crate::{
+    BenchmarkDataset,
+    Format,
+    IdempotentPath,
+    Target,
+};
 
 /// TPCH benchmark implementation
 pub struct TpcHBenchmark {

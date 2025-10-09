@@ -4,14 +4,33 @@
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use vortex_dtype::{DType, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    StructFields,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::arrays::ConstantVTable;
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
-use crate::stats::{Precision, Stat, StatsProvider};
+use crate::compute::{
+    ComputeFn,
+    ComputeFnVTable,
+    InvocationArgs,
+    Kernel,
+    Output,
+    UnaryArgs,
+};
+use crate::stats::{
+    Precision,
+    Stat,
+    StatsProvider,
+};
 use crate::vtable::VTable;
 
 static MIN_MAX_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -218,8 +237,15 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
     use vortex_buffer::buffer;
 
-    use crate::arrays::{BoolArray, NullArray, PrimitiveArray};
-    use crate::compute::{MinMaxResult, min_max};
+    use crate::arrays::{
+        BoolArray,
+        NullArray,
+        PrimitiveArray,
+    };
+    use crate::compute::{
+        MinMaxResult,
+        min_max,
+    };
     use crate::validity::Validity;
 
     #[test]

@@ -7,11 +7,19 @@ use std::path::Path;
 use std::ptr;
 
 use cpp::duckdb_database;
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
 use crate::duckdb::Config;
 use crate::duckdb::connection::Connection;
-use crate::{cpp, duckdb_try, wrapper};
+use crate::{
+    cpp,
+    duckdb_try,
+    wrapper,
+};
 
 wrapper!(
     /// A DuckDB database instance.

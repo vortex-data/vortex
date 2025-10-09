@@ -4,16 +4,32 @@
 mod cast;
 
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 use vortex_mask::Mask;
 
 use crate::arrays::NullVTable;
 use crate::arrays::null::NullArray;
 use crate::compute::{
-    FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
-    MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter,
+    FilterKernel,
+    FilterKernelAdapter,
+    MaskKernel,
+    MaskKernelAdapter,
+    MinMaxKernel,
+    MinMaxKernelAdapter,
+    MinMaxResult,
+    TakeKernel,
+    TakeKernelAdapter,
 };
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 
 impl FilterKernel for NullVTable {
     fn filter(&self, _array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -70,7 +86,10 @@ mod test {
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
-    use crate::{IntoArray, ToCanonical};
+    use crate::{
+        IntoArray,
+        ToCanonical,
+    };
 
     #[test]
     fn test_slice_nulls() {

@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    CastKernel,
+    CastKernelAdapter,
+    cast,
+};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{RunEndArray, RunEndVTable};
+use crate::{
+    RunEndArray,
+    RunEndVTable,
+};
 
 impl CastKernel for RunEndVTable {
     fn cast(&self, array: &RunEndArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -33,12 +44,23 @@ register_kernel!(CastKernelAdapter(RunEndVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::arrays::{BoolArray, PrimitiveArray};
+    use vortex_array::arrays::{
+        BoolArray,
+        PrimitiveArray,
+    };
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{
+        Array,
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
     use crate::RunEndArray;
 

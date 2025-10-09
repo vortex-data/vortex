@@ -9,15 +9,30 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 use vortex_mask::Mask;
 
 use crate::compute::filter;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx,
+    BatchExecution,
+    BatchExecutionRef,
+    BatchOperator,
+    LengthBounds,
+    Operator,
+    OperatorEq,
+    OperatorHash,
+    OperatorId,
+    OperatorRef,
 };
-use crate::{Array, Canonical, IntoArray};
+use crate::{
+    Array,
+    Canonical,
+    IntoArray,
+};
 
 #[derive(Debug)]
 pub struct FilterOperator {

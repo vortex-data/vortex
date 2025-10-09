@@ -3,24 +3,58 @@
 
 use core::fmt;
 use std::any::Any;
-use std::fmt::{Display, Formatter};
+use std::fmt::{
+    Display,
+    Formatter,
+};
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use arrow_array::{BooleanArray, Datum as ArrowDatum};
-use arrow_buffer::{BooleanBuffer, NullBuffer};
+use arrow_array::{
+    BooleanArray,
+    Datum as ArrowDatum,
+};
+use arrow_buffer::{
+    BooleanBuffer,
+    NullBuffer,
+};
 use arrow_ord::cmp;
 use arrow_ord::ord::make_comparator;
 use arrow_schema::SortOptions;
-use vortex_dtype::{DType, IntegerPType, Nullability};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{
+    DType,
+    IntegerPType,
+    Nullability,
+};
+use vortex_error::{
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
-use crate::arrow::{Datum, from_arrow_array_with_len};
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
+use crate::arrow::{
+    Datum,
+    from_arrow_array_with_len,
+};
+use crate::compute::{
+    ComputeFn,
+    ComputeFnVTable,
+    InvocationArgs,
+    Kernel,
+    Options,
+    Output,
+};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::{
+    Array,
+    ArrayRef,
+    Canonical,
+    IntoArray,
+};
 
 static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("compare".into(), ArcRef::new_ref(&Compare));
@@ -360,7 +394,12 @@ mod tests {
     use super::*;
     use crate::ToCanonical;
     use crate::arrays::{
-        BoolArray, ConstantArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
+        BoolArray,
+        ConstantArray,
+        ListArray,
+        PrimitiveArray,
+        StructArray,
+        VarBinArray,
         VarBinViewArray,
     };
     use crate::test_harness::to_int_indices;
@@ -498,7 +537,10 @@ mod tests {
     fn test_list_array_constant_comparison() {
         use std::sync::Arc;
 
-        use vortex_dtype::{DType, PType};
+        use vortex_dtype::{
+            DType,
+            PType,
+        };
 
         // Create a list array
         let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);

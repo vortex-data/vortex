@@ -1,13 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::{DType, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_buffer::{
+    Alignment,
+    Buffer,
+    ByteBuffer,
+};
+use vortex_dtype::{
+    DType,
+    PType,
+    match_each_native_ptype,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 
 use super::PrimitiveArray;
 use crate::EmptyMetadata;
-use crate::arrays::{PrimitiveEncoding, PrimitiveVTable};
+use crate::arrays::{
+    PrimitiveEncoding,
+    PrimitiveVTable,
+};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;

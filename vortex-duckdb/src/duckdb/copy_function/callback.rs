@@ -2,7 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CStr;
-use std::os::raw::{c_char, c_ulong, c_void};
+use std::os::raw::{
+    c_char,
+    c_ulong,
+    c_void,
+};
 
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -10,9 +14,19 @@ use vortex::error::VortexExpect;
 
 use crate::cpp;
 use crate::cpp::{
-    duckdb_data_chunk, duckdb_logical_type, duckdb_vx_copy_func_bind_input, duckdb_vx_error,
+    duckdb_data_chunk,
+    duckdb_logical_type,
+    duckdb_vx_copy_func_bind_input,
+    duckdb_vx_error,
 };
-use crate::duckdb::{CopyFunction, Data, DataChunk, LogicalType, try_or, try_or_null};
+use crate::duckdb::{
+    CopyFunction,
+    Data,
+    DataChunk,
+    LogicalType,
+    try_or,
+    try_or_null,
+};
 
 pub(crate) unsafe extern "C-unwind" fn bind_callback<T: CopyFunction>(
     // TODO(joe): pass this into T::bind(..)

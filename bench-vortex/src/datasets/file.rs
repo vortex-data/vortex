@@ -7,7 +7,10 @@ use anyhow::Result;
 use arrow_schema::Schema;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+    ListingOptions,
+    ListingTable,
+    ListingTableConfig,
+    ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
 use glob::Pattern;

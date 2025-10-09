@@ -5,17 +5,39 @@ use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder, UninitRange};
+use vortex_array::builders::{
+    ArrayBuilder as _,
+    PrimitiveBuilder,
+    UninitRange,
+};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
-use vortex_dtype::{
-    IntegerPType, NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
+use vortex_array::{
+    IntoArray,
+    ToCanonical,
 };
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_mask::{AllOr, Mask};
+use vortex_buffer::{
+    Buffer,
+    BufferMut,
+    ByteBuffer,
+};
+use vortex_dtype::{
+    IntegerPType,
+    NativePType,
+    PType,
+    match_each_integer_ptype,
+    match_each_unsigned_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
+use vortex_mask::{
+    AllOr,
+    Mask,
+};
 use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
@@ -494,7 +516,11 @@ pub mod test_harness {
     use rand::rngs::StdRng;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{
+        ArrayRef,
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::BufferMut;
     use vortex_error::VortexResult;
 
@@ -534,7 +560,10 @@ mod test {
     use rand::rngs::StdRng;
     use vortex_array::ToCanonical as _;
     use vortex_array::arrays::ChunkedArray;
-    use vortex_buffer::{Buffer, buffer};
+    use vortex_buffer::{
+        Buffer,
+        buffer,
+    };
     use vortex_dtype::Nullability;
     use vortex_error::VortexError;
 

@@ -6,20 +6,38 @@ use std::ops::Range;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_dtype::arrow::FromArrowType;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrow::FromArrowArray;
-use crate::stats::{ArrayStats, StatsSetRef};
+use crate::stats::{
+    ArrayStats,
+    StatsSetRef,
+};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityVTable,
+    ArrayVTable,
+    CanonicalVTable,
+    NotSupported,
+    OperationsVTable,
+    VTable,
+    ValidityVTable,
     VisitorVTable,
 };
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef,
-    IntoArray, vtable,
+    Array,
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    ArrayRef,
+    Canonical,
+    EncodingId,
+    EncodingRef,
+    IntoArray,
+    vtable,
 };
 
 vtable!(Arrow);

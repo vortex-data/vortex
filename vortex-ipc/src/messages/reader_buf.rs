@@ -3,9 +3,16 @@
 
 use bytes::Buf;
 use vortex_array::ArrayRegistry;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{
+    VortexResult,
+    vortex_err,
+};
 
-use crate::messages::{DecoderMessage, MessageDecoder, PollRead};
+use crate::messages::{
+    DecoderMessage,
+    MessageDecoder,
+    PollRead,
+};
 
 /// An IPC message reader backed by a `Read` stream.
 pub struct BufMessageReader<B> {

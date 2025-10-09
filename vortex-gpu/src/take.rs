@@ -5,19 +5,37 @@ use std::mem::transmute;
 use std::sync::Arc;
 
 use cudarc::driver::{
-    CudaContext, CudaFunction, DeviceRepr, LaunchConfig, PushKernelArg, ValidAsZeroBits,
+    CudaContext,
+    CudaFunction,
+    DeviceRepr,
+    LaunchConfig,
+    PushKernelArg,
+    ValidAsZeroBits,
 };
 use cudarc::nvrtc::Ptx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, Canonical, IntoArray, ToCanonical};
+use vortex_array::{
+    ArrayRef,
+    Canonical,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_buffer::BufferMut;
 use vortex_dict::DictArray;
 use vortex_dtype::{
-    DType, NativePType, Nullability, UnsignedPType, match_each_native_ptype,
+    DType,
+    NativePType,
+    Nullability,
+    UnsignedPType,
+    match_each_native_ptype,
     match_each_unsigned_integer_ptype,
 };
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 use vortex_mask::Mask;
 
 pub fn cuda_take(dict: &DictArray, ctx: Arc<CudaContext>) -> VortexResult<Option<ArrayRef>> {
@@ -152,7 +170,10 @@ mod tests {
     use cudarc::driver::CudaContext;
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_dict::DictArray;
     use vortex_dtype::match_each_native_ptype;
 

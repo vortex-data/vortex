@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
 use vortex_error::VortexUnwrap;
 
 use crate::Array;
@@ -543,12 +547,21 @@ fn test_cast_to_type_safe(array: &dyn Array, target_dtype: &DType) {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldNames, Nullability};
+    use vortex_dtype::{
+        DType,
+        FieldNames,
+        Nullability,
+    };
 
     use super::*;
     use crate::IntoArray;
     use crate::arrays::{
-        BoolArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinArray,
+        BoolArray,
+        ListArray,
+        NullArray,
+        PrimitiveArray,
+        StructArray,
+        VarBinArray,
     };
 
     #[test]

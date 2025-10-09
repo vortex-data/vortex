@@ -7,9 +7,20 @@
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
-    use crate::{InnerScalarValue, ListScalar, PValue, Scalar, ScalarValue, StructScalar};
+    use crate::{
+        InnerScalarValue,
+        ListScalar,
+        PValue,
+        Scalar,
+        ScalarValue,
+        StructScalar,
+    };
 
     #[test]
     fn test_fixed_size_list_of_fixed_size_list() {

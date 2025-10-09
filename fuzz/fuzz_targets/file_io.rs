@@ -8,16 +8,43 @@ use arrow_buffer::BooleanBuffer;
 use arrow_ord::ord::make_comparator;
 use arrow_ord::sort::SortOptions;
 use itertools::Itertools;
-use libfuzzer_sys::{Corpus, fuzz_target};
+use libfuzzer_sys::{
+    Corpus,
+    fuzz_target,
+};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::IntoArrowArray;
-use vortex_array::compute::{Operator, compare, filter};
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+use vortex_array::compute::{
+    Operator,
+    compare,
+    filter,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    Canonical,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::{DType, StructFields};
-use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
-use vortex_expr::{Scope, lit, root};
-use vortex_file::{VortexOpenOptions, VortexWriteOptions};
+use vortex_dtype::{
+    DType,
+    StructFields,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexUnwrap,
+    vortex_panic,
+};
+use vortex_expr::{
+    Scope,
+    lit,
+    root,
+};
+use vortex_file::{
+    VortexOpenOptions,
+    VortexWriteOptions,
+};
 use vortex_fuzz::FuzzFileAction;
 use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_utils::aliases::DefaultHashBuilder;

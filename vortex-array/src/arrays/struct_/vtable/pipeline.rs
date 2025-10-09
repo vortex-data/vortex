@@ -2,23 +2,46 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 
-use crate::arrays::{StructArray, StructVTable};
+use crate::arrays::{
+    StructArray,
+    StructVTable,
+};
 use crate::operator::getitem::GetItemOperator;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx,
+    BatchExecution,
+    BatchExecutionRef,
+    BatchOperator,
+    LengthBounds,
+    Operator,
+    OperatorEq,
+    OperatorHash,
+    OperatorId,
+    OperatorRef,
 };
 use crate::validity::Validity;
 use crate::vtable::PipelineVTable;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::{
+    Array,
+    ArrayRef,
+    Canonical,
+    IntoArray,
+};
 
 impl PipelineVTable<StructVTable> for StructVTable {
     fn to_operator(array: &StructArray) -> VortexResult<Option<OperatorRef>> {

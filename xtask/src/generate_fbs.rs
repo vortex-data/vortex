@@ -3,7 +3,10 @@
 
 use std::path::PathBuf;
 
-use xshell::{Shell, cmd};
+use xshell::{
+    Shell,
+    cmd,
+};
 
 static FLATC_BIN: &str = "flatc";
 

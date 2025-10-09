@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{FillNullKernel, FillNullKernelAdapter, fill_null};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    FillNullKernel,
+    FillNullKernelAdapter,
+    fill_null,
+};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::{RunEndArray, RunEndVTable};
+use crate::{
+    RunEndArray,
+    RunEndVTable,
+};
 
 impl FillNullKernel for RunEndVTable {
     fn fill_null(&self, array: &RunEndArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {

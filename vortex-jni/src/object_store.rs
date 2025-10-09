@@ -2,17 +2,37 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
+use std::sync::{
+    Arc,
+    LazyLock,
+};
 use std::time::Duration;
 
-use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
-use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
-use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
+use object_store::aws::{
+    AmazonS3Builder,
+    AmazonS3ConfigKey,
+};
+use object_store::azure::{
+    AzureConfigKey,
+    MicrosoftAzureBuilder,
+};
+use object_store::gcp::{
+    GoogleCloudStorageBuilder,
+    GoogleConfigKey,
+};
 use object_store::local::LocalFileSystem;
-use object_store::{ClientOptions, ObjectStore, ObjectStoreScheme};
+use object_store::{
+    ClientOptions,
+    ObjectStore,
+    ObjectStoreScheme,
+};
 use parking_lot::Mutex;
 use url::Url;
-use vortex::error::{VortexError, VortexResult, vortex_bail};
+use vortex::error::{
+    VortexError,
+    VortexResult,
+    vortex_bail,
+};
 use vortex::utils::aliases::hash_map::HashMap;
 
 pub(crate) fn make_object_store(

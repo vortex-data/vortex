@@ -2,14 +2,30 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::slice;
 use std::sync::Arc;
 
-use vortex_dtype::{DType, FieldName};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::{
+    DType,
+    FieldName,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 
-use crate::operator::{LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef};
+use crate::operator::{
+    LengthBounds,
+    Operator,
+    OperatorEq,
+    OperatorHash,
+    OperatorId,
+    OperatorRef,
+};
 
 /// An operator that extracts a field from a struct array.
 #[derive(Debug)]

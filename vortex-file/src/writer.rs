@@ -6,28 +6,71 @@ use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
-use futures::future::{Fuse, LocalBoxFuture, ready};
-use futures::{FutureExt, StreamExt, TryStreamExt, pin_mut, select};
-use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-use vortex_array::stats::{PRUNING_STATS, Stat};
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt, SendableArrayStream};
-use vortex_array::{ArrayContext, ArrayRef};
+use futures::future::{
+    Fuse,
+    LocalBoxFuture,
+    ready,
+};
+use futures::{
+    FutureExt,
+    StreamExt,
+    TryStreamExt,
+    pin_mut,
+    select,
+};
+use vortex_array::iter::{
+    ArrayIterator,
+    ArrayIteratorExt,
+};
+use vortex_array::stats::{
+    PRUNING_STATS,
+    Stat,
+};
+use vortex_array::stream::{
+    ArrayStream,
+    ArrayStreamAdapter,
+    ArrayStreamExt,
+    SendableArrayStream,
+};
+use vortex_array::{
+    ArrayContext,
+    ArrayRef,
+};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+    vortex_panic,
 };
 use vortex_io::kanal_ext::KanalExt;
-use vortex_io::runtime::{BlockingRuntime, Handle};
-use vortex_io::{IoBuf, VortexWrite};
+use vortex_io::runtime::{
+    BlockingRuntime,
+    Handle,
+};
+use vortex_io::{
+    IoBuf,
+    VortexWrite,
+};
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::file_stats::accumulate_stats;
-use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
+use vortex_layout::sequence::{
+    SequenceId,
+    SequentialStreamAdapter,
+    SequentialStreamExt,
+};
 
 use crate::counting::CountingVortexWrite;
 use crate::footer::FileStatistics;
 use crate::segments::writer::BufferedSegmentSink;
-use crate::{Footer, MAGIC_BYTES, WriteStrategyBuilder};
+use crate::{
+    Footer,
+    MAGIC_BYTES,
+    WriteStrategyBuilder,
+};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///

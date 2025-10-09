@@ -5,7 +5,10 @@ use bitvec::array::BitArray;
 use bitvec::order::Lsb0;
 
 use crate::pipeline::bits::BitView;
-use crate::pipeline::{N, N_WORDS};
+use crate::pipeline::{
+    N,
+    N_WORDS,
+};
 
 /// A mutable borrowed fixed-size bit vector of length `N` bits, represented as an array of
 /// usize words.

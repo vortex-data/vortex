@@ -1,20 +1,48 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 use std::hash::Hash;
 use std::ops::Not;
 
 use vortex_array::compute::mask;
 use vortex_array::stats::Stat;
-use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, ToCanonical};
-use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_array::{
+    ArrayRef,
+    DeserializeMetadata,
+    ProstMetadata,
+    ToCanonical,
+};
+use vortex_dtype::{
+    DType,
+    FieldName,
+    FieldPath,
+    Nullability,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_proto::expr as pb;
 
-use crate::display::{DisplayAs, DisplayFormat};
+use crate::display::{
+    DisplayAs,
+    DisplayFormat,
+};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, root,
+    AnalysisExpr,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    Scope,
+    StatsCatalog,
+    VTable,
+    root,
     vtable,
 };
 
@@ -194,14 +222,24 @@ impl AnalysisExpr for GetItemExpr {
 mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{
+        Array,
+        IntoArray,
+    };
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, FieldNames, Nullability};
+    use vortex_dtype::{
+        DType,
+        FieldNames,
+        Nullability,
+    };
     use vortex_scalar::Scalar;
 
     use crate::get_item::get_item;
-    use crate::{Scope, root};
+    use crate::{
+        Scope,
+        root,
+    };
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

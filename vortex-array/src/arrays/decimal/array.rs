@@ -3,10 +3,29 @@
 
 use arrow_buffer::BooleanBufferBuilder;
 use itertools::Itertools;
-use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
-use vortex_dtype::{DType, DecimalDType, IntegerPType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
-use vortex_scalar::{BigCast, DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
+use vortex_buffer::{
+    Buffer,
+    BufferMut,
+    ByteBuffer,
+};
+use vortex_dtype::{
+    DType,
+    DecimalDType,
+    IntegerPType,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_ensure,
+    vortex_panic,
+};
+use vortex_scalar::{
+    BigCast,
+    DecimalValueType,
+    NativeDecimalType,
+    match_each_decimal_value_type,
+};
 
 use crate::ToCanonical;
 use crate::arrays::is_compatible_decimal_value_type;

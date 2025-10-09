@@ -8,22 +8,58 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::binary_view::BinaryView;
-use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinViewArray};
+use vortex_array::arrays::{
+    ConstantArray,
+    PrimitiveArray,
+    VarBinViewArray,
+};
 use vortex_array::compute::filter;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::stats::{
+    ArrayStats,
+    StatsSetRef,
+};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
-    ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
+    ArrayVTable,
+    CanonicalVTable,
+    NotSupported,
+    OperationsVTable,
+    VTable,
+    ValidityHelper,
+    ValiditySliceHelper,
+    ValidityVTableFromValiditySliceHelper,
 };
-use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
-use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
+use vortex_array::{
+    ArrayRef,
+    Canonical,
+    EncodingId,
+    EncodingRef,
+    IntoArray,
+    ToCanonical,
+    vtable,
+};
+use vortex_buffer::{
+    Alignment,
+    Buffer,
+    BufferMut,
+    ByteBuffer,
+    ByteBufferMut,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+    vortex_panic,
+};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
-use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
+use crate::serde::{
+    ZstdFrameMetadata,
+    ZstdMetadata,
+};
 
 // Zstd doesn't support training dictionaries on very few samples.
 const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;

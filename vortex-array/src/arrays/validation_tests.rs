@@ -10,8 +10,16 @@
 mod tests {
     use std::sync::Arc;
 
-    use vortex_buffer::{Buffer, ByteBuffer, buffer};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_buffer::{
+        Buffer,
+        ByteBuffer,
+        buffer,
+    };
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
     use crate::IntoArray;
     use crate::arrays::*;

@@ -7,11 +7,23 @@ use num_traits::ToPrimitive;
 use vortex::arrays::DecimalArray;
 use vortex::buffer::Buffer;
 use vortex::dtype::DecimalDType;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 use vortex::mask::Mask;
-use vortex::scalar::{BigCast, DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
+use vortex::scalar::{
+    BigCast,
+    DecimalValueType,
+    NativeDecimalType,
+    match_each_decimal_value_type,
+};
 
-use crate::duckdb::{Vector, VectorBuffer};
+use crate::duckdb::{
+    Vector,
+    VectorBuffer,
+};
 use crate::exporter::ColumnExporter;
 
 struct DecimalExporter<D: NativeDecimalType, N: NativeDecimalType> {
@@ -118,7 +130,10 @@ mod tests {
     use vortex::error::VortexUnwrap;
 
     use super::*;
-    use crate::duckdb::{DataChunk, LogicalType};
+    use crate::duckdb::{
+        DataChunk,
+        LogicalType,
+    };
 
     pub(crate) fn new_zero_copy_exporter(
         array: &DecimalArray,

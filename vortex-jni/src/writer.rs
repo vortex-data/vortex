@@ -8,23 +8,52 @@ use arrow_ipc::reader::StreamReader;
 use futures::SinkExt;
 use futures::channel::mpsc;
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JObject, JString};
-use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jlong};
+use jni::objects::{
+    JByteArray,
+    JClass,
+    JObject,
+    JString,
+};
+use jni::sys::{
+    JNI_FALSE,
+    JNI_TRUE,
+    jboolean,
+    jlong,
+};
 use object_store::path::Path;
 use tokio::task::JoinHandle;
 use url::Url;
 use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
-use vortex::file::{VortexWriteOptions, WriteSummary};
-use vortex::io::{ObjectStoreWriter, VortexWrite};
+use vortex::error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
+use vortex::file::{
+    VortexWriteOptions,
+    WriteSummary,
+};
+use vortex::io::{
+    ObjectStoreWriter,
+    VortexWrite,
+};
 use vortex::stream::ArrayStreamAdapter;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex::{Array, ArrayRef};
+use vortex::{
+    Array,
+    ArrayRef,
+};
 
-use crate::errors::{JNIError, try_or_throw};
+use crate::errors::{
+    JNIError,
+    try_or_throw,
+};
 use crate::object_store::make_object_store;
-use crate::{block_on, spawn};
+use crate::{
+    block_on,
+    spawn,
+};
 
 /// Native writer around a file writer.
 pub struct NativeWriter {

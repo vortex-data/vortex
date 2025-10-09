@@ -6,10 +6,22 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::FutureExt;
 use parking_lot::Mutex;
-use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_buffer::{
+    ByteBuffer,
+    ByteBufferMut,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 
-use crate::segments::{SegmentFuture, SegmentId, SegmentSink, SegmentSource};
+use crate::segments::{
+    SegmentFuture,
+    SegmentId,
+    SegmentSink,
+    SegmentSource,
+};
 use crate::sequence::SequenceId;
 
 /// A dummy in-memory implementation of a segment reader and writer.

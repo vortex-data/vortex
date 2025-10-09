@@ -5,17 +5,30 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use arrow_schema::DataType::*;
-use arrow_schema::{DataType, Field};
+use arrow_schema::{
+    DataType,
+    Field,
+};
 use itertools::Itertools as _;
 use noodles_vcf::header::record::value::Map;
 use noodles_vcf::header::record::value::map::Info;
-use noodles_vcf::header::record::value::map::info::{Number, Type};
-use noodles_vcf::variant::record::info::field::value::array::Values;
-use noodles_vcf::variant::record::info::field::value::{Array, Value};
-use noodles_vcf::variant::record::samples::series::value::{
-    Array as EntryArray, Value as EntryValue,
+use noodles_vcf::header::record::value::map::info::{
+    Number,
+    Type,
 };
-use vortex::error::{VortexResult, vortex_bail};
+use noodles_vcf::variant::record::info::field::value::array::Values;
+use noodles_vcf::variant::record::info::field::value::{
+    Array,
+    Value,
+};
+use noodles_vcf::variant::record::samples::series::value::{
+    Array as EntryArray,
+    Value as EntryValue,
+};
+use vortex::error::{
+    VortexResult,
+    vortex_bail,
+};
 
 use crate::statpopgen::builder::InfoArrayBuilder;
 

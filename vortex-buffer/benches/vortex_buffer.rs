@@ -5,11 +5,21 @@
 
 use std::iter::Iterator;
 
-use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer};
+use arrow_buffer::{
+    ArrowNativeType,
+    MutableBuffer,
+    ScalarBuffer,
+};
 use divan::Bencher;
 use num_traits::PrimInt;
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_error::{VortexExpect, vortex_err};
+use vortex_buffer::{
+    Buffer,
+    BufferMut,
+};
+use vortex_error::{
+    VortexExpect,
+    vortex_err,
+};
 
 fn main() {
     divan::main();

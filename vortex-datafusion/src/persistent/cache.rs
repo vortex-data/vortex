@@ -4,18 +4,39 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{
+    DateTime,
+    Utc,
+};
 use datafusion_common::ScalarValue;
 use moka::future::Cache;
 use object_store::path::Path;
-use object_store::{ObjectMeta, ObjectStore};
+use object_store::{
+    ObjectMeta,
+    ObjectStore,
+};
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexResult, vortex_err};
-use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
-use vortex::layout::segments::{SegmentCache, SegmentId};
+use vortex::error::{
+    VortexError,
+    VortexResult,
+    vortex_err,
+};
+use vortex::file::{
+    Footer,
+    SegmentSpec,
+    VortexFile,
+    VortexOpenOptions,
+};
+use vortex::layout::segments::{
+    SegmentCache,
+    SegmentId,
+};
 use vortex::session::VortexSession;
-use vortex::stats::{Precision, Stat};
+use vortex::stats::{
+    Precision,
+    Stat,
+};
 use vortex::utils::aliases::DefaultHashBuilder;
 
 #[derive(Clone)]

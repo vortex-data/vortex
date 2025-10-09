@@ -7,13 +7,25 @@ use vortex_buffer::buffer;
 use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
-use crate::arrays::{ConstantVTable, FixedSizeListArray, FixedSizeListVTable, PrimitiveArray};
+use crate::arrays::{
+    ConstantVTable,
+    FixedSizeListArray,
+    FixedSizeListVTable,
+    PrimitiveArray,
+};
 use crate::compute::conformance::filter::{
-    LARGE_SIZE, MEDIUM_SIZE, SMALL_SIZE, test_filter_conformance,
+    LARGE_SIZE,
+    MEDIUM_SIZE,
+    SMALL_SIZE,
+    test_filter_conformance,
 };
 use crate::compute::filter;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 
 // Consolidated parameterized test for degenerate (list_size=0) cases.
 #[rstest]

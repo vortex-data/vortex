@@ -5,12 +5,23 @@ use std::ops::Range;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::DecimalDType;
-use vortex_scalar::{DecimalValue, NativeDecimalType, Scalar, match_each_decimal_value_type};
+use vortex_scalar::{
+    DecimalValue,
+    NativeDecimalType,
+    Scalar,
+    match_each_decimal_value_type,
+};
 
-use crate::arrays::{DecimalArray, DecimalVTable};
+use crate::arrays::{
+    DecimalArray,
+    DecimalVTable,
+};
 use crate::validity::Validity;
 use crate::vtable::OperationsVTable;
-use crate::{ArrayRef, IntoArray};
+use crate::{
+    ArrayRef,
+    IntoArray,
+};
 
 impl OperationsVTable<DecimalVTable> for DecimalVTable {
     fn slice(array: &DecimalArray, range: Range<usize>) -> ArrayRef {
@@ -53,11 +64,20 @@ fn slice_typed<T: NativeDecimalType>(
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DecimalDType, Nullability};
-    use vortex_scalar::{DecimalValue, Scalar};
+    use vortex_dtype::{
+        DecimalDType,
+        Nullability,
+    };
+    use vortex_scalar::{
+        DecimalValue,
+        Scalar,
+    };
 
     use crate::Array;
-    use crate::arrays::{DecimalArray, DecimalVTable};
+    use crate::arrays::{
+        DecimalArray,
+        DecimalVTable,
+    };
     use crate::validity::Validity;
 
     #[test]

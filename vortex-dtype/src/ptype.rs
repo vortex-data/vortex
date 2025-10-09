@@ -4,16 +4,31 @@
 //! Physical type definitions and behavior.
 
 use std::cmp::Ordering;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{
+    Debug,
+    Display,
+    Formatter,
+};
 use std::hash::Hash;
 use std::ops::AddAssign;
 use std::panic::RefUnwindSafe;
 
 use num_traits::bounds::UpperBounded;
 use num_traits::{
-    AsPrimitive, Bounded, FromPrimitive, Num, NumCast, PrimInt, ToPrimitive, Unsigned,
+    AsPrimitive,
+    Bounded,
+    FromPrimitive,
+    Num,
+    NumCast,
+    PrimInt,
+    ToPrimitive,
+    Unsigned,
 };
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    vortex_err,
+};
 
 use crate::DType;
 use crate::half::f16;

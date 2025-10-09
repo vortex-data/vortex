@@ -3,8 +3,15 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
-use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
+use crate::arrays::{
+    FixedSizeListArray,
+    FixedSizeListVTable,
+};
+use crate::compute::{
+    IsConstantKernel,
+    IsConstantKernelAdapter,
+    IsConstantOpts,
+};
 use crate::register_kernel;
 
 /// IsConstant implementation for [`FixedSizeListArray`].

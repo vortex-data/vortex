@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arbitrary::{Arbitrary, Unstructured};
+use arbitrary::{
+    Arbitrary,
+    Unstructured,
+};
 
 use crate::compute::Operator;
 

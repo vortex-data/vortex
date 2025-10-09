@@ -13,8 +13,15 @@ use vortex::arrays::FixedSizeListArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use super::{ConversionCache, all_invalid, new_array_exporter_with_flatten};
-use crate::duckdb::{LogicalType, Vector};
+use super::{
+    ConversionCache,
+    all_invalid,
+    new_array_exporter_with_flatten,
+};
+use crate::duckdb::{
+    LogicalType,
+    Vector,
+};
 use crate::exporter::ColumnExporter;
 
 /// Exporter for converting Vortex [`FixedSizeListArray`] to DuckDB ARRAY vectors.
@@ -93,7 +100,11 @@ mod tests {
 
     use super::*;
     use crate::cpp;
-    use crate::duckdb::{DataChunk, LogicalType, Vector};
+    use crate::duckdb::{
+        DataChunk,
+        LogicalType,
+        Vector,
+    };
 
     /// Sets up a DataChunk, exports the array to it, and returns the chunk.
     fn export_to_chunk(

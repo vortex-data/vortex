@@ -7,7 +7,10 @@ use vortex::iter::ArrayIterator;
 
 use crate::array::vx_array;
 use crate::box_dyn_wrapper;
-use crate::error::{try_or_default, vx_error};
+use crate::error::{
+    try_or_default,
+    vx_error,
+};
 
 box_dyn_wrapper!(
     /// A Vortex array iterator.

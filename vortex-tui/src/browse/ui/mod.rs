@@ -6,10 +6,19 @@ mod segments;
 
 use layouts::render_layouts;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, BorderType, Borders, Tabs};
+use ratatui::widgets::{
+    Block,
+    BorderType,
+    Borders,
+    Tabs,
+};
 pub use segments::SegmentGridState;
 
-use super::app::{AppState, KeyMode, Tab};
+use super::app::{
+    AppState,
+    KeyMode,
+    Tab,
+};
 use crate::browse::ui::segments::segments_ui;
 
 pub fn render_app(app: &mut AppState<'_>, frame: &mut Frame<'_>) {

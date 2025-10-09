@@ -7,7 +7,10 @@ use async_trait::async_trait;
 use parking_lot::RwLock;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_layout::segments::{SegmentCache, SegmentId};
+use vortex_layout::segments::{
+    SegmentCache,
+    SegmentId,
+};
 use vortex_utils::aliases::hash_map::HashMap;
 
 /// Segment cache containing the initial read segments.

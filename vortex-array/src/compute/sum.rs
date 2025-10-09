@@ -5,12 +5,27 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_err, vortex_panic};
+use vortex_error::{
+    VortexResult,
+    vortex_err,
+    vortex_panic,
+};
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
-use crate::stats::{Precision, Stat, StatsProvider};
+use crate::compute::{
+    ComputeFn,
+    ComputeFnVTable,
+    InvocationArgs,
+    Kernel,
+    Output,
+    UnaryArgs,
+};
+use crate::stats::{
+    Precision,
+    Stat,
+    StatsProvider,
+};
 use crate::vtable::VTable;
 
 static SUM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -166,11 +181,18 @@ pub fn sum_impl(
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
     use vortex_scalar::Scalar;
 
     use crate::IntoArray as _;
-    use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::arrays::{
+        BoolArray,
+        PrimitiveArray,
+    };
     use crate::compute::sum;
 
     #[test]

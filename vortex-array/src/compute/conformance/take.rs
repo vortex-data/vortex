@@ -7,7 +7,11 @@ use vortex_error::VortexUnwrap;
 
 use crate::arrays::PrimitiveArray;
 use crate::compute::take;
-use crate::{Array, Canonical, IntoArray as _};
+use crate::{
+    Array,
+    Canonical,
+    IntoArray as _,
+};
 
 /// Test conformance of the take compute function for an array.
 ///

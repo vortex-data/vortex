@@ -4,14 +4,29 @@
 mod cast;
 
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, TakeKernel,
-    TakeKernelAdapter, filter, mask, take,
+    FilterKernel,
+    FilterKernelAdapter,
+    MaskKernel,
+    MaskKernelAdapter,
+    TakeKernel,
+    TakeKernelAdapter,
+    filter,
+    mask,
+    take,
 };
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{ZigZagArray, ZigZagVTable};
+use crate::{
+    ZigZagArray,
+    ZigZagVTable,
+};
 
 impl FilterKernel for ZigZagVTable {
     fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -63,17 +78,32 @@ impl ZigZagEncoded for u64 {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::arrays::{BooleanBuffer, PrimitiveArray};
+    use vortex_array::arrays::{
+        BooleanBuffer,
+        PrimitiveArray,
+    };
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::compute::{filter, take};
+    use vortex_array::compute::{
+        filter,
+        take,
+    };
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{
+        Array,
+        ArrayRef,
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
-    use crate::{ZigZagArray, ZigZagEncoding, zigzag_encode};
+    use crate::{
+        ZigZagArray,
+        ZigZagEncoding,
+        zigzag_encode,
+    };
 
     #[test]
     pub fn nullable_scalar_at() {

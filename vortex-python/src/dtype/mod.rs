@@ -16,18 +16,36 @@ mod utf8;
 
 use std::ops::Deref;
 
-use arrow_schema::{DataType, Field};
+use arrow_schema::{
+    DataType,
+    Field,
+};
 pub(crate) use ptype::*;
-use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
+use pyo3::prelude::{
+    PyAnyMethods,
+    PyModule,
+    PyModuleMethods,
+};
 use pyo3::types::PyType;
 use pyo3::{
-    Bound, Py, PyAny, PyClass, PyClassInitializer, PyResult, Python, pyclass, pymethods,
+    Bound,
+    Py,
+    PyAny,
+    PyClass,
+    PyClassInitializer,
+    PyResult,
+    Python,
+    pyclass,
+    pymethods,
     wrap_pyfunction,
 };
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 
-use crate::arrow::{FromPyArrow, ToPyArrow};
+use crate::arrow::{
+    FromPyArrow,
+    ToPyArrow,
+};
 use crate::dtype::binary::PyBinaryDType;
 use crate::dtype::bool::PyBoolDType;
 use crate::dtype::decimal::PyDecimalDType;

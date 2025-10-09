@@ -6,10 +6,16 @@
 
 use std::ops::Range;
 
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 
 use crate::arrays::VarBinViewArray;
-use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+use crate::builders::{
+    ArrayBuilder,
+    VarBinViewBuilder,
+};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -171,7 +177,10 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::{VarBinViewArray, VarBinViewVTable};
+    use crate::arrays::{
+        VarBinViewArray,
+        VarBinViewVTable,
+    };
     use crate::compute::take;
 
     #[test]

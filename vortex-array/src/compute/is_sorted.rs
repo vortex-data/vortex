@@ -5,14 +5,36 @@ use std::any::Any;
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::arrays::{ConstantVTable, NullVTable};
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::stats::{Precision, Stat, StatsProviderExt};
+use crate::arrays::{
+    ConstantVTable,
+    NullVTable,
+};
+use crate::compute::{
+    ComputeFn,
+    ComputeFnVTable,
+    InvocationArgs,
+    Kernel,
+    Options,
+    Output,
+};
+use crate::stats::{
+    Precision,
+    Stat,
+    StatsProviderExt,
+};
 use crate::vtable::VTable;
 
 static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -295,8 +317,14 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::{BoolArray, PrimitiveArray};
-    use crate::compute::{is_sorted, is_strict_sorted};
+    use crate::arrays::{
+        BoolArray,
+        PrimitiveArray,
+    };
+    use crate::compute::{
+        is_sorted,
+        is_strict_sorted,
+    };
     use crate::validity::Validity;
     #[test]
     fn test_is_sorted() {

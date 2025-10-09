@@ -9,7 +9,11 @@ mod toposort;
 use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::Formatter;
-use std::hash::{BuildHasher, Hash, Hasher};
+use std::hash::{
+    BuildHasher,
+    Hash,
+    Hasher,
+};
 use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -19,26 +23,70 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use termtree::Tree;
-use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
-use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_buffer::{
+    Alignment,
+    BufferMut,
+    ByteBuffer,
+};
+use vortex_dtype::{
+    DType,
+    NativePType,
+    Nullability,
+    match_each_native_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 use vortex_mask::AllOr;
-use vortex_utils::aliases::hash_map::{HashMap, RandomState};
+use vortex_utils::aliases::hash_map::{
+    HashMap,
+    RandomState,
+};
 
 use crate::Canonical;
-use crate::arrays::{BoolArray, PrimitiveArray};
-use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, DisplayFormat, LengthBounds,
-    Operator, OperatorEq, OperatorHash, OperatorId, OperatorKey, OperatorRef,
+use crate::arrays::{
+    BoolArray,
+    PrimitiveArray,
 };
-use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
+use crate::operator::{
+    BatchBindCtx,
+    BatchExecution,
+    BatchExecutionRef,
+    BatchOperator,
+    DisplayFormat,
+    LengthBounds,
+    Operator,
+    OperatorEq,
+    OperatorHash,
+    OperatorId,
+    OperatorKey,
+    OperatorRef,
+};
+use crate::pipeline::bits::{
+    BitVector,
+    BitView,
+    BitViewMut,
+};
 use crate::pipeline::operator::bind::bind_kernels;
-use crate::pipeline::operator::buffers::{OutputTarget, allocate_vectors};
+use crate::pipeline::operator::buffers::{
+    OutputTarget,
+    allocate_vectors,
+};
 use crate::pipeline::operator::input::PipelineInputOperator;
 use crate::pipeline::operator::toposort::topological_sort;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BatchId, Element, Kernel, KernelContext, N, N_WORDS, RowSelection};
+use crate::pipeline::{
+    BatchId,
+    Element,
+    Kernel,
+    KernelContext,
+    N,
+    N_WORDS,
+    RowSelection,
+};
 use crate::validity::Validity;
 
 /// An operator node used during execution planning to represent a pipelined execution.

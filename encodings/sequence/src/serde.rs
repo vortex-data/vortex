@@ -2,16 +2,31 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable};
-use vortex_array::{Canonical, DeserializeMetadata, ProstMetadata};
+use vortex_array::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+};
+use vortex_array::{
+    Canonical,
+    DeserializeMetadata,
+    ProstMetadata,
+};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 use vortex_proto::scalar::ScalarValue;
 use vortex_scalar::Scalar;
 
-use crate::array::{SequenceArray, SequenceEncoding, SequenceVTable};
+use crate::array::{
+    SequenceArray,
+    SequenceEncoding,
+    SequenceVTable,
+};
 
 #[derive(Clone, prost::Message)]
 pub struct SequenceMetadata {
@@ -92,11 +107,20 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::{PrimitiveArray, StructArray};
+    use vortex_array::arrays::{
+        PrimitiveArray,
+        StructArray,
+    };
     use vortex_array::stream::ArrayStreamExt;
     use vortex_dtype::Nullability;
-    use vortex_expr::{get_item, root};
-    use vortex_file::{VortexOpenOptions, VortexWriteOptions};
+    use vortex_expr::{
+        get_item,
+        root,
+    };
+    use vortex_file::{
+        VortexOpenOptions,
+        VortexWriteOptions,
+    };
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 
     use crate::SequenceArray;

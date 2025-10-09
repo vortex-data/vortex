@@ -2,25 +2,56 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::ops::{BitAnd, Range};
-use std::sync::{Arc, OnceLock};
+use std::ops::{
+    BitAnd,
+    Range,
+};
+use std::sync::{
+    Arc,
+    OnceLock,
+};
 
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt, try_join};
-use vortex_array::compute::{MinMaxResult, min_max, take};
+use futures::{
+    FutureExt,
+    TryFutureExt,
+    try_join,
+};
+use vortex_array::compute::{
+    MinMaxResult,
+    min_max,
+    take,
+};
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayRef, MaskFuture};
+use vortex_array::{
+    ArrayRef,
+    MaskFuture,
+};
 use vortex_dict::DictArray;
-use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexError, VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_dtype::{
+    DType,
+    FieldMask,
+};
+use vortex_error::{
+    VortexError,
+    VortexExpect,
+    VortexResult,
+};
+use vortex_expr::{
+    ExprRef,
+    Scope,
+    root,
+};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
-use crate::{LayoutReader, LayoutReaderRef};
+use crate::{
+    LayoutReader,
+    LayoutReaderRef,
+};
 
 pub struct DictReader {
     layout: DictLayout,
@@ -204,21 +235,48 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use vortex_array::arrays::{StructArray, VarBinArray};
+    use vortex_array::arrays::{
+        StructArray,
+        VarBinArray,
+    };
     use vortex_array::arrow::IntoArrowArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayContext, IntoArray as _, MaskFuture};
-    use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
-    use vortex_expr::{is_null, not, pack, root};
+    use vortex_array::{
+        ArrayContext,
+        IntoArray as _,
+        MaskFuture,
+    };
+    use vortex_dtype::{
+        DType,
+        FieldName,
+        FieldNames,
+        Nullability,
+    };
+    use vortex_expr::{
+        is_null,
+        not,
+        pack,
+        root,
+    };
     use vortex_io::runtime::single::block_on;
 
-    use crate::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
+    use crate::layouts::dict::writer::{
+        DictLayoutOptions,
+        DictStrategy,
+    };
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{
-        SequenceId, SequentialArrayStreamExt, SequentialStreamAdapter, SequentialStreamExt,
+        SequenceId,
+        SequentialArrayStreamExt,
+        SequentialStreamAdapter,
+        SequentialStreamExt,
     };
-    use crate::{LayoutId, LayoutRef, LayoutStrategy};
+    use crate::{
+        LayoutId,
+        LayoutRef,
+        LayoutStrategy,
+    };
 
     #[test]
     fn reading_nested_packs_works() {

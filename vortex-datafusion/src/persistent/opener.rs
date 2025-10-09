@@ -2,34 +2,70 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
-use std::sync::{Arc, Weak};
+use std::sync::{
+    Arc,
+    Weak,
+};
 
-use arrow_schema::{ArrowError, Field, SchemaRef};
-use datafusion_common::{DataFusionError, Result as DFResult};
+use arrow_schema::{
+    ArrowError,
+    Field,
+    SchemaRef,
+};
+use datafusion_common::{
+    DataFusionError,
+    Result as DFResult,
+};
 use datafusion_datasource::file_meta::FileMeta;
-use datafusion_datasource::file_stream::{FileOpenFuture, FileOpener};
+use datafusion_datasource::file_stream::{
+    FileOpenFuture,
+    FileOpener,
+};
 use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
-use datafusion_datasource::{FileRange, PartitionedFile};
+use datafusion_datasource::{
+    FileRange,
+    PartitionedFile,
+};
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
-use datafusion_physical_expr::{PhysicalExprRef, split_conjunction};
+use datafusion_physical_expr::{
+    PhysicalExprRef,
+    split_conjunction,
+};
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::metrics::Count;
 use datafusion_pruning::FilePruner;
-use futures::{FutureExt, StreamExt, TryStreamExt, stream};
+use futures::{
+    FutureExt,
+    StreamExt,
+    TryStreamExt,
+    stream,
+};
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
-use vortex::expr::{root, select};
+use vortex::expr::{
+    root,
+    select,
+};
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
-use vortex::{ArrayRef, ToCanonical};
-use vortex_utils::aliases::dash_map::{DashMap, Entry};
+use vortex::{
+    ArrayRef,
+    ToCanonical,
+};
+use vortex_utils::aliases::dash_map::{
+    DashMap,
+    Entry,
+};
 
 use super::cache::VortexFileCache;
-use crate::convert::exprs::{can_be_pushed_down, make_vortex_predicate};
+use crate::convert::exprs::{
+    can_be_pushed_down,
+    make_vortex_predicate,
+};
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -298,11 +334,17 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
 mod tests {
     use chrono::Utc;
     use datafusion::arrow::array::RecordBatch;
-    use datafusion::arrow::datatypes::{DataType, Schema};
+    use datafusion::arrow::datatypes::{
+        DataType,
+        Schema,
+    };
     use datafusion::arrow::util::display::FormatOptions;
     use datafusion::common::record_batch;
     use datafusion::datasource::schema_adapter::DefaultSchemaAdapterFactory;
-    use datafusion::logical_expr::{col, lit};
+    use datafusion::logical_expr::{
+        col,
+        lit,
+    };
     use datafusion::physical_expr::planner::logical2physical;
     use datafusion::physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
     use datafusion::scalar::ScalarValue;
@@ -313,7 +355,10 @@ mod tests {
     use rstest::rstest;
     use vortex::arrow::FromArrowArray;
     use vortex::file::VortexWriteOptions;
-    use vortex::io::{ObjectStoreWriter, VortexWrite};
+    use vortex::io::{
+        ObjectStoreWriter,
+        VortexWrite,
+    };
     use vortex::session::VortexSession;
 
     use super::*;

@@ -4,18 +4,50 @@
 //! Array validity and nullability behavior, used by arrays and compute functions.
 
 use std::fmt::Debug;
-use std::ops::{BitAnd, Not, Range};
+use std::ops::{
+    BitAnd,
+    Not,
+    Range,
+};
 
-use arrow_buffer::{BooleanBuffer, NullBuffer};
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_err, vortex_panic};
-use vortex_mask::{AllOr, Mask, MaskValues};
+use arrow_buffer::{
+    BooleanBuffer,
+    NullBuffer,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
+use vortex_error::{
+    VortexExpect as _,
+    VortexResult,
+    vortex_err,
+    vortex_panic,
+};
+use vortex_mask::{
+    AllOr,
+    Mask,
+    MaskValues,
+};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, ConstantArray};
-use crate::compute::{fill_null, filter, sum, take};
+use crate::arrays::{
+    BoolArray,
+    ConstantArray,
+};
+use crate::compute::{
+    fill_null,
+    filter,
+    sum,
+    take,
+};
 use crate::patches::Patches;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 
 /// Validity information for an array
 #[derive(Clone, Debug)]
@@ -486,13 +518,22 @@ impl IntoArray for &MaskValues {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_buffer::{Buffer, buffer};
+    use vortex_buffer::{
+        Buffer,
+        buffer,
+    };
     use vortex_dtype::Nullability;
     use vortex_mask::Mask;
 
-    use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::arrays::{
+        BoolArray,
+        PrimitiveArray,
+    };
     use crate::validity::Validity;
-    use crate::{ArrayRef, IntoArray};
+    use crate::{
+        ArrayRef,
+        IntoArray,
+    };
 
     #[rstest]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]

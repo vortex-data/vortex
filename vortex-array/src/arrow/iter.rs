@@ -4,7 +4,10 @@
 use arrow_array::ffi_stream;
 use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+};
 
 use crate::ArrayRef;
 use crate::arrow::FromArrowArray;

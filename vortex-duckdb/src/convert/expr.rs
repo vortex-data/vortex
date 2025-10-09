@@ -4,17 +4,40 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex::compute::{BetweenOptions, StrictComparison};
+use vortex::compute::{
+    BetweenOptions,
+    StrictComparison,
+};
 use vortex::dtype::Nullability;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex::expr::{
-    BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, Operator, and_collect, col, is_null,
-    list_contains, lit, not, or_collect,
+    BetweenExpr,
+    BinaryExpr,
+    ExprRef,
+    LikeExpr,
+    LiteralExpr,
+    Operator,
+    and_collect,
+    col,
+    is_null,
+    list_contains,
+    lit,
+    not,
+    or_collect,
 };
 use vortex::scalar::Scalar;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-use crate::duckdb::{Expression, ExpressionClass};
+use crate::duckdb::{
+    Expression,
+    ExpressionClass,
+};
 
 const DUCKDB_FUNCTION_NAME_CONTAINS: &str = "contains";
 

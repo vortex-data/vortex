@@ -3,13 +3,23 @@
 
 use divan::Bencher;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{
+    Rng,
+    SeedableRng,
+};
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::compute::take;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
 use vortex_error::VortexUnwrap;
 
 fn main() {

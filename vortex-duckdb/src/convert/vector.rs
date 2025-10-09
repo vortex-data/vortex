@@ -6,28 +6,60 @@ use std::sync::Arc;
 
 use arrow_array::builder::GenericBinaryBuilder;
 use arrow_array::types::{
-    Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type, UInt16Type,
-    UInt32Type, UInt64Type,
+    Float32Type,
+    Float64Type,
+    Int8Type,
+    Int16Type,
+    Int32Type,
+    Int64Type,
+    UInt8Type,
+    UInt16Type,
+    UInt32Type,
+    UInt64Type,
 };
 use arrow_array::{
-    Array, BooleanArray, Date32Array, Decimal128Array, PrimitiveArray, StringArray,
-    Time64MicrosecondArray, TimestampMicrosecondArray, TimestampMillisecondArray,
-    TimestampNanosecondArray, TimestampSecondArray,
+    Array,
+    BooleanArray,
+    Date32Array,
+    Decimal128Array,
+    PrimitiveArray,
+    StringArray,
+    Time64MicrosecondArray,
+    TimestampMicrosecondArray,
+    TimestampMillisecondArray,
+    TimestampNanosecondArray,
+    TimestampSecondArray,
 };
 use arrow_buffer::buffer::BooleanBuffer;
 use num_traits::AsPrimitive;
 use vortex::ArrayRef;
 use vortex::arrays::StructArray;
 use vortex::arrow::FromArrowArray;
-use vortex::dtype::{DecimalDType, FieldNames};
-use vortex::error::{VortexResult, vortex_err};
+use vortex::dtype::{
+    DecimalDType,
+    FieldNames,
+};
+use vortex::error::{
+    VortexResult,
+    vortex_err,
+};
 use vortex::scalar::DecimalValueType;
 
 use crate::cpp::{
-    DUCKDB_TYPE, duckdb_date, duckdb_string_t, duckdb_string_t_data, duckdb_string_t_length,
-    duckdb_time, duckdb_timestamp, duckdb_timestamp_ms, duckdb_timestamp_s,
+    DUCKDB_TYPE,
+    duckdb_date,
+    duckdb_string_t,
+    duckdb_string_t_data,
+    duckdb_string_t_length,
+    duckdb_time,
+    duckdb_timestamp,
+    duckdb_timestamp_ms,
+    duckdb_timestamp_s,
 };
-use crate::duckdb::{DataChunk, Vector};
+use crate::duckdb::{
+    DataChunk,
+    Vector,
+};
 use crate::exporter::precision_to_duckdb_storage_size;
 
 pub struct DuckString<'a> {
@@ -338,13 +370,19 @@ pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> Vorte
 #[cfg(test)]
 mod tests {
     use arrow_array::{
-        BooleanArray, Int32Array, TimestampMicrosecondArray, TimestampMillisecondArray,
+        BooleanArray,
+        Int32Array,
+        TimestampMicrosecondArray,
+        TimestampMillisecondArray,
         TimestampSecondArray,
     };
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
-    use crate::duckdb::{LogicalType, Vector};
+    use crate::duckdb::{
+        LogicalType,
+        Vector,
+    };
 
     #[test]
     fn test_integer_vector_conversion() {

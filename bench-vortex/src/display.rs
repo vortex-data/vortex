@@ -8,11 +8,19 @@ use clap::ValueEnum;
 use itertools::Itertools;
 use tabled::builder::Builder;
 use tabled::settings::themes::Colorization;
-use tabled::settings::{Color, Style};
+use tabled::settings::{
+    Color,
+    Style,
+};
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Target;
-use crate::measurements::{MeasurementValue, TableValue, ToJson, ToTable};
+use crate::measurements::{
+    MeasurementValue,
+    TableValue,
+    ToJson,
+    ToTable,
+};
 
 #[derive(ValueEnum, Default, Clone, Debug)]
 pub enum DisplayFormat {

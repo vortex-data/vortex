@@ -12,14 +12,26 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
-use vortex_dtype::{DType, Field, FieldMask, FieldPath, FieldPathSet};
+use vortex_dtype::{
+    DType,
+    Field,
+    FieldMask,
+    FieldPath,
+    FieldPathSet,
+};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, Scope};
+use vortex_expr::{
+    ExprRef,
+    Scope,
+};
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
-use vortex_scan::{ScanBuilder, SplitBy};
+use vortex_scan::{
+    ScanBuilder,
+    SplitBy,
+};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;

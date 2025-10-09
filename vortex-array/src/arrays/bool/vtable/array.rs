@@ -3,7 +3,10 @@
 
 use vortex_dtype::DType;
 
-use crate::arrays::{BoolArray, BoolVTable};
+use crate::arrays::{
+    BoolArray,
+    BoolVTable,
+};
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayVTable;
 

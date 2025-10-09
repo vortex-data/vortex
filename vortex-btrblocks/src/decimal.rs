@@ -2,13 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::arrays::{DecimalArray, PrimitiveArray, narrowed_decimal};
+use vortex_array::arrays::{
+    DecimalArray,
+    PrimitiveArray,
+    narrowed_decimal,
+};
 use vortex_array::vtable::ValidityHelper;
 use vortex_decimal_byte_parts::DecimalBytePartsArray;
 use vortex_error::VortexResult;
 use vortex_scalar::DecimalValueType;
 
-use crate::{Compressor, IntCompressor, MAX_CASCADE};
+use crate::{
+    Compressor,
+    IntCompressor,
+    MAX_CASCADE,
+};
 
 // TODO(joe): add support splitting i128/256 buffers into chunks primitive values for compression.
 // 2 for i128 and 4 for i256

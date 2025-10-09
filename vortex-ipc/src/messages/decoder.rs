@@ -4,14 +4,36 @@
 use std::fmt::Debug;
 
 use bytes::Buf;
-use flatbuffers::{root, root_unchecked};
+use flatbuffers::{
+    root,
+    root_unchecked,
+};
 use vortex_array::serde::ArrayParts;
-use vortex_array::{ArrayContext, ArrayRegistry};
-use vortex_buffer::{AlignedBuf, Alignment, ByteBuffer};
+use vortex_array::{
+    ArrayContext,
+    ArrayRegistry,
+};
+use vortex_buffer::{
+    AlignedBuf,
+    Alignment,
+    ByteBuffer,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::message::{MessageHeader, MessageVersion};
-use vortex_flatbuffers::{FlatBuffer, dtype as fbd, message as fb};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
+use vortex_flatbuffers::message::{
+    MessageHeader,
+    MessageVersion,
+};
+use vortex_flatbuffers::{
+    FlatBuffer,
+    dtype as fbd,
+    message as fb,
+};
 
 /// A message decoded from an IPC stream.
 ///
@@ -157,12 +179,18 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{
+        Array,
+        IntoArray,
+    };
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 
     use super::*;
-    use crate::messages::{EncoderMessage, MessageEncoder};
+    use crate::messages::{
+        EncoderMessage,
+        MessageEncoder,
+    };
 
     fn write_and_read(expected: &dyn Array) {
         let mut ipc_bytes = BytesMut::new();

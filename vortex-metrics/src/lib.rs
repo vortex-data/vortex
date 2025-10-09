@@ -8,11 +8,18 @@ mod macros;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use witchcraft_metrics::{MetricRegistry, Metrics, MetricsIter};
+use witchcraft_metrics::{
+    MetricRegistry,
+    Metrics,
+    MetricsIter,
+};
 
 /// A metric registry for various performance metrics.
 #[derive(Default, Clone)]
@@ -37,7 +44,14 @@ impl Debug for VortexMetrics {
 }
 
 // re-export exposed metric types
-pub use witchcraft_metrics::{Counter, Histogram, Metric, MetricId, Tags, Timer};
+pub use witchcraft_metrics::{
+    Counter,
+    Histogram,
+    Metric,
+    MetricId,
+    Tags,
+    Timer,
+};
 
 /// Default tags for metrics used in [`VortexMetrics`].
 #[derive(Default, Clone, Debug)]

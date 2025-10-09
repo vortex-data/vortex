@@ -6,13 +6,41 @@ use std::hash::Hash;
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
-use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_array::{
+    ArrayRef,
+    DeserializeMetadata,
+    IntoArray,
+    ProstMetadata,
+};
+use vortex_dtype::{
+    DType,
+    FieldName,
+    FieldNames,
+    Nullability,
+    StructFields,
+};
+use vortex_error::{
+    VortexExpect as _,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_proto::expr as pb;
 
-use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::display::{
+    DisplayAs,
+    DisplayFormat,
+};
+use crate::{
+    AnalysisExpr,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    Scope,
+    VTable,
+    vtable,
+};
 
 vtable!(Pack);
 
@@ -235,15 +263,35 @@ impl AnalysisExpr for PackExpr {}
 #[cfg(test)]
 mod tests {
 
-    use vortex_array::arrays::{PrimitiveArray, StructArray};
+    use vortex_array::arrays::{
+        PrimitiveArray,
+        StructArray,
+    };
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{
+        Array,
+        ArrayRef,
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
-    use vortex_dtype::{FieldNames, Nullability};
-    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_dtype::{
+        FieldNames,
+        Nullability,
+    };
+    use vortex_error::{
+        VortexResult,
+        vortex_bail,
+    };
 
-    use crate::{IntoExpr, PackExpr, Scope, col, pack};
+    use crate::{
+        IntoExpr,
+        PackExpr,
+        Scope,
+        col,
+        pack,
+    };
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[

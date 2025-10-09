@@ -1,12 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    TakeKernel,
+    TakeKernelAdapter,
+    fill_null,
+    take,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_error::VortexResult;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::{
+    Scalar,
+    ScalarValue,
+};
 
-use crate::{ALPRDArray, ALPRDVTable};
+use crate::{
+    ALPRDArray,
+    ALPRDVTable,
+};
 
 impl TakeKernel for ALPRDVTable {
     fn take(&self, array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -53,7 +69,10 @@ mod test {
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::take;
 
-    use crate::{ALPRDFloat, RDEncoder};
+    use crate::{
+        ALPRDFloat,
+        RDEncoder,
+    };
 
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]

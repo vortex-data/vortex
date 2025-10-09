@@ -4,18 +4,41 @@
 use std::any::Any;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
+use vortex_dtype::{
+    DType,
+    DecimalDType,
+    Nullability,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_ensure,
+    vortex_panic,
+};
 use vortex_mask::Mask;
 use vortex_scalar::{
-    BigCast, DecimalValue, NativeDecimalType, Scalar, i256, match_each_decimal_value,
+    BigCast,
+    DecimalValue,
+    NativeDecimalType,
+    Scalar,
+    i256,
+    match_each_decimal_value,
     match_each_decimal_value_type,
 };
 
 use crate::arrays::DecimalArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
+use crate::builders::{
+    ArrayBuilder,
+    DEFAULT_BUILDER_CAPACITY,
+    LazyNullBufferBuilder,
+};
 use crate::canonical::Canonical;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 
 /// The builder for building a [`DecimalArray`].
 ///
@@ -277,7 +300,10 @@ impl Default for DecimalBuffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::builders::{ArrayBuilder, DecimalBuilder};
+    use crate::builders::{
+        ArrayBuilder,
+        DecimalBuilder,
+    };
 
     #[test]
     fn test_mixed_extend() {

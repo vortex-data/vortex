@@ -2,9 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{
+    Rng,
+    SeedableRng,
+};
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 use vortex_error::VortexExpect;
 
 pub(crate) fn sample(input: &dyn Array, sample_size: u32, sample_count: u32) -> ArrayRef {

@@ -3,13 +3,29 @@
 
 use std::fmt::Debug;
 
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{
-    ArrayVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
+use vortex_array::stats::{
+    ArrayStats,
+    StatsSetRef,
 };
-use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
+use vortex_array::vtable::{
+    ArrayVTable,
+    NotSupported,
+    VTable,
+    ValidityChild,
+    ValidityVTableFromChild,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    EncodingId,
+    EncodingRef,
+    vtable,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 
 vtable!(DateTimeParts);
 

@@ -5,8 +5,15 @@ use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::traversal::{NodeVisitor, TraversalOrder};
-use crate::{ExprRef, GetItemVTable, SelectVTable};
+use crate::traversal::{
+    NodeVisitor,
+    TraversalOrder,
+};
+use crate::{
+    ExprRef,
+    GetItemVTable,
+    SelectVTable,
+};
 
 #[derive(Default)]
 pub struct ReferenceCollector {

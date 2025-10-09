@@ -3,13 +3,27 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 
-use crate::arrays::{MaskedArray, MaskedEncoding, MaskedVTable};
+use crate::arrays::{
+    MaskedArray,
+    MaskedEncoding,
+    MaskedVTable,
+};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
+use crate::vtable::{
+    SerdeVTable,
+    VisitorVTable,
+};
+use crate::{
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    EmptyMetadata,
+};
 
 impl SerdeVTable<MaskedVTable> for MaskedVTable {
     type Metadata = EmptyMetadata;
@@ -63,9 +77,19 @@ mod tests {
     use vortex_buffer::ByteBufferMut;
 
     use super::*;
-    use crate::arrays::{MaskedArray, PrimitiveArray};
-    use crate::serde::{ArrayParts, SerializeOptions};
-    use crate::{ArrayContext, EncodingRef, IntoArray};
+    use crate::arrays::{
+        MaskedArray,
+        PrimitiveArray,
+    };
+    use crate::serde::{
+        ArrayParts,
+        SerializeOptions,
+    };
+    use crate::{
+        ArrayContext,
+        EncodingRef,
+        IntoArray,
+    };
 
     #[rstest]
     #[case(

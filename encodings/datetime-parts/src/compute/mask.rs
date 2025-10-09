@@ -1,12 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{MaskKernel, MaskKernelAdapter, mask};
-use vortex_array::{ArrayRef, register_kernel};
+use vortex_array::compute::{
+    MaskKernel,
+    MaskKernelAdapter,
+    mask,
+};
+use vortex_array::{
+    ArrayRef,
+    register_kernel,
+};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{DateTimePartsArray, DateTimePartsVTable};
+use crate::{
+    DateTimePartsArray,
+    DateTimePartsVTable,
+};
 
 impl MaskKernel for DateTimePartsVTable {
     fn mask(&self, array: &DateTimePartsArray, mask_array: &Mask) -> VortexResult<ArrayRef> {

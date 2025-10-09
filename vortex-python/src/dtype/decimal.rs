@@ -3,7 +3,12 @@
 
 use std::ops::Deref;
 
-use pyo3::{PyRef, PyResult, pyclass, pymethods};
+use pyo3::{
+    PyRef,
+    PyResult,
+    pyclass,
+    pymethods,
+};
 use vortex::dtype::DType;
 use vortex::error::vortex_panic;
 

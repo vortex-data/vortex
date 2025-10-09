@@ -3,16 +3,35 @@
 
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
+use vortex_array::vtable::{
+    SerdeVTable,
+    ValidityHelper,
+    VisitorVTable,
+};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, ProstMetadata,
+    Array,
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    DeserializeMetadata,
+    ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{
+    DType,
+    PType,
+    match_each_unsigned_integer_ptype,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
 use super::DeltaEncoding;
-use crate::{DeltaArray, DeltaVTable};
+use crate::{
+    DeltaArray,
+    DeltaVTable,
+};
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]

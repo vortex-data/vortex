@@ -6,13 +6,23 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::stream::LocalBoxStream;
-use futures::{Stream, StreamExt};
+use futures::{
+    Stream,
+    StreamExt,
+};
 use parking_lot::Mutex;
 use smol::LocalExecutor;
 use vortex_error::vortex_panic;
 
 use crate::runtime::smol::SmolAbortHandle;
-use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Executor, Handle, IoTask};
+use crate::runtime::{
+    AbortHandle,
+    AbortHandleRef,
+    BlockingRuntime,
+    Executor,
+    Handle,
+    IoTask,
+};
 
 /// A runtime that drives all work on the current thread.
 ///
@@ -271,12 +281,18 @@ impl<T> Iterator for SingleThreadIterator<'_, T> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    };
 
     use futures::FutureExt;
 
     use crate::runtime::BlockingRuntime;
-    use crate::runtime::single::{SingleThreadRuntime, block_on};
+    use crate::runtime::single::{
+        SingleThreadRuntime,
+        block_on,
+    };
 
     #[test]
     fn test_drive_simple_future() {

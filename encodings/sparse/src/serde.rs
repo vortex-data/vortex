@@ -3,16 +3,37 @@
 
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
-use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
+use vortex_array::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+    VisitorVTable,
 };
-use vortex_buffer::{ByteBuffer, ByteBufferMut};
+use vortex_array::{
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    Canonical,
+    DeserializeMetadata,
+    ProstMetadata,
+};
+use vortex_buffer::{
+    ByteBuffer,
+    ByteBufferMut,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
+use vortex_scalar::{
+    Scalar,
+    ScalarValue,
+};
 
-use crate::{SparseArray, SparseEncoding, SparseVTable};
+use crate::{
+    SparseArray,
+    SparseEncoding,
+    SparseVTable,
+};
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]

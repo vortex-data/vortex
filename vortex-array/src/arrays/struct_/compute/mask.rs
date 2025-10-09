@@ -4,10 +4,20 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{StructArray, StructVTable};
-use crate::compute::{MaskKernel, MaskKernelAdapter};
+use crate::arrays::{
+    StructArray,
+    StructVTable,
+};
+use crate::compute::{
+    MaskKernel,
+    MaskKernelAdapter,
+};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl MaskKernel for StructVTable {
     fn mask(&self, array: &StructArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {

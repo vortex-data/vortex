@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{AllOr, Mask};
+use crate::{
+    AllOr,
+    Mask,
+};
 
 impl PartialEq for Mask {
     #[inline]

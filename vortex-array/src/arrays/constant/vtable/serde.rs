@@ -3,11 +3,21 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
+use vortex_scalar::{
+    Scalar,
+    ScalarValue,
+};
 
 use crate::EmptyMetadata;
-use crate::arrays::{ConstantArray, ConstantEncoding, ConstantVTable};
+use crate::arrays::{
+    ConstantArray,
+    ConstantEncoding,
+    ConstantVTable,
+};
 use crate::serde::ArrayChildren;
 use crate::vtable::SerdeVTable;
 

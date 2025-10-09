@@ -6,7 +6,10 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::operator::{Operator, OperatorRef};
+use crate::operator::{
+    Operator,
+    OperatorRef,
+};
 
 impl dyn Operator + '_ {
     /// Optimize the operator tree rooted at this operator by applying local

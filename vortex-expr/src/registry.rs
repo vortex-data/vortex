@@ -4,9 +4,19 @@
 use vortex_array::VTableRegistry;
 
 use crate::{
-    BetweenExprEncoding, BinaryExprEncoding, CastExprEncoding, ExprEncodingRef,
-    GetItemExprEncoding, IsNullExprEncoding, LikeExprEncoding, ListContainsExprEncoding,
-    LiteralExprEncoding, MergeExprEncoding, NotExprEncoding, PackExprEncoding, RootExprEncoding,
+    BetweenExprEncoding,
+    BinaryExprEncoding,
+    CastExprEncoding,
+    ExprEncodingRef,
+    GetItemExprEncoding,
+    IsNullExprEncoding,
+    LikeExprEncoding,
+    ListContainsExprEncoding,
+    LiteralExprEncoding,
+    MergeExprEncoding,
+    NotExprEncoding,
+    PackExprEncoding,
+    RootExprEncoding,
     SelectExprEncoding,
 };
 

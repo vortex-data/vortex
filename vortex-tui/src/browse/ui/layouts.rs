@@ -3,14 +3,36 @@
 
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
-use humansize::{DECIMAL, make_format};
+use humansize::{
+    DECIMAL,
+    make_format,
+};
 use itertools::Itertools;
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Style, Stylize};
+use ratatui::layout::{
+    Constraint,
+    Direction,
+    Layout,
+    Rect,
+};
+use ratatui::style::{
+    Color,
+    Style,
+    Stylize,
+};
 use ratatui::text::Text;
 use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget, Wrap,
+    Block,
+    BorderType,
+    Borders,
+    Cell,
+    List,
+    Paragraph,
+    Row,
+    StatefulWidget,
+    Table,
+    Widget,
+    Wrap,
 };
 use tokio::runtime::Handle;
 use tokio::task::block_in_place;
@@ -18,9 +40,17 @@ use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
-use vortex::{Array, ArrayRef, MaskFuture, ToCanonical};
+use vortex::{
+    Array,
+    ArrayRef,
+    MaskFuture,
+    ToCanonical,
+};
 
-use crate::browse::app::{AppState, LayoutCursor};
+use crate::browse::app::{
+    AppState,
+    LayoutCursor,
+};
 
 /// Render the Layouts tab.
 pub fn render_layouts(app_state: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {

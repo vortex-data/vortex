@@ -5,12 +5,28 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_scalar::Scalar;
 
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
+use crate::compute::{
+    ComputeFn,
+    ComputeFnVTable,
+    InvocationArgs,
+    Kernel,
+    Output,
+    cast,
+};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 
 static FILL_NULL_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("fill_null".into(), ArcRef::new_ref(&FillNull));

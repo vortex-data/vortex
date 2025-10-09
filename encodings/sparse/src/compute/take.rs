@@ -2,11 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    TakeKernel,
+    TakeKernelAdapter,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_error::VortexResult;
 
-use crate::{SparseArray, SparseVTable};
+use crate::{
+    SparseArray,
+    SparseVTable,
+};
 
 impl TakeKernel for SparseVTable {
     fn take(&self, array: &SparseArray, take_indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -50,13 +61,24 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::take;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{
+        Array,
+        ArrayRef,
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
     use vortex_scalar::Scalar;
 
-    use crate::{SparseArray, SparseVTable};
+    use crate::{
+        SparseArray,
+        SparseVTable,
+    };
 
     fn test_array_fill_value() -> Scalar {
         // making this const is annoying

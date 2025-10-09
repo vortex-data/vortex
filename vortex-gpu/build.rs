@@ -4,9 +4,15 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
-use std::path::{Path, PathBuf};
+use std::path::{
+    Path,
+    PathBuf,
+};
 use std::process::Command;
-use std::{env, fs};
+use std::{
+    env,
+    fs,
+};
 
 use vortex_gpu_kernels::generate_unpack;
 use walkdir::WalkDir;

@@ -3,13 +3,23 @@
 
 use std::ops::Range;
 
-use vortex_array::arrays::{ConstantArray, ConstantVTable};
+use vortex_array::arrays::{
+    ConstantArray,
+    ConstantVTable,
+};
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
-use crate::{DictArray, DictVTable};
+use crate::{
+    DictArray,
+    DictVTable,
+};
 
 impl OperationsVTable<DictVTable> for DictVTable {
     fn slice(array: &DictArray, range: Range<usize>) -> ArrayRef {

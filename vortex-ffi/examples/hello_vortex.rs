@@ -11,18 +11,31 @@
 //! ```
 
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::{
+    Path,
+    PathBuf,
+};
 use std::process::Command;
 use std::sync::LazyLock;
 
 use tokio::fs::File as TokioFile;
 use tokio::runtime::Runtime;
-use vortex::arrays::{ChunkedArray, StructArray};
+use vortex::arrays::{
+    ChunkedArray,
+    StructArray,
+};
 use vortex::buffer::Buffer;
-use vortex::error::{VortexResult, vortex_err};
+use vortex::error::{
+    VortexResult,
+    vortex_err,
+};
 use vortex::file::VortexWriteOptions;
 use vortex::io::VortexWrite;
-use vortex::{Array, ArrayRef, IntoArray};
+use vortex::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| Runtime::new().unwrap());
 

@@ -6,17 +6,34 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::{StreamExt as _, pin_mut};
+use futures::{
+    StreamExt as _,
+    pin_mut,
+};
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_array::{
+    Array,
+    ArrayContext,
+    ArrayRef,
+    IntoArray,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 use vortex_io::runtime::Handle;
 
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{
-    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt,
+    SendableSequentialStream,
+    SequencePointer,
+    SequentialStreamAdapter,
+    SequentialStreamExt,
 };
-use crate::{LayoutRef, LayoutStrategy};
+use crate::{
+    LayoutRef,
+    LayoutStrategy,
+};
 
 #[derive(Clone)]
 pub struct RepartitionWriterOptions {

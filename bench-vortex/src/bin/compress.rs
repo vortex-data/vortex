@@ -2,20 +2,46 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
-use std::io::{Write, stdout};
+use std::io::{
+    Write,
+    stdout,
+};
 use std::path::PathBuf;
 
-use bench_vortex::compress::bench::{CompressMeasurements, CompressOp, benchmark_compress};
+use bench_vortex::compress::bench::{
+    CompressMeasurements,
+    CompressOp,
+    benchmark_compress,
+};
 use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
-use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLCommentChunked};
-use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
+use bench_vortex::datasets::tpch_l_comment::{
+    TPCHLCommentCanonical,
+    TPCHLCommentChunked,
+};
+use bench_vortex::display::{
+    DisplayFormat,
+    print_measurements_json,
+    render_table,
+};
 use bench_vortex::downloadable_dataset::DownloadableDataset;
 use bench_vortex::public_bi::PBI_DATASETS;
-use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
+use bench_vortex::public_bi::PBIDataset::{
+    Arade,
+    Bimbo,
+    CMSprovider,
+    Euro2016,
+    Food,
+    HashTags,
+};
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, Target, setup_logging_and_tracing};
+use bench_vortex::{
+    Engine,
+    Format,
+    Target,
+    setup_logging_and_tracing,
+};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;

@@ -3,11 +3,25 @@
 
 use std::cmp::max;
 
-use arbitrary::{Result as AResult, Unstructured};
-use vortex_dtype::{DType, FieldName};
+use arbitrary::{
+    Result as AResult,
+    Unstructured,
+};
+use vortex_dtype::{
+    DType,
+    FieldName,
+};
 use vortex_scalar::arbitrary::random_scalar;
 
-use crate::{BinaryExpr, ExprRef, Operator, and_collect, col, lit, pack};
+use crate::{
+    BinaryExpr,
+    ExprRef,
+    Operator,
+    and_collect,
+    col,
+    lit,
+    pack,
+};
 
 pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<ExprRef>> {
     let Some(struct_dtype) = dtype.as_struct_fields_opt() else {

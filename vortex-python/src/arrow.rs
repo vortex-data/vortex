@@ -5,22 +5,47 @@
 // SPDX-FileNotice: https://github.com/apache/arrow-rs/blob/549709fbdf91cd1f6c263a7e4540c542b6fecf6b/NOTICE.txt
 #![allow(clippy::same_name_method)]
 
-use std::convert::{From, TryFrom};
+use std::convert::{
+    From,
+    TryFrom,
+};
 use std::ptr::addr_of;
 use std::sync::Arc;
 
-use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
-use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
+use arrow_array::ffi::{
+    FFI_ArrowArray,
+    FFI_ArrowSchema,
+};
+use arrow_array::ffi_stream::{
+    ArrowArrayStreamReader,
+    FFI_ArrowArrayStream,
+};
 use arrow_array::{
-    RecordBatch, RecordBatchIterator, RecordBatchOptions, RecordBatchReader, StructArray, ffi,
+    RecordBatch,
+    RecordBatchIterator,
+    RecordBatchOptions,
+    RecordBatchReader,
+    StructArray,
+    ffi,
 };
 use arrow_data::ArrayData;
-use arrow_schema::{ArrowError, DataType, Field, Schema};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use arrow_schema::{
+    ArrowError,
+    DataType,
+    Field,
+    Schema,
+};
+use pyo3::exceptions::{
+    PyTypeError,
+    PyValueError,
+};
 use pyo3::ffi::Py_uintptr_t;
 use pyo3::import_exception;
 use pyo3::prelude::*;
-use pyo3::types::{PyCapsule, PyTuple};
+use pyo3::types::{
+    PyCapsule,
+    PyTuple,
+};
 
 import_exception!(pyarrow, ArrowException);
 /// Represents an exception raised by PyArrow.

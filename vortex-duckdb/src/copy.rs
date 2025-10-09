@@ -6,20 +6,43 @@ use std::iter;
 use std::sync::LazyLock;
 
 use tokio::fs::File;
-use tokio::runtime::{self, Runtime};
+use tokio::runtime::{
+    self,
+    Runtime,
+};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
-use vortex::dtype::Nullability::{NonNullable, Nullable};
-use vortex::dtype::{DType, StructFields};
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
-use vortex::file::{VortexWriteOptions, WriteSummary};
+use vortex::dtype::Nullability::{
+    NonNullable,
+    Nullable,
+};
+use vortex::dtype::{
+    DType,
+    StructFields,
+};
+use vortex::error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
+use vortex::file::{
+    VortexWriteOptions,
+    WriteSummary,
+};
 use vortex::stream::ArrayStreamAdapter;
 
-use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
-use crate::duckdb::{CopyFunction, DataChunk, LogicalType};
+use crate::convert::{
+    data_chunk_to_arrow,
+    from_duckdb_table,
+};
+use crate::duckdb::{
+    CopyFunction,
+    DataChunk,
+    LogicalType,
+};
 
 #[derive(Debug)]
 pub struct VortexCopyFunction;

@@ -6,9 +6,16 @@ use vortex_mask::Mask;
 
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::{MaskKernel, MaskKernelAdapter};
+use crate::compute::{
+    MaskKernel,
+    MaskKernelAdapter,
+};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl MaskKernel for PrimitiveVTable {
     fn mask(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {

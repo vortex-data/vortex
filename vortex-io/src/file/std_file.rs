@@ -3,16 +3,31 @@
 
 use std::fs::File;
 use std::os::unix::fs::FileExt;
-use std::path::{Path, PathBuf};
+use std::path::{
+    Path,
+    PathBuf,
+};
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::{FutureExt, StreamExt};
+use futures::{
+    FutureExt,
+    StreamExt,
+};
 use vortex_buffer::ByteBufferMut;
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+};
 
-use crate::file::{CoalesceWindow, IntoReadSource, IoRequest, ReadSource, ReadSourceRef};
+use crate::file::{
+    CoalesceWindow,
+    IntoReadSource,
+    IoRequest,
+    ReadSource,
+    ReadSourceRef,
+};
 use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {

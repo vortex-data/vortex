@@ -4,14 +4,21 @@
 use std::any::Any;
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_ensure};
+use vortex_error::{
+    VortexResult,
+    vortex_ensure,
+};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
 use crate::canonical::Canonical;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 
 /// The builder for building a [`NullArray`].
 pub struct NullBuilder {

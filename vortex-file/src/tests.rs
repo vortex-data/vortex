@@ -6,27 +6,77 @@ use std::iter;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures::{StreamExt, TryStreamExt, pin_mut};
+use futures::{
+    StreamExt,
+    TryStreamExt,
+    pin_mut,
+};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    ChunkedArray, ConstantArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
+    ChunkedArray,
+    ConstantArray,
+    DecimalArray,
+    ListArray,
+    PrimitiveArray,
+    StructArray,
+    VarBinArray,
     VarBinViewArray,
 };
 use vortex_array::stats::PRUNING_STATS;
-use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
+use vortex_array::stream::{
+    ArrayStreamAdapter,
+    ArrayStreamExt,
+};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, ByteBufferMut, buffer};
-use vortex_dict::{DictEncoding, DictVTable};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
+use vortex_buffer::{
+    Buffer,
+    ByteBufferMut,
+    buffer,
+};
+use vortex_dict::{
+    DictEncoding,
+    DictVTable,
+};
 use vortex_dtype::PType::I32;
-use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
+use vortex_dtype::{
+    DType,
+    DecimalDType,
+    Nullability,
+    PType,
+    StructFields,
+};
 use vortex_error::VortexResult;
-use vortex_expr::{PackExpr, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
+use vortex_expr::{
+    PackExpr,
+    and,
+    eq,
+    get_item,
+    gt,
+    gt_eq,
+    lit,
+    lt,
+    lt_eq,
+    or,
+    root,
+    select,
+};
 use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
 
-use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
+use crate::{
+    V1_FOOTER_FBS_SIZE,
+    VERSION,
+    VortexFile,
+    VortexOpenOptions,
+    VortexWriteOptions,
+};
 
 #[tokio::test]
 async fn test_eof_values() {

@@ -3,8 +3,14 @@
 
 use std::collections::BTreeSet;
 use std::env;
-use std::ops::{BitAnd, Range};
-use std::sync::{Arc, LazyLock};
+use std::ops::{
+    BitAnd,
+    Range,
+};
+use std::sync::{
+    Arc,
+    LazyLock,
+};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -15,10 +21,27 @@ use vortex_array::operator::filter::FilterOperator;
 use vortex_array::operator::slice::SliceOperator;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef, IntoArray, MaskFuture};
-use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _, vortex_bail};
-use vortex_expr::{ExprRef, Scope, is_root};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    MaskFuture,
+};
+use vortex_dtype::{
+    DType,
+    FieldMask,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    VortexUnwrap as _,
+    vortex_bail,
+};
+use vortex_expr::{
+    ExprRef,
+    Scope,
+    is_root,
+};
 use vortex_mask::Mask;
 
 use crate::LayoutReader;
@@ -261,15 +284,26 @@ mod test {
     use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayContext, MaskFuture, ToCanonical};
+    use vortex_array::{
+        ArrayContext,
+        MaskFuture,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
-    use vortex_expr::{gt, lit, root};
+    use vortex_expr::{
+        gt,
+        lit,
+        root,
+    };
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutStrategy as _;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
-    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::sequence::{
+        SequenceId,
+        SequentialArrayStreamExt,
+    };
 
     #[test]
     fn flat_identity() {

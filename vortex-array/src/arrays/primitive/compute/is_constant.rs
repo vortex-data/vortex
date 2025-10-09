@@ -2,11 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, match_each_native_ptype};
+use vortex_dtype::{
+    NativePType,
+    match_each_native_ptype,
+};
 use vortex_error::VortexResult;
 
-use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
+use crate::arrays::{
+    PrimitiveArray,
+    PrimitiveVTable,
+};
+use crate::compute::{
+    IsConstantKernel,
+    IsConstantKernelAdapter,
+    IsConstantOpts,
+};
 use crate::register_kernel;
 
 cfg_if::cfg_if! {

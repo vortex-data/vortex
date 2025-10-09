@@ -7,17 +7,34 @@ use arrow_buffer::BooleanBuffer;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::{NativeValue, PrimitiveArray, PrimitiveVTable};
+use vortex_array::arrays::{
+    NativeValue,
+    PrimitiveArray,
+    PrimitiveVTable,
+};
 use vortex_array::stats::Stat;
-use vortex_dtype::{IntegerPType, match_each_integer_ptype};
-use vortex_error::{VortexError, VortexExpect, VortexUnwrap};
+use vortex_dtype::{
+    IntegerPType,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexError,
+    VortexExpect,
+    VortexUnwrap,
+};
 use vortex_mask::AllOr;
-use vortex_scalar::{PValue, Scalar};
+use vortex_scalar::{
+    PValue,
+    Scalar,
+};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::rle::RLEStats;
 use crate::sample::sample;
-use crate::{CompressorStats, GenerateStatsOptions};
+use crate::{
+    CompressorStats,
+    GenerateStatsOptions,
+};
 
 #[derive(Clone, Debug)]
 pub struct TypedStats<T> {
@@ -417,7 +434,10 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_buffer::{Buffer, buffer};
+    use vortex_buffer::{
+        Buffer,
+        buffer,
+    };
 
     use crate::CompressorStats;
     use crate::integer::IntegerStats;

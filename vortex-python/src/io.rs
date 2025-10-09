@@ -11,17 +11,38 @@ use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, VortexResult};
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
-use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
-use vortex::{ArrayRef, Canonical, IntoArray};
+use vortex::error::{
+    VortexError,
+    VortexResult,
+};
+use vortex::file::{
+    VortexWriteOptions,
+    WriteStrategyBuilder,
+};
+use vortex::iter::{
+    ArrayIterator,
+    ArrayIteratorAdapter,
+    ArrayIteratorExt,
+};
+use vortex::{
+    ArrayRef,
+    Canonical,
+    IntoArray,
+};
 
-use crate::arrays::{PyArray, PyArrayRef};
+use crate::arrays::{
+    PyArray,
+    PyArrayRef,
+};
 use crate::arrow::FromPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::expr::PyExpr;
 use crate::iter::PyArrayIterator;
-use crate::{PyVortex, TOKIO_RUNTIME, install_module};
+use crate::{
+    PyVortex,
+    TOKIO_RUNTIME,
+    install_module,
+};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;

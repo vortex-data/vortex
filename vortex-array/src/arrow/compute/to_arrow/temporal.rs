@@ -4,21 +4,59 @@
 use std::sync::Arc;
 
 use arrow_array::types::{
-    ArrowTemporalType, ArrowTimestampType, Date32Type, Date64Type, Time32MillisecondType,
-    Time32SecondType, Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
-    TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType,
+    ArrowTemporalType,
+    ArrowTimestampType,
+    Date32Type,
+    Date64Type,
+    Time32MillisecondType,
+    Time32SecondType,
+    Time64MicrosecondType,
+    Time64NanosecondType,
+    TimestampMicrosecondType,
+    TimestampMillisecondType,
+    TimestampNanosecondType,
+    TimestampSecondType,
 };
-use arrow_array::{ArrayRef as ArrowArrayRef, PrimitiveArray as ArrowPrimitiveArray};
-use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
-use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
-use vortex_dtype::{DType, NativePType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use arrow_array::{
+    ArrayRef as ArrowArrayRef,
+    PrimitiveArray as ArrowPrimitiveArray,
+};
+use arrow_schema::{
+    DataType,
+    TimeUnit as ArrowTimeUnit,
+};
+use vortex_dtype::datetime::{
+    TemporalMetadata,
+    TimeUnit,
+    is_temporal_ext_type,
+};
+use vortex_dtype::{
+    DType,
+    NativePType,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 
-use crate::arrays::{ExtensionVTable, TemporalArray};
+use crate::arrays::{
+    ExtensionVTable,
+    TemporalArray,
+};
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::to_arrow::ToArrowArgs;
-use crate::compute::{InvocationArgs, Kernel, Output, cast};
-use crate::{Array as _, IntoArray, ToCanonical};
+use crate::compute::{
+    InvocationArgs,
+    Kernel,
+    Output,
+    cast,
+};
+use crate::{
+    Array as _,
+    IntoArray,
+    ToCanonical,
+};
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
 #[derive(Debug)]

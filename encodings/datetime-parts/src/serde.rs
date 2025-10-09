@@ -3,15 +3,35 @@
 
 use vortex_array::arrays::TemporalArray;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+    VisitorVTable,
+};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
+    Array,
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    Canonical,
+    DeserializeMetadata,
+    ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 
-use crate::{DateTimePartsArray, DateTimePartsEncoding, DateTimePartsVTable};
+use crate::{
+    DateTimePartsArray,
+    DateTimePartsEncoding,
+    DateTimePartsVTable,
+};
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]

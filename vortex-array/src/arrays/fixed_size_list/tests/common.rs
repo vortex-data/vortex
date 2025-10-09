@@ -7,7 +7,10 @@ use vortex_buffer::buffer;
 use vortex_dtype::Nullability;
 
 use crate::IntoArray;
-use crate::arrays::{FixedSizeListArray, PrimitiveArray};
+use crate::arrays::{
+    FixedSizeListArray,
+    PrimitiveArray,
+};
 use crate::validity::Validity;
 
 /// Creates a basic FSL for testing: [[1,2,3], [4,5,6], [7,8,9], [10,11,12]]

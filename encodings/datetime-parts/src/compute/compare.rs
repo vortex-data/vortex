@@ -3,15 +3,32 @@
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
-    CompareKernel, CompareKernelAdapter, Operator, and, cast, compare, or,
+    CompareKernel,
+    CompareKernelAdapter,
+    Operator,
+    and,
+    cast,
+    compare,
+    or,
 };
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_dtype::datetime::TemporalMetadata;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::array::{DateTimePartsArray, DateTimePartsVTable};
+use crate::array::{
+    DateTimePartsArray,
+    DateTimePartsVTable,
+};
 use crate::timestamp;
 
 impl CompareKernel for DateTimePartsVTable {
@@ -192,7 +209,10 @@ fn compare_dtp(
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::arrays::{PrimitiveArray, TemporalArray};
+    use vortex_array::arrays::{
+        PrimitiveArray,
+        TemporalArray,
+    };
     use vortex_array::compute::Operator;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;

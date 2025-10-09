@@ -3,26 +3,47 @@
 
 use std::borrow::Cow;
 use std::cell::LazyCell;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{
+    AtomicU64,
+    Ordering,
+};
 
 use anyhow::Result;
 use bytes::Bytes;
 use clap::ValueEnum;
 use indicatif::ProgressBar;
-use parquet::basic::{Compression, ZstdLevel};
+use parquet::basic::{
+    Compression,
+    ZstdLevel,
+};
 use serde::Serialize;
 use tokio::runtime::Runtime;
-use vortex::arrays::{ChunkedArray, ChunkedVTable};
+use vortex::arrays::{
+    ChunkedArray,
+    ChunkedVTable,
+};
 use vortex::builders::builder_with_capacity;
-use vortex::{Array, IntoArray};
+use vortex::{
+    Array,
+    IntoArray,
+};
 
 use crate::Format;
 use crate::bench_run::run;
 use crate::compress::chunked_to_vec_record_batch;
-use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
-use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
+use crate::compress::parquet::{
+    parquet_compress_write,
+    parquet_decompress_read,
+};
+use crate::compress::vortex::{
+    vortex_compress_write,
+    vortex_decompress_read,
+};
 use crate::datasets::Dataset;
-use crate::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
+use crate::measurements::{
+    CompressionTimingMeasurement,
+    CustomUnitMeasurement,
+};
 
 #[derive(Default)]
 pub struct CompressMeasurements {

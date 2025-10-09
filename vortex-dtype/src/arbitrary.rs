@@ -3,12 +3,23 @@
 
 use std::sync::Arc;
 
-use arbitrary::{Arbitrary, Result, Unstructured};
+use arbitrary::{
+    Arbitrary,
+    Result,
+    Unstructured,
+};
 use vortex_error::VortexExpect;
 
 use crate::{
-    DECIMAL256_MAX_PRECISION, DECIMAL256_MAX_SCALE, DType, DecimalDType, FieldName, FieldNames,
-    Nullability, PType, StructFields,
+    DECIMAL256_MAX_PRECISION,
+    DECIMAL256_MAX_SCALE,
+    DType,
+    DecimalDType,
+    FieldName,
+    FieldNames,
+    Nullability,
+    PType,
+    StructFields,
 };
 
 impl<'a> Arbitrary<'a> for DType {

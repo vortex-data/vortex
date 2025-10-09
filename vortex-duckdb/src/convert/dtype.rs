@@ -31,12 +31,41 @@
 use std::ffi::CString;
 use std::sync::Arc;
 
-use vortex::dtype::PType::{F32, F64, I8, I16, I32, I64, U8, U16, U32, U64};
-use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex::dtype::{
-    DType, DecimalDType, ExtDType, FieldName, Nullability, PType, StructFields, datetime,
+use vortex::dtype::PType::{
+    F32,
+    F64,
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
 };
-use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex::dtype::datetime::{
+    DATE_ID,
+    TIME_ID,
+    TIMESTAMP_ID,
+    TemporalMetadata,
+    TimeUnit,
+};
+use vortex::dtype::{
+    DType,
+    DecimalDType,
+    ExtDType,
+    FieldName,
+    Nullability,
+    PType,
+    StructFields,
+    datetime,
+};
+use vortex::error::{
+    VortexError,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;
@@ -240,7 +269,14 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use vortex::dtype::{DType, FieldName, FieldNames, Nullability, PType, StructFields};
+    use vortex::dtype::{
+        DType,
+        FieldName,
+        FieldNames,
+        Nullability,
+        PType,
+        StructFields,
+    };
 
     use crate::cpp;
     use crate::duckdb::LogicalType;
@@ -378,8 +414,15 @@ mod tests {
     fn test_date_extension_type() {
         use std::sync::Arc;
 
-        use vortex::dtype::datetime::{DATE_ID, TemporalMetadata, TimeUnit};
-        use vortex::dtype::{ExtDType, PType};
+        use vortex::dtype::datetime::{
+            DATE_ID,
+            TemporalMetadata,
+            TimeUnit,
+        };
+        use vortex::dtype::{
+            ExtDType,
+            PType,
+        };
 
         let ext_dtype = ExtDType::new(
             DATE_ID.clone(),
@@ -399,8 +442,15 @@ mod tests {
     fn test_time_extension_type() {
         use std::sync::Arc;
 
-        use vortex::dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
-        use vortex::dtype::{ExtDType, PType};
+        use vortex::dtype::datetime::{
+            TIME_ID,
+            TemporalMetadata,
+            TimeUnit,
+        };
+        use vortex::dtype::{
+            ExtDType,
+            PType,
+        };
 
         let ext_dtype = ExtDType::new(
             TIME_ID.clone(),
@@ -420,8 +470,15 @@ mod tests {
     fn test_timestamp_extension_types() {
         use std::sync::Arc;
 
-        use vortex::dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-        use vortex::dtype::{ExtDType, PType};
+        use vortex::dtype::datetime::{
+            TIMESTAMP_ID,
+            TemporalMetadata,
+            TimeUnit,
+        };
+        use vortex::dtype::{
+            ExtDType,
+            PType,
+        };
 
         let test_cases = [
             (
@@ -456,8 +513,15 @@ mod tests {
     fn test_timestamp_with_timezone() {
         use std::sync::Arc;
 
-        use vortex::dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-        use vortex::dtype::{ExtDType, PType};
+        use vortex::dtype::datetime::{
+            TIMESTAMP_ID,
+            TemporalMetadata,
+            TimeUnit,
+        };
+        use vortex::dtype::{
+            ExtDType,
+            PType,
+        };
 
         let ext_dtype = ExtDType::new(
             TIMESTAMP_ID.clone(),
@@ -478,8 +542,16 @@ mod tests {
     fn test_temporal_extension_invalid_time_units() {
         use std::sync::Arc;
 
-        use vortex::dtype::datetime::{DATE_ID, TIME_ID, TemporalMetadata, TimeUnit};
-        use vortex::dtype::{ExtDType, PType};
+        use vortex::dtype::datetime::{
+            DATE_ID,
+            TIME_ID,
+            TemporalMetadata,
+            TimeUnit,
+        };
+        use vortex::dtype::{
+            ExtDType,
+            PType,
+        };
 
         // Invalid DATE time unit
         let ext_dtype = ExtDType::new(
@@ -502,7 +574,11 @@ mod tests {
 
     #[test]
     fn test_unsupported_extension_type() {
-        use vortex::dtype::{ExtDType, ExtID, PType};
+        use vortex::dtype::{
+            ExtDType,
+            ExtID,
+            PType,
+        };
 
         let ext_dtype = ExtDType::new(
             ExtID::from("unknown.extension"),

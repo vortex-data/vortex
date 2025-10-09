@@ -9,20 +9,39 @@ use divan::Bencher;
 use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
 use rand::prelude::IndexedRandom;
-use rand::{Rng, SeedableRng};
-use vortex::arrays::{PrimitiveArray, VarBinViewArray};
+use rand::{
+    Rng,
+    SeedableRng,
+};
+use vortex::arrays::{
+    PrimitiveArray,
+    VarBinViewArray,
+};
 use vortex::compute::cast;
 use vortex::dtype::PType;
-use vortex::encodings::alp::{RDEncoder, alp_encode};
+use vortex::encodings::alp::{
+    RDEncoder,
+    alp_encode,
+};
 use vortex::encodings::dict::builders::dict_encode;
-use vortex::encodings::fastlanes::{DeltaArray, FoRArray, delta_compress};
-use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
+use vortex::encodings::fastlanes::{
+    DeltaArray,
+    FoRArray,
+    delta_compress,
+};
+use vortex::encodings::fsst::{
+    fsst_compress,
+    fsst_train_compressor,
+};
 use vortex::encodings::pco::PcoArray;
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::ZstdArray;
 use vortex::validity::Validity;
-use vortex::{IntoArray, ToCanonical};
+use vortex::{
+    IntoArray,
+    ToCanonical,
+};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

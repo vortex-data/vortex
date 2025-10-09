@@ -1,12 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{TakeFromKernel, TakeFromKernelAdapter, take};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    TakeFromKernel,
+    TakeFromKernelAdapter,
+    take,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{RunEndArray, RunEndVTable};
+use crate::{
+    RunEndArray,
+    RunEndVTable,
+};
 
 impl TakeFromKernel for RunEndVTable {
     /// Takes values from the source array using run-end encoded indices.

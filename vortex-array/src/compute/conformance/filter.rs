@@ -6,7 +6,10 @@ use vortex_error::VortexUnwrap;
 use vortex_mask::Mask;
 
 use crate::compute::filter;
-use crate::{Array, IntoArray};
+use crate::{
+    Array,
+    IntoArray,
+};
 
 // Standard test array sizes
 pub const SMALL_SIZE: usize = 5;

@@ -1,13 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::{CheckedMul, ToPrimitive};
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{FromPrimitiveOrF16, PrimitiveScalar, Scalar, ScalarValue};
+use num_traits::{
+    CheckedMul,
+    ToPrimitive,
+};
+use vortex_dtype::{
+    DType,
+    NativePType,
+    match_each_native_ptype,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
+use vortex_scalar::{
+    FromPrimitiveOrF16,
+    PrimitiveScalar,
+    Scalar,
+    ScalarValue,
+};
 
-use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::compute::{SumKernel, SumKernelAdapter};
+use crate::arrays::{
+    ConstantArray,
+    ConstantVTable,
+};
+use crate::compute::{
+    SumKernel,
+    SumKernelAdapter,
+};
 use crate::register_kernel;
 use crate::stats::Stat;
 
@@ -70,7 +92,11 @@ register_kernel!(SumKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
     use vortex_scalar::Scalar;
 
     use crate::IntoArray;

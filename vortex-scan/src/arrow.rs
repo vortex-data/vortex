@@ -2,9 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::cast::AsArray;
-use arrow_array::{RecordBatch, RecordBatchReader};
-use arrow_schema::{ArrowError, DataType, SchemaRef};
-use futures::{Stream, TryStreamExt};
+use arrow_array::{
+    RecordBatch,
+    RecordBatchReader,
+};
+use arrow_schema::{
+    ArrowError,
+    DataType,
+    SchemaRef,
+};
+use futures::{
+    Stream,
+    TryStreamExt,
+};
 use vortex_array::ArrayRef;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_error::VortexResult;
@@ -96,9 +106,19 @@ mod tests {
 
     use arrow_array::cast::AsArray;
     use arrow_array::{
-        Array, ArrayRef as ArrowArrayRef, Int32Array, RecordBatch, StringArray, StructArray,
+        Array,
+        ArrayRef as ArrowArrayRef,
+        Int32Array,
+        RecordBatch,
+        StringArray,
+        StructArray,
     };
-    use arrow_schema::{ArrowError, DataType, Field, Schema};
+    use arrow_schema::{
+        ArrowError,
+        DataType,
+        Field,
+        Schema,
+    };
     use vortex_array::ArrayRef;
     use vortex_array::arrow::FromArrowArray;
     use vortex_error::VortexResult;

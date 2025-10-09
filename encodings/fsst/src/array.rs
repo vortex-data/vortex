@@ -1,19 +1,45 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
-use std::sync::{Arc, LazyLock};
-
-use fsst::{Compressor, Decompressor, Symbol};
-use vortex_array::arrays::VarBinArray;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{
-    ArrayVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
+use std::fmt::{
+    Debug,
+    Formatter,
 };
-use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
+use std::sync::{
+    Arc,
+    LazyLock,
+};
+
+use fsst::{
+    Compressor,
+    Decompressor,
+    Symbol,
+};
+use vortex_array::arrays::VarBinArray;
+use vortex_array::stats::{
+    ArrayStats,
+    StatsSetRef,
+};
+use vortex_array::vtable::{
+    ArrayVTable,
+    NotSupported,
+    VTable,
+    ValidityChild,
+    ValidityVTableFromChild,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    EncodingId,
+    EncodingRef,
+    vtable,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 
 vtable!(FSST);
 

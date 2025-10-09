@@ -4,17 +4,40 @@
 use std::any::Any;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    StructFields,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_ensure,
+    vortex_panic,
+};
 use vortex_mask::Mask;
-use vortex_scalar::{Scalar, StructScalar};
+use vortex_scalar::{
+    Scalar,
+    StructScalar,
+};
 
 use crate::arrays::StructArray;
 use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, builder_with_capacity,
+    ArrayBuilder,
+    DEFAULT_BUILDER_CAPACITY,
+    LazyNullBufferBuilder,
+    builder_with_capacity,
 };
-use crate::canonical::{Canonical, ToCanonical};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::canonical::{
+    Canonical,
+    ToCanonical,
+};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 
 /// The builder for building a [`StructArray`].
 pub struct StructBuilder {
@@ -195,7 +218,11 @@ impl ArrayBuilder for StructBuilder {
 mod tests {
 
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability, StructFields};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        StructFields,
+    };
     use vortex_scalar::Scalar;
 
     use crate::builders::ArrayBuilder;

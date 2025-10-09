@@ -1,11 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::{
+    Nullability,
+    StructFields,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 
-use crate::traversal::{NodeExt, Transformed};
-use crate::{ExprRef, col, pack, root};
+use crate::traversal::{
+    NodeExt,
+    Transformed,
+};
+use crate::{
+    ExprRef,
+    col,
+    pack,
+    root,
+};
 
 /// Replaces all occurrences of `needle` in the expression `expr` with `replacement`.
 pub fn replace(expr: ExprRef, needle: &ExprRef, replacement: ExprRef) -> ExprRef {
@@ -46,7 +60,11 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
 
     use super::replace;
-    use crate::{get_item, lit, pack};
+    use crate::{
+        get_item,
+        lit,
+        pack,
+    };
 
     #[test]
     fn test_replace_full_tree() {

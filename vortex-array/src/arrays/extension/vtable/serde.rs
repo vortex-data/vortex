@@ -3,10 +3,17 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 
 use crate::EmptyMetadata;
-use crate::arrays::extension::{ExtensionArray, ExtensionEncoding, ExtensionVTable};
+use crate::arrays::extension::{
+    ExtensionArray,
+    ExtensionEncoding,
+    ExtensionVTable,
+};
 use crate::serde::ArrayChildren;
 use crate::vtable::SerdeVTable;
 

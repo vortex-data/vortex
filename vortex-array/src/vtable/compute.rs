@@ -3,8 +3,15 @@
 
 use vortex_error::VortexResult;
 
-use crate::compute::{ComputeFn, InvocationArgs, Output};
-use crate::vtable::{NotSupported, VTable};
+use crate::compute::{
+    ComputeFn,
+    InvocationArgs,
+    Output,
+};
+use crate::vtable::{
+    NotSupported,
+    VTable,
+};
 
 pub trait ComputeVTable<V: VTable> {
     /// Dynamically invokes the given compute function on the array.

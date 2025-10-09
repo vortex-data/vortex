@@ -4,12 +4,19 @@
 use std::ops::Range;
 
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
-use crate::{FoRArray, FoRVTable};
+use crate::{
+    FoRArray,
+    FoRVTable,
+};
 
 impl OperationsVTable<FoRVTable> for FoRVTable {
     fn slice(array: &FoRArray, range: Range<usize>) -> ArrayRef {

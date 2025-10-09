@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{
+    Debug,
+    Display,
+    Formatter,
+};
 
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, NativePType, PType};
+use vortex_dtype::{
+    DType,
+    NativePType,
+    PType,
+};
 use vortex_error::vortex_panic;
 
 use crate::arrays::binary_view::BinaryView;

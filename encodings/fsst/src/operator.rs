@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -10,16 +13,30 @@ use vortex_array::compute::filter;
 use vortex_array::operator::filter::FilterOperator;
 use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx,
+    BatchExecution,
+    BatchExecutionRef,
+    BatchOperator,
+    LengthBounds,
+    Operator,
+    OperatorEq,
+    OperatorHash,
+    OperatorId,
+    OperatorRef,
 };
 use vortex_array::vtable::PipelineVTable;
-use vortex_array::{Array, Canonical};
+use vortex_array::{
+    Array,
+    Canonical,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{FSSTArray, FSSTVTable};
+use crate::{
+    FSSTArray,
+    FSSTVTable,
+};
 
 impl PipelineVTable<FSSTVTable> for FSSTVTable {
     fn to_operator(array: &FSSTArray) -> VortexResult<Option<OperatorRef>> {

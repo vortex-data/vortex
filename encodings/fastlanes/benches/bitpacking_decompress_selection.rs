@@ -10,10 +10,20 @@
 
 use divan::Bencher;
 use rand::rngs::StdRng;
-use rand::{Rng as _, SeedableRng as _};
+use rand::{
+    Rng as _,
+    SeedableRng as _,
+};
 use vortex_array::arrays::BooleanBuffer;
-use vortex_array::compute::{filter, warm_up_vtables};
-use vortex_array::{Array, IntoArray as _, ToCanonical};
+use vortex_array::compute::{
+    filter,
+    warm_up_vtables,
+};
+use vortex_array::{
+    Array,
+    IntoArray as _,
+    ToCanonical,
+};
 use vortex_buffer::BufferMut;
 use vortex_dtype::IntegerPType;
 use vortex_fastlanes::bitpack_to_best_bit_width;

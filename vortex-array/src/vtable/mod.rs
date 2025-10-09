@@ -26,7 +26,13 @@ pub use serde::*;
 pub use validity::*;
 pub use visitor::*;
 
-use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
+use crate::{
+    Array,
+    Encoding,
+    EncodingId,
+    EncodingRef,
+    IntoArray,
+};
 
 /// The encoding [`VTable`] encapsulates logic for an Encoding type and associated Array type.
 /// The logic is split across several "VTable" traits to enable easier code organization than

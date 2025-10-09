@@ -5,7 +5,10 @@ use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 use vortex_scalar::DecimalValueType;
 
-use crate::arrays::{DecimalArray, DecimalVTable};
+use crate::arrays::{
+    DecimalArray,
+    DecimalVTable,
+};
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayVTable;
 

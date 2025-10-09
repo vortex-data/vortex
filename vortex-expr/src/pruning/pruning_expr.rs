@@ -5,11 +5,21 @@ use std::iter;
 
 use itertools::Itertools;
 use vortex_array::stats::Stat;
-use vortex_dtype::{Field, FieldName, FieldPath, FieldPathSet};
+use vortex_dtype::{
+    Field,
+    FieldName,
+    FieldPath,
+    FieldPathSet,
+};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::relation::Relation;
-use crate::{ExprRef, StatsCatalog, get_item, root};
+use crate::{
+    ExprRef,
+    StatsCatalog,
+    get_item,
+    root,
+};
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
 
@@ -101,13 +111,37 @@ pub fn checked_pruning_expr(
 
 #[cfg(test)]
 mod tests {
-    use rstest::{fixture, rstest};
+    use rstest::{
+        fixture,
+        rstest,
+    };
     use vortex_array::stats::Stat;
-    use vortex_dtype::{FieldName, FieldPath, FieldPathSet};
+    use vortex_dtype::{
+        FieldName,
+        FieldPath,
+        FieldPathSet,
+    };
 
     use crate::pruning::pruning_expr::HashMap;
-    use crate::pruning::{checked_pruning_expr, field_path_stat_field_name};
-    use crate::{HashSet, and, col, eq, get_item, gt, gt_eq, lit, lt, lt_eq, not_eq, or, root};
+    use crate::pruning::{
+        checked_pruning_expr,
+        field_path_stat_field_name,
+    };
+    use crate::{
+        HashSet,
+        and,
+        col,
+        eq,
+        get_item,
+        gt,
+        gt_eq,
+        lit,
+        lt,
+        lt_eq,
+        not_eq,
+        or,
+        root,
+    };
 
     // Implement some checked pruning expressions.
     #[fixture]

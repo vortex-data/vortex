@@ -3,13 +3,28 @@
 
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
-use crate::arrays::{ChunkedArray, ChunkedEncoding, ChunkedVTable};
+use crate::arrays::{
+    ChunkedArray,
+    ChunkedEncoding,
+    ChunkedVTable,
+};
 use crate::serde::ArrayChildren;
 use crate::vtable::SerdeVTable;
-use crate::{EmptyMetadata, ToCanonical};
+use crate::{
+    EmptyMetadata,
+    ToCanonical,
+};
 
 impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
     type Metadata = EmptyMetadata;

@@ -2,15 +2,32 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{
+    SerdeVTable,
+    VisitorVTable,
+};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, ProstMetadata,
+    Array,
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    DeserializeMetadata,
+    ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::{
+    DType,
+    PType,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 
-use crate::{DecimalBytePartsArray, DecimalBytePartsEncoding, DecimalBytePartsVTable};
+use crate::{
+    DecimalBytePartsArray,
+    DecimalBytePartsEncoding,
+    DecimalBytePartsVTable,
+};
 
 #[derive(Clone, prost::Message)]
 pub struct DecimalBytesPartsMetadata {

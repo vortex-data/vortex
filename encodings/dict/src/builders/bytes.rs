@@ -7,13 +7,39 @@ use std::sync::Arc;
 use arrow_buffer::NullBufferBuilder;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::binary_view::BinaryView;
-use vortex_array::arrays::{PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable};
+use vortex_array::arrays::{
+    PrimitiveArray,
+    VarBinVTable,
+    VarBinViewArray,
+    VarBinViewVTable,
+};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_buffer::{BufferMut, ByteBufferMut};
-use vortex_dtype::{DType, UnsignedPType};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
-use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashTable, HashTableEntry, RandomState};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
+use vortex_buffer::{
+    BufferMut,
+    ByteBufferMut,
+};
+use vortex_dtype::{
+    DType,
+    UnsignedPType,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    VortexUnwrap,
+    vortex_bail,
+    vortex_panic,
+};
+use vortex_utils::aliases::hash_map::{
+    DefaultHashBuilder,
+    HashTable,
+    HashTableEntry,
+    RandomState,
+};
 
 use super::DictConstraints;
 use crate::builders::DictEncoder;

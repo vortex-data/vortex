@@ -5,10 +5,22 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{StructArray, StructVTable};
-use crate::compute::{FilterKernel, FilterKernelAdapter, filter};
+use crate::arrays::{
+    StructArray,
+    StructVTable,
+};
+use crate::compute::{
+    FilterKernel,
+    FilterKernelAdapter,
+    filter,
+};
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl FilterKernel for StructVTable {
     fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayRef> {

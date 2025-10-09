@@ -1,13 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexError, vortex_bail};
-use vortex_flatbuffers::{ReadFlatBuffer, WriteFlatBuffer, array as fba};
+use flatbuffers::{
+    FlatBufferBuilder,
+    Follow,
+    WIPOffset,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
+use vortex_error::{
+    VortexError,
+    vortex_bail,
+};
+use vortex_flatbuffers::{
+    ReadFlatBuffer,
+    WriteFlatBuffer,
+    array as fba,
+};
 use vortex_scalar::ScalarValue;
 
-use crate::stats::{Precision, Stat, StatsSet, StatsSetRef};
+use crate::stats::{
+    Precision,
+    Stat,
+    StatsSet,
+    StatsSetRef,
+};
 
 impl WriteFlatBuffer for StatsSetRef<'_> {
     type Target<'t> = fba::ArrayStats<'t>;

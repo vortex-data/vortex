@@ -4,16 +4,41 @@
 use std::fmt::Debug;
 
 use vortex_array::patches::Patches;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
+use vortex_array::stats::{
+    ArrayStats,
+    StatsSetRef,
 };
-use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_array::vtable::{
+    ArrayVTable,
+    CanonicalVTable,
+    NotSupported,
+    VTable,
+    ValidityChild,
+    ValidityVTableFromChild,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    Canonical,
+    EncodingId,
+    EncodingRef,
+    vtable,
+};
+use vortex_dtype::{
+    DType,
+    PType,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_ensure,
+};
 
 use crate::ALPFloat;
-use crate::alp::{Exponents, decompress};
+use crate::alp::{
+    Exponents,
+    decompress,
+};
 
 vtable!(ALP);
 

@@ -3,9 +3,20 @@
 
 use vortex_dtype::DType;
 
-use crate::arrays::{ExtensionArray, ExtensionVTable};
-use crate::compute::{CastKernel, CastKernelAdapter, cast};
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::arrays::{
+    ExtensionArray,
+    ExtensionVTable,
+};
+use crate::compute::{
+    CastKernel,
+    CastKernelAdapter,
+    cast,
+};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl CastKernel for ExtensionVTable {
     fn cast(
@@ -42,9 +53,20 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use vortex_buffer::{Buffer, buffer};
-    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-    use vortex_dtype::{ExtDType, Nullability, PType};
+    use vortex_buffer::{
+        Buffer,
+        buffer,
+    };
+    use vortex_dtype::datetime::{
+        TIMESTAMP_ID,
+        TemporalMetadata,
+        TimeUnit,
+    };
+    use vortex_dtype::{
+        ExtDType,
+        Nullability,
+        PType,
+    };
 
     use super::*;
     use crate::IntoArray;

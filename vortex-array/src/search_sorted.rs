@@ -2,8 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::Ordering;
-use std::cmp::Ordering::{Equal, Greater, Less};
-use std::fmt::{Debug, Display, Formatter};
+use std::cmp::Ordering::{
+    Equal,
+    Greater,
+    Less,
+};
+use std::fmt::{
+    Debug,
+    Display,
+    Formatter,
+};
 use std::hint;
 
 use vortex_scalar::Scalar;
@@ -288,7 +296,11 @@ impl<T: PartialOrd> IndexOrd<T> for [T] {
 
 #[cfg(test)]
 mod test {
-    use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
+    use crate::search_sorted::{
+        SearchResult,
+        SearchSorted,
+        SearchSortedSide,
+    };
 
     #[test]
     fn left_side_equal() {

@@ -8,9 +8,20 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        ExtDType,
+        ExtID,
+        Nullability,
+        PType,
+    };
 
-    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
+    use crate::{
+        InnerScalarValue,
+        PValue,
+        Scalar,
+        ScalarValue,
+    };
 
     #[rstest]
     fn null_can_cast_to_anything_nullable(

@@ -4,7 +4,15 @@
 use std::ops::Deref;
 
 use pyo3::prelude::PyAnyMethods;
-use pyo3::{Bound, PyAny, PyRef, PyResult, Python, pyclass, pymethods};
+use pyo3::{
+    Bound,
+    PyAny,
+    PyRef,
+    PyResult,
+    Python,
+    pyclass,
+    pymethods,
+};
 use vortex::buffer::ByteBuffer;
 use vortex::serde::ArrayParts;
 

@@ -1,16 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::io::{Read, Write};
+use std::io::{
+    Read,
+    Write,
+};
 
-use bytes::{Bytes, BytesMut};
+use bytes::{
+    Bytes,
+    BytesMut,
+};
 use itertools::Itertools;
 use vortex_array::iter::ArrayIterator;
-use vortex_array::{ArrayRef, ArrayRegistry};
+use vortex_array::{
+    ArrayRef,
+    ArrayRegistry,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
-use crate::messages::{DecoderMessage, EncoderMessage, MessageEncoder, SyncMessageReader};
+use crate::messages::{
+    DecoderMessage,
+    EncoderMessage,
+    MessageEncoder,
+    SyncMessageReader,
+};
 
 /// An [`ArrayIterator`] for reading messages off an IPC stream.
 pub struct SyncIPCReader<R: Read> {
@@ -154,8 +172,14 @@ impl Iterator for ArrayIteratorIPCBytes {
 mod test {
     use std::io::Cursor;
 
-    use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-    use vortex_array::{IntoArray as _, ToCanonical};
+    use vortex_array::iter::{
+        ArrayIterator,
+        ArrayIteratorExt,
+    };
+    use vortex_array::{
+        IntoArray as _,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
 
     use super::*;

@@ -3,7 +3,10 @@
 
 use std::sync::LazyLock;
 
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::{
+    Builder,
+    Runtime,
+};
 use tokio::task::JoinHandle;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;

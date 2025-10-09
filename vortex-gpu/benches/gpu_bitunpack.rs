@@ -6,16 +6,35 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{
+    BenchmarkId,
+    Criterion,
+    Throughput,
+    criterion_group,
+    criterion_main,
+};
 use cudarc::driver::CudaContext;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
-use vortex_array::{IntoArray, ToCanonical};
+use rand::{
+    Rng,
+    SeedableRng,
+};
+use vortex_array::{
+    IntoArray,
+    ToCanonical,
+};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_error::VortexUnwrap;
-use vortex_fastlanes::{BitPackedArray, FoRArray};
-use vortex_gpu::{cuda_bit_unpack_timed, cuda_for_bp_unpack_timed, cuda_for_unpack_timed};
+use vortex_fastlanes::{
+    BitPackedArray,
+    FoRArray,
+};
+use vortex_gpu::{
+    cuda_bit_unpack_timed,
+    cuda_for_bp_unpack_timed,
+    cuda_for_unpack_timed,
+};
 
 // Data sizes: 1GB, 2.5GB, 5GB, 10GB
 // These are approximate sizes in bytes, accounting for bit-packing compression

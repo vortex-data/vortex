@@ -63,10 +63,28 @@ impl<'a> std::fmt::Display for TreeNodeDisplay<'a> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::{BetweenOptions, StrictComparison};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_array::compute::{
+        BetweenOptions,
+        StrictComparison,
+    };
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
-    use crate::{and, between, cast, eq, get_item, gt, lit, not, root, select};
+    use crate::{
+        and,
+        between,
+        cast,
+        eq,
+        get_item,
+        gt,
+        lit,
+        not,
+        root,
+        select,
+    };
 
     #[test]
     fn tree_display_getitem() {
@@ -102,7 +120,10 @@ mod tests {
     fn test_display_tree() {
         use insta::assert_snapshot;
 
-        use crate::{pack, select_exclude};
+        use crate::{
+            pack,
+            select_exclude,
+        };
         let root_expr = root();
         assert_snapshot!(root_expr.display_tree().to_string(), @"Root");
 

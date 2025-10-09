@@ -3,13 +3,28 @@
 
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
-use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
+use vortex_array::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+    VisitorVTable,
+};
+use vortex_array::{
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    ProstMetadata,
+};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 
-use crate::{ZstdArray, ZstdEncoding, ZstdVTable};
+use crate::{
+    ZstdArray,
+    ZstdEncoding,
+    ZstdVTable,
+};
 
 #[derive(Clone, prost::Message)]
 pub struct ZstdFrameMetadata {

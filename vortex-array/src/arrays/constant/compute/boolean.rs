@@ -2,12 +2,28 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::compute::{BooleanKernel, BooleanKernelAdapter, BooleanOperator};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::arrays::{
+    ConstantArray,
+    ConstantVTable,
+};
+use crate::compute::{
+    BooleanKernel,
+    BooleanKernelAdapter,
+    BooleanOperator,
+};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl BooleanKernel for ConstantVTable {
     fn boolean(
@@ -85,8 +101,15 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::arrays::constant::ConstantArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::{and, or};
-    use crate::{Array, ArrayRef, IntoArray};
+    use crate::compute::{
+        and,
+        or,
+    };
+    use crate::{
+        Array,
+        ArrayRef,
+        IntoArray,
+    };
 
     #[rstest]
     #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array()

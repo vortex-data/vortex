@@ -3,7 +3,10 @@
 
 use vortex_dtype::DType;
 
-use crate::arrays::masked::{MaskedArray, MaskedVTable};
+use crate::arrays::masked::{
+    MaskedArray,
+    MaskedVTable,
+};
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayVTable;
 

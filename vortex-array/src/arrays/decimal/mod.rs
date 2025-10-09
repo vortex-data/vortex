@@ -7,7 +7,10 @@ pub use array::DecimalArray;
 mod compute;
 
 mod vtable;
-pub use vtable::{DecimalEncoding, DecimalVTable};
+pub use vtable::{
+    DecimalEncoding,
+    DecimalVTable,
+};
 
 mod utils;
 pub use utils::*;

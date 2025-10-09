@@ -1,13 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray};
-use vortex_array::compute::{CompareKernel, Operator};
+use vortex_array::arrays::{
+    BoolArray,
+    BooleanBuffer,
+    ConstantArray,
+};
+use vortex_array::compute::{
+    CompareKernel,
+    Operator,
+};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::{PValue, Scalar};
+use vortex_array::{
+    Array,
+    ArrayRef,
+};
+use vortex_dtype::{
+    DType,
+    NativePType,
+    Nullability,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
+use vortex_scalar::{
+    PValue,
+    Scalar,
+};
 
 use crate::SequenceArray;
 use crate::array::SequenceVTable;
@@ -98,9 +119,18 @@ fn find_intersection<P: NativePType>(
 #[cfg(test)]
 mod tests {
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::{BoolArray, ConstantArray};
-    use vortex_array::compute::{Operator, compare};
-    use vortex_dtype::Nullability::{NonNullable, Nullable};
+    use vortex_array::arrays::{
+        BoolArray,
+        ConstantArray,
+    };
+    use vortex_array::compute::{
+        Operator,
+        compare,
+    };
+    use vortex_dtype::Nullability::{
+        NonNullable,
+        Nullable,
+    };
 
     use crate::SequenceArray;
 

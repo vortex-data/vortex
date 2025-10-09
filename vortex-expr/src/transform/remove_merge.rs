@@ -1,10 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 
-use crate::traversal::{NodeExt, Transformed};
-use crate::{DType, ExprRef, MergeVTable, get_item, pack};
+use crate::traversal::{
+    NodeExt,
+    Transformed,
+};
+use crate::{
+    DType,
+    ExprRef,
+    MergeVTable,
+    get_item,
+    pack,
+};
 
 /// Replaces [crate::MergeExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_merge(e: ExprRef, ctx: &DType) -> VortexResult<ExprRef> {
@@ -57,11 +70,24 @@ fn merge_transform(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprR
 #[cfg(test)]
 mod tests {
     use vortex_dtype::DType;
-    use vortex_dtype::Nullability::{NonNullable, Nullable};
-    use vortex_dtype::PType::{I32, I64, U32, U64};
+    use vortex_dtype::Nullability::{
+        NonNullable,
+        Nullable,
+    };
+    use vortex_dtype::PType::{
+        I32,
+        I64,
+        U32,
+        U64,
+    };
 
     use crate::transform::remove_merge::remove_merge;
-    use crate::{PackVTable, get_item, merge, root};
+    use crate::{
+        PackVTable,
+        get_item,
+        merge,
+        root,
+    };
 
     #[test]
     fn test_remove_merge() {

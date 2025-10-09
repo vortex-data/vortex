@@ -5,10 +5,16 @@ mod array;
 pub use array::PrimitiveArray;
 
 mod compute;
-pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
+pub use compute::{
+    IS_CONST_LANE_WIDTH,
+    compute_is_constant,
+};
 
 mod vtable;
-pub use vtable::{PrimitiveEncoding, PrimitiveVTable};
+pub use vtable::{
+    PrimitiveEncoding,
+    PrimitiveVTable,
+};
 
 mod native_value;
 pub use native_value::NativeValue;

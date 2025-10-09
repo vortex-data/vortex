@@ -8,12 +8,31 @@ use arcref::ArcRef;
 use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
-use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
+use crate::arrow::{
+    FromArrowArray,
+    IntoArrowArray,
+};
+use crate::compute::{
+    ComputeFn,
+    ComputeFnVTable,
+    InvocationArgs,
+    Kernel,
+    Options,
+    Output,
+};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef};
+use crate::{
+    Array,
+    ArrayRef,
+};
 
 static BOOLEAN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("boolean".into(), ArcRef::new_ref(&Boolean));

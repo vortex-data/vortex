@@ -2,12 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::VarBinVTable;
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    FilterKernel,
+    FilterKernelAdapter,
+    filter,
+};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{FSSTArray, FSSTVTable};
+use crate::{
+    FSSTArray,
+    FSSTVTable,
+};
 
 impl FilterKernel for FSSTVTable {
     // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
@@ -31,9 +42,15 @@ register_kernel!(FilterKernelAdapter(FSSTVTable).lift());
 mod test {
     use vortex_array::arrays::builder::VarBinBuilder;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
-    use crate::{fsst_compress, fsst_train_compressor};
+    use crate::{
+        fsst_compress,
+        fsst_train_compressor,
+    };
 
     #[test]
     fn test_filter_fsst_array() {

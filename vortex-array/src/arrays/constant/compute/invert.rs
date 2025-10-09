@@ -4,9 +4,19 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::compute::{InvertKernel, InvertKernelAdapter};
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::arrays::{
+    ConstantArray,
+    ConstantVTable,
+};
+use crate::compute::{
+    InvertKernel,
+    InvertKernelAdapter,
+};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl InvertKernel for ConstantVTable {
     fn invert(&self, array: &ConstantArray) -> VortexResult<ArrayRef> {

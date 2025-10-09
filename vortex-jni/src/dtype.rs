@@ -4,13 +4,45 @@
 use std::sync::Arc;
 
 use jni::JNIEnv;
-use jni::objects::{JClass, JLongArray, JObject, JObjectArray, JString, JValue};
-use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyte, jint, jlong, jobject, jstring};
-use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex::dtype::{DType, DecimalDType, ExtDType, Nullability, PType, StructFields};
+use jni::objects::{
+    JClass,
+    JLongArray,
+    JObject,
+    JObjectArray,
+    JString,
+    JValue,
+};
+use jni::sys::{
+    JNI_FALSE,
+    JNI_TRUE,
+    jboolean,
+    jbyte,
+    jint,
+    jlong,
+    jobject,
+    jstring,
+};
+use vortex::dtype::datetime::{
+    DATE_ID,
+    TIME_ID,
+    TIMESTAMP_ID,
+    TemporalMetadata,
+    TimeUnit,
+};
+use vortex::dtype::{
+    DType,
+    DecimalDType,
+    ExtDType,
+    Nullability,
+    PType,
+    StructFields,
+};
 use vortex::error::vortex_err;
 
-use crate::errors::{JNIError, try_or_throw};
+use crate::errors::{
+    JNIError,
+    try_or_throw,
+};
 
 pub const DTYPE_NULL: jbyte = 0;
 pub const DTYPE_BOOL: jbyte = 1;

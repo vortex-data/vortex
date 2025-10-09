@@ -5,20 +5,44 @@ mod request;
 mod source;
 
 use std::fmt;
-use std::fmt::{Debug, Display};
+use std::fmt::{
+    Debug,
+    Display,
+};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::task::{Context, Poll, ready};
+use std::sync::atomic::{
+    AtomicUsize,
+    Ordering,
+};
+use std::task::{
+    Context,
+    Poll,
+    ready,
+};
 
 use async_trait::async_trait;
 use futures::channel::mpsc;
-use futures::future::{BoxFuture, Shared};
-use futures::{FutureExt, TryFutureExt};
+use futures::future::{
+    BoxFuture,
+    Shared,
+};
+use futures::{
+    FutureExt,
+    TryFutureExt,
+};
 pub use request::*;
 pub use source::*;
-use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_err};
+use vortex_buffer::{
+    Alignment,
+    ByteBuffer,
+};
+use vortex_error::{
+    SharedVortexResult,
+    VortexError,
+    VortexResult,
+    vortex_err,
+};
 
 use crate::VortexReadAt;
 

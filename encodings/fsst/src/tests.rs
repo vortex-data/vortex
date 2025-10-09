@@ -2,13 +2,28 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::builder::VarBinBuilder;
-use vortex_array::compute::{filter, take};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::compute::{
+    filter,
+    take,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
 use vortex_mask::Mask;
 
-use crate::{FSSTEncoding, fsst_compress, fsst_train_compressor};
+use crate::{
+    FSSTEncoding,
+    fsst_compress,
+    fsst_train_compressor,
+};
 
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {

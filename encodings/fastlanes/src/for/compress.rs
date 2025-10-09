@@ -1,14 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::{PrimInt, WrappingAdd, WrappingSub};
+use num_traits::{
+    PrimInt,
+    WrappingAdd,
+    WrappingSub,
+};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::Stat;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{NativePType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_array::{
+    IntoArray,
+    ToCanonical,
+};
+use vortex_buffer::{
+    Buffer,
+    BufferMut,
+};
+use vortex_dtype::{
+    NativePType,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 
 use crate::FoRArray;
 

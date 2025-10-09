@@ -3,12 +3,25 @@
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    BoolArray, BooleanBuffer, DecimalArray, PrimitiveArray, StructArray, VarBinViewArray,
+    BoolArray,
+    BooleanBuffer,
+    DecimalArray,
+    PrimitiveArray,
+    StructArray,
+    VarBinViewArray,
 };
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, match_each_native_ptype};
+use vortex_dtype::{
+    DType,
+    match_each_native_ptype,
+};
 use vortex_error::VortexResult;
 use vortex_scalar::match_each_decimal_value_type;
 

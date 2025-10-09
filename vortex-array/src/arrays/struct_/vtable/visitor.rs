@@ -3,9 +3,18 @@
 
 use itertools::Itertools;
 
-use crate::arrays::struct_::{StructArray, StructVTable};
-use crate::vtable::{ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor};
+use crate::arrays::struct_::{
+    StructArray,
+    StructVTable,
+};
+use crate::vtable::{
+    ValidityHelper,
+    VisitorVTable,
+};
+use crate::{
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+};
 
 impl VisitorVTable<StructVTable> for StructVTable {
     fn visit_buffers(_array: &StructArray, _visitor: &mut dyn ArrayBufferVisitor) {}

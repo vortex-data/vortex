@@ -2,22 +2,41 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::{
-    ConstantArray, MaskedArray, VarBinArray, VarBinViewArray, VarBinViewVTable,
+    ConstantArray,
+    MaskedArray,
+    VarBinArray,
+    VarBinViewArray,
+    VarBinViewVTable,
 };
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_fsst::{FSSTArray, fsst_compress, fsst_train_compressor};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
+use vortex_fsst::{
+    FSSTArray,
+    fsst_compress,
+    fsst_train_compressor,
+};
 use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::integer::IntCompressor;
 use crate::sample::sample;
 use crate::{
-    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
-    estimate_compression_ratio_with_sampling, integer,
+    Compressor,
+    CompressorStats,
+    GenerateStatsOptions,
+    Scheme,
+    estimate_compression_ratio_with_sampling,
+    integer,
 };
 
 /// Array of variable-length byte arrays, and relevant stats for compression.
@@ -341,7 +360,10 @@ impl Scheme for ConstantScheme {
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
     use crate::Compressor;
     use crate::string::StringCompressor;

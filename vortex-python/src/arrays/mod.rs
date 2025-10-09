@@ -9,25 +9,55 @@ mod native;
 pub(crate) mod py;
 mod range_to_sequence;
 
-use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use arrow_array::{
+    Array as ArrowArray,
+    ArrayRef as ArrowArrayRef,
+};
+use pyo3::exceptions::{
+    PyTypeError,
+    PyValueError,
+};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyRange, PyRangeMethods};
+use pyo3::types::{
+    PyDict,
+    PyList,
+    PyRange,
+    PyRangeMethods,
+};
 use vortex::arrays::ChunkedVTable;
 use vortex::arrow::IntoArrowArray;
-use vortex::compute::{Operator, compare, take};
-use vortex::dtype::{DType, Nullability, PType, match_each_integer_ptype};
+use vortex::compute::{
+    Operator,
+    compare,
+    take,
+};
+use vortex::dtype::{
+    DType,
+    Nullability,
+    PType,
+    match_each_integer_ptype,
+};
 use vortex::error::VortexError;
-use vortex::{Array, ArrayRef, ToCanonical};
+use vortex::{
+    Array,
+    ArrayRef,
+    ToCanonical,
+};
 
 use crate::arrays::native::PyNativeArray;
-use crate::arrays::py::{PyPythonArray, PythonArray};
+use crate::arrays::py::{
+    PyPythonArray,
+    PythonArray,
+};
 use crate::arrow::ToPyArrow;
 use crate::dtype::PyDType;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
 use crate::serde::context::PyArrayContext;
-use crate::{PyVortex, install_module};
+use crate::{
+    PyVortex,
+    install_module,
+};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "arrays")?;

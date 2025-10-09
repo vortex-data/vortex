@@ -9,9 +9,15 @@ use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::http::HttpBuilder;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path;
-use object_store::{ObjectStore, ObjectStoreScheme};
+use object_store::{
+    ObjectStore,
+    ObjectStoreScheme,
+};
 use url::Url;
-use vortex::error::{VortexResult, vortex_bail};
+use vortex::error::{
+    VortexResult,
+    vortex_bail,
+};
 
 pub(crate) fn object_store_from_url(
     url_str: &str,

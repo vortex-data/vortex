@@ -2,15 +2,34 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+    VisitorVTable,
+};
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, EmptyMetadata,
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    Canonical,
+    DeserializeMetadata,
+    EmptyMetadata,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::{
+    DType,
+    PType,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 
-use crate::{ZigZagArray, ZigZagEncoding, ZigZagVTable, zigzag_encode};
+use crate::{
+    ZigZagArray,
+    ZigZagEncoding,
+    ZigZagVTable,
+    zigzag_encode,
+};
 
 impl SerdeVTable<ZigZagVTable> for ZigZagVTable {
     type Metadata = EmptyMetadata;

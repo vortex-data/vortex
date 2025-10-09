@@ -6,15 +6,41 @@
 
 use std::backtrace::Backtrace;
 
-use libfuzzer_sys::{Corpus, fuzz_target};
+use libfuzzer_sys::{
+    Corpus,
+    fuzz_target,
+};
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{cast, compare, filter, take};
-use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::compute::{
+    cast,
+    compare,
+    filter,
+    take,
+};
+use vortex_array::search_sorted::{
+    SearchResult,
+    SearchSorted,
+    SearchSortedSide,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_error::{VortexUnwrap, vortex_panic};
-use vortex_fuzz::error::{VortexFuzzError, VortexFuzzResult};
-use vortex_fuzz::{Action, FuzzArrayAction, sort_canonical_array};
+use vortex_error::{
+    VortexUnwrap,
+    vortex_panic,
+};
+use vortex_fuzz::error::{
+    VortexFuzzError,
+    VortexFuzzResult,
+};
+use vortex_fuzz::{
+    Action,
+    FuzzArrayAction,
+    sort_canonical_array,
+};
 use vortex_scalar::Scalar;
 
 fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {

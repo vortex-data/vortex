@@ -3,8 +3,14 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
-use crate::compute::{IsSortedKernel, IsSortedKernelAdapter};
+use crate::arrays::{
+    FixedSizeListArray,
+    FixedSizeListVTable,
+};
+use crate::compute::{
+    IsSortedKernel,
+    IsSortedKernelAdapter,
+};
 use crate::register_kernel;
 
 /// IsSorted implementation for [`FixedSizeListArray`].

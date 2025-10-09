@@ -1,14 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, bit_util};
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::{Mask, MaskIter};
+use arrow_buffer::{
+    BooleanBuffer,
+    BooleanBufferBuilder,
+    bit_util,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
+use vortex_mask::{
+    Mask,
+    MaskIter,
+};
 
-use crate::arrays::{BoolArray, BoolVTable};
-use crate::compute::{FilterKernel, FilterKernelAdapter};
+use crate::arrays::{
+    BoolArray,
+    BoolVTable,
+};
+use crate::compute::{
+    FilterKernel,
+    FilterKernelAdapter,
+};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
@@ -80,7 +100,10 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::arrays::BoolArray;
-    use crate::arrays::bool::compute::filter::{filter_indices, filter_slices};
+    use crate::arrays::bool::compute::filter::{
+        filter_indices,
+        filter_slices,
+    };
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::filter;

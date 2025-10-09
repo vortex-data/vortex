@@ -7,14 +7,41 @@ pub mod writer;
 use std::sync::Arc;
 
 use reader::StructReader;
-use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::{DType, Field, FieldMask, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_array::{
+    ArrayContext,
+    DeserializeMetadata,
+    EmptyMetadata,
+};
+use vortex_dtype::{
+    DType,
+    Field,
+    FieldMask,
+    StructFields,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+    vortex_panic,
+};
 
-use crate::children::{LayoutChildren, OwnedLayoutChildren};
-use crate::segments::{SegmentId, SegmentSource};
+use crate::children::{
+    LayoutChildren,
+    OwnedLayoutChildren,
+};
+use crate::segments::{
+    SegmentId,
+    SegmentSource,
+};
 use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
+    LayoutChildType,
+    LayoutEncodingRef,
+    LayoutId,
+    LayoutReaderRef,
+    LayoutRef,
+    VTable,
+    vtable,
 };
 
 vtable!(Struct);

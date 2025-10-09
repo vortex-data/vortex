@@ -7,13 +7,26 @@ mod is_constant;
 mod is_sorted;
 
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
+    FilterKernel,
+    FilterKernelAdapter,
+    TakeKernel,
+    TakeKernelAdapter,
+    filter,
+    take,
 };
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{FoRArray, FoRVTable};
+use crate::{
+    FoRArray,
+    FoRVTable,
+};
 
 impl TakeKernel for FoRVTable {
     fn take(&self, array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

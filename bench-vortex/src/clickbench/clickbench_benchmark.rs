@@ -9,9 +9,19 @@ use url::Url;
 use vortex::error::VortexExpect;
 
 use crate::benchmark_trait::Benchmark;
-use crate::clickbench::{Flavor, clickbench_queries, convert_parquet_to_vortex};
+use crate::clickbench::{
+    Flavor,
+    clickbench_queries,
+    convert_parquet_to_vortex,
+};
 use crate::engines::EngineCtx;
-use crate::{BenchmarkDataset, CompactionStrategy, Format, IdempotentPath, Target};
+use crate::{
+    BenchmarkDataset,
+    CompactionStrategy,
+    Format,
+    IdempotentPath,
+    Target,
+};
 
 /// ClickBench benchmark implementation
 pub struct ClickBenchBenchmark {

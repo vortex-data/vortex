@@ -5,12 +5,24 @@ use std::marker::PhantomData;
 
 use itertools::Itertools as _;
 use vortex::ToCanonical as _;
-use vortex::arrays::{ListArray, PrimitiveArray};
-use vortex::dtype::{IntegerPType, match_each_integer_ptype};
-use vortex::error::{VortexResult, vortex_err};
+use vortex::arrays::{
+    ListArray,
+    PrimitiveArray,
+};
+use vortex::dtype::{
+    IntegerPType,
+    match_each_integer_ptype,
+};
+use vortex::error::{
+    VortexResult,
+    vortex_err,
+};
 use vortex::mask::Mask;
 
-use super::{ConversionCache, new_array_exporter_with_flatten};
+use super::{
+    ConversionCache,
+    new_array_exporter_with_flatten,
+};
 use crate::cpp;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
@@ -90,12 +102,18 @@ impl<T: IntegerPType> ColumnExporter for ListExporter<T> {
 mod tests {
     use vortex::IntoArray as _;
     use vortex::arrays::VarBinArray;
-    use vortex::buffer::{Buffer, buffer};
+    use vortex::buffer::{
+        Buffer,
+        buffer,
+    };
     use vortex::error::VortexUnwrap;
     use vortex::validity::Validity;
 
     use super::*;
-    use crate::duckdb::{DataChunk, LogicalType};
+    use crate::duckdb::{
+        DataChunk,
+        LogicalType,
+    };
     use crate::exporter::new_array_exporter;
 
     #[test]

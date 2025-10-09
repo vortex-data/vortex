@@ -3,34 +3,81 @@
 
 //! FFI interface for Vortex File I/O.
 
-use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
+use std::ffi::{
+    CStr,
+    c_char,
+    c_int,
+    c_uint,
+    c_ulong,
+};
 use std::ops::Range;
 use std::slice;
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
+use std::sync::{
+    Arc,
+    LazyLock,
+};
 
 use itertools::Itertools;
-use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
-use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
-use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
+use object_store::aws::{
+    AmazonS3Builder,
+    AmazonS3ConfigKey,
+};
+use object_store::azure::{
+    AzureConfigKey,
+    MicrosoftAzureBuilder,
+};
+use object_store::gcp::{
+    GoogleCloudStorageBuilder,
+    GoogleConfigKey,
+};
 use object_store::local::LocalFileSystem;
-use object_store::{ObjectStore, ObjectStoreScheme};
+use object_store::{
+    ObjectStore,
+    ObjectStoreScheme,
+};
 use prost::Message;
 use url::Url;
-use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{
+    VortexError,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex::expr::proto::deserialize_expr_proto;
-use vortex::expr::{ExprRef, ExprRegistryExt};
-use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::expr::{
+    ExprRef,
+    ExprRegistryExt,
+};
+use vortex::file::{
+    VortexFile,
+    VortexOpenOptions,
+    VortexWriteOptions,
+};
 use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::proto::expr::Expr;
-use vortex::scan::{ScanBuilder, SplitBy};
+use vortex::scan::{
+    ScanBuilder,
+    SplitBy,
+};
 
 use crate::array::vx_array;
 use crate::array_iterator::vx_array_iterator;
 use crate::dtype::vx_dtype;
-use crate::error::{try_or_default, vx_error};
-use crate::session::{FileKey, vx_session};
-use crate::{arc_wrapper, get_runtime, get_vx_runtime, to_string_vec};
+use crate::error::{
+    try_or_default,
+    vx_error,
+};
+use crate::session::{
+    FileKey,
+    vx_session,
+};
+use crate::{
+    arc_wrapper,
+    get_runtime,
+    get_vx_runtime,
+    to_string_vec,
+};
 
 arc_wrapper!(
     /// A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.

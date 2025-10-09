@@ -7,25 +7,55 @@
 //! ensure AVX2 instructions are available.
 
 use std::arch::x86_64::{
-    __m256i, _mm_loadu_si128, _mm_setzero_si128, _mm_shuffle_epi32, _mm_storeu_si128,
-    _mm_unpacklo_epi64, _mm256_cmpgt_epi32, _mm256_cmpgt_epi64, _mm256_cvtepu8_epi32,
-    _mm256_cvtepu8_epi64, _mm256_cvtepu16_epi32, _mm256_cvtepu16_epi64, _mm256_cvtepu32_epi64,
-    _mm256_extracti128_si256, _mm256_loadu_si256, _mm256_mask_i32gather_epi32,
-    _mm256_mask_i64gather_epi32, _mm256_mask_i64gather_epi64, _mm256_set1_epi32,
-    _mm256_set1_epi64x, _mm256_setzero_si256, _mm256_storeu_si256,
+    __m256i,
+    _mm_loadu_si128,
+    _mm_setzero_si128,
+    _mm_shuffle_epi32,
+    _mm_storeu_si128,
+    _mm_unpacklo_epi64,
+    _mm256_cmpgt_epi32,
+    _mm256_cmpgt_epi64,
+    _mm256_cvtepu8_epi32,
+    _mm256_cvtepu8_epi64,
+    _mm256_cvtepu16_epi32,
+    _mm256_cvtepu16_epi64,
+    _mm256_cvtepu32_epi64,
+    _mm256_extracti128_si256,
+    _mm256_loadu_si256,
+    _mm256_mask_i32gather_epi32,
+    _mm256_mask_i64gather_epi32,
+    _mm256_mask_i64gather_epi64,
+    _mm256_set1_epi32,
+    _mm256_set1_epi64x,
+    _mm256_setzero_si256,
+    _mm256_storeu_si256,
 };
 use std::convert::identity;
 
-use vortex_buffer::{Alignment, Buffer, BufferMut};
+use vortex_buffer::{
+    Alignment,
+    Buffer,
+    BufferMut,
+};
 use vortex_dtype::{
-    NativePType, PType, UnsignedPType, match_each_native_ptype, match_each_unsigned_integer_ptype,
+    NativePType,
+    PType,
+    UnsignedPType,
+    match_each_native_ptype,
+    match_each_unsigned_integer_ptype,
 };
 use vortex_error::VortexResult;
 
 use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::primitive::compute::take::{TakeImpl, take_primitive_scalar};
+use crate::arrays::primitive::compute::take::{
+    TakeImpl,
+    take_primitive_scalar,
+};
 use crate::validity::Validity;
-use crate::{ArrayRef, IntoArray};
+use crate::{
+    ArrayRef,
+    IntoArray,
+};
 
 #[allow(unused)]
 pub(super) struct TakeKernelAVX2;

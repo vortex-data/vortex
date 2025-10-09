@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    CastKernel,
+    CastKernelAdapter,
+    cast,
+};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::r#for::{FoRArray, FoRVTable};
+use crate::r#for::{
+    FoRArray,
+    FoRVTable,
+};
 
 impl CastKernel for FoRVTable {
     fn cast(&self, array: &FoRArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -33,9 +44,16 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
     use vortex_scalar::Scalar;
 
     use crate::FoRArray;

@@ -7,7 +7,10 @@ pub use array::StructArray;
 mod compute;
 
 mod vtable;
-pub use vtable::{StructEncoding, StructVTable};
+pub use vtable::{
+    StructEncoding,
+    StructVTable,
+};
 
 #[cfg(test)]
 mod tests;

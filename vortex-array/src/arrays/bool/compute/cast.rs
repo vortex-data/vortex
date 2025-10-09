@@ -5,8 +5,14 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::array::ArrayRef;
-use crate::arrays::{BoolArray, BoolVTable};
-use crate::compute::{CastKernel, CastKernelAdapter};
+use crate::arrays::{
+    BoolArray,
+    BoolVTable,
+};
+use crate::compute::{
+    CastKernel,
+    CastKernelAdapter,
+};
 use crate::register_kernel;
 use crate::vtable::ValidityHelper;
 
@@ -32,7 +38,10 @@ register_kernel!(CastKernelAdapter(BoolVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
     use crate::arrays::BoolArray;
     use crate::compute::cast;

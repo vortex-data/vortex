@@ -4,16 +4,35 @@
 use std::sync::Arc;
 
 use arrow_array::builder::{
-    ArrayBuilder, BooleanBuilder, Float32Builder, Int32Builder, ListBuilder, StringBuilder,
+    ArrayBuilder,
+    BooleanBuilder,
+    Float32Builder,
+    Int32Builder,
+    ListBuilder,
+    StringBuilder,
     UInt64Builder,
 };
-use arrow_array::{ArrayRef, RecordBatch};
-use arrow_schema::{ArrowError, SchemaRef};
+use arrow_array::{
+    ArrayRef,
+    RecordBatch,
+};
+use arrow_schema::{
+    ArrowError,
+    SchemaRef,
+};
 use itertools::Itertools as _;
 use noodles_vcf::record::Info;
 use noodles_vcf::variant::record::info::field::Value;
-use noodles_vcf::{Header, Record};
-use vortex::error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use noodles_vcf::{
+    Header,
+    Record,
+};
+use vortex::error::{
+    VortexExpect as _,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::utils::aliases::hash_set::HashSet;
 

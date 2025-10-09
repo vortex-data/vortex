@@ -5,18 +5,40 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JLongArray, JObject, JObjectArray, JString, ReleaseMode};
-use jni::sys::{jlong, jobject};
+use jni::objects::{
+    JByteArray,
+    JClass,
+    JLongArray,
+    JObject,
+    JObjectArray,
+    JString,
+    ReleaseMode,
+};
+use jni::sys::{
+    jlong,
+    jobject,
+};
 use object_store::ObjectStore;
 use object_store::path::Path;
 use prost::Message;
 use url::Url;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex::error::{
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 use vortex::expr::proto::deserialize_expr_proto;
-use vortex::expr::{root, select};
-use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::expr::{
+    root,
+    select,
+};
+use vortex::file::{
+    VortexFile,
+    VortexOpenOptions,
+};
 use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::proto::expr as pb;
 use vortex::utils::aliases::hash_map::HashMap;
@@ -24,7 +46,11 @@ use vortex::utils::aliases::hash_map::HashMap;
 use crate::array_iter::NativeArrayIterator;
 use crate::errors::try_or_throw;
 use crate::object_store::make_object_store;
-use crate::{SESSION, TOKIO_RUNTIME, block_on};
+use crate::{
+    SESSION,
+    TOKIO_RUNTIME,
+    block_on,
+};
 
 pub struct NativeFile {
     inner: VortexFile,

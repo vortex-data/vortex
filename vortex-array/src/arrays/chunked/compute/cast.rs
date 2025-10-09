@@ -4,9 +4,20 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{CastKernel, CastKernelAdapter, cast};
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::arrays::{
+    ChunkedArray,
+    ChunkedVTable,
+};
+use crate::compute::{
+    CastKernel,
+    CastKernelAdapter,
+    cast,
+};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl CastKernel for ChunkedVTable {
     fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -30,7 +41,11 @@ register_kernel!(CastKernelAdapter(ChunkedVTable).lift());
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;

@@ -6,7 +6,10 @@ use std::sync::Arc;
 
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+    ListingOptions,
+    ListingTable,
+    ListingTableConfig,
+    ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
 use futures::StreamExt;
@@ -14,13 +17,21 @@ use log::info;
 use parquet::arrow::async_writer::AsyncFileWriter;
 use url::Url;
 use vortex::compressor::CompactCompressor;
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::file::{
+    VortexWriteOptions,
+    WriteStrategyBuilder,
+};
 use vortex_datafusion::VortexFormat;
 
 use crate::benchmark_trait::Benchmark;
 use crate::conversions::parquet_to_vortex;
 use crate::engines::EngineCtx;
-use crate::{BenchmarkDataset, Format, Target, idempotent_async};
+use crate::{
+    BenchmarkDataset,
+    Format,
+    Target,
+    idempotent_async,
+};
 
 /// URL to the sample file
 const SAMPLE_URL: &str = "https://huggingface.co/datasets/HuggingFaceFW/fineweb/resolve/v1.4.0/sample/10BT/001_00000.parquet";

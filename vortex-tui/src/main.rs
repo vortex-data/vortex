@@ -10,7 +10,10 @@ mod tree;
 use std::path::PathBuf;
 
 use browse::exec_tui;
-use clap::{CommandFactory, Parser};
+use clap::{
+    CommandFactory,
+    Parser,
+};
 use tree::exec_tree;
 use vortex::error::VortexExpect;
 

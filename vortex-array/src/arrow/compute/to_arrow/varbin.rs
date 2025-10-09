@@ -4,16 +4,38 @@
 use std::sync::Arc;
 
 use arrow_array::{
-    ArrayRef as ArrowArrayRef, GenericBinaryArray, GenericStringArray, OffsetSizeTrait,
+    ArrayRef as ArrowArrayRef,
+    GenericBinaryArray,
+    GenericStringArray,
+    OffsetSizeTrait,
 };
 use arrow_schema::DataType;
-use vortex_dtype::{DType, IntegerPType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_dtype::{
+    DType,
+    IntegerPType,
+    Nullability,
+    PType,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_panic,
+};
 
-use crate::arrays::{VarBinArray, VarBinVTable};
-use crate::arrow::compute::{ToArrowKernel, ToArrowKernelAdapter};
+use crate::arrays::{
+    VarBinArray,
+    VarBinVTable,
+};
+use crate::arrow::compute::{
+    ToArrowKernel,
+    ToArrowKernelAdapter,
+};
 use crate::compute::cast;
-use crate::{Array, ToCanonical, register_kernel};
+use crate::{
+    Array,
+    ToCanonical,
+    register_kernel,
+};
 
 impl ToArrowKernel for VarBinVTable {
     fn to_arrow(

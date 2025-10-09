@@ -4,15 +4,44 @@
 use std::fmt::Display;
 
 use itertools::Itertools;
-use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata, ToCanonical};
-use vortex_dtype::{DType, FieldNames};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_array::{
+    ArrayRef,
+    DeserializeMetadata,
+    IntoArray,
+    ProstMetadata,
+    ToCanonical,
+};
+use vortex_dtype::{
+    DType,
+    FieldNames,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_proto::expr::select_opts::Opts;
-use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
+use vortex_proto::expr::{
+    FieldNames as ProtoFieldNames,
+    SelectOpts,
+};
 
-use crate::display::{DisplayAs, DisplayFormat};
+use crate::display::{
+    DisplayAs,
+    DisplayFormat,
+};
 use crate::field::DisplayFieldNames;
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::{
+    AnalysisExpr,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    Scope,
+    VTable,
+    vtable,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -317,11 +346,27 @@ impl AnalysisExpr for SelectExpr {}
 mod tests {
 
     use vortex_array::arrays::StructArray;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
+    use vortex_dtype::{
+        DType,
+        FieldName,
+        FieldNames,
+        Nullability,
+    };
 
-    use crate::{FieldSelection, Scope, SelectExpr, root, select, select_exclude, test_harness};
+    use crate::{
+        FieldSelection,
+        Scope,
+        SelectExpr,
+        root,
+        select,
+        select_exclude,
+        test_harness,
+    };
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

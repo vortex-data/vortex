@@ -3,14 +3,21 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
 use super::BoolArray;
 use crate::ProstMetadata;
 use crate::arrays::BoolVTable;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, VTable};
+use crate::vtable::{
+    SerdeVTable,
+    VTable,
+};
 
 #[derive(prost::Message)]
 pub struct BoolMetadata {

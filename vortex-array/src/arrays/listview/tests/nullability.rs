@@ -5,11 +5,19 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
 use vortex_scalar::Scalar;
 
 use crate::IntoArray;
-use crate::arrays::{BoolArray, ListViewArray, PrimitiveArray};
+use crate::arrays::{
+    BoolArray,
+    ListViewArray,
+    PrimitiveArray,
+};
 use crate::validity::Validity;
 
 #[test]

@@ -5,7 +5,12 @@ use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
 
-use crate::traversal::{Node, NodeExt, NodeVisitor, TraversalOrder};
+use crate::traversal::{
+    Node,
+    NodeExt,
+    NodeVisitor,
+    TraversalOrder,
+};
 
 struct FnVisitor<'a, F, T: 'a>
 where

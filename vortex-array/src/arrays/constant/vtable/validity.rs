@@ -3,7 +3,10 @@
 
 use vortex_mask::Mask;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
+use crate::arrays::{
+    ConstantArray,
+    ConstantVTable,
+};
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<ConstantVTable> for ConstantVTable {

@@ -5,11 +5,20 @@
 
 use std::cell::RefCell;
 
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 
-use crate::pipeline::operator::{NodeId, PipelineNode};
+use crate::pipeline::operator::{
+    NodeId,
+    PipelineNode,
+};
 use crate::pipeline::vec::Vector;
-use crate::pipeline::{VType, VectorId};
+use crate::pipeline::{
+    VType,
+    VectorId,
+};
 
 #[derive(Debug)]
 pub struct VectorAllocationPlan {

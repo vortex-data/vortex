@@ -14,12 +14,20 @@ pub(crate) use primitive::*;
 use pyo3::prelude::*;
 pub(crate) use struct_::*;
 use vortex::arrays::{
-    BoolVTable, ExtensionVTable, FixedSizeListVTable, ListVTable, NullVTable, VarBinVTable,
+    BoolVTable,
+    ExtensionVTable,
+    FixedSizeListVTable,
+    ListVTable,
+    NullVTable,
+    VarBinVTable,
     VarBinViewVTable,
 };
 use vortex::encodings::bytebool::ByteBoolVTable;
 
-use crate::arrays::native::{EncodingSubclass, PyNativeArray};
+use crate::arrays::native::{
+    EncodingSubclass,
+    PyNativeArray,
+};
 
 /// Concrete class for arrays with `vortex.null` encoding.
 #[pyclass(name = "NullArray", module = "vortex", extends=PyNativeArray, frozen)]

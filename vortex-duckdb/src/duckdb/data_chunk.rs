@@ -4,11 +4,24 @@
 use std::ffi::CStr;
 use std::ptr;
 
-use vortex::error::{VortexError, VortexExpect, vortex_bail};
+use vortex::error::{
+    VortexError,
+    VortexExpect,
+    vortex_bail,
+};
 
-use crate::cpp::{duckdb_logical_type, duckdb_vx_error};
-use crate::duckdb::{LogicalType, Vector};
-use crate::{cpp, wrapper};
+use crate::cpp::{
+    duckdb_logical_type,
+    duckdb_vx_error,
+};
+use crate::duckdb::{
+    LogicalType,
+    Vector,
+};
+use crate::{
+    cpp,
+    wrapper,
+};
 
 wrapper!(
     DataChunk,

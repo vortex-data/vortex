@@ -2,19 +2,31 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use pyo3::prelude::*;
-use vortex::encodings::alp::{ALPRDVTable, ALPVTable};
+use vortex::encodings::alp::{
+    ALPRDVTable,
+    ALPVTable,
+};
 use vortex::encodings::datetime_parts::DateTimePartsVTable;
 use vortex::encodings::dict::DictVTable;
 use vortex::encodings::fsst::FSSTVTable;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
 use vortex::encodings::sparse::SparseVTable;
-use vortex::encodings::zigzag::{ZigZagVTable, zigzag_encode};
-use vortex::{IntoArray, ToCanonical};
+use vortex::encodings::zigzag::{
+    ZigZagVTable,
+    zigzag_encode,
+};
+use vortex::{
+    IntoArray,
+    ToCanonical,
+};
 
 use crate::PyVortex;
 use crate::arrays::PyArrayRef;
-use crate::arrays::native::{EncodingSubclass, PyNativeArray};
+use crate::arrays::native::{
+    EncodingSubclass,
+    PyNativeArray,
+};
 
 /// Concrete class for arrays with `vortex.alp` encoding.
 #[pyclass(name = "AlpArray", module = "vortex", extends=PyNativeArray, frozen)]

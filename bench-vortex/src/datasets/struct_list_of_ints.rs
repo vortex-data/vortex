@@ -3,11 +3,22 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rand::{Rng, SeedableRng};
-use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
+use rand::{
+    Rng,
+    SeedableRng,
+};
+use vortex::arrays::{
+    ChunkedArray,
+    ListArray,
+    PrimitiveArray,
+    StructArray,
+};
 use vortex::dtype::FieldNames;
 use vortex::validity::Validity;
-use vortex::{ArrayRef, IntoArray};
+use vortex::{
+    ArrayRef,
+    IntoArray,
+};
 
 use crate::datasets::Dataset;
 

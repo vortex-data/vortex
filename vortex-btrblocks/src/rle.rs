@@ -5,12 +5,20 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_error::VortexResult;
 use vortex_fastlanes::RLEArray;
 
 use crate::integer::IntCompressor;
-use crate::{CompressorStats, Scheme, estimate_compression_ratio_with_sampling};
+use crate::{
+    CompressorStats,
+    Scheme,
+    estimate_compression_ratio_with_sampling,
+};
 
 /// Threshold for the average run length in an array before we consider run-length encoding.
 pub const RUN_LENGTH_THRESHOLD: u32 = 4;

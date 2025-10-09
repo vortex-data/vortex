@@ -13,12 +13,26 @@ use vortex_scalar::Scalar;
 use crate::arrays::StructVTable;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
-    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, MinMaxKernel, MinMaxKernelAdapter,
-    MinMaxResult, TakeKernel, TakeKernelAdapter, fill_null, is_constant_opts, take,
+    IsConstantKernel,
+    IsConstantKernelAdapter,
+    IsConstantOpts,
+    MinMaxKernel,
+    MinMaxKernelAdapter,
+    MinMaxResult,
+    TakeKernel,
+    TakeKernelAdapter,
+    fill_null,
+    is_constant_opts,
+    take,
 };
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl TakeKernel for StructVTable {
     fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -91,22 +105,45 @@ register_kernel!(IsConstantKernelAdapter(StructVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use Nullability::{NonNullable, Nullable};
+    use Nullability::{
+        NonNullable,
+        Nullable,
+    };
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
+    use vortex_dtype::{
+        DType,
+        FieldNames,
+        Nullability,
+        PType,
+        StructFields,
+    };
     use vortex_error::VortexUnwrap;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
+    use crate::arrays::{
+        BoolArray,
+        BooleanBuffer,
+        PrimitiveArray,
+        StructArray,
+        VarBinArray,
+    };
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::{cast, filter, is_constant, take};
+    use crate::compute::{
+        cast,
+        filter,
+        is_constant,
+        take,
+    };
     use crate::validity::Validity;
-    use crate::{Array, IntoArray as _};
+    use crate::{
+        Array,
+        IntoArray as _,
+    };
 
     #[test]
     fn filter_empty_struct() {

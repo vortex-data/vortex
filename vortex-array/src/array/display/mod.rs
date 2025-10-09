@@ -308,11 +308,18 @@ impl dyn Array + '_ {
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::{Buffer, buffer};
+    use vortex_buffer::{
+        Buffer,
+        buffer,
+    };
     use vortex_dtype::FieldNames;
 
     use crate::IntoArray as _;
-    use crate::arrays::{BoolArray, ListArray, StructArray};
+    use crate::arrays::{
+        BoolArray,
+        ListArray,
+        StructArray,
+    };
     use crate::validity::Validity;
 
     #[test]

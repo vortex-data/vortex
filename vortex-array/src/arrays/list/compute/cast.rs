@@ -4,10 +4,20 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::{ListArray, ListVTable};
-use crate::compute::{CastKernel, CastKernelAdapter, cast};
+use crate::arrays::{
+    ListArray,
+    ListVTable,
+};
+use crate::compute::{
+    CastKernel,
+    CastKernelAdapter,
+    cast,
+};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, register_kernel};
+use crate::{
+    ArrayRef,
+    register_kernel,
+};
 
 impl CastKernel for ListVTable {
     fn cast(&self, array: &Self::Array, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -37,10 +47,19 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
     use crate::IntoArray;
-    use crate::arrays::{BoolArray, ListArray, PrimitiveArray, VarBinArray};
+    use crate::arrays::{
+        BoolArray,
+        ListArray,
+        PrimitiveArray,
+        VarBinArray,
+    };
     use crate::compute::cast;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::validity::Validity;

@@ -2,9 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::BoolArray;
-use vortex_array::compute::{ListContainsKernel, ListContainsKernelAdapter};
-use vortex_array::{Array, ArrayRef, register_kernel};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_array::compute::{
+    ListContainsKernel,
+    ListContainsKernelAdapter,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    register_kernel,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 
 use crate::array::SequenceVTable;
 use crate::compute::compare::find_intersection_scalar;

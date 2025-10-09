@@ -15,12 +15,35 @@
 
 use std::sync::Arc;
 
-use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use arrow_schema::{
+    DataType,
+    Field,
+    FieldRef,
+    Fields,
+    Schema,
+    SchemaBuilder,
+    SchemaRef,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
-use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
+use crate::datetime::arrow::{
+    make_arrow_temporal_dtype,
+    make_temporal_ext_dtype,
+};
 use crate::datetime::is_temporal_ext_type;
-use crate::{DType, DecimalDType, FieldName, Nullability, PType, StructFields};
+use crate::{
+    DType,
+    DecimalDType,
+    FieldName,
+    Nullability,
+    PType,
+    StructFields,
+};
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
@@ -250,11 +273,29 @@ impl DType {
 
 #[cfg(test)]
 mod test {
-    use arrow_schema::{DataType, Field, FieldRef, Fields, Schema};
-    use rstest::{fixture, rstest};
+    use arrow_schema::{
+        DataType,
+        Field,
+        FieldRef,
+        Fields,
+        Schema,
+    };
+    use rstest::{
+        fixture,
+        rstest,
+    };
 
     use super::*;
-    use crate::{DType, ExtDType, ExtID, FieldName, FieldNames, Nullability, PType, StructFields};
+    use crate::{
+        DType,
+        ExtDType,
+        ExtID,
+        FieldName,
+        FieldNames,
+        Nullability,
+        PType,
+        StructFields,
+    };
 
     #[test]
     fn test_dtype_conversion_success() {

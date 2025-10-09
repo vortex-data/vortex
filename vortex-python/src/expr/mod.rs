@@ -6,8 +6,21 @@ use std::ops::Deref;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
-use vortex::dtype::{DType, Nullability, PType};
-use vortex::expr::{BinaryExpr, ExprRef, GetItemExpr, IntoExpr, NotExpr, Operator, and, lit};
+use vortex::dtype::{
+    DType,
+    Nullability,
+    PType,
+};
+use vortex::expr::{
+    BinaryExpr,
+    ExprRef,
+    GetItemExpr,
+    IntoExpr,
+    NotExpr,
+    Operator,
+    and,
+    lit,
+};
 
 use crate::dtype::PyDType;
 use crate::install_module;

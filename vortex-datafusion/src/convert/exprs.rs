@@ -3,22 +3,48 @@
 
 use std::sync::Arc;
 
-use arrow_schema::{DataType, Schema};
+use arrow_schema::{
+    DataType,
+    Schema,
+};
 use datafusion_expr::Operator as DFOperator;
-use datafusion_physical_expr::{PhysicalExpr, PhysicalExprRef};
+use datafusion_physical_expr::{
+    PhysicalExpr,
+    PhysicalExprRef,
+};
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::dtype::{DType, Nullability};
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::dtype::{
+    DType,
+    Nullability,
+};
+use vortex::error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex::expr::{
-    BinaryExpr, ExprRef, LikeExpr, Operator, and, cast, get_item, is_null, list_contains, lit, not,
+    BinaryExpr,
+    ExprRef,
+    LikeExpr,
+    Operator,
+    and,
+    cast,
+    get_item,
+    is_null,
+    list_contains,
+    lit,
+    not,
     root,
 };
 use vortex::scalar::Scalar;
 
-use crate::convert::{FromDataFusion, TryFromDataFusion};
+use crate::convert::{
+    FromDataFusion,
+    TryFromDataFusion,
+};
 
 /// Tries to convert the expressions into a vortex conjunction. Will return Ok(None) iff the input conjunction is empty.
 pub(crate) fn make_vortex_predicate(
@@ -232,14 +258,22 @@ fn supported_data_types(dt: &DataType) -> bool {
 mod tests {
     use std::sync::Arc;
 
-    use arrow_schema::{DataType, Field, Schema, TimeUnit as ArrowTimeUnit};
+    use arrow_schema::{
+        DataType,
+        Field,
+        Schema,
+        TimeUnit as ArrowTimeUnit,
+    };
     use datafusion_common::ScalarValue;
     use datafusion_expr::Operator as DFOperator;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_plan::expressions as df_expr;
     use insta::assert_snapshot;
     use rstest::rstest;
-    use vortex::expr::{ExprRef, Operator};
+    use vortex::expr::{
+        ExprRef,
+        Operator,
+    };
 
     use super::*;
 

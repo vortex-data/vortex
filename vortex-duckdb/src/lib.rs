@@ -2,13 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::missing_safety_doc)]
-use std::ffi::{CStr, c_char};
+use std::ffi::{
+    CStr,
+    c_char,
+};
 
 // **WARNING end
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::{
+    VortexExpect,
+    VortexResult,
+};
 
 use crate::copy::VortexCopyFunction;
-pub use crate::duckdb::{Connection, Database};
+pub use crate::duckdb::{
+    Connection,
+    Database,
+};
 use crate::scan::VortexTableFunction;
 
 mod convert;

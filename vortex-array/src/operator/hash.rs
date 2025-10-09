@@ -2,14 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::operator::{Operator, OperatorRef};
+use crate::operator::{
+    Operator,
+    OperatorRef,
+};
 use crate::validity::Validity;
 
 /// A hash trait for operators that loosens the semantics to permit pointer-based hashing for
@@ -50,7 +56,10 @@ impl<T: OperatorEq + 'static> DynOperatorEq for T {
 }
 
 mod private {
-    use crate::operator::{OperatorEq, OperatorHash};
+    use crate::operator::{
+        OperatorEq,
+        OperatorHash,
+    };
 
     pub trait SealedHash {}
     impl<T: OperatorHash + ?Sized> SealedHash for T {}

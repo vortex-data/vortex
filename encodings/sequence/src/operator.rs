@@ -2,26 +2,54 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::sync::Arc;
 
-use num_traits::{ConstOne, PrimInt};
+use num_traits::{
+    ConstOne,
+    PrimInt,
+};
 use vortex_array::Array;
 use vortex_array::operator::slice::SliceOperator;
 use vortex_array::operator::{
-    LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    LengthBounds,
+    Operator,
+    OperatorEq,
+    OperatorHash,
+    OperatorId,
+    OperatorRef,
 };
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::vec::Selection;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{
-    BindContext, Element, Kernel, KernelContext, N, PipelinedOperator, RowSelection,
+    BindContext,
+    Element,
+    Kernel,
+    KernelContext,
+    N,
+    PipelinedOperator,
+    RowSelection,
 };
 use vortex_array::vtable::PipelineVTable;
-use vortex_dtype::{DType, IntegerPType, NativePType, match_each_integer_ptype};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_dtype::{
+    DType,
+    IntegerPType,
+    NativePType,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_err,
+};
 
-use crate::{SequenceArray, SequenceVTable};
+use crate::{
+    SequenceArray,
+    SequenceVTable,
+};
 
 impl PipelineVTable<SequenceVTable> for SequenceVTable {
     fn to_operator(array: &SequenceArray) -> VortexResult<Option<OperatorRef>> {

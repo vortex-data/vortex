@@ -3,7 +3,11 @@
 
 use jni::JNIEnv;
 use jni::objects::JObject;
-use jni::sys::{JNI_FALSE, jboolean, jobject};
+use jni::sys::{
+    JNI_FALSE,
+    jboolean,
+    jobject,
+};
 use vortex::error::VortexError;
 
 #[derive(Debug, thiserror::Error)]

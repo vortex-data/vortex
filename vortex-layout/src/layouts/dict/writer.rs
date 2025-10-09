@@ -3,20 +3,51 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::task::{
+    Context,
+    Poll,
+};
 
-use async_stream::{stream, try_stream};
+use async_stream::{
+    stream,
+    try_stream,
+};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-use futures::stream::{BoxStream, once};
-use futures::{FutureExt, Stream, StreamExt, TryStreamExt, pin_mut, try_join};
-use vortex_array::{Array, ArrayContext, ArrayRef};
+use futures::stream::{
+    BoxStream,
+    once,
+};
+use futures::{
+    FutureExt,
+    Stream,
+    StreamExt,
+    TryStreamExt,
+    pin_mut,
+    try_join,
+};
+use vortex_array::{
+    Array,
+    ArrayContext,
+    ArrayRef,
+};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
-use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
+use vortex_dict::builders::{
+    DictConstraints,
+    DictEncoder,
+    dict_encoder,
+};
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_dtype::{
+    DType,
+    PType,
+};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    vortex_err,
+};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 
@@ -24,10 +55,19 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{
-    SendableSequentialStream, SequenceId, SequencePointer, SequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt,
+    SendableSequentialStream,
+    SequenceId,
+    SequencePointer,
+    SequentialStream,
+    SequentialStreamAdapter,
+    SequentialStreamExt,
 };
-use crate::{IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren};
+use crate::{
+    IntoLayout,
+    LayoutRef,
+    LayoutStrategy,
+    OwnedLayoutChildren,
+};
 
 #[derive(Clone)]
 pub struct DictLayoutConstraints {

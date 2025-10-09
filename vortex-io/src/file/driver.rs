@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{
+    BTreeMap,
+    BTreeSet,
+};
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{
+    Context,
+    Poll,
+};
 
 use futures::Stream;
 use pin_project_lite::pin_project;
@@ -10,7 +16,12 @@ use vortex_error::VortexExpect;
 use vortex_metrics::VortexMetrics;
 
 use crate::file::read::{
-    CoalesceWindow, CoalescedRequest, IoRequest, ReadEvent, ReadRequest, RequestId,
+    CoalesceWindow,
+    CoalescedRequest,
+    IoRequest,
+    ReadEvent,
+    ReadRequest,
+    RequestId,
 };
 
 pin_project! {
@@ -282,12 +293,22 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use futures::{StreamExt, stream};
-    use vortex_buffer::{Alignment, ByteBuffer};
+    use futures::{
+        StreamExt,
+        stream,
+    };
+    use vortex_buffer::{
+        Alignment,
+        ByteBuffer,
+    };
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::file::{IoRequestInner, ReadEvent, ReadRequest};
+    use crate::file::{
+        IoRequestInner,
+        ReadEvent,
+        ReadRequest,
+    };
 
     fn create_request(
         id: usize,

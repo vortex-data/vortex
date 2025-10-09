@@ -8,10 +8,21 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::ByteBuffer;
-    use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        ExtDType,
+        ExtID,
+        Nullability,
+        PType,
+    };
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
+    use crate::{
+        InnerScalarValue,
+        PValue,
+        Scalar,
+        ScalarValue,
+    };
 
     #[test]
     fn default_value_for_complex_dtype() {
@@ -131,7 +142,10 @@ mod tests {
 
     #[test]
     fn test_decimal_nbytes() {
-        use vortex_dtype::{DECIMAL128_MAX_PRECISION, DecimalDType};
+        use vortex_dtype::{
+            DECIMAL128_MAX_PRECISION,
+            DecimalDType,
+        };
 
         use crate::decimal::DecimalValue;
 
@@ -358,7 +372,10 @@ mod tests {
     fn test_scalar_from_decimal_scalar() {
         use vortex_dtype::DecimalDType;
 
-        use crate::decimal::{DecimalScalar, DecimalValue};
+        use crate::decimal::{
+            DecimalScalar,
+            DecimalValue,
+        };
 
         let decimal_dtype = DecimalDType::new(10, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);

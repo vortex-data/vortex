@@ -4,15 +4,35 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_dtype::{DType, ExtDType};
-use vortex_error::{VortexResult, vortex_ensure};
+use vortex_dtype::{
+    DType,
+    ExtDType,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_ensure,
+};
 use vortex_mask::Mask;
-use vortex_scalar::{ExtScalar, Scalar};
+use vortex_scalar::{
+    ExtScalar,
+    Scalar,
+};
 
 use crate::arrays::ExtensionArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, builder_with_capacity};
-use crate::canonical::{Canonical, ToCanonical};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::builders::{
+    ArrayBuilder,
+    DEFAULT_BUILDER_CAPACITY,
+    builder_with_capacity,
+};
+use crate::canonical::{
+    Canonical,
+    ToCanonical,
+};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 
 /// The builder for building a [`ExtensionArray`].
 pub struct ExtensionBuilder {
@@ -116,7 +136,11 @@ impl ArrayBuilder for ExtensionBuilder {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{ExtDType, ExtID, Nullability};
+    use vortex_dtype::{
+        ExtDType,
+        ExtID,
+        Nullability,
+    };
     use vortex_scalar::Scalar;
 
     use super::*;

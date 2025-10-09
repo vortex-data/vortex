@@ -4,16 +4,26 @@
 use std::sync::Arc;
 
 use arrow_array::cast::AsArray;
-use arrow_array::{BinaryViewArray, StringViewArray};
+use arrow_array::{
+    BinaryViewArray,
+    StringViewArray,
+};
 use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
-use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::arrow::{
+    FromArrowArray,
+    IntoArrowArray,
+};
 use crate::vtable::CanonicalVTable;
-use crate::{ArrayRef, Canonical, ToCanonical};
+use crate::{
+    ArrayRef,
+    Canonical,
+    ToCanonical,
+};
 
 impl CanonicalVTable<VarBinVTable> for VarBinVTable {
     fn canonicalize(array: &VarBinArray) -> Canonical {
@@ -54,7 +64,10 @@ impl CanonicalVTable<VarBinVTable> for VarBinVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::canonical::ToCanonical;

@@ -1,10 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::{CheckedAdd, CheckedSub};
+use num_traits::{
+    CheckedAdd,
+    CheckedSub,
+};
 use vortex_array::ArrayRef;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
+use vortex_dtype::{
+    NativePType,
+    Nullability,
+    match_each_integer_ptype,
+};
 use vortex_error::VortexResult;
 use vortex_scalar::PValue;
 

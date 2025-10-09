@@ -4,9 +4,20 @@
 use std::sync::Arc;
 
 use arrow_array::*;
-use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, vortex_bail, vortex_err};
+use vortex_dtype::datetime::{
+    TemporalMetadata,
+    TimeUnit,
+    is_temporal_ext_type,
+};
+use vortex_dtype::{
+    DType,
+    PType,
+};
+use vortex_error::{
+    VortexError,
+    vortex_bail,
+    vortex_err,
+};
 
 use crate::Scalar;
 use crate::decimal::DecimalValue;

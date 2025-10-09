@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use pyo3::{PyRef, pyclass, pymethods};
+use pyo3::{
+    PyRef,
+    pyclass,
+    pymethods,
+};
 use vortex::arrays::DecimalVTable;
 
-use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
+use crate::arrays::native::{
+    AsArrayRef,
+    EncodingSubclass,
+    PyNativeArray,
+};
 
 /// Concrete class for arrays with `vortex.decimal` encoding.
 #[pyclass(name = "DecimalArray", module = "vortex", extends=PyNativeArray, frozen)]

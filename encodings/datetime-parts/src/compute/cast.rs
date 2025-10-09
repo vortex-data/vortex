@@ -1,12 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    CastKernel,
+    CastKernelAdapter,
+    cast,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{DateTimePartsArray, DateTimePartsVTable};
+use crate::{
+    DateTimePartsArray,
+    DateTimePartsVTable,
+};
 
 impl CastKernel for DateTimePartsVTable {
     fn cast(&self, array: &DateTimePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -34,13 +46,23 @@ register_kernel!(CastKernelAdapter(DateTimePartsVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::arrays::{PrimitiveArray, TemporalArray};
+    use vortex_array::arrays::{
+        PrimitiveArray,
+        TemporalArray,
+    };
     use vortex_array::compute::cast;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray};
+    use vortex_array::{
+        Array,
+        ArrayRef,
+        IntoArray,
+    };
     use vortex_buffer::buffer;
     use vortex_dtype::datetime::TimeUnit;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
     use crate::DateTimePartsArray;
 

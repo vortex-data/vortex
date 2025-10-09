@@ -2,13 +2,25 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{
+    AtomicU64,
+    Ordering,
+};
 
 use async_trait::async_trait;
 use parking_lot::Mutex;
-use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexResult, vortex_err};
-use vortex_layout::segments::{SegmentId, SegmentSink};
+use vortex_buffer::{
+    Alignment,
+    ByteBuffer,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_err,
+};
+use vortex_layout::segments::{
+    SegmentId,
+    SegmentSink,
+};
 use vortex_layout::sequence::SequenceId;
 
 use crate::footer::SegmentSpec;

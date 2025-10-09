@@ -5,11 +5,21 @@ use std::fmt::Debug;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 
 use crate::serde::ArrayChildren;
-use crate::vtable::{NotSupported, VTable};
-use crate::{DeserializeMetadata, EmptyMetadata, SerializeMetadata};
+use crate::vtable::{
+    NotSupported,
+    VTable,
+};
+use crate::{
+    DeserializeMetadata,
+    EmptyMetadata,
+    SerializeMetadata,
+};
 
 /// VTable trait for building an array from its serialized components.
 ///

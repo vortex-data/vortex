@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::duckdb::drop_boxed;
-use crate::{cpp, wrapper};
+use crate::{
+    cpp,
+    wrapper,
+};
 
 // This data wrapper is used to create an external data object that can be passed to and
 // freed by DuckDB.

@@ -1,11 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::{Arc, LazyLock};
+use std::sync::{
+    Arc,
+    LazyLock,
+};
 
 use futures::future::BoxFuture;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Executor, Handle, IoTask};
+use crate::runtime::{
+    AbortHandle,
+    AbortHandleRef,
+    BlockingRuntime,
+    Executor,
+    Handle,
+    IoTask,
+};
 
 /// A Vortex runtime that drives all work the enclosed Tokio runtime handle.
 pub struct TokioRuntime(Arc<tokio::runtime::Handle>);
@@ -146,7 +156,10 @@ impl<T> Iterator for TokioBlockingIterator<'_, T> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    };
 
     use futures::FutureExt;
     use tokio::runtime::Runtime as TokioRt;

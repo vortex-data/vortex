@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{CStr, CString, c_void};
+use std::ffi::{
+    CStr,
+    CString,
+    c_void,
+};
 use std::fmt::Debug;
 use std::ptr;
 
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::{
+    VortexExpect,
+    VortexResult,
+};
 mod bind;
 mod cardinality;
 mod init;
@@ -27,7 +34,10 @@ use crate::duckdb::table_function::cardinality::cardinality_callback;
 use crate::duckdb::table_function::partition::get_partition_data_callback;
 use crate::duckdb::table_function::pushdown_complex_filter::pushdown_complex_filter_callback;
 use crate::duckdb::table_function::virtual_columns::get_virtual_columns_callback;
-use crate::{cpp, duckdb_try};
+use crate::{
+    cpp,
+    duckdb_try,
+};
 
 /// A trait that defines the supported operations for a table function in DuckDB.
 ///

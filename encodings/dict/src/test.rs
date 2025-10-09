@@ -3,16 +3,43 @@
 
 #![allow(clippy::unwrap_used)]
 
-use rand::distr::{Alphanumeric, Distribution, StandardUniform};
-use rand::prelude::{IndexedRandom, StdRng};
-use rand::{Rng, SeedableRng};
-use vortex_array::arrays::{ChunkedArray, PrimitiveArray, VarBinArray};
+use rand::distr::{
+    Alphanumeric,
+    Distribution,
+    StandardUniform,
+};
+use rand::prelude::{
+    IndexedRandom,
+    StdRng,
+};
+use rand::{
+    Rng,
+    SeedableRng,
+};
+use vortex_array::arrays::{
+    ChunkedArray,
+    PrimitiveArray,
+    VarBinArray,
+};
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexResult, VortexUnwrap};
-use vortex_fsst::{fsst_compress, fsst_train_compressor};
+use vortex_dtype::{
+    DType,
+    NativePType,
+    Nullability,
+};
+use vortex_error::{
+    VortexResult,
+    VortexUnwrap,
+};
+use vortex_fsst::{
+    fsst_compress,
+    fsst_train_compressor,
+};
 
 use crate::DictArray;
 

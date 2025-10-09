@@ -2,10 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CString;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 
 use vortex::dtype::ExtDType;
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
 use crate::cpp::*;
 use crate::wrapper;
@@ -115,7 +122,10 @@ impl LogicalType {
     /// - **Time**: Must use `TimeUnit::Us`
     /// - **Timestamp**: Supports `TimeUnit::Ns`, `Us`, `Ms`, `S`
     pub fn temporal_type(ext_dtype: &ExtDType) -> VortexResult<Self> {
-        use vortex::dtype::datetime::{TemporalMetadata, TimeUnit};
+        use vortex::dtype::datetime::{
+            TemporalMetadata,
+            TimeUnit,
+        };
 
         let temporal_metadata = TemporalMetadata::try_from(ext_dtype)
             .map_err(|e| vortex_err!("Failed to extract temporal metadata: {}", e))?;

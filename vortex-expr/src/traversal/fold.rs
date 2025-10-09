@@ -145,7 +145,14 @@ mod tests {
     use super::*;
     use crate::traversal::NodeExt;
     use crate::{
-        BinaryVTable, ExprRef, LiteralVTable, Operator, checked_add, gt, lit, vortex_bail,
+        BinaryVTable,
+        ExprRef,
+        LiteralVTable,
+        Operator,
+        checked_add,
+        gt,
+        lit,
+        vortex_bail,
     };
 
     struct AddFold;

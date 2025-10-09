@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    CastKernel,
+    CastKernelAdapter,
+    cast,
+};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ZigZagArray, ZigZagVTable};
+use crate::{
+    ZigZagArray,
+    ZigZagVTable,
+};
 
 impl CastKernel for ZigZagVTable {
     fn cast(&self, array: &ZigZagArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -29,10 +40,20 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{Array, ToCanonical};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_array::{
+        Array,
+        ToCanonical,
+    };
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
-    use crate::{ZigZagArray, zigzag_encode};
+    use crate::{
+        ZigZagArray,
+        zigzag_encode,
+    };
 
     #[test]
     fn test_cast_zigzag_i32_to_i64() {

@@ -5,9 +5,15 @@ use std::ops::Range;
 
 use vortex_scalar::Scalar;
 
-use crate::arrays::extension::{ExtensionArray, ExtensionVTable};
+use crate::arrays::extension::{
+    ExtensionArray,
+    ExtensionVTable,
+};
 use crate::vtable::OperationsVTable;
-use crate::{ArrayRef, IntoArray};
+use crate::{
+    ArrayRef,
+    IntoArray,
+};
 
 impl OperationsVTable<ExtensionVTable> for ExtensionVTable {
     fn slice(array: &ExtensionArray, range: Range<usize>) -> ArrayRef {

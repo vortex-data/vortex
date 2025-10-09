@@ -1,12 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{
+    VortexResult,
+    vortex_err,
+};
 use vortex_scalar::NumericOperator;
 
-use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::compute::{NumericKernel, NumericKernelAdapter};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::arrays::{
+    ConstantArray,
+    ConstantVTable,
+};
+use crate::compute::{
+    NumericKernel,
+    NumericKernelAdapter,
+};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl NumericKernel for ConstantVTable {
     fn numeric(

@@ -4,11 +4,22 @@
 use std::cmp::min;
 use std::ops::Range;
 
-use vortex_array::vtable::{OperationsVTable, ValidityHelper};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::vtable::{
+    OperationsVTable,
+    ValidityHelper,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_scalar::Scalar;
 
-use crate::{DeltaArray, DeltaVTable};
+use crate::{
+    DeltaArray,
+    DeltaVTable,
+};
 
 impl OperationsVTable<DeltaVTable> for DeltaVTable {
     fn slice(array: &DeltaArray, range: Range<usize>) -> ArrayRef {
@@ -57,7 +68,10 @@ mod test {
     use rstest::rstest;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{
+        IntoArray,
+        ToCanonical,
+    };
 
     use super::*;
 

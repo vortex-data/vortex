@@ -4,9 +4,15 @@
 use std::ffi::CString;
 use std::os::raw::c_void;
 
-use vortex::error::{VortexUnwrap, vortex_err};
+use vortex::error::{
+    VortexUnwrap,
+    vortex_err,
+};
 
-use crate::{cpp, lifetime_wrapper};
+use crate::{
+    cpp,
+    lifetime_wrapper,
+};
 
 /// Custom deleter function for Box<T> allocated in Rust
 unsafe extern "C-unwind" fn rust_box_deleter<T>(ptr: *mut c_void) {

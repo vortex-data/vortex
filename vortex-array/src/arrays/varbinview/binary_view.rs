@@ -2,10 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::ops::Range;
 
-use static_assertions::{assert_eq_align, assert_eq_size};
+use static_assertions::{
+    assert_eq_align,
+    assert_eq_size,
+};
 use vortex_error::VortexUnwrap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

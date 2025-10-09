@@ -3,7 +3,10 @@
 
 use pyo3::pyclass;
 
-use crate::scalar::{PyScalar, ScalarSubclass};
+use crate::scalar::{
+    PyScalar,
+    ScalarSubclass,
+};
 
 #[pyclass(name = "NullScalar", module = "vortex", extends=PyScalar, frozen)]
 pub(crate) struct PyNullScalar;

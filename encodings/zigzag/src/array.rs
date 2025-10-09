@@ -3,16 +3,39 @@
 
 use std::ops::Range;
 
-use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::stats::{
+    ArrayStats,
+    StatsSetRef,
+};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityChild,
+    ArrayVTable,
+    CanonicalVTable,
+    NotSupported,
+    OperationsVTable,
+    VTable,
+    ValidityChild,
     ValidityVTableFromChild,
 };
 use vortex_array::{
-    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
+    Array,
+    ArrayRef,
+    Canonical,
+    EncodingId,
+    EncodingRef,
+    IntoArray,
+    ToCanonical,
+    vtable,
 };
-use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{
+    DType,
+    PType,
+    match_each_unsigned_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 use vortex_scalar::Scalar;
 use zigzag::ZigZag as ExternalZigZag;
 

@@ -1,13 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{self};
+use std::fmt::{
+    self,
+};
 
-use humansize::{DECIMAL, format_size};
+use humansize::{
+    DECIMAL,
+    format_size,
+};
 
 use crate::arrays::ChunkedEncoding;
 use crate::display::DisplayOptions;
-use crate::{Array, ArrayRef, ArrayVisitor};
+use crate::{
+    Array,
+    ArrayRef,
+    ArrayVisitor,
+};
 
 pub(super) struct TreeDisplayWrapper(pub(super) ArrayRef);
 

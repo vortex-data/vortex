@@ -5,9 +5,20 @@ use std::future::Future;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::future::{BoxFuture, Shared};
-use futures::{FutureExt, TryFutureExt};
-use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_panic};
+use futures::future::{
+    BoxFuture,
+    Shared,
+};
+use futures::{
+    FutureExt,
+    TryFutureExt,
+};
+use vortex_error::{
+    SharedVortexResult,
+    VortexError,
+    VortexResult,
+    vortex_panic,
+};
 use vortex_mask::Mask;
 
 /// A future that resolves to a mask.

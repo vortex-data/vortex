@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    CastKernel,
+    CastKernelAdapter,
+    cast,
+};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::alp::{ALPArray, ALPVTable};
+use crate::alp::{
+    ALPArray,
+    ALPVTable,
+};
 
 impl CastKernel for ALPVTable {
     fn cast(&self, array: &ALPArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -50,7 +61,11 @@ mod tests {
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
     use crate::ALPEncoding;
 

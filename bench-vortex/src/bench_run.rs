@@ -3,7 +3,10 @@
 
 use std::future::Future;
 use std::hint::black_box;
-use std::time::{Duration, Instant};
+use std::time::{
+    Duration,
+    Instant,
+};
 
 use tokio::runtime::Runtime;
 

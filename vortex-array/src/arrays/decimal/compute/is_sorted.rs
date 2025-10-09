@@ -4,10 +4,20 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
+use vortex_scalar::{
+    NativeDecimalType,
+    match_each_decimal_value_type,
+};
 
-use crate::arrays::{DecimalArray, DecimalVTable};
-use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
+use crate::arrays::{
+    DecimalArray,
+    DecimalVTable,
+};
+use crate::compute::{
+    IsSortedIteratorExt,
+    IsSortedKernel,
+    IsSortedKernelAdapter,
+};
 use crate::register_kernel;
 
 impl IsSortedKernel for DecimalVTable {
@@ -69,7 +79,10 @@ mod tests {
     use vortex_dtype::DecimalDType;
 
     use crate::arrays::DecimalArray;
-    use crate::compute::{is_sorted, is_strict_sorted};
+    use crate::compute::{
+        is_sorted,
+        is_strict_sorted,
+    };
     use crate::validity::Validity;
 
     #[test]

@@ -6,22 +6,46 @@ use std::sync::Arc;
 use arrow_array::RecordBatchReader;
 use arrow_schema::SchemaRef;
 use itertools::Itertools;
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::{
+    PyTypeError,
+    PyValueError,
+};
 use pyo3::prelude::*;
 use pyo3::types::PyString;
-use vortex::dtype::{FieldName, FieldNames};
+use vortex::dtype::{
+    FieldName,
+    FieldNames,
+};
 use vortex::error::VortexResult;
-use vortex::expr::{ExprRef, SelectExpr, root, select};
-use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::expr::{
+    ExprRef,
+    SelectExpr,
+    root,
+    select,
+};
+use vortex::file::{
+    VortexFile,
+    VortexOpenOptions,
+};
 use vortex::iter::ArrayIteratorExt;
 use vortex::scan::SplitBy;
-use vortex::{ArrayRef, ToCanonical};
+use vortex::{
+    ArrayRef,
+    ToCanonical,
+};
 
 use crate::arrays::PyArrayRef;
-use crate::arrow::{IntoPyArrow, ToPyArrow};
+use crate::arrow::{
+    IntoPyArrow,
+    ToPyArrow,
+};
 use crate::expr::PyExpr;
 use crate::object_store_urls::object_store_from_url;
-use crate::{RUNTIME, TOKIO_RUNTIME, install_module};
+use crate::{
+    RUNTIME,
+    TOKIO_RUNTIME,
+    install_module,
+};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;

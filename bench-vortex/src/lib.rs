@@ -13,8 +13,14 @@ use itertools::Itertools;
 use serde::Serialize;
 pub use utils::file_utils::*;
 pub use utils::logging::*;
-use vortex::error::{VortexUnwrap, vortex_err};
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::error::{
+    VortexUnwrap,
+    vortex_err,
+};
+use vortex::file::{
+    VortexWriteOptions,
+    WriteStrategyBuilder,
+};
 use vortex::layout::layouts::compact::CompactCompressor;
 
 pub mod bench_run;
@@ -39,7 +45,10 @@ pub mod tpcds;
 pub mod tpch;
 pub mod utils;
 
-pub use datasets::{BenchmarkDataset, file};
+pub use datasets::{
+    BenchmarkDataset,
+    file,
+};
 pub use engines::df;
 pub use vortex::error::vortex_panic;
 

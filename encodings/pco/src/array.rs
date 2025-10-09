@@ -5,26 +5,73 @@ use std::cmp;
 use std::fmt::Debug;
 use std::ops::Range;
 
-use pco::data_types::{Number, NumberType};
+use pco::data_types::{
+    Number,
+    NumberType,
+};
 use pco::errors::PcoError;
-use pco::wrapped::{ChunkDecompressor, FileCompressor, FileDecompressor};
-use pco::{ChunkConfig, PagingSpec, match_number_enum};
-use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
+use pco::wrapped::{
+    ChunkDecompressor,
+    FileCompressor,
+    FileDecompressor,
+};
+use pco::{
+    ChunkConfig,
+    PagingSpec,
+    match_number_enum,
+};
+use vortex_array::arrays::{
+    PrimitiveArray,
+    PrimitiveVTable,
+};
 use vortex_array::compute::filter;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::stats::{
+    ArrayStats,
+    StatsSetRef,
+};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
-    ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
+    ArrayVTable,
+    CanonicalVTable,
+    NotSupported,
+    OperationsVTable,
+    VTable,
+    ValidityHelper,
+    ValiditySliceHelper,
+    ValidityVTableFromValiditySliceHelper,
 };
-use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
-use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, PType, half};
-use vortex_error::{VortexError, VortexResult, VortexUnwrap, vortex_err};
+use vortex_array::{
+    ArrayRef,
+    Canonical,
+    EncodingId,
+    EncodingRef,
+    IntoArray,
+    ToCanonical,
+    vtable,
+};
+use vortex_buffer::{
+    BufferMut,
+    ByteBuffer,
+    ByteBufferMut,
+};
+use vortex_dtype::{
+    DType,
+    PType,
+    half,
+};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    VortexUnwrap,
+    vortex_err,
+};
 use vortex_scalar::Scalar;
 
 use crate::serde::PcoMetadata;
-use crate::{PcoChunkInfo, PcoPageInfo};
+use crate::{
+    PcoChunkInfo,
+    PcoPageInfo,
+};
 
 // Overall approach here:
 // Chunk the array into Pco chunks (currently using the default recommended size

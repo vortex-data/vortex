@@ -3,16 +3,33 @@
 
 use std::fmt::Debug;
 
-use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::{ArrayRegistry, EncodingRef};
+use vortex_alp::{
+    ALPEncoding,
+    ALPRDEncoding,
+};
+use vortex_array::{
+    ArrayRegistry,
+    EncodingRef,
+};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
 use vortex_dict::DictEncoding;
-use vortex_expr::{ExprRegistry, ExprRegistryExt};
-use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding, RLEEncoding};
+use vortex_expr::{
+    ExprRegistry,
+    ExprRegistryExt,
+};
+use vortex_fastlanes::{
+    BitPackedEncoding,
+    DeltaEncoding,
+    FoREncoding,
+    RLEEncoding,
+};
 use vortex_fsst::FSSTEncoding;
-use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
+use vortex_layout::{
+    LayoutRegistry,
+    LayoutRegistryExt,
+};
 use vortex_metrics::VortexMetrics;
 use vortex_pco::PcoEncoding;
 use vortex_runend::RunEndEncoding;

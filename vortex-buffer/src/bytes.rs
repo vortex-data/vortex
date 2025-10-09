@@ -4,7 +4,12 @@
 use bytes::Buf;
 use vortex_error::VortexExpect;
 
-use crate::{Alignment, ByteBuffer, ConstBuffer, ConstByteBuffer};
+use crate::{
+    Alignment,
+    ByteBuffer,
+    ConstBuffer,
+    ConstByteBuffer,
+};
 
 /// An extension to the [`Buf`] trait that provides a function `copy_to_aligned` similar to
 /// `copy_to_bytes` that allows for zero-copy aligned reads where possible.

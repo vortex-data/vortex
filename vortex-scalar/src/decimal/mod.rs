@@ -1,15 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Display};
+use std::fmt::{
+    Debug,
+    Display,
+};
 
-use crate::{BigCast, i256};
+use crate::{
+    BigCast,
+    i256,
+};
 
 mod scalar;
 pub use scalar::*;
 
 mod value;
-pub use value::{DecimalValue, DecimalValueType};
+pub use value::{
+    DecimalValue,
+    DecimalValueType,
+};
 
 /// Type of decimal scalar values.
 ///

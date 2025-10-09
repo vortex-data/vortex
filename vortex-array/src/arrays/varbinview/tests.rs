@@ -5,7 +5,10 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::VarBinViewArray;
 use crate::arrays::binary_view::BinaryView;
-use crate::{Array, ToCanonical};
+use crate::{
+    Array,
+    ToCanonical,
+};
 
 #[test]
 pub fn varbin_view() {

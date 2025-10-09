@@ -3,15 +3,44 @@
 
 use std::cmp::Ordering;
 
-use pyo3::prelude::{PyAnyMethods, PyDictMethods};
-use pyo3::types::{PyBytes, PyDict, PyList, PyString};
-use pyo3::{Bound, IntoPyObject, PyAny, PyErr, PyResult, Python};
-use vortex::buffer::{BufferString, ByteBuffer};
+use pyo3::prelude::{
+    PyAnyMethods,
+    PyDictMethods,
+};
+use pyo3::types::{
+    PyBytes,
+    PyDict,
+    PyList,
+    PyString,
+};
+use pyo3::{
+    Bound,
+    IntoPyObject,
+    PyAny,
+    PyErr,
+    PyResult,
+    Python,
+};
+use vortex::buffer::{
+    BufferString,
+    ByteBuffer,
+};
 use vortex::dtype::half::f16;
-use vortex::dtype::{DType, PType};
-use vortex::error::{VortexExpect, vortex_err};
+use vortex::dtype::{
+    DType,
+    PType,
+};
+use vortex::error::{
+    VortexExpect,
+    vortex_err,
+};
 use vortex::scalar::{
-    DecimalValue, ListScalar, Scalar, StructScalar, i256, match_each_decimal_value,
+    DecimalValue,
+    ListScalar,
+    Scalar,
+    StructScalar,
+    i256,
+    match_each_decimal_value,
 };
 
 use crate::PyVortex;

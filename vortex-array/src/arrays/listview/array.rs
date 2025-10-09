@@ -4,15 +4,34 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_err};
+use vortex_dtype::{
+    DType,
+    IntegerPType,
+    Nullability,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_ensure,
+    vortex_err,
+};
 
-use crate::arrays::{ListArray, PrimitiveVTable};
+use crate::arrays::{
+    ListArray,
+    PrimitiveVTable,
+};
 use crate::builders::PrimitiveBuilder;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+use crate::{
+    Array,
+    ArrayRef,
+    Canonical,
+    IntoArray,
+    ToCanonical,
+};
 
 /// The canonical encoding for variable-length list arrays.
 ///

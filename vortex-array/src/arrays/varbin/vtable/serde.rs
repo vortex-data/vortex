@@ -2,15 +2,29 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 
 use super::VarBinEncoding;
-use crate::arrays::{VarBinArray, VarBinVTable};
+use crate::arrays::{
+    VarBinArray,
+    VarBinVTable,
+};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
-use crate::{Array, ProstMetadata};
+use crate::{
+    Array,
+    ProstMetadata,
+};
 
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {

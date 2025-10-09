@@ -9,9 +9,16 @@
 //! - Specifications for array and layout encodings used in the file
 use std::sync::Arc;
 
-use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use flatbuffers::{
+    FlatBufferBuilder,
+    WIPOffset,
+};
 use vortex_array::ArrayContext;
-use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer, footer as fb};
+use vortex_flatbuffers::{
+    FlatBufferRoot,
+    WriteFlatBuffer,
+    footer as fb,
+};
 use vortex_layout::LayoutContext;
 
 use crate::footer::segment::SegmentSpec;

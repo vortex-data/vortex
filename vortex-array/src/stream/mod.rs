@@ -5,11 +5,17 @@ use std::pin::Pin;
 
 pub use adapter::*;
 pub use ext::*;
-use futures::{Stream, stream};
+use futures::{
+    Stream,
+    stream,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{Array, ArrayRef};
+use crate::{
+    Array,
+    ArrayRef,
+};
 
 mod adapter;
 mod ext;

@@ -2,15 +2,39 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, Nullability, PType, StructFields};
-use vortex_error::{VortexExpect, VortexUnwrap, vortex_err};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+    StructFields,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexUnwrap,
+    vortex_err,
+};
 
-use crate::arrays::{ChunkedArray, ChunkedVTable, ListArray, PrimitiveArray, StructArray};
-use crate::builders::{ArrayBuilder, builder_with_capacity};
+use crate::arrays::{
+    ChunkedArray,
+    ChunkedVTable,
+    ListArray,
+    PrimitiveArray,
+    StructArray,
+};
+use crate::builders::{
+    ArrayBuilder,
+    builder_with_capacity,
+};
 use crate::compute::cast;
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+use crate::{
+    Array,
+    ArrayRef,
+    Canonical,
+    IntoArray,
+    ToCanonical,
+};
 
 impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
     fn canonicalize(array: &ChunkedArray) -> Canonical {
@@ -139,14 +163,25 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::buffer;
-    use vortex_dtype::DType::{List, Primitive};
+    use vortex_dtype::DType::{
+        List,
+        Primitive,
+    };
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
 
     use crate::accessor::ArrayAccessor;
-    use crate::arrays::{ChunkedArray, ListArray, StructArray, VarBinViewArray};
+    use crate::arrays::{
+        ChunkedArray,
+        ListArray,
+        StructArray,
+        VarBinViewArray,
+    };
     use crate::validity::Validity;
-    use crate::{IntoArray, ToCanonical};
+    use crate::{
+        IntoArray,
+        ToCanonical,
+    };
 
     #[test]
     pub fn pack_nested_structs() {

@@ -6,14 +6,28 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use parking_lot::RwLock;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::EncodingRef;
 use crate::arrays::{
-    BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
-    FixedSizeListEncoding, ListEncoding, MaskedEncoding, NullEncoding, PrimitiveEncoding,
-    StructEncoding, VarBinEncoding, VarBinViewEncoding,
+    BoolEncoding,
+    ChunkedEncoding,
+    ConstantEncoding,
+    DecimalEncoding,
+    ExtensionEncoding,
+    FixedSizeListEncoding,
+    ListEncoding,
+    MaskedEncoding,
+    NullEncoding,
+    PrimitiveEncoding,
+    StructEncoding,
+    VarBinEncoding,
+    VarBinViewEncoding,
 };
 
 /// A collection of array encodings.

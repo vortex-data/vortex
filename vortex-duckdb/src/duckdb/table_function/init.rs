@@ -2,14 +2,25 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::c_void;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 use std::ptr;
 
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 
 use crate::cpp;
 use crate::duckdb::data::Data;
-use crate::duckdb::{ClientContext, TableFilterSet, TableFunction};
+use crate::duckdb::{
+    ClientContext,
+    TableFilterSet,
+    TableFunction,
+};
 
 /// Native callback for the global initialization of a table function.
 pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(

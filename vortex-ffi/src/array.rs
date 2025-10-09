@@ -2,16 +2,29 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! FFI interface for working with Vortex Arrays.
-use std::ffi::{c_int, c_void};
+use std::ffi::{
+    c_int,
+    c_void,
+};
 use std::slice;
 
 use vortex::dtype::half::f16;
-use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
-use vortex::{Array, ToCanonical};
+use vortex::error::{
+    VortexExpect,
+    VortexUnwrap,
+    vortex_err,
+};
+use vortex::{
+    Array,
+    ToCanonical,
+};
 
 use crate::arc_dyn_wrapper;
 use crate::dtype::vx_dtype;
-use crate::error::{try_or_default, vx_error};
+use crate::error::{
+    try_or_default,
+    vx_error,
+};
 
 arc_dyn_wrapper!(
     /// Base type for all Vortex arrays.
@@ -174,18 +187,31 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::{c_int, c_void};
+    use std::ffi::{
+        c_int,
+        c_void,
+    };
     use std::ptr;
 
     use vortex::IntoArray;
-    use vortex::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
-    use vortex::buffer::{Buffer, buffer};
+    use vortex::arrays::{
+        PrimitiveArray,
+        StructArray,
+        VarBinViewArray,
+    };
+    use vortex::buffer::{
+        Buffer,
+        buffer,
+    };
     #[cfg(not(miri))]
     use vortex::dtype::half::f16;
     use vortex::validity::Validity;
 
     use crate::array::*;
-    use crate::dtype::{vx_dtype_get_variant, vx_dtype_variant};
+    use crate::dtype::{
+        vx_dtype_get_variant,
+        vx_dtype_variant,
+    };
     use crate::error::vx_error_free;
 
     #[test]

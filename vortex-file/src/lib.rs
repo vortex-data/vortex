@@ -101,20 +101,34 @@ mod strategy;
 mod tests;
 mod writer;
 
-use std::sync::{Arc, LazyLock};
+use std::sync::{
+    Arc,
+    LazyLock,
+};
 
 pub use file::*;
 pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
-use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::{ArrayRegistry, EncodingRef};
+use vortex_alp::{
+    ALPEncoding,
+    ALPRDEncoding,
+};
+use vortex_array::{
+    ArrayRegistry,
+    EncodingRef,
+};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
 use vortex_dict::DictEncoding;
-use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding, RLEEncoding};
+use vortex_fastlanes::{
+    BitPackedEncoding,
+    DeltaEncoding,
+    FoREncoding,
+    RLEEncoding,
+};
 use vortex_fsst::FSSTEncoding;
 use vortex_pco::PcoEncoding;
 use vortex_runend::RunEndEncoding;

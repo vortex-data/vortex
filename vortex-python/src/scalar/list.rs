@@ -2,11 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use pyo3::exceptions::PyIndexError;
-use pyo3::{IntoPyObject, Py, PyAny, PyRef, PyResult, pyclass, pymethods};
+use pyo3::{
+    IntoPyObject,
+    Py,
+    PyAny,
+    PyRef,
+    PyResult,
+    pyclass,
+    pymethods,
+};
 use vortex::scalar::ListScalar;
 
 use crate::PyVortex;
-use crate::scalar::{AsScalarRef, PyScalar, ScalarSubclass};
+use crate::scalar::{
+    AsScalarRef,
+    PyScalar,
+    ScalarSubclass,
+};
 
 /// Concrete class for list scalars.
 #[pyclass(name = "ListScalar", module = "vortex", extends=PyScalar, frozen)]

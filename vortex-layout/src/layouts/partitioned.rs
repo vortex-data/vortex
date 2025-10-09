@@ -9,11 +9,23 @@ use futures::try_join;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{IntoArray, MaskFuture};
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexError, VortexResult};
+use vortex_array::{
+    IntoArray,
+    MaskFuture,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+};
 use vortex_expr::transform::PartitionedExpr;
-use vortex_expr::{ExprRef, Scope};
+use vortex_expr::{
+    ExprRef,
+    Scope,
+};
 
 use crate::ArrayFuture;
 

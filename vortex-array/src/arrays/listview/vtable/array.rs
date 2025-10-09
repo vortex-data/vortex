@@ -3,7 +3,10 @@
 
 use vortex_dtype::DType;
 
-use crate::arrays::{ListViewArray, ListViewVTable};
+use crate::arrays::{
+    ListViewArray,
+    ListViewVTable,
+};
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayVTable;
 

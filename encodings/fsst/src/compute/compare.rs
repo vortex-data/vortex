@@ -1,18 +1,42 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray};
+use vortex_array::arrays::{
+    BoolArray,
+    BooleanBuffer,
+    ConstantArray,
+};
 use vortex_array::compute::{
-    CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
+    CompareKernel,
+    CompareKernelAdapter,
+    Operator,
+    compare,
+    compare_lengths_to_empty,
 };
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{
+    DType,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 use vortex_scalar::Scalar;
 
-use crate::{FSSTArray, FSSTVTable};
+use crate::{
+    FSSTArray,
+    FSSTVTable,
+};
 
 impl CompareKernel for FSSTVTable {
     fn compare(
@@ -110,13 +134,28 @@ fn compare_fsst_constant(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{ConstantArray, VarBinArray};
-    use vortex_array::compute::{Operator, compare};
-    use vortex_array::{Array, ToCanonical};
-    use vortex_dtype::{DType, Nullability};
+    use vortex_array::arrays::{
+        ConstantArray,
+        VarBinArray,
+    };
+    use vortex_array::compute::{
+        Operator,
+        compare,
+    };
+    use vortex_array::{
+        Array,
+        ToCanonical,
+    };
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
     use vortex_scalar::Scalar;
 
-    use crate::{fsst_compress, fsst_train_compressor};
+    use crate::{
+        fsst_compress,
+        fsst_train_compressor,
+    };
 
     #[test]
     #[cfg_attr(miri, ignore)]

@@ -5,14 +5,31 @@ use std::fmt::Debug;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
-    BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison, between,
+    BetweenKernel,
+    BetweenKernelAdapter,
+    BetweenOptions,
+    StrictComparison,
+    between,
 };
-use vortex_array::{Array, ArrayRef, register_kernel};
-use vortex_dtype::{NativeDType, NativePType, Nullability};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    register_kernel,
+};
+use vortex_dtype::{
+    NativeDType,
+    NativePType,
+    Nullability,
+};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
+use crate::{
+    ALPArray,
+    ALPFloat,
+    ALPVTable,
+    match_each_alp_float_ptype,
+};
 
 impl BetweenKernel for ALPVTable {
     fn between(
@@ -94,11 +111,17 @@ mod tests {
     use itertools::Itertools;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::{BetweenOptions, StrictComparison};
+    use vortex_array::compute::{
+        BetweenOptions,
+        StrictComparison,
+    };
     use vortex_dtype::Nullability;
 
     use crate::alp::compute::between::between_impl;
-    use crate::{ALPArray, alp_encode};
+    use crate::{
+        ALPArray,
+        alp_encode,
+    };
 
     fn between_test(arr: &ALPArray, lower: f32, upper: f32, options: &BetweenOptions) -> bool {
         let res = between_impl(arr, lower, upper, Nullability::Nullable, options)

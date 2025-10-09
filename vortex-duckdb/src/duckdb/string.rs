@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{CStr, c_char};
-use std::fmt::{Debug, Display, Formatter};
+use std::ffi::{
+    CStr,
+    c_char,
+};
+use std::fmt::{
+    Debug,
+    Display,
+    Formatter,
+};
 use std::str::Utf8Error;
 
 use crate::cpp;

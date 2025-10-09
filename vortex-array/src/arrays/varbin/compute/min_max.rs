@@ -3,12 +3,22 @@
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{
+    VortexResult,
+    vortex_panic,
+};
 use vortex_scalar::Scalar;
 
 use crate::accessor::ArrayAccessor;
-use crate::arrays::{VarBinArray, VarBinVTable};
-use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use crate::arrays::{
+    VarBinArray,
+    VarBinVTable,
+};
+use crate::compute::{
+    MinMaxKernel,
+    MinMaxKernelAdapter,
+    MinMaxResult,
+};
 use crate::register_kernel;
 
 impl MinMaxKernel for VarBinVTable {
@@ -64,8 +74,14 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::arrays::VarBinArray;
-    use crate::compute::{MinMaxResult, min_max};
-    use crate::stats::{Stat, StatsProvider};
+    use crate::compute::{
+        MinMaxResult,
+        min_max,
+    };
+    use crate::stats::{
+        Stat,
+        StatsProvider,
+    };
 
     #[test]
     fn some_nulls() {

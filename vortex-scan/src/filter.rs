@@ -7,7 +7,11 @@ use bit_vec::BitVec;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
-use vortex_error::{VortexExpect, vortex_err, vortex_panic};
+use vortex_error::{
+    VortexExpect,
+    vortex_err,
+    vortex_panic,
+};
 use vortex_expr::ExprRef;
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::forms::conjuncts;

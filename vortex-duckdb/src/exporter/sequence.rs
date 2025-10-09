@@ -3,7 +3,10 @@
 
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::encodings::sequence::SequenceArray;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::{
+    VortexExpect,
+    VortexResult,
+};
 
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
@@ -39,7 +42,10 @@ mod tests {
 
     use super::*;
     use crate::cpp;
-    use crate::duckdb::{DataChunk, LogicalType};
+    use crate::duckdb::{
+        DataChunk,
+        LogicalType,
+    };
 
     #[test]
     fn test_sequence() {

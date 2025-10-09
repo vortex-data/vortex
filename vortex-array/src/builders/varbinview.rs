@@ -5,19 +5,46 @@ use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
+use vortex_buffer::{
+    Buffer,
+    BufferMut,
+    ByteBuffer,
+    ByteBufferMut,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_ensure,
+};
 use vortex_mask::Mask;
-use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
-use vortex_utils::aliases::hash_map::{Entry, HashMap};
+use vortex_scalar::{
+    BinaryScalar,
+    Scalar,
+    Utf8Scalar,
+};
+use vortex_utils::aliases::hash_map::{
+    Entry,
+    HashMap,
+};
 
 use crate::arrays::VarBinViewArray;
 use crate::arrays::binary_view::BinaryView;
 use crate::arrays::compact::BufferUtilization;
-use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
-use crate::canonical::{Canonical, ToCanonical};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::builders::{
+    ArrayBuilder,
+    LazyNullBufferBuilder,
+};
+use crate::canonical::{
+    Canonical,
+    ToCanonical,
+};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 
 /// The builder for building a [`VarBinViewArray`].
 pub struct VarBinViewBuilder {
@@ -750,11 +777,17 @@ mod tests {
     use std::str::from_utf8;
 
     use itertools::Itertools;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewVTable;
-    use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+    use crate::builders::{
+        ArrayBuilder,
+        VarBinViewBuilder,
+    };
 
     #[test]
     fn test_utf8_builder() {
@@ -957,7 +990,10 @@ mod tests {
 
     #[test]
     fn test_large_value_allocation() {
-        use super::{BufferGrowthStrategy, VarBinViewBuilder};
+        use super::{
+            BufferGrowthStrategy,
+            VarBinViewBuilder,
+        };
 
         let mut builder = VarBinViewBuilder::new(
             DType::Binary(Nullability::Nullable),

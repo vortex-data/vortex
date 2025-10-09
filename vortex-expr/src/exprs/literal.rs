@@ -5,15 +5,39 @@ use std::sync::Arc;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::operator::OperatorRef;
-use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
-use vortex_dtype::{DType, match_each_float_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    DeserializeMetadata,
+    IntoArray,
+    ProstMetadata,
+};
+use vortex_dtype::{
+    DType,
+    match_each_float_ptype,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
-use crate::display::{DisplayAs, DisplayFormat};
+use crate::display::{
+    DisplayAs,
+    DisplayFormat,
+};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
+    AnalysisExpr,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    Scope,
+    StatsCatalog,
+    VTable,
+    vtable,
 };
 
 vtable!(Literal);
@@ -175,10 +199,18 @@ pub fn lit(value: impl Into<Scalar>) -> ExprRef {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability, PType, StructFields};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+        StructFields,
+    };
     use vortex_scalar::Scalar;
 
-    use crate::{lit, test_harness};
+    use crate::{
+        lit,
+        test_harness,
+    };
 
     #[test]
     fn dtype() {

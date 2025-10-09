@@ -5,10 +5,17 @@ use std::ops::Range;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 use vortex_scalar::Scalar;
 
-use crate::{SparseArray, SparseVTable};
+use crate::{
+    SparseArray,
+    SparseVTable,
+};
 
 impl OperationsVTable<SparseVTable> for SparseVTable {
     fn slice(array: &SparseArray, range: Range<usize>) -> ArrayRef {
@@ -38,7 +45,10 @@ impl OperationsVTable<SparseVTable> for SparseVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
 
     use super::*;

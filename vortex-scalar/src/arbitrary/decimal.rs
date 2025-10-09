@@ -1,15 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitOr, Rem, Shl, Shr, Sub};
+use std::ops::{
+    BitOr,
+    Rem,
+    Shl,
+    Shr,
+    Sub,
+};
 
 use arbitrary::unstructured::Int;
-use arbitrary::{Result, Unstructured};
-use num_traits::{CheckedAdd, WrappingAdd, WrappingSub};
+use arbitrary::{
+    Result,
+    Unstructured,
+};
+use num_traits::{
+    CheckedAdd,
+    WrappingAdd,
+    WrappingSub,
+};
 use primitive_types::U256;
-use vortex_dtype::{DECIMAL128_MAX_PRECISION, DecimalDType};
+use vortex_dtype::{
+    DECIMAL128_MAX_PRECISION,
+    DecimalDType,
+};
 
-use crate::{DecimalValue, InnerScalarValue, ScalarValue, i256};
+use crate::{
+    DecimalValue,
+    InnerScalarValue,
+    ScalarValue,
+    i256,
+};
 
 /// Generate an arbitrary decimal scalar confined to the given bounds of precision and scale.
 pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Result<ScalarValue> {

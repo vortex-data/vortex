@@ -4,11 +4,18 @@
 use std::ops::Range;
 
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+};
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
-use crate::{FL_CHUNK_SIZE, RLEArray, RLEVTable};
+use crate::{
+    FL_CHUNK_SIZE,
+    RLEArray,
+    RLEVTable,
+};
 
 impl OperationsVTable<RLEVTable> for RLEVTable {
     fn slice(array: &RLEArray, range: Range<usize>) -> ArrayRef {
@@ -72,7 +79,11 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{
+        Array,
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::Buffer;
 
     use super::*;

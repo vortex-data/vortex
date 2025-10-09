@@ -4,9 +4,17 @@
 use vortex::ArrayRef;
 use vortex::arrays::PrimitiveArray;
 use vortex::buffer::Buffer;
-use vortex::dtype::{DType, NativePType, Nullability};
+use vortex::dtype::{
+    DType,
+    NativePType,
+    Nullability,
+};
 use vortex::encodings::sequence::SequenceArray;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 use vortex::scalar::PValue;
 use vortex::validity::Validity;
 
@@ -70,9 +78,16 @@ mod test {
     use vortex::IntoArray as _;
     use vortex::arrow::IntoArrowArray;
     use vortex::buffer::buffer;
-    use vortex::dtype::{DType, Nullability, PType};
+    use vortex::dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
-    use crate::arrays::range_to_sequence::{range_len, sequence_array_from_range};
+    use crate::arrays::range_to_sequence::{
+        range_len,
+        sequence_array_from_range,
+    };
 
     #[test]
     fn test_range_len() {

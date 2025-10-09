@@ -5,18 +5,32 @@
 
 use std::any::Any;
 use std::fmt::Formatter;
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::sync::Arc;
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::Canonical;
-use crate::arrays::{PrimitiveArray, PrimitiveVTable};
+use crate::arrays::{
+    PrimitiveArray,
+    PrimitiveVTable,
+};
 use crate::operator::canonical::CanonicalExecution;
 use crate::operator::{
-    BatchBindCtx, BatchExecutionRef, BatchOperator, DisplayFormat, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx,
+    BatchExecutionRef,
+    BatchOperator,
+    DisplayFormat,
+    LengthBounds,
+    Operator,
+    OperatorEq,
+    OperatorHash,
+    OperatorId,
+    OperatorRef,
 };
 use crate::vtable::PipelineVTable;
 

@@ -2,16 +2,48 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::patches::{
+    Patches,
+    PatchesMetadata,
+};
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
-use vortex_array::{Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, ProstMetadata};
-use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_array::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+    VisitorVTable,
+};
+use vortex_array::{
+    Array,
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    Canonical,
+    ProstMetadata,
+};
+use vortex_buffer::{
+    Buffer,
+    ByteBuffer,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
+use vortex_error::{
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
-use super::{ALPRDEncoding, RDEncoder};
-use crate::{ALPRDArray, ALPRDVTable};
+use super::{
+    ALPRDEncoding,
+    RDEncoder,
+};
+use crate::{
+    ALPRDArray,
+    ALPRDVTable,
+};
 
 #[derive(Clone, prost::Message)]
 pub struct ALPRDMetadata {

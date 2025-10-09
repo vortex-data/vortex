@@ -13,11 +13,22 @@ use std::backtrace::Backtrace;
 use std::borrow::Cow;
 use std::convert::Infallible;
 use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{
+    Debug,
+    Display,
+    Formatter,
+};
 use std::num::TryFromIntError;
 use std::ops::Deref;
-use std::sync::{Arc, PoisonError};
-use std::{env, fmt, io};
+use std::sync::{
+    Arc,
+    PoisonError,
+};
+use std::{
+    env,
+    fmt,
+    io,
+};
 
 /// A string that can be used as an error message.
 #[derive(Debug)]

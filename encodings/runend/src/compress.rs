@@ -3,13 +3,29 @@
 
 use arrow_buffer::BooleanBufferBuilder;
 use itertools::Itertools;
-use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
+use vortex_array::arrays::{
+    BoolArray,
+    BooleanBuffer,
+    ConstantArray,
+    PrimitiveArray,
+};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, BufferMut, buffer};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
+use vortex_buffer::{
+    Buffer,
+    BufferMut,
+    buffer,
+};
 use vortex_dtype::{
-    NativePType, Nullability, match_each_native_ptype, match_each_unsigned_integer_ptype,
+    NativePType,
+    Nullability,
+    match_each_native_ptype,
+    match_each_unsigned_integer_ptype,
 };
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
@@ -285,7 +301,10 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
-    use crate::compress::{runend_decode_primitive, runend_encode};
+    use crate::compress::{
+        runend_decode_primitive,
+        runend_encode,
+    };
 
     #[test]
     fn encode() {

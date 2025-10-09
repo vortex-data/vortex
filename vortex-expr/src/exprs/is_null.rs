@@ -3,14 +3,41 @@
 
 use std::ops::Not;
 
-use vortex_array::arrays::{BoolArray, ConstantArray};
-use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray};
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_array::arrays::{
+    BoolArray,
+    ConstantArray,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    DeserializeMetadata,
+    EmptyMetadata,
+    IntoArray,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 use vortex_mask::Mask;
 
-use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::display::{
+    DisplayAs,
+    DisplayFormat,
+};
+use crate::{
+    AnalysisExpr,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    Scope,
+    VTable,
+    vtable,
+};
 
 vtable!(IsNull);
 
@@ -118,13 +145,24 @@ pub fn is_null(child: ExprRef) -> ExprRef {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::{PrimitiveArray, StructArray};
+    use vortex_array::arrays::{
+        PrimitiveArray,
+        StructArray,
+    };
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
     use vortex_scalar::Scalar;
 
     use crate::is_null::is_null;
-    use crate::{Scope, get_item, root, test_harness};
+    use crate::{
+        Scope,
+        get_item,
+        root,
+        test_harness,
+    };
 
     #[test]
     fn dtype() {

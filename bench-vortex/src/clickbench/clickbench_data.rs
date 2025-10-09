@@ -3,35 +3,72 @@
 
 use std::fmt::Display;
 use std::fs::File;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock};
+use std::path::{
+    Path,
+    PathBuf,
+};
+use std::sync::{
+    Arc,
+    LazyLock,
+};
 use std::time::Duration;
-use std::{fmt, fs};
+use std::{
+    fmt,
+    fs,
+};
 
-use arrow_schema::{DataType, Field, Schema, TimeUnit};
+use arrow_schema::{
+    DataType,
+    Field,
+    Schema,
+    TimeUnit,
+};
 use clap::ValueEnum;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+    ListingOptions,
+    ListingTable,
+    ListingTableConfig,
+    ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
-use futures::{StreamExt, TryStreamExt, stream};
+use futures::{
+    StreamExt,
+    TryStreamExt,
+    stream,
+};
 use glob::Pattern;
 use log::trace;
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use rayon::prelude::{
+    IntoParallelIterator,
+    ParallelIterator,
+};
 use reqwest::IntoUrl;
 use reqwest::blocking::Response;
 use serde::Serialize;
-use tokio::fs::{OpenOptions, create_dir_all};
-use tracing::{Instrument, info, warn};
+use tokio::fs::{
+    OpenOptions,
+    create_dir_all,
+};
+use tracing::{
+    Instrument,
+    info,
+    warn,
+};
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex::file::VortexWriteOptions;
 use vortex_datafusion::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
-use crate::utils::file_utils::{idempotent, idempotent_async};
-use crate::{CompactionStrategy, Format};
+use crate::utils::file_utils::{
+    idempotent,
+    idempotent_async,
+};
+use crate::{
+    CompactionStrategy,
+    Format,
+};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;

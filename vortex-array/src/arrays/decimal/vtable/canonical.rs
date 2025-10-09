@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::Canonical;
-use crate::arrays::{DecimalArray, DecimalVTable};
+use crate::arrays::{
+    DecimalArray,
+    DecimalVTable,
+};
 use crate::builders::ArrayBuilder;
 use crate::vtable::CanonicalVTable;
 

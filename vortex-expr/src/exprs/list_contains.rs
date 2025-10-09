@@ -1,18 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 use std::hash::Hash;
 
 use vortex_array::compute::list_contains as compute_list_contains;
-use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
+use vortex_array::{
+    ArrayRef,
+    DeserializeMetadata,
+    EmptyMetadata,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 
-use crate::display::{DisplayAs, DisplayFormat};
+use crate::display::{
+    DisplayAs,
+    DisplayFormat,
+};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, LiteralVTable, Scope, StatsCatalog,
-    VTable, and, gt, lit, lt, or, vtable,
+    AnalysisExpr,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    LiteralVTable,
+    Scope,
+    StatsCatalog,
+    VTable,
+    and,
+    gt,
+    lit,
+    lt,
+    or,
+    vtable,
 };
 
 vtable!(ListContains);
@@ -172,19 +198,46 @@ impl AnalysisExpr for ListContainsExpr {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{BoolArray, BooleanBuffer, ListArray};
+    use vortex_array::arrays::{
+        BoolArray,
+        BooleanBuffer,
+        ListArray,
+    };
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray};
+    use vortex_array::{
+        Array,
+        ArrayRef,
+        IntoArray,
+    };
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability, StructFields};
+    use vortex_dtype::{
+        DType,
+        Field,
+        FieldPath,
+        FieldPathSet,
+        Nullability,
+        StructFields,
+    };
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
 
     use crate::list_contains::list_contains;
     use crate::pruning::checked_pruning_expr;
-    use crate::{Arc, HashSet, Scope, and, col, get_item, gt, lit, lt, or, root};
+    use crate::{
+        Arc,
+        HashSet,
+        Scope,
+        and,
+        col,
+        get_item,
+        gt,
+        lit,
+        lt,
+        or,
+        root,
+    };
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(

@@ -3,8 +3,14 @@
 
 use super::VarBinViewVTable;
 use crate::arrays::VarBinViewArray;
-use crate::vtable::{ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor};
+use crate::vtable::{
+    ValidityHelper,
+    VisitorVTable,
+};
+use crate::{
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+};
 
 impl VisitorVTable<VarBinViewVTable> for VarBinViewVTable {
     fn visit_buffers(array: &VarBinViewArray, visitor: &mut dyn ArrayBufferVisitor) {

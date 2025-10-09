@@ -5,7 +5,10 @@ pub(crate) mod context;
 pub(crate) mod parts;
 
 use pyo3::prelude::*;
-use pyo3::{Bound, Python};
+use pyo3::{
+    Bound,
+    Python,
+};
 
 use crate::install_module;
 use crate::serde::context::PyArrayContext;

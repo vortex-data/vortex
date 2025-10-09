@@ -10,13 +10,24 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use jiff::tz::TimeZone;
-use jiff::{Span, Timestamp, Zoned, tz};
+use jiff::{
+    Span,
+    Timestamp,
+    Zoned,
+    tz,
+};
 use num_traits::AsPrimitive;
 use tempfile::NamedTempFile;
 use vortex::IntoArray;
 use vortex::arrays::{
-    BoolArray, ConstantArray, FixedSizeListArray, ListArray, PrimitiveArray, StructArray,
-    VarBinArray, VarBinViewArray,
+    BoolArray,
+    ConstantArray,
+    FixedSizeListArray,
+    ListArray,
+    PrimitiveArray,
+    StructArray,
+    VarBinArray,
+    VarBinViewArray,
 };
 use vortex::buffer::buffer;
 use vortex::file::VortexWriteOptions;
@@ -24,8 +35,14 @@ use vortex::scalar::Scalar;
 use vortex::validity::Validity;
 
 use crate::cpp;
-use crate::cpp::{duckdb_string_t, duckdb_timestamp};
-use crate::duckdb::{Connection, Database};
+use crate::cpp::{
+    duckdb_string_t,
+    duckdb_timestamp,
+};
+use crate::duckdb::{
+    Connection,
+    Database,
+};
 
 fn database_connection() -> Connection {
     let db = Database::open_in_memory().unwrap();

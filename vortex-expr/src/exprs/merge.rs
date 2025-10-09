@@ -6,12 +6,40 @@ use std::hash::Hash;
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray, ToCanonical};
-use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    DeserializeMetadata,
+    EmptyMetadata,
+    IntoArray,
+    ToCanonical,
+};
+use vortex_dtype::{
+    DType,
+    FieldNames,
+    Nullability,
+    StructFields,
+};
+use vortex_error::{
+    VortexExpect as _,
+    VortexResult,
+    vortex_bail,
+};
 
-use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::display::{
+    DisplayAs,
+    DisplayFormat,
+};
+use crate::{
+    AnalysisExpr,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    Scope,
+    VTable,
+    vtable,
+};
 
 vtable!(Merge);
 
@@ -213,13 +241,29 @@ impl AnalysisExpr for MergeExpr {}
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{PrimitiveArray, StructArray};
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::arrays::{
+        PrimitiveArray,
+        StructArray,
+    };
+    use vortex_array::{
+        Array,
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_error::{
+        VortexResult,
+        vortex_bail,
+    };
 
-    use crate::{MergeExpr, Scope, get_item, merge, root};
+    use crate::{
+        MergeExpr,
+        Scope,
+        get_item,
+        merge,
+        root,
+    };
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();

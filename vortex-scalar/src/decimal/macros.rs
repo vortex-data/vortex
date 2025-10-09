@@ -115,7 +115,10 @@ macro_rules! match_each_decimal_value {
 #[macro_export] // Used in `vortex-array`.
 macro_rules! match_each_decimal_value_type {
     ($self:expr, | $enc:ident | $body:block) => {{
-        use $crate::{DecimalValueType, i256};
+        use $crate::{
+            DecimalValueType,
+            i256,
+        };
         match $self {
             DecimalValueType::I8 => {
                 type $enc = i8;

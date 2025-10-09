@@ -2,17 +2,43 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::{
+    Duration,
+    SystemTime,
+};
 
-use datafusion::physical_plan::metrics::{Label, MetricValue, MetricsSet};
-use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanVisitor, Metric, accept};
+use datafusion::physical_plan::metrics::{
+    Label,
+    MetricValue,
+    MetricsSet,
+};
+use datafusion::physical_plan::{
+    ExecutionPlan,
+    ExecutionPlanVisitor,
+    Metric,
+    accept,
+};
 use itertools::Itertools;
-use opentelemetry::trace::{SpanContext, Status, TraceId};
-use opentelemetry::{InstrumentationScope, KeyValue, SpanId, TraceFlags};
+use opentelemetry::trace::{
+    SpanContext,
+    Status,
+    TraceId,
+};
+use opentelemetry::{
+    InstrumentationScope,
+    KeyValue,
+    SpanId,
+    TraceFlags,
+};
 use opentelemetry_otlp::SpanExporter as OtlpSpanExporter;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::error::OTelSdkResult;
-use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator, SpanData, SpanExporter};
+use opentelemetry_sdk::trace::{
+    IdGenerator,
+    RandomIdGenerator,
+    SpanData,
+    SpanExporter,
+};
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;

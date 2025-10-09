@@ -1,11 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    TakeKernel,
+    TakeKernelAdapter,
+    take,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_error::VortexResult;
 
-use crate::{ALPArray, ALPVTable};
+use crate::{
+    ALPArray,
+    ALPVTable,
+};
 
 impl TakeKernel for ALPVTable {
     fn take(&self, array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

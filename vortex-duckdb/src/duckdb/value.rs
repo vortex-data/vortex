@@ -2,16 +2,31 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CStr;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{
+    Debug,
+    Display,
+    Formatter,
+};
 
 use num_traits::AsPrimitive;
-use vortex::buffer::{BufferString, ByteBuffer};
+use vortex::buffer::{
+    BufferString,
+    ByteBuffer,
+};
 use vortex::dtype::NativeDType;
-use vortex::error::{VortexError, VortexExpect, vortex_err, vortex_panic};
+use vortex::error::{
+    VortexError,
+    VortexExpect,
+    vortex_err,
+    vortex_panic,
+};
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;
-use crate::{cpp, lifetime_wrapper};
+use crate::{
+    cpp,
+    lifetime_wrapper,
+};
 
 lifetime_wrapper!(Value, cpp::duckdb_value, cpp::duckdb_destroy_value, [owned, ref]);
 

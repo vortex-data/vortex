@@ -4,11 +4,21 @@
 use std::cmp::max;
 use std::ops::Range;
 
-use vortex_array::vtable::{OperationsVTable, ValidityHelper};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::vtable::{
+    OperationsVTable,
+    ValidityHelper,
+};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+};
 use vortex_scalar::Scalar;
 
-use crate::{BitPackedArray, BitPackedVTable, unpack_single};
+use crate::{
+    BitPackedArray,
+    BitPackedVTable,
+    unpack_single,
+};
 
 impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
     fn slice(array: &BitPackedArray, range: Range<usize>) -> ArrayRef {
@@ -54,12 +64,27 @@ mod test {
     use vortex_array::compute::take;
     use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray};
-    use vortex_buffer::{Alignment, Buffer, ByteBuffer, buffer};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_array::{
+        Array,
+        IntoArray,
+    };
+    use vortex_buffer::{
+        Alignment,
+        Buffer,
+        ByteBuffer,
+        buffer,
+    };
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
     use vortex_scalar::Scalar;
 
-    use crate::{BitPackedArray, BitPackedVTable};
+    use crate::{
+        BitPackedArray,
+        BitPackedVTable,
+    };
 
     #[test]
     pub fn slice_block() {

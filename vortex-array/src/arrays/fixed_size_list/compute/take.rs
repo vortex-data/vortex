@@ -2,15 +2,40 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_buffer::BooleanBufferBuilder;
-use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_dtype::{
+    IntegerPType,
+    Nullability,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_panic,
+};
 
-use crate::arrays::{FixedSizeListArray, FixedSizeListVTable, PrimitiveArray};
-use crate::builders::{ArrayBuilder, PrimitiveBuilder};
-use crate::compute::{self, TakeKernel, TakeKernelAdapter};
+use crate::arrays::{
+    FixedSizeListArray,
+    FixedSizeListVTable,
+    PrimitiveArray,
+};
+use crate::builders::{
+    ArrayBuilder,
+    PrimitiveBuilder,
+};
+use crate::compute::{
+    self,
+    TakeKernel,
+    TakeKernelAdapter,
+};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 
 /// Take implementation for [`FixedSizeListArray`].
 ///

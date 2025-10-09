@@ -5,13 +5,33 @@
 
 use divan::Bencher;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{
+    Rng,
+    SeedableRng,
+};
 use vortex_array::IntoArray;
-use vortex_array::arrays::{ChunkedArray, ConstantArray, VarBinArray};
-use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-use vortex_array::compute::{Operator, compare, warm_up_vtables};
-use vortex_dtype::{DType, Nullability};
-use vortex_fsst::{fsst_compress, fsst_train_compressor};
+use vortex_array::arrays::{
+    ChunkedArray,
+    ConstantArray,
+    VarBinArray,
+};
+use vortex_array::builders::{
+    ArrayBuilder,
+    VarBinViewBuilder,
+};
+use vortex_array::compute::{
+    Operator,
+    compare,
+    warm_up_vtables,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
+use vortex_fsst::{
+    fsst_compress,
+    fsst_train_compressor,
+};
 use vortex_scalar::Scalar;
 
 fn main() {

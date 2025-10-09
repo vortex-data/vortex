@@ -2,20 +2,45 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::cast::NumCast;
-use vortex_array::arrays::{ConstantArray, PrimitiveArray};
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter};
+use vortex_array::arrays::{
+    ConstantArray,
+    PrimitiveArray,
+};
+use vortex_array::compute::{
+    TakeKernel,
+    TakeKernelAdapter,
+};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::{
-    DType, IntegerPType, NativePType, Nullability, match_each_integer_ptype,
+    DType,
+    IntegerPType,
+    NativePType,
+    Nullability,
+    match_each_integer_ptype,
     match_each_native_ptype,
 };
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::{AllOr, Mask};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
+use vortex_mask::{
+    AllOr,
+    Mask,
+};
 use vortex_scalar::Scalar;
 
-use crate::{SequenceArray, SequenceVTable};
+use crate::{
+    SequenceArray,
+    SequenceVTable,
+};
 
 impl TakeKernel for SequenceVTable {
     fn take(&self, array: &SequenceArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

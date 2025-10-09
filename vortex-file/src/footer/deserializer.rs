@@ -5,15 +5,39 @@ use std::sync::Arc;
 
 use flatbuffers::root;
 use vortex_array::ArrayRegistry;
-use vortex_buffer::{ByteBuffer, ByteBufferMut};
+use vortex_buffer::{
+    ByteBuffer,
+    ByteBufferMut,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
-use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
+use vortex_flatbuffers::{
+    FlatBuffer,
+    ReadFlatBuffer,
+    dtype as fbd,
+};
+use vortex_layout::{
+    LayoutRegistry,
+    LayoutRegistryExt,
+};
 
 use crate::footer::FileStatistics;
-use crate::footer::postscript::{Postscript, PostscriptSegment};
-use crate::{DEFAULT_REGISTRY, EOF_SIZE, Footer, MAGIC_BYTES, VERSION};
+use crate::footer::postscript::{
+    Postscript,
+    PostscriptSegment,
+};
+use crate::{
+    DEFAULT_REGISTRY,
+    EOF_SIZE,
+    Footer,
+    MAGIC_BYTES,
+    VERSION,
+};
 
 /// Deserialize a footer from the end of a Vortex file or created from a
 /// [`crate::footer::FooterSerializer`].

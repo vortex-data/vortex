@@ -5,32 +5,76 @@ pub mod display;
 mod visitor;
 
 use std::any::Any;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 use std::ops::Range;
 use std::sync::Arc;
 
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+    vortex_panic,
+};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, FixedSizeListEncoding,
-    ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
+    BoolEncoding,
+    ConstantVTable,
+    DecimalEncoding,
+    ExtensionEncoding,
+    FixedSizeListEncoding,
+    ListEncoding,
+    NullEncoding,
+    PrimitiveEncoding,
+    StructEncoding,
+    VarBinEncoding,
     VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
+use crate::compute::{
+    ComputeFn,
+    Cost,
+    InvocationArgs,
+    IsConstantOpts,
+    Output,
+    is_constant_opts,
+};
 use crate::operator::OperatorRef;
 use crate::serde::ArrayChildren;
-use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
-use crate::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, PipelineVTable, SerdeVTable,
-    VTable, ValidityVTable, VisitorVTable,
+use crate::stats::{
+    Precision,
+    Stat,
+    StatsProviderExt,
+    StatsSetRef,
 };
-use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
+use crate::vtable::{
+    ArrayVTable,
+    CanonicalVTable,
+    ComputeVTable,
+    OperationsVTable,
+    PipelineVTable,
+    SerdeVTable,
+    VTable,
+    ValidityVTable,
+    VisitorVTable,
+};
+use crate::{
+    Canonical,
+    EncodingId,
+    EncodingRef,
+    SerializeMetadata,
+};
 
 /// The public API trait for all Vortex arrays.
 pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor {

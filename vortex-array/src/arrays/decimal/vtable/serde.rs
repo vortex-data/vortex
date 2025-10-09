@@ -1,14 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{Alignment, Buffer, ByteBuffer};
+use vortex_buffer::{
+    Alignment,
+    Buffer,
+    ByteBuffer,
+};
 use vortex_dtype::DType;
 #[cfg(test)]
 use vortex_dtype::DecimalDType;
-use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
-use vortex_scalar::{DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_ensure,
+};
+use vortex_scalar::{
+    DecimalValueType,
+    NativeDecimalType,
+    match_each_decimal_value_type,
+};
 
-use super::{DecimalArray, DecimalEncoding};
+use super::{
+    DecimalArray,
+    DecimalEncoding,
+};
 use crate::ProstMetadata;
 use crate::arrays::DecimalVTable;
 use crate::serde::ArrayChildren;
@@ -72,11 +87,21 @@ impl SerdeVTable<DecimalVTable> for DecimalVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{ByteBufferMut, buffer};
+    use vortex_buffer::{
+        ByteBufferMut,
+        buffer,
+    };
 
     use super::*;
-    use crate::serde::{ArrayParts, SerializeOptions};
-    use crate::{ArrayContext, EncodingRef, IntoArray};
+    use crate::serde::{
+        ArrayParts,
+        SerializeOptions,
+    };
+    use crate::{
+        ArrayContext,
+        EncodingRef,
+        IntoArray,
+    };
 
     #[test]
     fn test_array_serde() {

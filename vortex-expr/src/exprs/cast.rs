@@ -2,13 +2,33 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::cast as compute_cast;
-use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
+use vortex_array::{
+    ArrayRef,
+    DeserializeMetadata,
+    ProstMetadata,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_proto::expr as pb;
 
-use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::display::{
+    DisplayAs,
+    DisplayFormat,
+};
+use crate::{
+    AnalysisExpr,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    Scope,
+    VTable,
+    vtable,
+};
 
 vtable!(Cast);
 
@@ -138,9 +158,20 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::StructArray;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
-    use crate::{ExprRef, Scope, cast, get_item, root, test_harness};
+    use crate::{
+        ExprRef,
+        Scope,
+        cast,
+        get_item,
+        root,
+        test_harness,
+    };
 
     #[test]
     fn dtype() {

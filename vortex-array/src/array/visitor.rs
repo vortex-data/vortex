@@ -11,7 +11,10 @@ use vortex_error::VortexResult;
 use crate::arrays::ConstantArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef};
+use crate::{
+    Array,
+    ArrayRef,
+};
 
 pub trait ArrayVisitor {
     /// Returns the children of the array.

@@ -1,15 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{
+    Display,
+    Formatter,
+};
 use std::sync::Arc;
 
 use vortex_buffer::BufferString;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
+use vortex_error::{
+    VortexError,
+    VortexExpect as _,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::{
+    InnerScalarValue,
+    Scalar,
+    ScalarValue,
+};
 
 /// A scalar value representing a UTF-8 encoded string.
 ///
@@ -338,9 +354,15 @@ mod tests {
 
     use rstest::rstest;
     use vortex_dtype::Nullability;
-    use vortex_error::{VortexExpect, VortexUnwrap};
+    use vortex_error::{
+        VortexExpect,
+        VortexUnwrap,
+    };
 
-    use crate::{Scalar, Utf8Scalar};
+    use crate::{
+        Scalar,
+        Utf8Scalar,
+    };
 
     #[test]
     fn lower_bound() {
@@ -453,7 +475,10 @@ mod tests {
 
     #[test]
     fn test_utf8_cast_to_utf8() {
-        use vortex_dtype::{DType, Nullability};
+        use vortex_dtype::{
+            DType,
+            Nullability,
+        };
 
         let utf8 = Scalar::utf8("test", Nullability::NonNullable);
         let scalar = Utf8Scalar::try_from(&utf8).unwrap();
@@ -468,7 +493,11 @@ mod tests {
 
     #[test]
     fn test_utf8_cast_to_non_utf8_fails() {
-        use vortex_dtype::{DType, Nullability, PType};
+        use vortex_dtype::{
+            DType,
+            Nullability,
+            PType,
+        };
 
         let utf8 = Scalar::utf8("test", Nullability::NonNullable);
         let scalar = Utf8Scalar::try_from(&utf8).unwrap();
@@ -479,7 +508,11 @@ mod tests {
 
     #[test]
     fn test_from_scalar_value_non_utf8_dtype() {
-        use vortex_dtype::{DType, Nullability, PType};
+        use vortex_dtype::{
+            DType,
+            Nullability,
+            PType,
+        };
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let value = crate::ScalarValue(crate::InnerScalarValue::Primitive(crate::PValue::I32(42)));

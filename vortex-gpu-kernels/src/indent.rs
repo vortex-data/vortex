@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::io::Write;
-use std::{fmt, io};
+use std::{
+    fmt,
+    io,
+};
 
 pub struct IndentedWriter<W: Write> {
     write: W,

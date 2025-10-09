@@ -4,16 +4,34 @@
 use std::marker::PhantomData;
 
 use vortex::arrays::PrimitiveArray;
-use vortex::dtype::{IntegerPType, match_each_integer_ptype};
+use vortex::dtype::{
+    IntegerPType,
+    match_each_integer_ptype,
+};
 use vortex::encodings::runend::RunEndArray;
-use vortex::error::{VortexExpect, VortexResult};
-use vortex::search_sorted::{SearchSorted, SearchSortedSide};
-use vortex::{ArrayRef, ToCanonical};
+use vortex::error::{
+    VortexExpect,
+    VortexResult,
+};
+use vortex::search_sorted::{
+    SearchSorted,
+    SearchSortedSide,
+};
+use vortex::{
+    ArrayRef,
+    ToCanonical,
+};
 
 use crate::convert::ToDuckDBScalar;
-use crate::duckdb::{SelectionVector, Vector};
+use crate::duckdb::{
+    SelectionVector,
+    Vector,
+};
 use crate::exporter::cache::ConversionCache;
-use crate::exporter::{ColumnExporter, new_array_exporter};
+use crate::exporter::{
+    ColumnExporter,
+    new_array_exporter,
+};
 
 /// We export run-end arrays to a DuckDB dictionary vector, using a selection vector to
 /// repeat the values in the run-end array.

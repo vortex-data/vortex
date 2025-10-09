@@ -2,16 +2,40 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_buffer::BooleanBufferBuilder;
-use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_dtype::{
+    IntegerPType,
+    Nullability,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_panic,
+};
 use vortex_mask::Mask;
 
-use crate::arrays::{ListArray, ListVTable, PrimitiveArray};
-use crate::builders::{ArrayBuilder, PrimitiveBuilder};
-use crate::compute::{TakeKernel, TakeKernelAdapter, take};
+use crate::arrays::{
+    ListArray,
+    ListVTable,
+    PrimitiveArray,
+};
+use crate::builders::{
+    ArrayBuilder,
+    PrimitiveBuilder,
+};
+use crate::compute::{
+    TakeKernel,
+    TakeKernelAdapter,
+    take,
+};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    ToCanonical,
+    register_kernel,
+};
 
 /// Take implementation for [`ListArray`].
 ///
@@ -181,15 +205,25 @@ mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
     use vortex_scalar::Scalar;
 
     use crate::arrays::list::ListArray;
-    use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::arrays::{
+        BoolArray,
+        PrimitiveArray,
+    };
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray as _, ToCanonical};
+    use crate::{
+        Array,
+        IntoArray as _,
+        ToCanonical,
+    };
 
     #[test]
     fn nullable_take() {

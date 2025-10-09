@@ -2,17 +2,35 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 use std::sync::Arc;
 
 use arcref::ArcRef;
 use itertools::Itertools;
 use vortex_array::SerializeMetadata;
-use vortex_dtype::{DType, FieldName};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_dtype::{
+    DType,
+    FieldName,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 
-use crate::segments::{SegmentId, SegmentSource};
-use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, VTable};
+use crate::segments::{
+    SegmentId,
+    SegmentSource,
+};
+use crate::{
+    LayoutEncodingId,
+    LayoutEncodingRef,
+    LayoutReaderRef,
+    VTable,
+};
 
 pub type LayoutId = ArcRef<str>;
 

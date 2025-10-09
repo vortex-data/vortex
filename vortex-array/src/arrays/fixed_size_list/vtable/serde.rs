@@ -3,9 +3,16 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_ensure,
+};
 
-use super::{FixedSizeListArray, FixedSizeListVTable};
+use super::{
+    FixedSizeListArray,
+    FixedSizeListVTable,
+};
 use crate::EmptyMetadata;
 use crate::arrays::FixedSizeListEncoding;
 use crate::serde::ArrayChildren;

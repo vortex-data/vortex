@@ -1,12 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{c_int, c_void};
+use std::ffi::{
+    c_int,
+    c_void,
+};
 use std::sync::Arc;
 
-use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
-use vortex::dtype::{DType, DecimalDType};
-use vortex::error::{VortexExpect, VortexUnwrap, vortex_panic};
+use vortex::dtype::datetime::{
+    DATE_ID,
+    TIME_ID,
+    TIMESTAMP_ID,
+    TemporalMetadata,
+};
+use vortex::dtype::{
+    DType,
+    DecimalDType,
+};
+use vortex::error::{
+    VortexExpect,
+    VortexUnwrap,
+    vortex_panic,
+};
 
 use crate::arc_wrapper;
 use crate::ptype::vx_ptype;
@@ -322,21 +337,43 @@ mod tests {
 
     use vortex::arrays::StructArray;
     use vortex::buffer::Buffer;
-    use vortex::dtype::{DType, DecimalDType};
-    use vortex::{ArrayRef, IntoArray};
+    use vortex::dtype::{
+        DType,
+        DecimalDType,
+    };
+    use vortex::{
+        ArrayRef,
+        IntoArray,
+    };
 
     use super::*;
-    use crate::array::{vx_array, vx_array_dtype};
+    use crate::array::{
+        vx_array,
+        vx_array_dtype,
+    };
     use crate::dtype::{
-        vx_dtype, vx_dtype_free, vx_dtype_get_variant, vx_dtype_new_bool, vx_dtype_new_primitive,
-        vx_dtype_new_utf8, vx_dtype_variant,
+        vx_dtype,
+        vx_dtype_free,
+        vx_dtype_get_variant,
+        vx_dtype_new_bool,
+        vx_dtype_new_primitive,
+        vx_dtype_new_utf8,
+        vx_dtype_variant,
     };
     use crate::ptype::vx_ptype;
-    use crate::string::{vx_string, vx_string_len, vx_string_ptr};
+    use crate::string::{
+        vx_string,
+        vx_string_len,
+        vx_string_ptr,
+    };
     use crate::struct_fields::{
-        vx_struct_fields_builder_add_field, vx_struct_fields_builder_finalize,
-        vx_struct_fields_builder_new, vx_struct_fields_field_dtype, vx_struct_fields_field_name,
-        vx_struct_fields_free, vx_struct_fields_nfields,
+        vx_struct_fields_builder_add_field,
+        vx_struct_fields_builder_finalize,
+        vx_struct_fields_builder_new,
+        vx_struct_fields_field_dtype,
+        vx_struct_fields_field_name,
+        vx_struct_fields_free,
+        vx_struct_fields_nfields,
     };
 
     #[test]

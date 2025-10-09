@@ -5,16 +5,37 @@ use std::cmp::min;
 
 use arrow_buffer::BooleanBuffer;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
+use vortex_array::compute::{
+    FilterKernel,
+    FilterKernelAdapter,
+    filter,
+};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 use vortex_buffer::buffer_mut;
-use vortex_dtype::{IntegerPType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_panic};
+use vortex_dtype::{
+    IntegerPType,
+    match_each_unsigned_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    VortexUnwrap,
+    vortex_panic,
+};
 use vortex_mask::Mask;
 
 use crate::compute::take::take_indices_unchecked;
-use crate::{RunEndArray, RunEndVTable};
+use crate::{
+    RunEndArray,
+    RunEndVTable,
+};
 
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
@@ -128,12 +149,18 @@ fn filter_run_end_primitive<R: IntegerPType + From<bool>>(
 #[cfg(test)]
 mod tests {
 
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
     use super::filter_run_end;
-    use crate::{RunEndArray, RunEndVTable};
+    use crate::{
+        RunEndArray,
+        RunEndVTable,
+    };
 
     fn ree_array() -> RunEndArray {
         RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array()).unwrap()

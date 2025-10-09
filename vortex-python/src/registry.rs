@@ -6,10 +6,17 @@ use std::sync::Arc;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use pyo3::prelude::*;
-use pyo3::{Bound, PyResult, Python};
+use pyo3::{
+    Bound,
+    PyResult,
+    Python,
+};
 use vortex::ArrayRegistry;
 use vortex::file::DEFAULT_REGISTRY;
-use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
+use vortex::layout::{
+    LayoutRegistry,
+    LayoutRegistryExt,
+};
 
 use crate::arrays::py::PythonEncoding;
 use crate::install_module;

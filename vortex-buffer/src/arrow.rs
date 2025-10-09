@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::{ArrowNativeType, OffsetBuffer};
+use arrow_buffer::{
+    ArrowNativeType,
+    OffsetBuffer,
+};
 use bytes::Bytes;
 use vortex_error::vortex_panic;
 
-use crate::{Alignment, Buffer, ByteBuffer};
+use crate::{
+    Alignment,
+    Buffer,
+    ByteBuffer,
+};
 
 impl<T: ArrowNativeType> Buffer<T> {
     /// Converts the buffer zero-copy into a `arrow_buffer::Buffer`.
@@ -92,9 +99,16 @@ impl AsRef<[u8]> for ArrowWrapper {
 
 #[cfg(test)]
 mod test {
-    use arrow_buffer::{Buffer as ArrowBuffer, ScalarBuffer};
+    use arrow_buffer::{
+        Buffer as ArrowBuffer,
+        ScalarBuffer,
+    };
 
-    use crate::{Alignment, Buffer, buffer};
+    use crate::{
+        Alignment,
+        Buffer,
+        buffer,
+    };
 
     #[test]
     fn into_arrow_buffer() {

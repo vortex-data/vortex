@@ -3,16 +3,48 @@
 
 use std::any::type_name;
 use std::cmp::Ordering;
-use std::fmt::{Debug, Display, Formatter};
-use std::ops::{Add, Sub};
+use std::fmt::{
+    Debug,
+    Display,
+    Formatter,
+};
+use std::ops::{
+    Add,
+    Sub,
+};
 
-use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
+use num_traits::{
+    CheckedAdd,
+    CheckedDiv,
+    CheckedMul,
+    CheckedSub,
+    FromPrimitive,
+};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_dtype::{
+    DType,
+    NativePType,
+    Nullability,
+    PType,
+    match_each_native_ptype,
+};
+use vortex_error::{
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+    vortex_panic,
+};
 
-use crate::pvalue::{CoercePValue, PValue};
-use crate::{InnerScalarValue, Scalar, ScalarValue};
+use crate::pvalue::{
+    CoercePValue,
+    PValue,
+};
+use crate::{
+    InnerScalarValue,
+    Scalar,
+    ScalarValue,
+};
 
 /// A scalar value representing a primitive type.
 ///
@@ -592,9 +624,18 @@ impl<'a> PrimitiveScalar<'a> {
 mod tests {
     use num_traits::CheckedSub;
     use rstest::rstest;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
-    use crate::{InnerScalarValue, PValue, PrimitiveScalar, ScalarValue};
+    use crate::{
+        InnerScalarValue,
+        PValue,
+        PrimitiveScalar,
+        ScalarValue,
+    };
 
     #[test]
     fn test_integer_subtract() {

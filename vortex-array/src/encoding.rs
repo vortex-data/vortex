@@ -4,17 +4,35 @@
 //! Traits and types to define shared unique encoding identifiers.
 
 use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{
+    Debug,
+    Display,
+    Formatter,
+};
 use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
 use crate::serde::ArrayChildren;
-use crate::vtable::{EncodeVTable, SerdeVTable, VTable};
-use crate::{Array, ArrayRef, Canonical, DeserializeMetadata};
+use crate::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+    VTable,
+};
+use crate::{
+    Array,
+    ArrayRef,
+    Canonical,
+    DeserializeMetadata,
+};
 
 /// EncodingId is a globally unique name of the array's encoding.
 pub type EncodingId = ArcRef<str>;

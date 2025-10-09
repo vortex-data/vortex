@@ -3,12 +3,24 @@
 
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
-use arrow_schema::{DataType, Schema};
-use vortex_error::{VortexError, VortexResult};
+use arrow_schema::{
+    DataType,
+    Schema,
+};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+};
 
 use crate::arrays::StructArray;
-use crate::arrow::compute::{to_arrow, to_arrow_preferred};
-use crate::{Array, ToCanonical};
+use crate::arrow::compute::{
+    to_arrow,
+    to_arrow_preferred,
+};
+use crate::{
+    Array,
+    ToCanonical,
+};
 
 impl TryFrom<&dyn Array> for RecordBatch {
     type Error = VortexError;

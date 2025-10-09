@@ -3,12 +3,27 @@
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 
-use crate::arrays::{StructArray, StructVTable};
-use crate::compute::{CastKernel, CastKernelAdapter, cast};
+use crate::arrays::{
+    StructArray,
+    StructVTable,
+};
+use crate::compute::{
+    CastKernel,
+    CastKernelAdapter,
+    cast,
+};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl CastKernel for StructVTable {
     fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -51,10 +66,19 @@ register_kernel!(CastKernelAdapter(StructVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldNames, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        FieldNames,
+        Nullability,
+        PType,
+    };
 
     use crate::IntoArray;
-    use crate::arrays::{PrimitiveArray, StructArray, VarBinArray};
+    use crate::arrays::{
+        PrimitiveArray,
+        StructArray,
+        VarBinArray,
+    };
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::validity::Validity;
 

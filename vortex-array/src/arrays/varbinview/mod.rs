@@ -12,7 +12,10 @@ pub mod binary_view;
 mod compute;
 
 mod vtable;
-pub use vtable::{VarBinViewEncoding, VarBinViewVTable};
+pub use vtable::{
+    VarBinViewEncoding,
+    VarBinViewVTable,
+};
 
 #[cfg(test)]
 mod tests;

@@ -2,25 +2,48 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
-use std::io::{Write, stdout};
+use std::io::{
+    Write,
+    stdout,
+};
 use std::path::PathBuf;
 
 use bench_vortex::bench_run::run_with_setup;
 use bench_vortex::datasets::taxi_data::*;
-use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
+use bench_vortex::display::{
+    DisplayFormat,
+    print_measurements_json,
+    render_table,
+};
 use bench_vortex::measurements::TimingMeasurement;
-use bench_vortex::random_access::take::{take_lance, take_parquet, take_vortex_tokio};
+use bench_vortex::random_access::take::{
+    take_lance,
+    take_parquet,
+    take_vortex_tokio,
+};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, Target, setup_logging_and_tracing};
+use bench_vortex::{
+    Engine,
+    Format,
+    Target,
+    setup_logging_and_tracing,
+};
 use clap::Parser;
 use indicatif::ProgressBar;
 use tokio::runtime::Runtime;
-use vortex::buffer::{Buffer, buffer};
+use vortex::buffer::{
+    Buffer,
+    buffer,
+};
 use vortex::dtype::Nullability::NonNullable;
 use vortex::error::VortexExpect;
 use vortex::scalar::Scalar;
-use vortex::{Array, ArrayRef, ToCanonical};
+use vortex::{
+    Array,
+    ArrayRef,
+    ToCanonical,
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

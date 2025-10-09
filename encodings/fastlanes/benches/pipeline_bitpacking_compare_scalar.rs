@@ -8,14 +8,33 @@ use arrow_buffer::BooleanBuffer;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
-use vortex_array::compute::{filter, warm_up_vtables};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use rand::{
+    Rng,
+    SeedableRng,
+};
+use vortex_array::compute::{
+    filter,
+    warm_up_vtables,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
-use vortex_expr::{Scope, lit, lt, root};
-use vortex_fastlanes::{FoRArray, bitpack_to_best_bit_width};
+use vortex_expr::{
+    Scope,
+    lit,
+    lt,
+    root,
+};
+use vortex_fastlanes::{
+    FoRArray,
+    bitpack_to_best_bit_width,
+};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 

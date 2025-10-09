@@ -16,7 +16,10 @@ pub(crate) use cast::*;
 pub(crate) use compare::*;
 pub(crate) use filter::*;
 use libfuzzer_sys::arbitrary::Error::EmptyChoose;
-use libfuzzer_sys::arbitrary::{Arbitrary, Unstructured};
+use libfuzzer_sys::arbitrary::{
+    Arbitrary,
+    Unstructured,
+};
 pub(crate) use search_sorted::*;
 pub(crate) use slice::*;
 pub use sort::sort_canonical_array;
@@ -25,11 +28,24 @@ pub(crate) use take::*;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::compute::Operator;
-use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::search_sorted::{
+    SearchResult,
+    SearchSortedSide,
+};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexUnwrap,
+    vortex_panic,
+};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;

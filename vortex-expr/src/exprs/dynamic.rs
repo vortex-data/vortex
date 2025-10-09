@@ -2,22 +2,56 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{Operator, compare};
-use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
+use vortex_array::compute::{
+    Operator,
+    compare,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    DeserializeMetadata,
+    IntoArray,
+    ProstMetadata,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
 use vortex_proto::expr as pb;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::{
+    Scalar,
+    ScalarValue,
+};
 
-use crate::display::{DisplayAs, DisplayFormat};
-use crate::traversal::{NodeExt, NodeVisitor, TraversalOrder};
+use crate::display::{
+    DisplayAs,
+    DisplayFormat,
+};
+use crate::traversal::{
+    NodeExt,
+    NodeVisitor,
+    TraversalOrder,
+};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
+    AnalysisExpr,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    Scope,
+    StatsCatalog,
+    VTable,
+    vtable,
 };
 
 vtable!(DynamicComparison);

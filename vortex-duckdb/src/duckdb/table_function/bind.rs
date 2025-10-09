@@ -6,8 +6,17 @@ use std::ffi::CStr;
 use vortex::error::vortex_err;
 
 use crate::duckdb::data::Data;
-use crate::duckdb::{ClientContext, LogicalType, TableFunction, Value, try_or_null};
-use crate::{cpp, wrapper};
+use crate::duckdb::{
+    ClientContext,
+    LogicalType,
+    TableFunction,
+    Value,
+    try_or_null,
+};
+use crate::{
+    cpp,
+    wrapper,
+};
 
 /// The native bind callback for a table function.
 pub(crate) unsafe extern "C-unwind" fn bind_callback<T: TableFunction>(

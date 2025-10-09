@@ -6,9 +6,16 @@ use std::ops::Range;
 use itertools::Itertools;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable};
+use crate::arrays::{
+    ChunkedArray,
+    ChunkedVTable,
+};
 use crate::vtable::OperationsVTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 
 impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
     fn slice(array: &ChunkedArray, range: Range<usize>) -> ArrayRef {
@@ -60,12 +67,23 @@ impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{Buffer, buffer};
-    use vortex_dtype::{DType, NativePType, Nullability, PType};
+    use vortex_buffer::{
+        Buffer,
+        buffer,
+    };
+    use vortex_dtype::{
+        DType,
+        NativePType,
+        Nullability,
+        PType,
+    };
 
     use crate::IntoArray;
     use crate::array::Array;
-    use crate::arrays::{ChunkedArray, ChunkedVTable};
+    use crate::arrays::{
+        ChunkedArray,
+        ChunkedVTable,
+    };
     use crate::canonical::ToCanonical;
 
     fn chunked_array() -> ChunkedArray {

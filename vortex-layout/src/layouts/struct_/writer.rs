@@ -5,10 +5,23 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use futures::{StreamExt, TryStreamExt, pin_mut};
+use futures::{
+    StreamExt,
+    TryStreamExt,
+    pin_mut,
+};
 use itertools::Itertools;
-use vortex_array::{Array, ArrayContext, ToCanonical};
-use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail};
+use vortex_array::{
+    Array,
+    ArrayContext,
+    ToCanonical,
+};
+use vortex_error::{
+    VortexError,
+    VortexExpect as _,
+    VortexResult,
+    vortex_bail,
+};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 use vortex_utils::aliases::DefaultHashBuilder;
@@ -17,9 +30,16 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{
-    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt,
+    SendableSequentialStream,
+    SequencePointer,
+    SequentialStreamAdapter,
+    SequentialStreamExt,
 };
-use crate::{IntoLayout as _, LayoutRef, LayoutStrategy};
+use crate::{
+    IntoLayout as _,
+    LayoutRef,
+    LayoutStrategy,
+};
 
 pub struct StructStrategy {
     child: Arc<dyn LayoutStrategy>,
@@ -159,18 +179,34 @@ impl LayoutStrategy for StructStrategy {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::arrays::{BoolArray, ChunkedArray, StructArray};
+    use vortex_array::arrays::{
+        BoolArray,
+        ChunkedArray,
+        StructArray,
+    };
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayContext, Canonical, IntoArray as _};
+    use vortex_array::{
+        ArrayContext,
+        Canonical,
+        IntoArray as _,
+    };
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldNames, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        FieldNames,
+        Nullability,
+        PType,
+    };
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::TestSegments;
-    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::sequence::{
+        SequenceId,
+        SequentialArrayStreamExt,
+    };
 
     #[test]
     #[should_panic]

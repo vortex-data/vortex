@@ -4,10 +4,20 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{VarBinViewArray, VarBinViewVTable};
-use crate::compute::{MaskKernel, MaskKernelAdapter};
+use crate::arrays::{
+    VarBinViewArray,
+    VarBinViewVTable,
+};
+use crate::compute::{
+    MaskKernel,
+    MaskKernelAdapter,
+};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 impl MaskKernel for VarBinViewVTable {
     fn mask(&self, array: &VarBinViewArray, mask: &Mask) -> VortexResult<ArrayRef> {

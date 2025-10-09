@@ -6,15 +6,32 @@ pub mod writer;
 
 use std::sync::Arc;
 
-use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
+use vortex_array::{
+    ArrayContext,
+    DeserializeMetadata,
+    EmptyMetadata,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+    vortex_panic,
+};
 
 use crate::children::LayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::{
+    SegmentId,
+    SegmentSource,
+};
 use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
+    LayoutChildType,
+    LayoutEncodingRef,
+    LayoutId,
+    LayoutReaderRef,
+    LayoutRef,
+    VTable,
+    vtable,
 };
 
 vtable!(Flat);

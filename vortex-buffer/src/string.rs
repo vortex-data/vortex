@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 use std::ops::Deref;
 
-use vortex_error::{VortexError, vortex_err};
+use vortex_error::{
+    VortexError,
+    vortex_err,
+};
 
 use crate::ByteBuffer;
 
@@ -103,7 +109,11 @@ impl AsRef<[u8]> for BufferString {
 
 #[cfg(test)]
 mod test {
-    use crate::{Alignment, BufferString, buffer};
+    use crate::{
+        Alignment,
+        BufferString,
+        buffer,
+    };
 
     #[test]
     fn buffer_string() {

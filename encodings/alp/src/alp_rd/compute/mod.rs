@@ -14,7 +14,10 @@ mod tests {
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
 
-    use crate::{ALPRDArray, RDEncoder};
+    use crate::{
+        ALPRDArray,
+        RDEncoder,
+    };
 
     #[rstest]
     // Basic float arrays with RD (reference delta) encoding

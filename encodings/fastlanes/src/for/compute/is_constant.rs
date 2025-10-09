@@ -2,12 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{
-    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, is_constant_opts,
+    IsConstantKernel,
+    IsConstantKernelAdapter,
+    IsConstantOpts,
+    is_constant_opts,
 };
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
-use crate::{FoRArray, FoRVTable};
+use crate::{
+    FoRArray,
+    FoRVTable,
+};
 
 impl IsConstantKernel for FoRVTable {
     fn is_constant(&self, array: &FoRArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {

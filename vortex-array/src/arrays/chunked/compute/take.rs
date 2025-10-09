@@ -2,14 +2,31 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{
+    DType,
+    PType,
+};
 use vortex_error::VortexResult;
 
 use crate::arrays::chunked::ChunkedArray;
-use crate::arrays::{ChunkedVTable, PrimitiveArray};
-use crate::compute::{TakeKernel, TakeKernelAdapter, cast, take};
+use crate::arrays::{
+    ChunkedVTable,
+    PrimitiveArray,
+};
+use crate::compute::{
+    TakeKernel,
+    TakeKernelAdapter,
+    cast,
+    take,
+};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 
 impl TakeKernel for ChunkedVTable {
     fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -80,12 +97,19 @@ register_kernel!(TakeKernelAdapter(ChunkedVTable).lift());
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::{FieldNames, Nullability};
+    use vortex_dtype::{
+        FieldNames,
+        Nullability,
+    };
 
     use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
-    use crate::arrays::{BoolArray, PrimitiveArray, StructArray};
+    use crate::arrays::{
+        BoolArray,
+        PrimitiveArray,
+        StructArray,
+    };
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;

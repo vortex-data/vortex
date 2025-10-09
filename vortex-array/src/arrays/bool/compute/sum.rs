@@ -7,8 +7,14 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolVTable};
-use crate::compute::{SumKernel, SumKernelAdapter};
+use crate::arrays::{
+    BoolArray,
+    BoolVTable,
+};
+use crate::compute::{
+    SumKernel,
+    SumKernelAdapter,
+};
 use crate::register_kernel;
 
 impl SumKernel for BoolVTable {

@@ -5,9 +5,15 @@ use std::any::TypeId;
 use std::ops::Deref;
 
 use vortex_array::arrays::StructArray;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+};
 
-use crate::scope_vars::{ScopeVar, ScopeVars};
+use crate::scope_vars::{
+    ScopeVar,
+    ScopeVars,
+};
 
 /// Scope define the evaluation context/scope that an expression uses when being evaluated.
 ///

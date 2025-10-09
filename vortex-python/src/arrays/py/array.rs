@@ -4,7 +4,13 @@
 use std::sync::Arc;
 
 use pyo3::prelude::*;
-use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
+use pyo3::{
+    Bound,
+    FromPyObject,
+    Py,
+    PyAny,
+    PyResult,
+};
 use vortex::EncodingRef;
 use vortex::dtype::DType;
 use vortex::error::VortexError;

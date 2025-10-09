@@ -4,11 +4,18 @@
 use std::ops::Range;
 
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
-use crate::{ALPRDArray, ALPRDVTable};
+use crate::{
+    ALPRDArray,
+    ALPRDVTable,
+};
 
 impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
     fn slice(array: &ALPRDArray, range: Range<usize>) -> ArrayRef {
@@ -83,7 +90,10 @@ mod test {
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
-    use crate::{ALPRDFloat, RDEncoder};
+    use crate::{
+        ALPRDFloat,
+        RDEncoder,
+    };
 
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]

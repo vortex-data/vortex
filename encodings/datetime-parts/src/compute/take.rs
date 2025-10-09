@@ -1,14 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
-use vortex_array::stats::{Stat, StatsProvider};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use vortex_array::compute::{
+    TakeKernel,
+    TakeKernelAdapter,
+    fill_null,
+    take,
+};
+use vortex_array::stats::{
+    Stat,
+    StatsProvider,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 use vortex_dtype::Nullability;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{
+    VortexResult,
+    vortex_panic,
+};
 use vortex_scalar::Scalar;
 
-use crate::{DateTimePartsArray, DateTimePartsVTable};
+use crate::{
+    DateTimePartsArray,
+    DateTimePartsVTable,
+};
 
 impl TakeKernel for DateTimePartsVTable {
     fn take(&self, array: &DateTimePartsArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -89,7 +109,10 @@ register_kernel!(TakeKernelAdapter(DateTimePartsVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::{PrimitiveArray, TemporalArray};
+    use vortex_array::arrays::{
+        PrimitiveArray,
+        TemporalArray,
+    };
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_buffer::buffer;
     use vortex_dtype::datetime::TimeUnit;

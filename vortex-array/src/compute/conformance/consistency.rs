@@ -21,13 +21,37 @@
 
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexUnwrap, vortex_panic};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
+use vortex_error::{
+    VortexUnwrap,
+    vortex_panic,
+};
 use vortex_mask::Mask;
 
-use crate::arrays::{BoolArray, ConstantArray, PrimitiveArray};
-use crate::compute::{Operator, and, cast, compare, filter, invert, mask, or, take};
-use crate::{Array, IntoArray};
+use crate::arrays::{
+    BoolArray,
+    ConstantArray,
+    PrimitiveArray,
+};
+use crate::compute::{
+    Operator,
+    and,
+    cast,
+    compare,
+    filter,
+    invert,
+    mask,
+    or,
+    take,
+};
+use crate::{
+    Array,
+    IntoArray,
+};
 
 /// Tests that filter and take operations produce consistent results.
 ///
@@ -794,7 +818,11 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
 fn test_slice_aggregate_consistency(array: &dyn Array) {
     use vortex_dtype::DType;
 
-    use crate::compute::{min_max, nan_count, sum};
+    use crate::compute::{
+        min_max,
+        nan_count,
+        sum,
+    };
 
     let len = array.len();
     if len < 5 {

@@ -5,9 +5,18 @@ use std::ops::Range;
 
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolVTable};
-use crate::vtable::{OperationsVTable, ValidityHelper};
-use crate::{ArrayRef, IntoArray};
+use crate::arrays::{
+    BoolArray,
+    BoolVTable,
+};
+use crate::vtable::{
+    OperationsVTable,
+    ValidityHelper,
+};
+use crate::{
+    ArrayRef,
+    IntoArray,
+};
 
 impl OperationsVTable<BoolVTable> for BoolVTable {
     fn slice(array: &BoolArray, range: Range<usize>) -> ArrayRef {

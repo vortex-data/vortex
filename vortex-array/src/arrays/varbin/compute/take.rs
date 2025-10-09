@@ -2,16 +2,39 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_buffer::BooleanBufferBuilder;
-use vortex_buffer::{BufferMut, ByteBufferMut};
-use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_buffer::{
+    BufferMut,
+    ByteBufferMut,
+};
+use vortex_dtype::{
+    DType,
+    IntegerPType,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_panic,
+};
 use vortex_mask::Mask;
 
 use crate::arrays::varbin::VarBinArray;
-use crate::arrays::{PrimitiveArray, VarBinVTable};
-use crate::compute::{TakeKernel, TakeKernelAdapter};
+use crate::arrays::{
+    PrimitiveArray,
+    VarBinVTable,
+};
+use crate::compute::{
+    TakeKernel,
+    TakeKernelAdapter,
+};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 
 impl TakeKernel for VarBinVTable {
     fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -179,10 +202,16 @@ fn take_nullable<I: IntegerPType, O: IntegerPType>(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
     use crate::Array;
-    use crate::arrays::{PrimitiveArray, VarBinArray};
+    use crate::arrays::{
+        PrimitiveArray,
+        VarBinArray,
+    };
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
 

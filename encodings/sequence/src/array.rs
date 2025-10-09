@@ -5,21 +5,49 @@ use std::ops::Range;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
+use vortex_array::stats::{
+    ArrayStats,
+    StatsSetRef,
+};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityVTable,
+    ArrayVTable,
+    CanonicalVTable,
+    NotSupported,
+    OperationsVTable,
+    VTable,
+    ValidityVTable,
     VisitorVTable,
 };
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    ArrayRef,
+    Canonical,
+    EncodingId,
+    EncodingRef,
+    vtable,
 };
 use vortex_buffer::BufferMut;
 use vortex_dtype::{
-    DType, NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
+    DType,
+    NativePType,
+    Nullability,
+    PType,
+    match_each_integer_ptype,
+    match_each_native_ptype,
 };
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_mask::Mask;
-use vortex_scalar::{PValue, Scalar, ScalarValue};
+use vortex_scalar::{
+    PValue,
+    Scalar,
+    ScalarValue,
+};
 
 vtable!(Sequence);
 
@@ -253,7 +281,10 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_dtype::Nullability;
-    use vortex_scalar::{Scalar, ScalarValue};
+    use vortex_scalar::{
+        Scalar,
+        ScalarValue,
+    };
 
     use crate::array::SequenceArray;
 

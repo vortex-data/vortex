@@ -4,11 +4,20 @@
 use std::ops::Range;
 
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
-use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
+use crate::{
+    ALPArray,
+    ALPFloat,
+    ALPVTable,
+    match_each_alp_float_ptype,
+};
 
 impl OperationsVTable<ALPVTable> for ALPVTable {
     fn slice(array: &ALPArray, range: Range<usize>) -> ArrayRef {

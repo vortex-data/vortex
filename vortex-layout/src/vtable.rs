@@ -5,15 +5,28 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
+use vortex_array::{
+    ArrayContext,
+    DeserializeMetadata,
+    SerializeMetadata,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::children::LayoutChildren;
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::{
+    SegmentId,
+    SegmentSource,
+};
 use crate::{
-    IntoLayout, Layout, LayoutChildType, LayoutEncoding, LayoutEncodingRef, LayoutId,
-    LayoutReaderRef, LayoutRef,
+    IntoLayout,
+    Layout,
+    LayoutChildType,
+    LayoutEncoding,
+    LayoutEncodingRef,
+    LayoutId,
+    LayoutReaderRef,
+    LayoutRef,
 };
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {

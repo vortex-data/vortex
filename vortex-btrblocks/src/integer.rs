@@ -8,24 +8,52 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 pub use stats::IntegerStats;
-use vortex_array::arrays::{ConstantArray, MaskedArray, PrimitiveArray, PrimitiveVTable};
+use vortex_array::arrays::{
+    ConstantArray,
+    MaskedArray,
+    PrimitiveArray,
+    PrimitiveVTable,
+};
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_dict::DictArray;
-use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
-use vortex_fastlanes::{FoRArray, bit_width_histogram, bitpack_encode, find_best_bit_width};
+use vortex_error::{
+    VortexResult,
+    VortexUnwrap,
+    vortex_bail,
+    vortex_err,
+};
+use vortex_fastlanes::{
+    FoRArray,
+    bit_width_histogram,
+    bitpack_encode,
+    find_best_bit_width,
+};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
 use vortex_sequence::sequence_encode;
-use vortex_sparse::{SparseArray, SparseVTable};
-use vortex_zigzag::{ZigZagArray, zigzag_encode};
+use vortex_sparse::{
+    SparseArray,
+    SparseVTable,
+};
+use vortex_zigzag::{
+    ZigZagArray,
+    zigzag_encode,
+};
 
 use crate::integer::dictionary::dictionary_encode;
 use crate::patches::compress_patches;
 use crate::rle::RLEScheme;
 use crate::{
-    Compressor, CompressorStats, GenerateStatsOptions, Scheme,
+    Compressor,
+    CompressorStats,
+    GenerateStatsOptions,
+    Scheme,
     estimate_compression_ratio_with_sampling,
 };
 
@@ -752,21 +780,41 @@ mod tests {
     use itertools::Itertools;
     use log::LevelFilter;
     use rand::rngs::StdRng;
-    use rand::{RngCore, SeedableRng};
+    use rand::{
+        RngCore,
+        SeedableRng,
+    };
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_array::{Array, IntoArray, ToCanonical};
-    use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
+    use vortex_array::{
+        Array,
+        IntoArray,
+        ToCanonical,
+    };
+    use vortex_buffer::{
+        Buffer,
+        BufferMut,
+        buffer,
+        buffer_mut,
+    };
     use vortex_dict::DictEncoding;
     use vortex_sequence::SequenceEncoding;
     use vortex_sparse::SparseEncoding;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::integer::{
-        IntCompressor, IntegerStats, RLE_INTEGER_SCHEME, SequenceScheme, SparseScheme,
+        IntCompressor,
+        IntegerStats,
+        RLE_INTEGER_SCHEME,
+        SequenceScheme,
+        SparseScheme,
     };
-    use crate::{Compressor, CompressorStats, Scheme};
+    use crate::{
+        Compressor,
+        CompressorStats,
+        Scheme,
+    };
 
     #[test]
     fn test_empty() {

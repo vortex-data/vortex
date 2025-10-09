@@ -2,11 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{LikeKernel, LikeKernelAdapter, LikeOptions, like};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    LikeKernel,
+    LikeKernelAdapter,
+    LikeOptions,
+    like,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_error::VortexResult;
 
-use crate::{DictArray, DictVTable};
+use crate::{
+    DictArray,
+    DictVTable,
+};
 
 impl LikeKernel for DictVTable {
     fn like(

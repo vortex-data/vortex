@@ -2,42 +2,78 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 use std::sync::Arc;
 
-use arrow_schema::{Schema, SchemaRef};
+use arrow_schema::{
+    Schema,
+    SchemaRef,
+};
 use async_trait::async_trait;
 use datafusion_catalog::Session;
 use datafusion_common::config::ConfigField;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
 use datafusion_common::{
-    ColumnStatistics, DataFusionError, GetExt, Result as DFResult, Statistics, config_namespace,
+    ColumnStatistics,
+    DataFusionError,
+    GetExt,
+    Result as DFResult,
+    Statistics,
+    config_namespace,
     not_impl_err,
 };
 use datafusion_common_runtime::SpawnedTask;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_compression_type::FileCompressionType;
-use datafusion_datasource::file_format::{FileFormat, FileFormatFactory};
-use datafusion_datasource::file_scan_config::{FileScanConfig, FileScanConfigBuilder};
+use datafusion_datasource::file_format::{
+    FileFormat,
+    FileFormatFactory,
+};
+use datafusion_datasource::file_scan_config::{
+    FileScanConfig,
+    FileScanConfigBuilder,
+};
 use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSinkExec;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::LexRequirement;
 use datafusion_physical_plan::ExecutionPlan;
-use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
+use futures::{
+    FutureExt,
+    StreamExt as _,
+    TryStreamExt as _,
+    stream,
+};
 use itertools::Itertools;
-use object_store::{ObjectMeta, ObjectStore};
+use object_store::{
+    ObjectMeta,
+    ObjectStore,
+};
 use vortex::dtype::arrow::FromArrowType;
-use vortex::dtype::{DType, Nullability, PType};
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::dtype::{
+    DType,
+    Nullability,
+    PType,
+};
+use vortex::error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::metrics::VortexMetrics;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
 use vortex::stats;
-use vortex::stats::{Stat, StatsSet};
+use vortex::stats::{
+    Stat,
+    StatsSet,
+};
 
 use super::cache::VortexFileCache;
 use super::sink::VortexSink;

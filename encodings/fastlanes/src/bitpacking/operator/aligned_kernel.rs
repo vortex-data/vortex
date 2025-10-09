@@ -6,7 +6,12 @@ use std::cmp::min;
 use fastlanes::BitPacking;
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Element, Kernel, KernelContext, N};
+use vortex_array::pipeline::{
+    Element,
+    Kernel,
+    KernelContext,
+    N,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::PhysicalPType;
 use vortex_error::VortexResult;

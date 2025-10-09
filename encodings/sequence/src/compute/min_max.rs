@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use vortex_array::compute::{
+    MinMaxKernel,
+    MinMaxKernelAdapter,
+    MinMaxResult,
+};
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;

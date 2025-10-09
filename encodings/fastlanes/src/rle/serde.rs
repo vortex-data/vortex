@@ -2,16 +2,31 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+    VisitorVTable,
+};
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    Canonical,
+    DeserializeMetadata,
+    ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
 use vortex_error::VortexResult;
 
 use super::RLEEncoding;
-use crate::{RLEArray, RLEVTable};
+use crate::{
+    RLEArray,
+    RLEVTable,
+};
 
 #[derive(Clone, prost::Message)]
 pub struct RLEMetadata {

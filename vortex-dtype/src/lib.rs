@@ -27,7 +27,10 @@ mod serde;
 mod struct_;
 
 pub use decimal::*;
-pub use dtype::{DType, NativeDType};
+pub use dtype::{
+    DType,
+    NativeDType,
+};
 pub use extension::*;
 pub use field::*;
 pub use field_mask::*;

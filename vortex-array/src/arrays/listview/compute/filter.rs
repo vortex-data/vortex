@@ -4,10 +4,21 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{ListViewArray, ListViewVTable};
-use crate::compute::{self, FilterKernel, FilterKernelAdapter};
+use crate::arrays::{
+    ListViewArray,
+    ListViewVTable,
+};
+use crate::compute::{
+    self,
+    FilterKernel,
+    FilterKernelAdapter,
+};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 /// The threshold for triggering a rebuild of the [`ListViewArray`].
 ///

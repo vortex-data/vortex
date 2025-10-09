@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::operator::{OperatorEq, OperatorRef};
+use crate::operator::{
+    OperatorEq,
+    OperatorRef,
+};
 
 /// Each operator has a row selection over the domain of input rows.
 #[derive(Debug, Clone)]

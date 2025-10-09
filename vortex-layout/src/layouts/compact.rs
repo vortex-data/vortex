@@ -2,10 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::{
-    ExtensionArray, FixedSizeListArray, ListArray, PrimitiveArray, StructArray, narrowed_decimal,
+    ExtensionArray,
+    FixedSizeListArray,
+    ListArray,
+    PrimitiveArray,
+    StructArray,
+    narrowed_decimal,
 };
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    Canonical,
+    IntoArray,
+};
 use vortex_decimal_byte_parts::DecimalBytePartsArray;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
@@ -187,9 +197,15 @@ impl Default for CompactCompressor {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{PrimitiveArray, StructArray};
+    use vortex_array::arrays::{
+        PrimitiveArray,
+        StructArray,
+    };
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
     use vortex_dtype::FieldName;
 

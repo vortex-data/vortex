@@ -6,16 +6,39 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::sum;
-use vortex_array::stats::{Precision, Stat, StatsProvider, StatsSet};
+use vortex_array::stats::{
+    Precision,
+    Stat,
+    StatsProvider,
+    StatsSet,
+};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{DType, Nullability, PType, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_expr::{ExprRef, Scope};
+use vortex_array::{
+    Array,
+    ArrayRef,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+    StructFields,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+};
+use vortex_expr::{
+    ExprRef,
+    Scope,
+};
 use vortex_mask::Mask;
 
 use crate::layouts::zoned::builder::{
-    MAX_IS_TRUNCATED, MIN_IS_TRUNCATED, StatsArrayBuilder, stats_builder_with_capacity,
+    MAX_IS_TRUNCATED,
+    MIN_IS_TRUNCATED,
+    StatsArrayBuilder,
+    stats_builder_with_capacity,
 };
 
 /// A zone map containing statistics for a column.
@@ -246,19 +269,50 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
     use itertools::Itertools;
     use rstest::rstest;
-    use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
-    use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
+    use vortex_array::arrays::{
+        BoolArray,
+        PrimitiveArray,
+        StructArray,
+    };
+    use vortex_array::builders::{
+        ArrayBuilder,
+        VarBinViewBuilder,
+    };
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldPath, FieldPathSet, Nullability, PType};
-    use vortex_error::{VortexExpect, VortexUnwrap};
+    use vortex_dtype::{
+        DType,
+        FieldPath,
+        FieldPathSet,
+        Nullability,
+        PType,
+    };
+    use vortex_error::{
+        VortexExpect,
+        VortexUnwrap,
+    };
     use vortex_expr::pruning::checked_pruning_expr;
-    use vortex_expr::{gt, gt_eq, lit, lt, root};
+    use vortex_expr::{
+        gt,
+        gt_eq,
+        lit,
+        lt,
+        root,
+    };
 
-    use crate::layouts::zoned::zone_map::{StatsAccumulator, ZoneMap};
-    use crate::layouts::zoned::{MAX_IS_TRUNCATED, MIN_IS_TRUNCATED};
+    use crate::layouts::zoned::zone_map::{
+        StatsAccumulator,
+        ZoneMap,
+    };
+    use crate::layouts::zoned::{
+        MAX_IS_TRUNCATED,
+        MIN_IS_TRUNCATED,
+    };
 
     #[rstest]
     #[case(DType::Utf8(Nullability::NonNullable))]

@@ -4,7 +4,10 @@
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::arrays::{ListViewArray, ListViewVTable};
+use crate::arrays::{
+    ListViewArray,
+    ListViewVTable,
+};
 
 // TODO(connor)[ListView]: Once `ListViewArray` replaces `ListArray` as the default `List` encoding,
 // we can remove this and simply use `to_list` via `ToCanonical`.

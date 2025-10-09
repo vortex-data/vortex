@@ -1,18 +1,43 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::patches::{
+    Patches,
+    PatchesMetadata,
+};
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+    VisitorVTable,
+};
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    Canonical,
+    DeserializeMetadata,
+    ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_bail};
+use vortex_dtype::{
+    DType,
+    PType,
+};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    vortex_bail,
+};
 
-use super::{ALPEncoding, alp_encode};
-use crate::{ALPArray, ALPVTable, Exponents};
+use super::{
+    ALPEncoding,
+    alp_encode,
+};
+use crate::{
+    ALPArray,
+    ALPVTable,
+    Exponents,
+};
 
 #[derive(Clone, prost::Message)]
 pub struct ALPMetadata {

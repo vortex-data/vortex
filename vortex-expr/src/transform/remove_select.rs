@@ -1,10 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{
+    VortexResult,
+    vortex_err,
+};
 
-use crate::traversal::{NodeExt, Transformed};
-use crate::{DType, ExprRef, SelectVTable, get_item, pack};
+use crate::traversal::{
+    NodeExt,
+    Transformed,
+};
+use crate::{
+    DType,
+    ExprRef,
+    SelectVTable,
+    get_item,
+    pack,
+};
 
 /// Replaces [crate::SelectExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_select(e: ExprRef, ctx: &DType) -> VortexResult<ExprRef> {
@@ -53,10 +65,17 @@ mod tests {
 
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, StructFields};
+    use vortex_dtype::{
+        DType,
+        StructFields,
+    };
 
     use crate::transform::remove_select::remove_select;
-    use crate::{PackVTable, root, select};
+    use crate::{
+        PackVTable,
+        root,
+        select,
+    };
 
     #[test]
     fn test_remove_select() {

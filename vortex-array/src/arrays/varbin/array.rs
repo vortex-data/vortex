@@ -3,13 +3,27 @@
 
 use num_traits::AsPrimitive;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_err};
+use vortex_dtype::{
+    DType,
+    IntegerPType,
+    Nullability,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_ensure,
+    vortex_err,
+};
 
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ToCanonical};
+use crate::{
+    Array,
+    ArrayRef,
+    ToCanonical,
+};
 
 #[derive(Clone, Debug)]
 pub struct VarBinArray {

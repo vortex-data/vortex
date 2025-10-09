@@ -2,9 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use pyo3::prelude::*;
-use vortex::encodings::fastlanes::{BitPackedVTable, DeltaVTable, FoRVTable};
+use vortex::encodings::fastlanes::{
+    BitPackedVTable,
+    DeltaVTable,
+    FoRVTable,
+};
 
-use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
+use crate::arrays::native::{
+    AsArrayRef,
+    EncodingSubclass,
+    PyNativeArray,
+};
 
 /// Concrete class for arrays with `fastlanes.bitpacked` encoding.
 #[pyclass(name = "FastLanesBitPackedArray", module = "vortex", extends=PyNativeArray, frozen)]

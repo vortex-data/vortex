@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{MaskKernel, MaskKernelAdapter, mask};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    MaskKernel,
+    MaskKernelAdapter,
+    mask,
+};
+use vortex_array::{
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{ALPRDArray, ALPRDVTable};
+use crate::{
+    ALPRDArray,
+    ALPRDVTable,
+};
 
 impl MaskKernel for ALPRDVTable {
     fn mask(&self, array: &ALPRDArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
@@ -31,7 +42,10 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
 
-    use crate::{ALPRDFloat, RDEncoder};
+    use crate::{
+        ALPRDFloat,
+        RDEncoder,
+    };
 
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]

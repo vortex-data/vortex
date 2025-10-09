@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{
+    Display,
+    Formatter,
+};
 
 use jiff::Span;
 use num_enum::IntoPrimitive;
-use vortex_error::{VortexError, VortexResult, vortex_bail};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    vortex_bail,
+};
 
 /// Time units for temporal data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, IntoPrimitive)]

@@ -3,15 +3,38 @@
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::BufferMut;
-use vortex_dtype::{IntegerPType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::{Mask, MaskIter};
+use vortex_dtype::{
+    IntegerPType,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
+use vortex_mask::{
+    Mask,
+    MaskIter,
+};
 
-use crate::arrays::{ListArray, ListVTable, PrimitiveArray};
-use crate::compute::{FilterKernel, FilterKernelAdapter, filter};
+use crate::arrays::{
+    ListArray,
+    ListVTable,
+    PrimitiveArray,
+};
+use crate::compute::{
+    FilterKernel,
+    FilterKernelAdapter,
+    filter,
+};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 
 /// Density threshold for choosing between indices and slices representation when expanding masks.
 ///

@@ -35,9 +35,15 @@ pub mod metrics;
 mod optimize;
 pub mod slice;
 
-use std::any::{Any, type_name};
+use std::any::{
+    Any,
+    type_name,
+};
 use std::fmt;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 use std::ops::BitAnd;
 use std::sync::Arc;
 

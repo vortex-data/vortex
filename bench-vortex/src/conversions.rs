@@ -11,7 +11,10 @@ use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
-use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
+use vortex::iter::{
+    ArrayIteratorAdapter,
+    ArrayIteratorExt,
+};
 use vortex::stream::ArrayStream;
 
 pub fn parquet_to_vortex(parquet_path: PathBuf) -> anyhow::Result<impl ArrayStream> {

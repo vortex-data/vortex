@@ -4,16 +4,27 @@
 use std::sync::Arc;
 
 use num_traits::ToBytes;
-use vortex_buffer::{BufferString, ByteBuffer};
+use vortex_buffer::{
+    BufferString,
+    ByteBuffer,
+};
 use vortex_dtype::DType;
 use vortex_dtype::half::f16;
-use vortex_error::{VortexError, vortex_err};
+use vortex_error::{
+    VortexError,
+    vortex_err,
+};
 use vortex_proto::scalar as pb;
 use vortex_proto::scalar::ListValue;
 use vortex_proto::scalar::scalar_value::Kind;
 
 use crate::pvalue::PValue;
-use crate::{DecimalValue, InnerScalarValue, Scalar, ScalarValue};
+use crate::{
+    DecimalValue,
+    InnerScalarValue,
+    Scalar,
+    ScalarValue,
+};
 
 impl From<&Scalar> for pb::Scalar {
     fn from(value: &Scalar) -> Self {
@@ -174,12 +185,24 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BufferString;
     use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, StructFields};
+    use vortex_dtype::{
+        DType,
+        DecimalDType,
+        FieldDType,
+        Nullability,
+        PType,
+        StructFields,
+    };
     use vortex_error::vortex_panic;
     use vortex_proto::scalar as pb;
 
     use super::*;
-    use crate::{InnerScalarValue, Scalar, ScalarValue, i256};
+    use crate::{
+        InnerScalarValue,
+        Scalar,
+        ScalarValue,
+        i256,
+    };
 
     fn round_trip(scalar: Scalar) {
         assert_eq!(

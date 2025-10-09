@@ -4,7 +4,11 @@
 use vortex_error::VortexResult;
 
 use crate::Canonical;
-use crate::arrays::{ConstantArray, ConstantEncoding, ConstantVTable};
+use crate::arrays::{
+    ConstantArray,
+    ConstantEncoding,
+    ConstantVTable,
+};
 use crate::vtable::EncodeVTable;
 
 impl EncodeVTable<ConstantVTable> for ConstantVTable {

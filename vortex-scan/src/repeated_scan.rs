@@ -3,24 +3,42 @@
 
 use std::ops::Range;
 use std::sync::Arc;
-use std::{cmp, iter};
+use std::{
+    cmp,
+    iter,
+};
 
 use futures::Stream;
 use futures::future::BoxFuture;
-use itertools::{Either, Itertools};
+use itertools::{
+    Either,
+    Itertools,
+};
 use vortex_array::ArrayRef;
-use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
+use vortex_array::iter::{
+    ArrayIterator,
+    ArrayIteratorAdapter,
+};
+use vortex_array::stream::{
+    ArrayStream,
+    ArrayStreamAdapter,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
-use vortex_io::runtime::{BlockingRuntime, Handle};
+use vortex_io::runtime::{
+    BlockingRuntime,
+    Handle,
+};
 use vortex_layout::LayoutReaderRef;
 
 use crate::filter::FilterExpr;
 use crate::selection::Selection;
 use crate::splits::Splits;
-use crate::tasks::{TaskContext, split_exec};
+use crate::tasks::{
+    TaskContext,
+    split_exec,
+};
 
 /// A projected subset (by indices, range, and filter) of rows from a Vortex data source.
 ///

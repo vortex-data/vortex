@@ -5,14 +5,37 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
-use vortex_mask::{AllOr, Mask};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
+use vortex_mask::{
+    AllOr,
+    Mask,
+};
 
-use super::{ComputeFnVTable, InvocationArgs, Output, cast};
-use crate::builders::{ArrayBuilder, VarBinViewBuilder, builder_with_capacity};
-use crate::compute::{ComputeFn, Kernel};
+use super::{
+    ComputeFnVTable,
+    InvocationArgs,
+    Output,
+    cast,
+};
+use crate::builders::{
+    ArrayBuilder,
+    VarBinViewBuilder,
+    builder_with_capacity,
+};
+use crate::compute::{
+    ComputeFn,
+    Kernel,
+};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef};
+use crate::{
+    Array,
+    ArrayRef,
+};
 
 /// Performs element-wise conditional selection between two arrays based on a mask.
 ///
@@ -246,16 +269,31 @@ mod tests {
     use arrow_array::cast::AsArray;
     use arrow_select::zip::zip as arrow_zip;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{ConstantArray, PrimitiveArray, StructArray, VarBinViewVTable};
+    use crate::arrays::{
+        ConstantArray,
+        PrimitiveArray,
+        StructArray,
+        VarBinViewVTable,
+    };
     use crate::arrow::IntoArrowArray;
-    use crate::builders::{ArrayBuilder, BufferGrowthStrategy};
+    use crate::builders::{
+        ArrayBuilder,
+        BufferGrowthStrategy,
+    };
     use crate::compute::zip;
     use crate::compute::zip::VarBinViewBuilder;
-    use crate::{Array, IntoArray, ToCanonical};
+    use crate::{
+        Array,
+        IntoArray,
+        ToCanonical,
+    };
 
     #[test]
     fn test_zip_basic() {

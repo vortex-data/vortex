@@ -4,13 +4,34 @@
 use std::fmt::Debug;
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    CompareKernel,
+    CompareKernelAdapter,
+    Operator,
+    compare,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_dtype::NativePType;
-use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{PrimitiveScalar, Scalar};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
+use vortex_scalar::{
+    PrimitiveScalar,
+    Scalar,
+};
 
-use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
+use crate::{
+    ALPArray,
+    ALPFloat,
+    ALPVTable,
+    match_each_alp_float_ptype,
+};
 
 // TODO(joe): add fuzzing.
 
@@ -129,9 +150,19 @@ where
 mod tests {
     use rstest::rstest;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::{ConstantArray, PrimitiveArray};
-    use vortex_array::compute::{Operator, compare};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_array::arrays::{
+        ConstantArray,
+        PrimitiveArray,
+    };
+    use vortex_array::compute::{
+        Operator,
+        compare,
+    };
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
     use vortex_scalar::Scalar;
 
     use super::*;

@@ -6,14 +6,25 @@ use vortex_buffer::buffer;
 
 use super::ToListView;
 use super::common::{
-    create_basic_listview, create_empty_lists_listview, create_large_listview,
-    create_nullable_listview, create_overlapping_listview,
+    create_basic_listview,
+    create_empty_lists_listview,
+    create_large_listview,
+    create_nullable_listview,
+    create_overlapping_listview,
 };
-use crate::arrays::{ConstantArray, ListViewArray, PrimitiveArray};
+use crate::arrays::{
+    ConstantArray,
+    ListViewArray,
+    PrimitiveArray,
+};
 use crate::compute::conformance::take::test_take_conformance;
 use crate::compute::take;
 use crate::validity::Validity;
-use crate::{Array, IntoArray, ToCanonical};
+use crate::{
+    Array,
+    IntoArray,
+    ToCanonical,
+};
 
 // Conformance tests for common take scenarios.
 #[rstest]

@@ -13,11 +13,27 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
 use crate::Array;
-use crate::arrow::array::{ArrowArray, ArrowVTable};
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
+use crate::arrow::array::{
+    ArrowArray,
+    ArrowVTable,
+};
+use crate::compute::{
+    ComputeFn,
+    ComputeFnVTable,
+    InvocationArgs,
+    Kernel,
+    Options,
+    Output,
+};
 use crate::vtable::VTable;
 
 static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -223,11 +239,19 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_array::types::Int32Type;
-    use arrow_array::{ArrayRef, PrimitiveArray, StringViewArray, StructArray};
+    use arrow_array::{
+        ArrayRef,
+        PrimitiveArray,
+        StringViewArray,
+        StructArray,
+    };
     use arrow_buffer::NullBuffer;
 
     use super::to_arrow;
-    use crate::{IntoArray, arrays};
+    use crate::{
+        IntoArray,
+        arrays,
+    };
 
     #[test]
     fn test_to_arrow() {

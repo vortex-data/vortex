@@ -3,11 +3,18 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use vortex_array::ToCanonical;
-use vortex_array::arrays::{BoolArray, PrimitiveArray, VarBinViewArray};
+use vortex_array::arrays::{
+    BoolArray,
+    PrimitiveArray,
+    VarBinViewArray,
+};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
 use vortex_mask::Mask;
 
 use crate::ZstdArray;

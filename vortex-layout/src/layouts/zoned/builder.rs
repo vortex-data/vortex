@@ -4,12 +4,28 @@
 use std::marker::PhantomData;
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::builders::{ArrayBuilder, BoolBuilder, builder_with_capacity};
+use vortex_array::builders::{
+    ArrayBuilder,
+    BoolBuilder,
+    builder_with_capacity,
+};
 use vortex_array::stats::Stat;
-use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldName, Nullability};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
+use vortex_dtype::{
+    DType,
+    FieldName,
+    Nullability,
+};
 use vortex_error::VortexResult;
-use vortex_scalar::{BinaryScalar, Scalar, Utf8Scalar};
+use vortex_scalar::{
+    BinaryScalar,
+    Scalar,
+    Utf8Scalar,
+};
 
 pub const MAX_IS_TRUNCATED: &str = "max_is_truncated";
 pub const MIN_IS_TRUNCATED: &str = "min_is_truncated";

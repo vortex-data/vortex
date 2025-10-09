@@ -3,14 +3,36 @@
 
 use std::hash::Hash;
 
-use vortex_array::compute::{LikeOptions, like};
-use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
+use vortex_array::compute::{
+    LikeOptions,
+    like,
+};
+use vortex_array::{
+    ArrayRef,
+    DeserializeMetadata,
+    ProstMetadata,
+};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{
+    VortexResult,
+    vortex_bail,
+};
 use vortex_proto::expr as pb;
 
-use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::display::{
+    DisplayAs,
+    DisplayFormat,
+};
+use crate::{
+    AnalysisExpr,
+    ExprEncodingRef,
+    ExprId,
+    ExprRef,
+    IntoExpr,
+    Scope,
+    VTable,
+    vtable,
+};
 
 vtable!(Like);
 
@@ -168,9 +190,19 @@ impl AnalysisExpr for LikeExpr {}
 mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
-    use crate::{LikeExpr, Scope, get_item, lit, not, root};
+    use crate::{
+        LikeExpr,
+        Scope,
+        get_item,
+        lit,
+        not,
+        root,
+    };
 
     #[test]
     fn invert_booleans() {

@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{BinaryVTable, ExprRef};
+use crate::{
+    BinaryVTable,
+    ExprRef,
+};
 
 /// Converting an expression to a conjunctive normal form can lead to a large number of expression
 /// nodes.

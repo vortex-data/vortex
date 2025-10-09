@@ -2,27 +2,57 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
-use std::fmt::{self, Display};
+use std::fmt::{
+    self,
+    Display,
+};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::{
+    Path,
+    PathBuf,
+};
 use std::process::Command;
-use std::sync::{Arc, LazyLock};
+use std::sync::{
+    Arc,
+    LazyLock,
+};
 
-use anyhow::{Context, anyhow, bail};
-use arrow_schema::{DataType, Field, Schema};
+use anyhow::{
+    Context,
+    anyhow,
+    bail,
+};
+use arrow_schema::{
+    DataType,
+    Field,
+    Schema,
+};
 use async_trait::async_trait;
 use clap::ValueEnum;
 use datafusion::datasource::file_format::FileFormat;
 use datafusion::datasource::file_format::csv::CsvFormat;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+    ListingOptions,
+    ListingTable,
+    ListingTableConfig,
+    ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
-use datafusion_common::{DFSchema, Result, TableReference};
-use futures::future::{join_all, try_join_all};
-use humansize::{DECIMAL, format_size};
+use datafusion_common::{
+    DFSchema,
+    Result,
+    TableReference,
+};
+use futures::future::{
+    join_all,
+    try_join_all,
+};
+use humansize::{
+    DECIMAL,
+    format_size,
+};
 use log::trace;
 use regex::Regex;
 use tokio::fs::File;
@@ -30,16 +60,29 @@ use tokio::process::Command as TokioCommand;
 use tracing::info;
 use url::Url;
 use vortex::ArrayRef;
-use vortex::error::{VortexResult, vortex_err};
-use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::error::{
+    VortexResult,
+    vortex_err,
+};
+use vortex::file::{
+    VortexOpenOptions,
+    VortexWriteOptions,
+};
 use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_datafusion::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
-use crate::datasets::data_downloads::{decompress_bz2, download_data};
-use crate::{IdempotentPath, idempotent_async, vortex_panic};
+use crate::datasets::data_downloads::{
+    decompress_bz2,
+    download_data,
+};
+use crate::{
+    IdempotentPath,
+    idempotent_async,
+    vortex_panic,
+};
 
 pub static PBI_DATASETS: LazyLock<PBIDatasets> = LazyLock::new(|| {
     PBIDatasets::try_new(fetch_schemas_and_queries().expect("failed to fetch public bi queries"))

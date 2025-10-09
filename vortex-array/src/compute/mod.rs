@@ -9,8 +9,14 @@
 //! Every array encoding has the ability to implement their own efficient implementations of these
 //! operators, else we will decode, and perform the equivalent operator from Arrow.
 
-use std::any::{Any, type_name};
-use std::fmt::{Debug, Formatter};
+use std::any::{
+    Any,
+    type_name,
+};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 
 use arcref::ArcRef;
 pub use between::*;
@@ -33,13 +39,21 @@ use parking_lot::RwLock;
 pub use sum::*;
 pub use take::*;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 pub use zip::*;
 
 use crate::builders::ArrayBuilder;
-use crate::{Array, ArrayRef};
+use crate::{
+    Array,
+    ArrayRef,
+};
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;

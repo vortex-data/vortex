@@ -1,13 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{
+    Display,
+    Formatter,
+};
 
 use anyhow::Result;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::Field;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::dtype::{DType as RustDType, DecimalDType, Nullability, PType as RustPType};
+use vortex::dtype::{
+    DType as RustDType,
+    DecimalDType,
+    Nullability,
+    PType as RustPType,
+};
 
 use crate::ffi;
 pub(crate) struct DType {

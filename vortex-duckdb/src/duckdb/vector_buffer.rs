@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::duckdb::Data;
-use crate::{cpp, wrapper};
+use crate::{
+    cpp,
+    wrapper,
+};
 
 // A wrapped buffer that give duckdb a strong reference to a vortex buffer.
 

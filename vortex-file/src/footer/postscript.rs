@@ -1,10 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
+use flatbuffers::{
+    FlatBufferBuilder,
+    Follow,
+    WIPOffset,
+};
 use vortex_buffer::Alignment;
-use vortex_error::{VortexError, vortex_err};
-use vortex_flatbuffers::{FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, footer as fb};
+use vortex_error::{
+    VortexError,
+    vortex_err,
+};
+use vortex_flatbuffers::{
+    FlatBufferRoot,
+    ReadFlatBuffer,
+    WriteFlatBuffer,
+    footer as fb,
+};
 
 /// The postscript captures the locations and compression for the initial segments required for
 /// reading a Vortex file.

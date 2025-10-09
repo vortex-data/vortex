@@ -3,14 +3,24 @@
 
 use std::ops::Range;
 
-use vortex_array::arrays::{VarBinVTable, varbin_scalar};
+use vortex_array::arrays::{
+    VarBinVTable,
+    varbin_scalar,
+};
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+};
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
-use crate::{FSSTArray, FSSTVTable};
+use crate::{
+    FSSTArray,
+    FSSTVTable,
+};
 
 impl OperationsVTable<FSSTVTable> for FSSTVTable {
     fn slice(array: &FSSTArray, range: Range<usize>) -> ArrayRef {

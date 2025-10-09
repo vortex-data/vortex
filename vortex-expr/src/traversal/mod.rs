@@ -12,10 +12,19 @@ mod visitor;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-pub use fold::{FoldDown, FoldDownContext, FoldUp, NodeFolder, NodeFolderContext};
+pub use fold::{
+    FoldDown,
+    FoldDownContext,
+    FoldUp,
+    NodeFolder,
+    NodeFolderContext,
+};
 use itertools::Itertools;
 pub use references::ReferenceCollector;
-pub use visitor::{pre_order_visit_down, pre_order_visit_up};
+pub use visitor::{
+    pre_order_visit_down,
+    pre_order_visit_up,
+};
 use vortex_error::VortexResult;
 
 use crate::ExprRef;
@@ -521,10 +530,26 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::traversal::visitor::pre_order_visit_down;
-    use crate::traversal::{NodeExt, NodeRewriter, NodeVisitor, Transformed, TraversalOrder};
+    use crate::traversal::{
+        NodeExt,
+        NodeRewriter,
+        NodeVisitor,
+        Transformed,
+        TraversalOrder,
+    };
     use crate::{
-        BinaryExpr, BinaryVTable, ExprRef, GetItemVTable, IntoExpr, LiteralExpr, LiteralVTable,
-        Operator, VortexExpr, col, is_root, root,
+        BinaryExpr,
+        BinaryVTable,
+        ExprRef,
+        GetItemVTable,
+        IntoExpr,
+        LiteralExpr,
+        LiteralVTable,
+        Operator,
+        VortexExpr,
+        col,
+        is_root,
+        root,
     };
 
     #[derive(Default)]

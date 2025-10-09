@@ -7,7 +7,13 @@ use anyhow::Result;
 use url::Url;
 
 use crate::engines::EngineCtx;
-use crate::{BenchmarkDataset, Engine, Format, Target, df};
+use crate::{
+    BenchmarkDataset,
+    Engine,
+    Format,
+    Target,
+    df,
+};
 
 /// Core benchmark operations that all benchmark types implement
 pub trait Benchmark {

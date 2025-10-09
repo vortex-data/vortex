@@ -3,10 +3,17 @@
 
 use std::ffi::CStr;
 
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::error::{
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
 use crate::duckdb::DataChunk;
-use crate::{cpp, wrapper};
+use crate::{
+    cpp,
+    wrapper,
+};
 
 wrapper! {
     /// A wrapper around a DuckDB query result.

@@ -3,7 +3,10 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{
+    AtomicU64,
+    Ordering,
+};
 
 use async_stream::try_stream;
 use async_trait::async_trait;
@@ -14,9 +17,15 @@ use vortex_io::runtime::Handle;
 
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{
-    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt as _,
+    SendableSequentialStream,
+    SequencePointer,
+    SequentialStreamAdapter,
+    SequentialStreamExt as _,
 };
-use crate::{LayoutRef, LayoutStrategy};
+use crate::{
+    LayoutRef,
+    LayoutStrategy,
+};
 
 #[derive(Clone)]
 pub struct BufferedStrategy {

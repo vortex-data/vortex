@@ -1,10 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{
+    Display,
+    Formatter,
+};
 
 use num_traits::ToPrimitive;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_panic,
+};
 
 use crate::DType;
 
@@ -131,7 +140,10 @@ impl TryFrom<DType> for DecimalDType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DType, Nullability};
+    use crate::{
+        DType,
+        Nullability,
+    };
 
     #[test]
     fn test_decimal_valid_construction() {

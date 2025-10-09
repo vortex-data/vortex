@@ -1,18 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{
+    Display,
+    Formatter,
+};
 use std::hash::Hash;
-use std::sync::{Arc, OnceLock};
+use std::sync::{
+    Arc,
+    OnceLock,
+};
 
 use itertools::Itertools;
 use vortex_error::{
-    VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err, vortex_panic,
+    VortexExpect,
+    VortexResult,
+    VortexUnwrap,
+    vortex_bail,
+    vortex_err,
+    vortex_panic,
 };
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::flatbuffers::ViewedDType;
-use crate::{DType, FieldName, FieldNames, PType};
+use crate::{
+    DType,
+    FieldName,
+    FieldNames,
+    PType,
+};
 
 /// DType of a struct's field, either owned or a pointer to an underlying flatbuffer.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -146,7 +162,10 @@ impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
     where
         A: serde::de::EnumAccess<'de>,
     {
-        use serde::de::{Error, VariantAccess};
+        use serde::de::{
+            Error,
+            VariantAccess,
+        };
 
         #[derive(serde::Deserialize, Debug)]
         enum FieldDTypeVariant {
@@ -485,7 +504,12 @@ mod test {
     use itertools::Itertools;
 
     use crate::dtype::DType;
-    use crate::{FieldNames, Nullability, PType, StructFields};
+    use crate::{
+        FieldNames,
+        Nullability,
+        PType,
+        StructFields,
+    };
 
     #[test]
     fn nullability() {

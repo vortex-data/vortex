@@ -4,17 +4,44 @@
 use std::ops::Not;
 
 use arrow_buffer::BooleanBuffer;
-use vortex_array::arrays::{BoolArray, ConstantArray};
-use vortex_array::compute::{Operator, cast, compare, mask, take};
+use vortex_array::arrays::{
+    BoolArray,
+    ConstantArray,
+};
+use vortex_array::compute::{
+    Operator,
+    cast,
+    compare,
+    mask,
+    take,
+};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::{AllOr, Mask};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    Canonical,
+    IntoArray,
+    ToCanonical,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
+use vortex_mask::{
+    AllOr,
+    Mask,
+};
 use vortex_scalar::Scalar;
 
-use crate::{DictArray, DictVTable};
+use crate::{
+    DictArray,
+    DictVTable,
+};
 
 impl CanonicalVTable<DictVTable> for DictVTable {
     fn canonicalize(array: &DictArray) -> Canonical {

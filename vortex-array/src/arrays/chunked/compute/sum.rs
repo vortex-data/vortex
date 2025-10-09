@@ -2,14 +2,35 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::PrimInt;
-use vortex_dtype::{NativePType, PType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_scalar::{FromPrimitiveOrF16, Scalar};
+use vortex_dtype::{
+    NativePType,
+    PType,
+    match_each_native_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
+use vortex_scalar::{
+    FromPrimitiveOrF16,
+    Scalar,
+};
 
-use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{SumKernel, SumKernelAdapter, sum};
+use crate::arrays::{
+    ChunkedArray,
+    ChunkedVTable,
+};
+use crate::compute::{
+    SumKernel,
+    SumKernelAdapter,
+    sum,
+};
 use crate::stats::Stat;
-use crate::{ArrayRef, register_kernel};
+use crate::{
+    ArrayRef,
+    register_kernel,
+};
 
 impl SumKernel for ChunkedVTable {
     fn sum(&self, array: &ChunkedArray) -> VortexResult<Scalar> {
@@ -69,7 +90,11 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::array::IntoArray;
-    use crate::arrays::{ChunkedArray, ConstantArray, PrimitiveArray};
+    use crate::arrays::{
+        ChunkedArray,
+        ConstantArray,
+        PrimitiveArray,
+    };
     use crate::compute::sum;
 
     #[test]

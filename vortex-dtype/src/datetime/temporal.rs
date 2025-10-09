@@ -2,14 +2,34 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Display;
-use std::sync::{Arc, LazyLock};
+use std::sync::{
+    Arc,
+    LazyLock,
+};
 
-use jiff::civil::{Date, DateTime, Time};
-use jiff::{Timestamp, Zoned};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use jiff::civil::{
+    Date,
+    DateTime,
+    Time,
+};
+use jiff::{
+    Timestamp,
+    Zoned,
+};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+    vortex_panic,
+};
 
 use crate::datetime::unit::TimeUnit;
-use crate::{ExtDType, ExtID, ExtMetadata};
+use crate::{
+    ExtDType,
+    ExtID,
+    ExtMetadata,
+};
 
 /// ID for the Vortex time type.
 pub static TIME_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("vortex.time"));
@@ -213,7 +233,11 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::{ExtDType, ExtMetadata, PType};
+    use crate::{
+        ExtDType,
+        ExtMetadata,
+        PType,
+    };
 
     #[test]
     fn test_roundtrip_metadata() {

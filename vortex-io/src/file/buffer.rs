@@ -1,16 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::{Arc, LazyLock};
+use std::sync::{
+    Arc,
+    LazyLock,
+};
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::{FutureExt, StreamExt};
-use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use futures::{
+    FutureExt,
+    StreamExt,
+};
+use vortex_buffer::{
+    ByteBuffer,
+    ByteBufferMut,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
 
 use crate::file::IoRequest;
-use crate::file::read::{CoalesceWindow, IntoReadSource, ReadSource, ReadSourceRef};
+use crate::file::read::{
+    CoalesceWindow,
+    IntoReadSource,
+    ReadSource,
+    ReadSourceRef,
+};
 use crate::runtime::Handle;
 
 impl IntoReadSource for ByteBuffer {

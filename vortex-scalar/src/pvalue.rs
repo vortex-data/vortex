@@ -3,14 +3,26 @@
 
 use core::fmt::Display;
 use std::cmp::Ordering;
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 
 use num_traits::NumCast;
 use paste::paste;
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PType, ToBytes};
+use vortex_dtype::{
+    NativePType,
+    PType,
+    ToBytes,
+};
 use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err,
+    VortexError,
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_ensure,
+    vortex_err,
 };
 
 /// A primitive value that can represent any primitive type supported by Vortex.
@@ -533,7 +545,10 @@ mod test {
     use std::collections::HashSet;
 
     use vortex_dtype::half::f16;
-    use vortex_dtype::{PType, ToBytes};
+    use vortex_dtype::{
+        PType,
+        ToBytes,
+    };
 
     use crate::PValue;
     use crate::pvalue::CoercePValue;

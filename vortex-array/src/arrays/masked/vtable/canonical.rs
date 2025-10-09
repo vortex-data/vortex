@@ -4,7 +4,10 @@
 use vortex_error::VortexExpect;
 
 use crate::Canonical;
-use crate::arrays::{MaskedArray, MaskedVTable};
+use crate::arrays::{
+    MaskedArray,
+    MaskedVTable,
+};
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<MaskedVTable> for MaskedVTable {
@@ -24,7 +27,10 @@ mod tests {
     use super::*;
     use crate::arrays::PrimitiveArray;
     use crate::validity::Validity;
-    use crate::{IntoArray, ToCanonical};
+    use crate::{
+        IntoArray,
+        ToCanonical,
+    };
 
     #[rstest]
     #[case(

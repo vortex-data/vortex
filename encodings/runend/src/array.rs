@@ -4,18 +4,47 @@
 use std::fmt::Debug;
 
 use vortex_array::arrays::PrimitiveVTable;
-use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
+use vortex_array::search_sorted::{
+    SearchSorted,
+    SearchSortedSide,
+};
+use vortex_array::stats::{
+    ArrayStats,
+    StatsSetRef,
+};
+use vortex_array::vtable::{
+    ArrayVTable,
+    CanonicalVTable,
+    NotSupported,
+    VTable,
+    ValidityVTable,
+};
 use vortex_array::{
-    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
+    Array,
+    ArrayRef,
+    Canonical,
+    EncodingId,
+    EncodingRef,
+    IntoArray,
+    ToCanonical,
+    vtable,
 };
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
+use vortex_error::{
+    VortexExpect as _,
+    VortexResult,
+    vortex_bail,
+    vortex_ensure,
+    vortex_panic,
+};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 
-use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
+use crate::compress::{
+    runend_decode_bools,
+    runend_decode_primitive,
+    runend_encode,
+};
 
 vtable!(RunEnd);
 
@@ -365,7 +394,11 @@ impl CanonicalVTable<RunEndVTable> for RunEndVTable {
 mod tests {
     use vortex_array::IntoArray;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
     use crate::RunEndArray;
 

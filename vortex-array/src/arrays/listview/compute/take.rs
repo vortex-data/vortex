@@ -2,14 +2,29 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::Zero;
-use vortex_dtype::{Nullability, match_each_integer_ptype};
+use vortex_dtype::{
+    Nullability,
+    match_each_integer_ptype,
+};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ListViewArray, ListViewVTable};
-use crate::compute::{self, TakeKernel, TakeKernelAdapter};
+use crate::arrays::{
+    ListViewArray,
+    ListViewVTable,
+};
+use crate::compute::{
+    self,
+    TakeKernel,
+    TakeKernelAdapter,
+};
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 
 /// The threshold for triggering a rebuild of the [`ListViewArray`].
 ///

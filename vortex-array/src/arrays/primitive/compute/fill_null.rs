@@ -4,16 +4,33 @@
 use std::ops::Not;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{Nullability, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::{
+    Nullability,
+    match_each_native_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 use vortex_scalar::Scalar;
 
 use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::{ConstantArray, PrimitiveVTable};
-use crate::compute::{FillNullKernel, FillNullKernelAdapter};
+use crate::arrays::{
+    ConstantArray,
+    PrimitiveVTable,
+};
+use crate::compute::{
+    FillNullKernel,
+    FillNullKernelAdapter,
+};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
 
 impl FillNullKernel for PrimitiveVTable {
     fn fill_null(&self, array: &PrimitiveArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {

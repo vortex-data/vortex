@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{CStr, c_char};
+use std::ffi::{
+    CStr,
+    c_char,
+};
 
 use mpsc::Sender;
 use tokio::fs::File;
@@ -9,13 +12,24 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::file::{VortexWriteOptions, WriteSummary};
+use vortex::error::{
+    VortexExpect,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
+use vortex::file::{
+    VortexWriteOptions,
+    WriteSummary,
+};
 use vortex::stream::ArrayStreamAdapter;
 
 use crate::array::vx_array;
 use crate::dtype::vx_dtype;
-use crate::error::{try_or_default, vx_error};
+use crate::error::{
+    try_or_default,
+    vx_error,
+};
 use crate::get_runtime;
 
 #[allow(non_camel_case_types)]
@@ -118,8 +132,14 @@ mod tests {
     use vortex::validity::Validity;
 
     use super::*;
-    use crate::array::{vx_array, vx_array_free};
-    use crate::dtype::{vx_dtype, vx_dtype_free};
+    use crate::array::{
+        vx_array,
+        vx_array_free,
+    };
+    use crate::dtype::{
+        vx_dtype,
+        vx_dtype_free,
+    };
     use crate::error::vx_error_free;
 
     #[test]

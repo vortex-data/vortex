@@ -6,10 +6,16 @@
 use divan::Bencher;
 use rand::distr::Uniform;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{
+    Rng,
+    SeedableRng,
+};
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
-use vortex_array::compute::{Operator, compare};
+use vortex_array::compute::{
+    Operator,
+    compare,
+};
 use vortex_buffer::Buffer;
 
 fn main() {

@@ -7,12 +7,32 @@ use std::ops::Deref;
 use arrow_buffer::BooleanBuffer;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
-use vortex_array::compute::{Operator, scalar_cmp};
+use vortex_array::compute::{
+    Operator,
+    scalar_cmp,
+};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+};
+use vortex_dtype::{
+    DType,
+    NativePType,
+    match_each_native_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_err,
+};
+use vortex_scalar::{
+    NativeDecimalType,
+    Scalar,
+    match_each_decimal_value_type,
+};
 
 pub fn compare_canonical_array(
     array: &dyn Array,

@@ -1,17 +1,46 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::patches::{
+    Patches,
+    PatchesMetadata,
+};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper, VisitorVTable};
-use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, Canonical, ProstMetadata};
+use vortex_array::vtable::{
+    EncodeVTable,
+    SerdeVTable,
+    ValidityHelper,
+    VisitorVTable,
+};
+use vortex_array::{
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    Canonical,
+    ProstMetadata,
+};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{
+    DType,
+    PType,
+};
+use vortex_error::{
+    VortexError,
+    VortexResult,
+    vortex_bail,
+    vortex_err,
+};
 
-use super::{BitPackedEncoding, bit_width_histogram, find_best_bit_width};
-use crate::{BitPackedArray, BitPackedVTable, bitpack_encode};
+use super::{
+    BitPackedEncoding,
+    bit_width_histogram,
+    find_best_bit_width,
+};
+use crate::{
+    BitPackedArray,
+    BitPackedVTable,
+    bitpack_encode,
+};
 
 #[derive(Clone, prost::Message)]
 pub struct BitPackedMetadata {

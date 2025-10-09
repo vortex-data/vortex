@@ -7,11 +7,25 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::hash::Hash;
 
-use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexError, VortexExpect, vortex_err};
+use vortex_dtype::{
+    DType,
+    DecimalDType,
+    Nullability,
+};
+use vortex_error::{
+    VortexError,
+    VortexExpect,
+    vortex_err,
+};
 
 use crate::{
-    DecimalScalar, InnerScalarValue, NativeDecimalType, Scalar, ScalarValue, ToI256, i256,
+    DecimalScalar,
+    InnerScalarValue,
+    NativeDecimalType,
+    Scalar,
+    ScalarValue,
+    ToI256,
+    i256,
     match_each_decimal_value,
 };
 
@@ -126,7 +140,10 @@ impl Hash for DecimalValue {
     }
 }
 
-use super::macros::{decimal_scalar_pack, decimal_scalar_unpack};
+use super::macros::{
+    decimal_scalar_pack,
+    decimal_scalar_unpack,
+};
 
 decimal_scalar_unpack!(i8, I8);
 decimal_scalar_unpack!(i16, I16);

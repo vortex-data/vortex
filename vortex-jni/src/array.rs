@@ -1,22 +1,62 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
-use arrow_schema::{DataType, FieldRef, Fields};
-use jni::JNIEnv;
-use jni::objects::{JClass, JIntArray, JLongArray, JObject, JValue};
-use jni::sys::{
-    JNI_FALSE, JNI_TRUE, jboolean, jbyte, jbyteArray, jdouble, jfloat, jint, jlong, jobject,
-    jshort, jstring,
+use arrow_array::ffi::{
+    FFI_ArrowArray,
+    FFI_ArrowSchema,
 };
-use vortex::arrays::{VarBinArray, VarBinViewArray};
+use arrow_schema::{
+    DataType,
+    FieldRef,
+    Fields,
+};
+use jni::JNIEnv;
+use jni::objects::{
+    JClass,
+    JIntArray,
+    JLongArray,
+    JObject,
+    JValue,
+};
+use jni::sys::{
+    JNI_FALSE,
+    JNI_TRUE,
+    jboolean,
+    jbyte,
+    jbyteArray,
+    jdouble,
+    jfloat,
+    jint,
+    jlong,
+    jobject,
+    jshort,
+    jstring,
+};
+use vortex::arrays::{
+    VarBinArray,
+    VarBinViewArray,
+};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, vortex_err};
-use vortex::scalar::{DecimalValue, i256};
-use vortex::{Array, ArrayRef, ToCanonical};
+use vortex::error::{
+    VortexError,
+    VortexExpect,
+    vortex_err,
+};
+use vortex::scalar::{
+    DecimalValue,
+    i256,
+};
+use vortex::{
+    Array,
+    ArrayRef,
+    ToCanonical,
+};
 
-use crate::errors::{JNIError, try_or_throw};
+use crate::errors::{
+    JNIError,
+    try_or_throw,
+};
 
 pub struct NativeArray {
     inner: ArrayRef,

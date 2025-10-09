@@ -2,12 +2,27 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{NumericKernel, NumericKernelAdapter, numeric};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_array::compute::{
+    NumericKernel,
+    NumericKernelAdapter,
+    numeric,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
+use vortex_error::{
+    VortexResult,
+    vortex_err,
+};
 use vortex_scalar::NumericOperator;
 
-use crate::{SparseArray, SparseVTable};
+use crate::{
+    SparseArray,
+    SparseVTable,
+};
 
 impl NumericKernel for SparseVTable {
     fn numeric(

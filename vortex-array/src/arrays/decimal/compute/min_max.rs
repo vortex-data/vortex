@@ -6,11 +6,22 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::{
-    DecimalValue, NativeDecimalType, Scalar, ScalarValue, match_each_decimal_value_type,
+    DecimalValue,
+    NativeDecimalType,
+    Scalar,
+    ScalarValue,
+    match_each_decimal_value_type,
 };
 
-use crate::arrays::{DecimalArray, DecimalVTable};
-use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
+use crate::arrays::{
+    DecimalArray,
+    DecimalVTable,
+};
+use crate::compute::{
+    MinMaxKernel,
+    MinMaxKernelAdapter,
+    MinMaxResult,
+};
 use crate::register_kernel;
 
 impl MinMaxKernel for DecimalVTable {
@@ -66,10 +77,17 @@ where
 mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
-    use vortex_scalar::{DecimalValue, Scalar, ScalarValue};
+    use vortex_scalar::{
+        DecimalValue,
+        Scalar,
+        ScalarValue,
+    };
 
     use crate::arrays::DecimalArray;
-    use crate::compute::{MinMaxResult, min_max};
+    use crate::compute::{
+        MinMaxResult,
+        min_max,
+    };
     use crate::validity::Validity;
 
     #[test]

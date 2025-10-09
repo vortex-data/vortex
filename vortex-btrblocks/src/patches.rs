@@ -3,7 +3,11 @@
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::patches::Patches;
-use vortex_array::{Array, IntoArray, ToCanonical};
+use vortex_array::{
+    Array,
+    IntoArray,
+    ToCanonical,
+};
 use vortex_error::VortexResult;
 
 /// Compresses the given patches by downscaling integers and checking for constant values.

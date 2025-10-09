@@ -5,10 +5,16 @@
 
 use divan::Bencher;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{
+    Rng,
+    SeedableRng,
+};
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::{mask, warm_up_vtables};
+use vortex_array::compute::{
+    mask,
+    warm_up_vtables,
+};
 use vortex_dict::DictArray;
 use vortex_mask::Mask;
 

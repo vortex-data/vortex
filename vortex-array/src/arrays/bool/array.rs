@@ -4,11 +4,22 @@
 use std::ops::BitAnd;
 
 use arrow_array::BooleanArray;
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
+use arrow_buffer::{
+    BooleanBuffer,
+    BooleanBufferBuilder,
+    MutableBuffer,
+};
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_dtype::{
+    DType,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+    vortex_ensure,
+};
 use vortex_mask::Mask;
 
 use crate::ToCanonical;
@@ -318,14 +329,24 @@ impl FromIterator<Option<bool>> for BoolArray {
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+    use arrow_buffer::{
+        BooleanBuffer,
+        BooleanBufferBuilder,
+    };
     use vortex_buffer::buffer;
 
-    use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::arrays::{
+        BoolArray,
+        PrimitiveArray,
+    };
     use crate::patches::Patches;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{Array, IntoArray, ToCanonical};
+    use crate::{
+        Array,
+        IntoArray,
+        ToCanonical,
+    };
 
     #[test]
     fn bool_array() {

@@ -1,12 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{ArrayRef, register_kernel};
+use vortex_array::compute::{
+    CastKernel,
+    CastKernelAdapter,
+    cast,
+};
+use vortex_array::{
+    ArrayRef,
+    register_kernel,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::rle::{RLEArray, RLEVTable};
+use crate::rle::{
+    RLEArray,
+    RLEVTable,
+};
 
 impl CastKernel for RLEVTable {
     fn cast(&self, array: &RLEArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -47,7 +57,11 @@ mod tests {
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+        PType,
+    };
 
     use crate::rle::RLEArray;
 

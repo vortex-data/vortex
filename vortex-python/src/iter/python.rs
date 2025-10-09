@@ -7,7 +7,10 @@ use pyo3::types::PyIterator;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::iter::ArrayIterator;
-use vortex::{Array, ArrayRef};
+use vortex::{
+    Array,
+    ArrayRef,
+};
 
 use crate::arrays::PyArrayRef;
 

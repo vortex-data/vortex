@@ -3,22 +3,45 @@
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
+use std::hash::{
+    Hash,
+    Hasher,
+};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_metrics::{Timer, VortexMetrics};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
+use vortex_metrics::{
+    Timer,
+    VortexMetrics,
+};
 
 use crate::Canonical;
 use crate::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
+    BatchBindCtx,
+    BatchExecution,
+    BatchExecutionRef,
+    BatchOperator,
+    LengthBounds,
+    Operator,
+    OperatorEq,
+    OperatorHash,
+    OperatorId,
+    OperatorRef,
 };
 use crate::pipeline::bits::BitView;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{BindContext, Kernel, KernelContext, PipelinedOperator, RowSelection};
+use crate::pipeline::{
+    BindContext,
+    Kernel,
+    KernelContext,
+    PipelinedOperator,
+    RowSelection,
+};
 
 /// An operator that wraps another operator and records metrics about its execution.
 #[derive(Debug)]

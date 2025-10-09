@@ -4,12 +4,37 @@
 use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
-use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, ToCanonical, vtable};
-use vortex_dtype::{DType, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
-use vortex_mask::{AllOr, Mask};
+use vortex_array::stats::{
+    ArrayStats,
+    StatsSetRef,
+};
+use vortex_array::vtable::{
+    ArrayVTable,
+    NotSupported,
+    VTable,
+    ValidityVTable,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    EncodingId,
+    EncodingRef,
+    ToCanonical,
+    vtable,
+};
+use vortex_dtype::{
+    DType,
+    match_each_integer_ptype,
+};
+use vortex_error::{
+    VortexExpect as _,
+    VortexResult,
+    vortex_bail,
+};
+use vortex_mask::{
+    AllOr,
+    Mask,
+};
 
 vtable!(Dict);
 
@@ -175,17 +200,40 @@ impl ValidityVTable<DictVTable> for DictVTable {
 #[cfg(test)]
 mod test {
     use arrow_buffer::BooleanBuffer;
-    use rand::distr::{Distribution, StandardUniform};
+    use rand::distr::{
+        Distribution,
+        StandardUniform,
+    };
     use rand::prelude::StdRng;
-    use rand::{Rng, SeedableRng};
-    use vortex_array::arrays::{ChunkedArray, PrimitiveArray};
+    use rand::{
+        Rng,
+        SeedableRng,
+    };
+    use vortex_array::arrays::{
+        ChunkedArray,
+        PrimitiveArray,
+    };
     use vortex_array::builders::builder_with_capacity;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{
+        Array,
+        ArrayRef,
+        IntoArray,
+        ToCanonical,
+    };
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, NativePType, PType, UnsignedPType};
-    use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
+    use vortex_dtype::{
+        DType,
+        NativePType,
+        PType,
+        UnsignedPType,
+    };
+    use vortex_error::{
+        VortexExpect,
+        VortexUnwrap,
+        vortex_panic,
+    };
     use vortex_mask::AllOr;
 
     use crate::DictArray;

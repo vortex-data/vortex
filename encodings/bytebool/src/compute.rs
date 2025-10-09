@@ -3,15 +3,32 @@
 
 use num_traits::AsPrimitive;
 use vortex_array::compute::{
-    CastKernel, CastKernelAdapter, MaskKernel, MaskKernelAdapter, TakeKernel, TakeKernelAdapter,
+    CastKernel,
+    CastKernelAdapter,
+    MaskKernel,
+    MaskKernelAdapter,
+    TakeKernel,
+    TakeKernelAdapter,
 };
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
-use vortex_dtype::{DType, match_each_integer_ptype};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    ToCanonical,
+    register_kernel,
+};
+use vortex_dtype::{
+    DType,
+    match_each_integer_ptype,
+};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use super::{ByteBoolArray, ByteBoolVTable};
+use super::{
+    ByteBoolArray,
+    ByteBoolVTable,
+};
 
 impl CastKernel for ByteBoolVTable {
     fn cast(&self, array: &ByteBoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -77,7 +94,10 @@ mod tests {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::compute::{Operator, compare};
+    use vortex_array::compute::{
+        Operator,
+        compare,
+    };
 
     use super::*;
 
@@ -178,7 +198,10 @@ mod tests {
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
     #[test]
     fn test_cast_bytebool_to_nullable() {

@@ -6,11 +6,24 @@
 #![allow(clippy::disallowed_types, clippy::panic)]
 
 use rstest::rstest;
-use vortex_dtype::{DType, DecimalDType, Nullability, PType};
+use vortex_dtype::{
+    DType,
+    DecimalDType,
+    Nullability,
+    PType,
+};
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::decimal::{DecimalScalar, DecimalValueType, NativeDecimalType};
-use crate::{DecimalValue, Scalar, i256};
+use crate::decimal::{
+    DecimalScalar,
+    DecimalValueType,
+    NativeDecimalType,
+};
+use crate::{
+    DecimalValue,
+    Scalar,
+    i256,
+};
 
 #[rstest]
 #[case(DecimalValue::I8(100), DecimalValue::I8(100))]

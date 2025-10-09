@@ -12,13 +12,26 @@ mod iter_bools;
 mod tests;
 
 use std::cmp::Ordering;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{
+    Debug,
+    Formatter,
+};
 use std::ops::Range;
-use std::sync::{Arc, OnceLock};
+use std::sync::{
+    Arc,
+    OnceLock,
+};
 
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
+use arrow_buffer::{
+    BooleanBuffer,
+    BooleanBufferBuilder,
+    NullBuffer,
+};
 use itertools::Itertools;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{
+    VortexResult,
+    vortex_panic,
+};
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {

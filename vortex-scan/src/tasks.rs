@@ -3,13 +3,22 @@
 
 //! Split scanning task implementation.
 
-use std::ops::{BitAnd, Range};
+use std::ops::{
+    BitAnd,
+    Range,
+};
 use std::sync::Arc;
 
 use bit_vec::BitVec;
 use futures::FutureExt;
-use futures::future::{BoxFuture, ok};
-use vortex_array::{ArrayRef, MaskFuture};
+use futures::future::{
+    BoxFuture,
+    ok,
+};
+use vortex_array::{
+    ArrayRef,
+    MaskFuture,
+};
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_layout::LayoutReader;

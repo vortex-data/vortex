@@ -6,12 +6,28 @@ mod compare;
 mod filter;
 
 use vortex_array::arrays::VarBinVTable;
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_array::compute::{
+    TakeKernel,
+    TakeKernelAdapter,
+    fill_null,
+    take,
+};
+use vortex_array::{
+    Array,
+    ArrayRef,
+    IntoArray,
+    register_kernel,
+};
 use vortex_error::VortexResult;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::{
+    Scalar,
+    ScalarValue,
+};
 
-use crate::{FSSTArray, FSSTVTable};
+use crate::{
+    FSSTArray,
+    FSSTVTable,
+};
 
 impl TakeKernel for FSSTVTable {
     // Take on an FSSTArray is a simple take on the codes array.
@@ -43,13 +59,23 @@ register_kernel!(TakeKernelAdapter(FSSTVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::arrays::{PrimitiveArray, VarBinArray};
+    use vortex_array::arrays::{
+        PrimitiveArray,
+        VarBinArray,
+    };
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::take;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{
+        DType,
+        Nullability,
+    };
 
-    use crate::{FSSTArray, fsst_compress, fsst_train_compressor};
+    use crate::{
+        FSSTArray,
+        fsst_compress,
+        fsst_train_compressor,
+    };
 
     #[test]
     fn test_take_null() {

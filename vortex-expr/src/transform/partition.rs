@@ -1,19 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{
+    Display,
+    Formatter,
+};
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::{
+    DType,
+    FieldName,
+    FieldNames,
+    Nullability,
+    StructFields,
+};
+use vortex_error::{
+    VortexExpect,
+    VortexResult,
+};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::transform::annotations::{
-    Annotation, AnnotationFn, Annotations, descendent_annotations,
+    Annotation,
+    AnnotationFn,
+    Annotations,
+    descendent_annotations,
 };
 use crate::transform::simplify_typed::simplify_typed;
-use crate::traversal::{NodeExt, NodeRewriter, Transformed, TraversalOrder};
-use crate::{ExprRef, get_item, pack, root};
+use crate::traversal::{
+    NodeExt,
+    NodeRewriter,
+    Transformed,
+    TraversalOrder,
+};
+use crate::{
+    ExprRef,
+    get_item,
+    pack,
+    root,
+};
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -182,17 +207,32 @@ impl<A: Annotation + Display> NodeRewriter for StructFieldExpressionSplitter<'_,
 
 #[cfg(test)]
 mod tests {
-    use rstest::{fixture, rstest};
+    use rstest::{
+        fixture,
+        rstest,
+    };
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, StructFields};
+    use vortex_dtype::{
+        DType,
+        StructFields,
+    };
 
     use super::*;
     use crate::transform::immediate_access::annotate_scope_access;
     use crate::transform::replace::replace_root_fields;
     use crate::transform::simplify::simplify;
     use crate::transform::simplify_typed::simplify_typed;
-    use crate::{and, col, get_item, lit, merge, pack, root, select};
+    use crate::{
+        and,
+        col,
+        get_item,
+        lit,
+        merge,
+        pack,
+        root,
+        select,
+    };
 
     #[fixture]
     fn dtype() -> DType {

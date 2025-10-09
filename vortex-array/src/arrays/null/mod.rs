@@ -10,14 +10,30 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::serde::ArrayChildren;
-use crate::stats::{ArrayStats, StatsSetRef};
+use crate::stats::{
+    ArrayStats,
+    StatsSetRef,
+};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, SerdeVTable, VTable,
-    ValidityVTable, VisitorVTable,
+    ArrayVTable,
+    CanonicalVTable,
+    NotSupported,
+    OperationsVTable,
+    SerdeVTable,
+    VTable,
+    ValidityVTable,
+    VisitorVTable,
 };
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, EncodingId,
-    EncodingRef, IntoArray, vtable,
+    ArrayBufferVisitor,
+    ArrayChildVisitor,
+    ArrayRef,
+    Canonical,
+    EmptyMetadata,
+    EncodingId,
+    EncodingRef,
+    IntoArray,
+    vtable,
 };
 
 mod compute;

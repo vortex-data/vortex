@@ -2,18 +2,39 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![allow(clippy::cast_possible_truncation)]
 
-use vortex_array::arrays::{BoolArray, PrimitiveArray};
+use vortex_array::arrays::{
+    BoolArray,
+    PrimitiveArray,
+};
 use vortex_array::arrow::compute::to_arrow_preferred;
-use vortex_array::serde::{ArrayParts, SerializeOptions};
+use vortex_array::serde::{
+    ArrayParts,
+    SerializeOptions,
+};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayContext, ArrayRegistry, EncodingRef, ToCanonical};
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_array::{
+    ArrayContext,
+    ArrayRegistry,
+    EncodingRef,
+    ToCanonical,
+};
+use vortex_buffer::{
+    Buffer,
+    BufferMut,
+};
+use vortex_dtype::{
+    DType,
+    Nullability,
+    PType,
+};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::{PcoArray, PcoEncoding};
+use crate::{
+    PcoArray,
+    PcoEncoding,
+};
 
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {
