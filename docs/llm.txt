@@ -1,0 +1,417 @@
+# Vortex LLM Context
+
+This file provides condensed information about the Vortex array library for LLM code generation.
+
+## Overview
+
+Vortex is a columnar array library with zero-copy Arrow interoperability and cascading compression.
+- Rust library with Python/Java/C bindings
+- Zero-copy conversion to/from Apache Arrow
+- Multiple encodings per data type for compression
+- File format with lazy deserialization
+
+## Critical Patterns (Read This First!)
+
+These are the CORRECT patterns - common mistakes are listed in "Common Gotchas" below:
+
+```rust
+// ✅ CORRECT: Validity construction
+let validity: Validity = [true, false, true].into_iter().collect();
+
+// ✅ CORRECT: BoolArray construction
+let bools: BoolArray = [true, false, true].into_iter().collect();
+
+// ✅ CORRECT: VarBinViewArray construction
+let view: VarBinViewArray = vec!["a", "b"].into_iter().map(Some).collect();
+
+// ✅ CORRECT: String scalar display
+if let Some(s) = scalar.as_utf8().value() {
+    println!("{}", s.as_str());  // Need .as_str()
+}
+
+// ✅ CORRECT: Struct creation with expect
+let s = StructArray::from_fields(&[...]).expect("msg").into_array();
+
+// ✅ CORRECT: Feature name for table display
+#[cfg(feature = "pretty")]  // NOT "table-display"
+println!("{}", array.display_table());
+
+// ✅ CORRECT: DType for primitives
+use vortex::dtype::PType;
+let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+
+// ✅ CORRECT: Creating arrays with nulls (use PrimitiveArray::from_option_iter)
+let with_nulls = PrimitiveArray::from_option_iter([
+    Some(1i32), None, Some(3), None, Some(5)
+]);
+
+// ✅ CORRECT: fill_null passes Scalar by reference
+let filled = fill_null(&array, &Scalar::from(99i32))?;
+
+// ✅ CORRECT: VarBinArray iteration with with_iterator
+let varbin = VarBinArray::from(vec!["apple", "banana"]);
+let strings = varbin.with_iterator(|iter| {
+    iter.map(|bytes_opt| {
+        bytes_opt.map(|bytes| String::from_utf8(bytes.to_vec()).unwrap())
+    }).collect::<Vec<_>>()
+})?;
+```
+
+## Core Concepts
+
+### Array
+- Immutable columnar data structure
+- Has: dtype (logical type), encoding (physical layout), length, children, buffers
+- Access: `scalar_at(index)`, `slice(range)`, `len()`, `dtype()`, `encoding()`
+- Display: `display_values()`, `display_tree()`, `display_table()` (requires feature)
+
+### DType (Logical Type)
+Types: Null, Bool, Primitive, Utf8, Binary, Struct, List, FixedSizeList, Decimal, Extension
+- Get nullability: `dtype.is_nullable()`
+- For primitives: `PType::try_from(dtype)` returns i8/u8/i16/u16/i32/u32/i64/u64/f16/f32/f64
+
+### Encoding (Physical Layout)
+Common encodings:
+- Canonical: PrimitiveArray, BoolArray, VarBinViewArray, StructArray, ListArray
+- Compressed: DictArray, FastLanes, RunEnd, Sparse, FSST, ALP, PCO, ZigZag
+- Convert: `array.to_canonical()` to get canonical form
+
+### Validity (Nullability)
+Three states:
+- `Validity::NonNullable` - no nulls allowed
+- `Validity::AllValid` - nullable type, but all values valid
+- `Validity::Array(bool_array)` - explicit null mask
+
+## Quick Reference
+
+### Create Arrays
+
+```rust
+use vortex::IntoArray;
+use vortex::buffer::buffer;
+use vortex::arrays::{PrimitiveArray, VarBinArray, BoolArray, StructArray};
+use vortex::validity::Validity;
+
+// Primitives (most common)
+let ints = buffer![1i32, 2, 3, 4].into_array();
+let floats = buffer![1.0f64, 2.5, 3.14].into_array();
+
+// With nulls (use iterator pattern)
+let validity: Validity = [true, false, true].into_iter().collect();
+let nullable = PrimitiveArray::new(buffer![1i32, 2, 3], validity);
+
+// Strings (VarBinArray for offset-based, VarBinViewArray is canonical)
+let strings = VarBinArray::from(vec!["foo", "bar"]).into_array();
+let with_nulls = VarBinArray::from_iter(
+    vec![Some("foo"), None, Some("bar")],
+    DType::Utf8(Nullability::Nullable)
+);
+
+// VarBinViewArray (canonical string encoding) - use iterator with map(Some)
+use vortex::arrays::VarBinViewArray;
+let view_array: VarBinViewArray = vec!["hello", "world"]
+    .into_iter()
+    .map(Some)
+    .collect();
+
+// Boolean
+let bools: BoolArray = [true, false, true].into_iter().collect();
+
+// Struct (use expect() for better error messages)
+let struct_arr = StructArray::from_fields(&[
+    ("name", VarBinArray::from(vec!["Alice", "Bob"]).into_array()),
+    ("age", buffer![30i32, 25].into_array()),
+]).expect("Failed to create struct array").into_array();
+```
+
+### Access Elements
+
+```rust
+// Get scalar at index
+let scalar = array.scalar_at(i);
+
+// Extract typed value from primitive
+let value: Option<i32> = scalar.as_primitive().typed_value::<i32>();
+
+// For strings, use .as_str() for display
+if let Some(string_val) = scalar.as_utf8().value() {
+    println!("{}", string_val.as_str());
+}
+
+// Check validity
+if array.is_valid(i) { ... }
+
+// Slice (O(1), no copy)
+let sliced = array.slice(2..7);
+```
+
+### Iterate
+
+```rust
+// Iterate by index
+for i in 0..array.len() {
+    let scalar = array.scalar_at(i);
+    // process scalar
+}
+
+// With validity check
+for i in 0..array.len() {
+    if array.is_valid(i) {
+        let value = array.scalar_at(i).as_primitive().typed_value::<i32>();
+    }
+}
+
+// Chunk iterator for ChunkedArray (handle Result with if let Ok)
+for chunk_result in array.to_array_iterator() {
+    if let Ok(chunk) = chunk_result {
+        // process chunk
+    }
+}
+
+// VarBinArray iteration using ArrayAccessor trait's with_iterator
+use vortex::accessor::ArrayAccessor;
+
+let varbin = VarBinArray::from(vec!["apple", "banana", "cherry"]);
+let strings = varbin.with_iterator(|iter| {
+    iter.map(|bytes_opt| {
+        bytes_opt.map(|bytes| {
+            String::from_utf8(bytes.to_vec()).expect("Invalid UTF-8")
+        })
+    }).collect::<Vec<_>>()
+}).expect("Failed to iterate");
+```
+
+### Debug/Print
+
+```rust
+// Values only
+println!("{}", array.display_values()); // [1i32, 2i32, 3i32]
+
+// Metadata only (default Display)
+println!("{}", array); // vortex.primitive(i32, len=3)
+
+// Full tree structure
+println!("{}", array.display_tree());
+
+// Table (requires pretty feature)
+#[cfg(feature = "pretty")]
+println!("{}", array.display_table());
+```
+
+### File I/O
+
+```rust
+use vortex::stream::ArrayStreamExt;
+use vortex_file::{VortexWriteOptions, VortexOpenOptions};
+
+// Write
+VortexWriteOptions::default()
+    .write(
+        &mut tokio::fs::File::create("data.vortex").await?,
+        array.to_array_stream(),
+    )
+    .await?;
+
+// Read
+let array = VortexOpenOptions::new()
+    .open("data.vortex").await?
+    .scan()?
+    .into_array_stream()?
+    .read_all().await?;
+
+// Read with filter
+use vortex_expr::{gt, lit, root};
+let filtered = VortexOpenOptions::new()
+    .open("data.vortex").await?
+    .scan()?
+    .with_filter(gt(root(), lit(50i32)))
+    .into_array_stream()?
+    .read_all().await?;
+```
+
+### Compression
+
+```rust
+use vortex::compressor::BtrBlocksCompressor;
+use vortex_layout::layouts::compact::CompactCompressor;
+use vortex_file::WriteStrategyBuilder;
+
+// In-memory compression
+let compressed = BtrBlocksCompressor::default().compress(&array)?;
+
+// File compression
+VortexWriteOptions::default()
+    .with_strategy(
+        WriteStrategyBuilder::new()
+            .with_compressor(CompactCompressor::default())
+            .build()
+    )
+    .write(file, stream).await?;
+```
+
+### Arrow Conversion
+
+```rust
+use vortex::dtype::arrow::FromArrowType;
+use vortex_array::arrow::{FromArrowArray, IntoArrow};
+use vortex::ToCanonical;
+
+// Arrow -> Vortex
+let dtype = DType::from_arrow(arrow_schema);
+let vortex = ArrayRef::from_arrow(arrow_batch, false);
+
+// Vortex -> Arrow
+let canonical = vortex_array.to_canonical()?;
+let arrow = canonical.into_arrow()?;
+```
+
+### Builders
+
+```rust
+use vortex::builders::{PrimitiveBuilder, ArrayBuilder};
+
+let mut builder = PrimitiveBuilder::<i32>::new();
+builder.push(Some(1));
+builder.push(None);
+builder.push(Some(3));
+let array = builder.finish();
+```
+
+### Statistics
+
+```rust
+use vortex::stats::{Stat, StatsProviderExt};
+
+array.maybe_min() // Option<Scalar>
+array.maybe_max() // Option<Scalar>
+array.maybe_stat(Stat::IsSorted) // Option<Scalar>
+array.maybe_stat(Stat::IsConstant) // Option<Scalar>
+array.nbytes() // usize - memory size
+```
+
+## Common Patterns
+
+### Type Conversions
+```rust
+// Scalar types
+let prim_scalar = scalar.as_primitive(); // PrimitiveScalar
+let bool_scalar = scalar.as_bool(); // BoolScalar
+let utf8_scalar = scalar.as_utf8(); // Utf8Scalar
+let struct_scalar = scalar.as_struct(); // StructScalar
+
+// Array types
+let prim_array = array.to_primitive(); // PrimitiveArray
+let struct_array = array.to_struct(); // StructArray
+```
+
+### Struct Field Access
+```rust
+let struct_arr = array.to_struct();
+let field = struct_arr.field_by_name("column_name")?;
+let field = struct_arr.field(index)?;
+let names = struct_arr.dtype().as_struct().0.names();
+```
+
+### Error Handling
+```rust
+use vortex_error::{VortexResult, vortex_err, vortex_bail};
+
+fn foo() -> VortexResult<T> {
+    vortex_bail!("Error message {}", arg); // early return error
+    // or
+    Err(vortex_err!("Error message {}", arg)) // create error
+}
+```
+
+## Important Crates
+
+- `vortex` - Main crate, re-exports everything
+- `vortex-array` - Core array types and traits
+- `vortex-dtype` - Data type system
+- `vortex-buffer` - Aligned buffers (`Buffer<T>`, `buffer!` macro)
+- `vortex-file` - File I/O
+- `vortex-error` - Error types (`VortexError`, `VortexResult`)
+- `vortex-expr` - Expression language for filters
+- `vortex-scalar` - Scalar values
+
+Encodings (in `encodings/` directory):
+- `vortex-dict` - Dictionary encoding
+- `vortex-fastlanes` - FastLanes bitpacking
+- `vortex-fsst` - FSST string compression
+- `vortex-alp` - ALP floating point compression
+- `vortex-pco` - Pco Delta compression
+- `vortex-runend` - Run-end encoding
+- `vortex-sparse` - Sparse array encoding
+
+## Canonical Encodings
+
+Each DType has a canonical encoding for Arrow interop:
+
+| DType | Canonical | Notes |
+|-------|-----------|-------|
+| Null | NullArray | All nulls |
+| Bool | BoolArray | Bit-packed booleans |
+| Primitive | PrimitiveArray | Native type array |
+| Utf8/Binary | VarBinViewArray | String/binary views |
+| Struct | StructArray | Multiple field arrays |
+| List | ListArray | Variable-length lists |
+| FixedSizeList | FixedSizeListArray | Fixed-length lists |
+| Decimal | DecimalArray | Decimal values |
+| Extension | ExtensionArray | User extensions |
+
+## Common Gotchas
+
+1. **Immutability**: Arrays are immutable. Use builders or `from_option_iter` to create new arrays.
+   - Operations like `fill_null` return NEW arrays, they don't modify existing ones
+2. **ArrayRef vs Array**: `ArrayRef = Arc<dyn Array>`. Use `.into_array()` to get ArrayRef.
+3. **IntoArray trait**: Many types impl `IntoArray` for conversion to `ArrayRef`.
+4. **Validity**: Check `is_valid(i)` before accessing nullable values.
+   - Must use iterator pattern: `[true, false].into_iter().collect()` NOT `Validity::from([true, false])`
+5. **Encoding != DType**: Same logical type can have many physical encodings.
+6. **Async I/O**: File operations require `#[tokio::main]` or async runtime.
+7. **Feature flags**: Use `pretty` for table display, not `table-display`. Features: pretty, zstd, tokio, etc.
+8. **VarBinViewArray**: Create with iterator pattern: `vec!["a", "b"].into_iter().map(Some).collect()`
+9. **BufferString display**: Use `.as_str()` when printing: `string_val.as_str()`
+10. **BoolArray**: Create with FromIterator: `[true, false].into_iter().collect()`, not `from(vec![])`
+11. **DType construction**: Use `DType::Primitive(PType::I32, Nullability::Nullable)` NOT `DType::Int32(...)`
+12. **fill_null**: Pass Scalar by reference: `fill_null(&array, &Scalar::from(99))`
+13. **VarBinArray iteration**: Use `with_iterator` method from ArrayAccessor trait, not `to_array_iterator`
+14. **PrimitiveArray with nulls**: Prefer `PrimitiveArray::from_option_iter` over manual builders
+
+## Code Examples Location
+
+See `/vortex/examples/` directory:
+- `basic_array_creation.rs` - Creating arrays
+- `string_arrays.rs` - VarBin and VarBinView comparison
+- `debug_printing.rs` - Display options
+- `array_iteration.rs` - Element access, iteration, and `with_iterator`
+- `struct_arrays.rs` - Working with structs
+- `file_io.rs` - Reading and writing files
+- `core_concepts.rs` - Array trait vs concrete types
+- `array_immutability.rs` - Demonstrates array immutability
+- `advanced_array_types.rs` - ConstantArray, ChunkedArray, NullArray
+
+Documentation: `/docs/guides/rust-cookbook.md`
+
+## Type Aliases
+
+```rust
+use vortex::{Array, ArrayRef}; // ArrayRef = Arc<dyn Array>
+use vortex_error::{VortexError, VortexResult}; // VortexResult<T> = Result<T, VortexError>
+use vortex_dtype::{DType, PType, Nullability};
+```
+
+## Macro Reference
+
+```rust
+buffer![1, 2, 3] // Create buffer with values
+buffer![42; 1000] // Create buffer with repeated value
+vortex_err!("msg {}", arg) // Create VortexError
+vortex_bail!("msg {}", arg) // Return VortexError
+vortex_panic!("msg") // Panic with VortexError
+```
+
+---
+
+For complete documentation see: https://docs.vortex.dev
+Rust API docs: https://docs.rs/vortex
