@@ -5,22 +5,36 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
 
+// Device function template (callable from device code)
+template<typename ValueT>
+__device__ void for_device(
+    ValueT *__restrict values_in_out,
+    ValueT reference,
+    int thread_idx
+) {
+    auto i = thread_idx;
+    const uint32_t thread_ops = blockDim.x;
+
+    for (auto j = 0; j < thread_ops; j++) {
+        auto idx = i * thread_ops + j;
+        values_in_out[idx] = values_in_out[idx] + reference;
+    }
+}
+
+// Kernel wrapper template (callable from host)
 template<typename ValueT>
 __device__ void for_(
     ValueT *__restrict values_in_out_array,
     ValueT reference
 ) {
     auto i = threadIdx.x;
-    auto block_offset = (blockIdx.x * 1024);
+    const uint32_t fl_lane_count = 32;
+    auto blockSize = blockDim.x * fl_lane_count;
+    auto block_size = 1024;
+    auto block_offset = (blockIdx.x * block_size);
 
     auto values_in_out = values_in_out_array + block_offset;
-
-    const int thread_ops = 32;
-
-    for (auto j = 0; j < thread_ops; j++) {
-        auto idx = i * thread_ops + j;
-        values_in_out[idx] = values_in_out[idx] + reference;
-    }
+    for_device(values_in_out, reference, i);
 }
 
 // Macro to generate the extern "C" wrapper for each type combination

@@ -28,6 +28,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.2
         with:

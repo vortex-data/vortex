@@ -15,7 +15,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_error::VortexUnwrap;
 use vortex_fastlanes::{BitPackedArray, FoRArray};
-use vortex_gpu::{cuda_bit_unpack_timed, cuda_for_unpack_timed};
+use vortex_gpu::{cuda_bit_unpack_timed, cuda_for_bp_unpack_timed, cuda_for_unpack_timed};
 
 // Data sizes: 1GB, 2.5GB, 5GB, 10GB
 // These are approximate sizes in bytes, accounting for bit-packing compression
@@ -124,6 +124,37 @@ fn benchmark_gpu_for_decompress_kernel_only(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_gpu_for_bp_fused_decompress_kernel_only(c: &mut Criterion) {
+    let mut group = c.benchmark_group("gpu_for_bp_fused_decompress_kernel_only");
+
+    group.sample_size(10);
+
+    for (len, label) in DATA_SIZES {
+        let len = len.next_multiple_of(1024);
+        let array = make_for_bitpackable_array(len);
+
+        let ctx = CudaContext::new(0).unwrap();
+        ctx.set_blocking_synchronize().unwrap();
+        let ctx = Arc::new(ctx);
+
+        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+        group.bench_with_input(BenchmarkId::new("u32", label), &array, |b, array| {
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::ZERO;
+                for _ in 0..iters {
+                    // This only measures kernel execution time, not memory transfers
+                    let (_result, kernel_time) =
+                        cuda_for_bp_unpack_timed(array, Arc::clone(&ctx)).unwrap();
+                    total_time += kernel_time;
+                }
+                total_time
+            });
+        });
+    }
+
+    group.finish();
+}
+
 #[allow(dead_code)]
 fn benchmark_cpu_canonicalize(c: &mut Criterion) {
     let mut group = c.benchmark_group("cpu_canonicalize");
@@ -145,5 +176,6 @@ criterion_group!(
     benches,
     benchmark_gpu_decompress_kernel_only,
     benchmark_gpu_for_decompress_kernel_only,
+    benchmark_gpu_for_bp_fused_decompress_kernel_only
 );
 criterion_main!(benches);

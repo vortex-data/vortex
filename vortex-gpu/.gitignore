@@ -1,2 +1,2 @@
-kernels/fls*
+kernels/gen/*
 *.ptx

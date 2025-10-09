@@ -52,7 +52,7 @@ fn cuda_bit_unpack_kernel(
     }
     let module = ctx
         .load_module(Ptx::from_file(format!(
-            "kernels/fls_{}_bit_unpack.ptx",
+            "kernels/gen/fls_{}_bit_unpack.ptx",
             kernel_id.output_bit_width
         )))
         .map_err(|e| vortex_err!("Failed to load kernel module: {e}"))?;

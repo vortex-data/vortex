@@ -16,9 +16,9 @@ pub enum Selection {
     /// No selection, all rows are included.
     #[default]
     All,
-    /// A selection of rows to include by index.
+    /// A selection of sorted rows to include by index.
     IncludeByIndex(Buffer<u64>),
-    /// A selection of rows to exclude by index.
+    /// A selection of sorted rows to exclude by index.
     ExcludeByIndex(Buffer<u64>),
     /// A selection of rows to include using a [`roaring::RoaringTreemap`].
     #[cfg(feature = "roaring")]

@@ -15,8 +15,8 @@ use vortex_expr::ExprRef;
 use vortex_layout::LayoutReader;
 use vortex_mask::Mask;
 
-use crate::Selection;
 use crate::filter::FilterExpr;
+use crate::selection::Selection;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
