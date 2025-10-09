@@ -151,9 +151,9 @@ pub fn try_compress_delta(
 ) -> VortexResult<ArrayRef> {
     let (bases, deltas) = delta_compress(primitive_array)?;
     let compressed_bases =
-        IntCompressor::compress(&bases, is_sample, allowed_cascading, &excludes)?;
+        IntCompressor::compress(&bases, is_sample, allowed_cascading, excludes)?;
     let compressed_deltas =
-        IntCompressor::compress_no_dict(&deltas, is_sample, allowed_cascading, &excludes)?;
+        IntCompressor::compress_no_dict(&deltas, is_sample, allowed_cascading, excludes)?;
 
     DeltaArray::try_from_delta_compress_parts(
         compressed_bases,
