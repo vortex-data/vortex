@@ -33,6 +33,7 @@ pub fn partition<A: AnnotationFn>(
 ) -> VortexResult<PartitionedExpr<A::Annotation>>
 where
     A::Annotation: Display,
+    FieldName: From<A::Annotation>,
 {
     // Annotate each expression with the annotations that any of its descendent expressions have.
     let annotations = descendent_annotations(&expr, annotate_fn);
@@ -66,8 +67,11 @@ where
         partition_dtypes.push(expr_dtype);
     }
 
-    let partition_names =
-        FieldNames::from_iter(partition_annotations.iter().map(|id| id.to_string()));
+    let partition_names = FieldNames::from_iter(
+        partition_annotations
+            .iter()
+            .map(|id| FieldName::from(id.clone())),
+    );
     let root_scope = DType::Struct(
         StructFields::new(partition_names.clone(), partition_dtypes.clone()),
         Nullability::NonNullable,
@@ -112,11 +116,14 @@ impl<A: Display> Display for PartitionedExpr<A> {
     }
 }
 
-impl<A: Annotation + Display> PartitionedExpr<A> {
+impl<A: Annotation> PartitionedExpr<A>
+where
+    FieldName: From<A>,
+{
     /// Return the partition for a given field, if it exists.
     // FIXME(ngates): this should return an iterator since an annotation may have multiple partitions.
     pub fn find_partition(&self, id: &A) -> Option<&ExprRef> {
-        let id = FieldName::from(id.to_string());
+        let id = FieldName::from(id.clone());
         self.partition_names
             .iter()
             .position(|field| field == id)
@@ -145,7 +152,10 @@ impl<'a, A: Annotation + Display> StructFieldExpressionSplitter<'a, A> {
     }
 }
 
-impl<A: Annotation + Display> NodeRewriter for StructFieldExpressionSplitter<'_, A> {
+impl<A: Annotation + Display> NodeRewriter for StructFieldExpressionSplitter<'_, A>
+where
+    FieldName: From<A>,
+{
     type NodeTy = ExprRef;
 
     fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
@@ -161,7 +171,7 @@ impl<A: Annotation + Display> NodeRewriter for StructFieldExpressionSplitter<'_,
                 sub_exprs.push(node.clone());
                 let value = get_item(
                     StructFieldExpressionSplitter::field_name(annotation, idx),
-                    get_item(FieldName::from(annotation.to_string()), root()),
+                    get_item(FieldName::from(annotation.clone()), root()),
                 );
                 Ok(Transformed {
                     value,
