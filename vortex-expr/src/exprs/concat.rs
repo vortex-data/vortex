@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-
 use itertools::Itertools as _;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray};
