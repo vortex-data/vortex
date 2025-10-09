@@ -8,7 +8,7 @@
 
 namespace vortex {
 
-VortexFile VortexFile::Open(const uint8_t * data, size_t length) {
+VortexFile VortexFile::Open(const uint8_t *data, size_t length) {
     try {
         rust::Slice<const uint8_t> slice(data, length);
         return VortexFile(ffi::open_file_from_buffer(slice));
