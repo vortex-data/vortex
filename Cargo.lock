@@ -1010,6 +1010,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow-array",
+ "arrow-cast",
  "arrow-schema",
  "arrow-select",
  "async-trait",
@@ -1049,6 +1050,7 @@ dependencies = [
  "tabled",
  "tar",
  "target-lexicon",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tokio-util",

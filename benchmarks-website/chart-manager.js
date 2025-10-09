@@ -12,6 +12,28 @@ import { utils } from './utils.js';
 // - window.zoomSync: Zoom synchronization module
 // - window.debouncedSyncZoom: Debounced zoom synchronization function
 export const chartManager = {
+  remapNames(benchName) {
+    const remappings = {
+      "COMPRESS TIME": "VORTEX COMPRESS TIME",
+      "DECOMPRESS TIME": "VORTEX DECOMPRESS TIME",
+      "PARQUET RS-ZSTD COMPRESS TIME": "PARQUET COMPRESS TIME",
+      "PARQUET RS-ZSTD DECOMPRESS TIME": "PARQUET DECOMPRESS TIME",
+      "LANCE COMPRESS TIME": "LANCE COMPRESS TIME",
+      "LANCE DECOMPRESS TIME": "LANCE DECOMPRESS TIME",
+      "VORTEX SIZE": "VORTEX SIZE",
+      "PARQUET-ZSTD SIZE": "PARQUET SIZE",
+      "LANCE SIZE": "LANCE SIZE",
+      "VORTEX:RAW SIZE": "VORTEX vs RAW SIZE RATIO",
+      "VORTEX:PARQUET-ZSTD SIZE": "VORTEX vs PARQUET SIZE RATIO",
+      "VORTEX:LANCE SIZE": "VORTEX vs LANCE SIZE RATIO",
+      "VORTEX:PARQUET-ZSTD RATIO COMPRESS TIME": "VORTEX vs PARQUET COMPRESS RATIO",
+      "VORTEX:PARQUET-ZSTD RATIO DECOMPRESS TIME": "VORTEX vs PARQUET DECOMPRESS RATIO",
+      "VORTEX:LANCE RATIO COMPRESS TIME": "VORTEX vs LANCE COMPRESS RATIO",
+      "VORTEX:LANCE RATIO DECOMPRESS TIME": "VORTEX vs LANCE DECOMPRESS RATIO"
+    };
+    return remappings[benchName] || benchName;
+  },
+
   createChartContainer(name, benchName, index) {
     const container = document.createElement("div");
     container.className = "chart-container fade-in";
@@ -23,7 +45,7 @@ export const chartManager = {
 
     const title = document.createElement("h3");
     title.className = "chart-title";
-    title.textContent = benchName;
+    title.textContent = this.remapNames(benchName);
 
     const actions = document.createElement("div");
     actions.className = "chart-actions";

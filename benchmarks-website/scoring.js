@@ -519,7 +519,7 @@ const scoring = {
     const sizeRatios = [];
 
     // Find the size ratio chart
-    const sizeRatioChart = benchSet.get("VORTEX:PARQUET-ZSTD SIZE RATIO");
+    const sizeRatioChart = benchSet.get("VORTEX:PARQUET-ZSTD SIZE");
 
     if (!sizeRatioChart) return null;
 
