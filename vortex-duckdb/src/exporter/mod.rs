@@ -9,6 +9,7 @@ mod decimal;
 mod dict;
 mod fixed_size_list;
 mod list;
+mod masked;
 mod primitive;
 mod run_end;
 mod sequence;
@@ -175,10 +176,7 @@ fn new_array_exporter_with_flatten(
     }
 
     if let Some(array) = array.as_opt::<MaskedVTable>() {
-        return Ok(validity::new_exporter(
-            array.validity_mask(),
-            new_array_exporter_with_flatten(array.child(), cache, flatten)?,
-        ));
+        return masked::new_exporter(array, cache);
     }
 
     // Otherwise, we fall back to canonical
