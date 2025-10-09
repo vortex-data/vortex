@@ -12,9 +12,10 @@ use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTa
 
 vtable!(Concat);
 
-/// Concatenate zero or more expressions into a single ChunkedArray.
+/// Concatenate zero or more expressions into a single array.
 ///
 /// All child expressions must evaluate to arrays of the same dtype.
+/// The result is a ChunkedArray where each input expression becomes a chunk.
 ///
 /// # Examples
 ///
@@ -29,7 +30,7 @@ vtable!(Concat);
 ///     lit(Scalar::from(200)),
 ///     lit(Scalar::from(300)),
 /// ]);
-/// let concatenated = example.evaluate(&Scope::new(buffer![0].into_array())).unwrap();
+/// let concatenated = example.evaluate(&Scope::empty(1)).unwrap();
 /// assert_eq!(concatenated.len(), 3);
 /// ```
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -139,9 +140,10 @@ impl ConcatExpr {
     }
 }
 
-/// Creates an expression that concatenates multiple expressions into a ChunkedArray.
+/// Creates an expression that concatenates multiple expressions into a single array.
 ///
 /// All input expressions must evaluate to arrays of the same dtype.
+/// The result is a ChunkedArray where each input expression becomes a chunk.
 ///
 /// ```rust
 /// # use vortex_expr::{concat, col, lit};
