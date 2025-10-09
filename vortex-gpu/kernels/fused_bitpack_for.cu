@@ -108,13 +108,28 @@ __device__ __forceinline__ void for_device(
     }
 }
 
+template<typename ValueT>
+__device__ __forceinline__ void float_device(
+    ValueT *__restrict values_in,
+    float *__restrict values_out,
+    int thread_idx
+) {
+    auto i = thread_idx;
+    const int thread_ops = blockDim.x;
+
+    for (auto j = 0; j < thread_ops; j++) {
+        auto idx = INDEX(j, i);
+        values_out[idx] = (float)values_in[idx];
+    }
+}
+
 
 // Fused kernel: bitpack unpack (3bw) + FoR addition in one pass
 // This eliminates the intermediate write-to-memory and read-from-memory
 // by keeping unpacked values in registers/L1 cache and immediately adding the reference
 extern "C" __global__ void fused_bitpack6_for_u32(
     const uint32_t *__restrict packed_in,
-    uint32_t *__restrict unpacked_out,
+    float *__restrict unpacked_out,
     uint32_t reference
 ) {
     int i = threadIdx.x;
@@ -124,13 +139,16 @@ extern "C" __global__ void fused_bitpack6_for_u32(
     auto out = unpacked_out + (blockIdx.x * 1024);
 
     __shared__ uint32_t shared_data[1024];
+    __shared__ float shared_data2[1024];
 
     fls_unpack_6bw_32ow_device(in, shared_data, i);
 
     for_device(shared_data, reference, i);
 
+    float_device(shared_data, shared_data2, i);
+
     for (int i = 0; i < 32; i++) {
         auto idx = i * 32 + threadIdx.x;
-        out[idx] = shared_data[idx];
+        out[idx] = shared_data2[idx];
     }
 }

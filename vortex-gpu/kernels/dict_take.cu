@@ -20,8 +20,8 @@ __device__ void dict_take(
     const int thread_ops = 32;
 
     for (auto j = 0; j < thread_ops; j++) {
-            auto idx = i * thread_ops + j;
-            out[idx] = values[codes[idx]];
+        auto idx = i * thread_ops + j;
+        out[idx] = values[codes[idx]];
     }
 }
 

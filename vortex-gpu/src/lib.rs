@@ -4,6 +4,8 @@
 pub mod bit_unpack;
 pub mod for_;
 mod for_bp;
+mod indent;
+mod jit;
 mod take;
 mod task;
 

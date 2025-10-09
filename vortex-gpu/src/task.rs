@@ -6,7 +6,7 @@ use vortex_array::Canonical;
 use vortex_error::VortexResult;
 
 pub trait GPUTask {
-    // Must call `launch_task` or `launch_task_timed` once
+    // Must call `launch_task` once
     fn launch_task(&mut self) -> VortexResult<()>;
 
     // Must call this after launch_task
@@ -16,4 +16,6 @@ pub trait GPUTask {
     fn output(&mut self) -> CudaViewMut<'_, u8>;
 
     fn len(&self) -> usize;
+
+    // fn jit(&mut self) -> OptBox<dyn JITGPUTask> ;
 }
