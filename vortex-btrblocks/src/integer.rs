@@ -13,7 +13,9 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
-use vortex_fastlanes::{FoRArray, bit_width_histogram, bitpack_encode, find_best_bit_width};
+use vortex_fastlanes::{
+    DeltaArray, FoRArray, bit_width_histogram, bitpack_encode, delta_compress, find_best_bit_width,
+};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
@@ -48,6 +50,7 @@ impl Compressor for IntCompressor {
             &RunEndScheme,
             &SequenceScheme,
             &RLE_INTEGER_SCHEME,
+            &DeltaScheme,
         ]
     }
 
@@ -104,6 +107,7 @@ const DICT_SCHEME: IntCode = IntCode(6);
 const RUN_END_SCHEME: IntCode = IntCode(7);
 const SEQUENCE_SCHEME: IntCode = IntCode(8);
 const RUN_LENGTH_SCHEME: IntCode = IntCode(9);
+pub const DELTA_SCHEME: IntCode = IntCode(10);
 
 #[derive(Debug, Copy, Clone)]
 pub struct UncompressedScheme;
@@ -131,6 +135,9 @@ pub struct RunEndScheme;
 
 #[derive(Debug, Copy, Clone)]
 pub struct SequenceScheme;
+
+#[derive(Debug, Copy, Clone)]
+pub struct DeltaScheme;
 
 /// Threshold for the average run length in an array before we consider run-end encoding.
 const RUN_END_THRESHOLD: u32 = 4;
@@ -744,6 +751,77 @@ impl Scheme for SequenceScheme {
             vortex_bail!("sequence encoding does not support nulls");
         }
         sequence_encode(&stats.src)?.ok_or_else(|| vortex_err!("cannot sequence encode array"))
+    }
+}
+
+impl Scheme for DeltaScheme {
+    type StatsType = IntegerStats;
+    type CodeType = IntCode;
+
+    fn code(&self) -> Self::CodeType {
+        DELTA_SCHEME
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        stats: &Self::StatsType,
+        is_sample: bool,
+        allowed_cascading: usize,
+        excludes: &[Self::CodeType],
+    ) -> VortexResult<f64> {
+        if excludes.contains(&DELTA_SCHEME) {
+            return Ok(0.0);
+        }
+        if stats.null_count > 0 {
+            return Ok(0.0);
+        }
+        let array = &stats.src;
+        if !array.ptype().is_unsigned_int() {
+            return Ok(0.0);
+        }
+        // Since two values are required to store base and multiplier the
+        // compression ratio is divided by 2.
+        estimate_compression_ratio_with_sampling(
+            self,
+            stats,
+            is_sample,
+            allowed_cascading,
+            &excludes,
+        )
+    }
+
+    fn compress(
+        &self,
+        stats: &Self::StatsType,
+        is_sample: bool,
+        allowed_cascading: usize,
+        excludes: &[Self::CodeType],
+    ) -> VortexResult<ArrayRef> {
+        if excludes.contains(&DELTA_SCHEME) {
+            vortex_bail!("delta array excluded")
+        }
+        if stats.null_count > 0 {
+            vortex_bail!("delta encoding does not support nulls");
+        }
+        let array = &stats.src;
+        if !array.ptype().is_unsigned_int() {
+            vortex_bail!("delta encoding only supports unsigned integers");
+        }
+        let mut excludes = excludes.to_vec();
+        excludes.push(DELTA_SCHEME);
+        let (bases, deltas) = delta_compress(array)?;
+        let compressed_bases =
+            IntCompressor::compress(&bases, is_sample, allowed_cascading, &excludes)?;
+        let compressed_deltas =
+            IntCompressor::compress(&deltas, is_sample, allowed_cascading, &excludes)?;
+
+        DeltaArray::try_from_delta_compress_parts(
+            compressed_bases,
+            compressed_deltas,
+            // asserted that null_count == 0.
+            array.validity().clone(),
+        )
+        .map(DeltaArray::into_array)
     }
 }
 

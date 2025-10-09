@@ -45,6 +45,7 @@ use vortex_error::{VortexResult, VortexUnwrap};
 use crate::decimal::compress_decimal;
 pub use crate::float::dictionary::dictionary_encode as float_dictionary_encode;
 pub use crate::float::{FloatCompressor, FloatStats};
+use crate::integer::DELTA_SCHEME;
 pub use crate::integer::dictionary::dictionary_encode as integer_dictionary_encode;
 pub use crate::integer::{IntCompressor, IntegerStats};
 pub use crate::string::{StringCompressor, StringStats};
@@ -374,9 +375,14 @@ impl BtrBlocksCompressor {
             Canonical::Primitive(primitive) => {
                 if primitive.ptype().is_int() {
                     if self.exclude_int_dict_encoding {
-                        IntCompressor::compress_no_dict(&primitive, false, MAX_CASCADE, &[])
+                        IntCompressor::compress_no_dict(
+                            &primitive,
+                            false,
+                            MAX_CASCADE,
+                            &[DELTA_SCHEME],
+                        )
                     } else {
-                        IntCompressor::compress(&primitive, false, MAX_CASCADE, &[])
+                        IntCompressor::compress(&primitive, false, MAX_CASCADE, &[DELTA_SCHEME])
                     }
                 } else {
                     FloatCompressor::compress(&primitive, false, MAX_CASCADE, &[])
