@@ -343,7 +343,7 @@ impl Scheme for DictScheme {
 
         // Only compress the codes.
         let codes_stats = IntegerStats::generate_opts(
-            &dict_array.codes().to_primitive().downcast()?,
+            &dict_array.codes().to_primitive().narrow()?,
             GenerateStatsOptions {
                 count_distinct_values: false,
             },

@@ -5,12 +5,13 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_error::VortexResult;
-use vortex_fastlanes::RLEArray;
+use vortex_fastlanes::{DeltaArray, RLEArray, delta_compress};
 
-use crate::integer::IntCompressor;
-use crate::{CompressorStats, Scheme, estimate_compression_ratio_with_sampling};
+use crate::integer::{IntCode, IntCompressor};
+use crate::{Compressor, CompressorStats, Scheme, estimate_compression_ratio_with_sampling};
 
 /// Threshold for the average run length in an array before we consider run-length encoding.
 pub const RUN_LENGTH_THRESHOLD: u32 = 4;
@@ -113,15 +114,15 @@ where
         )?;
 
         // For indices and offsets, we always use integer compression without dictionary encoding.
-        let compressed_indices = IntCompressor::compress_no_dict(
-            &rle_array.indices().to_primitive().downcast()?,
+        let compressed_indices = try_compress_delta(
+            &rle_array.indices().to_primitive().narrow()?,
             is_sample,
             allowed_cascading - 1,
             &[],
         )?;
 
         let compressed_offsets = IntCompressor::compress_no_dict(
-            &rle_array.values_idx_offsets().to_primitive().downcast()?,
+            &rle_array.values_idx_offsets().to_primitive().narrow()?,
             is_sample,
             allowed_cascading - 1,
             &[],
@@ -140,4 +141,27 @@ where
             .into_array())
         }
     }
+}
+
+pub fn try_compress_delta(
+    primitive_array: &PrimitiveArray,
+    is_sample: bool,
+    allowed_cascading: usize,
+    excludes: &[IntCode],
+) -> VortexResult<ArrayRef> {
+    let (bases, deltas) = delta_compress(primitive_array)?;
+    let compressed_bases =
+        IntCompressor::compress(&bases, is_sample, allowed_cascading, &excludes)?;
+    let compressed_deltas =
+        IntCompressor::compress_no_dict(&deltas, is_sample, allowed_cascading, &excludes)?;
+
+    println!("here");
+
+    DeltaArray::try_from_delta_compress_parts(
+        compressed_bases,
+        compressed_deltas,
+        // asserted that null_count == 0.
+        primitive_array.validity().clone(),
+    )
+    .map(DeltaArray::into_array)
 }

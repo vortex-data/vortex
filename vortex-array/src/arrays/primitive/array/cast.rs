@@ -43,7 +43,8 @@ impl PrimitiveArray {
         PrimitiveArray::from_byte_buffer(self.byte_buffer().clone(), ptype, self.validity().clone())
     }
 
-    pub fn downcast(&self) -> VortexResult<PrimitiveArray> {
+    /// Narrow the array to the smallest possible integer type that can represent all values.
+    pub fn narrow(&self) -> VortexResult<PrimitiveArray> {
         if !self.ptype().is_int() {
             return Ok(self.clone());
         }
@@ -136,7 +137,7 @@ mod tests {
             Validity::AllInvalid,
         );
 
-        let result = array.downcast().unwrap();
+        let result = array.narrow().unwrap();
         assert_eq!(
             result.dtype(),
             &DType::Primitive(PType::U8, Nullability::Nullable)
@@ -155,7 +156,7 @@ mod tests {
     #[case(vec![i32::MIN as i64, i32::MAX as i64], PType::I32)]
     fn test_downcast_signed(#[case] values: Vec<i64>, #[case] expected_ptype: PType) {
         let array = PrimitiveArray::from_iter(values);
-        let result = array.downcast().unwrap();
+        let result = array.narrow().unwrap();
         assert_eq!(result.ptype(), expected_ptype);
     }
 
@@ -167,21 +168,21 @@ mod tests {
     #[case(vec![0_u64, u32::MAX as u64], PType::U32)]
     fn test_downcast_unsigned(#[case] values: Vec<u64>, #[case] expected_ptype: PType) {
         let array = PrimitiveArray::from_iter(values);
-        let result = array.downcast().unwrap();
+        let result = array.narrow().unwrap();
         assert_eq!(result.ptype(), expected_ptype);
     }
 
     #[test]
     fn test_downcast_keeps_original_if_too_large() {
         let array = PrimitiveArray::from_iter(vec![0_u64, u64::MAX]);
-        let result = array.downcast().unwrap();
+        let result = array.narrow().unwrap();
         assert_eq!(result.ptype(), PType::U64);
     }
 
     #[test]
     fn test_downcast_preserves_nullability() {
         let array = PrimitiveArray::from_option_iter([Some(0_i32), None, Some(127)]);
-        let result = array.downcast().unwrap();
+        let result = array.narrow().unwrap();
         assert_eq!(
             result.dtype(),
             &DType::Primitive(PType::U8, Nullability::Nullable)
@@ -194,7 +195,7 @@ mod tests {
     fn test_downcast_preserves_values() {
         let values = vec![-100_i16, 0, 100];
         let array = PrimitiveArray::from_iter(values);
-        let result = array.downcast().unwrap();
+        let result = array.narrow().unwrap();
 
         assert_eq!(result.ptype(), PType::I8);
         // Check that the values were properly downscaled
@@ -205,14 +206,14 @@ mod tests {
     #[test]
     fn test_downcast_with_mixed_signs_chooses_signed() {
         let array = PrimitiveArray::from_iter(vec![-1_i32, 200]);
-        let result = array.downcast().unwrap();
+        let result = array.narrow().unwrap();
         assert_eq!(result.ptype(), PType::I16);
     }
 
     #[test]
     fn test_downcast_floats() {
         let array = PrimitiveArray::from_iter(vec![1.0_f32, 2.0, 3.0]);
-        let result = array.downcast().unwrap();
+        let result = array.narrow().unwrap();
         // Floats should remain unchanged since they can't be downscaled to integers
         assert_eq!(result.ptype(), PType::F32);
     }
@@ -220,9 +221,9 @@ mod tests {
     #[test]
     fn test_downcast_empty_array() {
         let array = PrimitiveArray::new(Buffer::<i32>::empty(), Validity::AllInvalid);
-        let result = array.downcast().unwrap();
+        let result = array.narrow().unwrap();
         let array2 = PrimitiveArray::new(Buffer::<i64>::empty(), Validity::NonNullable);
-        let result2 = array2.downcast().unwrap();
+        let result2 = array2.narrow().unwrap();
         // Empty arrays should not have their validity changed
         assert_eq!(result.validity, Validity::AllInvalid);
         assert_eq!(result2.validity, Validity::NonNullable);
