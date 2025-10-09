@@ -6,12 +6,13 @@
 use std::sync::Arc;
 
 use cudarc::driver::{
-    CudaContext, CudaFunction, DeviceRepr, LaunchConfig, PushKernelArg, ValidAsZeroBits,
+    CudaContext, CudaFunction, CudaSlice, CudaStream, CudaViewMut, DeviceRepr, LaunchConfig,
+    PushKernelArg, ValidAsZeroBits,
 };
 use cudarc::nvrtc::Ptx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Canonical, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{
     NativePType, UnsignedPType, match_each_native_ptype, match_each_unsigned_integer_ptype,
@@ -19,8 +20,67 @@ use vortex_dtype::{
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_fastlanes::RLEArray;
 
+use crate::task::GPUTask;
+
+struct RLETask<V: DeviceRepr + NativePType, I, O> {
+    values: CudaSlice<V>,
+    indices: CudaSlice<I>,
+    offsets: CudaSlice<O>,
+    output: CudaSlice<V>,
+    func: CudaFunction,
+    launch_config: LaunchConfig,
+    stream: Arc<CudaStream>,
+    len: usize,
+}
+
+impl<V: DeviceRepr + NativePType, I, O> GPUTask for RLETask<V, I, O> {
+    fn launch_task(&mut self) -> VortexResult<()> {
+        let mut launch = self.stream.launch_builder(&self.func);
+        launch.arg(&self.indices);
+        launch.arg(&self.values);
+        launch.arg(&self.offsets);
+        launch.arg(&mut self.output);
+        unsafe { launch.launch(self.launch_config) }
+            .map_err(|e| vortex_err!("Failed to launch: {e}"))
+            .map(|_| ())
+    }
+
+    fn export_result(&mut self) -> VortexResult<Canonical> {
+        let mut buffer = BufferMut::<V>::with_capacity(self.len);
+        unsafe { buffer.set_len(self.len) }
+
+        self.stream
+            .memcpy_dtoh(&self.output, &mut buffer)
+            .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
+        self.stream
+            .synchronize()
+            .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
+
+        Ok(Canonical::Primitive(PrimitiveArray::new(
+            buffer.freeze().slice(0..self.len),
+            Validity::NonNullable,
+        )))
+    }
+
+    fn output(&mut self) -> CudaViewMut<'_, u8> {
+        unsafe {
+            self.output
+                .transmute_mut(self.len() * size_of::<V>())
+                .vortex_expect("Failed to transmute")
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
 #[allow(clippy::cognitive_complexity)]
-pub fn cuda_rle_decompress(rle: &RLEArray, ctx: Arc<CudaContext>) -> VortexResult<ArrayRef> {
+pub fn new_task(
+    rle: &RLEArray,
+    ctx: Arc<CudaContext>,
+    stream: Arc<CudaStream>,
+) -> VortexResult<Box<dyn GPUTask>> {
     assert_eq!(rle.offset(), 0);
     assert_eq!(
         rle.values_idx_offsets()
@@ -35,20 +95,24 @@ pub fn cuda_rle_decompress(rle: &RLEArray, ctx: Arc<CudaContext>) -> VortexResul
         match_each_unsigned_integer_ptype!(rle.values_idx_offsets().dtype().as_ptype(), |O| {
             // RLE indices are always u16 (or u8 if downcasted).
             match rle.indices().dtype().as_ptype() {
-                PType::U8 => cuda_rle_decompress_typed(
+                PType::U8 => cuda_rle_task(
                     rle.indices().to_primitive().as_slice::<u8>(),
                     rle.values().to_primitive().as_slice::<V>(),
                     rle.values_idx_offsets().to_primitive().as_slice::<O>(),
                     rle.len(),
                     ctx,
-                ),
-                PType::U16 => cuda_rle_decompress_typed(
+                    stream,
+                )
+                .map(|t| Box::new(t) as Box<dyn GPUTask>),
+                PType::U16 => cuda_rle_task(
                     rle.indices().to_primitive().as_slice::<u16>(),
                     rle.values().to_primitive().as_slice::<V>(),
                     rle.values_idx_offsets().to_primitive().as_slice::<O>(),
                     rle.len(),
                     ctx,
-                ),
+                    stream,
+                )
+                .map(|t| Box::new(t) as Box<dyn GPUTask>),
                 _ => vortex_panic!(
                     "Unsupported index type for RLE decoding: {}",
                     rle.indices().dtype().as_ptype()
@@ -58,22 +122,22 @@ pub fn cuda_rle_decompress(rle: &RLEArray, ctx: Arc<CudaContext>) -> VortexResul
     })
 }
 
-fn cuda_rle_decompress_typed<Values, Indices, Offsets>(
+fn cuda_rle_task<Values, Indices, Offsets>(
     indices: &[Indices],
     values: &[Values],
     offsets: &[Offsets],
     len: usize,
     ctx: Arc<CudaContext>,
-) -> VortexResult<ArrayRef>
+    stream: Arc<CudaStream>,
+) -> VortexResult<RLETask<Values, Indices, Offsets>>
 where
     Values: NativePType + DeviceRepr + ValidAsZeroBits,
     Indices: UnsignedPType + DeviceRepr,
     Offsets: UnsignedPType + DeviceRepr,
 {
-    let kernel_func = cuda_rle_kernel::<Indices, Values, Offsets>(ctx.clone())?;
+    let kernel_func = cuda_rle_kernel::<Indices, Values, Offsets>(ctx)?;
     let num_chunks =
         u32::try_from(indices.len().div_ceil(1024)).vortex_expect("num chunks overflow");
-    let stream = ctx.default_stream();
 
     let cu_indices = stream
         .memcpy_stod(indices)
@@ -86,37 +150,26 @@ where
         .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
 
     let output_len = len.next_multiple_of(1024);
-    let mut cu_out = unsafe {
+    let cu_out = unsafe {
         stream
             .alloc::<Values>(output_len)
             .map_err(|e| vortex_err!("Failed to allocate stream: {e}"))?
     };
 
-    let mut launch = stream.launch_builder(&kernel_func);
-    launch.arg(&cu_indices);
-    launch.arg(&cu_values);
-    launch.arg(&cu_offsets);
-    launch.arg(&mut cu_out);
-    unsafe {
-        launch.launch(LaunchConfig {
+    Ok(RLETask {
+        values: cu_values,
+        indices: cu_indices,
+        offsets: cu_offsets,
+        output: cu_out,
+        func: kernel_func,
+        launch_config: LaunchConfig {
             grid_dim: (num_chunks, 1, 1),
             block_dim: (32, 1, 1),
             shared_mem_bytes: 0,
-        })
-    }
-    .map_err(|e| vortex_err!("Failed to launch: {e}"))?;
-
-    let mut buffer = BufferMut::<Values>::with_capacity(output_len);
-    unsafe { buffer.set_len(output_len) }
-
-    stream
-        .memcpy_dtoh(&cu_out, &mut buffer)
-        .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
-    stream
-        .synchronize()
-        .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
-
-    Ok(PrimitiveArray::new(buffer.freeze().slice(0..len), Validity::NonNullable).into_array())
+        },
+        stream,
+        len,
+    })
 }
 
 fn cuda_rle_kernel<Indices, Values, Offsets>(ctx: Arc<CudaContext>) -> VortexResult<CudaFunction>
@@ -141,12 +194,21 @@ where
         .map_err(|e| vortex_err!("Failed to load function: {e}"))
 }
 
+pub fn cuda_rle_decompress(
+    array: &RLEArray,
+    ctx: Arc<CudaContext>,
+) -> VortexResult<PrimitiveArray> {
+    let stream = ctx.default_stream();
+    let mut task = new_task(array, ctx, stream)?;
+    task.launch_task()?;
+    task.export_result().map(|c| c.into_primitive())
+}
+
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 #[cfg(test)]
 mod tests {
     use cudarc::driver::CudaContext;
     use rstest::rstest;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -172,7 +234,7 @@ mod tests {
         let array = RLEArray::encode(&primitive_array).vortex_unwrap();
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
-        let unpacked = cuda_rle_decompress(&array, ctx).unwrap().to_primitive();
+        let unpacked = cuda_rle_decompress(&array, ctx).unwrap();
         assert_eq!(
             primitive_array.as_slice::<u32>(),
             unpacked.as_slice::<u32>()
