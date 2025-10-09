@@ -15,7 +15,6 @@ vtable!(Concat);
 /// Concatenate zero or more expressions into a single array.
 ///
 /// All child expressions must evaluate to arrays of the same dtype.
-/// The result is a ChunkedArray where each input expression becomes a chunk.
 ///
 /// # Examples
 ///
@@ -143,7 +142,6 @@ impl ConcatExpr {
 /// Creates an expression that concatenates multiple expressions into a single array.
 ///
 /// All input expressions must evaluate to arrays of the same dtype.
-/// The result is a ChunkedArray where each input expression becomes a chunk.
 ///
 /// ```rust
 /// # use vortex_expr::{concat, col, lit};
