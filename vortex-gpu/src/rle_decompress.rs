@@ -46,8 +46,9 @@ impl<V: DeviceRepr + NativePType, I, O> GPUTask for RLETask<V, I, O> {
     }
 
     fn export_result(&mut self) -> VortexResult<Canonical> {
-        let mut buffer = BufferMut::<V>::with_capacity(self.len);
-        unsafe { buffer.set_len(self.len) }
+        let rounded_len = self.len.next_multiple_of(1024);
+        let mut buffer = BufferMut::<V>::with_capacity(rounded_len);
+        unsafe { buffer.set_len(rounded_len) }
 
         self.stream
             .memcpy_dtoh(&self.output, &mut buffer)
