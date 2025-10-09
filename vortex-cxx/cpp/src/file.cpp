@@ -8,6 +8,15 @@
 
 namespace vortex {
 
+VortexFile VortexFile::Open(const uint8_t * data, size_t length) {
+    try {
+        rust::Slice<const uint8_t> slice(data, length);
+        return VortexFile(ffi::open_file_from_buffer(slice));
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
+}
+
 VortexFile VortexFile::Open(const std::string &path) {
     try {
         return VortexFile(ffi::open_file(path));

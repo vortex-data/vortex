@@ -49,6 +49,12 @@ pub(crate) fn open_file(path: &str) -> Result<Box<VortexFile>> {
     Ok(Box::new(VortexFile { inner: file }))
 }
 
+pub(crate) fn open_file_from_buffer(data: &[u8]) -> Result<Box<VortexFile>> {
+    let buffer = Buffer::from(data.to_vec());
+    let file = VortexOpenOptions::new().open_buffer(buffer)?; 
+    Ok(Box::new(VortexFile { inner: file }))
+}
+
 pub(crate) struct VortexScanBuilder {
     inner: ScanBuilder<ArrayRef>,
     output_schema: Option<SchemaRef>,

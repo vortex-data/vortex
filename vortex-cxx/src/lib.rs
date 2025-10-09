@@ -79,7 +79,8 @@ mod ffi {
         fn row_count(self: &VortexFile) -> u64;
         fn scan_builder(self: &VortexFile) -> Result<Box<VortexScanBuilder>>;
         fn open_file(path: &str) -> Result<Box<VortexFile>>;
-
+        fn open_file_from_buffer(data: &[u8]) -> Result<Box<VortexFile>>;
+        
         type VortexScanBuilder;
         fn with_filter(self: &mut VortexScanBuilder, filter: Box<Expr>);
         fn with_filter_ref(self: &mut VortexScanBuilder, filter: &Expr);

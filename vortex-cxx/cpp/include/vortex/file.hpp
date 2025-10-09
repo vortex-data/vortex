@@ -12,6 +12,7 @@ class ScanBuilder;
 class VortexFile {
 public:
     static VortexFile Open(const std::string &path);
+    static VortexFile Open(const uint8_t * data, size_t length);
 
     VortexFile(VortexFile &&other) noexcept = default;
     VortexFile &operator=(VortexFile &&other) noexcept = default;
