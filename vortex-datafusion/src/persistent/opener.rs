@@ -55,6 +55,8 @@ pub(crate) struct VortexOpener {
     pub limit: Option<usize>,
     pub metrics: VortexMetrics,
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
+    /// Whether the query has output ordering specified
+    pub has_output_ordering: bool,
 }
 
 impl FileOpener for VortexOpener {
@@ -71,6 +73,7 @@ impl FileOpener for VortexOpener {
         let limit = self.limit;
         let metrics = self.metrics.clone();
         let layout_reader = self.layout_readers.clone();
+        let has_output_ordering = self.has_output_ordering;
 
         let projected_schema = match projection.as_ref() {
             None => logical_schema.clone(),
@@ -224,7 +227,7 @@ impl FileOpener for VortexOpener {
                 .with_metrics(metrics)
                 .with_projection(projection_expr)
                 .with_some_filter(filter)
-                .with_ordered(false)
+                .with_ordered(has_output_ordering)
                 .map(|chunk| chunk.to_struct().into_record_batch())
                 .into_stream()
                 .map_err(|e| {
@@ -432,6 +435,7 @@ mod tests {
             limit: None,
             metrics: Default::default(),
             layout_readers: Default::default(),
+            has_output_ordering: false,
         };
 
         // filter matches partition value
@@ -512,6 +516,7 @@ mod tests {
             limit: None,
             metrics: Default::default(),
             layout_readers: Default::default(),
+            has_output_ordering: false,
         };
 
         let filter = col("a").lt(lit(100_i32));

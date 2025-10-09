@@ -148,6 +148,7 @@ impl FileSource for VortexSource {
             limit: base_config.limit,
             metrics: partition_metrics,
             layout_readers: self.layout_readers.clone(),
+            has_output_ordering: !base_config.output_ordering.is_empty(),
         };
 
         Arc::new(opener)
