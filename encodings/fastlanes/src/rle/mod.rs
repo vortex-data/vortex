@@ -6,7 +6,8 @@ use std::fmt::Debug;
 pub use compress::rle_decompress;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTable,
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityChildSliceHelper,
+    ValidityVTable, ValidityVTableFromChildSliceHelper,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::{DType, PType};
@@ -29,7 +30,7 @@ impl VTable for RLEVTable {
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
     type OperationsVTable = Self;
-    type ValidityVTable = Self;
+    type ValidityVTable = ValidityVTableFromChildSliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
@@ -240,24 +241,10 @@ impl CanonicalVTable<RLEVTable> for RLEVTable {
     }
 }
 
-impl ValidityVTable<RLEVTable> for RLEVTable {
-    fn is_valid(array: &RLEArray, index: usize) -> bool {
-        array.indices().is_valid(array.offset() + index)
-    }
-
-    fn all_valid(array: &RLEArray) -> bool {
-        let (start, len) = (array.offset(), array.len());
-        array.indices().slice(start..start + len).all_valid()
-    }
-
-    fn all_invalid(array: &RLEArray) -> bool {
-        let (start, len) = (array.offset(), array.len());
-        array.indices().slice(start..start + len).all_invalid()
-    }
-
-    fn validity_mask(array: &RLEArray) -> Mask {
-        let (start, len) = (array.offset(), array.len());
-        array.indices().slice(start..start + len).validity_mask()
+impl ValidityChildSliceHelper for RLEArray {
+    fn unsliced_child_and_slice(&self) -> (&ArrayRef, usize, usize) {
+        let (start, len) = (self.offset(), self.len());
+        (self.indices(), start, start + len)
     }
 }
 
