@@ -152,7 +152,8 @@ where
     }
 }
 
-pub fn try_compress_delta(
+#[cfg(feature = "unstable_encodings")]
+fn try_compress_delta(
     primitive_array: &PrimitiveArray,
     is_sample: bool,
     allowed_cascading: usize,
