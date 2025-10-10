@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod bench;
+pub mod lance;
 pub mod parquet;
 pub mod vortex;
 

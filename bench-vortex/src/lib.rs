@@ -107,6 +107,8 @@ impl Display for Target {
     }
 }
 
+// TODO(connor): Add a lance feature flag.
+
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Format {

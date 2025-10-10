@@ -43,12 +43,13 @@ export const shared = {
     if (dataset?.statpopgen) return "Statistical and Population Genetics";
     if (name.startsWith("random-access/")) return "Random Access";
     if (name.includes("compress time/")) return "Compression";
-    if (name.startsWith("vortex size/")) return "Compression Size";
+    if (name.includes("size/")) return "Compression Size";
+    // Handle ratio patterns for compression throughput
     if (
-      name.startsWith("vortex:raw size/") ||
-        name.startsWith("vortex:parquet-zstd size/")
+      name.includes("vortex:parquet-zstd ratio") ||
+      name.includes("vortex:lance ratio")
     ) {
-      return "Compression Size";
+      return "Compression";
     }
     if (name.startsWith("tpch_q")) {
       const isNvme = storage === undefined || storage === "nvme";
@@ -213,7 +214,8 @@ export const shared = {
     } else if (
       !unit &&
       (benchmark.name.startsWith("vortex:raw size/") ||
-        benchmark.name.startsWith("vortex:parquet-zstd size/"))
+        benchmark.name.startsWith("vortex:parquet-zstd size/") ||
+        benchmark.name.startsWith("vortex:lance size/"))
     ) {
       unit = "ratio";
     }
