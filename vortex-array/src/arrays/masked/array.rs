@@ -45,6 +45,10 @@ impl MaskedArray {
         })
     }
 
+    pub fn child(&self) -> &ArrayRef {
+        &self.child
+    }
+
     pub(crate) fn masked_child(&self) -> VortexResult<ArrayRef> {
         // Invert the validity mask - we want to set values to null where validity is false.
         let inverted_mask = !self.validity.to_mask(self.len());

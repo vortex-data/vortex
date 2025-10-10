@@ -12,6 +12,7 @@ mod list;
 mod primitive;
 mod run_end;
 mod sequence;
+mod struct_;
 mod temporal;
 mod validity;
 mod varbinview;
@@ -28,7 +29,7 @@ use vortex::dtype::datetime::is_temporal_ext_type;
 use vortex::encodings::dict::DictVTable;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{VortexExpect, VortexResult};
 use vortex::iter::ArrayIterator;
 use vortex::mask::Mask;
 use vortex::{Array, Canonical, ToCanonical};
@@ -182,10 +183,7 @@ fn new_array_exporter_with_flatten(
         Canonical::Bool(array) => bool::new_exporter(&array),
         Canonical::Primitive(array) => primitive::new_exporter(&array),
         Canonical::Decimal(array) => decimal::new_exporter(&array),
-        Canonical::Struct(_) => {
-            // The Arrow exporter does not support struct arrays yet, so we bail out.
-            vortex_bail!("Struct arrays are not supported in DuckDB export yet");
-        }
+        Canonical::Struct(array) => struct_::new_exporter(&array, cache),
         Canonical::List(array) => list::new_exporter(&array, cache),
         Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(&array, cache),
         Canonical::VarBinView(array) => varbinview::new_exporter(&array),
