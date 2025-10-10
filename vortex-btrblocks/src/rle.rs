@@ -114,14 +114,14 @@ where
 
         // For indices and offsets, we always use integer compression without dictionary encoding.
         let compressed_indices = IntCompressor::compress_no_dict(
-            &rle_array.indices().to_primitive().downcast()?,
+            &rle_array.indices().to_primitive().narrow()?,
             is_sample,
             allowed_cascading - 1,
             &[],
         )?;
 
         let compressed_offsets = IntCompressor::compress_no_dict(
-            &rle_array.values_idx_offsets().to_primitive().downcast()?,
+            &rle_array.values_idx_offsets().to_primitive().narrow()?,
             is_sample,
             allowed_cascading - 1,
             &[],
