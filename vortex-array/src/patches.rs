@@ -524,9 +524,9 @@ impl Patches {
                 .as_primitive()
                 .as_::<usize>()
                 .vortex_expect("idx must be usize");
-            patch_start - patch_base_idx
+            Some(patch_start - patch_base_idx)
         } else {
-            0
+            None
         };
 
         Some(Self {
@@ -535,7 +535,7 @@ impl Patches {
             indices,
             values,
             chunk_offsets,
-            offset_within_chunk: Some(offset_within_chunk),
+            offset_within_chunk,
         })
     }
 
