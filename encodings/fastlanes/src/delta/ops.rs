@@ -4,7 +4,7 @@
 use std::cmp::min;
 use std::ops::Range;
 
-use vortex_array::vtable::{OperationsVTable, ValidityHelper};
+use vortex_array::vtable::OperationsVTable;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_scalar::Scalar;
 
@@ -20,7 +20,6 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
 
         let bases = array.bases();
         let deltas = array.deltas();
-        let validity = array.validity();
         let lanes = array.lanes();
 
         let new_bases = bases.slice(
@@ -31,18 +30,10 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
             min(start_chunk * 1024, array.deltas_len())..min(stop_chunk * 1024, array.deltas_len()),
         );
 
-        let new_validity = validity.slice(range.clone());
-
         // SAFETY: slicing valid bases/deltas preserves correctness
         unsafe {
-            DeltaArray::new_unchecked(
-                new_bases,
-                new_deltas,
-                new_validity,
-                physical_start % 1024,
-                range.len(),
-            )
-            .into_array()
+            DeltaArray::new_unchecked(new_bases, new_deltas, physical_start % 1024, range.len())
+                .into_array()
         }
     }
 

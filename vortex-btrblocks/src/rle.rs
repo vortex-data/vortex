@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_fastlanes::{DeltaArray, RLEArray, delta_compress};
@@ -154,11 +153,6 @@ pub fn try_compress_delta(
     let compressed_deltas =
         IntCompressor::compress_no_dict(&deltas, is_sample, allowed_cascading, excludes)?;
 
-    DeltaArray::try_from_delta_compress_parts(
-        compressed_bases,
-        compressed_deltas,
-        // asserted that null_count == 0.
-        primitive_array.validity().clone(),
-    )
-    .map(DeltaArray::into_array)
+    DeltaArray::try_from_delta_compress_parts(compressed_bases, compressed_deltas)
+        .map(DeltaArray::into_array)
 }

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -25,15 +24,7 @@ impl CastKernel for DeltaVTable {
 
         // Create a new DeltaArray with the casted components
         Ok(Some(
-            DeltaArray::try_from_delta_compress_parts(
-                casted_bases,
-                casted_deltas,
-                array
-                    .validity()
-                    .clone()
-                    .cast_nullability(dtype.nullability(), array.len())?,
-            )?
-            .into_array(),
+            DeltaArray::try_from_delta_compress_parts(casted_bases, casted_deltas)?.into_array(),
         ))
     }
 }
