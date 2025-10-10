@@ -1,8 +1,8 @@
 "use strict";
 
 // Import dependencies from other modules
-import { CONFIG } from './config.js';
-import { utils } from './utils.js';
+import { CONFIG } from "./config.js";
+import { utils } from "./utils.js";
 
 // Chart management module
 // This module requires the following global dependencies to be available:
@@ -14,22 +14,24 @@ import { utils } from './utils.js';
 export const chartManager = {
   remapNames(benchName) {
     const remappings = {
-      "COMPRESS TIME": "VORTEX WRITE TIME",
-      "DECOMPRESS TIME": "VORTEX SCAN TIME",
-      "PARQUET RS-ZSTD COMPRESS TIME": "PARQUET WRITE TIME",
-      "PARQUET RS-ZSTD DECOMPRESS TIME": "PARQUET SCAN TIME",
-      "LANCE COMPRESS TIME": "LANCE WRITE TIME",
-      "LANCE DECOMPRESS TIME": "LANCE SCAN TIME",
+      "COMPRESS TIME": "VORTEX WRITE (COMPRESSION) TIME",
+      "DECOMPRESS TIME": "VORTEX SCAN (DECOMPRESSION) TIME",
+      "PARQUET RS-ZSTD COMPRESS TIME": "PARQUET WRITE (COMPRESSION) TIME",
+      "PARQUET RS-ZSTD DECOMPRESS TIME": "PARQUET SCAN (DECOMPRESSION) TIME",
+      "LANCE COMPRESS TIME": "LANCE WRITE (COMPRESSION) TIME",
+      "LANCE DECOMPRESS TIME": "LANCE SCAN (DECOMPRESSION) TIME",
       "VORTEX SIZE": "VORTEX SIZE",
       "PARQUET-ZSTD SIZE": "PARQUET SIZE",
       "LANCE SIZE": "LANCE SIZE",
       "VORTEX:RAW SIZE": "VORTEX vs RAW SIZE RATIO",
       "VORTEX:PARQUET-ZSTD SIZE": "VORTEX vs PARQUET SIZE RATIO",
       "VORTEX:LANCE SIZE": "VORTEX vs LANCE SIZE RATIO",
-      "VORTEX:PARQUET-ZSTD RATIO COMPRESS TIME": "VORTEX vs PARQUET WRITE TIME RATIO",
-      "VORTEX:PARQUET-ZSTD RATIO DECOMPRESS TIME": "VORTEX vs PARQUET SCAN TIME RATIO",
+      "VORTEX:PARQUET-ZSTD RATIO COMPRESS TIME":
+        "VORTEX vs PARQUET WRITE TIME RATIO",
+      "VORTEX:PARQUET-ZSTD RATIO DECOMPRESS TIME":
+        "VORTEX vs PARQUET SCAN TIME RATIO",
       "VORTEX:LANCE RATIO COMPRESS TIME": "VORTEX vs LANCE WRITE TIME RATIO",
-      "VORTEX:LANCE RATIO DECOMPRESS TIME": "VORTEX vs LANCE SCAN TIME RATIO"
+      "VORTEX:LANCE RATIO DECOMPRESS TIME": "VORTEX vs LANCE SCAN TIME RATIO",
     };
     return remappings[benchName] || benchName;
   },
@@ -145,9 +147,13 @@ export const chartManager = {
           let benchesArray;
           if (Array.isArray(benches)) {
             benchesArray = benches;
-          } else if (benches && typeof benches === 'object') {
+          } else if (benches && typeof benches === "object") {
             // Convert object with numeric keys to array
-            const maxIndex = Math.max(...Object.keys(benches).map(k => parseInt(k, 10)).filter(n => !isNaN(n)));
+            const maxIndex = Math.max(
+              ...Object.keys(benches)
+                .map((k) => parseInt(k, 10))
+                .filter((n) => !isNaN(n))
+            );
             benchesArray = new Array(maxIndex + 1);
             for (let i = 0; i <= maxIndex; i++) {
               benchesArray[i] = benches[i] || null;
