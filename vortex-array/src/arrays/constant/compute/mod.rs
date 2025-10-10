@@ -7,6 +7,7 @@ mod cast;
 mod compare;
 mod filter;
 mod invert;
+mod mask;
 mod sum;
 mod take;
 

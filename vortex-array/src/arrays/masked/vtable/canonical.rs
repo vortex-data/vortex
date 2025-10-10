@@ -3,16 +3,27 @@
 
 use vortex_error::VortexExpect;
 
-use crate::Canonical;
-use crate::arrays::{MaskedArray, MaskedVTable};
+use crate::arrays::{ConstantVTable, MaskedArray, MaskedVTable};
+use crate::compute::mask;
 use crate::vtable::CanonicalVTable;
+use crate::{Array, Canonical};
 
 impl CanonicalVTable<MaskedVTable> for MaskedVTable {
     fn canonicalize(array: &MaskedArray) -> Canonical {
-        array
-            .masked_child()
-            .vortex_expect("Trust me")
+        if array.child.is::<ConstantVTable>() {
+            // To allow constant array to produce masked array from mask call, we have to unwrap constant here and canonicalize it first
+            mask(
+                array.child.to_canonical().as_ref(),
+                &!array.validity.to_mask(array.len()),
+            )
+            .vortex_expect("constant masked to canonical")
             .to_canonical()
+        } else {
+            array
+                .masked_child()
+                .vortex_expect("masked child of a masked array")
+                .to_canonical()
+        }
     }
 }
 

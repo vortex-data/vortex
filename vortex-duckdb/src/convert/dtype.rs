@@ -88,6 +88,11 @@ impl FromLogicalType for DType {
                 Arc::new(DType::Primitive(I64, nullability)),
                 Some(TemporalMetadata::Date(TimeUnit::Microseconds).into()),
             ))),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS => DType::Extension(Arc::new(ExtDType::new(
+                TIME_ID.clone(),
+                Arc::new(DType::Primitive(I64, nullability)),
+                Some(TemporalMetadata::Date(TimeUnit::Nanoseconds).into()),
+            ))),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => DType::Extension(Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(I64, nullability)),
@@ -116,13 +121,38 @@ impl FromLogicalType for DType {
                 Arc::new(DType::Primitive(I64, nullability)),
                 Some(TemporalMetadata::Timestamp(TimeUnit::Nanoseconds, None).into()),
             ))),
+            DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => DType::FixedSizeList(
+                Arc::new(DType::from_logical_type(
+                    logical_type.array_child_type(),
+                    Nullability::Nullable,
+                )?),
+                logical_type.array_type_array_size(),
+                nullability,
+            ),
+            DUCKDB_TYPE::DUCKDB_TYPE_LIST => DType::List(
+                Arc::new(DType::from_logical_type(
+                    logical_type.list_child_type(),
+                    Nullability::Nullable,
+                )?),
+                nullability,
+            ),
+            DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => DType::Struct(
+                (0..logical_type.struct_type_child_count())
+                    .map(|i| {
+                        let child_name = logical_type.struct_child_name(i);
+                        let child_type = logical_type.struct_child_type(i);
+                        Ok((
+                            child_name,
+                            DType::from_logical_type(child_type, Nullability::Nullable)?,
+                        ))
+                    })
+                    .collect::<VortexResult<_>>()?,
+                nullability,
+            ),
             DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_ENUM => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_LIST => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_MAP => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_UUID => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_UNION => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_BIT => todo!(),
@@ -130,7 +160,6 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_BIGNUM => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_STRING_LITERAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTEGER_LITERAL => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS => todo!(),
         })
     }
 }
@@ -200,7 +229,7 @@ impl TryFrom<&DType> for LogicalType {
             }
             DType::FixedSizeList(element_dtype, list_size, _) => {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
-                return LogicalType::fixed_size_list_type(element_logical_type, *list_size);
+                return LogicalType::array_type(element_logical_type, *list_size);
             }
             DType::Extension(ext_dtype) => {
                 if datetime::is_temporal_ext_type(ext_dtype.id()) {
