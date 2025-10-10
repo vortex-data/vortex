@@ -8,7 +8,7 @@ use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper, VisitorVTa
 use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, Canonical, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use super::{BitPackedEncoding, bit_width_histogram, find_best_bit_width};
 use crate::{BitPackedArray, BitPackedVTable, bitpack_encode};
@@ -78,7 +78,22 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
             .map(|p| {
                 let indices = children.get(0, &p.indices_dtype(), p.len())?;
                 let values = children.get(1, dtype, p.len())?;
-                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
+                let chunk_offsets = (children.len() >= 3)
+                    .then(|| {
+                        let dtype = p
+                            .chunk_offsets_dtype()
+                            .vortex_expect("chunk offset dtype not found");
+                        children.get(2, &dtype, p.chunk_offsets_len() as usize)
+                    })
+                    .transpose()?;
+
+                Ok::<_, VortexError>(Patches::new(
+                    len,
+                    p.offset(),
+                    indices,
+                    values,
+                    chunk_offsets,
+                ))
             })
             .transpose()?;
 

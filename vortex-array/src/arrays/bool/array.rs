@@ -393,6 +393,7 @@ mod tests {
             0,
             buffer![4u32].into_array(), // This creates a non-nullable array
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
+            None,
         );
         let arr = arr.patch(&patches);
         let arr_len = arr.len();
@@ -432,6 +433,7 @@ mod tests {
             0,
             PrimitiveArray::new(buffer![0u32], Validity::AllValid).into_array(),
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
+            None,
         );
         let arr = arr.patch(&patches);
         assert_eq!(arr.boolean_buffer().sliced().as_ptr(), buf_ptr);

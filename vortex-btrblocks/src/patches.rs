@@ -28,5 +28,7 @@ pub fn compress_patches(patches: &Patches) -> VortexResult<Patches> {
         patches.offset(),
         indices,
         values,
+        // TODO(0ax1): chunk offsets
+        None,
     ))
 }

@@ -31,6 +31,7 @@ impl CastKernel for BitPackedVTable {
                                 patches.offset(),
                                 patches.indices().clone(),
                                 new_values,
+                                patches.chunk_offsets().clone(),
                             ))
                         })
                         .transpose()?,
