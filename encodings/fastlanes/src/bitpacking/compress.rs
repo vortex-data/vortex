@@ -259,12 +259,10 @@ where
     let total_chunks = data.len().div_ceil(1024);
     let mut chunk_offsets: BufferMut<u64> = BufferMut::with_capacity(total_chunks);
 
-    let mut patch_idx = 0u64;
-
     for (idx, value) in data.iter().enumerate() {
         if (idx % 1024) == 0 {
             // Record the patch index offset for each chunk.
-            chunk_offsets.push(patch_idx);
+            chunk_offsets.push(values.len() as u64);
         }
 
         if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize
@@ -272,7 +270,6 @@ where
         {
             indices.push(P::from(idx).vortex_expect("cast index from usize"));
             values.push(*value);
-            patch_idx += 1;
         }
     }
 
