@@ -4,6 +4,7 @@
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
 use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
+use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 
 use crate::delta::{DeltaArray, DeltaVTable};
@@ -19,7 +20,7 @@ impl CastKernel for DeltaVTable {
         }
 
         // Cast both bases and deltas to the target type
-        let casted_bases = cast(array.bases(), dtype)?;
+        let casted_bases = cast(array.bases(), &dtype.with_nullability(NonNullable))?;
         let casted_deltas = cast(array.deltas(), dtype)?;
 
         // Create a new DeltaArray with the casted components

@@ -186,5 +186,6 @@ mod test {
         for (actual, expected) in decompressed_slice.iter().zip(input.as_slice()) {
             assert_eq!(actual, expected);
         }
+        assert_eq!(decompressed.validity(), input.validity());
     }
 }
