@@ -260,15 +260,11 @@ where
     let mut chunk_offsets: BufferMut<u64> = BufferMut::with_capacity(total_chunks);
 
     let mut patch_idx = 0u64;
-    let mut current_chunk_filled = 0;
 
     for (idx, value) in data.iter().enumerate() {
-        let chunk = idx / 1024;
-
-        if current_chunk_filled <= chunk {
-            let count = chunk - current_chunk_filled + 1;
-            chunk_offsets.push_n(patch_idx, count);
-            current_chunk_filled = chunk + 1;
+        if (idx % 1024) == 0 {
+            // Record the patch index offset for each chunk.
+            chunk_offsets.push(patch_idx);
         }
 
         if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize
@@ -278,11 +274,6 @@ where
             values.push(*value);
             patch_idx += 1;
         }
-    }
-
-    let remaining = total_chunks - chunk_offsets.len();
-    if remaining > 0 {
-        chunk_offsets.push_n(patch_idx, remaining);
     }
 
     (!indices.is_empty()).then(|| {
