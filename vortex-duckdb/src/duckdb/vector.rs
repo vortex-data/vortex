@@ -11,7 +11,7 @@ use bitvec::slice::BitSlice;
 use bitvec::view::BitView;
 use vortex::error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 
-use crate::cpp::duckdb_vx_error;
+use crate::cpp::{duckdb_vx_error, idx_t};
 use crate::duckdb::vector_buffer::VectorBuffer;
 use crate::duckdb::{LogicalType, SelectionVector, Value};
 use crate::{cpp, wrapper};
@@ -269,6 +269,18 @@ impl Vector {
         match state {
             cpp::duckdb_state::DuckDBSuccess => Ok(()),
             cpp::duckdb_state::DuckDBError => vortex_bail!("vector was nullptr!"),
+        }
+    }
+
+    pub fn struct_vector_get_child(&self, idx: usize) -> Self {
+        // SAFETY: duckdb_struct_vector_get_child dereferences the vector pointer which must be
+        // valid and point to an STRUCT type vector. The returned child vector is borrowed and
+        // remains valid as long as the parent vector is valid.
+        unsafe {
+            Self::borrow(cpp::duckdb_struct_vector_get_child(
+                self.as_ptr(),
+                idx as idx_t,
+            ))
         }
     }
 }

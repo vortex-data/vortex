@@ -4,7 +4,7 @@
 // This code is only exercised on CI with cuda and linux
 #![allow(dead_code)]
 
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
@@ -13,7 +13,6 @@ use cudarc::driver::{
     PushKernelArg,
 };
 use cudarc::nvrtc::Ptx;
-use parking_lot::RwLock;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
@@ -21,7 +20,6 @@ use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, PType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::BitPackedArray;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::task::GPUTask;
 
@@ -40,16 +38,10 @@ impl UnpackKernelId {
     }
 }
 
-static CUDA_KERNELS: LazyLock<RwLock<HashMap<UnpackKernelId, CudaFunction>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-
 fn cuda_bit_unpack_kernel(
     kernel_id: UnpackKernelId,
     ctx: Arc<CudaContext>,
 ) -> VortexResult<CudaFunction> {
-    if let Some(kernel) = CUDA_KERNELS.read().get(&kernel_id) {
-        return Ok(kernel.clone());
-    }
     let module = ctx
         .load_module(Ptx::from_file(format!(
             "kernels/gen/fls_{}_bit_unpack.ptx",
@@ -57,7 +49,7 @@ fn cuda_bit_unpack_kernel(
         )))
         .map_err(|e| vortex_err!("Failed to load kernel module: {e}"))?;
 
-    let kernel_func = module
+    module
         .load_function(
             format!(
                 "fls_unpack_{}bw_{}ow_{}t",
@@ -71,9 +63,7 @@ fn cuda_bit_unpack_kernel(
             )
             .as_ref(),
         )
-        .map_err(|e| vortex_err!("Failed to load function: {e}"))?;
-    CUDA_KERNELS.write().insert(kernel_id, kernel_func.clone());
-    Ok(kernel_func)
+        .map_err(|e| vortex_err!("Failed to load function: {e}"))
 }
 
 pub fn cuda_bit_unpack(

@@ -89,6 +89,7 @@ impl ColumnExporter for FixedSizeListExporter {
 mod tests {
     use vortex::IntoArray as _;
     use vortex::buffer::buffer;
+    use vortex::error::VortexExpect;
     use vortex::validity::Validity;
 
     use super::*;
@@ -282,13 +283,9 @@ mod tests {
     fn create_nested_array_type(inner_list_size: u32, outer_list_size: u32) -> LogicalType {
         let inner_array_type =
             LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, inner_list_size);
-        // SAFETY: inner_array_type is a valid LogicalType created above.
-        unsafe {
-            LogicalType::own(cpp::duckdb_create_array_type(
-                inner_array_type.as_ptr(),
-                outer_list_size as cpp::idx_t,
-            ))
-        }
+
+        LogicalType::array_type(inner_array_type, outer_list_size)
+            .vortex_expect("failed to create nested array type")
     }
 
     #[test]

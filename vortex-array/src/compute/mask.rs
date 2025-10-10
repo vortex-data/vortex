@@ -115,6 +115,11 @@ impl ComputeFnVTable for MaskFn {
             .into());
         }
 
+        // Do nothing if the array is already all nulls.
+        if array.all_invalid() {
+            return Ok(array.to_array().into());
+        }
+
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);

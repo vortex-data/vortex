@@ -398,6 +398,9 @@ macro_rules! lifetime_wrapper_generate_deref {
 #[macro_export]
 macro_rules! wrapper {
     ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr) => {
+        wrapper!($(#[$meta])* $Name, $ffi_type, |_| {}, $destructor);
+    };
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $validator:expr, $destructor:expr) => {
         $(#[$meta])*
         pub struct $Name {
             ptr: $ffi_type,
@@ -412,6 +415,7 @@ macro_rules! wrapper {
                 if ptr.is_null() {
                     vortex::error::vortex_panic!("Attempted to create a wrapper from a null pointer");
                 }
+                $validator(ptr);
                 Self { ptr, owned: true }
             }
 
@@ -421,6 +425,7 @@ macro_rules! wrapper {
                 if ptr.is_null() {
                     vortex::error::vortex_panic!("Attempted to create a wrapper from a null pointer");
                 }
+                $validator(ptr);
                 Self { ptr, owned: false }
             }
 
