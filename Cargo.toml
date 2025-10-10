@@ -2,6 +2,7 @@
 members = [
     "bench-vortex",
     "encodings/*",
+    "vortex-gpu-kernels",
     "fuzz",
     "vortex",
     "vortex-array",
@@ -31,7 +32,7 @@ members = [
     "xtask",
     "vortex-gpu",
 ]
-exclude = ["fls-gpu-kernel-gen", "java/testfiles", "wasm-test"]
+exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"
 
 [workspace.package]
@@ -248,6 +249,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 vortex-cxx = { path = "./vortex-cxx", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
+vortex-gpu-kernels = { version = "0.1.0", path = "./vortex-gpu-kernels", default-features = false }
 
 xshell = "0.2.6"
 zigzag = "0.1.0"
