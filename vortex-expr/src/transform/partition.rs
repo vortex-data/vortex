@@ -67,11 +67,10 @@ where
         partition_dtypes.push(expr_dtype);
     }
 
-    let partition_names = FieldNames::from_iter(
-        partition_annotations
-            .iter()
-            .map(|id| FieldName::from(id.clone())),
-    );
+    let partition_names = partition_annotations
+        .iter()
+        .map(|id| FieldName::from(id.clone()))
+        .collect::<FieldNames>();
     let root_scope = DType::Struct(
         StructFields::new(partition_names.clone(), partition_dtypes.clone()),
         Nullability::NonNullable,
