@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod array_lit;
 pub(crate) mod between;
 pub(crate) mod binary;
 pub(crate) mod cast;

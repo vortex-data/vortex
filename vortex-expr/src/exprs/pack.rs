@@ -6,7 +6,7 @@ use std::hash::Hash;
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
+use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
@@ -102,7 +102,6 @@ impl VTable for PackVTable {
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        let len = scope.len();
         let value_arrays = expr
             .values
             .iter()
@@ -113,10 +112,15 @@ impl VTable for PackVTable {
                     .map_err(|e| e.with_context(format!("Can't evaluate '{name}'")))
             })
             .process_results(|it| it.collect::<Vec<_>>())?;
+
         let validity = match expr.nullability {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
         };
+
+        // [`PackExpr::try_new`] ensures that `value_arrays` is non-empty
+        let len = value_arrays[0].len();
+
         Ok(StructArray::try_new(expr.names.clone(), value_arrays, len, validity)?.into_array())
     }
 
@@ -141,6 +145,9 @@ impl PackExpr {
     ) -> VortexResult<Self> {
         if names.len() != values.len() {
             vortex_bail!("length mismatch {} {}", names.len(), values.len());
+        }
+        if names.is_empty() {
+            vortex_bail!("pack must have at least one field");
         }
         Ok(PackExpr {
             names,
@@ -400,5 +407,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(expr2.to_string(), "pack(x: $.a, y: $.b)?");
+    }
+
+    fn test_scope_missmatch() {
+        let expr = pack([("id", col("user_id"))], Nullability::NonNullable);
+        let result = expr.evaluate(&Scope::new(test_array()));
     }
 }
