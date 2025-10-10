@@ -25,7 +25,7 @@ jobs:
             "id": "tpch-nvme",
             "subcommand": "tpch",
             "name": "TPC-H on NVME",
-            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
             "scale_factor": "--scale-factor 10.0"
           },
           {
@@ -34,7 +34,7 @@ jobs:
             "name": "TPC-H on S3",
             "local_dir": "bench-vortex/data/tpch/10.0",
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/10.0/",
-            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex",
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:lance,duckdb:parquet,duckdb:vortex",
             "scale_factor": "--scale-factor 10.0"
           },
           {
@@ -67,7 +67,6 @@ jobs:
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
           }
         ]
-        #                                                                              ^^^^^^^^^^^^^^^^ We add lance for nightly benchmarks.
     strategy:
       # A single run not should kill the others
       fail-fast: false

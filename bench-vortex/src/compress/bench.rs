@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -11,6 +12,7 @@ use anyhow::Result;
 use arrow_array::RecordBatch;
 use bytes::Bytes;
 use clap::ValueEnum;
+use parking_lot::Mutex;
 use parquet::basic::{Compression, ZstdLevel};
 use serde::Serialize;
 use tokio::runtime::Runtime;
@@ -25,6 +27,7 @@ use crate::compress::lance::*;
 use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
 use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
 use crate::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
+use crate::utils::{convert_utf8view_batch, convert_utf8view_schema};
 
 #[derive(Default)]
 pub struct CompressMeasurements {
@@ -240,7 +243,7 @@ pub fn benchmark_lance_compress(
     let converted_schema = convert_utf8view_schema(&schema);
 
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-    let iteration_paths = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let iteration_paths: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
     let iteration_counter = AtomicU64::new(0);
 
     // Run the benchmark and measure time.
