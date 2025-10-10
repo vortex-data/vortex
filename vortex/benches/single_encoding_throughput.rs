@@ -21,7 +21,6 @@ use vortex::encodings::pco::PcoArray;
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::ZstdArray;
-use vortex::validity::Validity;
 use vortex::{IntoArray, ToCanonical};
 
 #[global_allocator]
