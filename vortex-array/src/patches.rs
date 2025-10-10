@@ -334,8 +334,8 @@ impl Patches {
         let chunk_start_idx = (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE;
         let chunk_end_idx = chunk_start_idx + 1;
 
-        // Patch indices are absolute and need to be offset by the first patch index of the current slice.
-        let patch_base_idx = chunk_offsets
+        // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
+        let base_offset = chunk_offsets
             .scalar_at(0)
             .as_primitive()
             .as_::<usize>()
@@ -346,7 +346,7 @@ impl Patches {
             .as_primitive()
             .as_::<usize>()
             .vortex_expect("idx must be usize")
-            - patch_base_idx)
+            - base_offset)
             // Chunk offsets are only sliced off in case the slice is fully
             // outside of the chunk range.
             //
@@ -361,7 +361,7 @@ impl Patches {
                 .as_primitive()
                 .as_::<usize>()
                 .vortex_expect("chunk offset must be usize")
-                - patch_base_idx
+                - base_offset
                 - offset_within_chunk
         } else {
             self.indices.len()
@@ -501,15 +501,15 @@ impl Patches {
 
     /// Slice the patches by a range of the patched array.
     pub fn slice(&self, range: Range<usize>) -> Option<Self> {
-        let patch_start = self.search_index(range.start).to_index();
-        let patch_stop = self.search_index(range.end).to_index();
+        let slice_start_idx = self.search_index(range.start).to_index();
+        let slice_end_idx = self.search_index(range.end).to_index();
 
-        if patch_start == patch_stop {
+        if slice_start_idx == slice_end_idx {
             return None;
         }
 
-        let values = self.values().slice(patch_start..patch_stop);
-        let indices = self.indices().slice(patch_start..patch_stop);
+        let values = self.values().slice(slice_start_idx..slice_end_idx);
+        let indices = self.indices().slice(slice_start_idx..slice_end_idx);
 
         let chunk_offsets = self.chunk_offsets.as_ref().map(|chunk_offsets| {
             let chunk_relative_offset = self.offset % PATCH_CHUNK_SIZE;
@@ -518,16 +518,14 @@ impl Patches {
             chunk_offsets.slice(chunk_start_idx..chunk_end_idx)
         });
 
-        let offset_within_chunk = if let Some(ref chunk_offsets) = chunk_offsets {
-            let patch_base_idx = chunk_offsets
+        let offset_within_chunk = chunk_offsets.as_ref().map(|chunk_offsets| {
+            let base_offset = chunk_offsets
                 .scalar_at(0)
                 .as_primitive()
                 .as_::<usize>()
                 .vortex_expect("idx must be usize");
-            Some(patch_start - patch_base_idx)
-        } else {
-            None
-        };
+            slice_start_idx - base_offset
+        });
 
         Some(Self {
             array_len: range.len(),
