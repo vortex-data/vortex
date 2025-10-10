@@ -179,10 +179,10 @@ pub enum Engine {
 impl Display for Engine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Engine::DataFusion => write!(f, "DataFusion"),
-            Engine::DuckDB => write!(f, "DuckDB"),
-            Engine::Vortex => write!(f, "Vortex"),
-            Engine::Arrow => write!(f, "Arrow"),
+            Engine::DataFusion => write!(f, "datafusion"),
+            Engine::DuckDB => write!(f, "duckdb"),
+            Engine::Vortex => write!(f, "vortex"),
+            Engine::Arrow => write!(f, "arrow"),
         }
     }
 }

@@ -101,7 +101,7 @@ export const shared = {
     }
   },
 
-  normalizeSeriesName(name, seriesName) {
+  normalizeSeriesName(name, seriesName, groupId) {
     let normalizedName = seriesName;
     let normalizedQuery = name;
 
@@ -114,6 +114,16 @@ export const shared = {
         : "throughput";
       normalizedName = seriesName.slice(0, seriesName.length - suffix.length);
       normalizedQuery = name.replace("time", "throughput");
+    }
+
+    // Normalize engine names to lowercase for all benchmarks except Compression ones
+    // Keep original capitalization for "Compression" and "Compression Size" benchmarks
+    if (groupId !== "Compression" && groupId !== "Compression Size") {
+      normalizedName = normalizedName
+        .replace(/^DataFusion:/i, "datafusion:")
+        .replace(/^DuckDB:/i, "duckdb:")
+        .replace(/^Vortex:/i, "vortex:")
+        .replace(/^Arrow:/i, "arrow:");
     }
 
     return { name: normalizedQuery, seriesName: normalizedName };
@@ -191,7 +201,7 @@ export const shared = {
 
     // Process benchmark data
     let [query, seriesName] = benchmark.name.split("/");
-    const normalized = this.normalizeSeriesName(query, seriesName);
+    const normalized = this.normalizeSeriesName(query, seriesName, groupId);
     query = normalized.name;
     seriesName = normalized.seriesName;
 

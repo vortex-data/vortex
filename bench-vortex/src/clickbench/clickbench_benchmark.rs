@@ -10,7 +10,7 @@ use url::Url;
 use vortex::error::VortexExpect;
 
 use crate::benchmark_trait::Benchmark;
-use crate::clickbench::{self, Flavor};
+use crate::clickbench::*;
 use crate::engines::EngineCtx;
 use crate::{BenchmarkDataset, CompactionStrategy, Format, IdempotentPath, Target};
 
@@ -71,7 +71,7 @@ impl Benchmark for ClickBenchBenchmark {
             None => Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql"),
         };
 
-        Ok(clickbench::clickbench_queries(queries_filepath))
+        Ok(clickbench_queries(queries_filepath))
     }
 
     fn generate_data(&self, target: &Target) -> Result<()> {
@@ -101,14 +101,14 @@ impl Benchmark for ClickBenchBenchmark {
                             rt.block_on(async {
                                 match target.format {
                                     Format::OnDiskVortex => {
-                                        clickbench::convert_parquet_to_vortex(
+                                        convert_parquet_to_vortex(
                                             &file_path,
                                             CompactionStrategy::Default,
                                         )
                                         .await
                                     }
                                     Format::VortexCompact => {
-                                        clickbench::convert_parquet_to_vortex(
+                                        convert_parquet_to_vortex(
                                             &file_path,
                                             CompactionStrategy::Compact,
                                         )
@@ -138,9 +138,7 @@ impl Benchmark for ClickBenchBenchmark {
                             })?;
 
                             let rt = Runtime::new()?;
-                            rt.block_on(async {
-                                clickbench::convert_parquet_to_lance(&file_path).await
-                            })?
+                            rt.block_on(async { convert_parquet_to_lance(&file_path).await })?
                         }
                     }
                     f => {

@@ -34,8 +34,21 @@ export const utils = {
   },
 
   stringToColor(str) {
+    // First try the exact string
     if (SERIES_COLOR_MAP[str]) {
       return SERIES_COLOR_MAP[str];
+    }
+
+    // Try lowercase version for backward compatibility with old data
+    // This handles cases like "DataFusion:parquet" -> "datafusion:parquet"
+    const lowerStr = str
+      .replace(/^DataFusion:/i, "datafusion:")
+      .replace(/^DuckDB:/i, "duckdb:")
+      .replace(/^Vortex:/i, "vortex:")
+      .replace(/^Arrow:/i, "arrow:");
+
+    if (lowerStr !== str && SERIES_COLOR_MAP[lowerStr]) {
+      return SERIES_COLOR_MAP[lowerStr];
     }
 
     const hash = new Hashes.MD5().hex(str);

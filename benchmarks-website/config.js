@@ -34,6 +34,7 @@ export const SERIES_COLOR_MAP = {
   "datafusion:in-memory-arrow": "#7a27b1",
   "datafusion:parquet": "#ef7f1d",
   "datafusion:vortex": "#19a508",
+  "datafusion:lance": "#2D936C",
   "duckdb:parquet": "#985113",
   "duckdb:vortex": "#0e5e04",
   "duckdb:duckdb": "#87752e",
