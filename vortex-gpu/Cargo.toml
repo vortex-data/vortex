@@ -17,6 +17,7 @@ version = { workspace = true }
 cudarc = { workspace = true, features = ["f16"] }
 parking_lot = { workspace = true }
 vortex-array = { workspace = true }
+vortex-alp = { workspace = true }
 vortex-buffer = { workspace = true, features = ["cuda"] }
 vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Write;
 use std::fmt;
+use std::fmt::Write;
 
 pub struct IndentedWriter<W: Write> {
     write: W,
