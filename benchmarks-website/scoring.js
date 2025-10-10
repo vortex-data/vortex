@@ -475,7 +475,7 @@ const scoring = {
       compressItem.className = "score-item";
       compressItem.innerHTML = `
         <span class="score-rank">⚡</span>
-        <span class="score-series">Compression Speed</span>
+        <span class="score-series">Write Speed</span>
         <span class="score-metrics">
           <span class="score-value">${metrics.compressRatio.toFixed(
             2
@@ -491,7 +491,7 @@ const scoring = {
       decompressItem.className = "score-item";
       decompressItem.innerHTML = `
         <span class="score-rank">📤</span>
-        <span class="score-series">Decompression Speed</span>
+        <span class="score-series">Scan Speed</span>
         <span class="score-metrics">
           <span class="score-value">${metrics.decompressRatio.toFixed(
             2
