@@ -524,7 +524,7 @@ impl Scheme for SparseScheme {
                 &new_excludes,
             )?;
 
-            let indices = sparse.patches().indices().to_primitive().downcast()?;
+            let indices = sparse.patches().indices().to_primitive().narrow()?;
 
             let compressed_indices = IntCompressor::compress_no_dict(
                 &indices,
@@ -614,7 +614,7 @@ impl Scheme for DictScheme {
         new_excludes.extend_from_slice(excludes);
 
         let compressed_codes = IntCompressor::compress_no_dict(
-            &dict.codes().to_primitive().downcast()?,
+            &dict.codes().to_primitive().narrow()?,
             is_sample,
             allowed_cascading - 1,
             &new_excludes,

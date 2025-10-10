@@ -55,7 +55,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
     };
 
     let ends = ends
-        .downcast()
+        .narrow()
         .vortex_expect("Ends must succeed downcasting")
         .to_primitive();
 
