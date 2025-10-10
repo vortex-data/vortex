@@ -334,19 +334,18 @@ impl Patches {
         let chunk_start_idx = (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE;
         let chunk_end_idx = chunk_start_idx + 1;
 
-        // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
-        let base_offset = chunk_offsets
-            .scalar_at(0)
-            .as_primitive()
-            .as_::<usize>()
-            .vortex_expect("idx must be usize");
+        let chunk_offset_at = |idx: usize| -> usize {
+            chunk_offsets
+                .scalar_at(idx)
+                .as_primitive()
+                .as_::<usize>()
+                .vortex_expect("chunk offset must be usize")
+        };
 
-        let patches_start_idx = (chunk_offsets
-            .scalar_at(chunk_start_idx)
-            .as_primitive()
-            .as_::<usize>()
-            .vortex_expect("idx must be usize")
-            - base_offset)
+        // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
+        let base_offset = chunk_offset_at(0);
+
+        let patches_start_idx = (chunk_offset_at(chunk_start_idx) - base_offset)
             // Chunk offsets are only sliced off in case the slice is fully
             // outside of the chunk range.
             //
@@ -356,13 +355,7 @@ impl Patches {
             .saturating_sub(offset_within_chunk);
 
         let patches_end_idx = if chunk_end_idx < chunk_offsets.len() {
-            chunk_offsets
-                .scalar_at(chunk_end_idx)
-                .as_primitive()
-                .as_::<usize>()
-                .vortex_expect("chunk offset must be usize")
-                - base_offset
-                - offset_within_chunk
+            chunk_offset_at(chunk_end_idx) - base_offset - offset_within_chunk
         } else {
             self.indices.len()
         };
