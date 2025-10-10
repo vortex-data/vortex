@@ -64,9 +64,10 @@ jobs:
             "id": "clickbench-nvme",
             "subcommand": "clickbench",
             "name": "Clickbench on NVME",
-            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
           }
         ]
+        #                                                                              ^^^^^^^^^^^^^^^^ We add lance for nightly benchmarks.
     strategy:
       # A single run not should kill the others
       fail-fast: false
