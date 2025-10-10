@@ -82,7 +82,7 @@ vortex = { workspace = true, features = [
     "files",
     "tokio",
     "zstd",
-    "unstable_encodings"
+    "unstable_encodings",
 ] }
 vortex-datafusion = { workspace = true }
 vortex-duckdb = { workspace = true }
