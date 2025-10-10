@@ -70,11 +70,15 @@
               {
                 keptCharts: [
                   "COMPRESS TIME",
-                  "PARQUET RS-ZSTD COMPRESS TIME",
                   "DECOMPRESS TIME",
+                  "PARQUET RS-ZSTD COMPRESS TIME",
                   "PARQUET RS-ZSTD DECOMPRESS TIME",
+                  "LANCE COMPRESS TIME",
+                  "LANCE DECOMPRESS TIME",
                   "VORTEX:PARQUET-ZSTD RATIO COMPRESS TIME",
                   "VORTEX:PARQUET-ZSTD RATIO DECOMPRESS TIME",
+                  "VORTEX:LANCE RATIO COMPRESS TIME",
+                  "VORTEX:LANCE RATIO DECOMPRESS TIME",
                 ],
                 hiddenDatasets: new Set([
                   "wide table cols=1000 chunks=1 rows=1000",
@@ -94,7 +98,13 @@
             [
               "Compression Size",
               {
-                keptCharts: ["VORTEX SIZE", "VORTEX:PARQUET-ZSTD SIZE RATIO"],
+                keptCharts: [
+                  "VORTEX SIZE",
+                  "PARQUET-ZSTD SIZE",
+                  "LANCE SIZE",
+                  "VORTEX:PARQUET-ZSTD SIZE",
+                  "VORTEX:LANCE SIZE"
+                ],
                 hiddenDatasets: new Set(["wide table cols=1000"]),
                 removedDatasets: new Set([
                   "wide table cols=10 chunks=1 rows=1000",

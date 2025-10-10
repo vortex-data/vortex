@@ -43,6 +43,10 @@ vortex-zigzag = { workspace = true }
 divan = { workspace = true }
 env_logger = "0.11"
 
+[features]
+# This feature enabled unstable encodings for which we don't guarantee stability.
+unstable_encodings = []
+
 [lints]
 workspace = true
 

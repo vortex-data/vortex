@@ -6,6 +6,7 @@ pub mod for_;
 mod for_bp;
 mod indent;
 mod jit;
+mod rle_decompress;
 mod take;
 mod task;
 

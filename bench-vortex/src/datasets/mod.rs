@@ -143,6 +143,9 @@ impl BenchmarkDataset {
                 )
                 .await?;
             }
+            (BenchmarkDataset::ClickBench { .. }, Format::Lance) => {
+                clickbench::register_lance_files(session, "hits", base_url).await?;
+            }
             (BenchmarkDataset::ClickBench { .. }, _) => {
                 anyhow::bail!("Unsupported format for ClickBench: {}", format);
             }

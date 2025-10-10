@@ -12,7 +12,7 @@ __device__ void dict_take(
     ValueT *__restrict values_out
 ) {
     auto i = threadIdx.x;
-    auto block_offset = (blockIdx.x * 1024);
+    auto block_offset = blockIdx.x * 1024;
 
     auto codes = codes_array + block_offset;
     auto out = values_out + block_offset;
@@ -33,8 +33,8 @@ __device__ void dict_take_masked(
     ValueT *__restrict values_out
 ) {
     auto i = threadIdx.x;
-    auto block_offset = (blockIdx.x * 1024);
-    auto mask_block_offset = (blockIdx.x * (1024 / 32));
+    auto block_offset = blockIdx.x * 1024;
+    auto mask_block_offset = blockIdx.x * (1024 / 32);
 
     auto codes = codes_array + block_offset;
     auto mask = mask_array + mask_block_offset;

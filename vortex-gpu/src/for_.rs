@@ -181,12 +181,5 @@ mod tests {
             primitive_array.as_slice::<u32>(),
             unpacked.as_slice::<u32>()
         );
-        for i in 0..primitive_array.len() {
-            assert_eq!(
-                primitive_array.as_slice::<u32>()[i],
-                unpacked.as_slice::<u32>()[i],
-                "i {i}"
-            );
-        }
     }
 }

@@ -8,7 +8,8 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use std::{fmt, fs};
 
-use arrow_schema::{DataType, Field, Schema, TimeUnit};
+use arrow_array::{RecordBatch, RecordBatchReader};
+use arrow_schema::{ArrowError, DataType, Field, Schema, TimeUnit};
 use clap::ValueEnum;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::{
@@ -17,7 +18,10 @@ use datafusion::datasource::listing::{
 use datafusion::prelude::SessionContext;
 use futures::{StreamExt, TryStreamExt, stream};
 use glob::Pattern;
+use lance::datafusion::LanceTableProvider;
+use lance::dataset::{Dataset as LanceDataset, WriteParams};
 use log::trace;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use reqwest::IntoUrl;
 use reqwest::blocking::Response;
@@ -220,6 +224,131 @@ pub async fn convert_parquet_to_vortex(
     Ok(())
 }
 
+/// Convert Parquet files to Lance format.
+/// Lance manages its own internal partitioning, so we convert all Parquet files
+/// (whether Single or Partitioned flavor) into a single Lance dataset.
+pub async fn convert_parquet_to_lance(input_path: &Path) -> anyhow::Result<()> {
+    let lance_dir = input_path.join(Format::Lance.name());
+    let parquet_path = input_path.join(Format::Parquet.name());
+    let dataset_path = lance_dir.join("hits.lance");
+
+    // Use idempotent pattern to avoid reprocessing.
+    idempotent_async(&dataset_path, move |lance_path| async move {
+        create_dir_all(&lance_dir).await?;
+
+        // Collect all Parquet files in the directory.
+        let parquet_files: Vec<_> = fs::read_dir(&parquet_path)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().extension().is_some_and(|e| e == "parquet"))
+            .map(|entry| entry.path())
+            .collect();
+
+        if parquet_files.is_empty() {
+            anyhow::bail!("No Parquet files found in {}", parquet_path.display());
+        }
+
+        info!(
+            "Converting {} Parquet file(s) to Lance format",
+            parquet_files.len()
+        );
+
+        // Get schema from the first Parquet file without loading all data.
+        let first_file = File::open(&parquet_files[0])?;
+        let first_builder = ParquetRecordBatchReaderBuilder::try_new(first_file)?;
+        let schema = first_builder.schema().clone();
+
+        // Create a streaming iterator that reads from all Parquet files sequentially.
+        let batch_iter = ParquetFilesIterator::new(parquet_files, schema.clone())?;
+
+        info!("Starting streaming write to Lance");
+
+        // Write all batches to a single Lance dataset using streaming.
+        let lance_path_str = lance_path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Lance dataset path is not valid UTF-8"))?;
+        LanceDataset::write(batch_iter, lance_path_str, Some(WriteParams::default())).await?;
+
+        info!(
+            "Successfully created Lance dataset at {}",
+            lance_path.display()
+        );
+
+        anyhow::Ok(())
+    })
+    .await?;
+
+    Ok(())
+}
+
+/// A streaming iterator that reads RecordBatches from multiple Parquet files sequentially.
+///
+/// We need this because we cannot gather all of the data in memory before writing to lance due to
+/// running out of memory on CI.
+struct ParquetFilesIterator {
+    files: Vec<PathBuf>,
+    schema: Arc<Schema>,
+    current_file_index: usize,
+    current_reader: Option<Box<dyn RecordBatchReader + Send>>,
+}
+
+impl ParquetFilesIterator {
+    fn new(files: Vec<PathBuf>, schema: Arc<Schema>) -> anyhow::Result<Self> {
+        let mut iter = Self {
+            files,
+            schema,
+            current_file_index: 0,
+            current_reader: None,
+        };
+        iter.advance_to_next_file()
+            .map_err(|e| anyhow::anyhow!("Failed to open first Parquet file: {}", e))?;
+        Ok(iter)
+    }
+
+    fn advance_to_next_file(&mut self) -> Result<(), ArrowError> {
+        if self.current_file_index < self.files.len() {
+            let file = File::open(&self.files[self.current_file_index]).map_err(|e| {
+                ArrowError::IoError(format!("Failed to open Parquet file: {}", e), e)
+            })?;
+            let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
+            self.current_reader = Some(Box::new(builder.build()?));
+            self.current_file_index += 1;
+        } else {
+            self.current_reader = None;
+        }
+        Ok(())
+    }
+}
+
+impl Iterator for ParquetFilesIterator {
+    type Item = Result<RecordBatch, ArrowError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match &mut self.current_reader {
+                Some(reader) => {
+                    match reader.next() {
+                        Some(Ok(batch)) => return Some(Ok(batch)),
+                        Some(Err(e)) => return Some(Err(e)),
+                        None => {
+                            // Current file is exhausted, move to the next file.
+                            if let Err(e) = self.advance_to_next_file() {
+                                return Some(Err(e));
+                            }
+                        }
+                    }
+                }
+                None => return None,
+            }
+        }
+    }
+}
+
+impl RecordBatchReader for ParquetFilesIterator {
+    fn schema(&self) -> Arc<Schema> {
+        self.schema.clone()
+    }
+}
+
 pub async fn register_vortex_files(
     session: SessionContext,
     table_name: &str,
@@ -312,6 +441,47 @@ pub fn register_parquet_files(
     let listing_table = Arc::new(ListingTable::try_new(config)?);
 
     session.register_table(table_name, listing_table)?;
+
+    Ok(())
+}
+
+/// Register Lance files with DataFusion.
+/// Lance manages its own internal partitioning, so there's always a single dataset
+/// regardless of the ClickBench flavor.
+pub async fn register_lance_files(
+    session: &SessionContext,
+    table_name: &str,
+    input_path: &Url,
+) -> anyhow::Result<()> {
+    let dataset_path = input_path.join(&format!("{}/hits.lance/", Format::Lance.name()))?;
+
+    info!("Registering Lance table from {}", &dataset_path);
+
+    let path_str = dataset_path
+        .to_file_path()
+        .map_err(|_| anyhow::anyhow!("Failed to convert URL to file path: {}", dataset_path))?;
+    if !path_str.exists() {
+        anyhow::bail!(
+            "Lance dataset not found at {}. Run data generation with --generate-data first.",
+            path_str.display()
+        );
+    }
+
+    // Open the single Lance dataset.
+    let path_str_utf8 = path_str
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Lance dataset path is not valid UTF-8"))?;
+    let dataset = LanceDataset::open(path_str_utf8).await?;
+    let provider = LanceTableProvider::new(
+        Arc::new(dataset),
+        false, // with_row_id
+        false, // with_row_addr
+    );
+
+    // Register the table with DataFusion.
+    session.register_table(table_name, Arc::new(provider))?;
+
+    info!("Successfully registered Lance table '{}'", table_name);
 
     Ok(())
 }
