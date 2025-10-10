@@ -18,11 +18,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use arrow_array::{RecordBatch, RecordBatchIterator};
-use arrow_cast::cast;
-use arrow_schema::{DataType, Field, Schema};
+use arrow_schema::Schema;
 use futures::StreamExt;
 use lance::dataset::{Dataset, WriteParams};
 use tempfile::TempDir;
+
+use crate::utils::parquet_utils::{convert_utf8view_batch, convert_utf8view_schema};
 
 /// Write pre-converted [`RecordBatch`]es to Lance format.
 pub async fn lance_compress_write_only(
@@ -114,42 +115,4 @@ pub async fn lance_compress_write(
     Dataset::write(reader, path, Some(write_params)).await?;
 
     Ok(path.to_string())
-}
-
-// Lance doesn't support Arrow's Utf8View type (variable-length string view optimization).
-// We must convert Utf8View columns to regular Utf8 before writing to Lance.
-// This conversion happens OUTSIDE the benchmark timing to avoid skewing results.
-pub fn convert_utf8view_schema(schema: &Schema) -> Arc<Schema> {
-    let new_fields: Vec<Field> = schema
-        .fields()
-        .iter()
-        .map(|field| {
-            let new_dtype = match field.data_type() {
-                DataType::Utf8View => DataType::Utf8,
-                dt => dt.clone(),
-            };
-            Field::new(field.name(), new_dtype, field.is_nullable())
-        })
-        .collect();
-    Arc::new(Schema::new(new_fields))
-}
-
-// Convert Utf8View arrays to Utf8 arrays in a RecordBatch.
-pub fn convert_utf8view_batch(batch: RecordBatch) -> anyhow::Result<RecordBatch> {
-    let schema = batch.schema();
-    let mut new_columns = Vec::new();
-
-    for (i, column) in batch.columns().iter().enumerate() {
-        let field = schema.field(i);
-        let new_column = if field.data_type() == &DataType::Utf8View {
-            // Cast Utf8View to Utf8.
-            cast(column, &DataType::Utf8)?
-        } else {
-            column.clone()
-        };
-        new_columns.push(new_column);
-    }
-
-    let new_schema = convert_utf8view_schema(&schema);
-    Ok(RecordBatch::try_new(new_schema, new_columns)?)
 }

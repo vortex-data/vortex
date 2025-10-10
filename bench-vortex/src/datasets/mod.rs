@@ -11,6 +11,7 @@ use url::Url;
 use vortex::ArrayRef;
 
 use crate::clickbench::Flavor;
+use crate::file::register_lance_files;
 use crate::{Format, clickbench, fineweb, statpopgen};
 
 pub mod data_downloads;
@@ -143,8 +144,8 @@ impl BenchmarkDataset {
                 )
                 .await?;
             }
-            (BenchmarkDataset::ClickBench { .. }, Format::Lance) => {
-                clickbench::register_lance_files(session, "hits", base_url).await?;
+            (cb @ BenchmarkDataset::ClickBench { .. }, Format::Lance) => {
+                register_lance_files(session, "hits", base_url, cb).await?;
             }
             (BenchmarkDataset::ClickBench { .. }, _) => {
                 anyhow::bail!("Unsupported format for ClickBench: {}", format);
