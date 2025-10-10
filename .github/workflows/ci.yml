@@ -316,8 +316,9 @@ jobs:
           cargo +nightly nextest run --locked --workspace --exclude vortex-gpu --all-features --no-fail-fast
       - name: Run TPC-H
         if: ${{ matrix.suite == 'tpc-h' }}
+        # We use i2 to ensure that restarting the duckdb connection succeeds
         run: |
-          cargo run --bin query_bench -- tpch -i2 --scale-factor 0.1
+          cargo run --bin query_bench -- tpch -i2 --targets "datafusion:vortex,datafusion:vortex-compact,duckdb:vortex,duckdb:vortex-compact" --scale-factor 0.1
       - name: Run FFI Example
         if: ${{ matrix.suite == 'ffi' }}
         run: |
