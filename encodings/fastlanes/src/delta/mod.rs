@@ -9,7 +9,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChildSliceHelper, ValidityVTableFromChildSliceHelper,
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChildSliceHelper,
+    ValidityVTableFromChildSliceHelper,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 use vortex_buffer::Buffer;

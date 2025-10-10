@@ -6,7 +6,8 @@ use std::fmt::Debug;
 pub use compress::rle_decompress;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityChildSliceHelper, ValidityVTableFromChildSliceHelper,
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityChildSliceHelper,
+    ValidityVTableFromChildSliceHelper,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::{DType, PType};
