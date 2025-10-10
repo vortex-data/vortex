@@ -5,9 +5,9 @@ const scoring = {
   isQueryBenchmark(categoryName) {
     return (
       categoryName === "Clickbench" ||
-        categoryName.startsWith("TPC-H") ||
-        categoryName.startsWith("TPC-DS") ||
-        categoryName === "Statistical and Population Genetics"
+      categoryName.startsWith("TPC-H") ||
+      categoryName.startsWith("TPC-DS") ||
+      categoryName === "Statistical and Population Genetics"
     );
   },
 
@@ -475,11 +475,9 @@ const scoring = {
       compressItem.className = "score-item";
       compressItem.innerHTML = `
         <span class="score-rank">⚡</span>
-        <span class="score-series">Write Speed</span>
+        <span class="score-series">Write Speed (Compression)</span>
         <span class="score-metrics">
-          <span class="score-value">${metrics.compressRatio.toFixed(
-            2
-          )}x</span>
+          <span class="score-value">${metrics.compressRatio.toFixed(2)}x</span>
         </span>
       `;
       metricsList.appendChild(compressItem);
@@ -491,7 +489,7 @@ const scoring = {
       decompressItem.className = "score-item";
       decompressItem.innerHTML = `
         <span class="score-rank">📤</span>
-        <span class="score-series">Scan Speed</span>
+        <span class="score-series">Scan Speed (Decompression)</span>
         <span class="score-metrics">
           <span class="score-value">${metrics.decompressRatio.toFixed(
             2
