@@ -113,7 +113,7 @@ pub struct Patches {
     ///
     /// Though the range for indices and values is sliced in terms of
     /// individual elements, not chunks. To account for that we do a
-    /// saturiting sub when adjusting the indices based on the chunk offset.
+    /// saturating sub when adjusting the indices based on the chunk offset.
     //
     /// `offset_within_chunk` is necessary in order to keep track of how many
     /// elements were sliced off within the chunk.
@@ -352,7 +352,7 @@ impl Patches {
             //
             // Though the range for indices and values is sliced in terms of
             // individual elements, not chunks. To account for that we do a
-            // saturiting sub when adjusting the indices based on the chunk offset.
+            // saturating sub when adjusting the indices based on the chunk offset.
             .saturating_sub(offset_within_chunk);
 
         let patches_end_idx = if chunk_end_idx < chunk_offsets.len() {
