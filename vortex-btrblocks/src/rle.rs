@@ -112,6 +112,8 @@ where
             &new_excludes,
         )?;
 
+        // Delta in an unstable encoding, once we deem it stable we can switch over to this always.
+        #[cfg(feature = "unstable_encodings")]
         // For indices and offsets, we always use integer compression without dictionary encoding.
         let compressed_indices = try_compress_delta(
             &rle_array.indices().to_primitive().narrow()?,
@@ -120,8 +122,9 @@ where
             &[],
         )?;
 
+        #[cfg(not(feature = "unstable_encodings"))]
         let compressed_offsets = IntCompressor::compress_no_dict(
-            &rle_array.values_idx_offsets().to_primitive().narrow()?,
+            &rle_array.values_idx_offsets().to_primitive().downcast()?,
             is_sample,
             allowed_cascading - 1,
             &[],

@@ -43,6 +43,9 @@ vortex-zigzag = { workspace = true }
 divan = { workspace = true }
 env_logger = "0.11"
 
+[features]
+unstable_encodings = []
+
 [lints]
 workspace = true
 
