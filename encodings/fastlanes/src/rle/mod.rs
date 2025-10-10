@@ -6,13 +6,11 @@ use std::fmt::Debug;
 pub use compress::rle_decompress;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityChildSliceHelper,
-    ValidityVTable, ValidityVTableFromChildSliceHelper,
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityChildSliceHelper, ValidityVTableFromChildSliceHelper,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_ensure};
-use vortex_mask::Mask;
 
 use crate::FL_CHUNK_SIZE;
 
