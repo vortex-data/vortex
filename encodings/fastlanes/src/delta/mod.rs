@@ -175,7 +175,7 @@ impl DeltaArray {
         Self {
             offset,
             len: logical_len,
-            dtype: bases.dtype().clone(),
+            dtype: bases.dtype().with_nullability(deltas.dtype().nullability()),
             bases,
             deltas,
             stats_set: Default::default(),
