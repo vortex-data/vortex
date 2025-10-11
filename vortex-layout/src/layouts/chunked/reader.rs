@@ -42,8 +42,7 @@ impl ChunkedReader {
         for i in 1..nchildren {
             chunk_offsets[i] = chunk_offsets[i - 1] + layout.children.child_row_count(i - 1);
         }
-        chunk_offsets.push(layout.row_count());
-        debug_assert_eq!(chunk_offsets.len(), nchildren + 1);
+        chunk_offsets[nchildren] = layout.row_count();
 
         let lazy_children = LazyReaderChildren::new(layout.children.clone(), segment_source);
 
