@@ -131,12 +131,11 @@ impl LayoutReader for FlatReader {
             // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
             //  (as often happens with zone map pruning), then we could slice/filter the array prior
             //  to evaluating the expression.
-            let mut array = array.clone().await?;
+            let mut array = array.await?;
             let mask = mask.await?;
 
             if *USE_OPERATOR_EVAL {
-                let array =
-                    try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await?;
+                let array = try_evaluate_using_operator(row_range, &array, &expr, &mask).await?;
                 let array_mask = array.try_to_mask_fill_null_false()?;
                 let mask = mask.intersect_by_rank(&array_mask);
                 return Ok(mask);
@@ -144,7 +143,7 @@ impl LayoutReader for FlatReader {
 
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
-                array = array.slice(row_range.clone());
+                array = array.slice(row_range);
             }
 
             // TODO(ngates): the mask may actually be dense within a range, as is often the case when
@@ -198,16 +197,16 @@ impl LayoutReader for FlatReader {
         Ok(async move {
             log::debug!("Flat array evaluation {} - {}", name, expr);
 
-            let mut array = array.clone().await?;
+            let mut array = array.await?;
             let mask = mask.await?;
 
             if *USE_OPERATOR_EVAL {
-                return try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await;
+                return try_evaluate_using_operator(row_range, &array, &expr, &mask).await;
             }
 
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
-                array = array.slice(row_range.clone());
+                array = array.slice(row_range);
             }
 
             // Filter the array based on the row mask.

@@ -32,7 +32,8 @@ pub trait ArrayStreamExt: ArrayStream {
             if chunks.len() == 1 {
                 Ok(chunks.remove(0))
             } else {
-                Ok(ChunkedArray::try_new(chunks, dtype)?.to_array())
+                // SAFETY: The stream producer has validated all the elements
+                Ok(unsafe { ChunkedArray::new_unchecked(chunks, dtype) }.to_array())
             }
         }
     }

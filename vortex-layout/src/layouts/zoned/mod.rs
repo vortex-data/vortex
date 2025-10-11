@@ -14,7 +14,7 @@ use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::{DType, TryFromBytes};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
-use crate::children::LayoutChildren;
+use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::layouts::zoned::reader::ZonedReader;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::{SegmentId, SegmentSource};
@@ -38,11 +38,11 @@ impl VTable for ZonedVTable {
     }
 
     fn row_count(layout: &Self::Layout) -> u64 {
-        layout.data.row_count()
+        layout.children.child_row_count(0)
     }
 
     fn dtype(layout: &Self::Layout) -> &DType {
-        layout.data.dtype()
+        &layout.dtype
     }
 
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
@@ -62,8 +62,11 @@ impl VTable for ZonedVTable {
 
     fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
         match idx {
-            0 => Ok(layout.data.clone()),
-            1 => Ok(layout.zones.clone()),
+            0 => layout.children.child(0, layout.dtype()),
+            1 => layout.children.child(
+                1,
+                &ZoneMap::dtype_for_stats_table(layout.dtype(), &layout.present_stats),
+            ),
             _ => vortex_bail!("Invalid child index: {}", idx),
         }
     }
@@ -92,22 +95,17 @@ impl VTable for ZonedVTable {
         _encoding: &Self::Encoding,
         dtype: &DType,
         _row_count: u64,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &ZonedMetadata,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         _ctx: ArrayContext,
     ) -> VortexResult<Self::Layout> {
-        let data = children.child(0, dtype)?;
-
-        let zones_dtype = ZoneMap::dtype_for_stats_table(data.dtype(), &metadata.present_stats);
-        let zones = children.child(1, &zones_dtype)?;
-
-        Ok(ZonedLayout::new(
-            data,
-            zones,
-            metadata.zone_len as usize,
-            metadata.present_stats.clone(),
-        ))
+        Ok(ZonedLayout {
+            dtype: dtype.clone(),
+            children: children.to_arc(),
+            zone_len: metadata.zone_len as usize,
+            present_stats: metadata.present_stats.clone(),
+        })
     }
 }
 
@@ -116,8 +114,8 @@ pub struct ZonedLayoutEncoding;
 
 #[derive(Clone, Debug)]
 pub struct ZonedLayout {
-    data: LayoutRef,
-    zones: LayoutRef,
+    dtype: DType,
+    children: Arc<dyn LayoutChildren>,
     zone_len: usize,
     present_stats: Arc<[Stat]>,
 }
@@ -137,15 +135,15 @@ impl ZonedLayout {
             vortex_panic!("Invalid zone map layout: zones dtype does not match expected dtype");
         }
         Self {
-            data,
-            zones,
+            dtype: data.dtype().clone(),
+            children: OwnedLayoutChildren::layout_children(vec![data, zones]),
             zone_len,
             present_stats,
         }
     }
 
     pub fn nzones(&self) -> usize {
-        usize::try_from(self.zones.row_count()).vortex_expect("Invalid number of zones")
+        usize::try_from(self.children.child_row_count(1)).vortex_expect("Invalid number of zones")
     }
 
     /// Returns an array of stats that exist in the layout's data, must be sorted.
@@ -186,25 +184,24 @@ impl SerializeMetadata for ZonedMetadata {
 
 #[cfg(test)]
 mod tests {
-
     use rstest::rstest;
 
     use super::*;
 
     #[rstest]
-    #[case(ZonedMetadata {
+    #[case(ZonedMetadata{
             zone_len: u32::MAX,
             present_stats: Arc::new([]),
         })]
-    #[case(ZonedMetadata {
+    #[case(ZonedMetadata{
             zone_len: 0,
             present_stats: Arc::new([Stat::IsConstant]),
         })]
-    #[case::all_sorted(ZonedMetadata {
+    #[case::all_sorted(ZonedMetadata{
             zone_len: 314,
             present_stats: Arc::new([Stat::IsConstant, Stat::IsSorted, Stat::IsStrictSorted, Stat::Max, Stat::Min, Stat::Sum, Stat::NullCount, Stat::UncompressedSizeInBytes, Stat::NaNCount]),
         })]
-    #[case::some_sorted(ZonedMetadata {
+    #[case::some_sorted(ZonedMetadata{
             zone_len: 314,
             present_stats: Arc::new([Stat::IsSorted, Stat::IsStrictSorted, Stat::Max, Stat::Min, Stat::Sum, Stat::NullCount, Stat::UncompressedSizeInBytes, Stat::NaNCount]),
         })]

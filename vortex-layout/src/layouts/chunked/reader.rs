@@ -38,7 +38,7 @@ impl ChunkedReader {
     ) -> Self {
         let nchildren = layout.nchildren();
 
-        let mut chunk_offsets = vec![0; nchildren];
+        let mut chunk_offsets = vec![0; nchildren + 1];
         for i in 1..nchildren {
             chunk_offsets[i] = chunk_offsets[i - 1] + layout.children.child_row_count(i - 1);
         }
@@ -238,7 +238,6 @@ impl LayoutReader for ChunkedReader {
         expr: &ExprRef,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
-        let dtype = expr.return_dtype(self.dtype())?;
         let mut chunk_evals = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
@@ -247,6 +246,9 @@ impl LayoutReader for ChunkedReader {
                 chunk_reader.projection_evaluation(&chunk_range, expr, mask.slice(mask_range))?;
             chunk_evals.push(chunk_eval);
         }
+
+        let expr = expr.clone();
+        let dtype = self.dtype().clone();
 
         Ok(async move {
             // Split the mask over each chunk.
@@ -258,6 +260,7 @@ impl LayoutReader for ChunkedReader {
             }
 
             // Combine the arrays.
+            let dtype = expr.return_dtype(&dtype)?;
             Ok(ChunkedArray::try_new(chunks, dtype)?.to_array())
         }
         .boxed())
