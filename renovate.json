@@ -2,12 +2,16 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
+    ":automergePatch",
     ":automergeMinor",
     ":automergePr",
     ":automergeRequireAllStatusChecks",
     ":combinePatchMinorReleases",
     ":dependencyDashboard",
     ":separateMultipleMajorReleases",
+    ":configMigration",
+    "group:rust-futuresMonorepo",
+    "schedule:earlyMondays",
     "docker:disable"
   ],
   "lockFileMaintenance": {
@@ -18,7 +22,6 @@
   "rebaseWhen": "conflicted",
   "cloneSubmodules": true,
   "platformAutomerge": true,
-  "separateMinorPatch": true,
   "patch": {
     "groupName": "all patch updates"
   },
@@ -51,15 +54,9 @@
       ]
     },
     {
-      "groupName": "futures",
-      "matchPackageNames": [
-        "futures{/,}**"
-      ]
-    },
-    {
       "groupName": "tonic",
-      "matchPackageNames": [
-        "tonic{/,}**"
+      "matchSourceUrls": [
+        "https://github.com/hyperium/tonic"
       ]
     }
   ],
