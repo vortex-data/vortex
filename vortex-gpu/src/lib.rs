@@ -13,4 +13,5 @@ mod task;
 pub use bit_unpack::{cuda_bit_unpack, cuda_bit_unpack_timed};
 pub use for_::{cuda_for_unpack, cuda_for_unpack_timed};
 pub use for_bp::{cuda_for_bp_unpack, cuda_for_bp_unpack_timed};
+pub use jit::create_jit;
 pub use take::cuda_take;
