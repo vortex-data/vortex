@@ -15,7 +15,7 @@ use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table
 use bench_vortex::downloadable_dataset::DownloadableDataset;
 use bench_vortex::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
 use bench_vortex::public_bi::PBI_DATASETS;
-use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
+use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, Euro2016, Food, HashTags};
 use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{Engine, Format, Target, setup_logging_and_tracing};
 use clap::Parser;
@@ -106,7 +106,7 @@ fn compress(
         &TaxiData as &dyn Dataset,
         PBI_DATASETS.get(Arade),
         PBI_DATASETS.get(Bimbo),
-        PBI_DATASETS.get(CMSprovider),
+        // PBI_DATASETS.get(CMSprovider), // This fails with Lance v2.1
         // Corporations, // duckdb thinks ' is a quote character but its used as an apostrophe
         // CityMaxCapita, // 11th column has F, M, and U but is inferred as boolean
         PBI_DATASETS.get(Euro2016),
