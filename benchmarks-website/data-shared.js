@@ -254,7 +254,18 @@ export const shared = {
     const renamer = seriesRenameFn.find(([name]) => name === groupId);
     if (renamer?.[1]?.renamedDatasets) {
       const renameDict = renamer[1].renamedDatasets;
-      return renameDict[seriesName] || seriesName;
+
+      // Create a case-insensitive lookup map.
+      // Since all series names are normalized to lowercase, we normalize
+      // the keys to lowercase for consistent matching.
+      const caseInsensitiveDict = {};
+      for (const [key, value] of Object.entries(renameDict)) {
+        caseInsensitiveDict[key.toLowerCase()] = value;
+      }
+
+      // Look up using the lowercase series name to handle both
+      // "DataFusion:lance" and "datafusion:lance" correctly.
+      return caseInsensitiveDict[seriesName.toLowerCase()] || seriesName;
     }
     return seriesName;
   },
