@@ -103,6 +103,8 @@ where
             0,
             valid_exceptional_positions.into_array(),
             valid_exceptional_values,
+            // TODO(0ax1): handle chunk offsets
+            None,
         ))
     };
     Ok((exponents, encoded_array, patches))

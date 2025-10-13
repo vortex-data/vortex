@@ -37,6 +37,11 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
         })))
     }
 
+    /// Deserialize a BitPackedArray from its components.
+    ///
+    /// Note that the layout depends on whether patches and chunk_offsets are present:
+    /// - No patches: `[validity?]`
+    /// - With patches: `[patch_indices, patch_values, chunk_offsets?, validity?]`
     fn build(
         _encoding: &BitPackedEncoding,
         dtype: &DType,
@@ -66,19 +71,35 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
             }
         };
 
-        // Load validity from the zero'th or second child, depending on whether patches are present.
-        let validity = if metadata.patches.is_some() {
-            load_validity(2)?
+        let validity_idx = if let Some(patches_meta) = &metadata.patches {
+            if patches_meta.chunk_offsets_dtype().is_some() {
+                3
+            } else {
+                2
+            }
         } else {
-            load_validity(0)?
+            0
         };
+
+        let validity = load_validity(validity_idx)?;
 
         let patches = metadata
             .patches
             .map(|p| {
                 let indices = children.get(0, &p.indices_dtype(), p.len())?;
                 let values = children.get(1, dtype, p.len())?;
-                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
+                let chunk_offsets = p
+                    .chunk_offsets_dtype()
+                    .map(|dtype| children.get(2, &dtype, p.chunk_offsets_len() as usize))
+                    .transpose()?;
+
+                Ok::<_, VortexError>(Patches::new(
+                    len,
+                    p.offset(),
+                    indices,
+                    values,
+                    chunk_offsets,
+                ))
             })
             .transpose()?;
 

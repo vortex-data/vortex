@@ -86,10 +86,9 @@ impl SparseArray {
             );
         }
 
-        let patches = Patches::new(len, 0, indices, values);
-
         Ok(Self {
-            patches,
+            // TODO(0ax1): handle chunk offsets
+            patches: Patches::new(len, 0, indices, values, None),
             fill_value,
             stats_set: Default::default(),
         })
@@ -133,7 +132,15 @@ impl SparseArray {
             .vortex_expect("Patches offset must cast to the indices dtype");
         let indices = sub_scalar(patches.indices(), indices_offset)
             .vortex_expect("must be able to subtract offset from indices");
-        Patches::new(patches.array_len(), 0, indices, patches.values().clone())
+
+        Patches::new(
+            patches.array_len(),
+            0,
+            indices,
+            patches.values().clone(),
+            // TODO(0ax1): handle chunk offsets
+            None,
+        )
     }
 
     #[inline]
