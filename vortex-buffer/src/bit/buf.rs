@@ -6,9 +6,8 @@ use std::ops::{BitAnd, BitOr, BitXor, Not, Range};
 use crate::bit::aligned::BitChunks;
 use crate::bit::ops::{bitwise_and, bitwise_not, bitwise_or, bitwise_unary_op, bitwise_xor};
 use crate::bit::unaligned::{BitIndexIterator, BitIterator, BitSliceIterator, UnalignedBitChunks};
-use crate::{
-    Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer, buffer, get_bit, get_bit_unchecked,
-};
+use crate::bit::{get_bit, get_bit_unchecked};
+use crate::{Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer, buffer};
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Clone, Debug, Eq)]

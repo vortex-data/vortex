@@ -3,8 +3,9 @@
 
 use vortex_error::VortexExpect;
 
+use crate::bit::get_bit_unchecked;
 use crate::trusted_len::TrustedLen;
-use crate::{Buffer, BufferIterator, ByteBuffer, get_bit_unchecked};
+use crate::{Buffer, BufferIterator, ByteBuffer};
 
 #[inline]
 fn read_u64(input: &[u8]) -> u64 {

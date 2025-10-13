@@ -16,6 +16,13 @@ pub struct BitChunks {
     remainder_len: usize,
 }
 
+impl ByteBuffer {
+    /// Returns an accessor which can be used to perform bitwise operations in u64 sized chunks
+    pub(super) fn bit_chunks(self, bit_offset: usize, bit_length: usize) -> BitChunks {
+        BitChunks::new(self.into_byte_buffer(), bit_offset, bit_length)
+    }
+}
+
 impl BitChunks {
     /// Construct new with given length and offset
     pub fn new(buffer: ByteBuffer, offset: usize, len: usize) -> Self {
@@ -60,7 +67,7 @@ impl BitChunks {
         result_bits & ((1 << self.remainder_len) - 1)
     }
 
-    /// Get an interator over the bitwise chunks including the trailer
+    /// Get an iterator over the bitwise chunks including the trailer
     pub fn iter(&self) -> PaddedBitChunksIterator {
         BitChunksIterator {
             buffer: self.buffer.clone(),

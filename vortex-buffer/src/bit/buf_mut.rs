@@ -7,7 +7,8 @@ use bitvec::prelude::Lsb0;
 use bitvec::view::BitView;
 use vortex_error::VortexExpect;
 
-use crate::{BitBuffer, BufferMut, ByteBuffer, ByteBufferMut, buffer_mut, get_bit};
+use crate::bit::get_bit;
+use crate::{BitBuffer, BufferMut, ByteBuffer, ByteBufferMut, buffer_mut};
 
 /// A mutable bitset buffer that allows random access to individual bits for set and get.
 ///

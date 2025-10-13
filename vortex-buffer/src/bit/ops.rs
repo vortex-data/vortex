@@ -3,7 +3,7 @@
 
 use crate::{Alignment, BufferMut, ByteBuffer};
 
-pub fn bitwise_unary_op<F: FnMut(u64) -> u64>(
+pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(
     buffer: ByteBuffer,
     offset: usize,
     len: usize,
@@ -17,7 +17,7 @@ pub fn bitwise_unary_op<F: FnMut(u64) -> u64>(
         .aligned(Alignment::of::<u8>())
 }
 
-pub fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
+pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
     left_buffer: ByteBuffer,
     left_offset: usize,
     right_buffer: ByteBuffer,
@@ -39,7 +39,7 @@ pub fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
         .aligned(Alignment::of::<u8>())
 }
 
-pub fn bitwise_and(
+pub(super) fn bitwise_and(
     left_buffer: ByteBuffer,
     left_offset: usize,
     right_buffer: ByteBuffer,
@@ -56,7 +56,7 @@ pub fn bitwise_and(
     )
 }
 
-pub fn bitwise_or(
+pub(super) fn bitwise_or(
     left_buffer: ByteBuffer,
     left_offset: usize,
     right_buffer: ByteBuffer,
@@ -73,7 +73,7 @@ pub fn bitwise_or(
     )
 }
 
-pub fn bitwise_xor(
+pub(super) fn bitwise_xor(
     left_buffer: ByteBuffer,
     left_offset: usize,
     right_buffer: ByteBuffer,
@@ -90,6 +90,6 @@ pub fn bitwise_xor(
     )
 }
 
-pub fn bitwise_not(buffer: ByteBuffer, offset: usize, len: usize) -> ByteBuffer {
+pub(super) fn bitwise_not(buffer: ByteBuffer, offset: usize, len: usize) -> ByteBuffer {
     bitwise_unary_op(buffer, offset, len, |l| !l)
 }
