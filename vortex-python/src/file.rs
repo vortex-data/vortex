@@ -40,16 +40,18 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 #[pyo3(signature = (path, *, without_segment_cache = false))]
-pub fn open(path: &str, without_segment_cache: bool) -> PyResult<PyVortexFile> {
-    let vxf = RUNTIME.block_on(|h| async move {
-        let mut options = VortexOpenOptions::new();
-        if without_segment_cache {
-            options = options.without_segment_cache();
-        } else {
-            // TODO(ngates): use a globally shared segment cache for all files
-            options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
-        }
-        options.with_handle(h).open(path).await
+pub fn open(py: Python, path: &str, without_segment_cache: bool) -> PyResult<PyVortexFile> {
+    let vxf = py.detach(|| {
+        RUNTIME.block_on(|h| async move {
+            let mut options = VortexOpenOptions::new();
+            if without_segment_cache {
+                options = options.without_segment_cache();
+            } else {
+                // TODO(ngates): use a globally shared segment cache for all files
+                options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
+            }
+            options.with_handle(h).open(path).await
+        })
     })?;
 
     Ok(PyVortexFile { vxf })

@@ -53,7 +53,7 @@
     <!-- <script src="data.js"></script> -->
     <script type="module" id="main-script">
       import './code.js';
-      
+
       // Wait for initialization to complete
       const waitForInit = () => {
         if (window.initAndRender) {
@@ -121,23 +121,26 @@
                   "DataFusion:vortex-file-compressed": "datafusion:vortex",
                   "DataFusion:parquet": "datafusion:parquet",
                   "DataFusion:arrow": "datafusion:in-memory-arrow",
+                  "DataFusion:lance": "datafusion:lance",
 
                   "DuckDB:vortex-file-compressed": "duckdb:vortex",
                   "DuckDB:parquet": "duckdb:parquet",
                   "DuckDB:duckdb": "duckdb:duckdb",
                 },
+                hiddenDatasets: new Set(["datafusion:lance"]),
               },
             ],
             [
               "TPC-H (NVMe) (SF=1)",
               {
                 keptCharts: undefined,
-                hiddenDatasets: undefined,
+                hiddenDatasets: new Set(["datafusion:lance"]),
                 removedDatasets: new Set([]),
                 renamedDatasets: {
                   "DataFusion:vortex-file-compressed": "datafusion:vortex",
                   "DataFusion:parquet": "datafusion:parquet",
                   "DataFusion:arrow": "datafusion:in-memory-arrow",
+                  "DataFusion:lance": "datafusion:lance",
 
                   "DuckDB:vortex-file-compressed": "duckdb:vortex",
                   "DuckDB:parquet": "duckdb:parquet",
@@ -149,11 +152,12 @@
               "TPC-H (S3) (SF=1)",
               {
                 keptCharts: undefined,
-                hiddenDatasets: undefined,
+                hiddenDatasets: new Set(["datafusion:lance"]),
                 renamedDatasets: {
                   "DataFusion:vortex-file-compressed": "datafusion:vortex",
                   "DataFusion:parquet": "datafusion:parquet",
                   "DataFusion:arrow": "datafusion:in-memory-arrow",
+                  "DataFusion:lance": "datafusion:lance",
 
                   "DuckDB:vortex-file-compressed": "duckdb:vortex",
                   "DuckDB:parquet": "duckdb:parquet",
@@ -168,11 +172,13 @@
                   "DataFusion:vortex-file-compressed": "datafusion:vortex",
                   "DataFusion:parquet": "datafusion:parquet",
                   "DataFusion:arrow": "datafusion:in-memory-arrow",
+                  "DataFusion:lance": "datafusion:lance",
 
                   "DuckDB:vortex-file-compressed": "duckdb:vortex",
                   "DuckDB:parquet": "duckdb:parquet",
                   "DuckDB:duckdb": "duckdb:duckdb",
                 },
+                hiddenDatasets: new Set(["datafusion:lance"]),
               },
             ],
             [
@@ -182,11 +188,13 @@
                   "DataFusion:vortex-file-compressed": "datafusion:vortex",
                   "DataFusion:parquet": "datafusion:parquet",
                   "DataFusion:arrow": "datafusion:in-memory-arrow",
+                  "DataFusion:lance": "datafusion:lance",
 
                   "DuckDB:vortex-file-compressed": "duckdb:vortex",
                   "DuckDB:parquet": "duckdb:parquet",
                   "DuckDB:duckdb": "duckdb:duckdb",
                 },
+                hiddenDatasets: new Set(["datafusion:lance"]),
               },
             ],
             [
@@ -196,11 +204,13 @@
                   "DataFusion:vortex-file-compressed": "datafusion:vortex",
                   "DataFusion:parquet": "datafusion:parquet",
                   "DataFusion:arrow": "datafusion:in-memory-arrow",
+                  "DataFusion:lance": "datafusion:lance",
 
                   "DuckDB:vortex-file-compressed": "duckdb:vortex",
                   "DuckDB:parquet": "duckdb:parquet",
                   "DuckDB:duckdb": "duckdb:duckdb",
                 },
+                hiddenDatasets: new Set(["datafusion:lance"]),
               },
             ],
             [
@@ -210,11 +220,13 @@
                   "DataFusion:vortex-file-compressed": "datafusion:vortex",
                   "DataFusion:parquet": "datafusion:parquet",
                   "DataFusion:arrow": "datafusion:in-memory-arrow",
+                  "DataFusion:lance": "datafusion:lance",
 
                   "DuckDB:vortex-file-compressed": "duckdb:vortex",
                   "DuckDB:parquet": "duckdb:parquet",
                   "DuckDB:duckdb": "duckdb:duckdb",
                 },
+                hiddenDatasets: new Set(["datafusion:lance"]),
               },
             ],
             [
@@ -224,11 +236,13 @@
                   "DataFusion:vortex-file-compressed": "datafusion:vortex",
                   "DataFusion:parquet": "datafusion:parquet",
                   "DataFusion:arrow": "datafusion:in-memory-arrow",
+                  "DataFusion:lance": "datafusion:lance",
 
                   "DuckDB:vortex-file-compressed": "duckdb:vortex",
                   "DuckDB:parquet": "duckdb:parquet",
                   "DuckDB:duckdb": "duckdb:duckdb",
                 },
+                hiddenDatasets: new Set(["datafusion:lance"]),
               },
             ],
             [
@@ -238,11 +252,13 @@
                   "DataFusion:vortex-file-compressed": "datafusion:vortex",
                   "DataFusion:parquet": "datafusion:parquet",
                   "DataFusion:arrow": "datafusion:in-memory-arrow",
+                  "DataFusion:lance": "datafusion:lance",
 
                   "DuckDB:vortex-file-compressed": "duckdb:vortex",
                   "DuckDB:parquet": "duckdb:parquet",
                   "DuckDB:duckdb": "duckdb:duckdb",
                 },
+                hiddenDatasets: new Set(["datafusion:lance"]),
               },
             ],
             [

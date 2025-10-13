@@ -95,13 +95,14 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyfunction]
 #[pyo3(signature = (url, *, projection = None, row_filter = None, indices = None, row_range = None))]
 pub fn read_url<'py>(
+    py: Python<'py>,
     url: &str,
     projection: Option<Vec<Bound<'py, PyAny>>>,
     row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<PyArrayRef>,
     row_range: Option<(u64, u64)>,
 ) -> PyResult<PyArrayRef> {
-    let dataset = TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url))?;
+    let dataset = py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?;
     dataset.to_array(projection, row_filter, indices, row_range)
 }
 
@@ -157,12 +158,14 @@ pub fn read_url<'py>(
 /// :func:`vortex.io.VortexWriteOptions`
 #[pyfunction]
 #[pyo3(signature = (iter, path))]
-pub fn write(iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
-    TOKIO_RUNTIME.block_on(async move {
-        let mut file = File::create(path).await?;
-        VortexWriteOptions::default()
-            .write(&mut file, iter.into_inner().into_array_stream())
-            .await
+pub fn write(py: Python, iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
+    py.detach(|| {
+        TOKIO_RUNTIME.block_on(async move {
+            let mut file = File::create(path).await?;
+            VortexWriteOptions::default()
+                .write(&mut file, iter.into_inner().into_array_stream())
+                .await
+        })
     })?;
 
     Ok(())
@@ -268,19 +271,21 @@ impl PyVortexWriteOptions {
     ///
     /// :func:`vortex.io.write`
     #[pyo3(signature = (iter, path))]
-    pub fn write_path(&self, iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
-        TOKIO_RUNTIME.block_on(async move {
-            let mut file = File::create(path).await?;
+    pub fn write_path(&self, py: Python, iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
+        py.detach(|| {
+            TOKIO_RUNTIME.block_on(async move {
+                let mut file = File::create(path).await?;
 
-            let mut strategy = WriteStrategyBuilder::new();
-            if let Some(compressor) = self.compressor.as_ref() {
-                strategy = strategy.with_compressor(compressor.clone())
-            }
+                let mut strategy = WriteStrategyBuilder::new();
+                if let Some(compressor) = self.compressor.as_ref() {
+                    strategy = strategy.with_compressor(compressor.clone())
+                }
 
-            VortexWriteOptions::default()
-                .with_strategy(strategy.build())
-                .write(&mut file, iter.into_inner().into_array_stream())
-                .await
+                VortexWriteOptions::default()
+                    .with_strategy(strategy.build())
+                    .write(&mut file, iter.into_inner().into_array_stream())
+                    .await
+            })
         })?;
 
         Ok(())
