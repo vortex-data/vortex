@@ -33,7 +33,6 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use itertools::Itertools;
 use vortex_array::arrays::{
     ExtensionArray, FixedSizeListArray, ListArray, StructArray, TemporalArray,
 };
@@ -389,7 +388,7 @@ impl BtrBlocksCompressor {
                     .fields()
                     .iter()
                     .map(|field| self.compress(field))
-                    .try_collect()?;
+                    .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(StructArray::try_new(
                     struct_array.names().clone(),
@@ -403,7 +402,7 @@ impl BtrBlocksCompressor {
                 // Compress the inner
                 let compressed_elems = self.compress(list_array.elements())?;
                 let compressed_offsets = IntCompressor::compress_no_dict(
-                    &list_array.offsets().to_primitive().downcast()?,
+                    &list_array.offsets().to_primitive().narrow()?,
                     false,
                     MAX_CASCADE,
                     &[],

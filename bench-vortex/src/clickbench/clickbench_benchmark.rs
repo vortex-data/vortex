@@ -5,11 +5,12 @@ use std::env;
 use std::path::Path;
 
 use anyhow::Result;
+use tokio::runtime::Runtime;
 use url::Url;
 use vortex::error::VortexExpect;
 
 use crate::benchmark_trait::Benchmark;
-use crate::clickbench::{Flavor, clickbench_queries, convert_parquet_to_vortex};
+use crate::clickbench::*;
 use crate::engines::EngineCtx;
 use crate::{BenchmarkDataset, CompactionStrategy, Format, IdempotentPath, Target};
 
@@ -96,7 +97,7 @@ impl Benchmark for ClickBenchBenchmark {
                             })?;
 
                             // Use tokio runtime to handle async conversion
-                            let rt = tokio::runtime::Runtime::new()?;
+                            let rt = Runtime::new()?;
                             rt.block_on(async {
                                 match target.format {
                                     Format::OnDiskVortex => {
@@ -116,6 +117,28 @@ impl Benchmark for ClickBenchBenchmark {
                                     _ => unreachable!(),
                                 }
                             })?
+                        }
+                    }
+                    Format::Lance => {
+                        // Lance manages its own partitioning internally, so flavor doesn't matter.
+                        if self.flavor == Flavor::Single {
+                            eprintln!(
+                                "Note: Lance manages its own internal partitioning. There is no \
+                                difference between Single and Partitioned flavors for Lance format."
+                            );
+                        }
+
+                        // Download Parquet files (either Single or Partitioned).
+                        self.flavor.download(&client, basepath.as_path())?;
+
+                        // Then convert to Lance format (idempotent).
+                        if self.data_url.scheme() == "file" {
+                            let file_path = self.data_url.to_file_path().map_err(|_| {
+                                anyhow::anyhow!("invalid file URL: {}", self.data_url)
+                            })?;
+
+                            let rt = Runtime::new()?;
+                            rt.block_on(async { convert_parquet_to_lance(&file_path).await })?
                         }
                     }
                     f => {

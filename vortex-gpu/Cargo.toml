@@ -12,8 +12,10 @@ readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
+publish = false
 
 [dependencies]
+#askama = { workspace = true }
 cudarc = { workspace = true, features = ["f16"] }
 parking_lot = { workspace = true }
 vortex-array = { workspace = true }
@@ -25,7 +27,15 @@ vortex-fastlanes = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-utils = { workspace = true }
 
+[dev-dependencies]
+criterion = { version = "0.7", features = ["html_reports"] }
+cudarc = { workspace = true, features = ["f16"] }
+rand = { workspace = true }
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["test-harness"] }
+
 [build-dependencies]
+vortex-gpu-kernels = { workspace = true }
 anyhow = { workspace = true }
 walkdir = { workspace = true }
 
@@ -34,3 +44,7 @@ workspace = true
 
 [features]
 cuda = []
+
+[[bench]]
+name = "gpu_bitunpack"
+harness = false

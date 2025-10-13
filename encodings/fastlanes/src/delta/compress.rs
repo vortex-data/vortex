@@ -4,12 +4,12 @@
 use arrayref::{array_mut_ref, array_ref};
 use fastlanes::{Delta, FastLanes, Transpose};
 use num_traits::{WrappingAdd, WrappingSub};
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
+use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{NativePType, Nullability, match_each_unsigned_integer_ptype};
+use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::VortexResult;
 
 use crate::DeltaArray;
@@ -22,16 +22,10 @@ pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, P
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |T| {
         const LANES: usize = T::LANES;
         let (bases, deltas) = compress_primitive::<T, LANES>(array.as_slice::<T>());
-        let (base_validity, delta_validity) =
-            if array.validity().nullability() != Nullability::NonNullable {
-                (Validity::AllValid, Validity::AllValid)
-            } else {
-                (Validity::NonNullable, Validity::NonNullable)
-            };
         (
             // To preserve nullability, we include Validity
-            PrimitiveArray::new(bases, base_validity),
-            PrimitiveArray::new(deltas, delta_validity),
+            PrimitiveArray::new(bases, array.dtype().nullability().into()),
+            PrimitiveArray::new(deltas, array.validity().clone()),
         )
     });
 
@@ -103,7 +97,7 @@ pub fn delta_decompress(array: &DeltaArray) -> PrimitiveArray {
 
         PrimitiveArray::new(
             decompress_primitive::<T, LANES>(bases.as_slice(), deltas.as_slice()),
-            array.validity().clone(),
+            Validity::from_mask(array.deltas().validity_mask(), array.dtype().nullability()),
         )
     });
 
@@ -168,26 +162,30 @@ mod test {
 
     #[test]
     fn test_compress() {
-        do_roundtrip_test((0u32..10_000).collect::<Vec<_>>());
+        do_roundtrip_test::<u32>((0u32..10_000).collect());
+    }
+
+    #[test]
+    fn test_compress_nullable() {
+        do_roundtrip_test::<u32>(PrimitiveArray::from_option_iter(
+            (0u32..10_000).map(|i| (i % 2 == 0).then_some(i)),
+        ));
     }
 
     #[test]
     fn test_compress_overflow() {
-        do_roundtrip_test(
-            (0..10_000)
-                .map(|i| (i % (u8::MAX as i32)) as u8)
-                .collect::<Vec<_>>(),
-        );
+        do_roundtrip_test::<u8>((0..10_000).map(|i| (i % (u8::MAX as i32)) as u8).collect());
     }
 
-    fn do_roundtrip_test<T: NativePType>(input: Vec<T>) {
-        let delta = DeltaArray::try_from_vec(input.clone()).unwrap();
+    fn do_roundtrip_test<T: NativePType>(input: PrimitiveArray) {
+        let delta = DeltaArray::try_from_primitive_array(&input).unwrap();
         assert_eq!(delta.len(), input.len());
         let decompressed = delta_decompress(&delta);
         let decompressed_slice = decompressed.as_slice::<T>();
         assert_eq!(decompressed_slice.len(), input.len());
-        for (actual, expected) in decompressed_slice.iter().zip(input) {
-            assert_eq!(actual, &expected);
+        for (actual, expected) in decompressed_slice.iter().zip(input.as_slice()) {
+            assert_eq!(actual, expected);
         }
+        assert_eq!(decompressed.validity(), input.validity());
     }
 }

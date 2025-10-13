@@ -34,9 +34,11 @@ export const SERIES_COLOR_MAP = {
   "datafusion:in-memory-arrow": "#7a27b1",
   "datafusion:parquet": "#ef7f1d",
   "datafusion:vortex": "#19a508",
+  "datafusion:lance": "#2D936C",
   "duckdb:parquet": "#985113",
   "duckdb:vortex": "#0e5e04",
   "duckdb:duckdb": "#87752e",
+  "vortex:lance": "#FF8787",
 };
 
 // Brand colors
@@ -133,9 +135,7 @@ export const QUERY_NAME_MAP = {
   "TPCH Q19": "TPC-H Q19",
   "TPCH Q20": "TPC-H Q20",
   "TPCH Q21": "TPC-H Q21",
-  "TPCH Q22": "TPC-H Q22",
-  "VORTEX:RAW SIZE": "VORTEX COMPRESSION RATIO",
-  "VORTEX:PARQUET-ZSTD SIZE": "VORTEX:PARQUET-ZSTD SIZE RATIO"
+  "TPCH Q22": "TPC-H Q22"
 };
 
 // Engine labels

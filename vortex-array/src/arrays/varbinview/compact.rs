@@ -4,7 +4,9 @@
 //! Defines a compaction operation for VarBinViewArrays that evicts unused buffers so they can
 //! be dropped.
 
-use vortex_error::VortexResult;
+use std::ops::Range;
+
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::VarBinViewArray;
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
@@ -13,35 +15,21 @@ use crate::vtable::ValidityHelper;
 
 impl VarBinViewArray {
     /// Returns a compacted copy of the input array, where all wasted space has been cleaned up. This
-    /// operation can be very expensive, in the worst cast copying all existing string data into
+    /// operation can be very expensive, in the worst case copying all existing string data into
     /// a new allocation.
     ///
     /// After slicing/taking operations `VarBinViewArray`s can continue to hold references to buffers
     /// that are no longer visible. We detect when there is wasted space in any of the buffers, and if
-    /// so, will aggressively compact all visile outlined string data into a single new buffer.
+    /// so, will aggressively compact all visible outlined string data into new buffers while keeping
+    /// well-utilized buffers unchanged.
     pub fn compact_buffers(&self) -> VortexResult<VarBinViewArray> {
         // If there is nothing to be gained by compaction, return the original array untouched.
         if !self.should_compact() {
             return Ok(self.clone());
         }
 
-        // Compaction pathways, depend on the validity
-        match self.validity() {
-            // The array contains no values, all buffers can be dropped.
-            // SAFETY: for all-invalid array, zeroed views and buffer because they are never accessed.
-            Validity::AllInvalid => unsafe {
-                Ok(VarBinViewArray::new_unchecked(
-                    self.views().clone(),
-                    Default::default(),
-                    self.dtype().clone(),
-                    self.validity().clone(),
-                ))
-            },
-            // Non-null pathway
-            Validity::NonNullable | Validity::AllValid => rebuild_nonnull(self),
-            // Nullable pathway, requires null-checks for each value
-            Validity::Array(_) => rebuild_nullable(self),
-        }
+        // Use selective compaction with threshold of 1.0 (compact any buffer with any waste)
+        self.compact_with_threshold(1.0)
     }
 
     fn should_compact(&self) -> bool {
@@ -77,32 +65,105 @@ impl VarBinViewArray {
                 .sum(),
         }
     }
+
+    pub(crate) fn buffer_utilizations(&self) -> Vec<BufferUtilization> {
+        let mut utilizations = self
+            .buffers()
+            .iter()
+            .map(|buf| {
+                let len = u32::try_from(buf.len()).vortex_expect("buffer sizes must fit in u32");
+                BufferUtilization::zero(len)
+            })
+            .collect();
+
+        if matches!(self.validity(), Validity::AllInvalid) {
+            return utilizations;
+        }
+
+        for (idx, &view) in self.views().iter().enumerate() {
+            if !self.is_valid(idx) || view.is_inlined() {
+                continue;
+            }
+            let view = view.as_view();
+
+            utilizations[view.buffer_index() as usize].add(view.offset(), view.size)
+        }
+
+        utilizations
+    }
+
+    /// Returns a compacted copy of the input array using selective buffer compaction.
+    ///
+    /// This method analyzes each buffer's utilization and applies one of three strategies:
+    /// - **KeepFull** (zero-copy): Well-utilized buffers are kept unchanged
+    /// - **Slice** (zero-copy): Buffers with contiguous ranges of used data are sliced to that range
+    /// - **Rewrite**: Poorly-utilized buffers have their data copied to new compact buffers
+    ///
+    /// By preserving or slicing well-utilized buffers, compaction becomes zero-copy in many cases.
+    ///
+    /// # Arguments
+    ///
+    /// * `buffer_utilization_threshold` - Threshold in range [0, 1]. Buffers with utilization
+    ///   below this value will be compacted. Use 0.0 for no compaction, 1.0 for aggressive
+    ///   compaction of any buffer with wasted space.
+    pub fn compact_with_threshold(
+        &self,
+        buffer_utilization_threshold: f64, // [0, 1]
+    ) -> VortexResult<VarBinViewArray> {
+        let mut builder = VarBinViewBuilder::with_compaction(
+            self.dtype().clone(),
+            self.len(),
+            buffer_utilization_threshold,
+        );
+        builder.extend_from_array(self.as_ref());
+        Ok(builder.finish_into_varbinview())
+    }
 }
 
-// Nullable string array compaction pathway.
-// This requires a null check on every append.
-fn rebuild_nullable(array: &VarBinViewArray) -> VortexResult<VarBinViewArray> {
-    let mut builder = VarBinViewBuilder::with_capacity(array.dtype().clone(), array.len());
-    for i in 0..array.len() {
-        if !array.is_valid(i) {
-            builder.append_null();
-        } else {
-            let bytes = array.bytes_at(i);
-            builder.append_value(bytes.as_slice());
+pub(crate) struct BufferUtilization {
+    len: u32,
+    used: u32,
+    min_offset: u32,
+    max_offset_end: u32,
+}
+
+impl BufferUtilization {
+    fn zero(len: u32) -> Self {
+        BufferUtilization {
+            len,
+            used: 0u32,
+            min_offset: u32::MAX,
+            max_offset_end: 0,
         }
     }
 
-    Ok(builder.finish_into_varbinview())
-}
-
-// Compaction for string arrays that contain no null values. Saves a branch
-// for every string element.
-fn rebuild_nonnull(array: &VarBinViewArray) -> VortexResult<VarBinViewArray> {
-    let mut builder = VarBinViewBuilder::with_capacity(array.dtype().clone(), array.len());
-    for i in 0..array.len() {
-        builder.append_value(array.bytes_at(i).as_ref());
+    fn add(&mut self, offset: u32, size: u32) {
+        self.used += size;
+        self.min_offset = self.min_offset.min(offset);
+        self.max_offset_end = self.max_offset_end.max(offset + size);
     }
-    Ok(builder.finish_into_varbinview())
+
+    pub fn overall_utilization(&self) -> f64 {
+        match self.len {
+            0 => 0.0,
+            len => self.used as f64 / len as f64,
+        }
+    }
+
+    pub fn range_utilization(&self) -> f64 {
+        match self.range_span() {
+            0 => 0.0,
+            span => self.used as f64 / span as f64,
+        }
+    }
+
+    pub fn range(&self) -> Range<u32> {
+        self.min_offset..self.max_offset_end
+    }
+
+    fn range_span(&self) -> u32 {
+        self.max_offset_end.saturating_sub(self.min_offset)
+    }
 }
 
 #[cfg(test)]
@@ -222,6 +283,170 @@ mod tests {
         // Verify all values are preserved
         for i in 0..2 {
             assert_eq!(optimized_array.scalar_at(i), original.scalar_at(i));
+        }
+    }
+
+    #[test]
+    fn test_selective_compaction_with_threshold_zero() {
+        // threshold=0 should keep all buffers (no compaction)
+        let original = VarBinViewArray::from_iter_str([
+            "this is a longer string that will be stored in a buffer",
+            "another very long string that definitely needs a buffer to store it",
+        ]);
+
+        let original_buffers = original.nbuffers();
+        assert!(original_buffers > 0);
+
+        // Take only first element
+        let indices = buffer![0u32].into_array();
+        let taken = take(original.as_ref(), &indices).unwrap();
+        let taken_array = taken.as_::<VarBinViewVTable>();
+
+        // Compact with threshold=0 (should not compact)
+        let compacted = taken_array.compact_with_threshold(0.0).unwrap();
+
+        // Should still have the same number of buffers as the taken array
+        assert_eq!(compacted.nbuffers(), taken_array.nbuffers());
+
+        // Verify correctness
+        assert_eq!(compacted.len(), 1);
+        assert_eq!(
+            compacted.scalar_at(0),
+            "this is a longer string that will be stored in a buffer".into()
+        );
+    }
+
+    #[test]
+    fn test_selective_compaction_with_high_threshold() {
+        // threshold=1.0 should compact any buffer with waste
+        let original = VarBinViewArray::from_iter_str([
+            "this is a longer string that will be stored in a buffer",
+            "another very long string that definitely needs a buffer to store it",
+            "yet another long string",
+        ]);
+
+        // Take only first and last elements
+        let indices = buffer![0u32, 2u32].into_array();
+        let taken = take(original.as_ref(), &indices).unwrap();
+        let taken_array = taken.as_::<VarBinViewVTable>();
+
+        let original_buffers = taken_array.nbuffers();
+
+        // Compact with threshold=1.0 (aggressive compaction)
+        let compacted = taken_array.compact_with_threshold(1.0).unwrap();
+
+        // Should have compacted buffers
+        assert!(compacted.nbuffers() <= original_buffers);
+
+        // Verify correctness
+        assert_eq!(compacted.len(), 2);
+        assert_eq!(
+            compacted.scalar_at(0),
+            "this is a longer string that will be stored in a buffer".into()
+        );
+        assert_eq!(compacted.scalar_at(1), "yet another long string".into());
+    }
+
+    #[test]
+    fn test_selective_compaction_preserves_well_utilized_buffers() {
+        // Create an array with multiple strings in one buffer (well-utilized)
+        let str1 = "first long string that needs external buffer storage";
+        let str2 = "second long string also in buffer";
+        let str3 = "third long string in same buffer";
+
+        let original = VarBinViewArray::from_iter_str([str1, str2, str3]);
+
+        // All strings should be in one well-utilized buffer
+        assert_eq!(original.nbuffers(), 1);
+
+        // Compact with high threshold
+        let compacted = original.compact_with_threshold(0.8).unwrap();
+
+        // Well-utilized buffer should be preserved
+        assert_eq!(compacted.nbuffers(), 1);
+
+        // Verify all data is correct
+        assert_eq!(compacted.len(), 3);
+        assert_eq!(compacted.scalar_at(0), str1.into());
+        assert_eq!(compacted.scalar_at(1), str2.into());
+        assert_eq!(compacted.scalar_at(2), str3.into());
+    }
+
+    #[test]
+    fn test_selective_compaction_with_mixed_utilization() {
+        // Create array with some long strings
+        let strings: Vec<String> = (0..10)
+            .map(|i| {
+                format!(
+                    "this is a long string number {} that needs buffer storage",
+                    i
+                )
+            })
+            .collect();
+
+        let original = VarBinViewArray::from_iter_str(strings.iter().map(|s| s.as_str()));
+
+        // Take every other element to create mixed utilization
+        let indices: Vec<u32> = (0..10).step_by(2).map(|i| i as u32).collect();
+        let indices_array = buffer![0u32, 2u32, 4u32, 6u32, 8u32].into_array();
+        let taken = take(original.as_ref(), &indices_array).unwrap();
+        let taken_array = taken.as_::<VarBinViewVTable>();
+
+        // Compact with moderate threshold
+        let compacted = taken_array.compact_with_threshold(0.7).unwrap();
+
+        // Verify correctness
+        assert_eq!(compacted.len(), 5);
+        for (i, idx) in indices.iter().enumerate() {
+            assert_eq!(
+                compacted.scalar_at(i),
+                strings[*idx as usize].as_str().into()
+            );
+        }
+    }
+
+    #[test]
+    fn test_slice_strategy_with_contiguous_range() {
+        // Create array with strings that will be in one buffer
+        let strings: Vec<String> = (0..20)
+            .map(|i| format!("this is a long string number {} for slice test", i))
+            .collect();
+
+        let original = VarBinViewArray::from_iter_str(strings.iter().map(|s| s.as_str()));
+
+        // Take only the first 5 elements - they should be in a contiguous range at the start
+        let indices_array = buffer![0u32, 1u32, 2u32, 3u32, 4u32].into_array();
+        let taken = take(original.as_ref(), &indices_array).unwrap();
+        let taken_array = taken.as_::<VarBinViewVTable>();
+
+        // Get buffer stats before compaction
+        let utils_before = taken_array.buffer_utilizations();
+        let original_buffer_count = taken_array.nbuffers();
+
+        // Compact with a threshold that should trigger slicing
+        // The range utilization should be high even if overall utilization is low
+        let compacted = taken_array.compact_with_threshold(0.8).unwrap();
+
+        // After compaction, we should still have buffers (sliced, not rewritten)
+        assert!(
+            compacted.nbuffers() > 0,
+            "Should have buffers after slice compaction"
+        );
+
+        // Verify correctness
+        assert_eq!(compacted.len(), 5);
+        for i in 0..5 {
+            assert_eq!(compacted.scalar_at(i), strings[i].as_str().into());
+        }
+
+        // Verify that if there was only one buffer, the compacted version also has one
+        // (it was sliced, not rewritten into multiple buffers)
+        if original_buffer_count == 1 && utils_before[0].range_utilization() >= 0.8 {
+            assert_eq!(
+                compacted.nbuffers(),
+                1,
+                "Slice strategy should maintain single buffer"
+            );
         }
     }
 }

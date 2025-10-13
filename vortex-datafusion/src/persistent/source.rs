@@ -148,6 +148,7 @@ impl FileSource for VortexSource {
             limit: base_config.limit,
             metrics: partition_metrics,
             layout_readers: self.layout_readers.clone(),
+            has_output_ordering: !base_config.output_ordering.is_empty(),
         };
 
         Arc::new(opener)
@@ -177,6 +178,10 @@ impl FileSource for VortexSource {
         let mut source = self.clone();
         source.projected_statistics = Some(statistics);
         Arc::new(source)
+    }
+
+    fn filter(&self) -> Option<Arc<dyn PhysicalExpr>> {
+        self.vortex_predicate.clone()
     }
 
     fn metrics(&self) -> &ExecutionPlanMetricsSet {
@@ -293,6 +298,6 @@ impl FileSource for VortexSource {
     }
 
     fn schema_adapter_factory(&self) -> Option<Arc<dyn SchemaAdapterFactory>> {
-        None
+        self.schema_adapter_factory.clone()
     }
 }

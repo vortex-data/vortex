@@ -2,14 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::validity::Validity;
-use vortex_array::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
+use vortex_array::vtable::{SerdeVTable, VisitorVTable};
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_err};
 
 use super::DeltaEncoding;
 use crate::{DeltaArray, DeltaVTable};
@@ -41,18 +40,7 @@ impl SerdeVTable<DeltaVTable> for DeltaVTable {
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DeltaArray> {
-        let validity = if children.len() == 2 {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 3 {
-            let validity = children.get(2, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!(
-                "DeltaArray: expected 2 or 3 children, got {}",
-                children.len()
-            );
-        };
-
+        assert_eq!(children.len(), 2);
         let ptype = PType::try_from(dtype)?;
         let lanes =
             match_each_unsigned_integer_ptype!(ptype, |T| { <T as fastlanes::FastLanes>::LANES });
@@ -67,7 +55,7 @@ impl SerdeVTable<DeltaVTable> for DeltaVTable {
         let bases = children.get(0, dtype, bases_len)?;
         let deltas = children.get(1, dtype, deltas_len)?;
 
-        DeltaArray::try_new(bases, deltas, validity, metadata.offset as usize, len)
+        DeltaArray::try_new(bases, deltas, metadata.offset as usize, len)
     }
 }
 
@@ -77,7 +65,6 @@ impl VisitorVTable<DeltaVTable> for DeltaVTable {
     fn visit_children(array: &DeltaArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("bases", array.bases());
         visitor.visit_child("deltas", array.deltas());
-        visitor.visit_validity(array.validity(), array.len());
     }
 }
 

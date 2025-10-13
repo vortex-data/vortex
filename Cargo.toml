@@ -2,6 +2,7 @@
 members = [
     "bench-vortex",
     "encodings/*",
+    "vortex-gpu-kernels",
     "fuzz",
     "vortex",
     "vortex-array",
@@ -31,7 +32,7 @@ members = [
     "xtask",
     "vortex-gpu",
 ]
-exclude = ["fls-gpu-kernel-gen", "java/testfiles", "wasm-test"]
+exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"
 
 [workspace.package]
@@ -106,7 +107,7 @@ datafusion-physical-expr-common = { version = "50" }
 datafusion-physical-plan = { version = "50" }
 datafusion-pruning = { version = "50" }
 dirs = "6.0.0"
-divan = { package = "codspeed-divan-compat", version = "3.0" }
+divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
 erased-serde = "0.4"
@@ -172,7 +173,8 @@ roaring = "0.11.0"
 rstest = "0.26"
 rstest_reuse = "0.7.0"
 rustc-hash = "2.1"
-serde = "1.0.217"
+serde = "1.0.220"
+serde_core = "1.0.220"
 serde_json = "1.0.116"
 serde_test = "1.0.176"
 simdutf8 = "0.1.5"
@@ -204,7 +206,7 @@ uuid = { version = "1.18", features = ["js"] }
 walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
-zip = "5.0.0"
+zip = "6.0.0"
 
 # BEGIN crates published by this project
 vortex = { version = "0.1.0", path = "./vortex" }
@@ -247,6 +249,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 vortex-cxx = { path = "./vortex-cxx", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
+vortex-gpu-kernels = { version = "0.1.0", path = "./vortex-gpu-kernels", default-features = false }
 
 xshell = "0.2.6"
 zigzag = "0.1.0"

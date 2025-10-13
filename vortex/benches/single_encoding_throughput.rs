@@ -21,7 +21,6 @@ use vortex::encodings::pco::PcoArray;
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::ZstdArray;
-use vortex::validity::Validity;
 use vortex::{IntoArray, ToCanonical};
 
 #[global_allocator]
@@ -130,12 +129,8 @@ fn bench_delta_compress_u32(bencher: Bencher) {
         .with_inputs(|| uint_array.clone())
         .bench_values(|a| {
             let (bases, deltas) = delta_compress(&a).unwrap();
-            DeltaArray::try_from_delta_compress_parts(
-                bases.into_array(),
-                deltas.into_array(),
-                Validity::NonNullable,
-            )
-            .unwrap()
+            DeltaArray::try_from_delta_compress_parts(bases.into_array(), deltas.into_array())
+                .unwrap()
         });
 }
 
@@ -143,12 +138,8 @@ fn bench_delta_compress_u32(bencher: Bencher) {
 fn bench_delta_decompress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
     let (bases, deltas) = delta_compress(&uint_array).unwrap();
-    let compressed = DeltaArray::try_from_delta_compress_parts(
-        bases.into_array(),
-        deltas.into_array(),
-        Validity::NonNullable,
-    )
-    .unwrap();
+    let compressed =
+        DeltaArray::try_from_delta_compress_parts(bases.into_array(), deltas.into_array()).unwrap();
 
     with_counter!(bencher, NUM_VALUES * 4)
         .with_inputs(|| compressed.clone())

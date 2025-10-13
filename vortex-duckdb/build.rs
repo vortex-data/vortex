@@ -161,12 +161,13 @@ fn build_duckdb(duckdb_source_root: &Path) -> Result<PathBuf, Box<dyn std::error
     let duckdb_repo_dir = duckdb_source_root.join(format!("duckdb-{}", DUCKDB_VERSION.as_str()));
     let build_dir = duckdb_repo_dir.join("build").join("debug");
 
-    // Build the DuckDB library with ASAN in case `VX_DUCKDB_ASAN=1` is set.
-    let asan_option =
-        if env::var("VX_DUCKDB_ASAN").is_ok_and(|v| matches!(v.as_str(), "1" | "true")) {
-            "0"
+    // Build the DuckDB library with ASAN and TSAN in case `VX_DUCKDB_SAN=1` is set.
+    let (asan_option, tsan_option) =
+        if env::var("VX_DUCKDB_SAN").is_ok_and(|v| matches!(v.as_str(), "1" | "true")) {
+            // Note that the ASAN condition is inverted.
+            ("0", "1")
         } else {
-            "1"
+            ("1", "0")
         };
 
     let output = std::process::Command::new("make")
@@ -174,6 +175,7 @@ fn build_duckdb(duckdb_source_root: &Path) -> Result<PathBuf, Box<dyn std::error
         .env("GEN", "ninja")
         // Run with `ASAN_OPTIONS=detect_container_overflow=0` to skip false positives.
         .env("DISABLE_SANITIZER", asan_option)
+        .env("THREADSAN", tsan_option)
         .arg("debug")
         .output()?;
 
@@ -279,7 +281,7 @@ fn main() {
 
     // Link against DuckDB dylib.
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
-    println!("cargo:rerun-if-env-changed=VX_DUCKDB_ASAN");
+    println!("cargo:rerun-if-env-changed=VX_DUCKDB_SAN");
     println!("cargo:rustc-link-search=native={}", library_path.display());
     println!("cargo:rustc-link-lib=dylib=duckdb");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", library_path.display());

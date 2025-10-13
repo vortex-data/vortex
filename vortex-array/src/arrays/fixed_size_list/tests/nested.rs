@@ -246,6 +246,7 @@ fn test_fsl_of_list() {
     let mut list_builder = ListBuilder::<u64>::with_capacity(
         Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
         Nullability::NonNullable,
+        12,
         6,
     );
 
@@ -326,6 +327,7 @@ fn test_fsl_of_nullable_list() {
     let mut list_builder = ListBuilder::<u64>::with_capacity(
         Arc::new(DType::Primitive(PType::U16, Nullability::NonNullable)),
         Nullability::Nullable,
+        8,
         4,
     );
 

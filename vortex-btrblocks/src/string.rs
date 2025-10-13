@@ -248,14 +248,14 @@ impl Scheme for FSSTScheme {
         let fsst = fsst_compress(&stats.src.clone().into_array(), &compressor)?;
 
         let compressed_original_lengths = IntCompressor::compress(
-            &fsst.uncompressed_lengths().to_primitive().downcast()?,
+            &fsst.uncompressed_lengths().to_primitive().narrow()?,
             is_sample,
             allowed_cascading,
             &[],
         )?;
 
         let compressed_codes_offsets = IntCompressor::compress(
-            &fsst.codes().offsets().to_primitive().downcast()?,
+            &fsst.codes().offsets().to_primitive().narrow()?,
             is_sample,
             allowed_cascading,
             &[],

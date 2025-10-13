@@ -170,7 +170,7 @@ impl VarBinViewArray {
     /// Validates the components that would be used to create a [`VarBinViewArray`].
     ///
     /// This function checks all the invariants required by [`VarBinViewArray::new_unchecked`].
-    pub(crate) fn validate(
+    pub fn validate(
         views: &Buffer<BinaryView>,
         buffers: &Arc<[ByteBuffer]>,
         dtype: &DType,

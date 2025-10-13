@@ -77,6 +77,8 @@ serde = [
     "vortex-buffer/serde",
     "vortex-error/serde",
 ]
+# This feature enabled unstable encodings for which we don't guarantee stability.
+unstable_encodings = ["vortex-btrblocks/unstable_encodings"]
 
 [[bench]]
 name = "single_encoding_throughput"

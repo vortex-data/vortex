@@ -28,6 +28,7 @@ impl ListArray {
         let mut builder = ListBuilder::<O>::with_capacity(
             dtype.clone(),
             vortex_dtype::Nullability::NonNullable,
+            2 * iter.size_hint().0,
             iter.size_hint().0,
         );
 
@@ -54,6 +55,7 @@ impl ListArray {
         let mut builder = ListBuilder::<O>::with_capacity(
             dtype.clone(),
             vortex_dtype::Nullability::Nullable,
+            2 * iter.size_hint().0,
             iter.size_hint().0,
         );
 

@@ -174,38 +174,10 @@ impl FixedSizeListArray {
         }
     }
 
-    /// Returns the elements array.
-    pub fn elements(&self) -> &ArrayRef {
-        &self.elements
-    }
-
-    /// The size of each fixed-size list scalar in the array.
-    pub const fn list_size(&self) -> u32 {
-        self.list_size
-    }
-
-    /// Returns the elements of the fixed-size list scalar at the given index of the list array.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the index is out of bounds.
-    pub fn fixed_size_list_elements_at(&self, index: usize) -> ArrayRef {
-        debug_assert!(
-            index < self.len,
-            "index out of bounds: the len is {} but the index is {index}",
-            self.len
-        );
-        debug_assert!(self.validity.is_valid(index));
-
-        let start = self.list_size as usize * index;
-        let end = self.list_size as usize * (index + 1);
-        self.elements().slice(start..end)
-    }
-
     /// Validates the components that would be used to create a [`FixedSizeListArray`].
     ///
     /// This function checks all the invariants required by [`FixedSizeListArray::new_unchecked`].
-    pub(crate) fn validate(
+    pub fn validate(
         elements: &dyn Array,
         len: usize,
         list_size: u32,
@@ -238,5 +210,33 @@ impl FixedSizeListArray {
         }
 
         Ok(())
+    }
+
+    /// Returns the elements array.
+    pub fn elements(&self) -> &ArrayRef {
+        &self.elements
+    }
+
+    /// The size of each fixed-size list scalar in the array.
+    pub const fn list_size(&self) -> u32 {
+        self.list_size
+    }
+
+    /// Returns the elements of the fixed-size list scalar at the given index of the list array.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn fixed_size_list_elements_at(&self, index: usize) -> ArrayRef {
+        debug_assert!(
+            index < self.len,
+            "index out of bounds: the len is {} but the index is {index}",
+            self.len
+        );
+        debug_assert!(self.validity.is_valid(index));
+
+        let start = self.list_size as usize * index;
+        let end = self.list_size as usize * (index + 1);
+        self.elements().slice(start..end)
     }
 }

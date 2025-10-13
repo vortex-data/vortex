@@ -2,12 +2,17 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
+    ":automergePatch",
     ":automergeMinor",
     ":automergePr",
     ":automergeRequireAllStatusChecks",
     ":combinePatchMinorReleases",
     ":dependencyDashboard",
-    ":separateMultipleMajorReleases"
+    ":separateMultipleMajorReleases",
+    ":configMigration",
+    "group:rust-futuresMonorepo",
+    "schedule:earlyMondays",
+    "docker:disable"
   ],
   "lockFileMaintenance": {
     "enabled": true
@@ -17,7 +22,6 @@
   "rebaseWhen": "conflicted",
   "cloneSubmodules": true,
   "platformAutomerge": true,
-  "separateMinorPatch": true,
   "patch": {
     "groupName": "all patch updates"
   },
@@ -27,47 +31,32 @@
   "packageRules": [
     {
       "matchPackageNames": [
-        "arrow{/,}**",
-        "parquet{/,}**"
+        "ubuntu",
+        "python"
       ],
       "enabled": false
     },
     {
-      "matchPackageNames": [
-        "ubuntu"
-      ],
-      "enabled": false
-    },
-    {
+      "groupName": "arrow-rs",
       "matchUpdateTypes": [
         "major",
         "minor",
         "patch"
       ],
-      "groupName": "datafusion and friends",
-      "matchPackageNames": [
-        "arrow{/,}**",
-        "parquet{/,}**",
-        "datafusion{/,}**"
+      "matchSourceUrls": [
+        "https://github.com/apache/arrow-rs"
       ]
     },
     {
       "groupName": "flatbuffers",
-      "matchPackageNames": [
-        "flatbuffers{/,}**",
-        "flexbuffers{/,}**"
-      ]
-    },
-    {
-      "groupName": "futures",
-      "matchPackageNames": [
-        "futures{/,}**"
+      "matchSourceUrls": [
+        "https://github.com/google/flatbuffers"
       ]
     },
     {
       "groupName": "tonic",
-      "matchPackageNames": [
-        "tonic{/,}**"
+      "matchSourceUrls": [
+        "https://github.com/hyperium/tonic"
       ]
     }
   ],

@@ -372,12 +372,14 @@ mod tests {
 
         let result = ExprRef::try_from_df(&like_expr).unwrap();
 
-        assert_snapshot!(result.display_tree().to_string(), @r#"
-        Like
-        ├── child: GetItem(text_col)
-        │   └── Root
-        └── pattern: Literal(value: "test%", dtype: utf8)
-        "#);
+        insta::allow_duplicates! {
+            assert_snapshot!(result.display_tree().to_string(), @r#"
+            Like
+            ├── child: GetItem(text_col)
+            │   └── Root
+            └── pattern: Literal(value: "test%", dtype: utf8)
+            "#);
+        }
     }
 
     #[rstest]

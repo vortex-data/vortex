@@ -43,12 +43,13 @@ export const shared = {
     if (dataset?.statpopgen) return "Statistical and Population Genetics";
     if (name.startsWith("random-access/")) return "Random Access";
     if (name.includes("compress time/")) return "Compression";
-    if (name.startsWith("vortex size/")) return "Compression Size";
+    if (name.includes("size/")) return "Compression Size";
+    // Handle ratio patterns for compression throughput
     if (
-      name.startsWith("vortex:raw size/") ||
-        name.startsWith("vortex:parquet-zstd size/")
+      name.includes("vortex:parquet-zstd ratio") ||
+      name.includes("vortex:lance ratio")
     ) {
-      return "Compression Size";
+      return "Compression";
     }
     if (name.startsWith("tpch_q")) {
       const isNvme = storage === undefined || storage === "nvme";
@@ -101,7 +102,7 @@ export const shared = {
     }
   },
 
-  normalizeSeriesName(name, seriesName) {
+  normalizeSeriesName(name, seriesName, groupId) {
     let normalizedName = seriesName;
     let normalizedQuery = name;
 
@@ -114,6 +115,16 @@ export const shared = {
         : "throughput";
       normalizedName = seriesName.slice(0, seriesName.length - suffix.length);
       normalizedQuery = name.replace("time", "throughput");
+    }
+
+    // Normalize engine names to lowercase for all benchmarks except Compression ones
+    // Keep original capitalization for "Compression" and "Compression Size" benchmarks
+    if (groupId !== "Compression" && groupId !== "Compression Size") {
+      normalizedName = normalizedName
+        .replace(/^DataFusion:/i, "datafusion:")
+        .replace(/^DuckDB:/i, "duckdb:")
+        .replace(/^Vortex:/i, "vortex:")
+        .replace(/^Arrow:/i, "arrow:");
     }
 
     return { name: normalizedQuery, seriesName: normalizedName };
@@ -191,7 +202,7 @@ export const shared = {
 
     // Process benchmark data
     let [query, seriesName] = benchmark.name.split("/");
-    const normalized = this.normalizeSeriesName(query, seriesName);
+    const normalized = this.normalizeSeriesName(query, seriesName, groupId);
     query = normalized.name;
     seriesName = normalized.seriesName;
 
@@ -213,7 +224,8 @@ export const shared = {
     } else if (
       !unit &&
       (benchmark.name.startsWith("vortex:raw size/") ||
-        benchmark.name.startsWith("vortex:parquet-zstd size/"))
+        benchmark.name.startsWith("vortex:parquet-zstd size/") ||
+        benchmark.name.startsWith("vortex:lance size/"))
     ) {
       unit = "ratio";
     }

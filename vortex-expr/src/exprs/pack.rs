@@ -134,7 +134,7 @@ impl VTable for PackVTable {
             .values
             .iter()
             .map(|value_expr| value_expr.return_dtype(scope))
-            .process_results(|it| it.collect())?;
+            .collect::<VortexResult<Vec<_>>>()?;
         Ok(DType::Struct(
             StructFields::new(expr.names.clone(), value_dtypes),
             expr.nullability,

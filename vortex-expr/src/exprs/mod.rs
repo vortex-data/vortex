@@ -5,6 +5,7 @@ pub(crate) mod between;
 pub(crate) mod binary;
 mod binary_operator;
 pub(crate) mod cast;
+pub(crate) mod concat;
 pub mod dynamic;
 pub(crate) mod get_item;
 pub(crate) mod is_null;

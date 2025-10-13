@@ -284,6 +284,24 @@ impl<'a> TryFrom<ValueRef<'a>> for Scalar {
                 DecimalDType::try_new(precision, scale)?,
                 Nullable,
             )),
+            ExtractedValue::List(vs) => match dtype {
+                DType::List(c, _) => Ok(Scalar::list(
+                    c,
+                    vs.into_iter()
+                        .map(Scalar::try_from)
+                        .collect::<VortexResult<Vec<_>>>()?,
+                    Nullable,
+                )),
+                DType::Struct(..) => Ok(Scalar::struct_(
+                    dtype,
+                    vs.into_iter()
+                        .map(Scalar::try_from)
+                        .collect::<VortexResult<Vec<_>>>()?,
+                )),
+                _ => {
+                    vortex_bail!("List value must be a list or struct dtype")
+                }
+            },
         }
     }
 }

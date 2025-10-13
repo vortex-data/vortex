@@ -101,7 +101,7 @@ impl VarBinArray {
     /// Validates the components that would be used to create a [`VarBinArray`].
     ///
     /// This function checks all the invariants required by [`VarBinArray::new_unchecked`].
-    pub(crate) fn validate(
+    pub fn validate(
         offsets: &dyn Array,
         bytes: &ByteBuffer,
         dtype: &DType,

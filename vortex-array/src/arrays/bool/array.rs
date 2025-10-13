@@ -131,7 +131,7 @@ impl BoolArray {
     /// Validates the components that would be used to create a [`BoolArray`].
     ///
     /// This function checks all the invariants required by [`BoolArray::new_unchecked`].
-    pub(crate) fn validate(
+    pub fn validate(
         buffer: &ByteBuffer,
         offset: usize,
         len: usize,

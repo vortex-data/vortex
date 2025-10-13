@@ -37,7 +37,7 @@ impl CastKernel for StructVTable {
                 .iter()
                 .zip_eq(target_sdtype.fields())
                 .map(|(field, dtype)| cast(field, &dtype))
-                .try_collect()?,
+                .collect::<Result<Vec<_>, _>>()?,
             array.len(),
             validity,
         )

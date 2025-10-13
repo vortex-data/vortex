@@ -205,11 +205,11 @@ fn canonicalize_sparse_lists_inner<I: IntegerPType, SmallestViableOffsetType: In
         });
     };
 
-    let mut builder = ListBuilder::<SmallestViableOffsetType>::with_values_and_index_capacity(
+    let mut builder = ListBuilder::<SmallestViableOffsetType>::with_capacity(
         values_dtype,
         validity.nullability(),
         total_canonical_values,
-        len + 1,
+        len,
     );
     let mut next_index = 0_usize;
     let enumerated_indices_usize = indices

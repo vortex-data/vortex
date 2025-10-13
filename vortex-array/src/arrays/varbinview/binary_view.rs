@@ -51,6 +51,11 @@ impl Ref {
     }
 
     #[inline]
+    pub fn size(&self) -> u32 {
+        self.size
+    }
+
+    #[inline]
     pub fn buffer_index(&self) -> u32 {
         self.buffer_index
     }
@@ -68,6 +73,11 @@ impl Ref {
     #[inline]
     pub fn as_range(&self) -> Range<usize> {
         self.offset as usize..(self.offset + self.size) as usize
+    }
+
+    #[inline]
+    pub fn with_buffer_and_offset(&self, buffer_index: u32, offset: u32) -> Ref {
+        Self::new(self.size, self.prefix, buffer_index, offset)
     }
 }
 
@@ -211,45 +221,6 @@ impl BinaryView {
         // SAFETY: binary view always safe to read as u128 LE bytes
         unsafe { u128::from_le_bytes(self.le_bytes) }
     }
-
-    /// Override the buffer reference with the given buffer_idx, only if this view is not inlined.
-    #[inline(always)]
-    pub fn with_buffer_idx(self, buffer_idx: u32) -> Self {
-        if self.is_inlined() {
-            self
-        } else {
-            // Referencing views must have their buffer_index adjusted with new offsets
-            let view_ref = self.as_view();
-            Self {
-                _ref: Ref::new(
-                    self.len(),
-                    *view_ref.prefix(),
-                    buffer_idx,
-                    view_ref.offset(),
-                ),
-            }
-        }
-    }
-
-    /// Shifts the buffer reference by the view by a given offset, useful when merging many
-    /// varbinview arrays into one.
-    #[inline(always)]
-    pub fn offset_view(self, offset: u32) -> Self {
-        if self.is_inlined() {
-            self
-        } else {
-            // Referencing views must have their buffer_index adjusted with new offsets
-            let view_ref = self.as_view();
-            Self {
-                _ref: Ref::new(
-                    self.len(),
-                    *view_ref.prefix(),
-                    offset + view_ref.buffer_index(),
-                    view_ref.offset(),
-                ),
-            }
-        }
-    }
 }
 
 impl From<u128> for BinaryView {
@@ -257,6 +228,12 @@ impl From<u128> for BinaryView {
         BinaryView {
             le_bytes: value.to_le_bytes(),
         }
+    }
+}
+
+impl From<Ref> for BinaryView {
+    fn from(value: Ref) -> Self {
+        BinaryView { _ref: value }
     }
 }
 

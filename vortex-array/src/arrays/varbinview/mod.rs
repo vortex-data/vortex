@@ -5,7 +5,7 @@ mod array;
 pub use array::VarBinViewArray;
 
 mod accessor;
-mod compact;
+pub(crate) mod compact;
 
 pub mod binary_view;
 

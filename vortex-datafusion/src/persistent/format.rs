@@ -373,10 +373,6 @@ impl FileFormat for VortexFormat {
         _state: &dyn Session,
         file_scan_config: FileScanConfig,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        if !file_scan_config.output_ordering.is_empty() {
-            return not_impl_err!("Vortex doesn't support output ordering");
-        }
-
         let source = VortexSource::new(self.file_cache.clone(), self.session.metrics().clone());
         let source = Arc::new(source);
 

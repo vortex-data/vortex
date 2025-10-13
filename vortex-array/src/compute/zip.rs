@@ -359,6 +359,7 @@ mod tests {
                 10,
                 Default::default(),
                 BufferGrowthStrategy::fixed(64 * 1024),
+                0.0,
             );
             for _ in 0..100 {
                 builder.append_value("Hello");
@@ -373,6 +374,7 @@ mod tests {
                 10,
                 Default::default(),
                 BufferGrowthStrategy::fixed(64 * 1024),
+                0.0,
             );
             for _ in 0..100 {
                 builder.append_value("Hello2");

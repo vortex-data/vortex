@@ -12,16 +12,19 @@ use ddb::DuckDBCtx;
 use glob::Pattern;
 use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
+use tokio::runtime::Runtime;
 use url::Url;
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::{EngineCtx, ddb};
+use crate::file::register_lance_files;
 use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
+use crate::tpch::tpchgen::TpchGenOptions;
 use crate::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, register_arrow, register_parquet,
     register_vortex_compact_file, register_vortex_file, tpch_queries, tpchgen,
 };
-use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
+use crate::{BenchmarkDataset, Format, IdempotentPath, Target, utils};
 
 /// TPCH benchmark implementation
 pub struct TpcHBenchmark {
@@ -77,34 +80,54 @@ impl Benchmark for TpcHBenchmark {
     fn generate_data(&self, target: &Target) -> Result<()> {
         match self.data_url.scheme() {
             "file" => {
-                // Generate data for the specific target format (idempotent)
-                let format = if target.format() == Format::Arrow {
-                    // For Arrow format, we need Parquet files to load into memory
-                    Format::Parquet
-                } else {
-                    target.format()
-                };
-
-                // Skip CSV generation as it's not supported by tpchgen
-                anyhow::ensure!(
-                    format != Format::Csv,
-                    "CSV format is not supported by tpchgen"
-                );
-
                 let base_data_dir = self
                     .data_url
                     .to_file_path()
                     .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
 
-                // Use tpchgen for data generation
-                let options =
-                    tpchgen::TpchGenOptions::new(self.scale_factor.clone(), &base_data_dir)
-                        .with_format(format)
-                        .with_max_file_size_mb(Some(600));
+                match target.format() {
+                    Format::Lance => {
+                        // For Lance: first generate Parquet, then convert
+                        let options =
+                            TpchGenOptions::new(self.scale_factor.clone(), &base_data_dir)
+                                .with_format(Format::Parquet)
+                                .with_max_file_size_mb(Some(600));
 
-                // Generate data using our streaming tpchgen module
-                let runtime = tokio::runtime::Runtime::new()?;
-                runtime.block_on(async { tpchgen::generate_tpch_tables(options).await })?;
+                        let runtime = Runtime::new()?;
+                        runtime.block_on(async {
+                            // Generate Parquet
+                            tpchgen::generate_tpch_tables(options).await?;
+
+                            // Convert to Lance
+                            let parquet_dir = base_data_dir.join("parquet");
+                            let lance_dir = base_data_dir.join("lance");
+                            convert_all_tpch_to_lance(&parquet_dir, &lance_dir).await
+                        })?;
+                    }
+                    Format::Arrow => {
+                        // For Arrow: load Parquet files into memory
+                        let options =
+                            TpchGenOptions::new(self.scale_factor.clone(), &base_data_dir)
+                                .with_format(Format::Parquet)
+                                .with_max_file_size_mb(Some(600));
+
+                        let runtime = Runtime::new()?;
+                        runtime.block_on(async { tpchgen::generate_tpch_tables(options).await })?;
+                    }
+                    Format::Csv => {
+                        anyhow::bail!("CSV format is not supported by tpchgen");
+                    }
+                    _ => {
+                        // Other formats generate directly
+                        let options =
+                            TpchGenOptions::new(self.scale_factor.clone(), &base_data_dir)
+                                .with_format(target.format())
+                                .with_max_file_size_mb(Some(600));
+
+                        let runtime = Runtime::new()?;
+                        runtime.block_on(async { tpchgen::generate_tpch_tables(options).await })?;
+                    }
+                }
 
                 Ok(())
             }
@@ -218,6 +241,9 @@ impl TpcHBenchmark {
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
                 Format::Csv => todo!("csv unsupported for tpch benchmark"),
+                Format::Lance => {
+                    register_lance_files(session, name, &path, &self.dataset()).await?
+                }
             }
         }
 
@@ -312,4 +338,27 @@ impl TpcHBenchmark {
 
         Ok(())
     }
+}
+
+/// Convert TPCH Parquet tables to Lance format.
+pub async fn convert_all_tpch_to_lance(parquet_dir: &Path, lance_dir: &Path) -> Result<()> {
+    let tables = [
+        "customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier",
+    ];
+
+    // Convert each table to its own Lance dataset
+    for table in &tables {
+        // Use table_ prefix to avoid matching similar names (e.g., part vs partsupp)
+        let file_prefix = format!("{}_", table);
+        utils::convert_parquet_to_lance(
+            parquet_dir,
+            lance_dir,
+            table,              // Dataset name is the table name
+            Some(&file_prefix), // File prefix with underscore (e.g., customer_0.parquet)
+            true,               // Convert Utf8View to Utf8 for Lance compatibility
+        )
+        .await?;
+    }
+
+    Ok(())
 }
