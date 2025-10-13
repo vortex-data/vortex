@@ -67,6 +67,7 @@ pub fn generate_tpcds(base_dir: PathBuf, scale_factor: String, format: Format) -
         Format::OnDiskDuckDB | Format::Arrow => {
             // These formats don't need export
         }
+        #[cfg(feature = "lance")]
         Format::Lance => unimplemented!(),
     }
 
