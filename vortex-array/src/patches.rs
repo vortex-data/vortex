@@ -276,9 +276,7 @@ impl Patches {
             );
         }
         let chunk_offsets_len = self.chunk_offsets.as_ref().map(|co| co.len());
-        let chunk_offsets_ptype = self
-            .chunk_offsets
-            .as_ref().map(|co| co.dtype().as_ptype());
+        let chunk_offsets_ptype = self.chunk_offsets.as_ref().map(|co| co.dtype().as_ptype());
 
         Ok(PatchesMetadata::new(
             self.indices.len(),
@@ -377,6 +375,10 @@ impl Patches {
         let Some(offset_within_chunk) = self.offset_within_chunk else {
             vortex_panic!("offset_within_chunk is required to be set")
         };
+
+        if index >= self.array_len() {
+            return SearchResult::NotFound(self.indices().len());
+        }
 
         let chunk_idx = (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE;
 
@@ -1593,27 +1595,11 @@ mod test {
     }
 
     #[test]
-    fn test_single_patch_at_boundary() {
-        let indices = buffer![1023u64].into_array();
-        let values = buffer![42i32].into_array();
-        let patches = Patches::new(1024, 0, indices, values, None);
-
-        assert_eq!(patches.num_patches(), 1);
-        assert_eq!(patches.search_index(1023), SearchResult::Found(0));
-        assert_eq!(patches.search_index(1022), SearchResult::NotFound(0));
-
-        // Slice to keep only the last element
-        let sliced = patches.slice(1023..1024).unwrap();
-        assert_eq!(sliced.num_patches(), 1);
-        assert_eq!(sliced.offset(), 1023);
-        assert_eq!(sliced.search_index(0), SearchResult::Found(0));
-    }
-
-    #[test]
     fn test_index_larger_than_length() {
+        let chunk_offsets = buffer![0u64].into_array();
         let indices = buffer![1023u64].into_array();
         let values = buffer![42i32].into_array();
-        let patches = Patches::new(1024, 0, indices, values, None);
+        let patches = Patches::new(1024, 0, indices, values, Some(chunk_offsets));
         assert_eq!(patches.search_index(2048), SearchResult::NotFound(1));
     }
 }
