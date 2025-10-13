@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use async_trait::async_trait;
 use lance::dataset::{Dataset as LanceDataset, WriteParams};
+use lance_encoding::version::LanceFileVersion;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
@@ -96,7 +97,7 @@ pub async fn taxi_data_lance() -> Result<PathBuf> {
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let reader = builder.build()?;
 
-        let write_params = WriteParams::default();
+        let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_1);
         LanceDataset::write(reader, output_fname.to_str().unwrap(), Some(write_params)).await?;
 
         Ok(output_fname.to_path_buf())

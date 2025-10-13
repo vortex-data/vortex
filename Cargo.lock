@@ -1028,6 +1028,7 @@ dependencies = [
  "indicatif",
  "itertools 0.14.0",
  "lance",
+ "lance-encoding",
  "log",
  "mimalloc",
  "noodles-bgzf",
