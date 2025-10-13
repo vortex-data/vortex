@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Modular System Test - Vortex Benchmarks</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.rawgit.com/h2non/jsHashes/master/hashes.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <style>
+        .test-results {
+            margin: 20px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            background: #f5f5f5;
+            font-family: monospace;
+        }
+        .test-passed {
+            color: green;
+            font-weight: bold;
+        }
+        .test-failed {
+            color: red;
+            font-weight: bold;
+        }
+        .test-section {
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+        }
+        h2 {
+            margin: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Modular System Test</h1>
+
+    <div class="test-results" id="test-results">
+        <h2>Running tests...</h2>
+    </div>
+
+    <div id="benchmarks-container" style="display: none;"></div>
+
+    <script type="module">
+        import { BenchmarkFactory } from './benchmark-factory.js';
+        import { BENCHMARK_CONFIGS } from './benchmark-config.js';
+        import { QueryBenchmark, CompressionBenchmark, RandomAccessBenchmark } from './benchmark-types.js';
+        import { legacyAPI } from './migration-adapter.js';
+
+        const testResults = document.getElementById('test-results');
+        const tests = [];
+
+        function addTest(name, result, details = '') {
+            tests.push({ name, result, details });
+            updateDisplay();
+        }
+
+        function updateDisplay() {
+            let html = '<h2>Test Results</h2>';
+            let passed = 0;
+            let failed = 0;
+
+            tests.forEach(test => {
+                const statusClass = test.result ? 'test-passed' : 'test-failed';
+                const status = test.result ? 'PASSED' : 'FAILED';
+                html += `
+                    <div class="test-section">
+                        <span class="${statusClass}">[${status}]</span> ${test.name}
+                        ${test.details ? `<br><small>${test.details}</small>` : ''}
+                    </div>
+                `;
+                if (test.result) passed++; else failed++;
+            });
+
+            html += `
+                <div class="test-section">
+                    <h3>Summary</h3>
+                    <p>Passed: ${passed}</p>
+                    <p>Failed: ${failed}</p>
+                    <p>Total: ${tests.length}</p>
+                </div>
+            `;
+
+            testResults.innerHTML = html;
+        }
+
+        // Test 1: Check if all benchmark configs exist
+        try {
+            const configNames = Object.keys(BENCHMARK_CONFIGS);
+            addTest(
+                'Benchmark configurations loaded',
+                configNames.length > 0,
+                `Found ${configNames.length} benchmark configurations`
+            );
+        } catch (e) {
+            addTest('Benchmark configurations loaded', false, e.message);
+        }
+
+        // Test 2: Create benchmark instances
+        try {
+            const clickbench = BenchmarkFactory.create('Clickbench');
+            addTest(
+                'Create Clickbench instance',
+                clickbench instanceof QueryBenchmark,
+                `Type: ${clickbench.constructor.name}`
+            );
+
+            const compression = BenchmarkFactory.create('Compression');
+            addTest(
+                'Create Compression instance',
+                compression instanceof CompressionBenchmark,
+                `Type: ${compression.constructor.name}`
+            );
+
+            const randomAccess = BenchmarkFactory.create('Random Access');
+            addTest(
+                'Create Random Access instance',
+                randomAccess instanceof RandomAccessBenchmark,
+                `Type: ${randomAccess.constructor.name}`
+            );
+        } catch (e) {
+            addTest('Create benchmark instances', false, e.message);
+        }
+
+        // Test 3: Check configuration preservation
+        try {
+            const clickbench = BenchmarkFactory.create('Clickbench');
+            addTest(
+                'Clickbench has lance hidden',
+                clickbench.hiddenDatasets.has('datafusion:lance'),
+                `Hidden datasets: ${Array.from(clickbench.hiddenDatasets).join(', ')}`
+            );
+
+            const tpchNvme = BenchmarkFactory.create('TPC-H (NVMe) (SF=10)');
+            addTest(
+                'TPC-H (NVMe) (SF=10) has lance hidden',
+                tpchNvme.hiddenDatasets.has('datafusion:lance'),
+                `Hidden datasets: ${Array.from(tpchNvme.hiddenDatasets).join(', ')}`
+            );
+        } catch (e) {
+            addTest('Configuration preservation', false, e.message);
+        }
+
+        // Test 4: Check renamed datasets
+        try {
+            const clickbench = BenchmarkFactory.create('Clickbench');
+            const hasRenames = clickbench.renamedDatasets &&
+                              clickbench.renamedDatasets['DataFusion:vortex-file-compressed'] === 'datafusion:vortex';
+            addTest(
+                'Dataset renaming configured',
+                hasRenames,
+                `Example: DataFusion:vortex-file-compressed → ${clickbench.renamedDatasets['DataFusion:vortex-file-compressed']}`
+            );
+        } catch (e) {
+            addTest('Dataset renaming', false, e.message);
+        }
+
+        // Test 5: Legacy API compatibility
+        try {
+            const legacyConfig = [
+                ['Clickbench', { hiddenDatasets: new Set(['test']) }],
+                ['TPC-H (NVMe) (SF=1)', { }]
+            ];
+
+            const instances = BenchmarkFactory.createFromLegacy(legacyConfig);
+            addTest(
+                'Legacy configuration format',
+                instances.length === 2 && instances[0].hiddenDatasets.has('test'),
+                `Created ${instances.length} instances from legacy format`
+            );
+        } catch (e) {
+            addTest('Legacy API compatibility', false, e.message);
+        }
+
+        // Test 6: Compression benchmark specific config
+        try {
+            const compression = BenchmarkFactory.create('Compression');
+            const hasKeptCharts = compression.keptCharts &&
+                                 compression.keptCharts.includes('COMPRESS TIME');
+            addTest(
+                'Compression keptCharts configuration',
+                hasKeptCharts,
+                `Kept charts: ${compression.keptCharts ? compression.keptCharts.length : 0}`
+            );
+
+            const compressionSize = BenchmarkFactory.create('Compression Size');
+            addTest(
+                'Compression Size type configuration',
+                compressionSize.compressionType === 'size',
+                `Compression type: ${compressionSize.compressionType}`
+            );
+        } catch (e) {
+            addTest('Compression benchmark config', false, e.message);
+        }
+
+        // Test 7: TPC-H scale factor configurations
+        try {
+            const scaleFactors = [1, 10, 100, 1000];
+            let allFound = true;
+
+            for (const sf of scaleFactors) {
+                const nvmeKey = `TPC-H (NVMe) (SF=${sf})`;
+                const s3Key = `TPC-H (S3) (SF=${sf})`;
+
+                const nvmeBench = BenchmarkFactory.create(nvmeKey);
+                const s3Bench = BenchmarkFactory.create(s3Key);
+
+                if (!nvmeBench || !s3Bench) {
+                    allFound = false;
+                    break;
+                }
+            }
+
+            addTest(
+                'All TPC-H scale factors configured',
+                allFound,
+                `Scale factors: ${scaleFactors.join(', ')}`
+            );
+        } catch (e) {
+            addTest('TPC-H scale factors', false, e.message);
+        }
+
+        // Test 8: Factory caching
+        try {
+            const instance1 = BenchmarkFactory.create('Clickbench');
+            const instance2 = BenchmarkFactory.create('Clickbench');
+            const instance3 = BenchmarkFactory.create('Clickbench', { custom: true });
+
+            addTest(
+                'Factory caching works',
+                instance1 === instance2 && instance1 !== instance3,
+                'Same config returns same instance, different config returns new instance'
+            );
+        } catch (e) {
+            addTest('Factory caching', false, e.message);
+        }
+
+        // Test 9: Check benchmark descriptions
+        try {
+            const clickbench = BenchmarkFactory.create('Clickbench');
+            const hasDescription = clickbench.description && clickbench.description.length > 0;
+
+            addTest(
+                'Benchmark descriptions loaded',
+                hasDescription,
+                `Clickbench description: ${clickbench.description.substring(0, 50)}...`
+            );
+        } catch (e) {
+            addTest('Benchmark descriptions', false, e.message);
+        }
+
+        // Test 10: Check tags
+        try {
+            const clickbench = BenchmarkFactory.create('Clickbench');
+            const hasTags = clickbench.tags && clickbench.tags.includes('Queries (NVMe)');
+
+            addTest(
+                'Benchmark tags configured',
+                hasTags,
+                `Clickbench tags: ${clickbench.tags ? clickbench.tags.join(', ') : 'none'}`
+            );
+        } catch (e) {
+            addTest('Benchmark tags', false, e.message);
+        }
+
+        // Display final summary
+        updateDisplay();
+
+        console.log('Test suite completed. Check results above.');
+    </script>
+</body>
+</html>

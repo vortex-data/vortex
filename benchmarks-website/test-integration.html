@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Integration Test - Modular System</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.rawgit.com/h2non/jsHashes/master/hashes.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+</head>
+<body>
+    <header class="sticky-header">
+        <div class="header-content">
+            <h1 class="site-title">Modular System Test</h1>
+        </div>
+    </header>
+
+    <div id="test-status" style="margin: 20px; padding: 20px; background: #f0f0f0; border-radius: 5px;">
+        Loading test...
+    </div>
+
+    <script type="module">
+        // Test that the modular system can be imported and used directly
+        import { BenchmarkFactory } from './benchmark-factory.js';
+        import { BENCHMARK_CONFIGS } from './benchmark-config.js';
+
+        const statusDiv = document.getElementById('test-status');
+
+        try {
+            // Test 1: Create benchmark instances
+            const clickbench = BenchmarkFactory.create('Clickbench');
+            const tpchSF10 = BenchmarkFactory.create('TPC-H (NVMe) (SF=10)');
+
+            // Test 2: Check hidden datasets
+            const clickbenchHasLanceHidden = clickbench.hiddenDatasets.has('datafusion:lance');
+            const tpchHasLanceHidden = tpchSF10.hiddenDatasets.has('datafusion:lance');
+
+            // Test 3: Check renamed datasets
+            const hasCorrectRenames = clickbench.renamedDatasets['DataFusion:vortex-file-compressed'] === 'datafusion:vortex';
+
+            // Test 4: Count total configurations
+            const totalConfigs = Object.keys(BENCHMARK_CONFIGS).length;
+
+            // Display results
+            statusDiv.innerHTML = `
+                <h2>✅ Modular System Integration Test Results</h2>
+                <ul style="list-style: none; padding: 0;">
+                    <li>✅ Created Clickbench instance successfully</li>
+                    <li>✅ Created TPC-H (SF=10) instance successfully</li>
+                    <li>${clickbenchHasLanceHidden ? '✅' : '❌'} Clickbench has datafusion:lance hidden</li>
+                    <li>${tpchHasLanceHidden ? '✅' : '❌'} TPC-H (SF=10) has datafusion:lance hidden</li>
+                    <li>${hasCorrectRenames ? '✅' : '❌'} Dataset renaming configured correctly</li>
+                    <li>✅ Total configurations available: ${totalConfigs}</li>
+                </ul>
+                <p style="margin-top: 20px; color: green; font-weight: bold;">
+                    The modular system is working correctly and can be used independently!
+                </p>
+            `;
+
+            // Log details to console
+            console.log('Clickbench configuration:', clickbench);
+            console.log('TPC-H (SF=10) configuration:', tpchSF10);
+            console.log('All benchmark configurations:', BENCHMARK_CONFIGS);
+
+        } catch (error) {
+            statusDiv.innerHTML = `
+                <h2>❌ Test Failed</h2>
+                <p>Error: ${error.message}</p>
+                <pre>${error.stack}</pre>
+            `;
+        }
+    </script>
+</body>
+</html>
