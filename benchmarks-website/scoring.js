@@ -23,105 +23,65 @@ const scoring = {
     return categoryName === "Compression Size";
   },
 
-  calculateClickBenchScore(benchSet) {
-    if (!benchSet || benchSet.size === 0) {
-      return null;
-    }
+  // Helper: Get latest data point for each series across all queries
+  getLatestDataPerSeries(benchSet) {
+    const seriesLatestData = new Map();
 
-    // Find the most recent commit that has data across queries
-    let latestCommitWithData = -1;
-
-    // First, find the most recent commit index that has any data
     for (const [queryName, queryData] of benchSet.entries()) {
       if (!queryData.series || queryData.series.size === 0) continue;
 
-      // Search backwards for the most recent commit with data
-      for (let i = queryData.commits.length - 1; i >= 0; i--) {
-        let hasData = false;
-        for (const [seriesName, seriesData] of queryData.series.entries()) {
+      for (const [seriesName, seriesData] of queryData.series.entries()) {
+        // Find the most recent non-null value for this series
+        for (let i = seriesData.length - 1; i >= 0; i--) {
           const result = seriesData[i];
           if (result && result.value !== null && result.value !== undefined) {
-            hasData = true;
+            if (!seriesLatestData.has(seriesName)) {
+              seriesLatestData.set(seriesName, new Map());
+            }
+            seriesLatestData.get(seriesName).set(queryName, result.value);
             break;
           }
         }
-        if (hasData) {
-          latestCommitWithData = Math.max(latestCommitWithData, i);
-          break;
-        }
       }
     }
 
-    if (latestCommitWithData === -1) return null;
+    return seriesLatestData;
+  },
 
-    // Get results at the latest commit with data
-    const latestResults = new Map();
-
-    for (const [queryName, queryData] of benchSet.entries()) {
-      if (!queryData.series || queryData.series.size === 0) continue;
-
-      // Get results for all series at the latest commit with data
-      const seriesResults = new Map();
-      for (const [seriesName, seriesData] of queryData.series.entries()) {
-        if (latestCommitWithData < seriesData.length) {
-          const result = seriesData[latestCommitWithData];
-          if (result && result.value !== null && result.value !== undefined) {
-            seriesResults.set(seriesName, result.value);
-          }
-        }
-      }
-
-      if (seriesResults.size > 0) {
-        latestResults.set(queryName, seriesResults);
-      }
-    }
-
-    if (latestResults.size === 0) return null;
-
-    // Calculate scores for each series
+  // Helper: Calculate geometric mean score for query benchmarks
+  calculateGeometricMeanScores(seriesLatestData, benchSet) {
     const seriesScores = new Map();
-    const allSeriesNames = new Set();
 
-    // Collect all series names
-    for (const seriesResults of latestResults.values()) {
-      for (const seriesName of seriesResults.keys()) {
-        allSeriesNames.add(seriesName);
-      }
-    }
-
-    // For each series, calculate geometric mean of ratios and total runtime
-    for (const seriesName of allSeriesNames) {
+    for (const [seriesName, queryResults] of seriesLatestData.entries()) {
       const ratios = [];
-      let maxRuntime = 0;
       let totalRuntime = 0;
-      let actualQueryCount = 0;
+      let maxRuntime = 0;
 
-      // First pass: find max runtime for penalty calculation and sum runtimes
-      for (const [queryName, seriesResults] of latestResults.entries()) {
-        if (seriesResults.has(seriesName)) {
-          const runtime = seriesResults.get(seriesName);
-          maxRuntime = Math.max(maxRuntime, runtime);
-          totalRuntime += runtime;
-          actualQueryCount++;
-        }
+      // Calculate max runtime for penalty
+      for (const runtime of queryResults.values()) {
+        maxRuntime = Math.max(maxRuntime, runtime);
+        totalRuntime += runtime;
       }
 
       // Apply penalty rules: if max runtime < 300s, use 300s, then multiply by 2
-      const penalty = Math.max(300000, maxRuntime) * 2; // Convert to ms if needed
+      const penalty = Math.max(300000, maxRuntime) * 2;
 
-      // Second pass: calculate ratios
-      for (const [queryName, seriesResults] of latestResults.entries()) {
-        // Find baseline (best result) for this query
+      // For each query, calculate ratio against baseline
+      for (const [queryName, queryData] of benchSet.entries()) {
+        // Find baseline (best result) across all series for this query
         let baseline = Infinity;
-        for (const runtime of seriesResults.values()) {
-          baseline = Math.min(baseline, runtime);
+
+        for (const [sName, latestData] of seriesLatestData.entries()) {
+          if (latestData.has(queryName)) {
+            baseline = Math.min(baseline, latestData.get(queryName));
+          }
         }
 
         if (baseline === Infinity) continue;
 
         // Get this series' result or use penalty
-        const seriesRuntime = seriesResults.has(seriesName)
-          ? seriesResults.get(seriesName)
+        const seriesRuntime = queryResults.has(queryName)
+          ? queryResults.get(queryName)
           : penalty;
 
         // Calculate ratio with 10ms constant shift
@@ -130,19 +90,30 @@ const scoring = {
       }
 
       if (ratios.length > 0) {
-        // Calculate geometric mean
         const product = ratios.reduce((acc, ratio) => acc * ratio, 1);
         const geometricMean = Math.pow(product, 1 / ratios.length);
         seriesScores.set(seriesName, {
           score: geometricMean,
           queryCount: ratios.length,
           totalRuntime: totalRuntime,
-          actualQueryCount: actualQueryCount,
+          actualQueryCount: queryResults.size,
         });
       }
     }
 
     return seriesScores;
+  },
+
+  calculateClickBenchScore(benchSet) {
+    if (!benchSet || benchSet.size === 0) return null;
+
+    // Step 1: Get latest data for each series
+    const seriesLatestData = this.getLatestDataPerSeries(benchSet);
+
+    if (seriesLatestData.size === 0) return null;
+
+    // Step 2: Calculate scores using the modular scoring function
+    return this.calculateGeometricMeanScores(seriesLatestData, benchSet);
   },
 
   formatScoresSummary(scores) {
