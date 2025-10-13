@@ -279,12 +279,12 @@ impl Patches {
         let chunk_offsets_ptype = self
             .chunk_offsets
             .as_ref()
-            .and_then(|co| PType::try_from(co.dtype()).ok());
+            .and_then(|co| Some(co.dtype().as_ptype()));
 
         Ok(PatchesMetadata::new(
             self.indices.len(),
             self.offset,
-            PType::try_from(self.indices.dtype()).vortex_expect("primitive indices"),
+            self.indices.dtype().as_ptype(),
             chunk_offsets_len,
             chunk_offsets_ptype,
             self.offset_within_chunk,
