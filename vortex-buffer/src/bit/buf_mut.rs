@@ -46,7 +46,7 @@ impl BitBufferMut {
     }
 
     /// Create a new empty mutable bit buffer with requested capacity (in bits).
-    pub fn new(capacity: usize) -> Self {
+    pub fn with_capacity(capacity: usize) -> Self {
         Self {
             buffer: BufferMut::with_capacity(capacity.div_ceil(8)),
             len: 0,
@@ -71,7 +71,7 @@ impl BitBufferMut {
 
     /// Create a new empty `BitBufferMut`.
     pub fn empty() -> Self {
-        Self::new(0)
+        Self::with_capacity(0)
     }
 
     /// Get the current populated length of the buffer.
@@ -198,6 +198,7 @@ impl BitBufferMut {
     ///
     /// Panics if there is no remaining capacity.
     pub fn append_true(&mut self) {
+        // TODO(ngates): this is surely pretty slow.
         if self.len % 8 == 0 {
             // Push a new word that starts with 1
             self.buffer.push(1u8);
@@ -311,7 +312,7 @@ impl BitBufferMut {
 
 impl Default for BitBufferMut {
     fn default() -> Self {
-        Self::new(0)
+        Self::with_capacity(0)
     }
 }
 
@@ -335,7 +336,7 @@ mod tests {
 
     #[test]
     fn test_append_n() {
-        let mut bools = BitBufferMut::new(10);
+        let mut bools = BitBufferMut::with_capacity(10);
         assert_eq!(bools.len(), 0);
         assert!(bools.is_empty());
 

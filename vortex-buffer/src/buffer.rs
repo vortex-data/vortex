@@ -221,9 +221,8 @@ impl<T> Buffer<T> {
     /// Returns a slice over the buffer of elements of type T.
     #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
-        let raw_slice = self.bytes.as_ref();
         // SAFETY: alignment of Buffer is checked on construction
-        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), self.length) }
+        unsafe { std::slice::from_raw_parts(self.bytes.as_ptr().cast(), self.length) }
     }
 
     /// Returns an iterator over the buffer of elements of type T.

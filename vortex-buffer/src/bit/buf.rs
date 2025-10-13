@@ -4,9 +4,9 @@
 use std::ops::{BitAnd, BitOr, BitXor, Not, Range};
 
 use crate::bit::aligned::BitChunks;
+use crate::bit::get_bit_unchecked;
 use crate::bit::ops::{bitwise_and, bitwise_not, bitwise_or, bitwise_unary_op, bitwise_xor};
 use crate::bit::unaligned::{BitIndexIterator, BitIterator, BitSliceIterator, UnalignedBitChunks};
-use crate::bit::{get_bit, get_bit_unchecked};
 use crate::{Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer, buffer};
 
 /// An immutable bitset stored as a packed byte buffer.
@@ -158,16 +158,19 @@ impl BitBuffer {
     /// Retrieve the value at the given index.
     ///
     /// Panics if the index is out of bounds.
+    #[inline]
     pub fn value(&self, index: usize) -> bool {
-        get_bit(&self.buffer, index + self.offset)
+        assert!(index < self.len);
+        unsafe { self.value_unchecked(index) }
     }
 
     /// Retrieve the value at the given index without bounds checking
     ///
     /// # SAFETY
     /// Caller must ensure that index is within the range of the buffer
+    #[inline]
     pub unsafe fn value_unchecked(&self, index: usize) -> bool {
-        unsafe { get_bit_unchecked(&self.buffer, index + self.offset) }
+        unsafe { get_bit_unchecked(self.buffer.as_ptr(), index + self.offset) }
     }
 
     /// Create a new zero-copy slice of this BoolBuffer that begins at the `start` index and extends
@@ -305,7 +308,7 @@ impl FromIterator<bool> for BitBuffer {
             }
             buf.freeze()
         } else {
-            let mut buf = BitBufferMut::new(low);
+            let mut buf = BitBufferMut::with_capacity(low);
             for v in iter {
                 buf.append(v);
             }

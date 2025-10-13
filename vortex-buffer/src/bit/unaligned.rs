@@ -197,7 +197,7 @@ impl Iterator for BitIterator {
             return None;
         }
         // SAFETY: current_offset is in bounds
-        let v = unsafe { get_bit_unchecked(&self.buffer, self.current_offset) };
+        let v = unsafe { get_bit_unchecked(self.buffer.as_ptr(), self.current_offset) };
         self.current_offset += 1;
         Some(v)
     }
@@ -219,7 +219,7 @@ impl DoubleEndedIterator for BitIterator {
         }
         self.end_offset -= 1;
         // Safety: end_offset is in bounds
-        Some(unsafe { get_bit_unchecked(&self.buffer, self.end_offset) })
+        Some(unsafe { get_bit_unchecked(self.buffer.as_ptr(), self.end_offset) })
     }
 }
 

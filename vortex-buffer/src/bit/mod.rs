@@ -19,7 +19,7 @@ pub use buf::*;
 pub use buf_mut::*;
 
 /// Get bit value at `index` out of `buf`
-#[inline]
+#[inline(always)]
 fn get_bit(buf: &[u8], index: usize) -> bool {
     buf[index / 8] & (1 << (index % 8)) != 0
 }
@@ -28,8 +28,7 @@ fn get_bit(buf: &[u8], index: usize) -> bool {
 ///
 /// # Safety
 /// `index` must be between 0 and length of `buf`
-#[inline]
-unsafe fn get_bit_unchecked(buf: &[u8], index: usize) -> bool {
-    let byte = unsafe { buf.get_unchecked(index / 8) };
-    byte & (1 << (index % 8)) != 0
+#[inline(always)]
+unsafe fn get_bit_unchecked(buf: *const u8, index: usize) -> bool {
+    (unsafe { *buf.add(index / 8) } & (1 << (index % 8))) != 0
 }

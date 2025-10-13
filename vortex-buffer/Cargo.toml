@@ -46,3 +46,7 @@ divan = { workspace = true }
 [[bench]]
 name = "vortex_buffer"
 harness = false
+
+[[bench]]
+name = "vortex_bitbuffer"
+harness = false
