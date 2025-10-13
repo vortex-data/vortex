@@ -406,7 +406,7 @@ impl BatchExecution for PackExecution {
     async fn execute(self: Box<Self>) -> VortexResult<Canonical> {
         let values = try_join_all(self.values.into_iter().map(|exec| exec.execute()));
         let (values, mask) = try_join!(values, self.mask)?;
-        let values = values.into_iter().map(|c| c.into_array()).collect();
+        let values: Arc<[ArrayRef]> = values.into_iter().map(|c| c.into_array()).collect();
 
         Ok(Canonical::Struct(StructArray::try_new_with_dtype(
             values,
