@@ -5,10 +5,15 @@ use std::fmt;
 use std::fmt::{Debug, Display, Write};
 use std::sync::Arc;
 
-use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DeviceRepr, LaunchArgs, PushKernelArg};
+use cudarc::driver::{
+    CudaContext, CudaSlice, CudaStream, DeviceRepr, LaunchArgs, LaunchConfig, PushKernelArg,
+};
+use itertools::Itertools;
 use vortex_alp::{ALPFloat, ALPVTable, Exponents, match_each_alp_float_ptype};
-use vortex_array::ArrayRef;
-use vortex_buffer::ByteBuffer;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::validity::Validity;
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
@@ -105,14 +110,14 @@ impl Display for CUDAType {
 impl From<PType> for CUDAType {
     fn from(value: PType) -> Self {
         CUDAType(match value {
-            PType::U8 => "uint8_t",
-            PType::U16 => "uint16_t",
-            PType::U32 => "uint32_t",
-            PType::U64 => "uint64_t",
-            PType::I8 => "int8_t",
-            PType::I16 => "int16_t",
-            PType::I32 => "int32_t",
-            PType::I64 => "int64_t",
+            PType::U8 => "unsigned char",
+            PType::U16 => "unsigned short",
+            PType::U32 => "unsigned int",
+            PType::U64 => "unsigned long long",
+            PType::I8 => "char",
+            PType::I16 => "short",
+            PType::I32 => "int",
+            PType::I64 => "long long",
             PType::F32 => "float",
             PType::F64 => "double",
             PType::F16 => todo!(),
@@ -135,7 +140,7 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
 
     fn in_params(&self, p: &mut Vec<GPUKernelParameter>) {
         p.push(GPUKernelParameter {
-            name: self.src_var(),
+            name: self.in_var(),
             type_: format!(
                 "{type_} *__restrict",
                 type_ = CUDAType::from(self.output_type)
@@ -163,6 +168,8 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
         )?;
         writeln!(w, "{output_cuda_type} src{};", self.step_id)?;
         writeln!(w, "{output_cuda_type} tmp{};", self.step_id)?;
+        writeln!(w, "unsigned int out_idx;")?;
+        writeln!(w, "unsigned int lane = threadIdx.x;")?;
         Ok(())
     }
 
@@ -174,6 +181,7 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
         let output = w;
         let bit_width = self.bit_width as usize;
         let bits = self.output_type.bit_width();
+        let in_ = self.in_var();
         if bit_width == 0 {
             writeln!(output, "uint{bits}_t zero = 0ULL;")?;
             writeln!(output)?;
@@ -185,15 +193,24 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
             for row in 0..bits {
                 writeln!(
                     output,
-                    "out[INDEX({row}, lane)] = in[LANE_COUNT * {row} + lane];",
+                    "out[INDEX({row}, lane)] = {in_}[LANE_COUNT * {row} + lane];",
                 )?;
             }
         } else {
             let src = self.src_var();
             let tmp = self.tmp_var();
+            println!("P {}", P::PTYPE);
+
+            let mask_fn = |bits: usize| {
+                format!(
+                    "((({type_})1 << {width}) - 1)",
+                    type_ = CUDAType::from(P::PTYPE),
+                    width = bit_width
+                )
+            };
 
             writeln!(output)?;
-            writeln!(output, "{src} = in[lane];")?;
+            writeln!(output, "{src} = {in}[lane];", in = self.in_var())?;
             for row in 0..bits {
                 let curr_word = (row * bit_width) / bits;
                 let next_word = ((row + 1) * bit_width) / bits;
@@ -204,23 +221,26 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
                     let current_bits = bit_width - remaining_bits;
                     writeln!(
                         output,
-                        "{tmp} = ({src} >> {shift}) & MASK(uint{bits}_t, {current_bits});"
+                        "{tmp} = ({src} >> {shift}) & {mask};",
+                        mask = mask_fn(current_bits)
                     )?;
 
                     if next_word < bit_width {
-                        writeln!(output, "{src} = in[lane + LANE_COUNT * {next_word}];")?;
+                        writeln!(output, "{src} = {in_}[lane + LANE_COUNT * {next_word}];")?;
                         writeln!(
                             output,
-                            "{tmp} |= ({src} & MASK(uint{bits}_t, {remaining_bits})) << {current_bits};"
+                            "{tmp} |= ({src} & {mask}) << {current_bits};",
+                            mask = mask_fn(remaining_bits)
                         )?;
                     }
                 } else {
                     writeln!(
                         output,
-                        "{tmp} = ({src} >> {shift}) & MASK(uint{bits}_t, {bit_width});"
+                        "{tmp} = ({src} >> {shift}) & {mask};",
+                        mask = mask_fn(bit_width)
                     )?;
                 }
-
+                writeln!(output, "out_idx = INDEX({row}, lane);")?;
                 f(output)?;
                 writeln!(output)?;
             }
@@ -255,6 +275,14 @@ impl<P> BitPack<P> {
 
     fn src_var(&self) -> String {
         format!("src{}", self.step_id)
+    }
+
+    fn in_var(&self) -> String {
+        format!("in{}", self.step_id)
+    }
+
+    fn out_idx(&self) -> String {
+        format!("out_idx{}", self.step_id)
     }
 }
 
@@ -346,17 +374,20 @@ fn handle_array(a: &ArrayRef, stream: &Arc<CudaStream>, step_id: usize) -> Box<d
     if let Some(bp) = a.as_opt::<BitPackedVTable>() {
         assert_eq!(bp.offset(), 0);
         assert!(bp.patches().is_none());
-        let cuda_slice = stream
-            .memcpy_stod(bp.packed().as_slice())
-            .map_err(|e| vortex_err!("Failed to copy to device: {e}"))
-            .vortex_unwrap();
-        return Box::new(BitPack {
-            step_id,
-            bit_width: bp.bit_width(),
-            packed: bp.packed().clone(),
-            output_type: bp.ptype(),
-            cuda_slice,
-        });
+        match_each_native_ptype!(bp.ptype(), |P| {
+            let values = Buffer::<P>::from_byte_buffer(bp.packed().clone());
+            let cuda_slice = stream
+                .memcpy_stod(values.as_slice())
+                .map_err(|e| vortex_err!("Failed to copy to device: {e}"))
+                .vortex_unwrap();
+            return Box::new(BitPack::<P> {
+                step_id,
+                bit_width: bp.bit_width(),
+                packed: bp.packed().clone(),
+                output_type: bp.ptype(),
+                cuda_slice,
+            });
+        })
     };
 
     if let Some(for_) = a.as_opt::<FoRVTable>() {
@@ -419,6 +450,7 @@ impl<A: ALPFloat + DeviceRepr> GPUPipelineJIT for ALP<A> {
     fn args<'a>(&'a self, stream: &Arc<CudaStream>, args: &mut LaunchArgs<'a>) -> VortexResult<()> {
         args.arg(&self.e);
         args.arg(&self.f);
+        println!("---e {}, f {}", self.e, self.f);
         Ok(())
     }
 
@@ -438,9 +470,9 @@ impl<A: ALPFloat + DeviceRepr> GPUPipelineJIT for ALP<A> {
                 writeln!(
                     w,
                     "{out} = ((({type_}){tmp}) * {f}) * {e};",
-                    tmp = self.tmp_var(),
+                    out = self.tmp_var(),
                     type_ = CUDAType::from(self.float_type),
-                    out = self.child.output_var(),
+                    tmp = self.child.output_var(),
                     f = self.f_var(),
                     e = self.e_var(),
                 )?;
@@ -501,7 +533,8 @@ impl<'a> GPUVisitor<'a> for ArgCollector<'a> {
 fn _create_jit(a: &ArrayRef) -> fmt::Result {
     let ctx = CudaContext::new(0).unwrap();
     ctx.set_blocking_synchronize().unwrap();
-    let output = handle_array(a, &ctx.default_stream(), 0);
+    let stream = ctx.default_stream();
+    let output = handle_array(a, &stream, 0);
 
     let mut s = String::new();
     let w = &mut s as &mut dyn Write;
@@ -513,15 +546,31 @@ fn _create_jit(a: &ArrayRef) -> fmt::Result {
 
     params.params.push(GPUKernelParameter {
         name: "output".to_string(),
-        type_: format!("{} *__restrict", CUDAType::from(output.output_type())),
+        type_: format!("{} *__restrict__", CUDAType::from(output.output_type())),
     });
 
-    writeln!(w, "__global__ void kernel(")?;
+    writeln!(w, "__device__ int FL_ORDER[] = {{0, 4, 2, 6, 1, 5, 3, 7}};")?;
+    writeln!(
+        w,
+        "#define INDEX(row, lane) (FL_ORDER[row / 8] * 16 + (row % 8) * 128 + lane)"
+    )?;
+    writeln!(w, "extern \"C\" __global__ void kernel(")?;
     w.indent(|w| {
-        params
-            .params
-            .iter()
-            .try_for_each(|p| writeln!(w, "{} {},", p.type_, p.name))
+        params.params.iter().enumerate().try_for_each(|(idx, p)| {
+            writeln!(
+                w,
+                "{} {}{end}",
+                p.type_,
+                p.name,
+                end = if idx == params.params.len() - 1 {
+                    ""
+                } else {
+                    ","
+                }
+            )
+        })
+
+        // .try_for_each(|p| writeln!(w, "{} {},", p.type_, p.name))
     })?;
     writeln!(w, ") {{")?;
 
@@ -530,12 +579,71 @@ fn _create_jit(a: &ArrayRef) -> fmt::Result {
         decl.accept(output.as_ref()).vortex_expect("cannot fail");
         writeln!(w)?;
         output.kernel_body(w, &|w: &mut IndentedWriter<&mut dyn Write>| {
-            writeln!(w, "output[idx] = {}", output.output_var())
+            writeln!(
+                w,
+                "output[out_idx] = {output};",
+                output = output.output_var()
+            )
         })
     })?;
     writeln!(w, "}}")?;
 
     println!("{}", s);
+    let module = cudarc::nvrtc::compile_ptx(s.clone())
+        .map_err(|e| vortex_err!("compile ptx {e}"))
+        .vortex_unwrap();
+    println!("{}", module.to_src());
+
+    // Dynamically load it into the device
+    let module = ctx
+        .load_module(module)
+        .map_err(|e| vortex_err!("load module {e}"))
+        .vortex_unwrap();
+
+    let kernel = module
+        .load_function("kernel")
+        .map_err(|e| vortex_err!("get function {e}"))
+        .vortex_unwrap();
+
+    let num_chunks = u32::try_from(a.len().div_ceil(1024)).vortex_expect("Too many grid elements");
+
+    let mut launch_builder = stream.launch_builder(&kernel);
+
+    let mut collector = ArgCollector {
+        stream: stream.clone(),
+
+        params: &mut launch_builder,
+    };
+    collector
+        .accept(output.as_ref())
+        .vortex_expect("cannot fail");
+
+    let launch_config = LaunchConfig {
+        grid_dim: (num_chunks, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let mut out = stream.alloc_zeros::<f32>(a.len()).unwrap();
+    collector.params.arg(&mut out);
+
+    let _ = unsafe { collector.params.launch(launch_config) };
+
+    let mut buffer = BufferMut::<f32>::with_capacity(a.len());
+    unsafe { buffer.set_len(a.len()) }
+
+    stream
+        .memcpy_dtoh(&out, &mut buffer)
+        .map_err(|e| vortex_err!("Failed to copy to device: {e}"))
+        .vortex_unwrap();
+    stream
+        .synchronize()
+        .map_err(|e| vortex_err!("Failed to synchronize: {e}"))
+        .vortex_unwrap();
+    let c = Canonical::Primitive(PrimitiveArray::new(buffer, Validity::NonNullable)).into_array();
+
+    println!("c {}", c.display_tree());
+    println!("c {}", c.display_values());
 
     Ok(())
 }
@@ -559,7 +667,7 @@ mod tests {
         let for_ = ALPArray::try_new(
             FoRArray::try_new(
                 BitPackedArray::encode(
-                    (0i32..10)
+                    (0i32..1024)
                         .map(|_| 1i32)
                         .collect::<PrimitiveArray>()
                         .as_ref(),

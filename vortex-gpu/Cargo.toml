@@ -17,6 +17,7 @@ publish = false
 [dependencies]
 cudarc = { workspace = true, features = ["f16"] }
 parking_lot = { workspace = true }
+itertools = { workspace = true }
 vortex-array = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-buffer = { workspace = true, features = ["cuda"] }
