@@ -312,16 +312,38 @@ impl Patches {
             .map(|patch_idx| self.values().scalar_at(patch_idx))
     }
 
-    /// Return the insertion point of `index` in the [Self::indices].
+    /// Searches for `index` in the indices array.
+    ///
+    /// Chooses between chunked search when [`Self::chunk_offsets`] is
+    /// available, and binary search otherwise. The `index` parameter is
+    /// adjusted by [`Self::offset`] for both.
+    ///
+    /// # Arguments
+    /// * `index` - The index to search for
+    ///
+    /// # Returns
+    /// * [`SearchResult::Found(patch_idx)`] - If a patch exists at this index, returns the
+    ///   position in the patches array
+    /// * [`SearchResult::NotFound(insertion_point)`] - If no patch exists, returns where
+    ///   a patch at this index would be inserted to maintain sorted order
     pub fn search_index(&self, index: usize) -> SearchResult {
-        if let Some(chunk_offsets) = &self.chunk_offsets {
-            return self.search_index_chunked(index, chunk_offsets);
+        if self.chunk_offsets.is_some() {
+            return self.search_index_chunked(index);
         }
 
-        if self.indices.is_canonical() {
-            let primitive = self.indices.to_primitive();
+        Self::search_index_binary_search(&self.indices, index + self.offset)
+    }
+
+    /// Binary searches for `needle` in the indices array.
+    ///
+    /// # Returns
+    /// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
+    /// with the insertion point if not found.
+    fn search_index_binary_search(indices: &dyn Array, needle: usize) -> SearchResult {
+        if indices.is_canonical() {
+            let primitive = indices.to_primitive();
             match_each_integer_ptype!(primitive.ptype(), |T| {
-                let Ok(needle) = T::try_from(index + self.offset) else {
+                let Ok(needle) = T::try_from(needle) else {
                     // If the needle is not of type T, then it cannot possibly be in this array.
                     //
                     // The needle is a non-negative integer (a usize); therefore, it must be larger
@@ -333,15 +355,28 @@ impl Patches {
                     .search_sorted(&needle, SearchSortedSide::Left);
             });
         }
-        self.indices.as_primitive_typed().search_sorted(
-            &PValue::U64((index + self.offset) as u64),
-            SearchSortedSide::Left,
-        )
+        indices
+            .as_primitive_typed()
+            .search_sorted(&PValue::U64(needle as u64), SearchSortedSide::Left)
     }
 
-    fn search_index_chunked(&self, index: usize, chunk_offsets: &ArrayRef) -> SearchResult {
+    /// Constant time searches for `index` in the indices array.
+    ///
+    /// First determines which chunk the target index falls into, then performs
+    /// a binary search within that chunk's range.
+    ///
+    /// Returns a [`SearchResult`] indicating either the exact patch index if found,
+    /// or the insertion point if not found.
+    ///
+    /// # Panics
+    /// Panics if `chunk_offsets` or `offset_within_chunk` are not set.
+    fn search_index_chunked(&self, index: usize) -> SearchResult {
+        let Some(chunk_offsets) = &self.chunk_offsets else {
+            vortex_panic!("chunk_offsets is required to be set")
+        };
+
         let Some(offset_within_chunk) = self.offset_within_chunk else {
-            vortex_panic!("search_index_chunked requires offset_within_chunk to be set")
+            vortex_panic!("offset_within_chunk is required to be set")
         };
 
         let chunk_start_idx = (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE;
@@ -370,30 +405,8 @@ impl Patches {
             return SearchResult::NotFound(patches_start_idx);
         }
 
-        // Binary search within the chunk.
         let chunk_indices = self.indices.slice(patches_start_idx..patches_end_idx);
-        let needle = index + self.offset;
-
-        let result = if chunk_indices.is_canonical() {
-            let primitive = chunk_indices.to_primitive();
-
-            match_each_integer_ptype!(primitive.ptype(), |T| {
-                let Ok(needle) = T::try_from(needle) else {
-                    // If the needle is not of type T, then it cannot possibly be in this array.
-                    //
-                    // The needle is a non-negative integer (a usize); therefore, it must be larger
-                    // than all values in this array.
-                    return SearchResult::NotFound(primitive.len());
-                };
-                primitive
-                    .as_slice::<T>()
-                    .search_sorted(&needle, SearchSortedSide::Left)
-            })
-        } else {
-            chunk_indices
-                .as_primitive_typed()
-                .search_sorted(&PValue::U64(needle as u64), SearchSortedSide::Left)
-        };
+        let result = Self::search_index_binary_search(&chunk_indices, index + self.offset);
 
         match result {
             SearchResult::Found(idx) => SearchResult::Found(patches_start_idx + idx),
