@@ -25,6 +25,7 @@ warn-copy = ["dep:log"]
 
 [dependencies]
 arrow-buffer = { workspace = true, optional = true }
+bitvec = { workspace = true }
 bytes = { workspace = true }
 cudarc = { workspace = true, optional = true }
 itertools = { workspace = true }
@@ -44,4 +45,8 @@ divan = { workspace = true }
 
 [[bench]]
 name = "vortex_buffer"
+harness = false
+
+[[bench]]
+name = "vortex_bitbuffer"
 harness = false

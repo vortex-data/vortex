@@ -48,6 +48,7 @@
 //! `arrow_buffer::OffsetBuffer`.
 
 pub use alignment::*;
+pub use bit::*;
 pub use buffer::*;
 pub use buffer_mut::*;
 pub use bytes::*;
@@ -57,6 +58,7 @@ pub use string::*;
 mod alignment;
 #[cfg(feature = "arrow")]
 mod arrow;
+mod bit;
 mod buffer;
 mod buffer_mut;
 mod bytes;
