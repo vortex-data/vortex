@@ -21,6 +21,7 @@ use arrow_array::{RecordBatch, RecordBatchIterator};
 use arrow_schema::Schema;
 use futures::StreamExt;
 use lance::dataset::{Dataset, WriteParams};
+use lance_encoding::version::LanceFileVersion;
 use tempfile::TempDir;
 
 use crate::utils::parquet_utils::{convert_utf8view_batch, convert_utf8view_schema};
@@ -33,7 +34,7 @@ pub async fn lance_compress_write_only(
 ) -> anyhow::Result<()> {
     let path = dataset_path.to_str().unwrap();
     let reader = RecordBatchIterator::new(batches.into_iter().map(Ok), schema);
-    let write_params = WriteParams::default();
+    let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_1);
     Dataset::write(reader, path, Some(write_params)).await?;
     Ok(())
 }
@@ -111,7 +112,7 @@ pub async fn lance_compress_write(
     let path = dataset_dir.to_str().unwrap();
 
     let reader = RecordBatchIterator::new(converted_batches.into_iter().map(Ok), converted_schema);
-    let write_params = WriteParams::default();
+    let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_1);
     Dataset::write(reader, path, Some(write_params)).await?;
 
     Ok(path.to_string())

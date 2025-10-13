@@ -11,6 +11,7 @@ use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_cast::cast;
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 use lance::dataset::{Dataset as LanceDataset, WriteParams};
+use lance_encoding::version::LanceFileVersion;
 use log::info;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tokio::fs::create_dir_all;
@@ -166,14 +167,14 @@ pub async fn convert_parquet_to_lance(
             LanceDataset::write(
                 Box::new(converting_iter),
                 lance_path_str,
-                Some(WriteParams::default()),
+                Some(WriteParams::with_storage_version(LanceFileVersion::V2_1)),
             )
             .await?;
         } else {
             LanceDataset::write(
                 Box::new(batch_iter),
                 lance_path_str,
-                Some(WriteParams::default()),
+                Some(WriteParams::with_storage_version(LanceFileVersion::V2_1)),
             )
             .await?;
         }
