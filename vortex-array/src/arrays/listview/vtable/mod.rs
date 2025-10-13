@@ -3,11 +3,12 @@
 
 use crate::arrays::ListViewArray;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::{vtable, EncodingId, EncodingRef};
 
 mod array;
 mod canonical;
 mod operations;
+mod operator;
 mod serde;
 mod validity;
 mod visitor;

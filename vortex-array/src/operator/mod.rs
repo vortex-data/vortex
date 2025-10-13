@@ -25,6 +25,7 @@
 //! execution. The executor is also responsible for managing memory and scheduling work across
 //! different execution resources.
 
+pub mod bool_runs;
 pub mod canonical;
 pub mod cast;
 mod display;
