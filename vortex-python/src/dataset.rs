@@ -11,7 +11,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::dtype::{FieldName, FieldNames};
 use vortex::error::VortexResult;
-use vortex::expr::{ExprRef, SelectExpr, root, select};
+use vortex::expr::{root, select, ExprRef, SelectExpr};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::iter::ArrayIteratorExt;
 use vortex::scan::SplitBy;
@@ -21,7 +21,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrow::{IntoPyArrow, ToPyArrow};
 use crate::expr::PyExpr;
 use crate::object_store_urls::object_store_from_url;
-use crate::{RUNTIME, TOKIO_RUNTIME, install_module};
+use crate::{install_module, RUNTIME, TOKIO_RUNTIME};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
@@ -209,6 +209,6 @@ impl PyVortexDataset {
 }
 
 #[pyfunction]
-pub fn dataset_from_url(url: &str) -> PyResult<PyVortexDataset> {
-    Ok(TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url))?)
+pub fn dataset_from_url(py: Python, url: &str) -> PyResult<PyVortexDataset> {
+    Ok(py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?)
 }
