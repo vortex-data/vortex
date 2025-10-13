@@ -15,6 +15,7 @@ use crate::vtable::SerdeVTable;
 impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
     type Metadata = EmptyMetadata;
 
+    #[inline]
     fn metadata(_array: &PrimitiveArray) -> VortexResult<Option<Self::Metadata>> {
         Ok(Some(EmptyMetadata))
     }

@@ -6,6 +6,7 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl ValidityHelper for PrimitiveArray {
+    #[inline]
     fn validity(&self) -> &Validity {
         &self.validity
     }

@@ -43,22 +43,27 @@ impl OperatorEq for PrimitiveArray {
 }
 
 impl Operator for PrimitiveArray {
+    #[inline]
     fn id(&self) -> OperatorId {
         self.encoding_id()
     }
 
+    #[inline]
     fn as_any(&self) -> &dyn Any {
         self
     }
 
+    #[inline]
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 
+    #[inline]
     fn bounds(&self) -> LengthBounds {
         LengthBounds::from(self.buffer.len() / self.dtype.as_ptype().byte_width())
     }
 
+    #[inline]
     fn children(&self) -> &[OperatorRef] {
         &[]
     }
@@ -67,10 +72,12 @@ impl Operator for PrimitiveArray {
         write!(f, "PrimitiveArray(ptype={})", self.ptype())
     }
 
+    #[inline]
     fn with_children(self: Arc<Self>, _children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
         Ok(self)
     }
 
+    #[inline]
     fn as_batch(&self) -> Option<&dyn BatchOperator> {
         Some(self)
     }
