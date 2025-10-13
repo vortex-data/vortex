@@ -278,8 +278,7 @@ impl Patches {
         let chunk_offsets_len = self.chunk_offsets.as_ref().map(|co| co.len());
         let chunk_offsets_ptype = self
             .chunk_offsets
-            .as_ref()
-            .and_then(|co| Some(co.dtype().as_ptype()));
+            .as_ref().map(|co| co.dtype().as_ptype());
 
         Ok(PatchesMetadata::new(
             self.indices.len(),
@@ -379,13 +378,12 @@ impl Patches {
             vortex_panic!("offset_within_chunk is required to be set")
         };
 
-        let chunk_start_idx = (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE;
-        let chunk_end_idx = chunk_start_idx + 1;
+        let chunk_idx = (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE;
 
         // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
         let base_offset = self.chunk_offset_at(0);
 
-        let patches_start_idx = (self.chunk_offset_at(chunk_start_idx) - base_offset)
+        let patches_start_idx = (self.chunk_offset_at(chunk_idx) - base_offset)
             // Chunk offsets are only sliced off in case the slice is fully
             // outside of the chunk range.
             //
@@ -394,8 +392,8 @@ impl Patches {
             // saturating sub when adjusting the indices based on the chunk offset.
             .saturating_sub(offset_within_chunk);
 
-        let patches_end_idx = if chunk_end_idx < chunk_offsets.len() {
-            self.chunk_offset_at(chunk_end_idx) - base_offset - offset_within_chunk
+        let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
+            self.chunk_offset_at(chunk_idx + 1) - base_offset - offset_within_chunk
         } else {
             self.indices.len()
         };
