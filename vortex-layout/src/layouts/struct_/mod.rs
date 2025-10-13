@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::{DType, Field, FieldMask, StructFields};
+use vortex_dtype::{DType, Field, FieldMask, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
@@ -52,24 +52,43 @@ impl VTable for StructVTable {
         layout.struct_fields().nfields()
     }
 
-    fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
-        layout.children.child(
-            idx,
-            &layout
+    fn child(layout: &Self::Layout, index: usize) -> VortexResult<LayoutRef> {
+        let schema_index = if layout.dtype.is_nullable() {
+            index.saturating_sub(1)
+        } else {
+            index
+        };
+
+        let child_dtype = if index == 0 && layout.dtype.is_nullable() {
+            DType::Bool(Nullability::NonNullable)
+        } else {
+            layout
                 .struct_fields()
-                .field_by_index(idx)
-                .ok_or_else(|| vortex_err!("Missing field {idx}"))?,
-        )
+                .field_by_index(schema_index)
+                .ok_or_else(|| vortex_err!("Missing field {schema_index}"))?
+        };
+
+        layout.children.child(index, &child_dtype)
     }
 
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType {
-        LayoutChildType::Field(
-            layout
-                .struct_fields()
-                .field_name(idx)
-                .vortex_expect("Field index out of bounds")
-                .clone(),
-        )
+        let schema_index = if layout.dtype.is_nullable() {
+            idx.saturating_sub(1)
+        } else {
+            idx
+        };
+
+        if idx == 0 && layout.dtype.is_nullable() {
+            LayoutChildType::Auxiliary("validity".into())
+        } else {
+            LayoutChildType::Field(
+                layout
+                    .struct_fields()
+                    .field_name(schema_index)
+                    .vortex_expect("Field index out of bounds")
+                    .clone(),
+            )
+        }
     }
 
     fn new_reader(

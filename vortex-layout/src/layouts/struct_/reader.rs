@@ -277,7 +277,8 @@ mod tests {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
-        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
+        let strategy =
+            StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,

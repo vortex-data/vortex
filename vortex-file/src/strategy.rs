@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::collect::CollectStrategy;
 use vortex_layout::layouts::compressed::{CompressingStrategy, CompressorPlugin};
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -100,7 +101,7 @@ impl WriteStrategyBuilder {
         // 2. calculate stats for each row group
         let stats = ZonedStrategy::new(
             dict,
-            compress_then_flat,
+            compress_then_flat.clone(),
             ZonedLayoutOptions {
                 block_size: self.row_block_size,
                 ..Default::default()
@@ -120,6 +121,8 @@ impl WriteStrategyBuilder {
         );
 
         // 0. start with splitting columns
-        Arc::new(StructStrategy::new(repartition))
+        let validity_strategy = CollectStrategy::new(compress_then_flat);
+
+        Arc::new(StructStrategy::new(repartition, validity_strategy))
     }
 }

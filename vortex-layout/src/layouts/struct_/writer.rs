@@ -7,7 +7,8 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
-use vortex_array::{Array, ArrayContext, ToCanonical};
+use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
@@ -17,19 +18,23 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{
-    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt,
+    SendableSequentialStream, SequenceId, SequencePointer, SequentialStreamAdapter,
+    SequentialStreamExt,
 };
 use crate::{IntoLayout as _, LayoutRef, LayoutStrategy};
 
+#[derive(Clone)]
 pub struct StructStrategy {
     child: Arc<dyn LayoutStrategy>,
+    validity: Arc<dyn LayoutStrategy>,
 }
 
 /// A [`LayoutStrategy`] that splits a StructArray batch into child layout writers
 impl StructStrategy {
-    pub fn new<S: LayoutStrategy>(child: S) -> Self {
+    pub fn new<S: LayoutStrategy, V: LayoutStrategy>(child: S, validity: V) -> Self {
         Self {
             child: Arc::new(child),
+            validity: Arc::new(validity),
         }
     }
 }
@@ -46,27 +51,18 @@ impl LayoutStrategy for StructStrategy {
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct_fields_opt().cloned() else {
-            // nothing we can do if dtype is not struct
-            return self
-                .child
-                .write_stream(ctx, segment_sink, stream, eof, handle)
-                .await;
+            vortex_bail!("StructStrategy expects to consume struct array, type was {dtype}");
         };
+
+        // Check for unique field names at write time.
         if HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
             != struct_dtype.names().len()
         {
             vortex_bail!("StructLayout must have unique field names");
         }
 
-        let stream = stream.map(|chunk| {
-            let (sequence_id, chunk) = chunk?;
-            if !chunk.all_valid() {
-                vortex_bail!("Cannot push struct chunks with top level invalid values");
-            };
-            Ok((sequence_id, chunk))
-        });
-
-        // There are now fields so this is the layout leaf
+        // Optimization: when there are no fields, don't spawn any work and just write a trivial
+        // StructLayout.
         if struct_dtype.nfields() == 0 {
             let row_count = stream
                 .try_fold(
@@ -78,21 +74,40 @@ impl LayoutStrategy for StructStrategy {
         }
 
         // stream<struct_chunk> -> stream<vec<column_chunk>>
-        let columns_vec_stream = stream.map(|chunk| {
+        let is_nullable = dtype.is_nullable();
+
+        // Write the entire stream as a single flat layout child
+
+        let columns_vec_stream = stream.map(move |chunk| {
             let (sequence_id, chunk) = chunk?;
             let mut sequence_pointer = sequence_id.descend();
             let struct_chunk = chunk.to_struct();
-            let columns: Vec<_> = struct_chunk
-                .fields()
-                .iter()
-                .map(|field| (sequence_pointer.advance(), field.to_array()))
-                .collect();
+            let mut columns: Vec<(SequenceId, ArrayRef)> = Vec::new();
+            if is_nullable {
+                columns.push((
+                    sequence_pointer.advance(),
+                    chunk.validity_mask().into_array(),
+                ));
+            }
+
+            columns.extend(
+                struct_chunk
+                    .fields()
+                    .iter()
+                    .map(|field| (sequence_pointer.advance(), field.to_array())),
+            );
+
             Ok(columns)
         });
 
-        let (column_streams_tx, column_streams_rx): (Vec<_>, Vec<_>) = (0..struct_dtype.nfields())
-            .map(|_| kanal::bounded_async(1))
-            .unzip();
+        let stream_count = if is_nullable {
+            struct_dtype.nfields() + 1
+        } else {
+            struct_dtype.nfields()
+        };
+
+        let (column_streams_tx, column_streams_rx): (Vec<_>, Vec<_>) =
+            (0..stream_count).map(|_| kanal::bounded_async(1)).unzip();
 
         // Spawn a task to fan out column chunks to their respective transposed streams
         handle
@@ -118,26 +133,55 @@ impl LayoutStrategy for StructStrategy {
             })
             .detach();
 
-        let column_dtypes = (0..struct_dtype.nfields()).map(move |idx| {
+        let column_dtypes = (0..stream_count).map(move |idx| {
+            let mut index = idx;
+            // If struct is nullable, the first column stream is the validity
+            if is_nullable {
+                if index == 0 {
+                    return DType::Bool(Nullability::NonNullable);
+                } else {
+                    index -= 1
+                }
+            }
+
             struct_dtype
-                .field_by_index(idx)
+                .field_by_index(index)
                 .vortex_expect("bound checked")
         });
 
         let layout_futures: Vec<_> = column_dtypes
             .zip_eq(column_streams_rx)
-            .map(move |(dtype, recv)| {
+            .enumerate()
+            .map(move |(index, (dtype, recv))| {
                 let column_stream =
-                    SequentialStreamAdapter::new(dtype, recv.into_stream().boxed()).sendable();
+                    SequentialStreamAdapter::new(dtype.clone(), recv.into_stream().boxed())
+                        .sendable();
                 let child_eof = eof.split_off();
                 handle.spawn_nested(|h| {
                     let child = self.child.clone();
+                    let validity = self.validity.clone();
+                    let this = self.clone();
                     let ctx = ctx.clone();
+                    let dtype = dtype.clone();
                     let segment_sink = segment_sink.clone();
                     async move {
-                        child
-                            .write_stream(ctx, segment_sink, column_stream, child_eof, h)
-                            .await
+                        // Write validity stream
+                        if index == 0 && is_nullable {
+                            validity
+                                .write_stream(ctx, segment_sink, column_stream, child_eof, h)
+                                .await
+                        } else {
+                            // Build recursive StructLayout for nested struct fields
+                            // TODO(aduffy): add branch for ListLayout once that's implemented
+                            if dtype.is_struct() {
+                                this.write_stream(ctx, segment_sink, column_stream, child_eof, h)
+                                    .await
+                            } else {
+                                child
+                                    .write_stream(ctx, segment_sink, column_stream, child_eof, h)
+                                    .await
+                            }
+                        }
                     }
                 })
             })
@@ -159,10 +203,9 @@ impl LayoutStrategy for StructStrategy {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::arrays::{BoolArray, ChunkedArray, StructArray};
+    use vortex_array::arrays::{ChunkedArray, StructArray};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, Canonical, IntoArray as _};
-    use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldNames, Nullability, PType};
     use vortex_io::runtime::single::block_on;
 
@@ -175,7 +218,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn fails_on_duplicate_field() {
-        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
+        let strategy =
+            StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
@@ -203,38 +247,9 @@ mod tests {
     }
 
     #[test]
-    fn fails_on_top_level_nulls() {
-        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
-        let (ptr, eof) = SequenceId::root().split();
-        let ctx = ArrayContext::empty();
-        let segments = Arc::new(TestSegments::default());
-        let res = block_on(|handle| {
-            strategy.write_stream(
-                ctx,
-                segments,
-                StructArray::try_new(
-                    ["a"].into(),
-                    vec![buffer![1, 2, 3].into_array()],
-                    3,
-                    Validity::Array(BoolArray::from_iter(vec![true, true, false]).into_array()),
-                )
-                .unwrap()
-                .into_array()
-                .to_array_stream()
-                .sequenced(ptr),
-                eof,
-                handle,
-            )
-        });
-        assert!(
-            format!("{}", res.unwrap_err())
-                .starts_with("Cannot push struct chunks with top level invalid values"),
-        )
-    }
-
-    #[test]
     fn write_empty_field_struct_array() {
-        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
+        let strategy =
+            StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
