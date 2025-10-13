@@ -11,7 +11,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::dtype::{FieldName, FieldNames};
 use vortex::error::VortexResult;
-use vortex::expr::{root, select, ExprRef, SelectExpr};
+use vortex::expr::{ExprRef, SelectExpr, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::iter::ArrayIteratorExt;
 use vortex::scan::SplitBy;
@@ -21,7 +21,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrow::{IntoPyArrow, ToPyArrow};
 use crate::expr::PyExpr;
 use crate::object_store_urls::object_store_from_url;
-use crate::{install_module, RUNTIME, TOKIO_RUNTIME};
+use crate::{RUNTIME, TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
