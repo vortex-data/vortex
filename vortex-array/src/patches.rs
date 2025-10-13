@@ -486,7 +486,7 @@ impl Patches {
             offset: self.offset,
             indices: filtered_indices,
             values: filtered_values,
-            // TODO(0ax1): chunk offsets
+            // TODO(0ax1): Chunk offsets are invalid after a filter is applied.
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
         }))
@@ -598,7 +598,7 @@ impl Patches {
             offset: 0,
             indices: new_indices.clone(),
             values: take(self.values(), &values_indices)?,
-            // TODO(0ax1): chunk offsets
+            // TODO(0ax1): Chunk offsets are invalid after take is applied.
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
         }))
@@ -636,7 +636,7 @@ impl Patches {
             offset: 0,
             indices: new_sparse_indices,
             values: taken_values,
-            // TODO: chunk offsets
+            // TODO(0ax1): Chunk offsets are invalid after take is applied.
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
         }))
@@ -863,6 +863,7 @@ fn filter_patches_with_mask<T: IntegerPType>(
         0,
         new_patch_indices,
         new_patch_values,
+        // TODO(0ax1): Chunk offsets are invalid after a filter is applied.
         None,
     )))
 }
