@@ -34,7 +34,8 @@ pub async fn lance_compress_write_only(
 ) -> anyhow::Result<()> {
     let path = dataset_path.to_str().unwrap();
     let reader = RecordBatchIterator::new(batches.into_iter().map(Ok), schema);
-    let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_1);
+    // Lance v2.1 fails on CMSProvider dataset.
+    let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_0);
     Dataset::write(reader, path, Some(write_params)).await?;
     Ok(())
 }
@@ -112,7 +113,8 @@ pub async fn lance_compress_write(
     let path = dataset_dir.to_str().unwrap();
 
     let reader = RecordBatchIterator::new(converted_batches.into_iter().map(Ok), converted_schema);
-    let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_1);
+    // Lance v2.1 fails on CMSProvider dataset.
+    let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_0);
     Dataset::write(reader, path, Some(write_params)).await?;
 
     Ok(path.to_string())
