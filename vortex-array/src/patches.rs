@@ -1610,4 +1610,12 @@ mod test {
         assert_eq!(sliced.offset(), 1023);
         assert_eq!(sliced.search_index(0), SearchResult::Found(0));
     }
+
+    #[test]
+    fn test_index_larger_than_length() {
+        let indices = buffer![1023u64].into_array();
+        let values = buffer![42i32].into_array();
+        let patches = Patches::new(1024, 0, indices, values, None);
+        assert_eq!(patches.search_index(2048), SearchResult::NotFound(1));
+    }
 }
