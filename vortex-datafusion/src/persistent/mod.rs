@@ -44,6 +44,7 @@ mod tests {
     use datafusion::prelude::SessionContext;
     use datafusion_datasource::file_format::format_as_file_type;
     use datafusion_expr::LogicalPlanBuilder;
+    use datafusion_physical_plan::display::DisplayableExecutionPlan;
     use insta::assert_snapshot;
     use rstest::rstest;
     use tempfile::{TempDir, tempdir};
@@ -184,6 +185,82 @@ mod tests {
         | 3 | 8    | 9   |
         | 4 | 9    | 10  |
         +---+------+-----+
+        ");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_table_ordered_by() -> anyhow::Result<()> {
+        let dir = TempDir::new().unwrap();
+
+        let factory: VortexFormatFactory = VortexFormatFactory::new();
+        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
+        register_vortex_format_factory(factory, &mut session_state_builder);
+        let session = SessionContext::new_with_state(session_state_builder.build());
+
+        // Vortex
+        session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE my_tbl_vx \
+                (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
+                STORED AS vortex  \
+                WITH ORDER (c1 ASC)
+                LOCATION '{}/vx/'",
+                dir.path().to_str().unwrap()
+            ))
+            .await?;
+
+        session
+            .sql("INSERT INTO my_tbl_vx VALUES ('air', 5), ('balloon', 42)")
+            .await?
+            .collect()
+            .await?;
+
+        session
+            .sql("INSERT INTO my_tbl_vx VALUES ('zebra', 5)")
+            .await?
+            .collect()
+            .await?;
+
+        session
+            .sql("INSERT INTO my_tbl_vx VALUES ('texas', 2000), ('alabama', 2000)")
+            .await?
+            .collect()
+            .await?;
+
+        let df = session
+            .sql("SELECT * FROM my_tbl_vx ORDER BY c1 ASC limit 3")
+            .await?;
+        let (state, plan) = df.clone().into_parts();
+        let physical_plan = state.create_physical_plan(&plan).await?;
+
+        insta::assert_snapshot!(DisplayableExecutionPlan::new(physical_plan.as_ref())
+                .tree_render().to_string(), @r"
+        ┌───────────────────────────┐
+        │  SortPreservingMergeExec  │
+        │    --------------------   │
+        │  c1 ASC NULLS LASTlimit:  │
+        │             3             │
+        └─────────────┬─────────────┘
+        ┌─────────────┴─────────────┐
+        │       DataSourceExec      │
+        │    --------------------   │
+        │          files: 3         │
+        │       format: vortex      │
+        └───────────────────────────┘
+        ");
+
+        let r = df.collect().await?;
+
+        insta::assert_snapshot!(pretty_format_batches(&r)?.to_string(), @r"
+        +---------+------+
+        | c1      | c2   |
+        +---------+------+
+        | air     | 5    |
+        | alabama | 2000 |
+        | balloon | 42   |
+        +---------+------+
         ");
 
         Ok(())

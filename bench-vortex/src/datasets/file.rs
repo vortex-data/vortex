@@ -11,10 +11,13 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::SessionContext;
 use glob::Pattern;
+use lance::datafusion::LanceTableProvider;
+use lance::dataset::Dataset;
 use tracing::info;
 use url::Url;
 use vortex_datafusion::VortexFormat;
 
+use crate::Format;
 use crate::datasets::BenchmarkDataset;
 
 pub async fn register_parquet_files(
@@ -160,6 +163,35 @@ pub async fn register_vortex_compact_files(
         BenchmarkDataset::StatPopGen { .. } => todo!(),
         BenchmarkDataset::Fineweb => todo!(),
     }
+
+    Ok(())
+}
+
+pub async fn register_lance_files(
+    session: &SessionContext,
+    table_name: &str,
+    file_url: &Url,
+    dataset: &BenchmarkDataset,
+) -> Result<()> {
+    let path = match dataset {
+        BenchmarkDataset::TpcH { .. } | BenchmarkDataset::TpcDS { .. } => {
+            file_url.join(&format!("{}.lance/", table_name))
+        }
+        BenchmarkDataset::ClickBench { .. } => {
+            file_url.join(&format!("{}/hits.lance/", Format::Lance.name()))
+        }
+        _ => todo!("Lance support for {:?} not implemented", dataset),
+    }?;
+
+    let dataset = Dataset::open(path.as_str()).await?;
+    let provider = LanceTableProvider::new(
+        Arc::new(dataset),
+        false, // with_row_id
+        false, // with_row_addr
+    );
+
+    session.register_table(table_name, Arc::new(provider))?;
+    info!("Successfully registered Lance table '{}'", table_name);
 
     Ok(())
 }
