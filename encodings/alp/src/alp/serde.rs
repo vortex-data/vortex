@@ -59,7 +59,7 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
             .map(|p| {
                 let indices = children.get(1, &p.indices_dtype(), p.len())?;
                 let values = children.get(2, dtype, p.len())?;
-                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
+                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values, None))
             })
             .transpose()?;
 
@@ -114,7 +114,14 @@ mod tests {
         check_metadata(
             "alp.metadata",
             ProstMetadata(ALPMetadata {
-                patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
+                patches: Some(PatchesMetadata::new(
+                    usize::MAX,
+                    usize::MAX,
+                    PType::U64,
+                    None,
+                    None,
+                    None,
+                )),
                 exp_e: u32::MAX,
                 exp_f: u32::MAX,
             }),

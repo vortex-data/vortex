@@ -191,6 +191,7 @@ mod test {
                     0,
                     buffer![1u32].into_array(),
                     PrimitiveArray::new(buffer![999u32], Validity::AllValid).to_array(),
+                    None,
                 )),
                 1,
                 8,

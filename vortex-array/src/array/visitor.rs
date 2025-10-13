@@ -146,5 +146,8 @@ pub trait ArrayChildVisitor {
     fn visit_patches(&mut self, patches: &Patches) {
         self.visit_child("patch_indices", patches.indices());
         self.visit_child("patch_values", patches.values());
+        if let Some(chunk_offsets) = patches.chunk_offsets() {
+            self.visit_child("patch_chunk_offsets", chunk_offsets);
+        }
     }
 }

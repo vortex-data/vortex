@@ -17,7 +17,8 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-lance = "0.38.1"
+lance = "0.38.2"
+lance-encoding = "0.38.2"
 
 anyhow = { workspace = true }
 arrow-array = { workspace = true }

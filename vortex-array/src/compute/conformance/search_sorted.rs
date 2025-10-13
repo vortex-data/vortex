@@ -23,6 +23,7 @@ pub fn sparse_high_null_fill() -> ArrayRef {
             0,
             buffer![17u64, 18, 19].into_array(),
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
+            None,
         ))
         .into_array()
 }
@@ -34,6 +35,7 @@ pub fn sparse_high_non_null_fill() -> ArrayRef {
             0,
             buffer![17u64, 18, 19].into_array(),
             buffer![33_i32, 44, 55].into_array(),
+            None,
         ))
         .into_array()
 }
@@ -45,6 +47,7 @@ pub fn sparse_low() -> ArrayRef {
             0,
             buffer![0u64, 1, 2].into_array(),
             buffer![33i32, 44, 55].into_array(),
+            None,
         ))
         .into_array()
 }
@@ -56,6 +59,7 @@ pub fn sparse_low_high() -> ArrayRef {
             0,
             buffer![0u64, 1, 17, 18, 19].into_array(),
             buffer![11i32, 22, 33, 44, 55].into_array(),
+            None,
         ))
         .into_array()
 }
@@ -67,6 +71,7 @@ pub fn sparse_edge_patch_high() -> ArrayRef {
             0,
             buffer![0u64, 1, 2, 19].into_array(),
             buffer![11i32, 22, 23, 55].into_array(),
+            None,
         ))
         .into_array()
 }
@@ -78,6 +83,7 @@ pub fn sparse_edge_patch_low() -> ArrayRef {
             0,
             buffer![0u64, 17, 18, 19].into_array(),
             buffer![11i32, 33, 44, 55].into_array(),
+            None,
         ))
         .into_array()
 }

@@ -72,7 +72,14 @@ fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
         .collect::<Buffer<u64>>();
     let sparse_len = indices.len();
     let values = Buffer::from_iter((0..sparse_len).map(|x| x as u64)).into_array();
-    Patches::new(len, 0, indices.into_array(), values)
+    Patches::new(
+        len,
+        0,
+        indices.into_array(),
+        values,
+        // TODO(0ax1): handle chunk offsets
+        None,
+    )
 }
 
 fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> ArrayRef {

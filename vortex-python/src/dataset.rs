@@ -209,6 +209,6 @@ impl PyVortexDataset {
 }
 
 #[pyfunction]
-pub fn dataset_from_url(url: &str) -> PyResult<PyVortexDataset> {
-    Ok(TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url))?)
+pub fn dataset_from_url(py: Python, url: &str) -> PyResult<PyVortexDataset> {
+    Ok(py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?)
 }
