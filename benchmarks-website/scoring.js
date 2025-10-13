@@ -27,6 +27,21 @@ const scoring = {
   getLatestDataPerSeries(benchSet) {
     const seriesLatestData = new Map();
 
+    // First pass: collect all unique series names across all queries
+    const allSeriesNames = new Set();
+    for (const [queryName, queryData] of benchSet.entries()) {
+      if (!queryData.series || queryData.series.size === 0) continue;
+      for (const seriesName of queryData.series.keys()) {
+        allSeriesNames.add(seriesName);
+      }
+    }
+
+    // Initialize the map with all series names (empty Maps for each)
+    for (const seriesName of allSeriesNames) {
+      seriesLatestData.set(seriesName, new Map());
+    }
+
+    // Second pass: populate with latest non-null values where available
     for (const [queryName, queryData] of benchSet.entries()) {
       if (!queryData.series || queryData.series.size === 0) continue;
 
@@ -35,9 +50,6 @@ const scoring = {
         for (let i = seriesData.length - 1; i >= 0; i--) {
           const result = seriesData[i];
           if (result && result.value !== null && result.value !== undefined) {
-            if (!seriesLatestData.has(seriesName)) {
-              seriesLatestData.set(seriesName, new Map());
-            }
             seriesLatestData.get(seriesName).set(queryName, result.value);
             break;
           }
@@ -121,7 +133,7 @@ const scoring = {
 
     // Sort by score (lower is better)
     const sortedScores = Array.from(scores.entries()).sort(
-      (a, b) => a[1].score - b[1].score
+      (a, b) => a[1].score - b[1].score,
     );
 
     const summaryDiv = document.createElement("div");
@@ -241,7 +253,7 @@ const scoring = {
 
     // Sort by time (lower is better)
     const sortedMetrics = Array.from(metrics.entries()).sort(
-      (a, b) => a[1].time - b[1].time
+      (a, b) => a[1].time - b[1].time,
     );
 
     const summaryDiv = document.createElement("div");
@@ -302,10 +314,10 @@ const scoring = {
 
     // Find the specific ratio charts
     const compressRatioChart = benchSet.get(
-      "VORTEX:PARQUET-ZSTD RATIO COMPRESS TIME"
+      "VORTEX:PARQUET-ZSTD RATIO COMPRESS TIME",
     );
     const decompressRatioChart = benchSet.get(
-      "VORTEX:PARQUET-ZSTD RATIO DECOMPRESS TIME"
+      "VORTEX:PARQUET-ZSTD RATIO DECOMPRESS TIME",
     );
 
     if (!compressRatioChart && !decompressRatioChart) return null;
@@ -463,7 +475,7 @@ const scoring = {
         <span class="score-series">Scan Speed (Decompression)</span>
         <span class="score-metrics">
           <span class="score-value">${metrics.decompressRatio.toFixed(
-            2
+            2,
           )}x</span>
         </span>
       `;

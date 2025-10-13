@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -52,19 +52,22 @@
 
     <!-- <script src="data.js"></script> -->
     <script type="module" id="main-script">
-      import './code.js';
+      import "./code.js";
 
       // Wait for initialization to complete
       const waitForInit = () => {
         if (window.initAndRender) {
           window.initAndRender([
-            ["Random Access", {
-              renamedDatasets: {
-                "vortex-tokio-local-disk": "vortex-nvme",
-                "lance-tokio-local-disk": "lance-nvme",
-                "parquet-tokio-local-disk": "parquet-nvme",
-              }
-            }],
+            [
+              "Random Access",
+              {
+                renamedDatasets: {
+                  "vortex-tokio-local-disk": "vortex-nvme",
+                  "lance-tokio-local-disk": "lance-nvme",
+                  "parquet-tokio-local-disk": "parquet-nvme",
+                },
+              },
+            ],
             [
               "Compression",
               {
@@ -92,7 +95,11 @@
                   "wide table cols=10 chunks=50 rows=1000",
                   "wide table cols=100 chunks=50 rows=1000",
                 ]),
-                renamedDatasets: undefined,
+                renamedDatasets: {
+                  lance: "lance",
+                  Lance: "lance",
+                  LANCE: "lance",
+                },
               },
             ],
             [
@@ -103,7 +110,7 @@
                   "PARQUET-ZSTD SIZE",
                   "LANCE SIZE",
                   "VORTEX:PARQUET-ZSTD SIZE",
-                  "VORTEX:LANCE SIZE"
+                  "VORTEX:LANCE SIZE",
                 ],
                 hiddenDatasets: new Set(["wide table cols=1000"]),
                 removedDatasets: new Set([
@@ -112,6 +119,11 @@
                   "wide table cols=10 chunks=50 rows=1000",
                   "wide table cols=100 chunks=50 rows=1000",
                 ]),
+                renamedDatasets: {
+                  lance: "lance",
+                  Lance: "lance",
+                  LANCE: "lance",
+                },
               },
             ],
             [
@@ -288,8 +300,8 @@
                   "DuckDB:duckdb": "duckdb:duckdb",
                 },
               },
-           ],
-           [
+            ],
+            [
               "Statistical and Population Genetics",
               {
                 renamedDatasets: {
@@ -304,7 +316,7 @@
           setTimeout(waitForInit, 100);
         }
       };
-      
+
       waitForInit();
     </script>
   </head>
