@@ -23,7 +23,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 /// number of `elements` is equal to the `size` field of the [`FixedSizeList`].
 ///
 /// [`FixedSizeList`]: DType::FixedSizeList
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ListScalar<'a> {
     dtype: &'a DType,
     element_dtype: &'a Arc<DType>,

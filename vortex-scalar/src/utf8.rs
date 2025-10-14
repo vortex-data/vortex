@@ -15,7 +15,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 ///
 /// This type provides a view into a UTF-8 string scalar value, which can be either
 /// a valid UTF-8 string or null.
-#[derive(Debug, Hash, Eq)]
+#[derive(Debug, Clone, Hash, Eq)]
 pub struct Utf8Scalar<'a> {
     dtype: &'a DType,
     value: Option<Arc<BufferString>>,
