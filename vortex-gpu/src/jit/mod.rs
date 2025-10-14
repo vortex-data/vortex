@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use cudarc::driver::{CudaStream, LaunchArgs};
 pub use run::create_run_jit_kernel;
+pub use type_::CUDAType;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
@@ -71,7 +72,7 @@ struct StepIdAllocator {
 }
 
 impl StepIdAllocator {
-    pub fn get_id(&mut self) -> usize {
+    pub fn fresh_id(&mut self) -> usize {
         let id = self.next_id;
         self.next_id += 1;
         id
@@ -82,12 +83,12 @@ trait GPUVisitor<'a> {
     fn accept(&mut self, node: &'a dyn GPUPipelineJIT) -> VortexResult<()>;
 }
 
-struct GPUKernelParameter {
+pub struct GPUKernelParameter {
     name: String,
     type_: String,
 }
 
-struct GPULaunchConfig {
+pub struct GPULaunchConfig {
     block_width: u32,
 }
 

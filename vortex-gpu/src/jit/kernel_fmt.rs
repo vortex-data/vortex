@@ -4,18 +4,18 @@
 use std::fmt::Write;
 use std::sync::Arc;
 
-use cudarc::driver::{CudaContext, CudaFunction, CudaStream, LaunchArgs};
+use cudarc::driver::{CudaContext, CudaFunction};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
-use crate::indent::IndentedWriter;
+use crate::indent::{IndentedWrite, IndentedWriter};
 use crate::jit::type_::CUDAType;
 use crate::jit::{GPUKernelParameter, GPUPipelineJIT, GPUVisitor};
 
 struct DeclPrinter<'a, 'b: 'a> {
-    w: &'a mut IndentedWriter<&'b mut dyn Write>,
+    w: &'a mut IndentedWrite<'b>,
 }
 
-fn write_kernel_declarations(w: &mut IndentedWriter<&mut dyn Write>, node: &dyn GPUPipelineJIT) {
+fn write_kernel_declarations(w: &mut IndentedWrite, node: &dyn GPUPipelineJIT) {
     let mut decl = DeclPrinter { w };
     decl.accept(node).vortex_expect("write decl cannot fail");
 }
@@ -46,10 +46,7 @@ fn collect_in_param(node: &dyn GPUPipelineJIT) -> VortexResult<Vec<GPUKernelPara
     Ok(params.params)
 }
 
-pub fn create_kernel_str(
-    w: &mut IndentedWriter<&mut dyn Write>,
-    output: &dyn GPUPipelineJIT,
-) -> VortexResult<()> {
+pub fn create_kernel_str(w: &mut IndentedWrite, output: &dyn GPUPipelineJIT) -> VortexResult<()> {
     let mut params = collect_in_param(output)?;
     params.push(GPUKernelParameter {
         name: "_output".to_string(),
@@ -84,7 +81,7 @@ pub fn create_kernel_str(
 
             write_kernel_declarations(w, output);
             writeln!(w)?;
-            output.kernel_body(w, &|w: &mut IndentedWriter<&mut dyn Write>| {
+            output.kernel_body(w, &|w: &mut IndentedWrite| {
                 writeln!(w, "s_output[out_idx] = {tmp};", tmp = output.output_var())
             })?;
             writeln!(w)?;

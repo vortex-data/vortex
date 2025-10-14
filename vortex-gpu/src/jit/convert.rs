@@ -4,16 +4,16 @@
 use std::sync::Arc;
 
 use cudarc::driver::CudaStream;
-use itertools::all;
-use vortex_alp::{ALPFloat, ALPVTable, match_each_alp_float_ptype};
+use vortex_alp::ALPVTable;
 use vortex_array::{Array, ArrayRef};
-use vortex_buffer::Buffer;
-use vortex_dtype::match_each_native_ptype;
-use vortex_error::{VortexUnwrap, vortex_err};
 use vortex_fastlanes::{BitPackedVTable, FoRVTable};
 
 use crate::jit::arrays::{alp, bitpack, for_};
-use crate::jit::{GPUPipelineJIT, ScalarGPUPipelineJITNode, StepIdAllocator};
+use crate::jit::{GPUPipelineJIT, StepIdAllocator};
+
+pub fn new_jit_array(a: &ArrayRef, stream: &Arc<CudaStream>) -> Box<dyn GPUPipelineJIT> {
+    handle_array(a, stream, &mut StepIdAllocator::default())
+}
 
 pub fn handle_array(
     a: &ArrayRef,

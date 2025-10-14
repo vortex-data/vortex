@@ -5,7 +5,7 @@ use std::fmt;
 use std::fmt::Write;
 use std::sync::Arc;
 
-use cudarc::driver::{CudaStream, DeviceRepr, LaunchArgs};
+use cudarc::driver::{CudaStream, DeviceRepr, LaunchArgs, PushKernelArg};
 use vortex_alp::{ALPArray, ALPFloat, match_each_alp_float_ptype};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
@@ -13,7 +13,7 @@ use vortex_error::VortexResult;
 use crate::indent::IndentedWriter;
 use crate::jit::convert::handle_array;
 use crate::jit::{
-    GPUKernelParameter, GPUPipelineJIT, ScalarGPUPipelineJIT, ScalarGPUPipelineJITNode,
+    CUDAType, GPUKernelParameter, GPUPipelineJIT, ScalarGPUPipelineJIT, ScalarGPUPipelineJITNode,
     StepIdAllocator,
 };
 
@@ -32,7 +32,7 @@ pub fn new_jit(
 ) -> Box<dyn GPUPipelineJIT> {
     match_each_alp_float_ptype!(alp.ptype(), |A| {
         let child = handle_array(alp.encoded(), stream, allocator);
-        let step_id = allocator.get_id();
+        let step_id = allocator.fresh_id();
         Box::new(ScalarGPUPipelineJITNode {
             inner: ALP {
                 step_id,

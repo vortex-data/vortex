@@ -5,12 +5,12 @@ use std::fmt;
 use std::fmt::Write;
 use std::sync::Arc;
 
-use cudarc::driver::{CudaStream, DeviceRepr, LaunchArgs};
+use cudarc::driver::{CudaStream, DeviceRepr, LaunchArgs, PushKernelArg};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_fastlanes::{BitPackedArray, FoRArray};
+use vortex_fastlanes::FoRArray;
 
-use crate::indent::IndentedWriter;
+use crate::indent::{IndentedWrite, IndentedWriter};
 use crate::jit::convert::handle_array;
 use crate::jit::{
     CUDAType, GPUKernelParameter, GPUPipelineJIT, ScalarGPUPipelineJIT, ScalarGPUPipelineJITNode,
@@ -32,7 +32,7 @@ pub fn new_jit(
         let child = handle_array(for_.encoded(), stream, allocator);
         Box::new(ScalarGPUPipelineJITNode {
             inner: FoR {
-                step_id,
+                step_id: allocator.fresh_id(),
                 reference: for_
                     .reference_scalar()
                     .as_primitive()
@@ -83,18 +83,17 @@ impl<P: NativePType + DeviceRepr> ScalarGPUPipelineJIT for FoR<P> {
 
     fn kernel_body(
         &self,
-        w: &mut IndentedWriter<&mut dyn Write>,
-        f: &dyn Fn(&mut IndentedWriter<&mut dyn Write>) -> fmt::Result,
+        w: &mut IndentedWrite,
+        f: &dyn Fn(&mut IndentedWrite) -> fmt::Result,
     ) -> fmt::Result {
         assert_eq!(self.output_type(), self.child.output_type());
         let in_var = self.child.output_var();
         let out_var = self.tmp_var();
         let ref_var = self.ref_var();
-        self.child
-            .kernel_body(w, &|w: &mut IndentedWriter<&mut dyn Write>| {
-                writeln!(w, "{out_var} = {in_var} + {ref_var};")?;
-                f(w)
-            })
+        self.child.kernel_body(w, &|w: &mut IndentedWrite| {
+            writeln!(w, "{out_var} = {in_var} + {ref_var};")?;
+            f(w)
+        })
     }
 
     fn output_var(&self) -> String {

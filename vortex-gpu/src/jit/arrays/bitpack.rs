@@ -6,13 +6,12 @@ use std::fmt::Write;
 use std::sync::Arc;
 
 use cudarc::driver::{CudaSlice, CudaStream, DeviceRepr, LaunchArgs, PushKernelArg};
-use vortex_alp::{ALPArray, match_each_alp_float_ptype};
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexResult, VortexUnwrap, vortex_err};
 use vortex_fastlanes::BitPackedArray;
 
-use crate::indent::IndentedWriter;
+use crate::indent::IndentedWrite;
 use crate::jit::{
     CUDAType, GPUKernelParameter, GPULaunchConfig, GPUPipelineJIT, GPUVisitor, StepIdAllocator,
 };
@@ -37,7 +36,7 @@ pub fn new_jit(
             .memcpy_stod(values.as_slice())
             .map_err(|e| vortex_err!("Failed to copy to device: {e}"))
             .vortex_unwrap();
-        let step_id = allocator.get_id();
+        let step_id = allocator.fresh_id();
         Box::new(BitPack::<P> {
             step_id,
             bit_width: bp.bit_width(),
@@ -72,7 +71,7 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
         Ok(())
     }
 
-    fn decls(&self, w: &mut IndentedWriter<&mut dyn Write>) -> fmt::Result {
+    fn decls(&self, w: &mut IndentedWrite) -> fmt::Result {
         let output_cuda_type = CUDAType::from(self.output_type);
         let uoutput_cuda_type = CUDAType::from(self.output_type.to_unsigned());
         writeln!(
@@ -98,8 +97,8 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
 
     fn kernel_body(
         &self,
-        w: &mut IndentedWriter<&mut dyn Write>,
-        f: &dyn Fn(&mut IndentedWriter<&mut dyn Write>) -> fmt::Result,
+        w: &mut IndentedWrite,
+        f: &dyn Fn(&mut IndentedWrite) -> fmt::Result,
     ) -> fmt::Result {
         let bit_width = self.bit_width as usize;
         let bits = self.output_type.bit_width();

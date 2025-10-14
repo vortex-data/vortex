@@ -32,3 +32,5 @@ impl<W: Write> IndentedWriter<W> {
         write!(self.write, "{}{}", self.indent, fmt)
     }
 }
+
+pub type IndentedWrite<'a> = IndentedWriter<&'a mut dyn Write>;

@@ -13,9 +13,9 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
 
-use crate::jit::convert::handle_array;
+use crate::jit::convert::new_jit_array;
 use crate::jit::kernel_fmt::create_kernel;
-use crate::jit::{GPUPipelineJIT, GPUVisitor, StepIdAllocator};
+use crate::jit::{GPUPipelineJIT, GPUVisitor};
 
 pub fn create_run_jit_kernel(
     ctx: Arc<CudaContext>,
@@ -23,8 +23,7 @@ pub fn create_run_jit_kernel(
 ) -> VortexResult<(ArrayRef, Duration)> {
     let stream = ctx.default_stream();
 
-    let mut allocator = StepIdAllocator::new();
-    let output = handle_array(array, &stream, &mut allocator);
+    let output = new_jit_array(array, &stream);
     let kernel = create_kernel(ctx.clone(), output.as_ref())?;
 
     let num_chunks =
