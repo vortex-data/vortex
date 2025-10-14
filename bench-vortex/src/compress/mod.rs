@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod bench;
-pub mod lance;
-pub mod parquet;
-pub mod vortex;
-
 use std::sync::Arc;
 
 use ::vortex::arrays::ChunkedArray;
 use arrow_array::RecordBatch;
 use arrow_schema::Schema;
+
+pub mod bench;
+
+pub mod parquet;
+pub mod vortex;
+
+#[cfg(feature = "lance")]
+pub mod lance;
 
 pub fn chunked_to_vec_record_batch(chunked: ChunkedArray) -> (Vec<RecordBatch>, Arc<Schema>) {
     let chunks_vec = chunked.chunks();

@@ -1,3 +1,5 @@
+# Runs once when we add the `benchmark` tag to a pull request.
+
 name: PR Benchmarks
 
 on:

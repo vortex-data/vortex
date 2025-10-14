@@ -119,6 +119,7 @@ impl Benchmark for ClickBenchBenchmark {
                             })?
                         }
                     }
+                    #[cfg(feature = "lance")]
                     Format::Lance => {
                         // Lance manages its own partitioning internally, so flavor doesn't matter.
                         if self.flavor == Flavor::Single {

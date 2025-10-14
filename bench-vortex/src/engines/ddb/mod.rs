@@ -147,6 +147,7 @@ impl DuckDBCtx {
         let object = match file_format {
             Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => DuckDBObject::View,
             Format::OnDiskDuckDB => DuckDBObject::Table,
+            #[cfg(feature = "lance")]
             Format::Lance => {
                 anyhow::bail!(
                     "Lance format is not supported for DuckDB engine. \

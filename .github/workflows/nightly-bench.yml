@@ -26,7 +26,8 @@ jobs:
             "subcommand": "tpch",
             "name": "TPC-H on NVME",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
-            "scale_factor": "--scale-factor 10.0"
+            "scale_factor": "--scale-factor 10.0",
+            "build_args": "--features lance"
           },
           {
             "id": "tpch-s3",
@@ -35,7 +36,8 @@ jobs:
             "local_dir": "bench-vortex/data/tpch/10.0",
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/10.0/",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:lance,duckdb:parquet,duckdb:vortex",
-            "scale_factor": "--scale-factor 10.0"
+            "scale_factor": "--scale-factor 10.0",
+            "build_args": "--features lance"
           },
           {
             "id": "tpch-nvme",

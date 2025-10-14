@@ -14,6 +14,7 @@ on:
         required: false
         type: string
         description: "JSON string containing the matrix configuration"
+        # We do not include lance in the default configuration.
         default: |
           [
             {
@@ -119,7 +120,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --bin query_bench --package bench-vortex --profile release_debug
+          cargo build --bin query_bench --package bench-vortex --profile release_debug ${{ matrix.build_args }}
 
       - name: Generate data
         shell: bash
