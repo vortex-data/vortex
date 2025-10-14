@@ -43,9 +43,25 @@ pub struct FuzzArrayAction {
     pub actions: Vec<(Action, ExpectedValue)>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum CompressorStrategy {
+    Default,
+    Compact,
+}
+
+impl<'a> Arbitrary<'a> for CompressorStrategy {
+    fn arbitrary(u: &mut Unstructured<'a>) -> libfuzzer_sys::arbitrary::Result<Self> {
+        if u.arbitrary()? {
+            Ok(CompressorStrategy::Default)
+        } else {
+            Ok(CompressorStrategy::Compact)
+        }
+    }
+}
+
 #[derive(Debug, EnumCount)]
 pub enum Action {
-    Compress,
+    Compress(CompressorStrategy),
     Slice(Range<usize>),
     Take(ArrayRef),
     SearchSorted(Scalar, SearchSortedSide),
@@ -95,13 +111,14 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 0 => {
                     if actions
                         .last()
-                        .map(|(l, _)| matches!(l, Action::Compress))
+                        .map(|(l, _)| matches!(l, Action::Compress(_)))
                         .unwrap_or(false)
                     {
                         return Err(EmptyChoose);
                     }
+                    let strategy = CompressorStrategy::arbitrary(u)?;
                     (
-                        Action::Compress,
+                        Action::Compress(strategy),
                         ExpectedValue::Array(current_array.to_array()),
                     )
                 }

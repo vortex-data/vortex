@@ -32,6 +32,7 @@ vortex-error = { workspace = true }
 vortex-expr = { workspace = true, features = ["arbitrary"] }
 vortex-file = { workspace = true, features = ["tokio"] }
 vortex-io = { workspace = true }
+vortex-layout = { workspace = true, features = ["zstd"] }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
 vortex-utils = { workspace = true }
