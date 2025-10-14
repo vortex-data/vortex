@@ -7,20 +7,20 @@ use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::arrays::{
-    BoolArray, ConstantArray, FixedSizeListArray, ListArray, NullArray, PrimitiveArray,
-    StructArray, VarBinViewArray, smallest_decimal_value_type,
+    BoolArray, ConstantArray, FixedSizeListArray, ListArray, NullArray,
+    PrimitiveArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
 };
 use vortex_array::builders::{ArrayBuilder, DecimalBuilder, ListBuilder, builder_with_capacity};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray as _, ToCanonical as _};
-use vortex_buffer::{BitBuffer, Buffer, BufferMut, BufferString, ByteBuffer, buffer, buffer_mut};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+use vortex_buffer::{Buffer, BufferMut, BufferString, ByteBuffer, buffer, buffer_mut, BitBuffer};
 use vortex_dtype::{
     DType, DecimalDType, IntegerPType, NativePType, Nullability, StructFields,
     match_each_integer_ptype, match_each_native_ptype,
 };
-use vortex_error::{VortexError, VortexExpect as _, vortex_panic};
+use vortex_error::{VortexError, VortexExpect, vortex_panic};
 use vortex_scalar::{
     DecimalScalar, ListScalar, NativeDecimalType, Scalar, StructScalar,
     match_each_decimal_value_type,
@@ -530,7 +530,7 @@ fn canonicalize_varbin(
     })
 }
 
-fn canonicalize_varbin_inner<I: NativePType>(
+fn canonicalize_varbin_inner<I: IntegerPType>(
     fill_value: Option<ByteBuffer>,
     indices: Buffer<I>,
     values: VarBinViewArray,
@@ -572,16 +572,18 @@ fn canonicalize_varbin_inner<I: NativePType>(
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use rstest::rstest;
     use vortex_array::arrays::{
-        BoolArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
-        VarBinViewArray,
+        BoolArray, DecimalArray, FixedSizeListArray, ListArray,
+        PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
     };
     use vortex_array::arrow::IntoArrowArray as _;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{BitBufferMut, ByteBuffer, buffer, buffer_mut};
+    use vortex_buffer::{ByteBuffer, buffer, buffer_mut, BitBufferMut};
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::{DType, DecimalDType, FieldNames, PType, StructFields};
     use vortex_mask::Mask;
@@ -1250,6 +1252,232 @@ mod test {
             None,
         ])
         .into_array();
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected = expected.into_arrow_preferred().unwrap();
+
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    fn test_sparse_fixed_size_list_null_fill() {
+        // Create a FixedSizeListArray with 3 lists of size 3.
+        let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
+        let fsl = FixedSizeListArray::try_new(elements, 3, Validity::AllValid, 3)
+            .unwrap()
+            .into_array();
+
+        let indices = buffer![0u8, 2u8, 3u8].into_array();
+        let fill_value = Scalar::null(DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::I32, NonNullable)),
+            3,
+            Nullable,
+        ));
+        let sparse = SparseArray::try_new(indices, fsl, 5, fill_value)
+            .unwrap()
+            .into_array();
+
+        let actual = sparse.to_canonical().into_array();
+
+        // Expected: [1,2,3], null, [4,5,6], [7,8,9], null.
+        let expected_elements =
+            buffer![1i32, 2, 3, 0, 0, 0, 4, 5, 6, 7, 8, 9, 0, 0, 0].into_array();
+        let expected = FixedSizeListArray::try_new(
+            expected_elements,
+            3,
+            Validity::Array(BoolArray::from_iter([true, false, true, true, false]).into_array()),
+            5,
+        )
+        .unwrap()
+        .into_array();
+
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected = expected.into_arrow_preferred().unwrap();
+
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    fn test_sparse_fixed_size_list_non_null_fill() {
+        let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
+        let fsl = FixedSizeListArray::try_new(elements, 2, Validity::AllValid, 3)
+            .unwrap()
+            .into_array();
+
+        let indices = buffer![0u8, 2u8, 4u8].into_array();
+        let fill_value = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::I32, NonNullable)),
+            vec![
+                Scalar::primitive(99i32, NonNullable),
+                Scalar::primitive(88i32, NonNullable),
+            ],
+            NonNullable,
+        );
+        let sparse = SparseArray::try_new(indices, fsl, 6, fill_value)
+            .unwrap()
+            .into_array();
+
+        let actual = sparse.to_canonical().into_array();
+
+        // Expected: [1,2], [99,88], [3,4], [99,88], [5,6], [99,88].
+        let expected_elements = buffer![1i32, 2, 99, 88, 3, 4, 99, 88, 5, 6, 99, 88].into_array();
+        let expected = FixedSizeListArray::try_new(expected_elements, 2, Validity::NonNullable, 6)
+            .unwrap()
+            .into_array();
+
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected = expected.into_arrow_preferred().unwrap();
+
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    fn test_sparse_fixed_size_list_with_validity() {
+        // Create FSL values with some nulls.
+        let elements = buffer![10i32, 20, 30, 40, 50, 60].into_array();
+        let fsl = FixedSizeListArray::try_new(
+            elements,
+            2,
+            Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+            3,
+        )
+        .unwrap()
+        .into_array();
+
+        let indices = buffer![1u16, 3u16, 4u16].into_array();
+        let fill_value = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::I32, NonNullable)),
+            vec![
+                Scalar::primitive(7i32, NonNullable),
+                Scalar::primitive(8i32, NonNullable),
+            ],
+            Nullable,
+        );
+        let sparse = SparseArray::try_new(indices, fsl, 6, fill_value)
+            .unwrap()
+            .into_array();
+
+        let actual = sparse.to_canonical().into_array();
+
+        // Expected validity: [true, true, true, false, true, true].
+        // Expected elements: [7,8], [10,20], [7,8], [30,40], [50,60], [7,8].
+        let expected_elements = buffer![7i32, 8, 10, 20, 7, 8, 30, 40, 50, 60, 7, 8].into_array();
+        let expected = FixedSizeListArray::try_new(
+            expected_elements,
+            2,
+            Validity::Array(
+                BoolArray::from_iter([true, true, true, false, true, true]).into_array(),
+            ),
+            6,
+        )
+        .unwrap()
+        .into_array();
+
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected = expected.into_arrow_preferred().unwrap();
+
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    fn test_sparse_fixed_size_list_truly_sparse() {
+        // Test with a truly sparse array where most values are the fill value.
+        // This demonstrates the compression benefit of sparse encoding.
+
+        // Create patch values: only 3 distinct lists out of 100 total positions.
+        let elements = buffer![10i32, 11, 20, 21, 30, 31].into_array();
+        let fsl = FixedSizeListArray::try_new(elements, 2, Validity::AllValid, 3)
+            .unwrap()
+            .into_array();
+
+        // Patches at positions 5, 50, and 95 out of 100.
+        let indices = buffer![5u32, 50, 95].into_array();
+
+        // Fill value [99, 99] will appear 97 times but stored only once.
+        let fill_value = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::I32, NonNullable)),
+            vec![
+                Scalar::primitive(99i32, NonNullable),
+                Scalar::primitive(99i32, NonNullable),
+            ],
+            NonNullable,
+        );
+
+        let sparse = SparseArray::try_new(indices, fsl, 100, fill_value)
+            .unwrap()
+            .into_array();
+
+        let actual = sparse.to_canonical().into_array();
+
+        // Build expected: 97 copies of [99,99] with patches at positions 5, 50, 95.
+        let mut expected_elements_vec = Vec::with_capacity(200);
+        // Positions 0-4: fill values
+        for _ in 0..5 {
+            expected_elements_vec.extend([99i32, 99]);
+        }
+        // Position 5: first patch [10, 11]
+        expected_elements_vec.extend([10, 11]);
+        // Positions 6-49: fill values
+        for _ in 6..50 {
+            expected_elements_vec.extend([99, 99]);
+        }
+        // Position 50: second patch [20, 21]
+        expected_elements_vec.extend([20, 21]);
+        // Positions 51-94: fill values
+        for _ in 51..95 {
+            expected_elements_vec.extend([99, 99]);
+        }
+        // Position 95: third patch [30, 31]
+        expected_elements_vec.extend([30, 31]);
+        // Positions 96-99: fill values
+        for _ in 96..100 {
+            expected_elements_vec.extend([99, 99]);
+        }
+        let expected_elements = PrimitiveArray::from_iter(expected_elements_vec).into_array();
+        let expected =
+            FixedSizeListArray::try_new(expected_elements, 2, Validity::NonNullable, 100)
+                .unwrap()
+                .into_array();
+
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected = expected.into_arrow_preferred().unwrap();
+
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    fn test_sparse_fixed_size_list_single_element() {
+        // Test with a single element FSL array.
+        let elements = buffer![42i32, 43].into_array();
+        let fsl = FixedSizeListArray::try_new(elements, 2, Validity::AllValid, 1)
+            .unwrap()
+            .into_array();
+
+        let indices = buffer![0u32].into_array();
+        let fill_value = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::I32, NonNullable)),
+            vec![
+                Scalar::primitive(1i32, NonNullable),
+                Scalar::primitive(2i32, NonNullable),
+            ],
+            NonNullable,
+        );
+        let sparse = SparseArray::try_new(indices, fsl, 1, fill_value)
+            .unwrap()
+            .into_array();
+
+        let actual = sparse.to_canonical().into_array();
+
+        // Expected: just [42, 43].
+        let expected_elements = buffer![42i32, 43].into_array();
+        let expected = FixedSizeListArray::try_new(expected_elements, 2, Validity::NonNullable, 1)
+            .unwrap()
+            .into_array();
+
         let actual = actual.into_arrow_preferred().unwrap();
         let expected = expected.into_arrow_preferred().unwrap();
 

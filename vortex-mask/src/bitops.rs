@@ -286,12 +286,12 @@ mod tests {
         let a = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false]));
         let b = Mask::from_buffer(BitBuffer::from_iter([false, true, false, true]));
 
-        let ab = &a & &b;
-        let ba = &b & &a;
+        let a_and_b = &a & &b;
+        let b_and_a = &b & &a;
 
-        assert_eq!(ab.true_count(), ba.true_count());
+        assert_eq!(a_and_b.true_count(), b_and_a.true_count());
         for i in 0..4 {
-            assert_eq!(ab.value(i), ba.value(i));
+            assert_eq!(a_and_b.value(i), b_and_a.value(i));
         }
     }
 
