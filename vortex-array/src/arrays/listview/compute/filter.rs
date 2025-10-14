@@ -4,7 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{ListViewArray, ListViewVTable};
+use crate::arrays::{ListViewArray, ListViewRebuildMode, ListViewVTable};
 use crate::compute::{self, FilterKernel, FilterKernelAdapter};
 use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
@@ -45,7 +45,9 @@ impl FilterKernel for ListViewVTable {
                 .is_none_or(|len| len == selection_mask.true_count())
         );
 
-        // Filter the offsets and sizes arrays.
+        // Simply filter the offsets and sizes arrays.
+        // Filters keep scalars in order, and it cannot cause overlaps to form. However, filters
+        // **will** create gaps of unused elements.
         let new_offsets = compute::filter(offsets.as_ref(), selection_mask)?;
         let new_sizes = compute::filter(sizes.as_ref(), selection_mask)?;
 
@@ -57,10 +59,11 @@ impl FilterKernel for ListViewVTable {
             ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
         };
 
-        // TODO(connor)[ListView]: IsZeroCopyToList optimization.
-        // TODO(connor)[ListView]: Rebuild if the threshold is too low.
+        // TODO(connor)[ListView]: Rebuild if the threshold is too low, not unconditionally.
 
-        Ok(new_array.into_array())
+        Ok(new_array
+            .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
+            .into_array())
     }
 }
 

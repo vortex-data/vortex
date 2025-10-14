@@ -6,7 +6,7 @@ use vortex_dtype::{Nullability, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ListViewArray, ListViewVTable};
+use crate::arrays::{ListViewArray, ListViewRebuildMode, ListViewVTable};
 use crate::compute::{self, TakeKernel, TakeKernelAdapter};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
@@ -44,6 +44,8 @@ impl TakeKernel for ListViewVTable {
         let new_validity = array.validity().take(indices)?;
 
         // Take the offsets and sizes arrays at the requested indices.
+        // Take can reorder offsets, create gaps, and may introduce overlaps if the `indices`
+        // contain duplicates.
         let nullable_new_offsets = compute::take(offsets.as_ref(), indices)?;
         let nullable_new_sizes = compute::take(sizes.as_ref(), indices)?;
 
@@ -72,10 +74,11 @@ impl TakeKernel for ListViewVTable {
             ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
         };
 
-        // TODO(connor)[ListView]: IsZeroCopyToList optimization.
-        // TODO(connor)[ListView]: Rebuild if the threshold is too low.
+        // TODO(connor)[ListView]: Rebuild if the threshold is too low, not unconditionally.
 
-        Ok(new_array.into_array())
+        Ok(new_array
+            .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
+            .into_array())
     }
 }
 
