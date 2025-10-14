@@ -1,6 +1,51 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! # JIT Kernel Composition System
+//!
+//! This module generates CUDA kernels by composing encoding steps into a single fused kernel.
+//!
+//! ## How Kernels Are Built
+//!
+//! Each encoding step (BitPack, FoR, ALP) implements `GPUPipelineJIT` and contributes:
+//! 1. **Input parameters** - Data passed from host to device (arrays, scalars)
+//! 2. **Declarations** - Local variables needed for the step
+//! 3. **Kernel body** - The actual computation logic
+//! 4. **Output variable** - The result of this step (e.g., `tmp0`, `tmp1`)
+//!
+//! Steps are composed in a tree structure. For example: `ALP -> FoR -> BitPack`
+//!
+//! ## Data Flow Between Steps
+//!
+//! Each step produces an **output variable** that the parent step consumes:
+//!
+//! ```text
+//! BitPack:  unpacks data → produces `tmp0`
+//! FoR:      reads `tmp0` → adds reference → produces `tmp1` = tmp0 + ref0
+//! ALP:      reads `tmp1` → scales → produces `tmp2` = tmp1 * f2 * e2
+//! ```
+//!
+//! The `output_var()` method returns the variable name (e.g., "tmp2") that subsequent
+//! steps or the final output can read from.
+//!
+//! ## Writing to Final Output
+//!
+//! Each step computes a value and passes `out_idx` to its continuation:
+//! - **out_idx**: The index in the output array where this value should be written
+//! - The innermost step calculates `out_idx` based on thread/block layout
+//! - Parent steps pass this index through to their continuation function
+//! - The root continuation writes: `output[out_idx] = <final_output_var>`
+//!
+//! Example flow:
+//! ```cuda
+//! // BitPack calculates out_idx
+//! out_idx = INDEX(row, lane);
+//! // Then calls continuation with out_idx available
+//! // FoR does: tmp1 = tmp0 + ref0; calls its continuation
+//! // ALP does: tmp2 = tmp1 * f2 * e2; calls its continuation
+//! // Final: output[out_idx] = tmp2;
+//! ```
+
 mod arrays;
 mod convert;
 mod kernel_fmt;
@@ -19,28 +64,44 @@ use vortex_error::VortexResult;
 
 use crate::indent::IndentedWriter;
 
+/// Trait for encoding steps that can be JIT-compiled into a CUDA kernel.
+///
+/// Each step contributes a piece of the kernel and specifies its output variable
+/// that subsequent steps can read from.
 pub trait GPUPipelineJIT {
+    /// Unique identifier for this step (used to generate unique variable names)
     fn step_id(&self) -> usize;
 
+    /// Adds input parameters (e.g., device pointers, scalars) to the kernel signature
     fn in_params(&self, params: &mut Vec<GPUKernelParameter>);
 
+    /// Adds arguments to the kernel launch (actual values passed at runtime)
     fn args<'a>(&'a self, stream: &Arc<CudaStream>, args: &mut LaunchArgs<'a>) -> VortexResult<()>;
 
+    /// Writes variable declarations needed by this step
     fn decls(&self, w: &mut IndentedWriter<&mut dyn Write>) -> fmt::Result;
 
+    /// Writes the kernel body for this step.
+    ///
+    /// The continuation function `f` should be called after computing this step's output,
+    /// allowing parent steps to consume the output variable via `output_var()`.
     fn kernel_body(
         &self,
         w: &mut IndentedWriter<&mut dyn Write>,
         f: &dyn Fn(&mut IndentedWriter<&mut dyn Write>) -> fmt::Result,
     ) -> fmt::Result;
 
+    /// Returns the output variable name (e.g., "tmp0") that this step produces.
+    /// Parent steps read this variable to consume the output.
     fn output_var(&self) -> String;
 
+    /// Returns the type of the output variable
     fn output_type(&self) -> PType;
 
-    // always pass the output iteration aligned child last.
+    /// Visits child steps in the pipeline tree
     fn children<'a>(&'a self, visitor: &mut dyn GPUVisitor<'a>) -> VortexResult<()>;
 
+    /// Returns the launch configuration (block size, etc.) for this kernel
     fn launch_config(&self) -> GPULaunchConfig;
 }
 
