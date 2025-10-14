@@ -17,7 +17,7 @@ use vortex_dtype::NativePType;
 use vortex_error::VortexUnwrap;
 use vortex_fastlanes::{BitPackedArray, FoRArray};
 use vortex_gpu::{
-    create_jit, cuda_bit_unpack_timed, cuda_for_bp_unpack_timed, cuda_for_unpack_timed,
+    create_run_jit_kernel, cuda_bit_unpack_timed, cuda_for_bp_unpack_timed, cuda_for_unpack_timed,
 };
 
 // Data sizes: 1GB, 2.5GB, 5GB, 10GB
@@ -194,7 +194,6 @@ fn benchmark_gpu_for_bp_jit_decompress_kernel_only(c: &mut Criterion) {
         let array = make_alp_array(len).into_array();
 
         let ctx = CudaContext::new(0).unwrap();
-        let ctx = Arc::new(ctx);
         ctx.set_blocking_synchronize().unwrap();
 
         group.throughput(Throughput::Bytes(
@@ -205,7 +204,7 @@ fn benchmark_gpu_for_bp_jit_decompress_kernel_only(c: &mut Criterion) {
                 let mut total_time = Duration::ZERO;
                 for _ in 0..iters {
                     // This only measures kernel execution time, not memory transfers
-                    let (_result, kernel_time) = create_jit(array, Arc::clone(&ctx)).unwrap();
+                    let (_result, kernel_time) = create_run_jit_kernel(ctx.clone(), array).unwrap();
                     total_time += kernel_time;
                 }
                 total_time

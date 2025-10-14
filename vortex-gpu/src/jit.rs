@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::driver::{
-    CudaContext, CudaSlice, CudaStream, DeviceRepr, LaunchArgs, LaunchConfig, PushKernelArg,
+    CudaContext, CudaFunction, CudaSlice, CudaStream, DeviceRepr, LaunchArgs, LaunchConfig,
+    PushKernelArg,
 };
 use vortex_alp::{ALPFloat, ALPVTable, match_each_alp_float_ptype};
 use vortex_array::arrays::PrimitiveArray;
@@ -27,22 +28,8 @@ struct GPUKernelParameter {
 }
 
 struct GPULaunchConfig {
-    block_width: usize,
-    grid_width: usize,
+    block_width: u32,
 }
-
-// struct GPUPipelineParameters {
-//     inputs: Vec<GPUKernelParameter>,
-//     output: GPUKernelParameter,
-//     block_width: usize,
-//     grid_width: usize,
-//     iteration_order: IterationOrder,
-// }
-//
-// struct GPUPipeline {
-//     body: String,
-//     parameters: GPUPipelineParameters,
-// }
 
 // bp -> output
 // tmp = ...
@@ -89,8 +76,74 @@ trait GPUPipelineJIT {
     // always pass the output iteration aligned child last.
     fn children<'a>(&'a self, visitor: &mut dyn GPUVisitor<'a>) -> VortexResult<()>;
 
-    fn launch_config(&self) -> Option<GPULaunchConfig> {
-        None
+    fn launch_config(&self) -> GPULaunchConfig;
+}
+
+trait ScalarGPUPipelineJIT {
+    fn step_id(&self) -> usize;
+
+    fn in_params(&self, params: &mut Vec<GPUKernelParameter>);
+
+    fn args<'a>(&'a self, stream: &Arc<CudaStream>, args: &mut LaunchArgs<'a>) -> VortexResult<()>;
+
+    fn decls(&self, w: &mut IndentedWriter<&mut dyn Write>) -> fmt::Result;
+
+    fn kernel_body(
+        &self,
+        w: &mut IndentedWriter<&mut dyn Write>,
+        f: &dyn Fn(&mut IndentedWriter<&mut dyn Write>) -> fmt::Result,
+    ) -> fmt::Result;
+
+    fn output_var(&self) -> String;
+
+    fn output_type(&self) -> PType;
+
+    fn child<'a>(&'a self) -> &'a dyn GPUPipelineJIT;
+}
+
+struct ScalarGPUPipelineJITNode<T> {
+    inner: T,
+}
+
+impl<T: ScalarGPUPipelineJIT> GPUPipelineJIT for ScalarGPUPipelineJITNode<T> {
+    fn step_id(&self) -> usize {
+        self.inner.step_id()
+    }
+
+    fn in_params(&self, params: &mut Vec<GPUKernelParameter>) {
+        self.inner.in_params(params)
+    }
+
+    fn args<'a>(&'a self, stream: &Arc<CudaStream>, args: &mut LaunchArgs<'a>) -> VortexResult<()> {
+        self.inner.args(stream, args)
+    }
+
+    fn decls(&self, w: &mut IndentedWriter<&mut dyn Write>) -> fmt::Result {
+        self.inner.decls(w)
+    }
+
+    fn kernel_body(
+        &self,
+        w: &mut IndentedWriter<&mut dyn Write>,
+        f: &dyn Fn(&mut IndentedWriter<&mut dyn Write>) -> fmt::Result,
+    ) -> fmt::Result {
+        self.inner.kernel_body(w, f)
+    }
+
+    fn output_var(&self) -> String {
+        self.inner.output_var()
+    }
+
+    fn output_type(&self) -> PType {
+        self.inner.output_type()
+    }
+
+    fn children<'a>(&'a self, visitor: &mut dyn GPUVisitor<'a>) -> VortexResult<()> {
+        visitor.accept(self.inner.child())
+    }
+
+    fn launch_config(&self) -> GPULaunchConfig {
+        self.inner.child().launch_config()
     }
 }
 
@@ -145,7 +198,7 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
     fn args<'a>(
         &'a self,
         _stream: &Arc<CudaStream>,
-        launch_args: &mut LaunchArgs<'a>, // args: &mut Vec<Box<dyn DeviceRepr>>,
+        launch_args: &mut LaunchArgs<'a>,
     ) -> VortexResult<()> {
         launch_args.arg(&self.cuda_slice);
 
@@ -155,7 +208,6 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
     fn decls(&self, w: &mut IndentedWriter<&mut dyn Write>) -> fmt::Result {
         let output_cuda_type = CUDAType::from(self.output_type);
         let uoutput_cuda_type = CUDAType::from(self.output_type.to_unsigned());
-        // TODO: all types
         writeln!(
             w,
             "unsigned int LANE_COUNT = {bits};",
@@ -182,21 +234,20 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
         w: &mut IndentedWriter<&mut dyn Write>,
         f: &dyn Fn(&mut IndentedWriter<&mut dyn Write>) -> fmt::Result,
     ) -> fmt::Result {
-        let output = w;
         let bit_width = self.bit_width as usize;
         let bits = self.output_type.bit_width();
         let in_ = self.in_var_l();
         if bit_width == 0 {
-            writeln!(output, "uint{bits}_t zero = 0ULL;")?;
-            writeln!(output)?;
+            writeln!(w, "uint{bits}_t zero = 0ULL;")?;
+            writeln!(w)?;
             for row in 0..bits {
-                writeln!(output, "out[INDEX({row}, lane)] = zero;")?;
+                writeln!(w, "out[INDEX({row}, lane)] = zero;")?;
             }
         } else if bit_width == bits {
-            writeln!(output)?;
+            writeln!(w)?;
             for row in 0..bits {
                 writeln!(
-                    output,
+                    w,
                     "out[INDEX({row}, lane)] = {in_}[LANE_COUNT * {row} + lane];",
                 )?;
             }
@@ -213,8 +264,8 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
                 )
             };
 
-            writeln!(output)?;
-            writeln!(output, "{src} = {in}[lane];", in = self.in_var_l())?;
+            writeln!(w)?;
+            writeln!(w, "{src} = {in}[lane];", in = self.in_var_l())?;
             for row in 0..bits {
                 let curr_word = (row * bit_width) / bits;
                 let next_word = ((row + 1) * bit_width) / bits;
@@ -224,34 +275,35 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
                     let remaining_bits = ((row + 1) * bit_width) % bits;
                     let current_bits = bit_width - remaining_bits;
                     writeln!(
-                        output,
+                        w,
                         "{utmp} = ({src} >> {shift}) & {mask};",
                         mask = mask_fn(current_bits)
                     )?;
 
                     if next_word < bit_width {
-                        writeln!(output, "{src} = {in_}[lane + LANE_COUNT * {next_word}];")?;
+                        writeln!(w, "{src} = {in_}[lane + LANE_COUNT * {next_word}];")?;
                         writeln!(
-                            output,
+                            w,
                             "{utmp} |= ({src} & {mask}) << {current_bits};",
                             mask = mask_fn(remaining_bits)
                         )?;
                     }
                 } else {
                     writeln!(
-                        output,
+                        w,
                         "{utmp} = ({src} >> {shift}) & {mask};",
                         mask = mask_fn(bit_width)
                     )?;
                 }
                 writeln!(
-                    output,
+                    w,
                     "{tmp} = ({type_}){utmp};",
                     type_ = CUDAType::from(self.output_type),
                 )?;
-                writeln!(output, "out_idx = INDEX({row}, lane);")?;
-                f(output)?;
-                writeln!(output)?;
+
+                writeln!(w, "out_idx = INDEX({row}, lane);")?;
+                f(w)?;
+                writeln!(w)?;
             }
         }
         Ok(())
@@ -269,11 +321,10 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
         Ok(())
     }
 
-    fn launch_config(&self) -> Option<GPULaunchConfig> {
-        Some(GPULaunchConfig {
-            block_width: 1024,
-            grid_width: 1,
-        })
+    fn launch_config(&self) -> GPULaunchConfig {
+        GPULaunchConfig {
+            block_width: if P::PTYPE == PType::U64 { 16 } else { 32 },
+        }
     }
 }
 
@@ -297,10 +348,6 @@ impl<P> BitPack<P> {
     fn in_var_g(&self) -> String {
         format!("_in{}", self.step_id)
     }
-
-    fn out_idx(&self) -> String {
-        format!("out_idx{}", self.step_id)
-    }
 }
 
 struct FoR<P> {
@@ -319,7 +366,7 @@ impl<P> FoR<P> {
     }
 }
 
-impl<P: NativePType + DeviceRepr> GPUPipelineJIT for FoR<P> {
+impl<P: NativePType + DeviceRepr> ScalarGPUPipelineJIT for FoR<P> {
     fn step_id(&self) -> usize {
         self.step_id
     }
@@ -342,7 +389,6 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for FoR<P> {
 
     fn decls(&self, w: &mut IndentedWriter<&mut dyn Write>) -> fmt::Result {
         let output_cuda_type = CUDAType::from(self.output_type());
-        // TODO: supprort all types
         writeln!(w, "{} tmp{};", output_cuda_type, self.step_id)?;
         Ok(())
     }
@@ -371,20 +417,22 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for FoR<P> {
         P::PTYPE
     }
 
-    fn children<'a>(&'a self, visitor: &mut dyn GPUVisitor<'a>) -> VortexResult<()> {
-        visitor.accept(self.child.as_ref())
+    fn child<'a>(&'a self) -> &'a dyn GPUPipelineJIT {
+        self.child.as_ref()
     }
 }
 
 fn handle_array(a: &ArrayRef, stream: &Arc<CudaStream>, step_id: usize) -> Box<dyn GPUPipelineJIT> {
     if let Some(alp) = a.as_opt::<ALPVTable>() {
         match_each_alp_float_ptype!(alp.ptype(), |A| {
-            return Box::new(ALP {
-                step_id,
-                float_type: alp.ptype(),
-                child: handle_array(alp.encoded(), stream, step_id + 1),
-                f: A::F10[alp.exponents().f as usize],
-                e: A::IF10[alp.exponents().e as usize],
+            return Box::new(ScalarGPUPipelineJITNode {
+                inner: ALP {
+                    step_id,
+                    float_type: alp.ptype(),
+                    child: handle_array(alp.encoded(), stream, step_id + 1),
+                    f: A::F10[alp.exponents().f as usize],
+                    e: A::IF10[alp.exponents().e as usize],
+                },
             });
         })
     }
@@ -408,14 +456,16 @@ fn handle_array(a: &ArrayRef, stream: &Arc<CudaStream>, step_id: usize) -> Box<d
 
     if let Some(for_) = a.as_opt::<FoRVTable>() {
         match_each_native_ptype!(for_.reference_scalar().as_primitive().ptype(), |P| {
-            return Box::new(FoR {
-                step_id,
-                reference: for_
-                    .reference_scalar()
-                    .as_primitive()
-                    .as_::<P>()
-                    .vortex_expect("cannot have a null reference"),
-                child: handle_array(for_.encoded(), stream, step_id + 1),
+            return Box::new(ScalarGPUPipelineJITNode {
+                inner: FoR {
+                    step_id,
+                    reference: for_
+                        .reference_scalar()
+                        .as_primitive()
+                        .as_::<P>()
+                        .vortex_expect("cannot have a null reference"),
+                    child: handle_array(for_.encoded(), stream, step_id + 1),
+                },
             });
         })
     }
@@ -445,7 +495,7 @@ impl<A: ALPFloat> ALP<A> {
     }
 }
 
-impl<A: ALPFloat + DeviceRepr> GPUPipelineJIT for ALP<A> {
+impl<A: ALPFloat + DeviceRepr> ScalarGPUPipelineJIT for ALP<A> {
     fn step_id(&self) -> usize {
         self.step_id
     }
@@ -507,13 +557,18 @@ impl<A: ALPFloat + DeviceRepr> GPUPipelineJIT for ALP<A> {
         self.float_type
     }
 
-    fn children<'a>(&'a self, visitor: &mut dyn GPUVisitor<'a>) -> VortexResult<()> {
-        visitor.accept(self.child.as_ref())
+    fn child<'a>(&'a self) -> &'a dyn GPUPipelineJIT {
+        self.child.as_ref()
     }
 }
 
 struct DeclPrinter<'a, 'b: 'a> {
     w: &'a mut IndentedWriter<&'b mut dyn Write>,
+}
+
+fn write_kernel_declarations(w: &mut IndentedWriter<&mut dyn Write>, node: &dyn GPUPipelineJIT) {
+    let mut decl = DeclPrinter { w };
+    decl.accept(node).vortex_expect("write decl cannot fail");
 }
 
 impl<'a> GPUVisitor<'a> for DeclPrinter<'a, '_> {
@@ -524,11 +579,11 @@ impl<'a> GPUVisitor<'a> for DeclPrinter<'a, '_> {
     }
 }
 
-struct InParamPrinter {
+struct InParamCollector {
     params: Vec<GPUKernelParameter>,
 }
 
-impl GPUVisitor<'_> for InParamPrinter {
+impl GPUVisitor<'_> for InParamCollector {
     fn accept(&mut self, node: &dyn GPUPipelineJIT) -> VortexResult<()> {
         node.children(self)?;
         node.in_params(&mut self.params);
@@ -536,12 +591,18 @@ impl GPUVisitor<'_> for InParamPrinter {
     }
 }
 
-struct ArgCollector<'a> {
-    stream: Arc<CudaStream>,
-    params: &'a mut LaunchArgs<'a>,
+fn collect_in_param(node: &dyn GPUPipelineJIT) -> VortexResult<Vec<GPUKernelParameter>> {
+    let mut params = InParamCollector { params: Vec::new() };
+    params.accept(node)?;
+    Ok(params.params)
 }
 
-impl<'a> GPUVisitor<'a> for ArgCollector<'a> {
+struct ArgCollector<'a, 'b> {
+    stream: Arc<CudaStream>,
+    params: &'b mut LaunchArgs<'a>,
+}
+
+impl<'a> GPUVisitor<'a> for ArgCollector<'a, '_> {
     fn accept(&mut self, node: &'a dyn GPUPipelineJIT) -> VortexResult<()> {
         node.children(self)?;
         node.args(&self.stream, self.params)?;
@@ -549,78 +610,87 @@ impl<'a> GPUVisitor<'a> for ArgCollector<'a> {
     }
 }
 
-fn jit_str(w: &mut IndentedWriter<&mut dyn Write>, output: &dyn GPUPipelineJIT) -> fmt::Result {
-    let mut params = InParamPrinter { params: Vec::new() };
-    params.accept(output).vortex_expect("cannot fail");
+fn collect_args<'a, 'b>(
+    node: &'a dyn GPUPipelineJIT,
+    stream: Arc<CudaStream>,
+    args: &'b mut LaunchArgs<'a>,
+) -> VortexResult<()> {
+    let mut collector = ArgCollector {
+        stream: stream.clone(),
 
-    params.params.push(GPUKernelParameter {
+        params: args,
+    };
+    collector.accept(node)?;
+
+    Ok(())
+}
+
+fn create_jit_str(
+    w: &mut IndentedWriter<&mut dyn Write>,
+    output: &dyn GPUPipelineJIT,
+) -> VortexResult<()> {
+    let mut params = collect_in_param(output)?;
+    params.push(GPUKernelParameter {
         name: "_output".to_string(),
         type_: format!("{} *__restrict__", CUDAType::from(output.output_type())),
     });
 
-    writeln!(w, "__device__ int FL_ORDER[] = {{0, 4, 2, 6, 1, 5, 3, 7}};")?;
-    writeln!(
-        w,
-        "#define INDEX(row, lane) (FL_ORDER[row / 8] * 16 + (row % 8) * 128 + lane)"
-    )?;
-    writeln!(w, "extern \"C\" __global__ void kernel(")?;
-    w.indent(|w| {
-        params.params.iter().enumerate().try_for_each(|(idx, p)| {
-            writeln!(
-                w,
-                "{} {}{end}",
-                p.type_,
-                p.name,
-                end = if idx == params.params.len() - 1 {
-                    ""
-                } else {
-                    ","
-                }
-            )
-        })
-    })?;
-    writeln!(w, ") {{")?;
-
-    w.indent(|w| {
+    (|| {
+        writeln!(w, "__device__ int FL_ORDER[] = {{0, 4, 2, 6, 1, 5, 3, 7}};")?;
         writeln!(
             w,
-            "{output_type} *output = _output + (blockIdx.x * 1024);",
-            output_type = CUDAType::from(output.output_type())
+            "#define INDEX(row, lane) (FL_ORDER[row / 8] * 16 + (row % 8) * 128 + lane)"
         )?;
+        writeln!(w, "extern \"C\" __global__ void kernel(")?;
+        w.indent(|w| {
+            params.iter().enumerate().try_for_each(|(idx, p)| {
+                writeln!(
+                    w,
+                    "{} {}{end}",
+                    p.type_,
+                    p.name,
+                    end = if idx == params.len() - 1 { "" } else { "," }
+                )
+            })
+        })?;
+        writeln!(w, ") {{")?;
 
-        writeln!(w, "__shared__ float s_output[1024];")?;
+        w.indent(|w| {
+            writeln!(
+                w,
+                "{output_type} *output = _output + (blockIdx.x * 1024);",
+                output_type = CUDAType::from(output.output_type())
+            )?;
 
-        let mut decl = DeclPrinter { w };
-        decl.accept(output).vortex_expect("cannot fail");
-        writeln!(w)?;
-        output.kernel_body(w, &|w: &mut IndentedWriter<&mut dyn Write>| {
-            writeln!(w, "s_output[out_idx] = {tmp};", tmp = output.output_var())
-        })
-    })?;
+            writeln!(w, "__shared__ float s_output[1024];")?;
 
-    writeln!(
-        w,
-        "    for (int i = 0; i < 32; i++) {{
+            write_kernel_declarations(w, output);
+            writeln!(w)?;
+            output.kernel_body(w, &|w: &mut IndentedWriter<&mut dyn Write>| {
+                writeln!(w, "s_output[out_idx] = {tmp};", tmp = output.output_var())
+            })
+        })?;
+
+        writeln!(
+            w,
+            "    for (int i = 0; i < 32; i++) {{
         auto idx = i * 32 + threadIdx.x;
         output[idx] = s_output[idx];
     }}"
-    )?;
+        )?;
 
-    writeln!(w, "}}")
+        writeln!(w, "}}")
+    })()
+    .map_err(|e| vortex_err!("format err {e}"))
 }
 
-pub fn create_jit(array: &ArrayRef, ctx: Arc<CudaContext>) -> VortexResult<(ArrayRef, Duration)> {
-    let stream = ctx.default_stream();
-
-    let output = handle_array(array, &stream, 0);
-
+fn create_kernel(ctx: Arc<CudaContext>, array: &dyn GPUPipelineJIT) -> VortexResult<CudaFunction> {
     let mut s = String::new();
     let w = &mut s as &mut dyn Write;
     let mut ind = IndentedWriter::new(w);
     let w = &mut ind;
 
-    let _ = jit_str(w, output.as_ref()).map_err(|e| vortex_err!("jit str cannot fail {e}"));
-    // println!("s {}", s);
+    let _ = create_jit_str(w, array).map_err(|e| vortex_err!("jit str cannot fail {e}"));
 
     let module =
         cudarc::nvrtc::compile_ptx(s.clone()).map_err(|e| vortex_err!("compile ptx {e}"))?;
@@ -630,31 +700,39 @@ pub fn create_jit(array: &ArrayRef, ctx: Arc<CudaContext>) -> VortexResult<(Arra
         .load_module(module)
         .map_err(|e| vortex_err!("load module {e}"))?;
 
-    let kernel = module
+    module
         .load_function("kernel")
-        .map_err(|e| vortex_err!("get function {e}"))?;
+        .map_err(|e| vortex_err!("load_function {e}"))
+}
+
+pub fn create_run_jit_kernel(
+    ctx: Arc<CudaContext>,
+    array: &ArrayRef,
+) -> VortexResult<(ArrayRef, Duration)> {
+    let stream = ctx.default_stream();
+
+    let output = handle_array(array, &stream, 0);
+    let kernel = create_kernel(ctx.clone(), output.as_ref())?;
 
     let num_chunks =
         u32::try_from(array.len().div_ceil(1024)).vortex_expect("Too many grid elements");
 
     let mut launch_builder = stream.launch_builder(&kernel);
 
-    let mut collector = ArgCollector {
-        stream: stream.clone(),
-
-        params: &mut launch_builder,
-    };
-    collector.accept(output.as_ref())?;
-
     let launch_config = LaunchConfig {
         grid_dim: (num_chunks, 1, 1),
-        block_dim: (32, 1, 1),
-        shared_mem_bytes: 0,
+        block_dim: (output.launch_config().block_width, 1, 1),
+        shared_mem_bytes: u32::try_from(output.output_type().byte_width())
+            .vortex_expect("oversized output type byte width")
+            * 1024,
     };
 
+    collect_args(output.as_ref(), stream.clone(), &mut launch_builder)?;
+
     match_each_native_ptype!(array.dtype().as_ptype(), |P| {
+        // append final argument (output) of the kernel
         let mut out = stream.alloc_zeros::<P>(array.len()).unwrap();
-        collector.params.arg(&mut out);
+        launch_builder.arg(&mut out);
         stream
             .synchronize()
             .map_err(|e| vortex_err!("failed to sync {e}"))?;
@@ -662,7 +740,7 @@ pub fn create_jit(array: &ArrayRef, ctx: Arc<CudaContext>) -> VortexResult<(Arra
             .record_event(Some(CU_EVENT_DEFAULT))
             .ok()
             .vortex_expect("Failed to record event");
-        let _ = unsafe { collector.params.launch(launch_config) };
+        let _ = unsafe { launch_builder.launch(launch_config) };
         ctx.synchronize()
             .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
         let end = stream
@@ -699,7 +777,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_fastlanes::{BitPackedArray, FoRArray};
 
-    use crate::jit::create_jit;
+    use crate::jit::create_run_jit_kernel;
 
     #[test]
     fn jit_arr_f32() -> VortexResult<()> {
@@ -717,7 +795,7 @@ mod tests {
         )?
         .into_array();
 
-        let (d, _) = create_jit(&for_, ctx)?;
+        let (d, _) = create_run_jit_kernel(ctx, &for_)?;
         let prim = d.to_primitive();
         let expect = for_.to_primitive();
 
@@ -745,7 +823,7 @@ mod tests {
         )?
         .into_array();
 
-        create_jit(&for_.into_array(), ctx)?;
+        create_run_jit_kernel(ctx, &for_.into_array())?;
 
         Ok(())
     }

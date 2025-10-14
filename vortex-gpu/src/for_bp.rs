@@ -186,17 +186,16 @@ mod tests {
         ctx.set_blocking_synchronize().unwrap();
         let unpacked = cuda_for_bp_unpack(&array, ctx).unwrap();
         let primitive_array = array.into_array().to_primitive();
-        println!("unpacked {:?}", unpacked.as_slice::<f32>());
-        // assert_eq!(
-        //     primitive_array.as_slice::<u32>(),
-        //     unpacked.as_slice::<u32>()
-        // );
-        // for i in 0..primitive_array.len() {
-        //     assert_eq!(
-        //         primitive_array.as_slice::<u32>()[i],
-        //         unpacked.as_slice::<u32>()[i],
-        //         "i {i}"
-        //     );
-        // }
+        assert_eq!(
+            primitive_array.as_slice::<u32>(),
+            unpacked.as_slice::<u32>()
+        );
+        for i in 0..primitive_array.len() {
+            assert_eq!(
+                primitive_array.as_slice::<u32>()[i],
+                unpacked.as_slice::<u32>()[i],
+                "i {i}"
+            );
+        }
     }
 }
