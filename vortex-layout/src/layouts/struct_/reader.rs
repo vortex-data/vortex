@@ -5,9 +5,11 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::try_join;
 use itertools::Itertools;
-use vortex_array::MaskFuture;
-use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
+use vortex_array::stats::Precision;
+use vortex_array::{MaskFuture, ToCanonical};
+use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
@@ -90,13 +92,36 @@ impl StructReader {
 
     /// Return the child reader for the field, by index.
     fn child_by_idx(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
+        let child_index = if self.dtype().is_nullable() {
+            idx + 1
+        } else {
+            idx
+        };
+
         let field_dtype = self
             .struct_fields()
             .field_by_index(idx)
             .ok_or_else(|| vortex_err!("Missing field {idx}"))?;
         let name = &self.struct_fields().names()[idx];
-        self.lazy_children
-            .get(idx, &field_dtype, &format!("{}.{}", self.name, name).into())
+        self.lazy_children.get(
+            child_index,
+            &field_dtype,
+            &format!("{}.{}", self.name, name).into(),
+        )
+    }
+
+    /// Return the reader for the struct validity, if present
+    fn validity(&self) -> VortexResult<Option<&LayoutReaderRef>> {
+        self.dtype()
+            .is_nullable()
+            .then(|| {
+                self.lazy_children.get(
+                    0,
+                    &DType::Bool(Nullability::NonNullable),
+                    &"validity".into(),
+                )
+            })
+            .transpose()
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
@@ -155,7 +180,9 @@ impl StructReader {
 /// some cost and just delegate to the child reader directly.
 #[derive(Clone)]
 enum Partitioned {
+    /// An expression which only operates over a single field
     Single(FieldName, ExprRef),
+    /// An expression which operates over multiple fields
     Multi(Arc<PartitionedExpr<FieldName>>),
 }
 
@@ -234,8 +261,13 @@ impl LayoutReader for StructReader {
         expr: &ExprRef,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
+        let validity_fut = self
+            .validity()?
+            .map(|reader| reader.projection_evaluation(row_range, &root(), mask.clone()))
+            .transpose()?;
+
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr.clone()) {
+        let projection_fut = match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
                 .child(name)?
                 .projection_evaluation(row_range, partition, mask),
@@ -247,7 +279,19 @@ impl LayoutReader for StructReader {
                             .projection_evaluation(row_range, expr, mask)
                     })
             }
-        }
+        }?;
+
+        Ok(Box::pin(async move {
+            if let Some(validity_fut) = validity_fut {
+                let (validity, projection) = try_join!(validity_fut, projection_fut)?;
+                vortex_array::compute::mask(
+                    projection.as_ref(),
+                    &Mask::from_buffer(!validity.to_bool().boolean_buffer()),
+                )
+            } else {
+                projection_fut.await
+            }
+        }))
     }
 }
 
@@ -257,13 +301,16 @@ mod tests {
 
     use itertools::Itertools;
     use rstest::{fixture, rstest};
-    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::{BoolArray, StructArray};
+    use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, IntoArray, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::{DType, Nullability, PType};
     use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root};
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
+    use vortex_scalar::Scalar;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
@@ -290,6 +337,39 @@ mod tests {
                         ("c", buffer![4, 5, 6].into_array()),
                     ]
                     .as_slice(),
+                )
+                .unwrap()
+                .into_array()
+                .to_array_stream()
+                .sequenced(ptr),
+                eof,
+                handle,
+            )
+        })
+        .unwrap();
+
+        (segments, layout)
+    }
+
+    #[fixture]
+    /// Create a chunked layout with three chunks of primitive arrays.
+    fn null_struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy =
+            StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
+        let layout = block_on(|handle| {
+            strategy.write_stream(
+                ctx,
+                segments.clone(),
+                StructArray::try_from_iter_with_validity(
+                    [
+                        ("a", buffer![7, 2, 3].into_array()),
+                        ("b", buffer![4, 5, 6].into_array()),
+                        ("c", buffer![4, 5, 6].into_array()),
+                    ],
+                    Validity::Array(BoolArray::from_iter([false, true, true]).into_array()),
                 )
                 .unwrap()
                 .into_array()
@@ -409,6 +489,36 @@ mod tests {
                 .to_primitive()
                 .as_slice::<i32>(),
             [4, 5].as_slice()
+        );
+    }
+
+    #[rstest]
+    fn test_struct_layout_nulls(
+        #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        // Read the layout source from the top.
+        let reader = layout.new_reader("".into(), segments).unwrap();
+        let expr = get_item("a", root());
+        let project = reader
+            .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
+            .unwrap();
+
+        let result = block_on(move |_| project).unwrap();
+        // Result should be nullable primitive array
+        assert_eq!(
+            result.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+
+        assert_eq!(result.scalar_at(0), Scalar::null(result.dtype().clone()),);
+
+        assert_eq!(
+            result.scalar_at(1),
+            Scalar::primitive(2i32, Nullability::Nullable),
+        );
+        assert_eq!(
+            result.scalar_at(2),
+            Scalar::primitive(3i32, Nullability::Nullable),
         );
     }
 }
