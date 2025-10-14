@@ -9237,6 +9237,7 @@ dependencies = [
  "roaring 0.11.2",
  "sketches-ddsketch",
  "tokio",
+ "tracing",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",

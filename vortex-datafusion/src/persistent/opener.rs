@@ -19,6 +19,7 @@ use datafusion_pruning::FilePruner;
 use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
+use tracing::Instrument;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
 use vortex::expr::{root, select};
@@ -266,6 +267,7 @@ impl FileOpener for VortexOpener {
 
             Ok(stream)
         }
+        .in_current_span()
         .boxed())
     }
 }

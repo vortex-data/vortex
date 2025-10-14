@@ -9,6 +9,7 @@ use async_compat::Compat;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt};
+use tracing::Instrument;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
@@ -145,7 +146,8 @@ impl ReadSource for ObjectStoreIoSource {
                     };
 
                     Ok(buffer.freeze())
-                };
+                }
+                .in_current_span();
 
                 async move { req.resolve(Compat::new(read).await) }
             })
