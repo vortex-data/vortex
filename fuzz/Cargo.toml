@@ -18,12 +18,9 @@ version = { workspace = true }
 cargo-fuzz = true
 
 [dependencies]
-arrow-buffer = { workspace = true }
-arrow-ord = { workspace = true }
 itertools = { workspace = true }
 libfuzzer-sys = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
-tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["arbitrary"] }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
