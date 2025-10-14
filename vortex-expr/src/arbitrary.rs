@@ -34,17 +34,10 @@ pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Ex
     let filter_count = u.int_in_range::<usize>(0..=max(struct_dtype.nfields(), 10))?;
 
     let filters = (0..filter_count)
-        .filter_map(|_| {
-            match u.choose_iter(struct_dtype.names().iter().zip(struct_dtype.fields())) {
-                Ok((col, dtype)) => {
-                    if dtype.is_struct() || dtype.is_list() {
-                        None
-                    } else {
-                        Some(random_comparison(u, col, &dtype))
-                    }
-                }
-                Err(e) => Some(Err(e)),
-            }
+        .map(|_| {
+            let (col, dtype) =
+                u.choose_iter(struct_dtype.names().iter().zip(struct_dtype.fields()))?;
+            random_comparison(u, col, &dtype)
         })
         .collect::<AResult<Vec<_>>>()?;
 
