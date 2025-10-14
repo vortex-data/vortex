@@ -2,44 +2,39 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
-#[cfg(not(feature = "lance"))]
 use std::fmt;
-#[cfg(feature = "lance")]
-use std::path::PathBuf;
-#[cfg(feature = "lance")]
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-#[cfg(feature = "lance")]
-use std::{fmt, fs};
 
 use anyhow::Result;
-#[cfg(feature = "lance")]
-use arrow_array::RecordBatch;
 use bytes::Bytes;
 use clap::ValueEnum;
-#[cfg(feature = "lance")]
-use parking_lot::Mutex;
 use parquet::basic::{Compression, ZstdLevel};
 use serde::Serialize;
 use tokio::runtime::Runtime;
 use vortex::Array;
 use vortex::arrays::ChunkedVTable;
 use vortex::utils::aliases::hash_map::HashMap;
+#[cfg(feature = "lance")]
+use {
+    super::lance::*,
+    crate::{
+        bench_run::run_with_setup,
+        utils::{convert_utf8view_batch, convert_utf8view_schema},
+    },
+    arrow_array::RecordBatch,
+    parking_lot::Mutex,
+    std::fs,
+    std::path::PathBuf,
+    std::sync::Arc,
+};
 
 use crate::Format;
-#[cfg(not(feature = "lance"))]
 use crate::bench_run::run;
-#[cfg(feature = "lance")]
-use crate::bench_run::{run, run_with_setup};
 use crate::compress::chunked_to_vec_record_batch;
-#[cfg(feature = "lance")]
-use crate::compress::lance::*;
 use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
 use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
 use crate::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
-#[cfg(feature = "lance")]
-use crate::utils::{convert_utf8view_batch, convert_utf8view_schema};
 
 #[derive(Default)]
 pub struct CompressMeasurements {
@@ -355,6 +350,18 @@ pub fn calculate_ratios(
     bench_name: &str,
     ratios: &mut Vec<CustomUnitMeasurement>,
 ) {
+    calculate_vortex_parquet_ratios(measurements, compressed_sizes, bench_name, ratios);
+
+    #[cfg(feature = "lance")]
+    calculate_vortex_lance_ratios(measurements, compressed_sizes, bench_name, ratios);
+}
+
+fn calculate_vortex_parquet_ratios(
+    measurements: &HashMap<(Format, CompressOp), Duration>,
+    compressed_sizes: &HashMap<Format, u64>,
+    bench_name: &str,
+    ratios: &mut Vec<CustomUnitMeasurement>,
+) {
     // Size ratio: vortex vs parquet.
     if let (Some(vortex_size), Some(parquet_size)) = (
         compressed_sizes.get(&Format::OnDiskVortex),
@@ -393,46 +400,51 @@ pub fn calculate_ratios(
             value: vortex_time.as_nanos() as f64 / parquet_time.as_nanos() as f64,
         });
     }
+}
 
-    #[cfg(feature = "lance")]
-    {
-        // Size ratio: vortex vs lance.
-        if let (Some(vortex_size), Some(lance_size)) = (
-            compressed_sizes.get(&Format::OnDiskVortex),
-            compressed_sizes.get(&Format::Lance),
-        ) {
-            ratios.push(CustomUnitMeasurement {
-                name: format!("vortex:lance size/{bench_name}"),
-                format: Format::OnDiskVortex,
-                unit: Cow::from("ratio"),
-                value: *vortex_size as f64 / *lance_size as f64,
-            });
-        }
+#[cfg(feature = "lance")]
+fn calculate_vortex_lance_ratios(
+    measurements: &HashMap<(Format, CompressOp), Duration>,
+    compressed_sizes: &HashMap<Format, u64>,
+    bench_name: &str,
+    ratios: &mut Vec<CustomUnitMeasurement>,
+) {
+    // Size ratio: vortex vs lance.
+    if let (Some(vortex_size), Some(lance_size)) = (
+        compressed_sizes.get(&Format::OnDiskVortex),
+        compressed_sizes.get(&Format::Lance),
+    ) {
+        ratios.push(CustomUnitMeasurement {
+            name: format!("vortex:lance size/{bench_name}"),
+            format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
+            value: *vortex_size as f64 / *lance_size as f64,
+        });
+    }
 
-        // Compress time ratio: vortex vs lance.
-        if let (Some(vortex_time), Some(lance_time)) = (
-            measurements.get(&(Format::OnDiskVortex, CompressOp::Compress)),
-            measurements.get(&(Format::Lance, CompressOp::Compress)),
-        ) {
-            ratios.push(CustomUnitMeasurement {
-                name: format!("vortex:lance ratio compress time/{bench_name}"),
-                format: Format::OnDiskVortex,
-                unit: Cow::from("ratio"),
-                value: vortex_time.as_nanos() as f64 / lance_time.as_nanos() as f64,
-            });
-        }
+    // Compress time ratio: vortex vs lance.
+    if let (Some(vortex_time), Some(lance_time)) = (
+        measurements.get(&(Format::OnDiskVortex, CompressOp::Compress)),
+        measurements.get(&(Format::Lance, CompressOp::Compress)),
+    ) {
+        ratios.push(CustomUnitMeasurement {
+            name: format!("vortex:lance ratio compress time/{bench_name}"),
+            format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
+            value: vortex_time.as_nanos() as f64 / lance_time.as_nanos() as f64,
+        });
+    }
 
-        // Decompress time ratio: vortex vs lance.
-        if let (Some(vortex_time), Some(lance_time)) = (
-            measurements.get(&(Format::OnDiskVortex, CompressOp::Decompress)),
-            measurements.get(&(Format::Lance, CompressOp::Decompress)),
-        ) {
-            ratios.push(CustomUnitMeasurement {
-                name: format!("vortex:lance ratio decompress time/{bench_name}"),
-                format: Format::OnDiskVortex,
-                unit: Cow::from("ratio"),
-                value: vortex_time.as_nanos() as f64 / lance_time.as_nanos() as f64,
-            });
-        }
+    // Decompress time ratio: vortex vs lance.
+    if let (Some(vortex_time), Some(lance_time)) = (
+        measurements.get(&(Format::OnDiskVortex, CompressOp::Decompress)),
+        measurements.get(&(Format::Lance, CompressOp::Decompress)),
+    ) {
+        ratios.push(CustomUnitMeasurement {
+            name: format!("vortex:lance ratio decompress time/{bench_name}"),
+            format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
+            value: vortex_time.as_nanos() as f64 / lance_time.as_nanos() as f64,
+        });
     }
 }

@@ -108,10 +108,9 @@ fn random_access(
     for format in formats {
         let engine = match format {
             Format::OnDiskVortex | Format::VortexCompact => Engine::Vortex,
-            #[cfg(feature = "lance")]
-            Format::Parquet | Format::Lance => Engine::Arrow,
-            #[cfg(not(feature = "lance"))]
             Format::Parquet => Engine::Arrow,
+            #[cfg(feature = "lance")]
+            Format::Lance => Engine::Arrow,
             Format::Csv | Format::Arrow | Format::OnDiskDuckDB => unimplemented!(),
         };
         let target = Target::new(engine, format);

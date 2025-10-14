@@ -14,19 +14,17 @@ use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
 use tokio::runtime::Runtime;
 use url::Url;
+#[cfg(feature = "lance")]
+use {crate::file::register_lance_files, crate::utils};
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::{EngineCtx, ddb};
-#[cfg(feature = "lance")]
-use crate::file::register_lance_files;
 use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
 use crate::tpch::tpchgen::TpchGenOptions;
 use crate::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, register_arrow, register_parquet,
     register_vortex_compact_file, register_vortex_file, tpch_queries, tpchgen,
 };
-#[cfg(feature = "lance")]
-use crate::utils;
 use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
 /// TPCH benchmark implementation
