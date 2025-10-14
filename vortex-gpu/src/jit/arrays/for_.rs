@@ -55,10 +55,6 @@ impl<P> FoR<P> {
 }
 
 impl<P: NativePType + DeviceRepr> ScalarGPUPipelineJIT for FoR<P> {
-    fn step_id(&self) -> usize {
-        self.step_id
-    }
-
     fn in_params(&self, p: &mut Vec<GPUKernelParameter>) {
         p.push(GPUKernelParameter {
             name: self.ref_var(),

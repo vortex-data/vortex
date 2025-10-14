@@ -60,10 +60,6 @@ impl<A: ALPFloat> ALP<A> {
 }
 
 impl<A: ALPFloat + DeviceRepr> ScalarGPUPipelineJIT for ALP<A> {
-    fn step_id(&self) -> usize {
-        self.step_id
-    }
-
     fn in_params(&self, params: &mut Vec<GPUKernelParameter>) {
         params.extend([
             GPUKernelParameter {

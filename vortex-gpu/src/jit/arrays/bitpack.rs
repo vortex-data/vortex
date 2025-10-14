@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
-use std::fmt::Write;
 use std::sync::Arc;
 
 use cudarc::driver::{CudaSlice, CudaStream, DeviceRepr, LaunchArgs, PushKernelArg};
@@ -47,10 +46,6 @@ pub fn new_jit(
 }
 
 impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
-    fn step_id(&self) -> usize {
-        self.step_id
-    }
-
     fn in_params(&self, p: &mut Vec<GPUKernelParameter>) {
         p.push(GPUKernelParameter {
             name: self.in_var_g(),

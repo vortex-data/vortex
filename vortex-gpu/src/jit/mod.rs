@@ -69,9 +69,6 @@ use crate::indent::IndentedWriter;
 /// Each step contributes a piece of the kernel and specifies its output variable
 /// that subsequent steps can read from.
 pub trait GPUPipelineJIT {
-    /// Unique identifier for this step (used to generate unique variable names)
-    fn step_id(&self) -> usize;
-
     /// Adds input parameters (e.g., device pointers, scalars) to the kernel signature
     fn in_params(&self, params: &mut Vec<GPUKernelParameter>);
 
@@ -106,8 +103,6 @@ pub trait GPUPipelineJIT {
 }
 
 pub trait ScalarGPUPipelineJIT {
-    fn step_id(&self) -> usize;
-
     fn in_params(&self, params: &mut Vec<GPUKernelParameter>);
 
     fn args<'a>(&'a self, stream: &Arc<CudaStream>, args: &mut LaunchArgs<'a>) -> VortexResult<()>;
@@ -140,7 +135,7 @@ impl StepIdAllocator {
     }
 }
 
-trait GPUVisitor<'a> {
+pub trait GPUVisitor<'a> {
     fn accept(&mut self, node: &'a dyn GPUPipelineJIT) -> VortexResult<()>;
 }
 
@@ -158,10 +153,6 @@ struct ScalarGPUPipelineJITNode<T> {
 }
 
 impl<T: ScalarGPUPipelineJIT> GPUPipelineJIT for ScalarGPUPipelineJITNode<T> {
-    fn step_id(&self) -> usize {
-        self.inner.step_id()
-    }
-
     fn in_params(&self, params: &mut Vec<GPUKernelParameter>) {
         self.inner.in_params(params)
     }
