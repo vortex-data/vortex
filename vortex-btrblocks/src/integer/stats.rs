@@ -250,7 +250,7 @@ where
         }
         AllOr::None => unreachable!("All invalid arrays have been handled before"),
         AllOr::Some(v) => {
-            let mask = v.slice(head_idx..(head_idx + array.len()));
+            let mask = v.slice(head_idx..array.len());
             let mut offset = 0;
             for chunk in &mut chunks {
                 let validity = mask.slice(offset..(offset + 64));
