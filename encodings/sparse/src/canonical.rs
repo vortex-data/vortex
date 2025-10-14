@@ -7,15 +7,15 @@ use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::arrays::{
-    BoolArray, ConstantArray, FixedSizeListArray, ListArray, NullArray,
-    PrimitiveArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
+    BoolArray, ConstantArray, FixedSizeListArray, ListArray, NullArray, PrimitiveArray,
+    StructArray, VarBinViewArray, smallest_decimal_value_type,
 };
 use vortex_array::builders::{ArrayBuilder, DecimalBuilder, ListBuilder, builder_with_capacity};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, BufferMut, BufferString, ByteBuffer, buffer, buffer_mut, BitBuffer};
+use vortex_buffer::{BitBuffer, Buffer, BufferMut, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
     DType, DecimalDType, IntegerPType, NativePType, Nullability, StructFields,
     match_each_integer_ptype, match_each_native_ptype,
@@ -576,14 +576,14 @@ mod test {
 
     use rstest::rstest;
     use vortex_array::arrays::{
-        BoolArray, DecimalArray, FixedSizeListArray, ListArray,
-        PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
+        BoolArray, DecimalArray, FixedSizeListArray, ListArray, PrimitiveArray, StructArray,
+        VarBinArray, VarBinViewArray,
     };
     use vortex_array::arrow::IntoArrowArray as _;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{ByteBuffer, buffer, buffer_mut, BitBufferMut};
+    use vortex_buffer::{BitBufferMut, ByteBuffer, buffer, buffer_mut};
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::{DType, DecimalDType, FieldNames, PType, StructFields};
     use vortex_mask::Mask;

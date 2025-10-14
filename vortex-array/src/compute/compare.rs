@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use arrow_array::{BooleanArray, Datum as ArrowDatum};
-use arrow_buffer::{ NullBuffer};
+use arrow_buffer::NullBuffer;
 use arrow_ord::cmp;
 use arrow_ord::ord::make_comparator;
 use arrow_schema::SortOptions;

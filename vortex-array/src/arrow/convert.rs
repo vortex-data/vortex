@@ -251,8 +251,11 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
 
 impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
     fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> Self {
-        BoolArray::from_bit_buffer(value.values().clone().into(), nulls(value.nulls(), nullable))
-            .into_array()
+        BoolArray::from_bit_buffer(
+            value.values().clone().into(),
+            nulls(value.nulls(), nullable),
+        )
+        .into_array()
     }
 }
 
