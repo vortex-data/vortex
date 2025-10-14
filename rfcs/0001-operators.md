@@ -1,7 +1,7 @@
-# Array Operators
+# Arrays as a Logical Plan
 
 This RFC proposes to turn Vortex arrays into logical query plans to support multiple modes of execution. Compute
-functions become arrays, and expressions disappear in favor of serialized arrays with placeholder values.
+functions become lazy and are modelled as arrays.
 
 N.B. within Spiral we have often referred to this proposal as the “Operator Model”
 
@@ -15,7 +15,7 @@ N.B. within Spiral we have often referred to this proposal as the “Operator Mo
 
 1. **Predictable Compute Cost**
 
-Compute functions in Vortex currently take and return ArrayRefs, meaning they have full decision making control (and
+Compute functions in Vortex currently take and return ArrayRefs, meaning they have full decision-making control (and
 responsibility) over how much or little compute to actually perform.
 
 For example, `filter(DictArray, Mask)` could fully evaluate the filter, or it could push down the filter over the
@@ -26,11 +26,77 @@ dictionary codes with an unknown cost.
 Having a tree of arrays represent a logical execution plan allows us to implement alternate modes of compute. We
 currently have four modes in mind:
 
-- Batch Compute - operates over a full array, returning a canonical array.``
+- Batch Compute - operates over a full array, returning a canonical array.
 - Pipelined Compute - operates over vectors of 1024 elements at a time, improving CPU cache locality getting much closer
   to the performance of fused decompression kernels.
-- GPU Compute - self explanatory
+- GPU Compute - self-explanatory
 - JIT Compute - take the logic from pipelined compute and jit-compile.
+
+3. **Async Compute**
+
+We would like to support async compute functions in the future, for example mapping strings through an HTTP API.
+We also may want to move management of Vortex buffers into a centralized buffer pool, allowing us to spill-to-disk
+or hold buffers on alternate devices (e.g. GPU memory).
+
+For both of these use-cases, it's helpful to have our batch execution function be async.
+
+4. **Zero-copy Export**
+
+The current Vortex API returns owned data from compute functions, meaning we often have an additional copy to move
+data into externally allocated buffers such as those from DuckDB, Numpy, etc.
+
+The new batch execution function will take a mutable output array as input, allowing us to write directly into
+pre-allocated buffers.
+
+## Vectors & Exporters
+
+As we are re-defining arrays to be a logical plan with logical children, we need a way to represent in-memory
+canonicalized data. This is currently modelled using the `Canonical` enum, but this RFC proposes to replace this with a
+new `Vector` enum.
+
+Similar to canonical, there is one vector type per Vortex DType, and they use an in-memory format that is heavily
+inspired by Arrow.
+
+```rust
+enum Vector {
+    Primitive(PrimitiveVector),
+    // ...
+}
+
+struct PrimitiveVector {
+    ptype: PType,
+    buffer: ByteBuffer,
+    validity: BitView,
+}
+```
+
+In order to support zero-copy export, we also need a way to wrap borrowed mutable buffers in order to output canonical
+data from batch execution. This is modelled using the `Exporter` enum.
+
+```rust
+enum Exporter<'a> {
+    Primitive(&'a dyn PrimitiveExporter),
+    // ...
+}
+
+trait PrimitiveExporter {
+    fn byte_buffer(&mut self) -> &'a ByteBufferMut;
+    fn validity(&mut self) -> &mut BitViewMut;
+}
+
+trait PrimitiveExporterExt {
+    fn elements<T: NativePType>(&mut self) -> &mut [T] {
+        // Downcast the byte buffer to the appropriate type.
+    }
+}
+
+trait VarBinViewExporter {
+    // SAFETY: caller must ensure that any binary views have valid references to data buffers.
+    unsafe fn views(&mut self) -> &mut [BinaryView];
+    fn push_buffer(&mut self, buffer: ByteBuffer);
+    // ...
+}
+```
 
 ## Arrays as a Logical Plan
 
@@ -38,8 +104,8 @@ We have long described the scope of Vortex as performing “linear compute”. I
 require shuffling data. In many ways this RFC builds on the idea that really Vortex is fundamentally a subset of a query
 engine and leans into this with somewhat familiar terminology.
 
-Vortex arrays will become nodes in a logical plan where the execution of such a plan returns a canonical array. Recall
-that Vortex canonical arrays are 1:1 with the logical data type, for example String types have a canonical
+Vortex arrays will become nodes in a logical plan where the execution of such a plan returns a canonical vector. Recall
+that Vortex canonical vectors are 1:1 with the logical data type, for example String types have a canonical
 representation that is equivalent to Arrow’s VarBinView.
 
 Note: we are yet to decide whether Vortex canonical representations will diverge from Arrow representations, but for now
@@ -54,7 +120,8 @@ For these engines, we propose that the export logic inspects the root node of th
 codecs and deconstructs the array as required.
 
 For example, DuckDB supports dictionary-encoded vectors. So we would try to downcast the root node as a DictArray, and
-if successful, canonicalize the codes and values children separately.
+if successful, canonicalize the codes and values children as two separate executions. Provided these are executed
+through the same `Executor` instance, we retain common subtree elimination optimizations.
 
 ### Common Subtree Elimination
 
@@ -161,7 +228,7 @@ trait Array {
 
     // Inspection APIs for push-down / pull-up optimization
     fn children(&self) -> &[ArrayRef];
-    fn with_children(self: Arc<dyn Self>) -> VortexResult<ArrayRef>;
+    fn with_children(self: Arc<dyn Self>, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 
     // Whether if the child is scalar w.r.t the current array, whether it's 
     // null-aware, other questions that optimizers may want to ask.
@@ -177,8 +244,8 @@ trait Array {
 
 struct ChildInfo {
     // N.B. These properties will evolve as we attempt to implement optimization rules.
-    aligned: bool; // Whether the child elements align 1:1 with the parent elements.
-    propagates_null: bool; // Whether the child nulls align with the parent nulls.
+    aligned: bool, // Whether the child elements align 1:1 with the parent elements.
+    propagates_null: bool, // Whether the child nulls align with the parent nulls.
 }
 ```
 
@@ -206,16 +273,13 @@ We choose to make batch execution an async API to support async arrays in the fu
 including lazy or spilled buffer handles, or more conventional async expressions such as mapping each row through some
 HTTP API.
 
-Arrays will report whether or not they require async execution, and we can expose blocking APIs when the entire tree is
-synchronous.
-
 ```rust
 trait Array {
     ...
 
     /// Even batch execution is optional, as some arrays may be pure placeholders
     /// and themselves have no evaluation logic.
-    fn as_batch(&self) -> Option<&dyn BatchOperator>
+    fn as_batch(&self) -> Option<&dyn BatchOperator>;
 }
 
 trait BatchOperator {
@@ -228,8 +292,8 @@ struct BatchBindContext {
 
 #[async_trait]
 trait BatchExecution {
-    /// Execute the array, producing a canonical result.
-    async fn execute(self: Box<Self>) -> VortexResult<Canonical>;
+    /// Execute the array, producing a canonical vector result.
+    async fn execute(self: Box<Self>, output: ViewMut) -> VortexResult<()>;
 }
 ```
 
@@ -243,7 +307,7 @@ pipeline of array operators at once, keeping much of the data in the L1 CPU cach
 
 Early experiments have shown up to 4x improvements in performance.
 
-Pipelines operator over vectors of 1024 elements at a time, until the final vector which may be shorter. They are not
+Pipelines operate over vectors of 1024 elements at a time, until the final vector which may be shorter. They are not
 allowed to perform any I/O or async operations.
 
 The execution engine looks at the tree of arrays and finds subgraphs where all nodes support pipelined execution. These
@@ -351,19 +415,14 @@ We will still need complex e2e benchmarks to analyze the effect of optimization 
 
 ## Migration Path
 
-This is a very large change that touches all arrays and fundamentally changes the array trait. My proposal for a
-migration path is to create an alternate array trait, named `Operator` , and provide an optional conversion function
-from existing arrays and expressions into the operator space.
+This is a very large change that touches all arrays and fundamentally changes the array trait. I propose we roughly:
+
+1. Create `Vector` types and `Exporter` traits for each `DType`.
+1. Add `OperatorVTable` to the array `VTable`, providing the `as_batch`, `as_pipelined`, `as_gpu`, and optimization
+   functions.
+1. Implement a `to_vector` function that uses an executor to perform batch canonicalization of an array.
+1. Implement compute functions as arrays.
+1. Implement optimization rules for push-down and pull-up.
 
 If an array can be converted to an operator, and all expressions can be converted to operators, then the executor can
 use the operator tree for evaluation inside Vortex scan.
-
-Once we decide we have sufficient coverage, we would port the implementation of into_canonical to use the same executor.
-
-Finally, we would need to big-bang the migration of the array trait and compute function entry points such that
-`take(array) -> TakeArray{ child: Array }` instead of performing any eager compute.
-
-## Open Questions
-
-- Is the canonical return value to performance-restrictive
-- How would we support variable length arrays e.g. value-compressed list arrays
