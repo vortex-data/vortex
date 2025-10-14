@@ -4,9 +4,8 @@
 use std::fmt::Debug;
 use std::ops::Deref;
 
-use arrow_buffer::BooleanBuffer;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::{BoolArray, BooleanBuffer};
 use vortex_array::compute::{Operator, scalar_cmp};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};

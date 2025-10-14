@@ -281,6 +281,7 @@ impl ToJson for CompressionTimingMeasurement {
         let (name, engine) = match self.format {
             Format::OnDiskVortex => (self.name.to_string(), Engine::Vortex),
             Format::Parquet => (format!("parquet_rs-zstd {}", self.name), Engine::Arrow),
+            #[cfg(feature = "lance")]
             Format::Lance => (format!("lance {}", self.name), Engine::Arrow),
             _ => vortex_panic!(
                 "CompressionTimingMeasurement only supports vortex, lance, and parquet formats"
@@ -324,7 +325,9 @@ impl ToJson for CustomUnitMeasurement {
     fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
         let engine = match self.format {
             Format::OnDiskVortex | Format::VortexCompact => Engine::Vortex,
-            Format::Lance | Format::Parquet => Engine::Arrow,
+            Format::Parquet => Engine::Arrow,
+            #[cfg(feature = "lance")]
+            Format::Lance => Engine::Arrow,
             _ => Engine::Vortex, // Default to Vortex for other formats.
         };
 

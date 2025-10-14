@@ -11,6 +11,7 @@ use url::Url;
 use vortex::ArrayRef;
 
 use crate::clickbench::Flavor;
+#[cfg(feature = "lance")]
 use crate::file::register_lance_files;
 use crate::{Format, clickbench, fineweb, statpopgen};
 
@@ -144,6 +145,7 @@ impl BenchmarkDataset {
                 )
                 .await?;
             }
+            #[cfg(feature = "lance")]
             (cb @ BenchmarkDataset::ClickBench { .. }, Format::Lance) => {
                 register_lance_files(session, "hits", base_url, cb).await?;
             }

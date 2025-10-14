@@ -16,9 +16,12 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[features]
+lance = ["dep:lance", "dep:lance-encoding"]
+
 [dependencies]
-lance = "0.38.2"
-lance-encoding = "0.38.2"
+lance = { version = "0.38.2", optional = true }
+lance-encoding = { version = "0.38.2", optional = true }
 
 anyhow = { workspace = true }
 arrow-array = { workspace = true }

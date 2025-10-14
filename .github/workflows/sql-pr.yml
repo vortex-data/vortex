@@ -1,3 +1,5 @@
+# Runs once when we add the `benchmark-sql` tag to a pull request.
+
 name: PR SQL Benchmarks
 
 on:

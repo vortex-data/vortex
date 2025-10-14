@@ -1,22 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fs;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+#[cfg(not(feature = "lance"))]
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::anyhow;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_cast::cast;
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
-use lance::dataset::{Dataset as LanceDataset, WriteParams};
-use lance_encoding::version::LanceFileVersion;
-use log::info;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use tokio::fs::create_dir_all;
-
-use crate::utils::idempotent_async;
+#[cfg(feature = "lance")]
+use {
+    crate::utils::idempotent_async,
+    lance::dataset::{Dataset as LanceDataset, WriteParams},
+    lance_encoding::version::LanceFileVersion,
+    log::info,
+    std::fs,
+    std::path::{Path, PathBuf},
+    tokio::fs::create_dir_all,
+};
 
 /// A streaming iterator that reads RecordBatches from multiple Parquet files sequentially.
 /// Works equally well for single files and multiple files.
@@ -91,6 +95,7 @@ impl RecordBatchReader for ParquetFilesIterator {
 ///
 /// If `convert_utf8view` is true, any Utf8View columns will be converted to Utf8
 /// (required for datasets like TPCH since Lance doesn't support Utf8View).
+#[cfg(feature = "lance")]
 pub async fn convert_parquet_to_lance(
     parquet_dir: &Path,
     lance_dir: &Path,

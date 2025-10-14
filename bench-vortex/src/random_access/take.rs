@@ -10,6 +10,7 @@ use arrow_select::concat::concat_batches;
 use arrow_select::take::take_record_batch;
 use futures::stream;
 use itertools::Itertools;
+#[cfg(feature = "lance")]
 use lance::dataset::{Dataset, ProjectionRequest};
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
@@ -113,6 +114,7 @@ async fn parquet_take_from_stream<T: AsyncFileReader + Unpin + Send + 'static>(
     Ok(concat_batches(&schema, &batches)?)
 }
 
+#[cfg(feature = "lance")]
 pub async fn take_lance(path: &Path, indices: Buffer<u64>) -> anyhow::Result<RecordBatch> {
     let dataset = Dataset::open(path.to_str().unwrap()).await?;
     let projection = ProjectionRequest::from_schema(dataset.schema().clone()); // All columns.

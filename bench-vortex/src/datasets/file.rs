@@ -11,13 +11,12 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::SessionContext;
 use glob::Pattern;
-use lance::datafusion::LanceTableProvider;
-use lance::dataset::Dataset;
 use tracing::info;
 use url::Url;
 use vortex_datafusion::VortexFormat;
+#[cfg(feature = "lance")]
+use {crate::Format, lance::datafusion::LanceTableProvider, lance::dataset::Dataset};
 
-use crate::Format;
 use crate::datasets::BenchmarkDataset;
 
 pub async fn register_parquet_files(
@@ -167,6 +166,7 @@ pub async fn register_vortex_compact_files(
     Ok(())
 }
 
+#[cfg(feature = "lance")]
 pub async fn register_lance_files(
     session: &SessionContext,
     table_name: &str,
