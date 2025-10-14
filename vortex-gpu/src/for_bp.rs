@@ -26,7 +26,7 @@ struct FoRBPTask<P> {
     launch_config: LaunchConfig,
 
     packed: CudaSlice<P>,
-    unpacked: CudaSlice<f32>,
+    unpacked: CudaSlice<P>,
     reference: P,
 
     len: usize,
@@ -53,7 +53,7 @@ pub fn new_task(
         .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
     let cu_out = unsafe {
         stream
-            .alloc::<f32>(array.len().next_multiple_of(1024))
+            .alloc::<u32>(array.len().next_multiple_of(1024))
             .map_err(|e| vortex_err!("Failed to allocate stream: {e}"))?
     };
 
@@ -101,7 +101,7 @@ impl<P: NativePType + DeviceRepr> GPUTask for FoRBPTask<P> {
 
     fn export_result(&mut self) -> VortexResult<Canonical> {
         let len = self.len();
-        let mut buffer = BufferMut::<f32>::with_capacity(len);
+        let mut buffer = BufferMut::<P>::with_capacity(len);
 
         unsafe { buffer.set_len(len) }
         self.stream

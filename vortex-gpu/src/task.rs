@@ -16,6 +16,4 @@ pub trait GPUTask {
     fn output(&mut self) -> CudaViewMut<'_, u8>;
 
     fn len(&self) -> usize;
-
-    // fn jit(&mut self) -> OptBox<dyn JITGPUTask> ;
 }
