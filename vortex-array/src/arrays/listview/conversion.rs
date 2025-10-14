@@ -11,25 +11,10 @@ use crate::{ArrayRef, Canonical, IntoArray, ToCanonical};
 
 /// Creates a [`ListViewArray`] from a [`ListArray`] by computing `sizes` from `offsets`.
 pub fn list_view_from_list(list: ListArray) -> ListViewArray {
-    // TODO(connor)[ListView]: Create a version of `Canonical::empty` for `ListView` once `ListView`
-    // is canonicalized. It might also be worth specializing that for all canonical encodings.
-
     // If the list is empty, create an empty `ListViewArray` with the same offset `DType` as the
     // input.
     if list.is_empty() {
-        let empty_offsets = Canonical::empty(list.offsets().dtype()).into_array();
-        let empty_sizes = Canonical::empty(list.offsets().dtype()).into_array();
-        let empty_validity = list.validity().clone();
-
-        // SAFETY: Everything is empty so all the variants are satisfied.
-        return unsafe {
-            ListViewArray::new_unchecked(
-                list.elements().clone(),
-                empty_offsets,
-                empty_sizes,
-                empty_validity,
-            )
-        };
+        return Canonical::empty(list.dtype()).into_listview();
     }
 
     let len = list.len();
@@ -83,15 +68,6 @@ fn build_sizes_from_offsets<O: IntegerPType>(list: &ListArray) -> ArrayRef {
 }
 
 /// Creates a [`ListArray`] from a [`ListViewArray`].
-///
-/// If the [`ListViewShape::is_zero_copy_to_list`] is `true`, then this operation is fast (note that
-/// it is not exactly zero-copy because we have to add a single offset at the end, but it is fast
-/// enough).
-///
-/// Otherwise, this function fall back to the expensive path and will rebuild the `ListArray` from
-/// scratch.
-///
-/// [`as_zero_copy_to_list()`]: ListViewShape::as_zero_copy_to_list
 pub fn list_from_list_view(list_view: ListViewArray) -> ListArray {
     let elements_dtype = list_view
         .dtype()

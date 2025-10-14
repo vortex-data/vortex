@@ -186,7 +186,7 @@ pub fn pack_nested_lists() {
         ),
     );
 
-    let canon_values = chunked_list.unwrap().to_list();
+    let canon_values = chunked_list.unwrap().to_listview();
 
     assert_eq!(l1.scalar_at(0), canon_values.scalar_at(0));
     assert_eq!(l2.scalar_at(0), canon_values.scalar_at(1));

@@ -3,9 +3,9 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType, StructFields};
-use vortex_error::{VortexExpect, VortexUnwrap, vortex_err};
+use vortex_error::VortexExpect;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable, ListArray, PrimitiveArray, StructArray};
+use crate::arrays::{ChunkedArray, ChunkedVTable, ListViewArray, PrimitiveArray, StructArray};
 use crate::builders::{ArrayBuilder, builder_with_capacity};
 use crate::compute::cast;
 use crate::validity::Validity;
@@ -82,15 +82,30 @@ fn swizzle_struct_chunks(
     unsafe { StructArray::new_unchecked(field_arrays, struct_dtype.clone(), len, validity) }
 }
 
-fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> ListArray {
+fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> ListViewArray {
     let len: usize = chunks.iter().map(|c| c.len()).sum();
-    let mut offsets = BufferMut::<u64>::with_capacity(len + 1);
-    offsets.push(0);
-    let mut elements = Vec::new();
+
+    // Estimate total elements capacity by summing the element counts of all chunks.
+    let elements_capacity: usize = chunks
+        .iter()
+        .map(|c| c.to_listview().elements().len())
+        .sum();
+
+    // Note that since views can be out of order, it is easier to just rebuild the entire array than
+    // to recalculate views based on new offsets for each chunk.
+    let mut elements_builder = builder_with_capacity(elem_dtype, elements_capacity);
+
+    // TODO(connor)[ListView]: We could potentially choose a smaller type here, but that would make
+    // this much more complicated.
+
+    // We (somewhat arbitrarily) choose `u64` for our offsets and sizes here.
+    let mut offsets = BufferMut::<u64>::with_capacity(len);
+    let mut sizes = BufferMut::<u64>::with_capacity(len);
 
     for chunk in chunks {
-        let chunk = chunk.to_list();
-        // TODO: handle i32 offsets if they fit.
+        let chunk = chunk.to_listview();
+
+        // Cast offsets and sizes to u64.
         let offsets_arr = cast(
             chunk.offsets(),
             &DType::Primitive(PType::U64, Nullability::NonNullable),
@@ -98,40 +113,37 @@ fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> Li
         .vortex_expect("Must fit array offsets in u64")
         .to_primitive();
 
-        let first_offset_value: usize =
-            usize::try_from(&offsets_arr.scalar_at(0)).vortex_expect("Offset must be a usize");
-        let last_offset_value: usize =
-            usize::try_from(&offsets_arr.scalar_at(offsets_arr.len() - 1))
-                .vortex_expect("Offset must be a usize");
-        elements.push(
-            chunk
-                .elements()
-                .slice(first_offset_value..last_offset_value),
-        );
+        let sizes_arr = cast(
+            chunk.sizes(),
+            &DType::Primitive(PType::U64, Nullability::NonNullable),
+        )
+        .vortex_expect("Must fit array sizes in u64")
+        .to_primitive();
 
-        let adjustment_from_previous = *offsets
-            .last()
-            .ok_or_else(|| vortex_err!("List offsets must have at least one element"))
-            .vortex_unwrap();
-        offsets.extend_trusted(
-            offsets_arr
-                .as_slice::<u64>()
-                .iter()
-                .skip(1)
-                .map(|off| off + adjustment_from_previous - first_offset_value as u64),
-        );
+        let offsets_slice = offsets_arr.as_slice::<u64>();
+        let sizes_slice = sizes_arr.as_slice::<u64>();
+
+        // Track the current position in our combined elements array.
+        let current_elements_offset = elements_builder.len() as u64;
+
+        // Append all elements from this chunk.
+        elements_builder.extend_from_array(chunk.elements());
+
+        // Append offsets and sizes, adjusting offsets to point into the combined array.
+        offsets.extend(offsets_slice.iter().map(|o| o + current_elements_offset));
+        sizes.extend(sizes_slice);
     }
-    // SAFETY: elements are sliced from valid ListArrays with matching elem_dtype.
-    // All elements arrays are guaranteed to be valid for elem_dtype.
-    let chunked_elements =
-        unsafe { ChunkedArray::new_unchecked(elements, elem_dtype.clone()) }.into_array();
-    let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable);
 
-    // SAFETY: chunked_elements contains valid elements from the original lists.
-    // Offsets are monotonically increasing starting from 0, with each offset[i+1] >= offset[i],
-    // and the last offset equals the total length of chunked_elements.
-    // The validity matches the number of lists (offsets.len() - 1).
-    unsafe { ListArray::new_unchecked(chunked_elements, offsets.into_array(), validity) }
+    let elements = elements_builder.finish();
+    let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable).into_array();
+    let sizes = PrimitiveArray::new(sizes.freeze(), Validity::NonNullable).into_array();
+
+    // SAFETY:
+    // - `offsets` and `sizes` are non-nullable u64 arrays of the same length
+    // - Each `offset[i] + size[i]` list view is within bounds of elements array because it came
+    //   from valid chunks
+    // - Validity came from the outer chunked array so it must have the same length
+    unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }
 }
 
 #[cfg(test)]
@@ -201,7 +213,7 @@ mod tests {
             List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().to_list();
+        let canon_values = chunked_list.unwrap().to_listview();
 
         assert_eq!(l1.scalar_at(0), canon_values.scalar_at(0));
         assert_eq!(l2.scalar_at(0), canon_values.scalar_at(1));

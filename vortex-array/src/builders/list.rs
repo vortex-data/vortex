@@ -5,18 +5,17 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, IntegerPType, Nullability};
+use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{ListScalar, Scalar};
 
-use crate::arrays::ListArray;
+use crate::arrays::{ListArray, list_view_from_list};
 use crate::builders::{
     ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, PrimitiveBuilder,
     builder_with_capacity,
 };
 use crate::canonical::{Canonical, ToCanonical};
-use crate::compute::cast;
 use crate::{Array, ArrayRef, IntoArray};
 
 /// The builder for building a [`ListArray`], parametrized by the [`IntegerPType`] of the `offsets`
@@ -181,55 +180,62 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        let list = array.to_list();
+        let list = array.to_listview();
         if list.is_empty() {
             return;
         }
 
-        let builder_len = self.elements_builder.len();
-        let builder_len_offset = match O::from_usize(builder_len) {
-            Some(v) => v,
-            None => {
-                vortex_panic!(
-                    "cannot convert length {} to type {:?}",
-                    builder_len,
-                    O::PTYPE
-                )
-            }
-        };
+        // Append validity information.
+        self.nulls.append_validity_mask(array.validity_mask());
 
-        let offsets = list.offsets();
+        // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.
         let elements = list.elements();
+        let offsets = list.offsets().to_primitive();
+        let sizes = list.sizes().to_primitive();
 
-        let index_dtype = self.offsets_builder.dtype();
+        fn extend_inner<O, OffsetType, SizeType>(
+            builder: &mut ListBuilder<O>,
+            elements: &ArrayRef,
+            offsets: &[OffsetType],
+            sizes: &[SizeType],
+        ) where
+            O: IntegerPType,
+            OffsetType: IntegerPType,
+            SizeType: IntegerPType,
+        {
+            // We need to append each list individually, converting from `ListViewArray` format
+            // to the `ListArray` format that `ListBuilder` expects.
+            for i in 0..offsets.len() {
+                let offset: usize = offsets[i].as_();
+                let size: usize = sizes[i].as_();
 
-        // Cast offsets to the correct type upfront.
-        let casted_offsets =
-            cast(offsets, index_dtype).vortex_expect("Offsets must be castable to index dtype");
+                if size > 0 {
+                    let list_elements = elements.slice(offset..offset + size);
+                    unsafe {
+                        builder
+                            .elements_builder
+                            .extend_from_array_unchecked(&list_elements);
+                    }
+                }
 
-        // Convert to primitive and get as slice.
-        let offsets_primitive = casted_offsets.to_primitive();
-        let offsets_slice = offsets_primitive.as_slice::<O>();
-
-        // Get the first offset (leading junk values count).
-        let n_leading_junk_values = offsets_slice[0];
-        let n_leading_junk_values_usize: usize = n_leading_junk_values.as_();
-
-        // Manually adjust offsets and append to index_builder.
-        for i in 1..offsets_slice.len() {
-            let offset = offsets_slice[i];
-            let adjusted = offset - n_leading_junk_values + builder_len_offset;
-            self.offsets_builder.append_value(adjusted);
+                // TODO(connor): We can use `UninitRange` for the `offsets_builder` here.
+                // Update the index with the new position.
+                let new_offset = O::from_usize(builder.elements_builder.len())
+                    .vortex_expect("Failed to convert offset");
+                builder.offsets_builder.append_value(new_offset);
+            }
         }
 
-        // Extract non-junk values.
-        let last_offset = offsets_slice[offsets_slice.len() - 1];
-        let last_offset_usize: usize = last_offset.as_();
-        let non_junk_values = elements.slice(n_leading_junk_values_usize..last_offset_usize);
-
-        self.nulls.append_validity_mask(array.validity_mask());
-        self.elements_builder.reserve_exact(non_junk_values.len());
-        self.elements_builder.extend_from_array(&non_junk_values);
+        match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
+            match_each_integer_ptype!(sizes.ptype(), |SizeType| {
+                extend_inner(
+                    self,
+                    elements,
+                    offsets.as_slice::<OffsetType>(),
+                    sizes.as_slice::<SizeType>(),
+                )
+            })
+        })
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -248,7 +254,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn finish_into_canonical(&mut self) -> Canonical {
-        Canonical::List(self.finish_into_list())
+        Canonical::List(list_view_from_list(self.finish_into_list()))
     }
 }
 
@@ -309,7 +315,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 2);
 
-        let list_array = list.to_list();
+        let list_array = list.to_listview();
 
         assert_eq!(list_array.list_elements_at(0).len(), 3);
         assert_eq!(list_array.list_elements_at(1).len(), 3);
@@ -361,7 +367,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 3);
 
-        let list_array = list.to_list();
+        let list_array = list.to_listview();
 
         assert_eq!(list_array.list_elements_at(0).len(), 3);
         assert_eq!(list_array.list_elements_at(1).len(), 0);
@@ -396,9 +402,9 @@ mod tests {
             Arc::new(DType::Primitive(I32, NonNullable)),
         )
         .unwrap()
-        .to_list();
+        .to_listview();
 
-        let actual = builder.finish_into_canonical().into_list();
+        let actual = builder.finish_into_canonical().into_listview();
 
         assert_eq!(
             actual.elements().to_primitive().as_slice::<i32>(),
@@ -450,7 +456,7 @@ mod tests {
             DType::List(Arc::new(DType::Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().to_list();
+        let canon_values = chunked_list.unwrap().to_listview();
 
         assert_eq!(
             one_trailing_unused_element.scalar_at(0),

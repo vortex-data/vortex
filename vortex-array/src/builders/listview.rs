@@ -17,7 +17,7 @@ use vortex_scalar::{ListScalar, Scalar};
 
 use super::lazy_null_builder::LazyNullBufferBuilder;
 use crate::array::{Array, ArrayRef, IntoArray};
-use crate::arrays::{ListViewArray, list_view_from_list};
+use crate::arrays::ListViewArray;
 use crate::builders::{
     ArrayBuilder, DEFAULT_BUILDER_CAPACITY, PrimitiveBuilder, builder_with_capacity,
 };
@@ -104,7 +104,6 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         }
     }
 
-    // TODO(connor): This should probably take a `&ListScalar` instead.
     /// Append a list of values to the builder.
     ///
     /// This method extends the value builder with the provided values and records
@@ -233,13 +232,13 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        let list_array = array.to_list();
-        if list_array.is_empty() {
+        let listview_array = array.to_listview();
+        if listview_array.is_empty() {
             return;
         }
 
-        // TODO(connor)[ListView]: fix this after list view is canonical
-        let listview_array = list_view_from_list(list_array);
+        // TODO(connor)[ListView]: We could potentially concatenate the new elements on top of the
+        // existing elements and recalculate offsets (and then use `UninitRange`).
 
         // We assume the worst case scenario, where the list view array is stored completely out of
         // order, with many out-of-order offsets, and lots of garbage data. Thus, we simply iterate
@@ -269,8 +268,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     fn finish_into_canonical(&mut self) -> Canonical {
-        // TODO(connor)[ListView]: fix this after list view is canonical
-        unimplemented!("TODO(connor)[ListView]: fix this after list view is canonical")
+        Canonical::List(self.finish_into_listview())
     }
 }
 
