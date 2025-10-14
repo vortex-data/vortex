@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use futures::future::BoxFuture;
+use tracing::Instrument;
 
 use crate::runtime::{AbortHandle, AbortHandleRef, Executor, IoTask};
 
@@ -22,7 +23,7 @@ impl Executor for smol::Executor<'static> {
     }
 
     fn spawn_io(&self, task: IoTask) {
-        smol::Executor::spawn(self, task.source.drive_send(task.stream)).detach()
+        smol::Executor::spawn(self, task.source.drive_send(task.stream).in_current_span()).detach()
     }
 }
 
