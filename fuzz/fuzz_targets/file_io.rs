@@ -17,9 +17,10 @@ use vortex_buffer::ByteBufferMut;
 use vortex_dtype::{DType, StructFields};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_expr::{Scope, lit, root};
-use vortex_file::{VortexOpenOptions, VortexWriteOptions};
-use vortex_fuzz::FuzzFileAction;
+use vortex_file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
+use vortex_fuzz::{CompressorStrategy, FuzzFileAction};
 use vortex_io::runtime::single::SingleThreadRuntime;
+use vortex_layout::layouts::compact::CompactCompressor;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -28,6 +29,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         array,
         projection_expr,
         filter_expr,
+        compressor_strategy,
     } = fuzz;
     let array_data = array;
 
@@ -50,8 +52,18 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .vortex_unwrap()
     };
 
+    let write_options = match compressor_strategy {
+        CompressorStrategy::Default => VortexWriteOptions::default(),
+        CompressorStrategy::Compact => {
+            let strategy = WriteStrategyBuilder::new()
+                .with_compressor(CompactCompressor::default())
+                .build();
+            VortexWriteOptions::default().with_strategy(strategy)
+        }
+    };
+
     let mut full_buff = ByteBufferMut::empty();
-    let _footer = VortexWriteOptions::default()
+    let _footer = write_options
         .blocking::<SingleThreadRuntime>()
         .write(&mut full_buff, array_data.to_array_iterator())
         .vortex_unwrap();
