@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+mod children;
+pub mod layouts;
+
+use std::collections::BTreeSet;
+use std::ops::Range;
+use std::sync::Arc;
+
+use vortex_array::MaskFuture;
+use vortex_array::stats::Precision;
+use vortex_dtype::{DType, FieldMask};
+use vortex_error::VortexResult;
+use vortex_expr::ExprRef;
+
+use crate::ArrayFuture;
+
+pub type GpuLayoutReaderRef = Arc<dyn GpuLayoutReader>;
+
+/// A [`crate::gpu::GpuLayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
+/// evaluation operations.
+pub trait GpuLayoutReader: 'static + Send + Sync {
+    /// Returns the name of the layout reader for debugging.
+    fn name(&self) -> &Arc<str>;
+
+    /// Returns the un-projected dtype of the layout reader.
+    fn dtype(&self) -> &DType;
+
+    /// Returns the number of rows in the layout reader.
+    /// An inexact count may be larger or smaller than the actual row count.
+    fn row_count(&self) -> Precision<u64>;
+
+    /// Register the splits of this layout reader.
+    fn register_splits(
+        &self,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()>;
+
+    fn projection_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        mask: MaskFuture,
+    ) -> VortexResult<ArrayFuture>;
+}

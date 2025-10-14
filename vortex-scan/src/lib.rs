@@ -21,5 +21,8 @@ pub use split_by::SplitBy;
 mod scan_builder;
 pub use scan_builder::ScanBuilder;
 
+#[cfg(feature = "gpu")]
+mod gpu;
 mod repeated_scan;
+
 pub use repeated_scan::RepeatedScan;

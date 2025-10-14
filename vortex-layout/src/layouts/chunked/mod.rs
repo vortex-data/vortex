@@ -72,6 +72,15 @@ impl VTable for ChunkedVTable {
         )))
     }
 
+    #[cfg(feature = "gpu")]
+    fn new_gpu_reader(
+        layout: &Self::Layout,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
+        todo!()
+    }
+
     fn build(
         _encoding: &Self::Encoding,
         dtype: &DType,
@@ -119,5 +128,9 @@ impl ChunkedLayout {
             children,
             chunk_offsets,
         }
+    }
+
+    pub fn children(&self) -> &Arc<dyn LayoutChildren> {
+        &self.children
     }
 }

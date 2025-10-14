@@ -90,6 +90,18 @@ impl VortexFile {
         Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
     }
 
+    #[cfg(feature = "gpu")]
+    pub fn gpu_scan(&self) -> VortexResult<vortex_scan::gpu::GpuScanBuilder<ArrayRef>> {
+        let segment_source = self.segment_source();
+        let gpu_reader = self
+            .footer
+            .layout()
+            // TODO(ngates): we may want to allow the user pass in a name here?
+            .new_gpu_reader("".into(), segment_source);
+
+        Ok(vortex_scan::gpu::GpuScanBuilder::new(gpu_reader))
+    }
+
     /// Returns true if the expression will never match any rows in the file.
     pub fn can_prune(&self, filter: &ExprRef) -> VortexResult<bool> {
         let Some((stats, fields)) = self

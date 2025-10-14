@@ -51,6 +51,13 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     /// Get the segment IDs for this layout.
     fn segment_ids(&self) -> Vec<SegmentId>;
 
+    #[cfg(feature = "gpu")]
+    fn new_gpu_reader(
+        &self,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef>;
+
     fn new_reader(
         &self,
         name: Arc<str>,
@@ -249,6 +256,15 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
 
     fn segment_ids(&self) -> Vec<SegmentId> {
         V::segment_ids(&self.0)
+    }
+
+    #[cfg(feature = "gpu")]
+    fn new_gpu_reader(
+        &self,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
+        V::new_gpu_reader(&self.0, name, segment_source)
     }
 
     fn new_reader(

@@ -29,8 +29,7 @@ log = { workspace = true }
 object_store = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
-# Needed to pickup the "js" feature for wasm targets from the workspace configuration
-uuid = { workspace = true }
+cudarc = { workspace = true, optional = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -76,3 +75,4 @@ tokio = [
     "vortex-scan/tokio",
 ]
 zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]
+gpu = ["dep:cudarc", "vortex-layout/gpu", "vortex-scan/gpu"]

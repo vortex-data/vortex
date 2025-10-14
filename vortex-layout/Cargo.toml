@@ -21,10 +21,9 @@ arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
+cudarc = { workspace = true, optional = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
-# Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
-getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 kanal = { workspace = true }
 log = { workspace = true }
@@ -39,9 +38,6 @@ prost = { workspace = true }
 rustc-hash = { workspace = true }
 termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
-# Needed to pickup the "js" feature for wasm targets from the workspace configuration
-tracing = { workspace = true }
-uuid = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -71,6 +67,8 @@ vortex-io = { path = "../vortex-io", features = ["tokio"] }
 test-harness = []
 tokio = ["dep:tokio", "vortex-error/tokio"]
 zstd = ["dep:vortex-zstd"]
+gpu = ["cuda"]
+cuda = ["dep:cudarc"]
 
 [lints]
 workspace = true

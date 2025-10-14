@@ -83,6 +83,15 @@ impl VTable for DictVTable {
         )?))
     }
 
+    #[cfg(feature = "gpu")]
+    fn new_gpu_reader(
+        layout: &Self::Layout,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
+        todo!()
+    }
+
     fn build(
         _encoding: &Self::Encoding,
         dtype: &DType,
