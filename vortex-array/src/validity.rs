@@ -286,6 +286,8 @@ impl Validity {
             indices_offset,
             indices.to_array(),
             patch_values.into_array(),
+            // TODO(0ax1): chunk offsets
+            None,
         );
 
         Self::from_array(source.patch(&patches).into_array(), own_nullability)

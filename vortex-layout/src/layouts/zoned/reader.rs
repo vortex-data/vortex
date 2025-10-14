@@ -10,9 +10,8 @@ use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
-use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayRef, ToCanonical};
+use vortex_array::{ArrayRef, MaskFuture, ToCanonical};
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
@@ -347,8 +346,7 @@ mod test {
 
     use rstest::{fixture, rstest};
     use vortex_array::arrays::ChunkedArray;
-    use vortex_array::pipeline::operators::MaskFuture;
-    use vortex_array::{ArrayContext, IntoArray, ToCanonical};
+    use vortex_array::{ArrayContext, IntoArray, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;

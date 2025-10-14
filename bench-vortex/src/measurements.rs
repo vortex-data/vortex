@@ -278,11 +278,12 @@ pub struct CompressionTimingMeasurement {
 
 impl ToJson for CompressionTimingMeasurement {
     fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
-        let name = match self.format {
-            Format::OnDiskVortex => self.name.to_string(),
-            Format::Parquet => format!("parquet_rs-zstd {}", self.name),
+        let (name, engine) = match self.format {
+            Format::OnDiskVortex => (self.name.to_string(), Engine::Vortex),
+            Format::Parquet => (format!("parquet_rs-zstd {}", self.name), Engine::Arrow),
+            Format::Lance => (format!("lance {}", self.name), Engine::Arrow),
             _ => vortex_panic!(
-                "CompressionTimingMeasurement only supports vortex and parquet formats"
+                "CompressionTimingMeasurement only supports vortex, lance, and parquet formats"
             ),
         };
 
@@ -294,7 +295,7 @@ impl ToJson for CompressionTimingMeasurement {
             time: Some(self.time.as_nanos()),
             bytes: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
-            target: Target::new(Engine::Vortex, self.format),
+            target: Target::new(engine, self.format),
         })
     }
 }
@@ -321,6 +322,12 @@ pub struct CustomUnitMeasurement {
 
 impl ToJson for CustomUnitMeasurement {
     fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
+        let engine = match self.format {
+            Format::OnDiskVortex | Format::VortexCompact => Engine::Vortex,
+            Format::Lance | Format::Parquet => Engine::Arrow,
+            _ => Engine::Vortex, // Default to Vortex for other formats.
+        };
+
         Box::new(JsonValue {
             name: self.name.clone(),
             storage: None,
@@ -330,7 +337,7 @@ impl ToJson for CustomUnitMeasurement {
             time: None,
             bytes: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
-            target: Target::new(Engine::Vortex, self.format),
+            target: Target::new(engine, self.format),
         })
     }
 }

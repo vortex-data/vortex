@@ -16,7 +16,7 @@ use crate::{Layout, LayoutContext, LayoutRef};
 
 static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
     VerifierOptions {
-        // Overriden
+        // Overridden
         max_tables: env::var("VORTEX_MAX_LAYOUT_TABLES")
             .ok()
             .and_then(|lmt| lmt.parse::<usize>().ok())

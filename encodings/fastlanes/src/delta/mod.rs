@@ -9,8 +9,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
-    ValidityVTableFromValidityHelper,
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChildSliceHelper,
+    ValidityVTableFromChildSliceHelper,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 use vortex_buffer::Buffer;
@@ -31,7 +31,7 @@ impl VTable for DeltaVTable {
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = ValidityVTableFromChildSliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
@@ -46,20 +46,6 @@ impl VTable for DeltaVTable {
         EncodingRef::new_ref(DeltaEncoding.as_ref())
     }
 }
-
-#[derive(Clone, Debug)]
-pub struct DeltaArray {
-    offset: usize,
-    len: usize,
-    dtype: DType,
-    bases: ArrayRef,
-    deltas: ArrayRef,
-    validity: Validity,
-    stats_set: ArrayStats,
-}
-
-#[derive(Clone, Debug)]
-pub struct DeltaEncoding;
 
 /// A FastLanes-style delta-encoded array of primitive values.
 ///
@@ -93,6 +79,21 @@ pub struct DeltaEncoding;
 ///
 /// If the chunk physically has fewer than 1,024 values, then it is stored as a traditional,
 /// non-SIMD-amenable, delta-encoded vector.
+///
+/// Note the validity is stored in the deltas array.
+#[derive(Clone, Debug)]
+pub struct DeltaArray {
+    offset: usize,
+    len: usize,
+    dtype: DType,
+    bases: ArrayRef,
+    deltas: ArrayRef,
+    stats_set: ArrayStats,
+}
+
+#[derive(Clone, Debug)]
+pub struct DeltaEncoding;
+
 impl DeltaArray {
     // TODO(ngates): remove constructing from vec
     pub fn try_from_vec<T: NativePType>(vec: Vec<T>) -> VortexResult<Self> {
@@ -105,26 +106,19 @@ impl DeltaArray {
     pub fn try_from_primitive_array(array: &PrimitiveArray) -> VortexResult<Self> {
         let (bases, deltas) = delta_compress(array)?;
 
-        Self::try_from_delta_compress_parts(
-            bases.into_array(),
-            deltas.into_array(),
-            Validity::NonNullable,
-        )
+        Self::try_from_delta_compress_parts(bases.into_array(), deltas.into_array())
     }
 
-    pub fn try_from_delta_compress_parts(
-        bases: ArrayRef,
-        deltas: ArrayRef,
-        validity: Validity,
-    ) -> VortexResult<Self> {
+    /// Create a [`DeltaArray`] from the given `bases` and `deltas` arrays.
+    /// Note the `deltas` might be nullable
+    pub fn try_from_delta_compress_parts(bases: ArrayRef, deltas: ArrayRef) -> VortexResult<Self> {
         let logical_len = deltas.len();
-        Self::try_new(bases, deltas, validity, 0, logical_len)
+        Self::try_new(bases, deltas, 0, logical_len)
     }
 
     pub fn try_new(
         bases: ArrayRef,
         deltas: ArrayRef,
-        validity: Validity,
         offset: usize,
         logical_len: usize,
     ) -> VortexResult<Self> {
@@ -139,7 +133,7 @@ impl DeltaArray {
                 deltas.len()
             )
         }
-        if bases.dtype() != deltas.dtype() {
+        if !bases.dtype().eq_ignore_nullability(deltas.dtype()) {
             vortex_bail!(
                 "DeltaArray: bases and deltas must have the same dtype, got {:?} and {:?}",
                 bases.dtype(),
@@ -157,16 +151,6 @@ impl DeltaArray {
             vortex_bail!("DeltaArray: ptype must be an integer, got {}", ptype);
         }
 
-        if let Some(vlen) = validity.maybe_len()
-            && vlen != logical_len
-        {
-            vortex_bail!(
-                "DeltaArray: validity length ({}) must match logical_len ({})",
-                vlen,
-                logical_len
-            );
-        }
-
         let lanes = lane_count(ptype);
 
         if (deltas.len() % 1024 == 0) != (bases.len() % lanes == 0) {
@@ -179,23 +163,21 @@ impl DeltaArray {
         }
 
         // SAFETY: validation done above
-        Ok(unsafe { Self::new_unchecked(bases, deltas, validity, offset, logical_len) })
+        Ok(unsafe { Self::new_unchecked(bases, deltas, offset, logical_len) })
     }
 
     pub(crate) unsafe fn new_unchecked(
         bases: ArrayRef,
         deltas: ArrayRef,
-        validity: Validity,
         offset: usize,
         logical_len: usize,
     ) -> Self {
         Self {
             offset,
             len: logical_len,
-            dtype: bases.dtype().clone(),
+            dtype: bases.dtype().with_nullability(deltas.dtype().nullability()),
             bases,
             deltas,
-            validity,
             stats_set: Default::default(),
         }
     }
@@ -236,9 +218,10 @@ pub(crate) fn lane_count(ptype: PType) -> usize {
     match_each_unsigned_integer_ptype!(ptype, |T| { T::LANES })
 }
 
-impl ValidityHelper for DeltaArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+impl ValidityChildSliceHelper for DeltaArray {
+    fn unsliced_child_and_slice(&self) -> (&ArrayRef, usize, usize) {
+        let (start, len) = (self.offset(), self.len());
+        (self.deltas(), start, start + len)
     }
 }
 

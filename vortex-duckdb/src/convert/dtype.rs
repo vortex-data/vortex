@@ -38,131 +38,8 @@ use vortex::dtype::{
 };
 use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
-use crate::cpp::{self, DUCKDB_TYPE, duckdb_logical_type};
+use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;
-
-impl LogicalType {
-    /// Creates a DuckDB struct logical type from child types and field names.
-    fn struct_type<T, N>(child_types: T, child_names: N) -> VortexResult<LogicalType>
-    where
-        T: IntoIterator<Item = LogicalType>,
-        N: IntoIterator<Item = CString>,
-    {
-        let child_types: Vec<LogicalType> = child_types.into_iter().collect();
-        let child_names: Vec<CString> = child_names.into_iter().collect();
-
-        let mut child_type_ptrs: Vec<duckdb_logical_type> =
-            child_types.iter().map(|lt| lt.as_ptr()).collect();
-
-        let mut child_name_ptrs: Vec<*const std::ffi::c_char> =
-            child_names.iter().map(|name| name.as_ptr()).collect();
-
-        let struct_type_ptr = unsafe {
-            cpp::duckdb_create_struct_type(
-                child_type_ptrs.as_mut_ptr(),
-                child_name_ptrs.as_mut_ptr(),
-                child_types.len() as _,
-            )
-        };
-
-        if struct_type_ptr.is_null() {
-            return Err(vortex_err!("Failed to create struct logical type"));
-        }
-
-        Ok(unsafe { Self::own(struct_type_ptr) })
-    }
-
-    /// Creates a DuckDB decimal logical type with the specified precision and scale.
-    fn decimal_type(precision: u8, scale: u8) -> VortexResult<Self> {
-        assert!(
-            precision <= 38,
-            "DuckDB decimal type precision must be <= 38. precision: {precision}"
-        );
-
-        unsafe {
-            let ptr = cpp::duckdb_create_decimal_type(precision, scale);
-            if ptr.is_null() {
-                return Err(vortex_err!("Failed to create decimal type"));
-            }
-            Ok(Self::own(ptr))
-        }
-    }
-
-    /// Creates a DuckDB list logical type with the specified element type.
-    fn list_type(element_type: LogicalType) -> VortexResult<Self> {
-        unsafe {
-            let ptr = cpp::duckdb_create_list_type(element_type.as_ptr());
-            if ptr.is_null() {
-                vortex_bail!("Failed to create list type");
-            }
-            Ok(Self::own(ptr))
-        }
-    }
-
-    /// Creates a DuckDB fixed-size list logical type with the specified element type and list size.
-    ///
-    /// Note that DuckDB calls what we call a fixed-size list the ARRAY type.
-    fn fixed_size_list_type(element_type: LogicalType, list_size: u32) -> VortexResult<Self> {
-        // SAFETY: We trust that DuckDB correctly gives us a valid pointer or `NULL`.
-        let ptr = unsafe {
-            cpp::duckdb_create_array_type(element_type.as_ptr(), list_size as cpp::idx_t)
-        };
-
-        if ptr.is_null() {
-            vortex_bail!("Failed to create fixed-size list (array) type");
-        }
-
-        // SAFETY: This pointer came directly from DuckDB, and we checked that it was not `NULL`.
-        Ok(unsafe { Self::own(ptr) })
-    }
-
-    /// Converts temporal extension types to corresponding DuckDB types.
-    ///
-    /// # Arguments
-    ///
-    /// * `ext_dtype` - A reference to the extension data type containing temporal metadata.
-    ///
-    /// # Supported Temporal Types
-    ///
-    /// - **Date**: Must use `TimeUnit::D`
-    /// - **Time**: Must use `TimeUnit::Us`
-    /// - **Timestamp**: Supports `TimeUnit::Ns`, `Us`, `Ms`, `S`
-    fn temporal_type(ext_dtype: &ExtDType) -> VortexResult<Self> {
-        use vortex::dtype::datetime::{TemporalMetadata, TimeUnit};
-
-        let temporal_metadata = TemporalMetadata::try_from(ext_dtype)
-            .map_err(|e| vortex_err!("Failed to extract temporal metadata: {}", e))?;
-
-        let duckdb_type = match temporal_metadata {
-            TemporalMetadata::Date(TimeUnit::Days) => DUCKDB_TYPE::DUCKDB_TYPE_DATE,
-            TemporalMetadata::Date(time_unit) => {
-                vortex_bail!("Invalid TimeUnit {} for date", time_unit);
-            }
-            TemporalMetadata::Time(TimeUnit::Microseconds) => DUCKDB_TYPE::DUCKDB_TYPE_TIME,
-            TemporalMetadata::Time(time_unit) => {
-                vortex_bail!("Invalid TimeUnit {} for time", time_unit);
-            }
-            TemporalMetadata::Timestamp(time_unit, tz) => match time_unit {
-                TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
-                TimeUnit::Microseconds => {
-                    if let Some(tz) = tz {
-                        if tz != "UTC" {
-                            vortex_bail!("Invalid timezone for timestamp: {tz}");
-                        }
-                        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
-                    } else {
-                        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP
-                    }
-                }
-                TimeUnit::Milliseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS,
-                TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
-                _ => vortex_bail!("Invalid TimeUnit {} for timestamp", time_unit),
-            },
-        };
-
-        Ok(Self::new(duckdb_type))
-    }
-}
 
 pub trait FromLogicalType {
     fn from_logical_type(
@@ -211,6 +88,11 @@ impl FromLogicalType for DType {
                 Arc::new(DType::Primitive(I64, nullability)),
                 Some(TemporalMetadata::Date(TimeUnit::Microseconds).into()),
             ))),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS => DType::Extension(Arc::new(ExtDType::new(
+                TIME_ID.clone(),
+                Arc::new(DType::Primitive(I64, nullability)),
+                Some(TemporalMetadata::Date(TimeUnit::Nanoseconds).into()),
+            ))),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => DType::Extension(Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(I64, nullability)),
@@ -239,18 +121,43 @@ impl FromLogicalType for DType {
                 Arc::new(DType::Primitive(I64, nullability)),
                 Some(TemporalMetadata::Timestamp(TimeUnit::Nanoseconds, None).into()),
             ))),
+            DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => DType::FixedSizeList(
+                Arc::new(DType::from_logical_type(
+                    logical_type.array_child_type(),
+                    Nullability::Nullable,
+                )?),
+                logical_type.array_type_array_size(),
+                nullability,
+            ),
+            DUCKDB_TYPE::DUCKDB_TYPE_LIST => DType::List(
+                Arc::new(DType::from_logical_type(
+                    logical_type.list_child_type(),
+                    Nullability::Nullable,
+                )?),
+                nullability,
+            ),
+            DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => DType::Struct(
+                (0..logical_type.struct_type_child_count())
+                    .map(|i| {
+                        let child_name = logical_type.struct_child_name(i);
+                        let child_type = logical_type.struct_child_type(i);
+                        Ok((
+                            child_name,
+                            DType::from_logical_type(child_type, Nullability::Nullable)?,
+                        ))
+                    })
+                    .collect::<VortexResult<_>>()?,
+                nullability,
+            ),
             DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_ENUM => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_LIST => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_MAP => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_UUID => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_UNION => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_BIT => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_ANY => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_VARINT => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_BIGNUM => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_STRING_LITERAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTEGER_LITERAL => todo!(),
         })
@@ -290,19 +197,7 @@ impl TryFrom<&DType> for LogicalType {
         let duckdb_type = match dtype {
             DType::Null => DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL,
             DType::Bool(_) => DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN,
-            DType::Primitive(ptype, _) => match ptype {
-                I8 => DUCKDB_TYPE::DUCKDB_TYPE_TINYINT,
-                I16 => DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT,
-                I32 => DUCKDB_TYPE::DUCKDB_TYPE_INTEGER,
-                I64 => DUCKDB_TYPE::DUCKDB_TYPE_BIGINT,
-                U8 => DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT,
-                U16 => DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT,
-                U32 => DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER,
-                U64 => DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT,
-                F32 => DUCKDB_TYPE::DUCKDB_TYPE_FLOAT,
-                F64 => DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE,
-                PType::F16 => return Err(vortex_err!("F16 type not supported in DuckDB")),
-            },
+            DType::Primitive(ptype, _) => return LogicalType::try_from(*ptype),
             DType::Utf8(_) => DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR,
             DType::Binary(_) => DUCKDB_TYPE::DUCKDB_TYPE_BLOB,
             DType::Struct(struct_type, _) => {
@@ -334,7 +229,7 @@ impl TryFrom<&DType> for LogicalType {
             }
             DType::FixedSizeList(element_dtype, list_size, _) => {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
-                return LogicalType::fixed_size_list_type(element_logical_type, *list_size);
+                return LogicalType::array_type(element_logical_type, *list_size);
             }
             DType::Extension(ext_dtype) => {
                 if datetime::is_temporal_ext_type(ext_dtype.id()) {
@@ -346,6 +241,26 @@ impl TryFrom<&DType> for LogicalType {
         };
 
         Ok(LogicalType::new(duckdb_type))
+    }
+}
+
+impl TryFrom<PType> for LogicalType {
+    type Error = VortexError;
+
+    fn try_from(value: PType) -> Result<Self, Self::Error> {
+        Ok(match value {
+            I8 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TINYINT),
+            I16 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT),
+            I32 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+            I64 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT),
+            U8 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT),
+            U16 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT),
+            U32 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER),
+            U64 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT),
+            F32 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_FLOAT),
+            F64 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE),
+            PType::F16 => return Err(vortex_err!("F16 type not supported in DuckDB")),
+        })
     }
 }
 

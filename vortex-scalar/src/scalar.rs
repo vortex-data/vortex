@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
+use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, NativeDType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use super::*;
@@ -104,7 +104,7 @@ impl Scalar {
     /// Creates a null scalar for the given scalar type.
     ///
     /// The resulting scalar will have a nullable version of the type's data type.
-    pub fn null_typed<T: ScalarType>() -> Self {
+    pub fn null_typed<T: NativeDType>() -> Self {
         Self {
             dtype: T::dtype().as_nullable(),
             value: ScalarValue(InnerScalarValue::Null),
@@ -370,7 +370,7 @@ impl Scalar {
 /// implementation for all `Option<T>` to simply be a nullable `T`.
 impl<T> From<Option<T>> for Scalar
 where
-    T: ScalarType,
+    T: NativeDType,
     Scalar: From<T>,
 {
     /// A blanket implementation for all `Option<T>`.
@@ -387,7 +387,7 @@ where
 
 impl<T> From<Vec<T>> for Scalar
 where
-    T: ScalarType,
+    T: NativeDType,
     Scalar: From<T>,
 {
     /// Converts a vector into a `Scalar` (where the value is a `ListScalar`).

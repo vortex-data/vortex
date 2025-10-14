@@ -8,51 +8,61 @@ use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
-use crate::{RLEArray, RLEVTable};
+use crate::{FL_CHUNK_SIZE, RLEArray, RLEVTable};
 
 impl OperationsVTable<RLEVTable> for RLEVTable {
     fn slice(array: &RLEArray, range: Range<usize>) -> ArrayRef {
-        let start = range.start;
-        let length = range.end - range.start;
+        let offset_in_chunk = array.offset();
+        let chunk_start_idx = (offset_in_chunk + range.start) / FL_CHUNK_SIZE;
+        let chunk_end_idx = (offset_in_chunk + range.end).div_ceil(FL_CHUNK_SIZE);
 
-        // SAFETY: Preserves all RLE invariants as we're creating a view into
-        // the same underlying data with adjusted offset, length and sliced
-        // validity.
+        let values_start_idx = array.values_idx_offset(chunk_start_idx);
+        let values_end_idx = if chunk_end_idx < array.values_idx_offsets().len() {
+            array.values_idx_offset(chunk_end_idx)
+        } else {
+            array.values().len()
+        };
+
+        let sliced_values = array.values().slice(values_start_idx..values_end_idx);
+
+        let sliced_values_idx_offsets = array
+            .values_idx_offsets()
+            .slice(chunk_start_idx..chunk_end_idx);
+
+        let sliced_indices = array
+            .indices
+            .slice(chunk_start_idx * FL_CHUNK_SIZE..chunk_end_idx * FL_CHUNK_SIZE);
+
+        // SAFETY: Slicing preserves all invariants.
         unsafe {
             RLEArray::new_unchecked(
-                array.values.clone(),
-                array.indices.clone(),
-                array.value_chunk_offsets.clone(),
-                array.validity.slice(range),
+                sliced_values,
+                sliced_indices,
+                sliced_values_idx_offsets,
                 array.dtype.clone(),
-                array.offset + start,
-                length,
+                // Keep the offset relative to the first chunk.
+                (array.offset + range.start) % FL_CHUNK_SIZE,
+                range.len(),
             )
             .into_array()
         }
     }
 
     fn scalar_at(array: &RLEArray, index: usize) -> Scalar {
-        // In case of `slice`, the validity is sliced when creating a new array.
-        // Therefore, we can use the slice local index when checking for the
-        // scalar's validity.
-        if !array.validity.is_valid(index) {
-            return Scalar::null(array.dtype.clone());
-        }
+        let offset_in_chunk = array.offset();
+        let chunk_relative_idx = array.indices().scalar_at(offset_in_chunk + index);
 
-        let abs_index = array.offset() + index;
-        let chunk_local_index = array.indices().scalar_at(abs_index);
-
-        let chunk_local_idx = chunk_local_index
+        let chunk_relative_idx = chunk_relative_idx
             .as_primitive()
             .as_::<usize>()
             .vortex_expect("Index must not be null");
 
-        let chunk_id = array.chunk_idx(abs_index);
-        let value_chunk_offset = array.value_chunk_offset(chunk_id);
+        let chunk_id = (offset_in_chunk + index) / FL_CHUNK_SIZE;
+        let value_idx_offset = array.values_idx_offset(chunk_id);
+
         let scalar = array
             .values()
-            .scalar_at(value_chunk_offset + chunk_local_idx);
+            .scalar_at(value_idx_offset + chunk_relative_idx);
 
         Scalar::new(array.dtype().clone(), scalar.into_value())
     }
@@ -80,24 +90,15 @@ mod tests {
                     .copied(),
             )
             .into_array();
-            let value_chunk_offsets = PrimitiveArray::from_iter([0u64]).into_array();
+            let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
 
-            RLEArray::try_new(
-                values,
-                indices.clone(),
-                value_chunk_offsets,
-                Validity::NonNullable,
-                indices.len(),
-            )
-            .unwrap()
+            RLEArray::try_new(values, indices.clone(), values_idx_offsets, indices.len()).unwrap()
         }
 
         pub(super) fn rle_array_with_nulls() -> RLEArray {
             let values = PrimitiveArray::from_iter([10u32, 20u32, 30u32]).into_array();
             let pattern = [0u16, 0u16, 1u16, 1u16, 1u16, 2u16, 0u16];
-            let repeated: Vec<u16> = pattern.iter().cycle().take(1024).copied().collect();
-            let indices = PrimitiveArray::from_iter(repeated).into_array();
-            let value_chunk_offsets = PrimitiveArray::from_iter([0u64]).into_array();
+            let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
 
             // Repeat the validity pattern to match indices length
             let validity = Validity::from_iter(
@@ -108,14 +109,18 @@ mod tests {
                     .copied(),
             );
 
-            RLEArray::try_new(
-                values,
-                indices.clone(),
-                value_chunk_offsets,
+            let indices = PrimitiveArray::new(
+                pattern
+                    .iter()
+                    .cycle()
+                    .take(1024)
+                    .copied()
+                    .collect::<Buffer<u16>>(),
                 validity,
-                indices.len(),
             )
-            .unwrap()
+            .into_array();
+
+            RLEArray::try_new(values, indices.clone(), values_idx_offsets, indices.len()).unwrap()
         }
     }
 

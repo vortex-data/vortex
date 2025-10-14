@@ -14,6 +14,7 @@ use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::rle::RLEStats;
 use crate::sample::sample;
 use crate::{CompressorStats, GenerateStatsOptions};
 
@@ -43,7 +44,7 @@ impl_from_typed!(f16, ErasedDistinctValues::F16);
 impl_from_typed!(f32, ErasedDistinctValues::F32);
 impl_from_typed!(f64, ErasedDistinctValues::F64);
 
-// We want to allow not rebuilding all of the stats every time.
+/// Array of floating-point numbers and relevant stats for compression.
 #[derive(Debug, Clone)]
 pub struct FloatStats {
     pub(super) src: PrimitiveArray,
@@ -77,6 +78,20 @@ impl CompressorStats for FloatStats {
         let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_primitive();
 
         Self::generate_opts(&sampled, opts)
+    }
+}
+
+impl RLEStats for FloatStats {
+    fn value_count(&self) -> u32 {
+        self.value_count
+    }
+
+    fn average_run_length(&self) -> u32 {
+        self.average_run_length
+    }
+
+    fn source(&self) -> &PrimitiveArray {
+        &self.src
     }
 }
 

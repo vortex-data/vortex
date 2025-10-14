@@ -3,9 +3,9 @@
 
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::validity::Validity;
 use crate::vtable::VTable;
+use crate::{Array, ArrayRef};
 
 pub trait ValidityVTable<V: VTable> {
     fn is_valid(array: &V::Array, index: usize) -> bool;
@@ -123,5 +123,40 @@ where
 
     fn validity_mask(array: &V::Array) -> Mask {
         V::validity_child(array).validity_mask()
+    }
+}
+
+/// An implementation of the [`ValidityVTable`] for arrays that hold an unsliced validity
+/// and a slice into it.
+pub struct ValidityVTableFromChildSliceHelper;
+
+pub trait ValidityChildSliceHelper {
+    fn unsliced_child_and_slice(&self) -> (&ArrayRef, usize, usize);
+
+    fn sliced_child_array(&self) -> ArrayRef {
+        let (unsliced_validity, start, stop) = self.unsliced_child_and_slice();
+        unsliced_validity.slice(start..stop)
+    }
+}
+
+impl<V: VTable> ValidityVTable<V> for ValidityVTableFromChildSliceHelper
+where
+    V::Array: ValidityChildSliceHelper,
+{
+    fn is_valid(array: &V::Array, index: usize) -> bool {
+        let (unsliced_validity, start, _) = array.unsliced_child_and_slice();
+        unsliced_validity.is_valid(start + index)
+    }
+
+    fn all_valid(array: &V::Array) -> bool {
+        array.sliced_child_array().all_valid()
+    }
+
+    fn all_invalid(array: &V::Array) -> bool {
+        array.sliced_child_array().all_invalid()
+    }
+
+    fn validity_mask(array: &V::Array) -> Mask {
+        array.sliced_child_array().validity_mask()
     }
 }

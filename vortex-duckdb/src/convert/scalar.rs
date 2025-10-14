@@ -33,7 +33,7 @@ use vortex::scalar::{
 };
 
 use crate::convert::dtype::FromLogicalType;
-use crate::duckdb::{Value, ValueRef};
+use crate::duckdb::{LogicalType, Value, ValueRef};
 
 /// Trait for converting Vortex scalars to DuckDB values.
 pub trait ToDuckDBScalar {
@@ -48,11 +48,11 @@ impl ToDuckDBScalar for Scalar {
     /// Struct and List scalars are not yet implemented and cause a panic.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         if self.is_null() {
-            return Ok(Value::null());
+            return Ok(Value::null(&LogicalType::try_from(self.dtype())?));
         }
 
         match self.dtype() {
-            DType::Null => Ok(Value::null()),
+            DType::Null => Ok(Value::sql_null()),
             DType::Bool(_) => self.as_bool().try_to_duckdb_scalar(),
             DType::Primitive(..) => self.as_primitive().try_to_duckdb_scalar(),
             DType::Decimal(..) => self.as_decimal().try_to_duckdb_scalar(),
@@ -72,9 +72,9 @@ impl ToDuckDBScalar for PrimitiveScalar<'_> {
     /// - `F16` values are converted to `F32` before creating the DuckDB value
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         if self.ptype() == PType::F16 {
-            return Ok(Value::from(self.as_::<f16>().map(|f| f.to_f32())));
+            return Value::try_from(self.as_::<f16>().map(|f| f.to_f32()));
         }
-        match_each_native_simd_ptype!(self.ptype(), |P| { Ok(Value::from(self.as_::<P>(),)) })
+        match_each_native_simd_ptype!(self.ptype(), |P| { Ok(Value::try_from(self.as_::<P>())?) })
     }
 }
 
@@ -98,7 +98,7 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
             .ok_or_else(|| vortex_err!("decimal scalar without decimal dtype"))?;
 
         let Some(decimal_value) = self.decimal_value() else {
-            return Ok(Value::null());
+            return Ok(Value::null(&LogicalType::try_from(self.dtype())?));
         };
 
         let huge_value = match decimal_value {
@@ -121,7 +121,7 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
 impl ToDuckDBScalar for BoolScalar<'_> {
     /// Converts a boolean scalar to a DuckDB boolean value.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
-        Ok(Value::from(self.value()))
+        Value::try_from(self.value())
     }
 }
 
@@ -130,7 +130,7 @@ impl ToDuckDBScalar for Utf8Scalar<'_> {
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         Ok(match self.value() {
             Some(value) => Value::from(value.as_str()),
-            None => Value::null(),
+            None => Value::null(&LogicalType::varchar()),
         })
     }
 }
@@ -140,7 +140,7 @@ impl ToDuckDBScalar for BinaryScalar<'_> {
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         Ok(match self.value() {
             Some(value) => Value::from(value.as_slice()),
-            None => Value::null(),
+            None => Value::null(&LogicalType::blob()),
         })
     }
 }
@@ -148,6 +148,8 @@ impl ToDuckDBScalar for BinaryScalar<'_> {
 impl ToDuckDBScalar for ExtScalar<'_> {
     /// Converts an extension scalar (primarily temporal types) to a DuckDB value.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
+        let logical_type =
+            LogicalType::try_from(&DType::Extension(Arc::new(self.ext_dtype().clone())))?;
         let time = TemporalMetadata::try_from(self.ext_dtype())?;
         let value = || {
             self.storage()
@@ -176,7 +178,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     })?
                     .as_::<i32>()
                     .map(Value::new_date)
-                    .unwrap_or_else(Value::null)),
+                    .unwrap_or_else(|| Value::null(&logical_type))),
                 _ => vortex_bail!("cannot have TimeUnit {unit}, so represent a day"),
             },
             TemporalMetadata::Timestamp(unit, tz) => {
@@ -282,6 +284,24 @@ impl<'a> TryFrom<ValueRef<'a>> for Scalar {
                 DecimalDType::try_new(precision, scale)?,
                 Nullable,
             )),
+            ExtractedValue::List(vs) => match dtype {
+                DType::List(c, _) => Ok(Scalar::list(
+                    c,
+                    vs.into_iter()
+                        .map(Scalar::try_from)
+                        .collect::<VortexResult<Vec<_>>>()?,
+                    Nullable,
+                )),
+                DType::Struct(..) => Ok(Scalar::struct_(
+                    dtype,
+                    vs.into_iter()
+                        .map(Scalar::try_from)
+                        .collect::<VortexResult<Vec<_>>>()?,
+                )),
+                _ => {
+                    vortex_bail!("List value must be a list or struct dtype")
+                }
+            },
         }
     }
 }

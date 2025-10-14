@@ -8,12 +8,13 @@ use bytes::BufMut;
 use itertools::Itertools;
 use prost::Message;
 use vortex_buffer::{BufferString, ByteBuffer};
+use vortex_dtype::NativeDType;
 use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 use vortex_proto::scalar as pb;
 
 use crate::decimal::DecimalValue;
 use crate::pvalue::PValue;
-use crate::{Scalar, ScalarType, i256};
+use crate::{Scalar, i256};
 
 /// Represents the internal data of a scalar value. Must be interpreted by wrapping up with a
 /// [`vortex_dtype::DType`] to make a [`super::Scalar`].
@@ -28,7 +29,7 @@ pub struct ScalarValue(pub(crate) InnerScalarValue);
 /// implementation for all `Option<T>` to simply be a nullable `T`.
 impl<T> From<Option<T>> for ScalarValue
 where
-    T: ScalarType,
+    T: NativeDType,
     ScalarValue: From<T>,
 {
     fn from(value: Option<T>) -> Self {
@@ -40,7 +41,7 @@ where
 
 impl<T> From<Vec<T>> for ScalarValue
 where
-    T: ScalarType,
+    T: NativeDType,
     Scalar: From<T>,
 {
     /// Converts a vector into a `ScalarValue` (specifically a `ListScalar`).

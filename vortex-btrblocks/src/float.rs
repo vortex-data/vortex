@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod dictionary;
+pub(crate) mod dictionary;
 mod stats;
 
 use vortex_alp::{ALPArray, ALPEncoding, ALPVTable, RDEncoder};
-use vortex_array::arrays::{ConstantArray, PrimitiveVTable};
+use vortex_array::arrays::{ConstantArray, MaskedArray, PrimitiveVTable};
+use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_scalar::Scalar;
 
-use self::stats::FloatStats;
+pub use self::stats::FloatStats;
 use crate::float::dictionary::dictionary_encode;
 use crate::integer::{IntCompressor, IntegerStats};
 use crate::patches::compress_patches;
+use crate::rle::RLEScheme;
 use crate::{
     Compressor, CompressorStats, GenerateStatsOptions, Scheme,
     estimate_compression_ratio_with_sampling, integer,
@@ -24,6 +27,7 @@ pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
 
 impl<T> FloatScheme for T where T: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
 
+/// [`Compressor`] for floating-point numbers.
 pub struct FloatCompressor;
 
 impl Compressor for FloatCompressor {
@@ -38,6 +42,7 @@ impl Compressor for FloatCompressor {
             &ALPScheme,
             &ALPRDScheme,
             &DictScheme,
+            &RLE_FLOAT_SCHEME,
         ]
     }
 
@@ -55,7 +60,8 @@ const CONSTANT_SCHEME: FloatCode = FloatCode(1);
 const ALP_SCHEME: FloatCode = FloatCode(2);
 const ALPRD_SCHEME: FloatCode = FloatCode(3);
 const DICT_SCHEME: FloatCode = FloatCode(4);
-const RUNEND_SCHEME: FloatCode = FloatCode(5);
+const RUN_END_SCHEME: FloatCode = FloatCode(5);
+const RUN_LENGTH_SCHEME: FloatCode = FloatCode(6);
 
 #[derive(Debug, Copy, Clone)]
 struct UncompressedScheme;
@@ -71,6 +77,13 @@ struct ALPRDScheme;
 
 #[derive(Debug, Copy, Clone)]
 struct DictScheme;
+
+pub const RLE_FLOAT_SCHEME: RLEScheme<FloatStats, FloatCode> = RLEScheme::new(
+    RUN_LENGTH_SCHEME,
+    |values, is_sample, allowed_cascading, excludes| {
+        FloatCompressor::compress(values, is_sample, allowed_cascading, excludes)
+    },
+);
 
 impl Scheme for UncompressedScheme {
     type StatsType = FloatStats;
@@ -121,13 +134,12 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
-        // Can only have 1 distinct value
-        if stats.distinct_values_count > 1 {
+        if stats.null_count as usize == stats.src.len() || stats.value_count == 0 {
             return Ok(0.0);
         }
 
-        // Cannot have mix of nulls and non-nulls
-        if stats.null_count > 0 && stats.value_count > 0 {
+        // Can only have 1 distinct value
+        if stats.distinct_values_count != 1 {
             return Ok(0.0);
         }
 
@@ -141,12 +153,24 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let scalar = stats
-            .source()
-            .as_constant()
-            .vortex_expect("must be constant");
+        let scalar_idx = (0..stats.source().len()).position(|idx| stats.source().is_valid(idx));
 
-        Ok(ConstantArray::new(scalar, stats.source().len()).into_array())
+        match scalar_idx {
+            Some(idx) => {
+                let scalar = stats.source().scalar_at(idx);
+                let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
+                if !stats.source().all_valid() {
+                    Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
+                } else {
+                    Ok(const_arr)
+                }
+            }
+            None => Ok(ConstantArray::new(
+                Scalar::null(stats.src.dtype().clone()),
+                stats.src.len(),
+            )
+            .into_array()),
+        }
     }
 }
 
@@ -208,7 +232,7 @@ impl Scheme for ALPScheme {
         if excludes.contains(&DICT_SCHEME) {
             int_excludes.push(integer::DictScheme.code());
         }
-        if excludes.contains(&RUNEND_SCHEME) {
+        if excludes.contains(&RUN_END_SCHEME) {
             int_excludes.push(integer::RunEndScheme.code());
         }
 
@@ -319,7 +343,7 @@ impl Scheme for DictScheme {
 
         // Only compress the codes.
         let codes_stats = IntegerStats::generate_opts(
-            &dict_array.codes().to_primitive().downcast()?,
+            &dict_array.codes().to_primitive().narrow()?,
             GenerateStatsOptions {
                 count_distinct_values: false,
             },
@@ -351,13 +375,15 @@ impl Scheme for DictScheme {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::{Buffer, buffer_mut};
 
-    use crate::float::FloatCompressor;
-    use crate::{Compressor, MAX_CASCADE};
+    use crate::float::{FloatCompressor, RLE_FLOAT_SCHEME};
+    use crate::{Compressor, CompressorStats, MAX_CASCADE, Scheme};
 
     #[test]
     fn test_empty() {
@@ -387,5 +413,20 @@ mod tests {
         let floats = values.into_array().to_primitive();
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
         println!("compressed: {}", compressed.display_tree())
+    }
+
+    #[test]
+    fn test_rle_compression() {
+        let mut values = Vec::new();
+        values.extend(iter::repeat_n(1.5f32, 100));
+        values.extend(iter::repeat_n(2.7f32, 200));
+        values.extend(iter::repeat_n(3.15f32, 150));
+
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let stats = crate::float::FloatStats::generate(&array);
+        let compressed = RLE_FLOAT_SCHEME.compress(&stats, false, 3, &[]).unwrap();
+
+        let decoded = compressed.to_primitive();
+        assert_eq!(decoded.as_slice::<f32>(), values.as_slice());
     }
 }

@@ -4,9 +4,10 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PType};
+use vortex_dtype::{DType, NativePType, PType};
+use vortex_error::vortex_panic;
 
-use crate::arrays::BinaryView;
+use crate::arrays::binary_view::BinaryView;
 
 /// Defines the "vector type", a physical type describing the data that's held in the vector.
 ///
@@ -43,7 +44,7 @@ impl VType {
 }
 
 /// A trait to identify canonical vector types.
-pub trait Element: 'static + Copy + Debug {
+pub trait Element: 'static + Copy + Debug + Send {
     fn vtype() -> VType;
 }
 
@@ -81,5 +82,17 @@ canonical_ptype!(f64);
 impl Element for BinaryView {
     fn vtype() -> VType {
         VType::Binary
+    }
+}
+
+impl From<&DType> for VType {
+    fn from(value: &DType) -> Self {
+        match value {
+            DType::Bool(_) => VType::Bool,
+            DType::Primitive(ptype, _) => VType::Primitive(*ptype),
+            DType::Utf8(_) => VType::Binary,
+            DType::Binary(_) => VType::Binary,
+            _ => vortex_panic!("Unsupported dtype for VType: {}", value),
+        }
     }
 }

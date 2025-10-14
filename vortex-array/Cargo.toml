@@ -30,15 +30,16 @@ arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
+async-trait = { workspace = true }
 bitvec = { workspace = true }
 cfg-if = { workspace = true }
-dyn-hash = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
 getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
 humansize = { workspace = true }
+insta = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
@@ -53,17 +54,18 @@ rand = { workspace = true }
 rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
 simdutf8 = { workspace = true }
 static_assertions = { workspace = true }
 tabled = { workspace = true, optional = true, default-features = false, features = [
     "std",
 ] }
+termtree = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = ["prost"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-mask = { workspace = true }
+vortex-metrics = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
 
@@ -80,8 +82,10 @@ test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 [dev-dependencies]
 arrow-cast = { workspace = true }
 divan = { workspace = true }
+futures = { workspace = true, features = ["executor"] }
+insta = { workspace = true }
 rstest = { workspace = true }
-vortex-array = { path = ".", features = ["test-harness"] }
+vortex-array = { path = ".", features = ["test-harness", "table-display"] }
 
 [[bench]]
 name = "search_sorted"
@@ -105,4 +109,16 @@ harness = false
 
 [[bench]]
 name = "chunk_array_builder"
+harness = false
+
+[[bench]]
+name = "take_struct"
+harness = false
+
+[[bench]]
+name = "scalar_at_struct"
+harness = false
+
+[[bench]]
+name = "varbinview_compact"
 harness = false

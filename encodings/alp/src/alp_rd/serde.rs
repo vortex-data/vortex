@@ -92,7 +92,15 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
             .map(|p| {
                 let indices = children.get(2, &p.indices_dtype(), p.len())?;
                 let values = children.get(3, &left_parts_dtype, p.len())?;
-                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
+
+                Ok::<_, VortexError>(Patches::new(
+                    len,
+                    p.offset(),
+                    indices,
+                    values,
+                    // TODO(0ax1): handle chunk offsets
+                    None,
+                ))
             })
             .transpose()?;
 
@@ -170,7 +178,14 @@ mod test {
             "alprd.metadata",
             ProstMetadata(ALPRDMetadata {
                 right_bit_width: u32::MAX,
-                patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
+                patches: Some(PatchesMetadata::new(
+                    usize::MAX,
+                    usize::MAX,
+                    PType::U64,
+                    None,
+                    None,
+                    None,
+                )),
                 dict: Vec::new(),
                 left_parts_ptype: PType::U64 as i32,
                 dict_len: 8,

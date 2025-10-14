@@ -82,14 +82,6 @@ impl StatsSet {
         self.values.retain(|(s, _)| stats.contains(s));
     }
 
-    /// Keep given stats as inexact values
-    pub fn keep_inexact_stats(self, inexact_keep: &[Stat]) -> Self {
-        self.values
-            .into_iter()
-            .filter_map(|(s, v)| inexact_keep.contains(&s).then(|| (s, v.into_inexact())))
-            .collect()
-    }
-
     /// Iterate over the statistic names and values in-place.
     ///
     /// See [Iterator].
@@ -904,30 +896,6 @@ mod test {
             merged_ref.get_as::<i32>(Stat::Min),
             Some(Precision::inexact(4))
         );
-    }
-
-    #[test]
-    fn retain_approx() {
-        let set = StatsSet::from_iter([
-            (Stat::Max, Precision::exact(100)),
-            (Stat::Min, Precision::exact(50)),
-            (Stat::Sum, Precision::inexact(10)),
-        ]);
-
-        let set = set.keep_inexact_stats(&[Stat::Min, Stat::Max]);
-
-        let set_ref = set.as_typed_ref(&DType::Primitive(PType::I32, Nullability::NonNullable));
-
-        assert_eq!(set.len(), 2);
-        assert_eq!(
-            set_ref.get_as::<i32>(Stat::Max),
-            Some(Precision::inexact(100))
-        );
-        assert_eq!(
-            set_ref.get_as::<i32>(Stat::Min),
-            Some(Precision::inexact(50))
-        );
-        assert_eq!(set_ref.get_as::<i32>(Stat::Sum), None);
     }
 
     #[test]

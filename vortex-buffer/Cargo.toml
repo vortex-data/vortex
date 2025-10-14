@@ -18,18 +18,20 @@ all-features = true
 
 [features]
 arrow = ["dep:arrow-buffer"]
+cuda = ["dep:cudarc"]
 memmap2 = ["dep:memmap2"]
+serde = ["dep:serde_core"]
 warn-copy = ["dep:log"]
-serde = ["dep:serde"]
 
 [dependencies]
 arrow-buffer = { workspace = true, optional = true }
 bytes = { workspace = true }
+cudarc = { workspace = true, optional = true }
 itertools = { workspace = true }
 log = { workspace = true, optional = true }
 memmap2 = { workspace = true, optional = true }
 num-traits = { workspace = true }
-serde = { workspace = true, optional = true }
+serde_core = { workspace = true, optional = true }
 simdutf8 = { workspace = true }
 vortex-error = { workspace = true }
 

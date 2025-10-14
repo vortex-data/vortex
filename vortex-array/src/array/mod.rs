@@ -23,12 +23,12 @@ use crate::arrays::{
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
-use crate::pipeline::{OperatorRef, PipelineVTable};
+use crate::operator::OperatorRef;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
-    ValidityVTable, VisitorVTable,
+    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, PipelineVTable, SerdeVTable,
+    VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
 
@@ -153,9 +153,9 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
     -> VortexResult<Option<Output>>;
 
-    /// Convert the array to a pipeline operator if supported by the encoding.
+    /// Convert the array to a operator operator if supported by the encoding.
     ///
-    /// Returns `None` if the encoding does not support pipeline operations.
+    /// Returns `None` if the encoding does not support operator operations.
     fn to_operator(&self) -> VortexResult<Option<OperatorRef>>;
 }
 

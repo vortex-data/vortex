@@ -9,12 +9,13 @@ use rustc_hash::FxBuildHasher;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::{NativeValue, PrimitiveArray, PrimitiveVTable};
 use vortex_array::stats::Stat;
-use vortex_dtype::{NativePType, match_each_integer_ptype};
+use vortex_dtype::{IntegerPType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexUnwrap};
 use vortex_mask::AllOr;
 use vortex_scalar::{PValue, Scalar};
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::rle::RLEStats;
 use crate::sample::sample;
 use crate::{CompressorStats, GenerateStatsOptions};
 
@@ -119,6 +120,7 @@ impl_from_typed!(i16, ErasedStats::I16);
 impl_from_typed!(i32, ErasedStats::I32);
 impl_from_typed!(i64, ErasedStats::I64);
 
+/// Array of integers and relevant stats for compression.
 #[derive(Clone, Debug)]
 pub struct IntegerStats {
     pub(super) src: PrimitiveArray,
@@ -151,9 +153,23 @@ impl CompressorStats for IntegerStats {
     }
 }
 
+impl RLEStats for IntegerStats {
+    fn value_count(&self) -> u32 {
+        self.value_count
+    }
+
+    fn average_run_length(&self) -> u32 {
+        self.average_run_length
+    }
+
+    fn source(&self) -> &PrimitiveArray {
+        &self.src
+    }
+}
+
 fn typed_int_stats<T>(array: &PrimitiveArray, count_distinct_values: bool) -> IntegerStats
 where
-    T: NativePType + PrimInt + for<'a> TryFrom<&'a Scalar, Error = VortexError>,
+    T: IntegerPType + PrimInt + for<'a> TryFrom<&'a Scalar, Error = VortexError>,
     TypedStats<T>: Into<ErasedStats>,
     NativeValue<T>: Eq + Hash,
 {
@@ -329,7 +345,7 @@ struct LoopState<T> {
 }
 
 #[inline(always)]
-fn inner_loop_nonnull<T: NativePType>(
+fn inner_loop_nonnull<T: IntegerPType>(
     values: &[T; 64],
     count_distinct_values: bool,
     state: &mut LoopState<T>,
@@ -349,7 +365,7 @@ fn inner_loop_nonnull<T: NativePType>(
 }
 
 #[inline(always)]
-fn inner_loop_nullable<T: NativePType>(
+fn inner_loop_nullable<T: IntegerPType>(
     values: &[T; 64],
     count_distinct_values: bool,
     is_valid: &BooleanBuffer,
@@ -372,7 +388,7 @@ fn inner_loop_nullable<T: NativePType>(
 }
 
 #[inline(always)]
-fn inner_loop_naive<T: NativePType>(
+fn inner_loop_naive<T: IntegerPType>(
     values: &[T],
     count_distinct_values: bool,
     is_valid: &BooleanBuffer,

@@ -27,7 +27,7 @@ use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
     BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
-    TableFunction, TableInitInput,
+    TableFunction, TableInitInput, VirtualColumnsResult,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
@@ -192,6 +192,13 @@ async fn open_file(url: Url, options: VortexOpenOptions) -> VortexResult<VortexF
         options.open(path).await
     }
 }
+
+// taken from duckdb/common/constants.h COLUMN_IDENTIFIER_EMPTY
+// This is used by duckdb whenever there is no projection id in a logical_get node.
+// For some reason we cannot return an empty DataChunk and duckdb will look for the virtual column
+// with this index and create a data chunk with a single vector of that type.
+static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
+static EMPTY_COLUMN_NAME: &str = "";
 
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
@@ -404,7 +411,9 @@ impl TableFunction for VortexTableFunction {
             return Ok(false);
         };
         bind_data.filter_exprs.push(expr);
-        Ok(true)
+        // It seems like there is a regression in the DuckDB planner we actually delete filters??
+        // TODO(joe): file and issue and fix.
+        Ok(false)
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
@@ -448,6 +457,10 @@ impl TableFunction for VortexTableFunction {
         // NOTE: Projection is already printed by the planner.
 
         Some(result)
+    }
+
+    fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColumnsResult) {
+        result.register(EMPTY_COLUMN_IDX, EMPTY_COLUMN_NAME, &LogicalType::bool());
     }
 }
 

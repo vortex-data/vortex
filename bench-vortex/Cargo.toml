@@ -17,8 +17,12 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+lance = "0.38.2"
+lance-encoding = "0.38.2"
+
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
+arrow-cast = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 async-trait = { workspace = true }
@@ -62,6 +66,7 @@ sysinfo = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 target-lexicon = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
@@ -80,6 +85,7 @@ vortex = { workspace = true, features = [
     "files",
     "tokio",
     "zstd",
+    "unstable_encodings",
 ] }
 vortex-datafusion = { workspace = true }
 vortex-duckdb = { workspace = true }

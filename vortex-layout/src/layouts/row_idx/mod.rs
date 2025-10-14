@@ -13,10 +13,9 @@ pub use expr::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::compute::filter;
-use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldMask, Nullability, PType};
+use vortex_array::{ArrayRef, IntoArray, MaskFuture};
+use vortex_dtype::{DType, FieldMask, FieldName, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::{PartitionedExpr, partition, replace};
 use vortex_expr::{ExactExpr, ExprRef, Scope, is_root, root};
@@ -101,12 +100,24 @@ enum Partition {
     Child,
 }
 
+impl Partition {
+    pub fn name(&self) -> &str {
+        match self {
+            Partition::RowIdx => "row_idx",
+            Partition::Child => "child",
+        }
+    }
+}
+
+impl From<Partition> for FieldName {
+    fn from(value: Partition) -> Self {
+        FieldName::from(value.name())
+    }
+}
+
 impl Display for Partition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Partition::RowIdx => write!(f, "row_idx"),
-            Partition::Child => write!(f, "child"),
-        }
+        write!(f, "{}", self.name())
     }
 }
 
@@ -252,8 +263,7 @@ mod tests {
 
     use arrow_buffer::BooleanBuffer;
     use itertools::Itertools;
-    use vortex_array::pipeline::operators::MaskFuture;
-    use vortex_array::{ArrayContext, IntoArray as _, ToCanonical};
+    use vortex_array::{ArrayContext, IntoArray as _, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{eq, gt, lit, or, root};
     use vortex_io::runtime::single::block_on;

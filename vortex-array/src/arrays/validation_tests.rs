@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn test_varbinview_array_validation_success() {
         // Valid case: simple inline strings.
-        use crate::arrays::varbinview::BinaryView;
+        use crate::arrays::binary_view::BinaryView;
 
         // Create inline views (length <= 12).
         let view1 = BinaryView::new_inlined(b"foo");
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn test_varbinview_array_validation_failure_buffer_index_out_of_bounds() {
         // Invalid case: view references non-existent buffer.
-        use crate::arrays::varbinview::BinaryView;
+        use crate::arrays::binary_view::BinaryView;
 
         // Create a view that references buffer 1, but we only have 1 buffer (index 0).
         let data = b"this is a long string that needs a buffer";

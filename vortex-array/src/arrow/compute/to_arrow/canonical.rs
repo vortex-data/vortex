@@ -21,7 +21,7 @@ use arrow_schema::{DataType, Field, FieldRef, Fields};
 use itertools::Itertools;
 use num_traits::{AsPrimitive, ToPrimitive};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, PType};
+use vortex_dtype::{DType, IntegerPType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::DecimalValueType;
 
@@ -420,7 +420,7 @@ fn to_arrow_struct(
 
     let field_arrays = fields
         .iter()
-        .zip_eq(array.fields())
+        .zip_eq(array.fields().iter())
         .map(|(field, arr)| {
             // We check that the Vortex array nullability is compatible with the field
             // nullability. In other words, make sure we don't return any nulls for a
@@ -473,7 +473,7 @@ fn to_arrow_struct(
     )?))
 }
 
-fn to_arrow_list<O: NativePType + OffsetSizeTrait>(
+fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     array: ListArray,
     element: Option<&FieldRef>,
 ) -> VortexResult<ArrowArrayRef> {

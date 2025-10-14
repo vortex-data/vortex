@@ -5,7 +5,7 @@ use arrow_array::{BinaryArray, StringArray};
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use itertools::Itertools;
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
 use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinVTable};
@@ -46,7 +46,7 @@ impl CompareKernel for VarBinVTable {
                     Operator::Lt => BooleanBuffer::new_unset(len), // No value is < ""
                     Operator::Eq | Operator::NotEq | Operator::Gt | Operator::Lte => {
                         let lhs_offsets = lhs.offsets().to_primitive();
-                        match_each_native_ptype!(lhs_offsets.ptype(), |P| {
+                        match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
                             compare_offsets_to_empty::<P>(lhs_offsets, operator)
                         })
                     }
@@ -107,7 +107,7 @@ impl CompareKernel for VarBinVTable {
 
 register_kernel!(CompareKernelAdapter(VarBinVTable).lift());
 
-fn compare_offsets_to_empty<P: NativePType>(
+fn compare_offsets_to_empty<P: IntegerPType>(
     offsets: PrimitiveArray,
     operator: Operator,
 ) -> BooleanBuffer {

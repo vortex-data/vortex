@@ -13,9 +13,12 @@ mod bool;
 mod chunked;
 mod constant;
 mod datetime;
+mod decimal;
 mod extension;
 mod fixed_size_list;
 mod list;
+mod listview;
+mod masked;
 mod null;
 mod primitive;
 mod struct_;
@@ -24,7 +27,8 @@ mod varbinview;
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
-mod decimal;
+
+// TODO(connor): Export exact types, not glob.
 
 pub use bool::*;
 pub use chunked::*;
@@ -34,6 +38,8 @@ pub use decimal::*;
 pub use extension::*;
 pub use fixed_size_list::*;
 pub use list::*;
+pub use listview::*;
+pub use masked::*;
 pub use null::*;
 pub use primitive::*;
 pub use struct_::*;

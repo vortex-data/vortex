@@ -81,7 +81,7 @@ pub trait NodeFolderContext {
     ) -> VortexResult<FoldUp<Self::Result>>;
 }
 
-/// This trait is used to implemet a fold (see `NodeFolderContext`), but without a context.
+/// This trait is used to implement a fold (see `NodeFolderContext`), but without a context.
 pub trait NodeFolder {
     type NodeTy: Node;
     type Result;

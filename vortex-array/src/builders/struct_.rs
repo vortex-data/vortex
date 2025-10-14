@@ -158,8 +158,10 @@ impl ArrayBuilder for StructBuilder {
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         let array = array.to_struct();
 
-        for (a, builder) in (0..array.struct_fields().nfields())
-            .map(|i| &array.fields()[i])
+        for (a, builder) in array
+            .fields()
+            .iter()
+            .cloned()
             .zip_eq(self.builders.iter_mut())
         {
             a.append_to_builder(builder.as_mut());
@@ -175,7 +177,7 @@ impl ArrayBuilder for StructBuilder {
         self.nulls.ensure_capacity(capacity);
     }
 
-    fn set_validity(&mut self, validity: Mask) {
+    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
         self.nulls = LazyNullBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }

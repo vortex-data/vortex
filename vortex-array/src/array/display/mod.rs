@@ -274,7 +274,7 @@ impl dyn Array + '_ {
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
-                        for field_array in struct_.fields() {
+                        for field_array in struct_.fields().iter() {
                             let value = field_array.scalar_at(row_idx);
                             row.push(value.to_string());
                         }
@@ -370,7 +370,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "table-display")]
     fn test_table_display_primitive() {
         use crate::display::DisplayOptions;
 
@@ -393,7 +392,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "table-display")]
     fn test_table_display() {
         use crate::display::DisplayOptions;
 

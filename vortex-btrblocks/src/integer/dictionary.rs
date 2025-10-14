@@ -43,6 +43,7 @@ macro_rules! typed_encode {
     }};
 }
 
+/// Compresses an integer array into a dictionary arrays according to attached stats.
 #[allow(clippy::cognitive_complexity)]
 pub fn dictionary_encode(stats: &IntegerStats) -> DictArray {
     // We need to preserve the nullability somehow from the original

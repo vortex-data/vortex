@@ -52,7 +52,7 @@ git_root = Path(__file__).parent.parent
 nitpicky = True  # ensures all :class:, :obj:, etc. links are valid
 nitpick_ignore = []
 
-doctest_global_setup = "import pyarrow; import vortex; import vortex as vx"
+doctest_global_setup = "import pyarrow; import vortex; import vortex as vx; import random; random.seed(a=0)"
 doctest_default_flags = (
     doctest.ELLIPSIS | doctest.IGNORE_EXCEPTION_DETAIL | doctest.DONT_ACCEPT_TRUE_FOR_1 | doctest.NORMALIZE_WHITESPACE
 )
@@ -196,7 +196,7 @@ os.environ["COLUMNS"] = "80"
 os.environ["POLARS_TABLE_WIDTH"] = "80"
 
 
-def _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks(app, what, name, obj, options, lines):
+def _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks(app, what, name, obj, options, lines: list[str]):
     """Remove Markdown-style code fences from Python docs written in Rust.
 
     We would like `cargo test` to Just Work (TM). Unfortunately, by default, it executes any

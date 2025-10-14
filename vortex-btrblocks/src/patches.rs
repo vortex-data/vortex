@@ -9,7 +9,7 @@ use vortex_error::VortexResult;
 /// Compresses the given patches by downscaling integers and checking for constant values.
 pub fn compress_patches(patches: &Patches) -> VortexResult<Patches> {
     // Downscale the patch indices.
-    let indices = patches.indices().to_primitive().downcast()?.into_array();
+    let indices = patches.indices().to_primitive().narrow()?.into_array();
 
     // Check if the values are constant.
     let values = patches.values();
@@ -28,5 +28,7 @@ pub fn compress_patches(patches: &Patches) -> VortexResult<Patches> {
         patches.offset(),
         indices,
         values,
+        // TODO(0ax1): chunk offsets
+        None,
     ))
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod all_invalid;
 mod bool;
 mod cache;
 mod constant;
@@ -11,6 +12,7 @@ mod list;
 mod primitive;
 mod run_end;
 mod sequence;
+mod struct_;
 mod temporal;
 mod validity;
 mod varbinview;
@@ -27,12 +29,13 @@ use vortex::dtype::datetime::is_temporal_ext_type;
 use vortex::encodings::dict::DictVTable;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{VortexExpect, VortexResult};
 use vortex::iter::ArrayIterator;
 use vortex::mask::Mask;
 use vortex::{Array, Canonical, ToCanonical};
 
-use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, Vector};
+use crate::cpp::DUCKDB_TYPE;
+use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, LogicalType, Value, Vector};
 
 /// DuckDB exporter for an [`ArrayIterator`], sharing state and caches.
 pub struct ArrayIteratorExporter {
@@ -108,8 +111,10 @@ impl ArrayExporter {
         }
 
         if self.fields.is_empty() {
-            // No fields can occur in e.g. count(*) queries. In these cases, we just need to
-            // set the length of the chunk and return.
+            // In the case of a projection pushdown with zero columns duckdb will ask us for the
+            // `EMPTY_COLUMN_IDX`, which we define as a bool column, we can leave the vector as
+            // uninitialized and just return a DataChunk with the correct length.
+            // One place no fields can occur is in count(*) queries.
             chunk.set_len(self.remaining);
             self.remaining = 0;
 
@@ -140,10 +145,18 @@ pub trait ColumnExporter {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()>;
 }
 
-/// Create a DuckDB exporter for the given Vortex array.
 fn new_array_exporter(
     array: &dyn Array,
     cache: &ConversionCache,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    new_array_exporter_with_flatten(array, cache, false)
+}
+
+/// Create a DuckDB exporter for the given Vortex array.
+fn new_array_exporter_with_flatten(
+    array: &dyn Array,
+    cache: &ConversionCache,
+    flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     if let Some(array) = array.as_opt::<ConstantVTable>() {
         return constant::new_exporter(array);
@@ -154,7 +167,7 @@ fn new_array_exporter(
     }
 
     if let Some(array) = array.as_opt::<DictVTable>() {
-        return dict::new_exporter(array, cache);
+        return dict::new_exporter_with_flatten(array, cache, flatten);
     }
 
     if let Some(array) = array.as_opt::<SequenceVTable>() {
@@ -163,14 +176,14 @@ fn new_array_exporter(
 
     // Otherwise, we fall back to canonical
     match array.to_canonical() {
-        Canonical::Null(_) => todo!("no null exporter"),
+        Canonical::Null(_) => Ok(all_invalid::new_exporter(
+            array.len(),
+            &LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL),
+        )),
         Canonical::Bool(array) => bool::new_exporter(&array),
         Canonical::Primitive(array) => primitive::new_exporter(&array),
         Canonical::Decimal(array) => decimal::new_exporter(&array),
-        Canonical::Struct(_) => {
-            // The Arrow exporter does not support struct arrays yet, so we bail out.
-            vortex_bail!("Struct arrays are not supported in DuckDB export yet");
-        }
+        Canonical::Struct(array) => struct_::new_exporter(&array, cache),
         Canonical::List(array) => list::new_exporter(&array, cache),
         Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(&array, cache),
         Canonical::VarBinView(array) => varbinview::new_exporter(&array),
@@ -185,40 +198,26 @@ fn new_array_exporter(
     }
 }
 
-pub(crate) trait VectorExt {
-    /// Returns true if *all* values within the offset -> len slice are null.
-    /// Since we're iterating these values anyway, then it's cheaper for us to check it inline.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `len` is less than or equal to the capacity of this vector.
-    unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool;
-}
-
-impl VectorExt for Vector {
+impl Vector {
     unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
         match mask {
             Mask::AllTrue(_) => {
                 // We only need to blank out validity if there is already a slice allocated.
                 // SAFETY: Caller guaranteees this.
-                if let Some(validity) = unsafe { self.validity_bitslice_mut(len) } {
-                    validity.fill(true);
-                }
+                unsafe { self.set_all_true_validity(len) }
                 false
             }
             Mask::AllFalse(_) => {
                 // SAFETY: Caller guaranteees this.
-                unsafe { self.ensure_validity_bitslice(len) }.fill(false);
+                self.set_all_false_validity();
                 true
             }
             Mask::Values(arr) => {
                 let true_count = arr.boolean_buffer().count_set_bits();
                 if true_count == len {
-                    if let Some(validity) = unsafe { self.validity_slice_mut(len) } {
-                        validity.view_bits_mut::<Lsb0>().fill(true);
-                    }
+                    unsafe { self.set_all_true_validity(len) }
                 } else if true_count == 0 {
-                    unsafe { self.ensure_validity_bitslice(len) }.fill(false);
+                    self.set_all_false_validity()
                 } else {
                     let source = arr.boolean_buffer().inner().as_slice();
                     copy_from_slice(
@@ -232,6 +231,16 @@ impl VectorExt for Vector {
                 true_count == 0
             }
         }
+    }
+
+    unsafe fn set_all_true_validity(&mut self, len: usize) {
+        if let Some(validity) = unsafe { self.validity_bitslice_mut(len) } {
+            validity.fill(true);
+        }
+    }
+
+    fn set_all_false_validity(&mut self) {
+        self.reference_value(&Value::null(&self.logical_type()));
     }
 }
 
@@ -253,7 +262,6 @@ mod tests {
     use arrow_buffer::buffer::BooleanBuffer;
     use vortex::mask::Mask;
 
-    use super::VectorExt;
     use crate::cpp::DUCKDB_TYPE;
     use crate::duckdb::{LogicalType, Vector};
     use crate::exporter::copy_from_slice;
@@ -273,14 +281,18 @@ mod tests {
     fn test_set_validity_all_false() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         let mut vector = Vector::with_capacity(logical_type, 100);
+        let len = 10;
 
-        let mask = Mask::AllFalse(10);
-        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
+        let mask = Mask::AllFalse(len);
+        let all_null = unsafe { vector.set_validity(&mask, 0, len) };
 
         assert!(all_null);
 
-        let validity = unsafe { vector.validity_bitslice_mut(10).unwrap() };
-        assert!(validity.iter().all(|v| !v));
+        vector.flatten(len as u64);
+
+        for i in 0..10 {
+            assert!(vector.row_is_null(i));
+        }
     }
 
     #[test]
@@ -308,16 +320,19 @@ mod tests {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         let mut vector = Vector::with_capacity(logical_type, 100);
 
-        let bits = vec![false; 10];
+        const LEN: usize = 10;
+        let bits = vec![false; LEN];
         let buffer = BooleanBuffer::from(bits.as_slice());
         let mask = Mask::from(buffer);
 
-        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
+        let all_null = unsafe { vector.set_validity(&mask, 0, LEN) };
 
         assert!(all_null);
 
-        let validity = unsafe { vector.validity_bitslice_mut(10).unwrap() };
-        assert!(validity.iter().all(|v| !v));
+        vector.flatten(LEN as u64);
+        for i in 0..10 {
+            assert!(vector.row_is_null(i));
+        }
     }
 
     #[test]

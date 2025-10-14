@@ -4,7 +4,7 @@
 use arrow_buffer::BooleanBuffer;
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
 use crate::arrays::{ConstantVTable, FixedSizeListArray, FixedSizeListVTable, PrimitiveArray};
@@ -14,132 +14,6 @@ use crate::compute::conformance::filter::{
 use crate::compute::filter;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray};
-
-#[test]
-fn test_filter_all_true() {
-    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
-    let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
-
-    let mask = Mask::from(BooleanBuffer::from(vec![true, true, true]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl.len(), 3);
-    assert_eq!(filtered_fsl.list_size(), 2);
-    assert_eq!(filtered_fsl.elements().len(), 6);
-
-    // Verify the data is unchanged.
-    assert_eq!(filtered_fsl.scalar_at(0), fsl.scalar_at(0));
-    assert_eq!(filtered_fsl.scalar_at(1), fsl.scalar_at(1));
-    assert_eq!(filtered_fsl.scalar_at(2), fsl.scalar_at(2));
-}
-
-#[test]
-fn test_filter_all_false() {
-    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
-    let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
-
-    let mask = Mask::from(BooleanBuffer::from(vec![false, false, false]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl.len(), 0);
-    assert_eq!(filtered_fsl.list_size(), 2);
-    assert_eq!(filtered_fsl.elements().len(), 0);
-}
-
-#[test]
-fn test_filter_alternating() {
-    let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
-    let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 4);
-
-    let mask = Mask::from(BooleanBuffer::from(vec![true, false, true, false]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl.len(), 2);
-    assert_eq!(filtered_fsl.list_size(), 2);
-    assert_eq!(filtered_fsl.elements().len(), 4);
-
-    // First list should be [1, 2].
-    let first = filtered_fsl.fixed_size_list_elements_at(0);
-    assert_eq!(first.scalar_at(0), 1i32.into());
-    assert_eq!(first.scalar_at(1), 2i32.into());
-
-    // Second list should be [5, 6].
-    let second = filtered_fsl.fixed_size_list_elements_at(1);
-    assert_eq!(second.scalar_at(0), 5i32.into());
-    assert_eq!(second.scalar_at(1), 6i32.into());
-}
-
-#[test]
-fn test_filter_selective() {
-    let elements = buffer![1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0].into_array();
-    let fsl = FixedSizeListArray::new(elements, 3, Validity::NonNullable, 3);
-
-    let mask = Mask::from(BooleanBuffer::from(vec![false, true, true]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl.len(), 2);
-    assert_eq!(filtered_fsl.list_size(), 3);
-    assert_eq!(filtered_fsl.elements().len(), 6);
-
-    // First list should be [4.0, 5.0, 6.0].
-    let first = filtered_fsl.fixed_size_list_elements_at(0);
-    assert_eq!(first.scalar_at(0), 4.0f64.into());
-    assert_eq!(first.scalar_at(1), 5.0f64.into());
-    assert_eq!(first.scalar_at(2), 6.0f64.into());
-
-    // Second list should be [7.0, 8.0, 9.0].
-    let second = filtered_fsl.fixed_size_list_elements_at(1);
-    assert_eq!(second.scalar_at(0), 7.0f64.into());
-    assert_eq!(second.scalar_at(1), 8.0f64.into());
-    assert_eq!(second.scalar_at(2), 9.0f64.into());
-}
-
-#[test]
-fn test_filter_empty_array() {
-    let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 0);
-
-    let mask = Mask::AllTrue(0);
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl.len(), 0);
-    assert_eq!(filtered_fsl.list_size(), 2);
-    assert_eq!(filtered_fsl.elements().len(), 0);
-}
-
-#[test]
-fn test_filter_single_element() {
-    let elements = buffer![42i32, 43, 44].into_array();
-    let fsl = FixedSizeListArray::new(elements.into_array(), 3, Validity::NonNullable, 1);
-
-    // Keep the single element.
-    let mask = Mask::from(BooleanBuffer::from(vec![true]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl.len(), 1);
-    assert_eq!(filtered_fsl.list_size(), 3);
-    assert_eq!(filtered_fsl.elements().len(), 3);
-
-    let first = filtered_fsl.fixed_size_list_elements_at(0);
-    assert_eq!(first.scalar_at(0), 42i32.into());
-    assert_eq!(first.scalar_at(1), 43i32.into());
-    assert_eq!(first.scalar_at(2), 44i32.into());
-
-    // Filter out the single element.
-    let mask = Mask::from(BooleanBuffer::from(vec![false]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl.len(), 0);
-    assert_eq!(filtered_fsl.list_size(), 3);
-    assert_eq!(filtered_fsl.elements().len(), 0);
-}
 
 // Consolidated parameterized test for degenerate (list_size=0) cases.
 #[rstest]
@@ -192,7 +66,7 @@ fn test_filter_degenerate_list_size_zero(
     let mask = Mask::from(BooleanBuffer::from(mask_values));
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
 
-    assert_eq!(filtered.len(), expected_len);
+    assert_eq!(filtered.len(), expected_len, "Degenerate FSL filter failed");
 
     if expect_constant_array {
         // Should return a ConstantArray of nulls when all are invalid.
@@ -202,8 +76,12 @@ fn test_filter_degenerate_list_size_zero(
         }
     } else {
         let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-        assert_eq!(filtered_fsl.list_size(), 0);
-        assert_eq!(filtered_fsl.elements().len(), 0);
+        assert_eq!(filtered_fsl.list_size(), 0, "list_size should remain 0");
+        assert_eq!(
+            filtered_fsl.elements().len(),
+            0,
+            "no elements expected for list_size=0"
+        );
     }
 }
 
@@ -218,8 +96,12 @@ fn test_filter_with_nulls() {
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
     let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
 
-    assert_eq!(filtered_fsl.len(), 2);
-    assert_eq!(filtered_fsl.list_size(), 2);
+    assert_eq!(
+        filtered_fsl.len(),
+        2,
+        "Expected lists after filtering out null"
+    );
+    assert_eq!(filtered_fsl.list_size(), 2, "list_size should be preserved");
 
     // First list should be [1, 2] and valid.
     let first = filtered_fsl.fixed_size_list_elements_at(0);
@@ -244,9 +126,19 @@ fn test_filter_all_null_array() {
 
     // This should return a ConstantArray of nulls.
     let filtered_const = filtered.as_::<ConstantVTable>();
-    assert_eq!(filtered_const.len(), 2);
-    assert!(filtered_const.scalar_at(0).is_null());
-    assert!(filtered_const.scalar_at(1).is_null());
+    assert_eq!(
+        filtered_const.len(),
+        2,
+        "All-null FSL should produce ConstantArray"
+    );
+    assert!(
+        filtered_const.scalar_at(0).is_null(),
+        "Expected null at index 0"
+    );
+    assert!(
+        filtered_const.scalar_at(1).is_null(),
+        "Expected null at index 1"
+    );
 }
 
 #[test]
@@ -303,39 +195,6 @@ fn test_filter_nested_fixed_size_lists() {
     let inner_list_2 = filtered_inner.fixed_size_list_elements_at(2);
     assert_eq!(inner_list_2.scalar_at(0), 11i32.into());
     assert_eq!(inner_list_2.scalar_at(1), 12i32.into());
-}
-
-// Parameterized test for different mask types.
-#[rstest]
-#[case::all_true(Mask::AllTrue(3), 3)]
-#[case::all_false(Mask::AllFalse(3), 0)]
-#[case::values_partial(Mask::from(BooleanBuffer::from(vec![true, true, false])), 2)]
-#[case::values_alternating(Mask::from(BooleanBuffer::from(vec![true, false, true])), 2)]
-fn test_filter_mask_types(#[case] mask: Mask, #[case] expected_len: usize) {
-    use vortex_buffer::buffer;
-
-    let elements = buffer![1u32, 2, 3, 4, 5, 6].into_array();
-    let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
-
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    assert_eq!(filtered.len(), expected_len);
-}
-
-#[test]
-fn test_filter_preserves_dtype() {
-    let elements = buffer![1.5f32, 2.5, 3.5, 4.5].into_array();
-    let fsl = FixedSizeListArray::new(elements, 2, Validity::AllValid, 2);
-
-    let mask = Mask::from(BooleanBuffer::from(vec![true, false]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    // Check that the dtype is preserved.
-    assert!(matches!(
-        filtered_fsl.dtype(),
-        DType::FixedSizeList(elem_dtype, 2, Nullability::Nullable)
-            if matches!(elem_dtype.as_ref(), DType::Primitive(PType::F32, Nullability::NonNullable))
-    ));
 }
 
 // Conformance tests using rstest for various array configurations.
@@ -419,73 +278,6 @@ fn create_fsl_empty() -> ArrayRef {
     let elements = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
     FixedSizeListArray::new(elements.into_array(), 3, Validity::NonNullable, 0).into_array()
 }
-
-#[test]
-fn test_complex_filter_pattern() {
-    // Create a larger array to test complex patterns.
-    let elements = buffer![0..30i32].into_array();
-    let fsl = FixedSizeListArray::new(elements, 3, Validity::NonNullable, 10);
-
-    // Complex mask pattern: [T, T, F, T, F, F, T, T, T, F].
-    let mask = Mask::from(BooleanBuffer::from(vec![
-        true, true, false, true, false, false, true, true, true, false,
-    ]));
-
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl.len(), 6);
-    assert_eq!(filtered_fsl.list_size(), 3);
-    assert_eq!(filtered_fsl.elements().len(), 18);
-
-    // Verify the filtered lists are correct.
-    // Original indices kept: 0, 1, 3, 6, 7, 8.
-    let expected_starts = [0i32, 3, 9, 18, 21, 24];
-    for (i, &start) in expected_starts.iter().enumerate() {
-        let list = filtered_fsl.fixed_size_list_elements_at(i);
-        assert_eq!(list.scalar_at(0), (start).into());
-        assert_eq!(list.scalar_at(1), (start + 1).into());
-        assert_eq!(list.scalar_at(2), (start + 2).into());
-    }
-}
-
-#[test]
-fn test_filter_large_list_size() {
-    // Test with a large list size.
-    let list_size = 100u32;
-    let num_lists = 5;
-    let elements: Vec<i64> = (0..(num_lists * list_size as usize))
-        .map(|i| i as i64)
-        .collect();
-    let elements = PrimitiveArray::from_iter(elements);
-    let fsl = FixedSizeListArray::new(
-        elements.into_array(),
-        list_size,
-        Validity::NonNullable,
-        num_lists,
-    );
-
-    let mask = Mask::from(BooleanBuffer::from(vec![false, true, false, true, true]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl.len(), 3);
-    assert_eq!(filtered_fsl.list_size(), list_size);
-    assert_eq!(filtered_fsl.elements().len(), 3 * list_size as usize);
-
-    // Check that the correct lists were kept (indices 1, 3, 4).
-    let list_0 = filtered_fsl.fixed_size_list_elements_at(0);
-    assert_eq!(list_0.scalar_at(0), 100i64.into()); // Start of original list 1.
-
-    let list_1 = filtered_fsl.fixed_size_list_elements_at(1);
-    assert_eq!(list_1.scalar_at(0), 300i64.into()); // Start of original list 3.
-
-    let list_2 = filtered_fsl.fixed_size_list_elements_at(2);
-    assert_eq!(list_2.scalar_at(0), 400i64.into()); // Start of original list 4.
-}
-
-// Note: test_filter_degenerate_with_nulls and test_filter_degenerate_all_null
-// have been consolidated into the parameterized test_filter_degenerate_list_size_zero above.
 
 #[test]
 fn test_filter_all_null_various_list_sizes() {
@@ -585,8 +377,57 @@ fn test_mask_expansion_threshold_boundary() {
     assert_eq!(filtered_fsl7.list_size(), list_size_7);
 }
 
-// Note: test_nested_degenerate_filter has been consolidated into test_filter_nested_fixed_size_lists.
+// Test FSL-specific behavior with very large list sizes.
+#[test]
+fn test_filter_large_list_size() {
+    // Test with list_size=100, which is significantly larger than typical use cases.
+    let list_size = 100u32;
+    let num_lists = 5;
+    let elements: Vec<i64> = (0..(num_lists * list_size as usize))
+        .map(|i| i as i64)
+        .collect();
+    let elements = PrimitiveArray::from_iter(elements);
+    let fsl = FixedSizeListArray::new(
+        elements.into_array(),
+        list_size,
+        Validity::NonNullable,
+        num_lists,
+    );
 
-// Note: test_large_degenerate_array has been consolidated into test_filter_degenerate_list_size_zero above.
+    // Apply a filter keeping lists 1, 3, 4.
+    let mask = Mask::from_iter([false, true, false, true, true]);
+    let filtered = filter(fsl.as_ref(), &mask).unwrap();
+    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
 
-// Note: test_degenerate_all_mask_types has been consolidated into the parameterized tests above.
+    assert_eq!(filtered_fsl.len(), 3);
+    assert_eq!(filtered_fsl.list_size(), list_size);
+    assert_eq!(filtered_fsl.elements().len(), 3 * list_size as usize);
+
+    // Check that the correct lists were kept (indices 1, 3, 4 from original).
+    let list_0 = filtered_fsl.fixed_size_list_elements_at(0);
+    assert_eq!(list_0.scalar_at(0), 100i64.into()); // Start of original list 1.
+    assert_eq!(list_0.scalar_at(99), 199i64.into()); // End of original list 1.
+
+    let list_1 = filtered_fsl.fixed_size_list_elements_at(1);
+    assert_eq!(list_1.scalar_at(0), 300i64.into()); // Start of original list 3.
+    assert_eq!(list_1.scalar_at(99), 399i64.into()); // End of original list 3.
+
+    let list_2 = filtered_fsl.fixed_size_list_elements_at(2);
+    assert_eq!(list_2.scalar_at(0), 400i64.into()); // Start of original list 4.
+    assert_eq!(list_2.scalar_at(99), 499i64.into()); // End of original list 4.
+
+    // Test edge case: filter out all but one large list.
+    let mask_single = Mask::from_iter([false, false, true, false, false]);
+    let filtered_single = filter(fsl.as_ref(), &mask_single).unwrap();
+    let filtered_single_fsl = filtered_single.as_::<FixedSizeListVTable>();
+
+    assert_eq!(filtered_single_fsl.len(), 1);
+    assert_eq!(filtered_single_fsl.list_size(), list_size);
+    assert_eq!(filtered_single_fsl.elements().len(), list_size as usize);
+
+    // Verify it's the correct list (original list 2).
+    let single_list = filtered_single_fsl.fixed_size_list_elements_at(0);
+    assert_eq!(single_list.scalar_at(0), 200i64.into());
+    assert_eq!(single_list.scalar_at(50), 250i64.into());
+    assert_eq!(single_list.scalar_at(99), 299i64.into());
+}

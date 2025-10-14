@@ -3,7 +3,7 @@
 
 use fastlanes::BitPacking;
 use itertools::Itertools;
-use num_traits::{AsPrimitive, PrimInt};
+use num_traits::PrimInt;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder, UninitRange};
 use vortex_array::patches::Patches;
@@ -12,7 +12,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
-    NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
+    IntegerPType, NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
 };
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
@@ -251,17 +251,25 @@ fn gather_patches_impl<T, P>(
 ) -> Option<Patches>
 where
     T: PrimInt + NativePType,
-    P: NativePType,
+    P: IntegerPType,
 {
     let mut indices: BufferMut<P> = BufferMut::with_capacity(num_exceptions_hint);
     let mut values: BufferMut<T> = BufferMut::with_capacity(num_exceptions_hint);
 
-    for (i, v) in data.iter().enumerate() {
-        if (v.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize
-            && validity_mask.value(i)
+    let total_chunks = data.len().div_ceil(1024);
+    let mut chunk_offsets: BufferMut<u64> = BufferMut::with_capacity(total_chunks);
+
+    for (idx, value) in data.iter().enumerate() {
+        if (idx % 1024) == 0 {
+            // Record the patch index offset for each chunk.
+            chunk_offsets.push(values.len() as u64);
+        }
+
+        if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize
+            && validity_mask.value(idx)
         {
-            indices.push(P::from(i).vortex_expect("cast index from usize"));
-            values.push(*v);
+            indices.push(P::from(idx).vortex_expect("cast index from usize"));
+            values.push(*value);
         }
     }
 
@@ -271,6 +279,7 @@ where
             0,
             indices.into_array(),
             PrimitiveArray::new(values, patch_validity).into_array(),
+            Some(chunk_offsets.into_array()),
         )
     })
 }
@@ -344,10 +353,7 @@ fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) {
     });
 }
 
-fn insert_values_and_validity_at_indices<
-    T: NativePType,
-    IndexT: NativePType + AsPrimitive<usize>,
->(
+fn insert_values_and_validity_at_indices<T: NativePType, IndexT: IntegerPType>(
     dst: &mut UninitRange<T>,
     indices: &[IndexT],
     values: &[T],
@@ -810,5 +816,91 @@ mod test {
 
         // Verify all values were correctly unpacked including patches.
         assert_eq!(result.as_slice::<u32>(), &values);
+    }
+
+    #[test]
+    fn test_chunk_offsets() {
+        let patch_value = 1u32 << 20;
+        let patch_indices = [100usize, 200, 3000, 3100];
+        let mut values = vec![0u32; 4096usize];
+
+        patch_indices
+            .iter()
+            .for_each(|&idx| values[idx] = patch_value);
+
+        let array = PrimitiveArray::from_iter(values);
+        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
+
+        let patches = bitpacked.patches().unwrap();
+        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+
+        // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
+        // chunk 1 (1024-2047): no patches -> points to patch index 2
+        // chunk 2 (2048-3071): patch at 3000 -> starts at patch index 2
+        // chunk 3 (3072-4095): patch at 3100 -> starts at patch index 3
+        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0, 2, 2, 3]);
+    }
+
+    #[test]
+    fn test_chunk_offsets_no_patches_in_middle() {
+        let patch_value = 1u32 << 20;
+        let patch_indices = [100usize, 200, 2500];
+        let mut values = vec![0u32; 3072usize];
+
+        patch_indices
+            .iter()
+            .for_each(|&idx| values[idx] = patch_value);
+
+        let array = PrimitiveArray::from_iter(values);
+        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
+
+        let patches = bitpacked.patches().unwrap();
+        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+
+        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0, 2, 2]);
+    }
+
+    #[test]
+    fn test_chunk_offsets_trailing_empty_chunks() {
+        let patch_value = 1u32 << 20;
+        let patch_indices = [100usize, 200, 1500];
+        let mut values = vec![0u32; 5120usize];
+
+        patch_indices
+            .iter()
+            .for_each(|&idx| values[idx] = patch_value);
+
+        let array = PrimitiveArray::from_iter(values);
+        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
+
+        let patches = bitpacked.patches().unwrap();
+        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+
+        // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
+        // chunk 1 (1024-2047): patch at 1500 -> starts at patch index 2
+        // chunk 2 (2048-3071): no patches -> points to patch index 3
+        // chunk 3 (3072-4095): no patches -> points to patch index 3 (remaining chunks filled)
+        // chunk 4 (4096-5119): no patches -> points to patch index 3 (remaining chunks filled)
+        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0, 2, 3, 3, 3]);
+    }
+
+    #[test]
+    fn test_chunk_offsets_single_chunk() {
+        let patch_value = 1u32 << 20;
+        let patch_indices = [100usize, 200];
+        let mut values = vec![0u32; 500usize];
+
+        patch_indices
+            .iter()
+            .for_each(|&idx| values[idx] = patch_value);
+
+        let array = PrimitiveArray::from_iter(values);
+        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
+
+        let patches = bitpacked.patches().unwrap();
+        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+
+        // Single chunk starting at patch index 0.
+        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0]);
     }
 }

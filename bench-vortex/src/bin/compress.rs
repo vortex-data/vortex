@@ -4,14 +4,16 @@
 use std::fs::File;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
+use std::time::Duration;
 
-use bench_vortex::compress::bench::{CompressMeasurements, CompressOp, benchmark_compress};
+use bench_vortex::compress::bench::{self as compress, CompressMeasurements, CompressOp};
 use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
 use bench_vortex::datasets::tpch_l_comment::{TPCHLCommentCanonical, TPCHLCommentChunked};
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::downloadable_dataset::DownloadableDataset;
+use bench_vortex::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
 use bench_vortex::public_bi::PBI_DATASETS;
 use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
 use bench_vortex::utils::new_tokio_runtime;
@@ -21,19 +23,33 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use regex::Regex;
 use tokio::runtime::Runtime;
+use vortex::arrays::{ChunkedArray, ChunkedVTable};
+use vortex::builders::builder_with_capacity;
+use vortex::utils::aliases::hash_map::HashMap;
+use vortex::{Array, IntoArray};
 
+// TODO(connor): Remove the Lance format from default values.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_enum,
+        default_values_t = vec![Format::Parquet, Format::Lance, Format::OnDiskVortex]
+    )]
+    formats: Vec<Format>,
     #[arg(short, long, default_value_t = 5)]
     iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,
     #[arg(short, long)]
     verbose: bool,
-    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
-    formats: Vec<Format>,
-    #[arg(long, value_enum, default_values_t = vec![CompressOp::Compress, CompressOp::Decompress])]
+    #[arg(
+        long,
+        value_enum,
+        default_values_t = vec![CompressOp::Compress, CompressOp::Decompress]
+    )]
     ops: Vec<CompressOp>,
     #[arg(long)]
     datasets: Option<String>,
@@ -78,13 +94,14 @@ fn compress(
         .collect_vec();
 
     let structlistofints = vec![
-        StructListOfInts::new(10, 1000, 1),
         StructListOfInts::new(100, 1000, 1),
         StructListOfInts::new(1000, 1000, 1),
-        StructListOfInts::new(10, 1000, 50),
+        StructListOfInts::new(10000, 1000, 1),
         StructListOfInts::new(100, 1000, 50),
         StructListOfInts::new(1000, 1000, 50),
+        StructListOfInts::new(10000, 1000, 50),
     ];
+
     let datasets: Vec<&dyn Dataset> = [
         &TaxiData as &dyn Dataset,
         PBI_DATASETS.get(Arade),
@@ -96,7 +113,7 @@ fn compress(
         PBI_DATASETS.get(Food),
         PBI_DATASETS.get(HashTags),
         // Hatred, // panic in fsst_compress_iter
-        // TableroSistemaPenal, // thread 'main' panicked at bench-vortex/benches/compress_benchmark.rs:224:42: called `Result::unwrap()` on an `Err` value: expected type: {column00=utf8?, column01=i64?, column02=utf8?, column03=f64?, column04=i64?, column05=utf8?, column06=utf8?, column07=utf8?, column08=utf8?, column09=utf8?, column10=i64?, column11=i64?, column12=utf8?, column13=utf8?, column14=i64?, column15=i64?, column16=utf8?, column17=utf8?, column18=utf8?, column19=utf8?, column20=i64?, column21=utf8?, column22=utf8?, column23=utf8?, column24=utf8?, column25=i64?, column26=utf8?} but instead got {column00=utf8?, column01=i64?, column02=i64?, column03=i64?, column04=i64?, column05=utf8?, column06=i64?, column07=i64?, column08=i64?, column09=utf8?, column10=ext(vortex.date, ExtMetadata([4]))?, column11=ext(vortex.date, ExtMetadata([4]))?, column12=utf8?, column13=utf8?, column14=utf8?, column15=i64?, column16=i64?, column17=utf8?, column18=utf8?, column19=utf8?, column20=utf8?, column21=utf8?}
+        // TableroSistemaPenal, // Unexpected type error
         // YaleLanguages, // 4th column looks like integer but also contains Y
         &TPCHLCommentChunked,
         &TPCHLCommentCanonical,
@@ -109,8 +126,8 @@ fn compress(
         if let Some(filter) = datasets_filter.as_ref() {
             filter.is_match(d.name())
         } else {
-            // These download data from pcodec's public bucket, presumably creating egress charges for
-            // pcodec. As such, we do not run in CI.
+            // These download data from pcodec's public bucket, presumably creating egress charges
+            // for pcodec. As such, we do not run in CI.
             d.name() != "airquality" && d.name() != "rplace"
         }
     })
@@ -161,4 +178,106 @@ fn compress(
             print_measurements_json(&mut writer, measurements.ratios)
         }
     }
+}
+
+// Type aliases for compression and decompression function signatures.
+type CompressFn = fn(
+    &Runtime,
+    &dyn Array,
+    usize,
+    &str,
+) -> anyhow::Result<(
+    Duration,
+    u64,
+    Vec<CustomUnitMeasurement>,
+    CompressionTimingMeasurement,
+)>;
+
+type DecompressFn = fn(
+    &Runtime,
+    &dyn Array,
+    usize,
+    &str,
+) -> anyhow::Result<(Duration, CompressionTimingMeasurement)>;
+
+pub fn benchmark_compress(
+    runtime: &Runtime,
+    progress: &ProgressBar,
+    formats: &[Format],
+    ops: &[CompressOp],
+    iterations: usize,
+    dataset_handle: &dyn Dataset,
+) -> anyhow::Result<CompressMeasurements> {
+    let bench_name = dataset_handle.name();
+    tracing::info!("Running {bench_name} benchmark");
+
+    let vx_array = runtime.block_on(async { dataset_handle.to_vortex_array().await })?;
+    let uncompressed = ChunkedArray::from_iter(
+        vx_array
+            .as_::<ChunkedVTable>()
+            .chunks()
+            .iter()
+            .map(|chunk| {
+                let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
+                chunk.append_to_builder(builder.as_mut());
+                builder.finish()
+            }),
+    )
+    .into_array();
+
+    let mut ratios = Vec::new();
+    let mut timings = Vec::new();
+    let mut measurements_map: HashMap<(Format, CompressOp), Duration> = HashMap::new();
+    let mut compressed_sizes: HashMap<Format, u64> = HashMap::new();
+
+    for format in formats {
+        for op in ops {
+            let time = match op {
+                CompressOp::Compress => {
+                    // Select the compression function based on format.
+                    let compress_fn: CompressFn = match format {
+                        Format::OnDiskVortex => compress::benchmark_vortex_compress,
+                        Format::Parquet => compress::benchmark_parquet_compress,
+                        Format::Lance => compress::benchmark_lance_compress,
+                        _ => unimplemented!("Compress bench not implemented for {format}"),
+                    };
+
+                    let (time, size, ratios_part, timing) =
+                        compress_fn(runtime, &uncompressed, iterations, bench_name)?;
+                    compressed_sizes.insert(*format, size);
+                    ratios.extend(ratios_part);
+                    timings.push(timing);
+
+                    time
+                }
+                CompressOp::Decompress => {
+                    // Select the decompression function based on format.
+                    let decompress_fn: DecompressFn = match format {
+                        Format::OnDiskVortex => compress::benchmark_vortex_decompress,
+                        Format::Parquet => compress::benchmark_parquet_decompress,
+                        Format::Lance => compress::benchmark_lance_decompress,
+                        _ => unimplemented!("Decompress bench not implemented for {format}"),
+                    };
+
+                    let (time, timing) =
+                        decompress_fn(runtime, &uncompressed, iterations, bench_name)?;
+                    timings.push(timing);
+                    time
+                }
+            };
+
+            measurements_map.insert((*format, *op), time);
+            progress.inc(1);
+        }
+    }
+
+    // Calculate cross-format ratios after all measurements.
+    compress::calculate_ratios(
+        &measurements_map,
+        &compressed_sizes,
+        bench_name,
+        &mut ratios,
+    );
+
+    Ok(CompressMeasurements { timings, ratios })
 }

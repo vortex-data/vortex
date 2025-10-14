@@ -8,7 +8,7 @@ use vortex_array::compute::{
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, match_each_native_ptype};
+use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
@@ -56,7 +56,7 @@ fn compare_fsst_constant(
             Operator::Lt => BooleanBuffer::new_unset(left.len()),
             _ => {
                 let uncompressed_lengths = left.uncompressed_lengths().to_primitive();
-                match_each_native_ptype!(uncompressed_lengths.ptype(), |P| {
+                match_each_integer_ptype!(uncompressed_lengths.ptype(), |P| {
                     compare_lengths_to_empty(
                         uncompressed_lengths.as_slice::<P>().iter().copied(),
                         operator,

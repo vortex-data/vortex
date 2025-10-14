@@ -245,6 +245,30 @@ extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_resu
     result->return_types.push_back(*logical_type);
 }
 
+virtual_column_map_t c_get_virtual_columns(ClientContext &context, optional_ptr<FunctionData> bind_data) {
+    auto &bind = bind_data->Cast<CTableBindData>();
+
+    auto result = virtual_column_map_t();
+    bind.info->vtab.get_virtual_columns(bind_data->Cast<CTableBindData>().ffi_data->DataPtr(),
+                                        reinterpret_cast<duckdb_vx_tfunc_virtual_cols_result>(&result));
+    return result;
+}
+
+extern "C" void duckdb_vx_tfunc_virtual_columns_push(duckdb_vx_tfunc_virtual_cols_result ffi_result,
+                                                  idx_t column_idx, const char *name_str, size_t name_len,
+                                                  duckdb_logical_type ffi_type) {
+    if (!ffi_result || !name_str || !ffi_type) {
+        return;
+    }
+
+    auto result = reinterpret_cast<virtual_column_map_t *>(ffi_result);
+    const auto logical_type = reinterpret_cast<LogicalType *>(ffi_type);
+    const auto name = string(name_str, name_len);
+
+    auto table_col = TableColumn(std::move(name), *logical_type);
+    result->emplace(column_idx, std::move(table_col));
+}
+
 OperatorPartitionData c_get_partition_data(ClientContext &context, TableFunctionGetPartitionInput &input) {
     if (input.partition_info.RequiresPartitionColumns()) {
         throw InternalException("TableScan::GetPartitionData: partition columns not supported");
@@ -301,6 +325,7 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
     tf.late_materialization = vtab->late_materialization;
     tf.cardinality = c_cardinality;
     tf.get_partition_data = c_get_partition_data;
+    tf.get_virtual_columns = c_get_virtual_columns;
     tf.to_string = c_to_string;
 
     // Set up the parameters

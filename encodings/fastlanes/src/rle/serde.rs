@@ -2,14 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::validity::Validity;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 
 use super::RLEEncoding;
 use crate::{RLEArray, RLEVTable};
@@ -20,8 +19,12 @@ pub struct RLEMetadata {
     pub values_len: u64,
     #[prost(uint64, tag = "2")]
     pub indices_len: u64,
-    #[prost(uint64, tag = "3")]
-    pub value_chunk_offsets_len: u64,
+    #[prost(enumeration = "PType", tag = "3")]
+    pub indices_ptype: i32,
+    #[prost(uint64, tag = "4")]
+    pub values_idx_offsets_len: u64,
+    #[prost(enumeration = "PType", tag = "5")]
+    pub values_idx_offsets_ptype: i32,
 }
 
 impl SerdeVTable<RLEVTable> for RLEVTable {
@@ -31,7 +34,9 @@ impl SerdeVTable<RLEVTable> for RLEVTable {
         Ok(Some(ProstMetadata(RLEMetadata {
             values_len: array.values().len() as u64,
             indices_len: array.indices().len() as u64,
-            value_chunk_offsets_len: array.value_chunk_offsets().len() as u64,
+            indices_ptype: PType::try_from(array.indices().dtype())? as i32,
+            values_idx_offsets_len: array.values_idx_offsets().len() as u64,
+            values_idx_offsets_ptype: PType::try_from(array.values_idx_offsets().dtype())? as i32,
         })))
     }
 
@@ -43,36 +48,28 @@ impl SerdeVTable<RLEVTable> for RLEVTable {
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<RLEArray> {
-        let validity = if children.len() == 3 {
-            // `visit_validity` does not add a child array in case
-            // the validity is either `NonNullable` or `AllValid`.
-            Validity::from(dtype.nullability())
-        } else if children.len() == 4 {
-            let validity = children.get(3, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("RLEArray: expected 3 or 4 children, got {}", children.len());
-        };
-
         let values = children.get(
             0,
-            &DType::Primitive(dtype.as_ptype(), dtype.nullability()),
+            &DType::Primitive(dtype.as_ptype(), Nullability::NonNullable),
             usize::try_from(metadata.values_len)?,
         )?;
 
         let indices = children.get(
             1,
-            &DType::Primitive(PType::U16, Nullability::NonNullable),
+            &DType::Primitive(metadata.indices_ptype(), dtype.nullability()),
             usize::try_from(metadata.indices_len)?,
         )?;
 
-        let value_chunk_offsets = children.get(
+        let values_idx_offsets = children.get(
             2,
-            &DType::Primitive(PType::U64, Nullability::NonNullable),
-            usize::try_from(metadata.value_chunk_offsets_len)?,
+            &DType::Primitive(
+                metadata.values_idx_offsets_ptype(),
+                Nullability::NonNullable,
+            ),
+            usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        RLEArray::try_new(values, indices, value_chunk_offsets, validity, len)
+        RLEArray::try_new(values, indices, values_idx_offsets, len)
     }
 }
 
@@ -95,8 +92,8 @@ impl VisitorVTable<RLEVTable> for RLEVTable {
     fn visit_children(array: &RLEArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("values", array.values());
         visitor.visit_child("indices", array.indices());
-        visitor.visit_child("value_chunk_offsets", array.value_chunk_offsets());
-        visitor.visit_validity(array.validity(), array.len());
+        visitor.visit_child("values_idx_offsets", array.values_idx_offsets());
+        // Don't call visit_validity since the nullability is stored in the indices array.
     }
 }
 
@@ -114,7 +111,9 @@ mod test {
             ProstMetadata(RLEMetadata {
                 values_len: u64::MAX,
                 indices_len: u64::MAX,
-                value_chunk_offsets_len: u64::MAX,
+                indices_ptype: i32::MAX,
+                values_idx_offsets_len: u64::MAX,
+                values_idx_offsets_ptype: i32::MAX,
             }),
         );
     }

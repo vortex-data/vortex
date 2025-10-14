@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::Mask;
+use crate::{AllOr, Mask};
 
 impl PartialEq for Mask {
     #[inline]
@@ -13,8 +13,15 @@ impl PartialEq for Mask {
             return false;
         }
 
-        // TODO(ngates): we could compare by indices if density is low enough
-        self.boolean_buffer() == other.boolean_buffer()
+        match (self.boolean_buffer(), other.boolean_buffer()) {
+            (AllOr::All, AllOr::All) => true,
+            (AllOr::None, AllOr::None) => true,
+            (AllOr::Some(a), AllOr::Some(b)) => {
+                // Short-circuit if they are the same actual buffer with the same offset
+                (a.offset() == b.offset() && a.inner().as_ptr() == b.inner().as_ptr()) || a.eq(b)
+            }
+            _ => false,
+        }
     }
 }
 

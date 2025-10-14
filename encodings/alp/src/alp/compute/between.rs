@@ -8,9 +8,9 @@ use vortex_array::compute::{
     BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison, between,
 };
 use vortex_array::{Array, ArrayRef, register_kernel};
-use vortex_dtype::{NativePType, Nullability};
+use vortex_dtype::{NativeDType, NativePType, Nullability};
 use vortex_error::VortexResult;
-use vortex_scalar::{Scalar, ScalarType};
+use vortex_scalar::Scalar;
 
 use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
 
@@ -57,7 +57,7 @@ fn between_impl<T: NativePType + ALPFloat>(
 ) -> VortexResult<ArrayRef>
 where
     Scalar: From<T::ALPInt>,
-    <T as ALPFloat>::ALPInt: ScalarType + Debug,
+    <T as ALPFloat>::ALPInt: NativeDType + Debug,
 {
     let exponents = array.exponents();
 

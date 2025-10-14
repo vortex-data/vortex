@@ -29,6 +29,7 @@ paste = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true, optional = true, features = ["rc", "derive"] }
 static_assertions = { workspace = true }
+vortex-buffer = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["dtype"] }
 vortex-proto = { workspace = true, features = ["dtype"] }

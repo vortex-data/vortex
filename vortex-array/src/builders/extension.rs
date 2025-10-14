@@ -101,8 +101,8 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.ensure_capacity(capacity)
     }
 
-    fn set_validity(&mut self, validity: Mask) {
-        self.storage.set_validity(validity);
+    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
+        unsafe { self.storage.set_validity_unchecked(validity) };
     }
 
     fn finish(&mut self) -> ArrayRef {

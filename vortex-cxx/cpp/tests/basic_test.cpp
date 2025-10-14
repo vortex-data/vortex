@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <fstream>
 #include <thread>
 #include <iostream>
 
@@ -446,4 +447,33 @@ TEST_F(VortexTest, ScanBuilderWithProjectionSingleColumn) {
             return std::move(scan_builder.WithProjection(std::move(projection))).IntoStream();
         },
         vortex::testing::CreateTestDataStream(), {0});
+}
+
+TEST_F(VortexTest, OpenFromBuffer) {
+    std::string test_file_path = GetTestDataPath("test_buffer.vortex");
+    auto stream = vortex::testing::CreateTestDataStream();
+    auto write_options = vortex::ffi::write_options_new();
+    vortex::ffi::write_array_stream(std::move(write_options), reinterpret_cast<uint8_t *>(&stream),
+                                    test_file_path.c_str());
+
+    std::ifstream file(test_file_path, std::ios::binary | std::ios::ate);
+    ASSERT_TRUE(file.is_open()) << "Failed to open file: " << test_file_path;
+
+    std::streamsize file_size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    std::vector<uint8_t> buffer(file_size);
+    ASSERT_TRUE(file.read(reinterpret_cast<char*>(buffer.data()), file_size))
+        << "Failed to read file into buffer";
+    file.close();
+
+    auto vortex_file = vortex::VortexFile::Open(buffer.data(), buffer.size());
+    ASSERT_EQ(vortex_file.RowCount(), 5);
+
+    auto scan_stream = vortex_file.CreateScanBuilder().IntoStream();
+    auto [array_stream, schema] = StreamToUniqueStreamSchema(scan_stream);
+    auto array = ReadFirstArrayFromUniqueStream(array_stream);
+
+    auto [ref_array, ref_schema] = ReadFirstArrayFromStream(vortex::testing::CreateTestDataStream());
+    ValidateArray(array, schema, ref_array, ref_schema);
 }

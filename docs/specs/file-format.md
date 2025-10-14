@@ -97,7 +97,7 @@ as of June 2025, it might look as follows.
 
 ## Backward Compatibility
 
-Backward compatability guarantees that any **older** Vortex file can be read by **newer** versions of the Vortex library,
+Backward compatibility guarantees that any **older** Vortex file can be read by **newer** versions of the Vortex library,
 and is expected from all releases of Vortex from version 0.36.0 onwards.
 
 ## Forward Compatibility

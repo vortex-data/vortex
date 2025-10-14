@@ -58,6 +58,13 @@ df3 = pd.merge(base, pr, on=["name", "storage", "dataset_key"], how="right", suf
 
 # Generate summary statistics
 df3["ratio"] = df3["value_pr"] / df3["value_base"]
+df3["remark"] = pd.Series([""] * len(df3))
+df3["remark"] = df3["remark"].case_when(
+    [
+        (df3["ratio"] >= 1.3, "🚨"),
+        (df3["ratio"] <= 0.7, "🚀"),
+    ]
+)
 
 # Filter for different target combinations for summary statistics
 vortex_df = df3[df3["name"].str.contains("vortex", case=False, na=False)]
@@ -180,6 +187,7 @@ table_df = pd.DataFrame(
         f"base {base_commit_id[:8]}": df3["value_base"],
         "ratio (PR/base)": df3["ratio"],
         "unit": df3["unit_base"],
+        "remark": df3["remark"],
     }
 )
 

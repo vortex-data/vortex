@@ -7,10 +7,6 @@
 //! elements in the Vortex array system. [`Scalar`]s are composed of a logical data type
 //! ([`DType`](vortex_dtype::DType)) and a value ([`ScalarValue`]).
 
-// TODO(connor): There are a lot of `From` and `TryFrom` conversions back and forth between
-// `Option<T>`, `Vec<T>`, `Scalar`, `ScalarValue`, and `ListScalar`. This can be cleaned up /
-// consolidated.
-
 #![deny(missing_docs)]
 
 #[cfg(feature = "arbitrary")]
@@ -28,7 +24,6 @@ mod primitive;
 mod proto;
 mod pvalue;
 mod scalar;
-mod scalar_type;
 mod scalar_value;
 mod struct_;
 #[cfg(test)]
@@ -44,7 +39,6 @@ pub use list::*;
 pub use primitive::*;
 pub use pvalue::*;
 pub use scalar::*;
-pub use scalar_type::*;
 pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;

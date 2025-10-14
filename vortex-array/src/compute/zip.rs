@@ -9,7 +9,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
 
 use super::{ComputeFnVTable, InvocationArgs, Output, cast};
-use crate::builders::{ArrayBuilder, builder_with_capacity};
+use crate::builders::{ArrayBuilder, VarBinViewBuilder, builder_with_capacity};
 use crate::compute::{ComputeFn, Kernel};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
@@ -74,6 +74,15 @@ impl ComputeFnVTable for Zip {
 
         // TODO(os): add invert_mask opt and check if if_false has a kernel like:
         //           kernel.invoke(Args(if_false, if_true, mask, invert_mask = true))
+
+        if !if_true.is_canonical() || !if_false.is_canonical() {
+            return zip(
+                if_true.to_canonical().as_ref(),
+                if_false.to_canonical().as_ref(),
+                mask,
+            )
+            .map(Into::into);
+        }
 
         Ok(zip_impl(
             if_true.to_canonical().as_ref(),
@@ -183,8 +192,30 @@ pub(crate) fn zip_return_dtype(if_true: &dyn Array, if_false: &dyn Array) -> DTy
 }
 
 fn zip_impl(if_true: &dyn Array, if_false: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-    // if_true.len() == if_false.len() from ComputeFn::invoke
-    let builder = builder_with_capacity(&zip_return_dtype(if_true, if_false), if_true.len());
+    assert_eq!(
+        if_true.len(),
+        if_false.len(),
+        "ComputeFn::invoke checks that arrays have the same size"
+    );
+
+    let return_type = zip_return_dtype(if_true, if_false);
+    let capacity = if_true.len();
+
+    let builder = match return_type {
+        // TODO(blaginin): once https://github.com/vortex-data/vortex/pull/4695 is merged, we can kill
+        //  these two special cases, but before that we need to manually use deduplicated buffers.
+        //  Otherwise, the same buffer will be appended multiple times causing fragmentation.
+        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_buffer_deduplication(
+            DType::Utf8(n),
+            capacity,
+        )),
+        DType::Binary(n) => Box::new(VarBinViewBuilder::with_buffer_deduplication(
+            DType::Binary(n),
+            capacity,
+        )),
+        _ => builder_with_capacity(&return_type, if_true.len()),
+    };
+
     zip_impl_with_builder(if_true, if_false, mask, builder)
 }
 
@@ -212,11 +243,19 @@ pub(crate) fn zip_impl_with_builder(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::zip;
-    use vortex_array::{IntoArray, ToCanonical};
+    use arrow_array::cast::AsArray;
+    use arrow_select::zip::zip as arrow_zip;
     use vortex_buffer::buffer;
+    use vortex_dtype::{DType, Nullability};
     use vortex_mask::Mask;
+    use vortex_scalar::Scalar;
+
+    use crate::arrays::{ConstantArray, PrimitiveArray, StructArray, VarBinViewVTable};
+    use crate::arrow::IntoArrowArray;
+    use crate::builders::{ArrayBuilder, BufferGrowthStrategy};
+    use crate::compute::zip;
+    use crate::compute::zip::VarBinViewBuilder;
+    use crate::{Array, IntoArray, ToCanonical};
 
     #[test]
     fn test_zip_basic() {
@@ -259,5 +298,110 @@ mod tests {
         let if_false = buffer![1, 2, 3, 4].into_array();
 
         zip(&if_true, &if_false, &mask).unwrap();
+    }
+
+    #[test]
+    fn test_fragmentation() {
+        let len = 100;
+
+        let const1 = ConstantArray::new(
+            Scalar::utf8("hello_this_is_a_longer_string", Nullability::Nullable),
+            len,
+        )
+        .to_array();
+
+        let const2 = ConstantArray::new(
+            Scalar::utf8("world_this_is_another_string", Nullability::Nullable),
+            len,
+        )
+        .to_array();
+
+        // Create a mask that alternates frequently to cause fragmentation
+        // Pattern: take from const1 at even indices, const2 at odd indices
+        let indices: Vec<usize> = (0..len).step_by(2).collect();
+        let mask = Mask::from_indices(len, indices);
+
+        let result = zip(&const1, &const2, &mask).unwrap();
+
+        insta::assert_snapshot!(result.display_tree(), @r"
+        root: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%)
+          metadata: EmptyMetadata
+          buffer (align=1): 29 B (1.75%)
+          buffer (align=1): 28 B (1.69%)
+          buffer (align=16): 1.60 kB (96.56%)
+        ");
+
+        // test wrapped in a struct
+        let wrapped1 = StructArray::try_from_iter([("nested", const1)])
+            .unwrap()
+            .to_array();
+        let wrapped2 = StructArray::try_from_iter([("nested", const2)])
+            .unwrap()
+            .to_array();
+
+        let wrapped_result = zip(&wrapped1, &wrapped2, &mask).unwrap();
+        insta::assert_snapshot!(wrapped_result.display_tree(), @r"
+        root: vortex.struct({nested=utf8?}, len=100) nbytes=1.66 kB (100.00%)
+          metadata: EmptyMetadata
+          nested: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%)
+            metadata: EmptyMetadata
+            buffer (align=1): 29 B (1.75%)
+            buffer (align=1): 28 B (1.69%)
+            buffer (align=16): 1.60 kB (96.56%)
+        ");
+    }
+
+    #[test]
+    fn test_varbinview_zip() {
+        let if_true = {
+            let mut builder = VarBinViewBuilder::new(
+                DType::Utf8(Nullability::NonNullable),
+                10,
+                Default::default(),
+                BufferGrowthStrategy::fixed(64 * 1024),
+                0.0,
+            );
+            for _ in 0..100 {
+                builder.append_value("Hello");
+                builder.append_value("Hello this is a long string that won't be inlined.");
+            }
+            builder.finish()
+        };
+
+        let if_false = {
+            let mut builder = VarBinViewBuilder::new(
+                DType::Utf8(Nullability::NonNullable),
+                10,
+                Default::default(),
+                BufferGrowthStrategy::fixed(64 * 1024),
+                0.0,
+            );
+            for _ in 0..100 {
+                builder.append_value("Hello2");
+                builder.append_value("Hello2 this is a long string that won't be inlined.");
+            }
+            builder.finish()
+        };
+
+        // [1,2,4,5,7,8,..]
+        let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0).collect());
+
+        let zipped = zip(&if_true, &if_false, &mask).unwrap();
+        let zipped = zipped.as_opt::<VarBinViewVTable>().unwrap();
+        assert_eq!(zipped.nbuffers(), 2);
+
+        // assert the result is the same as arrow
+        let expected = arrow_zip(
+            mask.into_array()
+                .into_arrow_preferred()
+                .unwrap()
+                .as_boolean(),
+            &if_true.into_arrow_preferred().unwrap(),
+            &if_false.into_arrow_preferred().unwrap(),
+        )
+        .unwrap();
+
+        let actual = zipped.clone().into_array().into_arrow_preferred().unwrap();
+        assert_eq!(actual.as_ref(), expected.as_ref());
     }
 }

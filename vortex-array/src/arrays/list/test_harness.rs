@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::sync::Arc;
+
+use itertools::Itertools;
+use vortex_dtype::{DType, IntegerPType};
+use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
+
+use crate::ArrayRef;
+use crate::arrays::ListArray;
+use crate::builders::{ArrayBuilder, ListBuilder};
+
+impl ListArray {
+    /// This is a convenience method to create a list array from an iterator of iterators.
+    /// This method is slow however since each element is first converted to a scalar and then
+    /// appended to the array.
+    pub fn from_iter_slow<O: IntegerPType, I: IntoIterator>(
+        iter: I,
+        dtype: Arc<DType>,
+    ) -> VortexResult<ArrayRef>
+    where
+        I::Item: IntoIterator,
+        <I::Item as IntoIterator>::Item: Into<Scalar>,
+    {
+        let iter = iter.into_iter();
+        let mut builder = ListBuilder::<O>::with_capacity(
+            dtype.clone(),
+            vortex_dtype::Nullability::NonNullable,
+            2 * iter.size_hint().0,
+            iter.size_hint().0,
+        );
+
+        for v in iter {
+            let elem = Scalar::list(
+                dtype.clone(),
+                v.into_iter().map(|x| x.into()).collect_vec(),
+                dtype.nullability(),
+            );
+            builder.append_value(elem.as_list())?
+        }
+        Ok(builder.finish())
+    }
+
+    pub fn from_iter_opt_slow<O: IntegerPType, I: IntoIterator<Item = Option<T>>, T>(
+        iter: I,
+        dtype: Arc<DType>,
+    ) -> VortexResult<ArrayRef>
+    where
+        T: IntoIterator,
+        T::Item: Into<Scalar>,
+    {
+        let iter = iter.into_iter();
+        let mut builder = ListBuilder::<O>::with_capacity(
+            dtype.clone(),
+            vortex_dtype::Nullability::Nullable,
+            2 * iter.size_hint().0,
+            iter.size_hint().0,
+        );
+
+        for v in iter {
+            if let Some(v) = v {
+                let elem = Scalar::list(
+                    dtype.clone(),
+                    v.into_iter().map(|x| x.into()).collect_vec(),
+                    dtype.nullability(),
+                );
+                builder.append_value(elem.as_list())?
+            } else {
+                builder.append_null()
+            }
+        }
+        Ok(builder.finish())
+    }
+}

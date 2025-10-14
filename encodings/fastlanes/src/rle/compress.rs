@@ -1,30 +1,42 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-
 use arrayref::{array_mut_ref, array_ref};
 use fastlanes::RLE;
+use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::builders::PrimitiveBuilder;
+use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
-use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
-use vortex_error::VortexResult;
+use vortex_dtype::{NativePType, match_each_native_ptype, match_each_unsigned_integer_ptype};
+use vortex_error::{VortexResult, vortex_panic};
 
 use crate::{FL_CHUNK_SIZE, RLEArray};
 
 impl RLEArray {
     /// Encodes a primitive array of unsigned integers using FastLanes RLE.
     pub fn encode(array: &PrimitiveArray) -> VortexResult<Self> {
-        match_each_unsigned_integer_ptype!(array.ptype(), |T| { rle_encode_typed::<T>(array) })
+        match_each_native_ptype!(array.ptype(), |T| { rle_encode_typed::<T>(array) })
     }
 }
 
 /// Decompresses an RLE array back into a primitive array.
+#[allow(clippy::cognitive_complexity)]
 pub fn rle_decompress(array: &RLEArray) -> PrimitiveArray {
-    match_each_unsigned_integer_ptype!(array.ptype(), |T| { rle_decode_typed::<T>(array) })
+    match_each_native_ptype!(array.values().dtype().as_ptype(), |V| {
+        match_each_unsigned_integer_ptype!(array.values_idx_offsets().dtype().as_ptype(), |O| {
+            // RLE indices are always u16 (or u8 if downcasted).
+            match array.indices().dtype().as_ptype() {
+                PType::U8 => rle_decode_typed::<V, u8, O>(array),
+                PType::U16 => rle_decode_typed::<V, u16, O>(array),
+                _ => vortex_panic!(
+                    "Unsupported index type for RLE decoding: {}",
+                    array.indices().dtype().as_ptype()
+                ),
+            }
+        })
+    })
 }
 
 /// Encodes a primitive array of unsigned integers using FastLanes RLE.
@@ -32,17 +44,18 @@ pub fn rle_decompress(array: &RLEArray) -> PrimitiveArray {
 /// In case the input array length is % 1024 != 0, the last chunk is padded.
 fn rle_encode_typed<T>(array: &PrimitiveArray) -> VortexResult<RLEArray>
 where
-    T: NativePType + RLE + Clone + Hash + Eq,
+    T: NativePType + RLE,
 {
     let values = array.as_slice::<T>();
     let len = values.len();
+    let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
 
     // Allocate capacity up to the next multiple of chunk size.
-    let mut values_buf = BufferMut::<T>::with_capacity(len.next_multiple_of(FL_CHUNK_SIZE));
-    let mut indices_buf = BufferMut::<u16>::with_capacity(len.next_multiple_of(FL_CHUNK_SIZE));
+    let mut values_buf = BufferMut::<T>::with_capacity(padded_len);
+    let mut indices_buf = BufferMut::<u16>::with_capacity(padded_len);
 
     // Pre-allocate for one offset per chunk.
-    let mut value_chunk_offsets = BufferMut::<u64>::with_capacity(len.div_ceil(FL_CHUNK_SIZE));
+    let mut values_idx_offsets = BufferMut::<u64>::with_capacity(len.div_ceil(FL_CHUNK_SIZE));
 
     let values_uninit = values_buf.spare_capacity_mut();
     let indices_uninit = indices_buf.spare_capacity_mut();
@@ -61,7 +74,7 @@ where
 
         // Capture chunk start indices. This is necessary as indices
         // returned from `T::encode` are relative to the chunk.
-        value_chunk_offsets.push(value_count_acc as u64);
+        values_idx_offsets.push(value_count_acc as u64);
 
         let value_count = T::encode(
             input,
@@ -90,78 +103,110 @@ where
 
     unsafe {
         values_buf.set_len(value_count_acc);
-        indices_buf.set_len(array.len().next_multiple_of(FL_CHUNK_SIZE));
+        indices_buf.set_len(padded_len);
     }
 
     RLEArray::try_new(
         values_buf.into_array(),
-        indices_buf.into_array(),
-        value_chunk_offsets.into_array(),
-        array.validity().clone(),
+        PrimitiveArray::new(indices_buf.freeze(), padded_validity(array)).into_array(),
+        values_idx_offsets.into_array(),
         array.len(),
     )
 }
 
+/// Returns validity padded to the next 1024 chunk for a given array.
+fn padded_validity(array: &PrimitiveArray) -> Validity {
+    match array.validity() {
+        Validity::NonNullable => Validity::NonNullable,
+        Validity::AllValid => Validity::AllValid,
+        Validity::AllInvalid => Validity::AllInvalid,
+        Validity::Array(validity_array) => {
+            let len = array.len();
+            let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
+
+            if len == padded_len {
+                return Validity::Array(validity_array.clone());
+            }
+
+            let mut builder = arrow_buffer::BooleanBufferBuilder::new(padded_len);
+
+            let bool_array = validity_array.to_bool();
+            let bool_buffer = bool_array.boolean_buffer();
+            builder.append_buffer(&bool_buffer.slice(0, len));
+            builder.append_n(padded_len - len, false);
+
+            Validity::from(builder.finish())
+        }
+    }
+}
+
 /// Decompresses an `RLEArray` into to a primitive array of unsigned integers.
-fn rle_decode_typed<T>(array: &RLEArray) -> PrimitiveArray
+#[allow(clippy::cognitive_complexity)]
+fn rle_decode_typed<V, I, O>(array: &RLEArray) -> PrimitiveArray
 where
-    T: NativePType + RLE + Clone + Copy,
+    V: NativePType + RLE + Clone + Copy,
+    I: NativePType + Into<usize>,
+    O: NativePType + AsPrimitive<u64>,
 {
     let values = array.values().to_primitive();
-    let values = values.as_slice::<T>();
+    let values = values.as_slice::<V>();
 
     let indices = array.indices().to_primitive();
-    let indices = indices.as_slice::<u16>();
+    let indices = indices.as_slice::<I>();
+    assert_eq!(indices.len() % FL_CHUNK_SIZE, 0);
 
     let chunk_start_idx = array.offset / FL_CHUNK_SIZE;
     let chunk_end_idx = (array.offset() + array.len()).div_ceil(FL_CHUNK_SIZE);
     let num_chunks = chunk_end_idx - chunk_start_idx;
 
-    let mut builder = PrimitiveBuilder::<T>::with_capacity(
-        array.validity().nullability(),
-        num_chunks * FL_CHUNK_SIZE,
-    );
+    let mut buffer = BufferMut::<V>::with_capacity(num_chunks * FL_CHUNK_SIZE);
+    let buffer_uninit = buffer.spare_capacity_mut();
 
-    let mut range = builder.uninit_range(num_chunks * FL_CHUNK_SIZE);
+    let values_idx_offsets = array.values_idx_offsets().to_primitive();
+    let values_idx_offsets = values_idx_offsets.as_slice::<O>();
 
-    for (iter_idx, chunk_idx) in (chunk_start_idx..chunk_end_idx).enumerate() {
-        let chunk_values = &values[array.value_chunk_offset(chunk_idx)..];
+    for chunk_idx in 0..num_chunks {
+        // Offsets in `values_idx_offsets` are absolute and need to be shifted
+        // by the offset of the first chunk, respective the current slice, in
+        // order to make them relative.
+        let value_idx_offset =
+            (values_idx_offsets[chunk_idx].as_() - values_idx_offsets[0].as_()) as usize;
+
+        let chunk_values = &values[value_idx_offset..];
         let chunk_indices = &indices[chunk_idx * FL_CHUNK_SIZE..];
 
         // SAFETY: `MaybeUninit<T>` and `T` have the same layout.
-        let builder_values: &mut [T] = unsafe {
-            std::mem::transmute(range.slice_uninit_mut(iter_idx * FL_CHUNK_SIZE, FL_CHUNK_SIZE))
+        let buffer_values: &mut [V] = unsafe {
+            std::mem::transmute(&mut buffer_uninit[chunk_idx * FL_CHUNK_SIZE..][..FL_CHUNK_SIZE])
         };
 
-        T::decode(
+        V::decode(
             chunk_values,
             array_ref![chunk_indices, 0, FL_CHUNK_SIZE],
-            array_mut_ref![builder_values, 0, FL_CHUNK_SIZE],
+            array_mut_ref![buffer_values, 0, FL_CHUNK_SIZE],
         );
     }
 
     unsafe {
-        range.finish();
+        buffer.set_len(num_chunks * FL_CHUNK_SIZE);
     }
 
-    let offset_within_chunk = array.offset_in_chunk(array.offset);
-    let primitive_array = builder.finish_into_primitive();
+    let offset_within_chunk = array.offset();
 
     PrimitiveArray::new(
-        primitive_array
-            .buffer::<T>()
+        buffer
+            .freeze()
             .slice(offset_within_chunk..(offset_within_chunk + array.len())),
-        // Validity needs to be set on the sliced array. After decoding but
-        // before slicing the length of the validity array can be smaller than
-        // the primitive array, as RLE decodes in 1024 chunks.
-        array.validity().clone(),
+        Validity::copy_from_array(array.as_ref()),
     )
 }
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::Buffer;
+    use vortex_dtype::half::f16;
 
     use super::*;
 
@@ -244,7 +289,7 @@ mod test {
         assert_eq!(encoded.len(), 1500);
         assert_eq!(decoded.as_slice::<u32>(), expected.as_slice());
         // 2 chunks: 1024 + 476 elements
-        assert_eq!(encoded.value_chunk_offsets().len(), 2);
+        assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
 
     #[test]
@@ -259,6 +304,25 @@ mod test {
 
         assert_eq!(encoded.len(), 2048);
         assert_eq!(decoded.as_slice::<u32>(), expected.as_slice());
-        assert_eq!(encoded.value_chunk_offsets().len(), 2);
+        assert_eq!(encoded.values_idx_offsets().len(), 2);
+    }
+
+    #[rstest]
+    #[case::u8((0u8..100).collect::<Buffer<u8>>())]
+    #[case::u16((0u16..2000).collect::<Buffer<u16>>())]
+    #[case::u32((0u32..2000).collect::<Buffer<u32>>())]
+    #[case::u64((0u64..2000).collect::<Buffer<u64>>())]
+    #[case::i8((-100i8..100).collect::<Buffer<i8>>())]
+    #[case::i16((-2000i16..2000).collect::<Buffer<i16>>())]
+    #[case::i32((-2000i32..2000).collect::<Buffer<i32>>())]
+    #[case::i64((-2000i64..2000).collect::<Buffer<i64>>())]
+    #[case::f16((-2000..2000).map(|i| f16::from_f32(i as f32)).collect::<Buffer<f16>>())]
+    #[case::f32((-2000..2000).map(|i| i as f32).collect::<Buffer<f32>>())]
+    #[case::f64((-2000..2000).map(|i| i as f64).collect::<Buffer<f64>>())]
+    fn test_roundtrip_primitive_types<T: NativePType>(#[case] values: Buffer<T>) {
+        let primitive = values.clone().into_array().to_primitive();
+        let result = RLEArray::encode(&primitive).unwrap();
+        let decoded = result.to_primitive();
+        assert_eq!(decoded.as_slice::<T>(), values.as_slice());
     }
 }

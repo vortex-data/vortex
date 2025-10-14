@@ -8,16 +8,13 @@ use arbitrary::{Arbitrary, Result, Unstructured};
 use arrow_buffer::BooleanBuffer;
 use builders::ListBuilder;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, Nullability, PType};
+use vortex_dtype::{DType, IntegerPType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
-use super::{
-    BoolArray, ChunkedArray, NullArray, OffsetPType, PrimitiveArray, StructArray,
-    smallest_storage_type,
-};
-use crate::arrays::{VarBinArray, VarBinViewArray};
+use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
+use crate::arrays::{VarBinArray, VarBinViewArray, smallest_decimal_value_type};
 use crate::builders::{ArrayBuilder, DecimalBuilder, FixedSizeListBuilder};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, builders};
@@ -100,7 +97,7 @@ fn random_array_chunk(
         },
         DType::Decimal(decimal, n) => {
             let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
-            match_each_decimal_value_type!(smallest_storage_type(decimal), |DVT| {
+            match_each_decimal_value_type!(smallest_decimal_value_type(decimal), |DVT| {
                 let mut builder =
                     DecimalBuilder::new::<DVT>(decimal.precision(), decimal.scale(), *n);
                 for _i in 0..elem_len {
@@ -202,10 +199,10 @@ fn random_list(
     }
 }
 
-/// Creates a random list array with the given [`OffsetPType`] for the internal offsets child.
+/// Creates a random list array with the given [`IntegerPType`] for the internal offsets child.
 ///
 /// If the `chunk_len` is specified, the length of the array will be equal to the chunk length.
-fn random_list_with_offset_type<O: OffsetPType>(
+fn random_list_with_offset_type<O: IntegerPType>(
     u: &mut Unstructured,
     elem_dtype: &Arc<DType>,
     null: Nullability,
@@ -213,7 +210,7 @@ fn random_list_with_offset_type<O: OffsetPType>(
 ) -> Result<ArrayRef> {
     let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
 
-    let mut builder = ListBuilder::<O>::with_capacity(elem_dtype.clone(), null, 10);
+    let mut builder = ListBuilder::<O>::with_capacity(elem_dtype.clone(), null, 20, 10);
 
     for _ in 0..array_length {
         if null == Nullability::Nullable && u.arbitrary::<bool>()? {

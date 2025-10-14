@@ -17,7 +17,7 @@ static DUCKDB_VERSION: Lazy<String> = Lazy::new(|| {
     // This is to ensure that we don't implicitly build against a different DuckDB version during
     // an extension build which might lead to subtle ABI breaks, e.g. reordering fields in C++ structs.
     env::var("DUCKDB_VERSION")
-        .unwrap_or_else(|_| "1.3.2".to_owned())
+        .unwrap_or_else(|_| "1.4.0".to_owned())
         .trim_start_matches("v")
         .to_owned()
 });
@@ -150,15 +150,24 @@ fn http_client() -> Result<reqwest::blocking::Client, Box<dyn std::error::Error>
 }
 
 fn build_duckdb(duckdb_source_root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    if std::process::Command::new("ninja")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return Err("'ninja' is required to build DuckDB.".into());
+    }
+
     let duckdb_repo_dir = duckdb_source_root.join(format!("duckdb-{}", DUCKDB_VERSION.as_str()));
     let build_dir = duckdb_repo_dir.join("build").join("debug");
 
-    // Build the DuckDB library with ASAN in case `VX_DUCKDB_ASAN=1` is set.
-    let asan_option =
-        if env::var("VX_DUCKDB_ASAN").is_ok_and(|v| matches!(v.as_str(), "1" | "true")) {
-            "0"
+    // Build the DuckDB library with ASAN and TSAN in case `VX_DUCKDB_SAN=1` is set.
+    let (asan_option, tsan_option) =
+        if env::var("VX_DUCKDB_SAN").is_ok_and(|v| matches!(v.as_str(), "1" | "true")) {
+            // Note that the ASAN condition is inverted.
+            ("0", "1")
         } else {
-            "1"
+            ("1", "0")
         };
 
     let output = std::process::Command::new("make")
@@ -166,6 +175,7 @@ fn build_duckdb(duckdb_source_root: &Path) -> Result<PathBuf, Box<dyn std::error
         .env("GEN", "ninja")
         // Run with `ASAN_OPTIONS=detect_container_overflow=0` to skip false positives.
         .env("DISABLE_SANITIZER", asan_option)
+        .env("THREADSAN", tsan_option)
         .arg("debug")
         .output()?;
 
@@ -191,8 +201,11 @@ fn build_duckdb(duckdb_source_root: &Path) -> Result<PathBuf, Box<dyn std::error
         let path = entry.path();
 
         if path
-            .extension()
-            .map(|ext| ext == "dylib" || ext == "so")
+            .file_name()
+            .and_then(|name| name.to_str())
+            // Match by file name prefix rather than on file type extension as versions
+            // can be appended to the file name on Linux, e.g. libduckdb.so.0.0.1.
+            .map(|name| name.starts_with("libduckdb"))
             .unwrap_or(false)
         {
             let dest = duckdb_library_dir.join(entry.file_name());
@@ -268,7 +281,7 @@ fn main() {
 
     // Link against DuckDB dylib.
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
-    println!("cargo:rerun-if-env-changed=VX_DUCKDB_ASAN");
+    println!("cargo:rerun-if-env-changed=VX_DUCKDB_SAN");
     println!("cargo:rustc-link-search=native={}", library_path.display());
     println!("cargo:rustc-link-lib=dylib=duckdb");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", library_path.display());
@@ -303,7 +316,9 @@ fn main() {
         .file("cpp/scalar_function.cpp")
         .file("cpp/table_filter.cpp")
         .file("cpp/table_function.cpp")
+        .file("cpp/value.cpp")
         .file("cpp/vector.cpp")
+        .file("cpp/vector_buffer.cpp")
         .compile("vortex-duckdb-extras");
 
     // Generate the _exported_ bindings from our Rust code.

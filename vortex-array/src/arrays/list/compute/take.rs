@@ -2,18 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_buffer::BooleanBufferBuilder;
-use num_traits::PrimInt;
-use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
+use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
-use crate::arrays::{ListArray, ListVTable, OffsetPType, PrimitiveArray};
+use crate::arrays::{ListArray, ListVTable, PrimitiveArray};
 use crate::builders::{ArrayBuilder, PrimitiveBuilder};
 use crate::compute::{TakeKernel, TakeKernelAdapter, take};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
+/// Take implementation for [`ListArray`].
+///
+/// Unlike `ListView`, `ListArray` must rebuild the elements array to maintain its invariant
+/// that lists are stored contiguously and in-order (`offset[i+1] >= offset[i]`). Taking
+/// non-contiguous indices would violate this requirement.
 impl TakeKernel for ListVTable {
     fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive();
@@ -35,7 +39,7 @@ impl TakeKernel for ListVTable {
 
 register_kernel!(TakeKernelAdapter(ListVTable).lift());
 
-fn _take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
+fn _take<I: IntegerPType, O: IntegerPType>(
     array: &ListArray,
     offsets: &[O],
     indices_array: &PrimitiveArray,
@@ -82,7 +86,7 @@ fn _take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
         for i in 0..additional {
             elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < additional"));
         }
-        current_offset = current_offset + (stop - start);
+        current_offset += stop - start;
         new_offsets.append_value(current_offset);
     }
 
@@ -102,7 +106,7 @@ fn _take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
     .to_array())
 }
 
-fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
+fn _take_nullable<I: IntegerPType, O: IntegerPType>(
     array: &ListArray,
     offsets: &[O],
     indices: &[I],
@@ -151,7 +155,7 @@ fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
                 elements_to_take
                     .append_value(start + O::from_usize(i).vortex_expect("i < additional"));
             }
-            current_offset = current_offset + (stop - start);
+            current_offset += stop - start;
             new_offsets.append_value(current_offset);
             new_validity.append(true);
         } else {

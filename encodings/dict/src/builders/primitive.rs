@@ -4,14 +4,13 @@
 use std::hash::Hash;
 
 use arrow_buffer::NullBufferBuilder;
-use num_traits::{AsPrimitive, Unsigned};
 use rustc_hash::FxBuildHasher;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{NativeValue, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
-use vortex_dtype::{NativePType, Nullability, PType};
+use vortex_dtype::{NativePType, Nullability, PType, UnsignedPType};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
@@ -52,10 +51,11 @@ where
     }
 }
 
-impl<T: NativePType, Code> PrimitiveDictBuilder<T, Code>
+impl<T, Code> PrimitiveDictBuilder<T, Code>
 where
+    T: NativePType,
     NativeValue<T>: Hash + Eq,
-    Code: Unsigned + AsPrimitive<usize> + NativePType,
+    Code: UnsignedPType,
 {
     pub fn new(nullability: Nullability, constraints: &DictConstraints) -> Self {
         let max_dict_len = constraints
@@ -101,18 +101,19 @@ where
 /// Dictionary encode primitive array with given PType.
 ///
 /// Null values are stored in the values of the dictionary such that codes are always non-null.
-pub struct PrimitiveDictBuilder<T, Codes> {
-    lookup: HashMap<Option<NativeValue<T>>, Codes, FxBuildHasher>,
+pub struct PrimitiveDictBuilder<T, Code> {
+    lookup: HashMap<Option<NativeValue<T>>, Code, FxBuildHasher>,
     values: BufferMut<T>,
     values_nulls: NullBufferBuilder,
     nullability: Nullability,
     max_dict_len: usize,
 }
 
-impl<T: NativePType, Code> DictEncoder for PrimitiveDictBuilder<T, Code>
+impl<T, Code> DictEncoder for PrimitiveDictBuilder<T, Code>
 where
+    T: NativePType,
     NativeValue<T>: Hash + Eq,
-    Code: Unsigned + AsPrimitive<usize> + NativePType,
+    Code: UnsignedPType,
 {
     fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef> {
         if T::PTYPE != PType::try_from(array.dtype())? {
