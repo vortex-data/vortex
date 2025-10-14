@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::{
-    ExtensionArray, FixedSizeListArray, ListArray, PrimitiveArray, StructArray, narrowed_decimal,
+    ExtensionArray, FixedSizeListArray, ListViewArray, PrimitiveArray, StructArray,
+    narrowed_decimal,
 };
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
@@ -132,19 +133,19 @@ impl CompactCompressor {
                 .into_array()
             }
             Canonical::List(list_array) => {
-                // recurse
                 let compressed_elems = self.compress(list_array.elements())?;
                 let compressed_offsets = self.compress(list_array.offsets())?;
+                let compressed_sizes = self.compress(list_array.sizes())?;
 
-                ListArray::try_new(
+                ListViewArray::try_new(
                     compressed_elems,
                     compressed_offsets,
+                    compressed_sizes,
                     list_array.validity().clone(),
                 )?
                 .into_array()
             }
             Canonical::FixedSizeList(list_array) => {
-                // recurse
                 let compressed_elems = self.compress(list_array.elements())?;
 
                 FixedSizeListArray::try_new(
@@ -156,7 +157,6 @@ impl CompactCompressor {
                 .into_array()
             }
             Canonical::Extension(ext_array) => {
-                // recurse
                 let compressed_storage = self.compress(ext_array.storage())?;
 
                 ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage).into_array()
