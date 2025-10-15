@@ -78,7 +78,8 @@ pub async fn register_vortex_files(
     match dataset {
         BenchmarkDataset::TpcH { .. }
         | BenchmarkDataset::TpcDS { .. }
-        | BenchmarkDataset::Fineweb => {
+        | BenchmarkDataset::Fineweb
+        | BenchmarkDataset::GhArchive => {
             info!(
                 "Registering table from {}, with glob {:?}",
                 &file_url,
@@ -161,6 +162,7 @@ pub async fn register_vortex_compact_files(
         BenchmarkDataset::PublicBi { .. } => todo!(),
         BenchmarkDataset::StatPopGen { .. } => todo!(),
         BenchmarkDataset::Fineweb => todo!(),
+        BenchmarkDataset::GhArchive => todo!(),
     }
 
     Ok(())

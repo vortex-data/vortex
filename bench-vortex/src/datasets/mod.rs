@@ -13,6 +13,7 @@ use vortex::ArrayRef;
 use crate::clickbench::Flavor;
 #[cfg(feature = "lance")]
 use crate::file::register_lance_files;
+use crate::realnest::gharchive;
 use crate::{Format, clickbench, fineweb, statpopgen};
 
 pub mod data_downloads;
@@ -42,6 +43,8 @@ pub enum BenchmarkDataset {
     StatPopGen { n_rows: u64 },
     #[serde(rename = "fineweb")]
     Fineweb,
+    #[serde(rename = "gharchive")]
+    GhArchive,
 }
 
 impl BenchmarkDataset {
@@ -53,6 +56,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::PublicBi { .. } => "public-bi",
             BenchmarkDataset::StatPopGen { .. } => "statpopgen",
             BenchmarkDataset::Fineweb => "fineweb",
+            BenchmarkDataset::GhArchive => "gharchive",
         }
     }
 }
@@ -69,6 +73,7 @@ impl Display for BenchmarkDataset {
             BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),
             BenchmarkDataset::StatPopGen { n_rows } => write!(f, "statpopgen(n_rows={n_rows})"),
             BenchmarkDataset::Fineweb => write!(f, "fineweb"),
+            BenchmarkDataset::GhArchive => write!(f, "gharchive"),
         }
     }
 }
@@ -109,6 +114,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
             BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
             BenchmarkDataset::Fineweb => &["fineweb"],
+            BenchmarkDataset::GhArchive => &["events"],
         }
     }
 
@@ -166,6 +172,9 @@ impl BenchmarkDataset {
             }
             (BenchmarkDataset::Fineweb, format) => {
                 fineweb::register_table(session, base_url, format).await?
+            }
+            (BenchmarkDataset::GhArchive, format) => {
+                gharchive::register_table(session, base_url, format).await?
             }
         }
 
