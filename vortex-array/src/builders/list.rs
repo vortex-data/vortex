@@ -228,7 +228,8 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         let non_junk_values = elements.slice(n_leading_junk_values_usize..last_offset_usize);
 
         self.nulls.append_validity_mask(array.validity_mask());
-        self.elements_builder.ensure_capacity(non_junk_values.len());
+        self.elements_builder
+            .ensure_capacity(self.elements_builder.len() + non_junk_values.len());
         self.elements_builder.extend_from_array(&non_junk_values);
     }
 
