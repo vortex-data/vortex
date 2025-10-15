@@ -228,18 +228,22 @@ impl FileSource for VortexSource {
             ));
         };
 
+        if filters.is_empty() {
+            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                vec![],
+            ));
+        }
+
         let mut source = self.clone();
 
         // Combine new filters with existing predicate for file pruning.
         // This full predicate is used by FilePruner to eliminate files as well as what we'll attempt to push down to Vortex.
-        let new_predicate = match &source.predicate {
+        source.predicate = match &source.predicate {
             Some(predicate) => Some(conjunction(
                 std::iter::once(predicate.clone()).chain(filters.clone()),
             )),
             None => Some(conjunction(filters.clone())),
         };
-        let source_updated = new_predicate != source.predicate;
-        source.predicate = new_predicate;
 
         // Collect which filters we can *definitely* push down to Vortex w/ full evaluation.
         // For these filters we can tell our caller that we will handle them fully, they don't need to be evaluated upstream.
@@ -254,13 +258,10 @@ impl FileSource for VortexSource {
             })
             .collect::<Vec<_>>();
 
-        let mut result = FilterPushdownPropagation::with_parent_pushdown_result(
+        Ok(FilterPushdownPropagation::with_parent_pushdown_result(
             supported_filters.iter().map(|f| f.discriminant).collect(),
-        );
-        if source_updated {
-            result = result.with_updated_node(Arc::new(source) as _);
-        }
-        Ok(result)
+        )
+        .with_updated_node(Arc::new(source) as _))
     }
 
     fn with_schema_adapter_factory(
