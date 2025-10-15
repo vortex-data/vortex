@@ -120,9 +120,9 @@ fn fused_decompress<T: PhysicalPType + UnsignedPType + FoR + FromPrimitiveOrF16>
     let mut local_idx = 0;
 
     // Handle initial partial chunk if offset != 0 or if there's only one chunk
-    /// # Safety
-    ///
-    /// See `unpack_iter.rs`.
+    // # Safety
+    //
+    // See `unpack_iter.rs`.
     if first_chunk_is_sliced || num_chunks == 1 {
         let chunk = &packed_slice[..elems_per_chunk];
 
@@ -269,7 +269,6 @@ mod test {
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
         let bp = BitPackedArray::encode(array.as_ref(), 3).unwrap();
         let compressed = FoRArray::try_new(bp.into_array(), 10u32.into()).unwrap();
-        println!("compressed {}", compressed.display_tree());
         let decompressed = compressed.to_primitive();
         assert_eq!(decompressed.as_slice::<u32>(), expect.as_slice::<u32>());
     }
