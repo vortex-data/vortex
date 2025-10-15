@@ -6,7 +6,6 @@
 //! This module provides a wrapper on top of the `Buffer` type to store mutable and immutable
 //! bitsets. The bitsets are stored in little-endian order, meaning that the least significant bit
 //! of the first byte is the first bit in the bitset.
-mod aligned;
 #[cfg(feature = "arrow")]
 mod arrow;
 mod buf;
