@@ -41,7 +41,8 @@ mod tests {
         ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
     };
     use datafusion::execution::SessionStateBuilder;
-    use datafusion::prelude::SessionContext;
+    use datafusion::prelude::{SessionConfig, SessionContext};
+    use datafusion_common::record_batch;
     use datafusion_datasource::file_format::format_as_file_type;
     use datafusion_expr::LogicalPlanBuilder;
     use datafusion_physical_plan::display::DisplayableExecutionPlan;
@@ -186,6 +187,103 @@ mod tests {
         | 4 | 9    | 10  |
         +---+------+-----+
         ");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_filter_pushdown() -> anyhow::Result<()> {
+        let factory = VortexFormatFactory::new();
+        let config = SessionConfig::default().with_target_partitions(1);
+        let mut session_state_builder = SessionStateBuilder::new()
+            .with_default_features()
+            .with_config(config);
+        register_vortex_format_factory(factory, &mut session_state_builder);
+        let session = SessionContext::new_with_state(session_state_builder.build());
+
+        // Write the first table
+        let dir1 = TempDir::new()?;
+        let data = session.read_batch(
+            record_batch!(
+                ("a", Int32, vec![1, 2, 3]),
+                ("b", Utf8, vec!["x", "y", "z"])
+            )
+            .unwrap(),
+        )?;
+        let logical_plan = LogicalPlanBuilder::copy_to(
+            data.logical_plan().clone(),
+            dir1.path().to_str().unwrap().to_string(),
+            format_as_file_type(Arc::new(VortexFormatFactory::new())),
+            Default::default(),
+            vec![],
+        )?
+        .build()?;
+        session
+            .execute_logical_plan(logical_plan)
+            .await?
+            .collect()
+            .await?;
+
+        // Write the second table
+        let dir2 = TempDir::new()?;
+        let data = session.read_batch(
+            record_batch!(("a", Int32, vec![2, 3, 4]), ("c", Int32, vec![20, 30, 40])).unwrap(),
+        )?;
+        let logical_plan = LogicalPlanBuilder::copy_to(
+            data.logical_plan().clone(),
+            dir2.path().to_str().unwrap().to_string(),
+            format_as_file_type(Arc::new(VortexFormatFactory::new())),
+            Default::default(),
+            vec![],
+        )?
+        .build()?;
+        session
+            .execute_logical_plan(logical_plan)
+            .await?
+            .collect()
+            .await?;
+
+        // Validate the output by reading back the written files
+        session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE t1 \
+                    (a INT NOT NULL, b STRING) \
+                STORED AS vortex 
+                LOCATION '{}/';",
+                dir1.path().to_str().unwrap()
+            ))
+            .await?;
+        session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE t2 \
+                    (a INT NOT NULL, c INT) \
+                STORED AS vortex 
+                LOCATION '{}/';",
+                dir2.path().to_str().unwrap()
+            ))
+            .await?;
+
+        let result = session
+            .sql(
+                "EXPLAIN ANALYZE SELECT t1.a, t1.b FROM t1 JOIN t2 ON t1.a = t2.a WHERE t2.c > 30;",
+            )
+            .await?
+            .collect()
+            .await?;
+
+        let plan = format!("{}", pretty_format_batches(&result)?);
+
+        println!("EXPLAIN ANALYZE:\n{}", plan);
+
+        let data_source_line = plan
+            .lines()
+            .filter(|line| line.contains("DataSourceExec"))
+            .skip(1)
+            .next()
+            .ok_or_else(|| {
+                vortex_err!("Plan should have 2 DataSourceExec, the second is the probe side")
+            })?;
+        assert!(data_source_line.contains("DynamicFilterPhysicalExpr [ a@0 >= 1 AND a@0 <= 3 ]"));
 
         Ok(())
     }

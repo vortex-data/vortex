@@ -42,11 +42,8 @@ use crate::convert::exprs::can_be_pushed_down;
 pub struct VortexSource {
     pub(crate) file_cache: VortexFileCache,
     /// Combined predicate expression containing all filters from DataFusion query planning.
-    /// Used with FilePruner to skip files based on statistics and partition values.
-    pub(crate) full_predicate: Option<PhysicalExprRef>,
-    /// Subset of predicates that can be pushed down into Vortex scan operations.
-    /// These are expressions that Vortex can efficiently evaluate during scanning.
-    pub(crate) vortex_predicate: Option<PhysicalExprRef>,
+    /// Used with FilePruner to skip files based on statistics and partition values as well as pushing down to Vortex.
+    pub(crate) predicate: Option<PhysicalExprRef>,
     pub(crate) batch_size: Option<usize>,
     pub(crate) projected_statistics: Option<Statistics>,
     /// This is the file schema the table expects, which is the table's schema without partition columns, and **not** the file's physical schema.
@@ -66,8 +63,7 @@ impl VortexSource {
         Self {
             file_cache,
             metrics,
-            full_predicate: None,
-            vortex_predicate: None,
+            predicate: None,
             batch_size: None,
             projected_statistics: None,
             arrow_file_schema: None,
@@ -137,8 +133,7 @@ impl FileSource for VortexSource {
         let opener = VortexOpener {
             object_store,
             projection,
-            filter: self.vortex_predicate.clone(),
-            file_pruning_predicate: self.full_predicate.clone(),
+            predicate: self.predicate.clone(),
             expr_adapter_factory,
             schema_adapter_factory,
             partition_fields: base_config.table_partition_cols.clone(),
@@ -181,7 +176,7 @@ impl FileSource for VortexSource {
     }
 
     fn filter(&self) -> Option<Arc<dyn PhysicalExpr>> {
-        self.vortex_predicate.clone()
+        self.predicate.clone()
     }
 
     fn metrics(&self) -> &ExecutionPlanMetricsSet {
@@ -194,7 +189,7 @@ impl FileSource for VortexSource {
             .clone()
             .vortex_expect("projected_statistics must be set");
 
-        if self.vortex_predicate.is_some() {
+        if self.predicate.is_some() {
             Ok(statistics.to_inexact())
         } else {
             Ok(statistics)
@@ -208,13 +203,13 @@ impl FileSource for VortexSource {
     fn fmt_extra(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                if let Some(ref predicate) = self.vortex_predicate {
+                if let Some(ref predicate) = self.predicate {
                     write!(f, ", predicate: {predicate}")?;
                 }
             }
             // Use TreeRender style key=value formatting to display the predicate
             DisplayFormatType::TreeRender => {
-                if let Some(ref predicate) = self.vortex_predicate {
+                if let Some(ref predicate) = self.predicate {
                     writeln!(f, "predicate={}", fmt_sql(predicate.as_ref()))?;
                 };
             }
@@ -236,14 +231,18 @@ impl FileSource for VortexSource {
         let mut source = self.clone();
 
         // Combine new filters with existing predicate for file pruning.
-        // This full predicate is used by FilePruner to eliminate files.
-        source.full_predicate = match source.full_predicate {
+        // This full predicate is used by FilePruner to eliminate files as well as what we'll attempt to push down to Vortex.
+        let new_predicate = match &source.predicate {
             Some(predicate) => Some(conjunction(
-                std::iter::once(predicate).chain(filters.clone()),
+                std::iter::once(predicate.clone()).chain(filters.clone()),
             )),
             None => Some(conjunction(filters.clone())),
         };
+        let source_updated = new_predicate != source.predicate;
+        source.predicate = new_predicate;
 
+        // Collect which filters we can *definitely* push down to Vortex w/ full evaluation.
+        // For these filters we can tell our caller that we will handle them fully, they don't need to be evaluated upstream.
         let supported_filters = filters
             .into_iter()
             .map(|expr| {
@@ -255,37 +254,13 @@ impl FileSource for VortexSource {
             })
             .collect::<Vec<_>>();
 
-        if supported_filters
-            .iter()
-            .all(|p| matches!(p.discriminant, PushedDown::No))
-        {
-            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
-                vec![PushedDown::No; supported_filters.len()],
-            )
-            .with_updated_node(Arc::new(source) as _));
-        }
-
-        let supported = supported_filters
-            .iter()
-            .filter_map(|p| match p.discriminant {
-                PushedDown::Yes => Some(&p.predicate),
-                PushedDown::No => None,
-            })
-            .cloned();
-
-        let predicate = match source.vortex_predicate {
-            Some(predicate) => conjunction(std::iter::once(predicate).chain(supported)),
-            None => conjunction(supported),
-        };
-
-        tracing::debug!(%predicate, "Saving predicate");
-
-        source.vortex_predicate = Some(predicate);
-
-        Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+        let mut result = FilterPushdownPropagation::with_parent_pushdown_result(
             supported_filters.iter().map(|f| f.discriminant).collect(),
-        )
-        .with_updated_node(Arc::new(source) as _))
+        );
+        if source_updated {
+            result = result.with_updated_node(Arc::new(source) as _);
+        }
+        Ok(result)
     }
 
     fn with_schema_adapter_factory(
