@@ -5,11 +5,11 @@ use std::sync::Arc;
 
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Buffer, buffer};
-use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
+use vortex_dtype::{DType, Nullability, match_each_native_ptype};
 use vortex_error::VortexExpect;
 use vortex_scalar::{
-    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, ScalarValue,
-    StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
+    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, StructScalar,
+    Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
 };
 
 use crate::arrays::binary_view::BinaryView;
@@ -19,7 +19,7 @@ use crate::arrays::{
     BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray,
     NullArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
 };
-use crate::builders::{ArrayBuilder, ListViewBuilder, builder_with_capacity};
+use crate::builders::builder_with_capacity;
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
 use crate::{Canonical, IntoArray};
@@ -209,50 +209,54 @@ fn constant_canonical_byte_view(
 }
 
 /// Creates a [`ListViewArray`] with constant values.
+///
+/// We basically just project the list scalar value into list view components. If the caller wants
+/// a fully decompressed and non-overlapping array, they can rebuild the array.
 fn constant_canonical_list_array(scalar: &Scalar, len: usize) -> ListViewArray {
-    let value = ListScalar::try_from(scalar).vortex_expect("must be list");
+    let list = ListScalar::try_from(scalar).vortex_expect("must be list");
 
-    let Some(elements) = value.elements() else {
-        // If all values are null, both the `offsets` and `sizes` should be all zeros.
-        let zeros = ConstantArray::new(
-            Scalar::new(
-                DType::Primitive(PType::U64, Nullability::NonNullable),
-                ScalarValue::from(0),
-            ),
-            len,
-        )
-        .into_array();
-
-        // SAFETY: Everything is length 0 so all invariants are satisfied.
-        return unsafe {
-            ListViewArray::new_unchecked(
-                Canonical::empty(value.element_dtype()).into_array(),
-                zeros.clone(),
-                zeros,
-                Validity::AllInvalid,
-            )
-        };
+    // We can just have all of the views point to the same scalar.
+    let elements = if let Some(elements) = list.elements() {
+        // Extract the list elements out of the scalar into a new array.
+        let mut builder = builder_with_capacity(
+            list.dtype()
+                .as_list_element_opt()
+                .vortex_expect("list scalar somehow did not have a list DType"),
+            list.len(),
+        );
+        for scalar in &elements {
+            builder
+                .append_scalar(scalar)
+                .vortex_expect("list element scalar was invalid");
+        }
+        builder.finish()
+    } else {
+        // Otherwise all values are null, and we don't need to store anything (`list.len() == 0`).
+        Canonical::empty(list.element_dtype()).into_array()
     };
 
-    let mut listview_builder = ListViewBuilder::<u64, u64>::with_capacity(
-        scalar
-            .dtype()
-            .as_list_element_opt()
-            .vortex_expect("somehow not a list")
-            .clone(),
-        scalar.dtype().nullability(),
-        elements.len() * len,
-        len,
-    );
+    let validity = if scalar.dtype().is_nullable() {
+        if list.is_null() {
+            Validity::AllInvalid
+        } else {
+            Validity::AllValid
+        }
+    } else {
+        debug_assert!(!list.is_null());
+        Validity::NonNullable
+    };
 
-    // Simply append the same scalar to the `ListViewBuilder` `len` times.
-    for _ in 0..len {
-        listview_builder
-            .append_scalar(scalar)
-            .vortex_expect("somehow unable to append list scalar to listview builder");
-    }
+    // Somewhat arbitrarily choose `u64` as the type for offsets and sizes.
+    let offsets = ConstantArray::new::<u64>(0, len).into_array();
+    let sizes = ConstantArray::new::<u64>(list.len() as u64, len).into_array();
 
-    listview_builder.finish_into_listview()
+    debug_assert!(!offsets.dtype().is_nullable());
+    debug_assert!(!sizes.dtype().is_nullable());
+
+    // SAFETY: All views point to the same range [0, list.len()) in the elements array.
+    // The elements array contains `len` copies of the same value, offsets are all 0,
+    // and sizes are all equal to the list length. The validity matches the scalar's nullability.
+    unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }
 }
 
 fn constant_canonical_fixed_size_list_array(
@@ -308,7 +312,7 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
-    use crate::arrays::ConstantArray;
+    use crate::arrays::{ConstantArray, ListViewRebuildMode};
     use crate::canonical::ToCanonical;
     use crate::stats::{Stat, StatsProvider};
     use crate::validity::Validity;
@@ -384,16 +388,17 @@ mod tests {
         );
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
         let canonical_const = const_array.to_listview();
+        let list_array = canonical_const.rebuild(ListViewRebuildMode::MakeZeroCopyToList);
         assert_eq!(
-            canonical_const.elements().to_primitive().as_slice::<u64>(),
+            list_array.elements().to_primitive().as_slice::<u64>(),
             [1u64, 2, 1, 2]
         );
         assert_eq!(
-            canonical_const.offsets().to_primitive().as_slice::<u64>(),
+            list_array.offsets().to_primitive().as_slice::<u64>(),
             [0u64, 2]
         );
         assert_eq!(
-            canonical_const.sizes().to_primitive().as_slice::<u64>(),
+            list_array.sizes().to_primitive().as_slice::<u64>(),
             [2u64, 2]
         );
     }
