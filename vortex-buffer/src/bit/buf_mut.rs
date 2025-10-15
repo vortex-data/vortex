@@ -7,7 +7,7 @@ use bitvec::prelude::Lsb0;
 use bitvec::view::BitView;
 use vortex_error::VortexExpect;
 
-use crate::bit::get_bit;
+use crate::bit::{get_bit_unchecked, set_bit_unchecked, unset_bit_unchecked};
 use crate::{BitBuffer, BufferMut, ByteBuffer, ByteBufferMut, buffer_mut};
 
 /// A mutable bitset buffer that allows random access to individual bits for set and get.
@@ -31,24 +31,30 @@ use crate::{BitBuffer, BufferMut, ByteBuffer, ByteBufferMut, buffer_mut};
 /// See also: [`crate::BitBuffer`].
 pub struct BitBufferMut {
     buffer: ByteBufferMut,
+    offset: usize,
     len: usize,
 }
 
 impl BitBufferMut {
     /// Create new bit buffer from given byte buffer and logical bit length
-    pub fn from_buffer(buffer: ByteBufferMut, len: usize) -> Self {
+    pub fn from_buffer(buffer: ByteBufferMut, offset: usize, len: usize) -> Self {
         assert!(
             len <= buffer.len() * 8,
             "Buffer len {} is too short for the given length {len}",
             buffer.len()
         );
-        Self { buffer, len }
+        Self {
+            buffer,
+            offset,
+            len,
+        }
     }
 
     /// Create a new empty mutable bit buffer with requested capacity (in bits).
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             buffer: BufferMut::with_capacity(capacity.div_ceil(8)),
+            offset: 0,
             len: 0,
         }
     }
@@ -57,6 +63,7 @@ impl BitBufferMut {
     pub fn new_set(len: usize) -> Self {
         Self {
             buffer: buffer_mut![0xFF; len.div_ceil(8)],
+            offset: 0,
             len,
         }
     }
@@ -65,41 +72,59 @@ impl BitBufferMut {
     pub fn new_unset(len: usize) -> Self {
         Self {
             buffer: BufferMut::zeroed(len.div_ceil(8)),
+            offset: 0,
             len,
         }
     }
 
     /// Create a new empty `BitBufferMut`.
+    #[inline(always)]
     pub fn empty() -> Self {
         Self::with_capacity(0)
     }
 
     /// Get the current populated length of the buffer.
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// True if the buffer has length 0.
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// Get the value at the requested index.
+    #[inline(always)]
     pub fn value(&self, index: usize) -> bool {
-        get_bit(&self.buffer, index)
+        assert!(index < self.len);
+        // SAFETY: checked by assertion
+        unsafe { self.value_unchecked(index) }
+    }
+
+    /// Get the value at the requested index without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `index` is less than the length of the buffer.
+    #[inline(always)]
+    pub unsafe fn value_unchecked(&self, index: usize) -> bool {
+        unsafe { get_bit_unchecked(self.buffer.as_ptr(), self.offset + index) }
     }
 
     /// Get the bit capacity of the buffer.
+    #[inline(always)]
     pub fn capacity(&self) -> usize {
-        self.buffer.capacity() * 8
+        (self.buffer.capacity() * 8) - self.offset
     }
 
     /// Reserve additional bit capacity for the buffer.
     pub fn reserve(&mut self, additional: usize) {
-        let capacity = self.len + additional;
-        if capacity > self.capacity() {
-            // convert differential to bytes
-            let additional = capacity.div_ceil(8) - self.buffer.len();
+        let required_capacity = (self.offset + self.len + additional).div_ceil(8);
+        let buffer_capacity = self.buffer.capacity();
+        if required_capacity > self.buffer.capacity() {
+            let additional = required_capacity - buffer_capacity;
             self.buffer.reserve(additional);
         }
     }
@@ -141,13 +166,8 @@ impl BitBufferMut {
     ///
     /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
     pub unsafe fn set_unchecked(&mut self, index: usize) {
-        let word_index = index / 8;
-        let bit_index = index % 8;
         // SAFETY: checked by caller
-        unsafe {
-            let word = self.buffer.as_mut_ptr().add(word_index);
-            word.write(*word | 1 << bit_index);
-        }
+        unsafe { set_bit_unchecked(self.buffer.as_mut_ptr(), self.offset + index) }
     }
 
     /// Unset the bit at `index` without checking bounds.
@@ -156,14 +176,8 @@ impl BitBufferMut {
     ///
     /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
     pub unsafe fn unset_unchecked(&mut self, index: usize) {
-        let word_index = index / 8;
-        let bit_index = index % 8;
-
         // SAFETY: checked by caller
-        unsafe {
-            let word = self.buffer.as_mut_ptr().add(word_index);
-            word.write(*word & !(1 << bit_index));
-        }
+        unsafe { unset_bit_unchecked(self.buffer.as_mut_ptr(), self.offset + index) }
     }
 
     /// Truncate the buffer to the given length.
@@ -172,15 +186,9 @@ impl BitBufferMut {
             return;
         }
 
-        let new_len_bytes = len.div_ceil(8);
+        let new_len_bytes = (self.offset + len).div_ceil(8);
         self.buffer.truncate(new_len_bytes);
         self.len = len;
-
-        let remainder = self.len % 8;
-        if remainder != 0 {
-            let mask = (1u8 << remainder).wrapping_sub(1);
-            *self.buffer.as_mut().last_mut().vortex_expect("non empty") &= mask;
-        }
     }
 
     /// Append a new boolean into the bit buffer, incrementing the length.
@@ -296,7 +304,7 @@ impl BitBufferMut {
 
     /// Freeze the buffer in its current state into an immutable `BoolBuffer`.
     pub fn freeze(self) -> BitBuffer {
-        BitBuffer::new(self.buffer.freeze().into_byte_buffer(), self.len)
+        BitBuffer::new_with_offset(self.buffer.freeze(), self.len, self.offset)
     }
 
     /// Get the underlying bytes as a slice
