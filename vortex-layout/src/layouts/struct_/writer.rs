@@ -51,7 +51,10 @@ impl LayoutStrategy for StructStrategy {
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct_fields_opt().cloned() else {
-            vortex_bail!("StructStrategy expects to consume struct array, type was {dtype}");
+            return self
+                .child
+                .write_stream(ctx, segment_sink, stream, eof, handle)
+                .await;
         };
 
         // Check for unique field names at write time.
