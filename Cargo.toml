@@ -336,19 +336,3 @@ lto = false
 [profile.bench_assert]
 debug-assertions = true
 inherits = "bench"
-
-[patch.crates-io]
-datafusion = { path = "../datafusion/datafusion/core" }
-datafusion-catalog = { path = "../datafusion/datafusion/catalog" }
-datafusion-common = { path = "../datafusion/datafusion/common" }
-datafusion-common-runtime = { path = "../datafusion/datafusion/common-runtime" }
-datafusion-datasource = { path = "../datafusion/datafusion/datasource" }
-datafusion-execution = { path = "../datafusion/datafusion/execution" }
-datafusion-expr = { path = "../datafusion/datafusion/expr" }
-datafusion-functions = { path = "../datafusion/datafusion/functions" }
-datafusion-sql = { path = "../datafusion/datafusion/sql" }
-datafusion-physical-expr = { path = "../datafusion/datafusion/physical-expr" }
-datafusion-physical-expr-adapter = { path = "../datafusion/datafusion/physical-expr-adapter" }
-datafusion-physical-expr-common = { path = "../datafusion/datafusion/physical-expr-common" }
-datafusion-physical-plan = { path = "../datafusion/datafusion/physical-plan" }
-datafusion-pruning = { path = "../datafusion/datafusion/pruning" }
