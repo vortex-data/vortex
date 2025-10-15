@@ -238,7 +238,9 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         }
 
         // TODO(connor)[ListView]: We could potentially concatenate the new elements on top of the
-        // existing elements and recalculate offsets (and then use `UninitRange`).
+        // existing elements and recalculate offsets (and then use `UninitRange`). However, that
+        // would mean we lose the guarantee that the output `ListViewArray` does not look like a
+        // `ListArray` (because the incoming array could have garbage data).
 
         // We assume the worst case scenario, where the list view array is stored completely out of
         // order, with many out-of-order offsets, and lots of garbage data. Thus, we simply iterate

@@ -55,7 +55,6 @@ pub(crate) fn new_exporter(
                 Vector::with_capacity(elements.dtype().try_into()?, elements.len());
             let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
 
-            // TODO(connor)[4809]: THIS IS A HACK, we should be checking this everywhere.
             if !elements.is_empty() {
                 elements_exporter.export(0, elements.len(), &mut duckdb_elements)?;
             }
@@ -151,7 +150,7 @@ mod tests {
     use crate::exporter::new_array_exporter;
 
     #[test]
-    #[ignore = "TODO(connor): Exporters do not correctly handle empty vectors"]
+    #[ignore = "TODO(connor)[4809]: Exporters do not correctly handle empty vectors"]
     fn test_export_empty_list() {
         let list = ListViewArray::try_new(
             Buffer::<u32>::empty().into_array(),

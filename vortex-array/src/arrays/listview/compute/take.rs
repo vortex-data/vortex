@@ -74,7 +74,9 @@ impl TakeKernel for ListViewVTable {
             ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
         };
 
-        // TODO(connor)[ListView]: Rebuild if the threshold is too low, not unconditionally.
+        // TODO(connor)[ListView]: Ideally, we would only rebuild after all `take`s and `filter`
+        // compute functions have run, at the "top" of the operator tree. However, we cannot do this
+        // right now, so we will just rebuild every time (similar to `ListArray`).
 
         Ok(new_array
             .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
