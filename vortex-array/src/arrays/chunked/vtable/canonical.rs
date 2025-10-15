@@ -82,28 +82,38 @@ fn swizzle_struct_chunks(
     unsafe { StructArray::new_unchecked(field_arrays, struct_dtype.clone(), len, validity) }
 }
 
+/// Packs list arrays together into a chunked `ListViewArray`.
+///
+/// There is guaranteed to be at least 2 chunks.
 fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> ListViewArray {
     let len: usize = chunks.iter().map(|c| c.len()).sum();
 
-    // Estimate total elements capacity by summing the element counts of all chunks.
-    let elements_capacity: usize = chunks
-        .iter()
-        .map(|c| c.to_listview().elements().len())
-        .sum();
+    assert_eq!(
+        chunks[0]
+            .dtype()
+            .as_list_element_opt()
+            .vortex_expect("DType was somehow not a list")
+            .as_ref(),
+        elem_dtype
+    );
 
-    // Note that since views can be out of order, it is easier to just rebuild the entire array than
-    // to recalculate views based on new offsets for each chunk.
-    let mut elements_builder = builder_with_capacity(elem_dtype, elements_capacity);
+    // Since each list array in `chunks` has offsets local to each array, we can reuse the existing
+    // array's child `elements` as the chunks and recompute offsets.
+    let mut list_elements_chunks = Vec::with_capacity(chunks.len());
+    let mut num_elements = 0;
 
     // TODO(connor)[ListView]: We could potentially choose a smaller type here, but that would make
     // this much more complicated.
-
-    // We (somewhat arbitrarily) choose `u64` for our offsets and sizes here.
+    // We (somewhat arbitrarily) choose `u64` for our offsets and sizes here. These can always be
+    // narrowed later by the compressor.
     let mut offsets = BufferMut::<u64>::with_capacity(len);
     let mut sizes = BufferMut::<u64>::with_capacity(len);
 
     for chunk in chunks {
         let chunk = chunk.to_listview();
+
+        // Add the `elements` of the current array as a new chunk.
+        list_elements_chunks.push(chunk.elements().clone());
 
         // Cast offsets and sizes to u64.
         let offsets_arr = cast(
@@ -123,18 +133,18 @@ fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> Li
         let offsets_slice = offsets_arr.as_slice::<u64>();
         let sizes_slice = sizes_arr.as_slice::<u64>();
 
-        // Track the current position in our combined elements array.
-        let current_elements_offset = elements_builder.len() as u64;
-
-        // Append all elements from this chunk.
-        elements_builder.extend_from_array(chunk.elements());
-
         // Append offsets and sizes, adjusting offsets to point into the combined array.
-        offsets.extend(offsets_slice.iter().map(|o| o + current_elements_offset));
+        offsets.extend(offsets_slice.iter().map(|o| o + num_elements));
         sizes.extend(sizes_slice);
+
+        num_elements += chunk.elements().len() as u64;
     }
 
-    let elements = elements_builder.finish();
+    // SAFETY: elements are sliced from valid `ListViewArray`s (from `to_listview()`).
+    let chunked_elements =
+        unsafe { ChunkedArray::new_unchecked(list_elements_chunks, elem_dtype.clone()) }
+            .into_array();
+
     let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable).into_array();
     let sizes = PrimitiveArray::new(sizes.freeze(), Validity::NonNullable).into_array();
 
@@ -143,7 +153,7 @@ fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> Li
     // - Each `offset[i] + size[i]` list view is within bounds of elements array because it came
     //   from valid chunks
     // - Validity came from the outer chunked array so it must have the same length
-    unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }
+    unsafe { ListViewArray::new_unchecked(chunked_elements, offsets, sizes, validity) }
 }
 
 #[cfg(test)]
