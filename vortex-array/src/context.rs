@@ -12,8 +12,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::EncodingRef;
 use crate::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
-    FixedSizeListEncoding, ListViewEncoding, MaskedEncoding, NullEncoding, PrimitiveEncoding,
-    StructEncoding, VarBinEncoding, VarBinViewEncoding,
+    FixedSizeListEncoding, ListEncoding, ListViewEncoding, MaskedEncoding, NullEncoding,
+    PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 
 /// A collection of array encodings.
@@ -31,19 +31,20 @@ impl ArrayRegistry {
             EncodingRef::new_ref(BoolEncoding.as_ref()),
             EncodingRef::new_ref(PrimitiveEncoding.as_ref()),
             EncodingRef::new_ref(DecimalEncoding.as_ref()),
-            EncodingRef::new_ref(StructEncoding.as_ref()),
+            EncodingRef::new_ref(VarBinViewEncoding.as_ref()),
             EncodingRef::new_ref(ListViewEncoding.as_ref()),
             EncodingRef::new_ref(FixedSizeListEncoding.as_ref()),
-            EncodingRef::new_ref(VarBinEncoding.as_ref()),
-            EncodingRef::new_ref(VarBinViewEncoding.as_ref()),
+            EncodingRef::new_ref(StructEncoding.as_ref()),
             EncodingRef::new_ref(ExtensionEncoding.as_ref()),
         ]);
 
         // Register the utility encodings.
         this.register_many([
+            EncodingRef::new_ref(ChunkedEncoding.as_ref()),
             EncodingRef::new_ref(ConstantEncoding.as_ref()) as EncodingRef,
             EncodingRef::new_ref(MaskedEncoding.as_ref()),
-            EncodingRef::new_ref(ChunkedEncoding.as_ref()),
+            EncodingRef::new_ref(ListEncoding.as_ref()),
+            EncodingRef::new_ref(VarBinEncoding.as_ref()),
         ]);
 
         this

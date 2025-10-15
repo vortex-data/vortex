@@ -7,6 +7,7 @@ use crate::arrays::{ListArray, ListVTable, list_view_from_list};
 use crate::compute::{self, TakeKernel, TakeKernelAdapter};
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
+// TODO(connor): For very short arrays it is probably more efficient to build the list from scratch.
 /// Take implementation for [`ListArray`].
 ///
 /// This implementation converts the [`ListArray`] to a [`ListViewArray`] and then delegates to its

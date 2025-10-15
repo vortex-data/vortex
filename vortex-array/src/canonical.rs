@@ -13,14 +13,18 @@ use crate::arrays::{
 use crate::builders::builder_with_capacity;
 use crate::{Array, ArrayRef, IntoArray};
 
-/// An enum capturing the default uncompressed encodings for each [Vortex type][DType].
+/// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///
-/// Any array can be decoded into canonical form via the [`to_canonical`][Array::to_canonical]
+/// Any array can be decoded into canonical form via the [`to_canonical`](Array::to_canonical)
 /// trait method. This is the simplest encoding for a type, and will not be compressed but may
 /// contain compressed child arrays.
 ///
 /// Canonical form is useful for doing type-specific compute where you need to know that all
 /// elements are laid out decompressed and contiguous in memory.
+///
+/// Each `Canonical` variant has a corresponding [`DType`] variant, with the notable exception of
+/// [`Canonical::VarBinView`], which is the canonical encoding for both [`DType::Utf8`] and
+/// [`DType::Binary`].
 ///
 /// # Laziness
 ///
