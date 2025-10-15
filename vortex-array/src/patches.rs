@@ -1160,7 +1160,7 @@ mod test {
             0,
             BufferMut::from_iter(0..1500u64).into_array(),
             BufferMut::from_iter(0..1500i32).into_array(),
-            None,
+            Some(buffer![0u64, 1024u64].into_array()),
         );
 
         let taken = patches
