@@ -659,6 +659,7 @@ mod tests {
         assert!(frozen.value(7));
     }
 
+    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     #[test]
     fn test_append_buffer_with_offsets() {
         // Create source buffer with offset
