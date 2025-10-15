@@ -97,8 +97,8 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.extend_from_array(ext_array.storage())
     }
 
-    fn ensure_capacity(&mut self, capacity: usize) {
-        self.storage.ensure_capacity(capacity)
+    fn reserve(&mut self, capacity: usize) {
+        self.storage.reserve(capacity)
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {

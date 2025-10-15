@@ -87,7 +87,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         let current_len = self.values.len();
         assert!(
             current_len + len <= self.values.capacity(),
-            "uninit_range of len {len} exceeds builder capacity {}",
+            "uninit_range of len {len} exceeds builder with length {} and capacity {}",
+            current_len,
             self.values.capacity()
         );
 
@@ -168,11 +169,9 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.append_validity_mask(array.validity_mask());
     }
 
-    fn ensure_capacity(&mut self, capacity: usize) {
-        if capacity > self.values.capacity() {
-            self.values.reserve(capacity - self.values.len());
-            self.nulls.ensure_capacity(capacity);
-        }
+    fn reserve(&mut self, additional: usize) {
+        self.values.reserve(additional);
+        self.nulls.reserve(additional);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
