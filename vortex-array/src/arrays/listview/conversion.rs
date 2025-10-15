@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::VortexExpect;
 
-use crate::arrays::{ListArray, ListViewArray};
+use crate::arrays::{ExtensionArray, FixedSizeListArray, ListArray, ListViewArray, StructArray};
 use crate::builders::{ArrayBuilder, ListBuilder, PrimitiveBuilder};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, Canonical, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 /// Creates a [`ListViewArray`] from a [`ListArray`] by computing `sizes` from `offsets`.
 pub fn list_view_from_list(list: ListArray) -> ListViewArray {
@@ -96,16 +98,111 @@ pub fn list_from_list_view(list_view: ListViewArray) -> ListArray {
     })
 }
 
+/// Recursively converts all [`ListViewArray`]s to [`ListArray`]s in a nested array structure.
+///
+/// The conversion happens bottom-up, processing children before parents.
+pub fn recursive_list_from_list_view(array: ArrayRef) -> ArrayRef {
+    if !array.dtype().is_nested() {
+        return array;
+    }
+
+    let canonical = array.to_canonical();
+
+    match canonical {
+        Canonical::List(listview) => {
+            let converted_elements = recursive_list_from_list_view(listview.elements().clone());
+
+            // Avoid cloning if elements didn't change.
+            let listview_with_converted_elements =
+                if !Arc::ptr_eq(&converted_elements, listview.elements()) {
+                    ListViewArray::try_new(
+                        converted_elements,
+                        listview.offsets().clone(),
+                        listview.sizes().clone(),
+                        listview.validity().clone(),
+                    )
+                    .vortex_expect("ListView reconstruction should not fail with valid components")
+                } else {
+                    listview
+                };
+
+            let list_array = list_from_list_view(listview_with_converted_elements);
+            list_array.into_array()
+        }
+        Canonical::FixedSizeList(fixed_size_list) => {
+            let converted_elements =
+                recursive_list_from_list_view(fixed_size_list.elements().clone());
+
+            // Avoid cloning if elements didn't change.
+            if !Arc::ptr_eq(&converted_elements, fixed_size_list.elements()) {
+                FixedSizeListArray::try_new(
+                    converted_elements,
+                    fixed_size_list.list_size(),
+                    fixed_size_list.validity().clone(),
+                    fixed_size_list.len(),
+                )
+                .vortex_expect(
+                    "FixedSizeListArray reconstruction should not fail with valid components",
+                )
+                .into_array()
+            } else {
+                fixed_size_list.into_array()
+            }
+        }
+        Canonical::Struct(struct_array) => {
+            let fields = struct_array.fields();
+            let mut converted_fields = Vec::with_capacity(fields.len());
+            let mut any_changed = false;
+
+            for field in fields.iter() {
+                let converted_field = recursive_list_from_list_view(field.clone());
+                // Avoid cloning if elements didn't change.
+                any_changed |= !Arc::ptr_eq(&converted_field, field);
+                converted_fields.push(converted_field);
+            }
+
+            if any_changed {
+                StructArray::try_new(
+                    struct_array.names().clone(),
+                    converted_fields,
+                    struct_array.len(),
+                    struct_array.validity().clone(),
+                )
+                .vortex_expect("StructArray reconstruction should not fail with valid components")
+                .into_array()
+            } else {
+                struct_array.into_array()
+            }
+        }
+        Canonical::Extension(ext_array) => {
+            let converted_storage = recursive_list_from_list_view(ext_array.storage().clone());
+
+            // Avoid cloning if elements didn't change.
+            if !Arc::ptr_eq(&converted_storage, ext_array.storage()) {
+                ExtensionArray::new(ext_array.ext_dtype().clone(), converted_storage).into_array()
+            } else {
+                ext_array.into_array()
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_buffer::buffer;
+    use vortex_dtype::FieldNames;
 
     use super::super::tests::common::{
         create_basic_listview, create_empty_lists_listview, create_nullable_listview,
         create_overlapping_listview,
     };
+    use super::recursive_list_from_list_view;
     use crate::arrays::{
-        BoolArray, ListArray, PrimitiveArray, list_from_list_view, list_view_from_list,
+        BoolArray, FixedSizeListArray, ListArray, ListViewArray, PrimitiveArray, StructArray,
+        list_from_list_view, list_view_from_list,
     };
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
@@ -319,5 +416,157 @@ mod tests {
         // Round-trip.
         let converted_back = list_from_list_view(list_view.clone());
         assert_arrays_eq!(mixed_list, converted_back);
+    }
+
+    #[test]
+    fn test_recursive_simple_listview() {
+        let list_view = create_basic_listview();
+        let result = recursive_list_from_list_view(list_view.clone().into_array());
+
+        assert_eq!(result.len(), list_view.len());
+        assert_arrays_eq!(list_view.into_array(), result);
+    }
+
+    #[test]
+    fn test_recursive_nested_listview() {
+        let inner_elements = buffer![1i32, 2, 3].into_array();
+        let inner_offsets = buffer![0u32, 2].into_array();
+        let inner_sizes = buffer![2u32, 1].into_array();
+        let inner_listview = ListViewArray::try_new(
+            inner_elements,
+            inner_offsets,
+            inner_sizes,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let outer_offsets = buffer![0u32, 1].into_array();
+        let outer_sizes = buffer![1u32, 1].into_array();
+        let outer_listview = ListViewArray::try_new(
+            inner_listview.into_array(),
+            outer_offsets,
+            outer_sizes,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let result = recursive_list_from_list_view(outer_listview.clone().into_array());
+
+        assert_eq!(result.len(), 2);
+        assert_arrays_eq!(outer_listview.into_array(), result);
+    }
+
+    #[test]
+    fn test_recursive_struct_with_listview_fields() {
+        let listview_field = create_basic_listview().into_array();
+        let primitive_field = buffer![10i32, 20, 30, 40].into_array();
+
+        let struct_array = StructArray::try_new(
+            FieldNames::from(["lists", "values"]),
+            vec![listview_field, primitive_field],
+            4,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let result = recursive_list_from_list_view(struct_array.clone().into_array());
+
+        assert_eq!(result.len(), 4);
+        assert_arrays_eq!(struct_array.into_array(), result);
+    }
+
+    #[test]
+    fn test_recursive_fixed_size_list_with_listview_elements() {
+        let lv1_elements = buffer![1i32, 2].into_array();
+        let lv1_offsets = buffer![0u32].into_array();
+        let lv1_sizes = buffer![2u32].into_array();
+        let lv1 =
+            ListViewArray::try_new(lv1_elements, lv1_offsets, lv1_sizes, Validity::NonNullable)
+                .unwrap();
+
+        let lv2_elements = buffer![3i32, 4].into_array();
+        let lv2_offsets = buffer![0u32].into_array();
+        let lv2_sizes = buffer![2u32].into_array();
+        let lv2 =
+            ListViewArray::try_new(lv2_elements, lv2_offsets, lv2_sizes, Validity::NonNullable)
+                .unwrap();
+
+        let dtype = lv1.dtype().clone();
+        let chunked_listviews =
+            crate::arrays::ChunkedArray::try_new(vec![lv1.into_array(), lv2.into_array()], dtype)
+                .unwrap();
+
+        let fixed_list =
+            FixedSizeListArray::new(chunked_listviews.into_array(), 1, Validity::NonNullable, 2);
+
+        let result = recursive_list_from_list_view(fixed_list.clone().into_array());
+
+        assert_eq!(result.len(), 2);
+        assert_arrays_eq!(fixed_list.into_array(), result);
+    }
+
+    #[test]
+    fn test_recursive_deep_nesting() {
+        let innermost_elements = buffer![1i32, 2, 3].into_array();
+        let innermost_offsets = buffer![0u32, 2].into_array();
+        let innermost_sizes = buffer![2u32, 1].into_array();
+        let innermost_listview = ListViewArray::try_new(
+            innermost_elements,
+            innermost_offsets,
+            innermost_sizes,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let struct_array = StructArray::try_new(
+            FieldNames::from(["inner_lists"]),
+            vec![innermost_listview.into_array()],
+            2,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let outer_offsets = buffer![0u32, 1].into_array();
+        let outer_sizes = buffer![1u32, 1].into_array();
+        let outer_listview = ListViewArray::try_new(
+            struct_array.into_array(),
+            outer_offsets,
+            outer_sizes,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let result = recursive_list_from_list_view(outer_listview.clone().into_array());
+
+        assert_eq!(result.len(), 2);
+        assert_arrays_eq!(outer_listview.into_array(), result);
+    }
+
+    #[test]
+    fn test_recursive_primitive_unchanged() {
+        let prim = buffer![1i32, 2, 3].into_array();
+        let prim_clone = prim.clone();
+        let result = recursive_list_from_list_view(prim);
+
+        assert!(Arc::ptr_eq(&result, &prim_clone));
+    }
+
+    #[test]
+    fn test_recursive_mixed_listview_and_list() {
+        let listview = create_basic_listview();
+        let list = list_from_list_view(listview.clone());
+
+        let struct_array = StructArray::try_new(
+            FieldNames::from(["listview_field", "list_field"]),
+            vec![listview.into_array(), list.into_array()],
+            4,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let result = recursive_list_from_list_view(struct_array.clone().into_array());
+
+        assert_eq!(result.len(), 4);
+        assert_arrays_eq!(struct_array.into_array(), result);
     }
 }
