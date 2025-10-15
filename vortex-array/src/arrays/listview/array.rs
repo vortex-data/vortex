@@ -121,7 +121,8 @@ impl ListViewArray {
     ///
     /// # Errors
     ///
-    /// Returns an error if the provided components do not satisfy the invariants.
+    /// Returns an error if the provided components do not satisfy the invariants documented
+    /// in [`ListViewArray::new_unchecked`].
     pub fn try_new(
         elements: ArrayRef,
         offsets: ArrayRef,

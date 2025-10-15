@@ -111,16 +111,8 @@ impl FixedSizeListArray {
     ///
     /// # Errors
     ///
-    /// Returns an error if the inputs are invalid. The inputs are **valid** if:
-    ///
-    /// - The `list_size` is 0 and:
-    ///   - The `elements` array is empty.
-    ///   - The `len` is equal to the length of the `validity` map.
-    /// - The length of the `elements` array is a multiple of the size of the fixed-size lists
-    ///   (`list_size`).
-    /// - The `Validity` length (if it exists) times the `list_size` is equal to the length of the
-    ///   `elements` (or put another way, the length of the array divided by the size of each
-    ///   fixed-size list is equal to the length of the validity).
+    /// Returns an error if the provided components do not satisfy the invariants documented
+    /// in [`FixedSizeListArray::new_unchecked`].
     pub fn try_new(
         elements: ArrayRef,
         list_size: u32,
@@ -144,14 +136,11 @@ impl FixedSizeListArray {
     ///
     /// The inputs are **valid** if:
     ///
-    /// - The `list_size` is 0 and:
-    ///   - The `elements` array is empty.
-    ///   - The `len` is equal to the length of the `validity` map.
-    /// - The length of the `elements` array is a multiple of the size of the fixed-size lists
-    ///   (`list_size`).
     /// - The `Validity` length (if it exists) times the `list_size` is equal to the length of the
     ///   `elements` (or put another way, the length of the array divided by the size of each
     ///   fixed-size list is equal to the length of the validity).
+    /// - The length of the `elements` array is equal to the length of the outer array times the
+    ///   `list_size` (`elements.len() == list_size * len`).
     pub unsafe fn new_unchecked(
         elements: ArrayRef,
         list_size: u32,
@@ -183,24 +172,6 @@ impl FixedSizeListArray {
         list_size: u32,
         validity: &Validity,
     ) -> VortexResult<()> {
-        // A fixed-size list array where each list scalar is empty is completely useless, but we can
-        // support it regardless.
-        if list_size == 0 {
-            vortex_ensure!(
-                elements.is_empty() && validity.maybe_len().is_none_or(|vlen| vlen == len),
-                "an empty `FixedSizeList` should have no elements"
-            );
-            return Ok(());
-        }
-
-        let num_elements = elements.len();
-
-        vortex_ensure!(
-            len * list_size as usize == num_elements,
-            "the `elements` array has the incorrect number of elements to construct a \
-                `FixedSizeList[{list_size}] array of length {len}",
-        );
-
         // If a validity array is present, it must be the same length as the fixed-size list array.
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
@@ -208,6 +179,22 @@ impl FixedSizeListArray {
                 "validity with size {validity_len} does not match fixed-size list array size {len}",
             );
         }
+
+        // A fixed-size list array where each list scalar is empty is completely useless, but we can
+        // support it regardless.
+        if list_size == 0 {
+            vortex_ensure!(
+                elements.is_empty(),
+                "a degenerate (`list_size == 0`) `FixedSizeList` should have no underlying elements"
+            );
+            return Ok(());
+        }
+
+        vortex_ensure!(
+            len * list_size as usize == elements.len(),
+            "the `elements` array has the incorrect number of elements to construct a \
+                `FixedSizeList[{list_size}] array of length {len}",
+        );
 
         Ok(())
     }
