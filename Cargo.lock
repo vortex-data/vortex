@@ -9124,6 +9124,7 @@ dependencies = [
  "arrow-buffer",
  "itertools 0.14.0",
  "rstest",
+ "vortex-buffer",
  "vortex-error",
 ]
 
@@ -9312,6 +9313,17 @@ version = "0.1.0"
 dependencies = [
  "dashmap",
  "hashbrown 0.16.0",
+]
+
+[[package]]
+name = "vortex-vector"
+version = "0.1.0"
+dependencies = [
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-scalar",
 ]
 
 [[package]]

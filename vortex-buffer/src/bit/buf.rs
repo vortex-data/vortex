@@ -277,6 +277,14 @@ impl BitBuffer {
         self.buffer.slice(word_start..word_end)
     }
 
+    /// Attempt to convert this `BitBuffer` into a mutable version.
+    pub fn try_into_mut(self) -> Result<BitBufferMut, Self> {
+        match self.buffer.try_into_mut() {
+            Ok(buffer) => Ok(BitBufferMut::from_buffer(buffer, self.offset, self.len)),
+            Err(buffer) => Err(BitBuffer::new_with_offset(buffer, self.len, self.offset)),
+        }
+    }
+
     /// Get a mutable version of this `BitBuffer` along with bit offset in the first byte.
     ///
     /// If the caller doesn't hold only reference to the underlying buffer, a copy is created.
