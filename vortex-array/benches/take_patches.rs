@@ -53,7 +53,7 @@ fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64))
 #[divan::bench(args = BENCH_ARGS)]
 fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     let mut rng = StdRng::seed_from_u64(0);
-    let patches = fixture_with_chunk_offsets(16384, patches_sparsity, &mut rng);
+    let patches = fixture_with_chunk_offsets(65536, patches_sparsity, &mut rng);
     let indices = indices(
         patches.array_len(),
         (patches.array_len() as f64 * index_multiple) as usize,
