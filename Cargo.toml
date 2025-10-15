@@ -29,6 +29,7 @@ members = [
     "vortex-scalar",
     "vortex-tui",
     "vortex-utils",
+    "vortex-vector",
     "xtask",
     "vortex-gpu",
 ]
