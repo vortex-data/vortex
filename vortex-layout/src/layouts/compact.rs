@@ -6,7 +6,7 @@ use vortex_array::arrays::{
     narrowed_decimal,
 };
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_decimal_byte_parts::DecimalBytePartsArray;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
@@ -134,8 +134,10 @@ impl CompactCompressor {
             }
             Canonical::List(list_array) => {
                 let compressed_elems = self.compress(list_array.elements())?;
-                let compressed_offsets = self.compress(list_array.offsets())?;
-                let compressed_sizes = self.compress(list_array.sizes())?;
+                let compressed_offsets =
+                    self.compress(&list_array.offsets().to_primitive().narrow()?.into_array())?;
+                let compressed_sizes =
+                    self.compress(&list_array.sizes().to_primitive().narrow()?.into_array())?;
 
                 ListViewArray::try_new(
                     compressed_elems,
