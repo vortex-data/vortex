@@ -9,7 +9,9 @@ use std::sync::Arc;
 use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Field, FieldMask, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{
+    VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err, vortex_panic,
+};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};
@@ -49,7 +51,8 @@ impl VTable for StructVTable {
     }
 
     fn nchildren(layout: &Self::Layout) -> usize {
-        layout.struct_fields().nfields()
+        let validity_children = if layout.dtype.is_nullable() { 1 } else { 0 };
+        layout.struct_fields().nfields() + validity_children
     }
 
     fn child(layout: &Self::Layout, index: usize) -> VortexResult<LayoutRef> {
@@ -115,13 +118,15 @@ impl VTable for StructVTable {
         let struct_dt = dtype
             .as_struct_fields_opt()
             .ok_or_else(|| vortex_err!("Expected struct dtype"))?;
-        if children.nchildren() != struct_dt.nfields() {
-            vortex_bail!(
-                "Struct layout has {} children, but dtype has {} fields",
-                children.nchildren(),
-                struct_dt.nfields()
-            );
-        }
+
+        let expected_children = struct_dt.nfields() + (dtype.is_nullable() as usize);
+        vortex_ensure!(
+            children.nchildren() == expected_children,
+            "Struct layout has {} children, but dtype has {} fields",
+            children.nchildren(),
+            struct_dt.nfields()
+        );
+
         Ok(StructLayout {
             row_count,
             dtype: dtype.clone(),
