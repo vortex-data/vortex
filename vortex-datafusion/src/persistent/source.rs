@@ -18,7 +18,7 @@ use datafusion_physical_expr_adapter::{
 };
 use datafusion_physical_expr_common::physical_expr::fmt_sql;
 use datafusion_physical_plan::filter_pushdown::{
-    FilterPushdownPropagation, PushedDown, PushedDownPredicate,
+    FilterPushdownPropagation, PushedDown,
 };
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::{DisplayFormatType, PhysicalExpr};
@@ -251,17 +251,17 @@ impl FileSource for VortexSource {
             .into_iter()
             .map(|expr| {
                 if can_be_pushed_down(&expr, schema) {
-                    PushedDownPredicate::supported(expr)
+                    PushedDown::Yes
                 } else {
-                    PushedDownPredicate::unsupported(expr)
+                    PushedDown::No
                 }
             })
             .collect::<Vec<_>>();
 
-        Ok(FilterPushdownPropagation::with_parent_pushdown_result(
-            supported_filters.iter().map(|f| f.discriminant).collect(),
+        Ok(
+            FilterPushdownPropagation::with_parent_pushdown_result(supported_filters)
+                .with_updated_node(Arc::new(source)),
         )
-        .with_updated_node(Arc::new(source) as _))
     }
 
     fn with_schema_adapter_factory(
