@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
-use bitvec::prelude::Lsb0;
 use bitvec::view::BitView;
-use vortex_error::VortexExpect;
 
 use crate::bit::{get_bit_unchecked, set_bit_unchecked, unset_bit_unchecked};
-use crate::{BitBuffer, BufferMut, ByteBuffer, ByteBufferMut, buffer_mut};
+use crate::{BitBuffer, BufferMut, ByteBufferMut, buffer_mut};
 
 /// A mutable bitset buffer that allows random access to individual bits for set and get.
 ///
@@ -149,6 +145,21 @@ impl BitBufferMut {
         }
     }
 
+    /// Set the bit at `index` to the given boolean value without checking bounds.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
+    pub unsafe fn set_to_unchecked(&mut self, index: usize, value: bool) {
+        if value {
+            // SAFETY: checked by caller
+            unsafe { self.set_unchecked(index) }
+        } else {
+            // SAFETY: checked by caller
+            unsafe { self.unset_unchecked(index) }
+        }
+    }
+
     /// Set a position to `true`.
     ///
     /// This operation is checked so if `index` exceeds the buffer length, this will panic.
@@ -256,65 +267,99 @@ impl BitBufferMut {
         let start_bit_pos = self.offset + self.len;
         let end_bit_pos = start_bit_pos + n;
         let required_bytes = end_bit_pos.div_ceil(8);
-        let cur_remainder = start_bit_pos % 8;
 
-        if value {
-            // Pad the current last byte with true values
-            if cur_remainder != 0 {
-                *self
-                    .buffer
-                    .as_mut_slice()
-                    .last_mut()
-                    .vortex_expect("last byte") |= !((1 << cur_remainder) - 1)
-            }
+        // Ensure buffer has enough bytes
+        if required_bytes > self.buffer.len() {
+            self.buffer.push_n(0x00, required_bytes - self.buffer.len());
+        }
 
-            // Ensure buffer has enough bytes by appending true values
-            if required_bytes > self.buffer.len() {
-                self.buffer.push_n(0xFF, required_bytes - self.buffer.len());
+        let fill_byte = if value { 0xFF } else { 0x00 };
+
+        // Calculate byte positions
+        let start_byte = start_bit_pos / 8;
+        let start_bit = start_bit_pos % 8;
+        let end_byte = end_bit_pos / 8;
+        let end_bit = end_bit_pos % 8;
+
+        let slice = self.buffer.as_mut_slice();
+
+        if start_byte == end_byte {
+            // All bits are in the same byte
+            let mask = ((1u8 << (end_bit - start_bit)) - 1) << start_bit;
+            if value {
+                slice[start_byte] |= mask;
+            } else {
+                slice[start_byte] &= !mask;
             }
         } else {
-            // Pad the current last byte with false values
-            if cur_remainder != 0 {
-                *self
-                    .buffer
-                    .as_mut_slice()
-                    .last_mut()
-                    .vortex_expect("last byte") &= (1 << cur_remainder) - 1
+            // Fill the first partial byte
+            if start_bit != 0 {
+                let mask = !((1u8 << start_bit) - 1);
+                if value {
+                    slice[start_byte] |= mask;
+                } else {
+                    slice[start_byte] &= !mask;
+                }
             }
 
-            // Ensure buffer has enough bytes by appending false values.
-            if required_bytes > self.buffer.len() {
-                self.buffer.push_n(0x00, required_bytes - self.buffer.len());
+            // Fill the complete middle bytes
+            let fill_start = if start_bit != 0 {
+                start_byte + 1
+            } else {
+                start_byte
+            };
+            let fill_end = end_byte;
+            if fill_start < fill_end {
+                slice[fill_start..fill_end].fill(fill_byte);
+            }
+
+            // Fill the last partial byte
+            if end_bit != 0 {
+                let mask = (1u8 << end_bit) - 1;
+                if value {
+                    slice[end_byte] |= mask;
+                } else {
+                    slice[end_byte] &= !mask;
+                }
             }
         }
 
         self.len += n;
     }
 
-    /// Append bits defined by range from values to this buffer
-    pub fn append_packed_range(&mut self, range: Range<usize>, values: &ByteBuffer) {
-        let bit_len = range.end - range.start;
+    /// Append a [`BitBuffer`] to this [`BitBufferMut`]
+    ///
+    /// This efficiently copies all bits from the source buffer to the end of this buffer.
+    pub fn append_buffer(&mut self, buffer: &BitBuffer) {
+        let bit_len = buffer.len();
+        if bit_len == 0 {
+            return;
+        }
+
         let start_bit_pos = self.offset + self.len;
         let end_bit_pos = start_bit_pos + bit_len;
         let required_bytes = end_bit_pos.div_ceil(8);
 
         // Ensure buffer has enough bytes
-        while self.buffer.len() < required_bytes {
-            self.buffer.push(0u8);
+        if required_bytes > self.buffer.len() {
+            self.buffer.push_n(0x00, required_bytes - self.buffer.len());
         }
 
-        let self_slice = self.buffer.as_mut_slice().view_bits_mut::<Lsb0>();
-        let other_slice = values.as_slice().view_bits::<Lsb0>();
+        // Use bitvec for efficient bit copying
+        let self_slice = self
+            .buffer
+            .as_mut_slice()
+            .view_bits_mut::<bitvec::prelude::Lsb0>();
+        let other_slice = buffer
+            .inner()
+            .as_slice()
+            .view_bits::<bitvec::prelude::Lsb0>();
 
-        let other_sliced = &other_slice[range.start..range.end];
-        self_slice[start_bit_pos..end_bit_pos].copy_from_bitslice(other_sliced);
+        // Copy from source buffer (accounting for its offset) to destination (accounting for our offset + len)
+        let source_range = buffer.offset()..buffer.offset() + bit_len;
+        self_slice[start_bit_pos..end_bit_pos].copy_from_bitslice(&other_slice[source_range]);
+
         self.len += bit_len;
-    }
-
-    /// Append a [`BitBuffer`] to this [`BitBufferMut`]
-    pub fn append_buffer(&mut self, buffer: &BitBuffer) {
-        let buffer_range = buffer.offset()..buffer.offset() + buffer.len();
-        self.append_packed_range(buffer_range, buffer.inner())
     }
 
     /// Freeze the buffer in its current state into an immutable `BoolBuffer`.
