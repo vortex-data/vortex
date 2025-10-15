@@ -90,6 +90,20 @@ impl BitBuffer {
         }
     }
 
+    /// Create a new empty `BitBuffer`.
+    pub fn empty() -> Self {
+        Self::new_set(0)
+    }
+
+    /// Create a new `BitBuffer` of length `len` where all bits are set to `value`.
+    pub fn full(value: bool, len: usize) -> Self {
+        if value {
+            Self::new_set(len)
+        } else {
+            Self::new_unset(len)
+        }
+    }
+
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new `BitBuffer`
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, mut f: F) -> Self {
         let mut buffer = BufferMut::with_capacity(len.div_ceil(64) * 8);
@@ -278,43 +292,19 @@ impl BitBuffer {
 
 impl From<&[bool]> for BitBuffer {
     fn from(value: &[bool]) -> Self {
-        let mut buf = BitBufferMut::new_unset(value.len());
-        for (i, &v) in value.iter().enumerate() {
-            if v {
-                // SAFETY: i is in bounds
-                unsafe { buf.set_unchecked(i) }
-            }
-        }
-        buf.freeze()
+        BitBufferMut::from(value).freeze()
     }
 }
 
 impl From<Vec<bool>> for BitBuffer {
     fn from(value: Vec<bool>) -> Self {
-        value.as_slice().into()
+        BitBufferMut::from(value).freeze()
     }
 }
 
 impl FromIterator<bool> for BitBuffer {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        let iter = iter.into_iter();
-        let (low, high) = iter.size_hint();
-        if let Some(len) = high {
-            let mut buf = BitBufferMut::new_unset(len);
-            for (i, v) in iter.enumerate() {
-                if v {
-                    // SAFETY: i is in bounds
-                    unsafe { buf.set_unchecked(i) }
-                }
-            }
-            buf.freeze()
-        } else {
-            let mut buf = BitBufferMut::with_capacity(low);
-            for v in iter {
-                buf.append(v);
-            }
-            buf.freeze()
-        }
+        BitBufferMut::from_iter(iter).freeze()
     }
 }
 

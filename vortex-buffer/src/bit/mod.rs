@@ -10,6 +10,7 @@
 mod arrow;
 mod buf;
 mod buf_mut;
+mod macros;
 mod ops;
 
 pub use arrow_buffer::bit_chunk_iterator::{
