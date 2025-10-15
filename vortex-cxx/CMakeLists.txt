@@ -69,6 +69,9 @@ target_link_libraries(vortex
     PUBLIC nanoarrow_static
     PRIVATE vortex_cxx_bridge
 )
+target_include_directories(vortex_cxx_bridge PUBLIC 
+    ${CPP_INCLUDE_DIRS}
+)
 
 if (VORTEX_ENABLE_ASAN) 
     target_compile_options(vortex PRIVATE -fsanitize=leak,address,undefined -fno-omit-frame-pointer -fno-common -O1)

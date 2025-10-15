@@ -111,6 +111,17 @@ mod ffi {
             input_stream: *mut u8,
             path: &str,
         ) -> Result<()>;
+
+        fn open_with_read_at(read: UniquePtr<VortexReadAt>) -> Result<Box<VortexFile>>;
+    }
+
+    #[namespace = "vortex::io"]
+    unsafe extern "C++" {
+        include!("vortex/io.hpp");
+
+        type VortexReadAt;
+        fn read_at(reader: &VortexReadAt, pos: u64, len: usize) -> Vec<u8>;
+        fn get_size(reader: &VortexReadAt) -> u64;
     }
 
     #[repr(u8)]

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "vortex/file.hpp"
+#include "vortex/io.hpp"
 #include "vortex/scan.hpp"
 #include "vortex/exception.hpp"
 #include "rust/cxx.h"
@@ -20,6 +21,14 @@ VortexFile VortexFile::Open(const uint8_t *data, size_t length) {
 VortexFile VortexFile::Open(const std::string &path) {
     try {
         return VortexFile(ffi::open_file(path));
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
+}
+
+VortexFile VortexFile::OpenSeekable(std::unique_ptr<io::VortexReadAt> reader) {
+    try {
+        return VortexFile(ffi::open_with_read_at(std::move(reader)));
     } catch (const rust::cxxbridge1::Error &e) {
         throw VortexException(e.what());
     }

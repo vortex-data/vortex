@@ -9,10 +9,16 @@
 namespace vortex {
 class ScanBuilder;
 
+namespace io {
+class VortexReadAt;
+}
+
 class VortexFile {
 public:
     static VortexFile Open(const std::string &path);
     static VortexFile Open(const uint8_t *data, size_t length);
+    
+    static VortexFile OpenSeekable(std::unique_ptr<io::VortexReadAt> reader);
 
     VortexFile(VortexFile &&other) noexcept = default;
     VortexFile &operator=(VortexFile &&other) noexcept = default;

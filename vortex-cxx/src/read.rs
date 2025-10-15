@@ -9,6 +9,8 @@ use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, DataType, Schema, SchemaRef};
+use cxx::UniquePtr;
+use futures::FutureExt;
 use futures::stream::TryStreamExt;
 use vortex::ArrayRef;
 use vortex::arrow::IntoArrowArray;
@@ -17,9 +19,14 @@ use vortex::file::VortexOpenOptions;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::scan::ScanBuilder;
 use vortex::scan::arrow::RecordBatchIteratorAdapter;
+use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_error::VortexResult;
+use vortex_io::VortexReadAt;
+
 
 use crate::RUNTIME;
 use crate::expr::Expr;
+use crate::ffi::VortexReadAt as CxxReadAt;
 
 pub(crate) struct VortexFile {
     inner: vortex::file::VortexFile,
@@ -186,4 +193,39 @@ impl ThreadsafeCloneableReader {
         // Arrow C stream interface
         unsafe { std::ptr::write(out_stream, stream) };
     }
+}
+
+pub struct CxxVortexReadAt {
+    ptr: UniquePtr<CxxReadAt>,
+}
+
+/// Cxx implementation is expected to be thread-safe
+unsafe impl Send for CxxVortexReadAt {}
+unsafe impl Sync for CxxVortexReadAt {}
+
+impl VortexReadAt for CxxVortexReadAt {
+    fn read_at(&self, pos: u64, len: usize, _: Alignment) -> futures::future::BoxFuture<'static, VortexResult<ByteBuffer>> {
+        let data = crate::ffi::read_at(self.ptr.as_ref().unwrap(), pos, len);
+        let buffer = ByteBuffer::from(data);
+        async move { Ok(buffer) }.boxed()
+    }
+
+    fn size(&self) -> futures::future::BoxFuture<'static, VortexResult<u64>> {
+        let size = crate::ffi::get_size(self.ptr.as_ref().unwrap());
+        async move { Ok(size) }.boxed()
+    }
+}
+
+/// Postscript is guaranteed to never exceed 'u16::MAX - 8' bytes in length
+/// Possible imrpovements: make initial_read_size configurable
+/// See: https://docs.vortex.dev/specs/file-format
+pub(crate) fn open_with_read_at(read: UniquePtr<CxxReadAt>) -> Result<Box<VortexFile>> {
+      let read_at = Arc::new(CxxVortexReadAt { ptr: read });
+      let file = RUNTIME.block_on(|h| {
+          VortexOpenOptions::new()
+              .with_handle(h)
+              .with_initial_read_size((u16::MAX - 8).into())
+              .open_read_at(read_at)
+      })?;
+      Ok(Box::new(VortexFile { inner: file }))
 }
