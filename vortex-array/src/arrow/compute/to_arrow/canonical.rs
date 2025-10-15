@@ -17,6 +17,7 @@ use arrow_array::{
     PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
 };
 use arrow_buffer::{ScalarBuffer, i256};
+use arrow_data::ArrayData;
 use arrow_schema::{DataType, Field, FieldRef, Fields};
 use itertools::Itertools;
 use num_traits::{AsPrimitive, ToPrimitive};
@@ -538,12 +539,28 @@ fn to_arrow_fixed_size_list(
     };
     let nulls = array.validity_mask().to_null_buffer();
 
-    Ok(Arc::new(ArrowFixedSizeListArray::new(
-        element_field,
-        list_size,
-        values,
-        nulls,
-    )))
+    // TODO(connor): Revert this once the issue below is resolved.
+    // Ok(Arc::new(ArrowFixedSizeListArray::new(
+    //     element_field,
+    //     list_size,
+    //     values,
+    //     nulls,
+    // )))
+
+    // Build ArrayData directly to avoid the length calculation bug in try_new.
+    // See: https://github.com/apache/arrow-rs/issues/8623
+    let data_type = DataType::FixedSizeList(element_field, list_size);
+    let list_data = ArrayData::builder(data_type)
+        .len(array.len())
+        .add_child_data(values.into_data())
+        .nulls(nulls)
+        .build()?;
+
+    let arrow_array = ArrowFixedSizeListArray::from(list_data);
+
+    assert_eq!(array.len(), arrow_array.len());
+
+    Ok(Arc::new(arrow_array))
 }
 
 fn to_arrow_varbinview<T: ByteViewType>(array: VarBinViewArray) -> VortexResult<ArrowArrayRef> {
