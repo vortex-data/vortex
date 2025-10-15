@@ -660,6 +660,7 @@ impl Patches {
         }
     }
 
+    #[allow(clippy::cognitive_complexity)]
     pub fn take_search(
         &self,
         take_indices: PrimitiveArray,
@@ -976,7 +977,7 @@ fn take_indices_with_search_fn<I: UnsignedPType, T: IntegerPType, F: Fn(I) -> Se
                 Some((0u64, new_patch_idx as u64))
             } else {
                 let search_result = I::from(take_idx)
-                    .map(|converted_take_idx| search_fn(converted_take_idx))
+                    .map(&search_fn)
                     .unwrap_or(SearchResult::NotFound(indices.len()));
 
                 search_result
