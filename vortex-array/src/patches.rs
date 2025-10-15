@@ -8,6 +8,7 @@ use std::ops::Range;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
+use num_traits::NumCast;
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
@@ -331,36 +332,6 @@ impl Patches {
         Self::search_index_binary_search(&self.indices, index + self.offset)
     }
 
-    /// Batch version of `search_index`.
-    ///
-    /// In contrast to `search_index`, this function requires indices as
-    /// well as chunk_offsets to be passed as slices. This is to avoid
-    /// redundant canonicalization and `scalar_at` lookups across calls.
-    pub fn search_index_batch<T, O>(
-        &self,
-        indices: &[T],
-        chunk_offsets: Option<&[O]>,
-        index: T,
-    ) -> SearchResult
-    where
-        T: UnsignedPType,
-        O: UnsignedPType,
-        O: TryFrom<usize>,
-        usize: TryFrom<T>,
-        usize: TryFrom<O>,
-    {
-        if let Some(chunk_offsets) = chunk_offsets {
-            return self.search_index_chunked_batch(indices, chunk_offsets, index);
-        } else {
-            let Some(offset) = T::from(self.offset) else {
-                // If the offset cannot be converted to T, it's larger than all values in this array.
-                return SearchResult::NotFound(indices.len());
-            };
-
-            indices.search_sorted(&(index + offset), SearchSortedSide::Left)
-        }
-    }
-
     /// Binary searches for `needle` in the indices array.
     ///
     /// # Returns
@@ -448,7 +419,6 @@ impl Patches {
     where
         T: UnsignedPType,
         O: UnsignedPType,
-        O: TryFrom<usize>,
         usize: TryFrom<T>,
         usize: TryFrom<O>,
     {
@@ -487,7 +457,7 @@ impl Patches {
         let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
             let base_offset_end = chunk_offsets[chunk_idx + 1];
 
-            let Ok(offset_within_chunk) = O::try_from(offset_within_chunk) else {
+            let Some(offset_within_chunk) = O::from(offset_within_chunk) else {
                 vortex_panic!("offset_within_chunk failed to convert to O");
             };
 
@@ -702,53 +672,44 @@ impl Patches {
         let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) =
             match_each_unsigned_integer_ptype!(patch_indices.ptype(), |PatchT| {
                 let patch_indices_slice = patch_indices.as_slice::<PatchT>();
+                match_each_integer_ptype!(take_indices.ptype(), |TakeT| {
+                    let take_slice = take_indices.as_slice::<TakeT>();
 
-                let take = |search_fn: &dyn Fn(PatchT) -> SearchResult| {
-                    match_each_integer_ptype!(take_indices.ptype(), |TakeT| {
-                        take_indices
-                            .as_slice::<TakeT>()
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(new_patch_idx, &take_idx)| {
-                                if include_nulls && take_indices_validity.is_null(new_patch_idx) {
-                                    // For nulls, patch index doesn't matter - use 0 for consistency
-                                    Some((0u64, new_patch_idx as u64))
-                                } else {
-                                    let search_result = PatchT::try_from(take_idx)
-                                        .map(|converted_take_idx| search_fn(converted_take_idx))
-                                        .unwrap_or(SearchResult::NotFound(
-                                            patch_indices_slice.len(),
-                                        ));
-
-                                    search_result
-                                        .to_found()
-                                        .map(|patch_idx| (patch_idx as u64, new_patch_idx as u64))
-                                }
-                            })
-                            .unzip()
-                    })
-                };
-
-                if let Some(chunk_offsets) = chunk_offsets {
-                    match_each_unsigned_integer_ptype!(chunk_offsets.ptype(), |OffsetT| {
-                        let chunk_offsets_slice = chunk_offsets.as_slice::<OffsetT>();
-                        take(&|take_idx| {
-                            self.search_index_batch(
+                    if let Some(chunk_offsets) = chunk_offsets {
+                        match_each_unsigned_integer_ptype!(chunk_offsets.ptype(), |OffsetT| {
+                            let chunk_offsets = chunk_offsets.as_slice::<OffsetT>();
+                            take_indices_with_search_fn(
                                 patch_indices_slice,
-                                Some(chunk_offsets_slice),
-                                take_idx,
+                                take_slice,
+                                take_indices.validity_mask(),
+                                include_nulls,
+                                |take_idx| {
+                                    self.search_index_chunked_batch(
+                                        patch_indices_slice,
+                                        chunk_offsets,
+                                        take_idx,
+                                    )
+                                },
                             )
                         })
-                    })
-                } else {
-                    take(&|take_idx| {
-                        self.search_index_batch(
+                    } else {
+                        take_indices_with_search_fn(
                             patch_indices_slice,
-                            Option::<&[u8]>::None,
-                            take_idx,
+                            take_slice,
+                            take_indices.validity_mask(),
+                            include_nulls,
+                            |take_idx| {
+                                let Some(offset) = <PatchT as NumCast>::from(self.offset) else {
+                                    // If the offset cannot be converted to T, it's larger than all values in this array.
+                                    return SearchResult::NotFound(patch_indices_slice.len());
+                                };
+
+                                patch_indices_slice
+                                    .search_sorted(&(take_idx + offset), SearchSortedSide::Left)
+                            },
                         )
-                    })
-                }
+                    }
+                })
             });
 
         if new_indices.is_empty() {
@@ -997,6 +958,33 @@ fn filter_patches_with_mask<T: IntegerPType>(
         // TODO(0ax1): Chunk offsets are invalid after a filter is applied.
         None,
     )))
+}
+
+fn take_indices_with_search_fn<I: UnsignedPType, T: IntegerPType, F: Fn(I) -> SearchResult>(
+    indices: &[I],
+    take_indices: &[T],
+    take_validity: Mask,
+    include_nulls: bool,
+    search_fn: F,
+) -> (BufferMut<u64>, BufferMut<u64>) {
+    take_indices
+        .iter()
+        .enumerate()
+        .filter_map(|(new_patch_idx, &take_idx)| {
+            if include_nulls && !take_validity.value(new_patch_idx) {
+                // For nulls, patch index doesn't matter - use 0 for consistency
+                Some((0u64, new_patch_idx as u64))
+            } else {
+                let search_result = I::from(take_idx)
+                    .map(|converted_take_idx| search_fn(converted_take_idx))
+                    .unwrap_or(SearchResult::NotFound(indices.len()));
+
+                search_result
+                    .to_found()
+                    .map(|patch_idx| (patch_idx as u64, new_patch_idx as u64))
+            }
+        })
+        .unzip()
 }
 
 #[cfg(test)]
