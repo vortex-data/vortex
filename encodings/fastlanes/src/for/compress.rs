@@ -57,8 +57,6 @@ pub fn decompress(array: &FoRArray) -> PrimitiveArray {
     // try to do fused unpack
     if array.dtype().is_unsigned_int()
         && let Some(bp) = array.encoded().as_opt::<BitPackedVTable>()
-        && bp.offset() == 0
-        && bp.len() % 1024 == 0
         && bp.patches().is_none()
         && bp.all_valid()
     {
@@ -92,29 +90,101 @@ fn fused_decompress<T: PhysicalPType + UnsignedPType + FoR + FromPrimitiveOrF16>
     for_: &FoRArray,
     bp: &BitPackedArray,
 ) -> PrimitiveArray {
-    let mut builder =
-        PrimitiveBuilder::<T>::with_capacity(NonNullable, for_.len().next_multiple_of(1024));
-    let mut uninit_range = builder.uninit_range(for_.len());
+    const CHUNK_SIZE: usize = 1024;
+
+    let offset = bp.offset() as usize;
+    let len = bp.len();
+    let bit_width = bp.bit_width() as usize;
+    let elems_per_chunk = 128 * bit_width / size_of::<T>();
+    let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
+    let last_chunk_length = (offset + len) % CHUNK_SIZE;
+
+    let mut builder = PrimitiveBuilder::<T>::with_capacity(NonNullable, len);
+    let mut uninit_range = builder.uninit_range(len);
 
     let packed_buffer = Buffer::<T>::from_byte_buffer(bp.packed().clone());
     let packed_slice = packed_buffer.as_slice();
-    let elems_per_chunk = 128 * bp.bit_width() as usize / size_of::<T>();
     let ref_ = for_
         .reference
         .as_primitive()
         .as_::<T>()
         .vortex_expect("cannot be null");
 
-    // Handle non-1024 aligned arrays
-    for i in 0..(bp.len() / 1024) {
-        let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
+    let first_chunk_is_sliced = offset != 0;
+    let last_chunk_is_sliced = last_chunk_length != 0;
+
+    // Shared temp buffer for partial chunks
+    let mut temp_buffer = [mem::MaybeUninit::<T>::uninit(); CHUNK_SIZE];
+
+    // Track position in output relative to the start of the UninitRange.
+    let mut local_idx = 0;
+
+    // Handle initial partial chunk if offset != 0 or if there's only one chunk
+    /// # Safety
+    ///
+    /// See `unpack_iter.rs`.
+    if first_chunk_is_sliced || num_chunks == 1 {
+        let chunk = &packed_slice[..elems_per_chunk];
 
         unsafe {
-            // SAFETY: We're about to initialize CHUNK_SIZE elements at local_idx.
-            let uninit_dst = uninit_range.slice_uninit_mut(i * 1024, 1024);
-            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
-            let dst: &mut [T] = mem::transmute(uninit_dst);
-            FoR::unchecked_unfor_pack(bp.bit_width() as usize, chunk, ref_, dst);
+            let dst: &mut [T] = mem::transmute(&mut temp_buffer[..]);
+            FoR::unchecked_unfor_pack(bit_width, chunk, ref_, dst);
+
+            let header_end_slice = if num_chunks == 1 {
+                len
+            } else {
+                CHUNK_SIZE - offset
+            };
+
+            // Copy the relevant portion to output
+            let src = mem::transmute::<&[mem::MaybeUninit<T>], &[T]>(
+                &temp_buffer[offset..][..header_end_slice],
+            );
+            let dst = uninit_range.slice_uninit_mut(local_idx, header_end_slice);
+            std::ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                dst.as_mut_ptr() as *mut T,
+                header_end_slice,
+            );
+
+            local_idx += header_end_slice;
+        }
+    }
+
+    // Handle full middle chunks
+    if num_chunks > 1 {
+        let full_chunks_start = if first_chunk_is_sliced { 1 } else { 0 };
+        let full_chunks_end = num_chunks - (last_chunk_is_sliced as usize);
+
+        for i in full_chunks_start..full_chunks_end {
+            let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
+
+            unsafe {
+                let uninit_dst = uninit_range.slice_uninit_mut(local_idx, CHUNK_SIZE);
+                let dst: &mut [T] = mem::transmute(uninit_dst);
+                FoR::unchecked_unfor_pack(bit_width, chunk, ref_, dst);
+            }
+            local_idx += CHUNK_SIZE;
+        }
+    }
+
+    // Handle trailing partial chunk if len % 1024 != 0
+    if last_chunk_is_sliced && num_chunks > 1 {
+        let chunk = &packed_slice[(num_chunks - 1) * elems_per_chunk..][..elems_per_chunk];
+
+        unsafe {
+            let dst: &mut [T] = mem::transmute(&mut temp_buffer[..]);
+            FoR::unchecked_unfor_pack(bit_width, chunk, ref_, dst);
+
+            // Copy only the valid portion to output
+            let src =
+                mem::transmute::<&[mem::MaybeUninit<T>], &[T]>(&temp_buffer[..last_chunk_length]);
+            let dst = uninit_range.slice_uninit_mut(local_idx, last_chunk_length);
+            std::ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                dst.as_mut_ptr() as *mut T,
+                last_chunk_length,
+            );
         }
     }
 
@@ -197,7 +267,7 @@ mod test {
         // Create a range offset by a million
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-        let bp = BitPackedArray::encode(array.clone().as_ref(), 3).unwrap();
+        let bp = BitPackedArray::encode(array.as_ref(), 3).unwrap();
         let compressed = FoRArray::try_new(bp.into_array(), 10u32.into()).unwrap();
         println!("compressed {}", compressed.display_tree());
         let decompressed = compressed.to_primitive();

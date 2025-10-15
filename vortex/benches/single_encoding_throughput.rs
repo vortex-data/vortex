@@ -158,10 +158,8 @@ fn bench_for_compress_i32(bencher: Bencher) {
 
 #[divan::bench(name = "for_decompress_u64")]
 fn bench_for_decompress_u64(bencher: Bencher) {
-    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
-    let uint_array = PrimitiveArray::from_iter(
-        (0..NUM_VALUES.next_multiple_of(1024)).map(|_| rng.random_range(42u32..256)),
-    );
+    let (uint_array, ..) = setup_primitive_arrays();
+
     let compressed = FoRArray::encode(uint_array).unwrap();
     let inner = compressed.encoded();
     let bp = BitPackedArray::encode(inner, 8).unwrap();
