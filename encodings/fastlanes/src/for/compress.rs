@@ -99,7 +99,7 @@ fn fused_decompress<T: PhysicalPType + UnsignedPType + FoR + FromPrimitiveOrF16>
     let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
     let last_chunk_length = (offset + len) % CHUNK_SIZE;
 
-    let mut builder = PrimitiveBuilder::<T>::with_capacity(NonNullable, len);
+    let mut builder = PrimitiveBuilder::<T>::with_capacity(for_.dtype().nullability(), len);
     let mut uninit_range = builder.uninit_range(len);
 
     let packed_buffer = Buffer::<T>::from_byte_buffer(bp.packed().clone());
