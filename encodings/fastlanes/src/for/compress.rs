@@ -1,16 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem;
+
+use fastlanes::FoR;
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::stats::Stat;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{NativePType, match_each_integer_ptype};
+use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::{
+    NativePType, PhysicalPType, UnsignedPType, match_each_integer_ptype,
+    match_each_unsigned_integer_ptype,
+};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_scalar::FromPrimitiveOrF16;
 
-use crate::FoRArray;
+use crate::{BitPackedArray, BitPackedVTable, FoRArray};
 
 impl FoRArray {
     pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
@@ -45,6 +54,19 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
 pub fn decompress(array: &FoRArray) -> PrimitiveArray {
     let ptype = array.ptype();
 
+    // try to do fused unpack
+    if array.dtype().is_unsigned_int()
+        && let Some(bp) = array.encoded().as_opt::<BitPackedVTable>()
+        && bp.offset() == 0
+        && bp.len() % 1024 == 0
+        && bp.patches().is_none()
+        && bp.all_valid()
+    {
+        return match_each_unsigned_integer_ptype!(array.ptype(), |T| {
+            fused_decompress::<T>(array, bp)
+        });
+    }
+
     // TODO(ngates): do we need this to be into_encoded() somehow?
     let encoded = array.encoded().to_primitive();
     let validity = encoded.validity().clone();
@@ -64,6 +86,43 @@ pub fn decompress(array: &FoRArray) -> PrimitiveArray {
             )
         }
     })
+}
+
+fn fused_decompress<T: PhysicalPType + UnsignedPType + FoR + FromPrimitiveOrF16>(
+    for_: &FoRArray,
+    bp: &BitPackedArray,
+) -> PrimitiveArray {
+    let mut builder =
+        PrimitiveBuilder::<T>::with_capacity(NonNullable, for_.len().next_multiple_of(1024));
+    let mut uninit_range = builder.uninit_range(for_.len());
+
+    let packed_buffer = Buffer::<T>::from_byte_buffer(bp.packed().clone());
+    let packed_slice = packed_buffer.as_slice();
+    let elems_per_chunk = 128 * bp.bit_width() as usize / size_of::<T>();
+    let ref_ = for_
+        .reference
+        .as_primitive()
+        .as_::<T>()
+        .vortex_expect("cannot be null");
+
+    // Handle non-1024 aligned arrays
+    for i in 0..(bp.len() / 1024) {
+        let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
+
+        unsafe {
+            // SAFETY: We're about to initialize CHUNK_SIZE elements at local_idx.
+            let uninit_dst = uninit_range.slice_uninit_mut(i * 1024, 1024);
+            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
+            let dst: &mut [T] = mem::transmute(uninit_dst);
+            FoR::unchecked_unfor_pack(bp.bit_width() as usize, chunk, ref_, dst);
+        }
+    }
+
+    unsafe {
+        uninit_range.finish();
+    }
+
+    builder.finish_into_primitive()
 }
 
 fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
@@ -131,6 +190,18 @@ mod test {
         let compressed = FoRArray::encode(array.clone()).unwrap();
         let decompressed = compressed.to_primitive();
         assert_eq!(decompressed.as_slice::<u32>(), array.as_slice::<u32>());
+    }
+
+    #[test]
+    fn test_decompress_fused() {
+        // Create a range offset by a million
+        let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
+        let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
+        let bp = BitPackedArray::encode(array.clone().as_ref(), 3).unwrap();
+        let compressed = FoRArray::try_new(bp.into_array(), 10u32.into()).unwrap();
+        println!("compressed {}", compressed.display_tree());
+        let decompressed = compressed.to_primitive();
+        assert_eq!(decompressed.as_slice::<u32>(), expect.as_slice::<u32>());
     }
 
     #[test]

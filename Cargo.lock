@@ -3120,8 +3120,7 @@ checksum = "9afc2bd4d5a73106dd53d10d73d3401c2f32730ba2c0b93ddb888a8983680471"
 [[package]]
 name = "fastlanes"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38b79094ac813a000b92adff4231a6d291d063dc6312b3b88c154a5ea0a195d0"
+source = "git+https://github.com/spiraldb/fastlanes.git?rev=3820eeb33433458fa035bea5a834dee0039612f5#3820eeb33433458fa035bea5a834dee0039612f5"
 dependencies = [
  "arrayref",
  "const_for",
