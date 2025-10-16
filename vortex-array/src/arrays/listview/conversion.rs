@@ -126,6 +126,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> ArrayRef {
                     listview
                 };
 
+            // Make the conversion to `ListArray`.
             let list_array = list_from_list_view(listview_with_converted_elements);
             list_array.into_array()
         }

@@ -215,7 +215,8 @@ fn constant_canonical_byte_view(
 fn constant_canonical_list_array(scalar: &Scalar, len: usize) -> ListViewArray {
     let list = ListScalar::try_from(scalar).vortex_expect("must be list");
 
-    // We can just have all of the views point to the same scalar.
+    // Since "canonicalize" only applies to the top level array, we can simply have 1 scalar in our
+    // child `elements` and have all list views point to that scalar.
     let elements = if let Some(elements) = list.elements() {
         // Extract the list elements out of the scalar into a new array.
         let mut builder = builder_with_capacity(
@@ -231,7 +232,7 @@ fn constant_canonical_list_array(scalar: &Scalar, len: usize) -> ListViewArray {
         }
         builder.finish()
     } else {
-        // Otherwise all values are null, and we don't need to store anything (`list.len() == 0`).
+        // Otherwise all values are null, and we don't need to store anything in our `elements`.
         Canonical::empty(list.element_dtype()).into_array()
     };
 

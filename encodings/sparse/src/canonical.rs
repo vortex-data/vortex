@@ -145,8 +145,8 @@ fn canonicalize_sparse_lists(
 }
 
 fn canonicalize_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
-    indices: &[I],
-    values: ListViewArray,
+    patch_indices: &[I],
+    patch_values: ListViewArray,
     fill_value: ListScalar,
     values_dtype: Arc<DType>,
     len: usize,
@@ -162,22 +162,25 @@ fn canonicalize_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
         len,
     );
 
-    let mut sparse_idx = 0;
+    let mut patch_idx = 0;
 
-    for i in 0..len {
-        if sparse_idx < indices.len()
-            && indices[sparse_idx]
+    // Loop over the patch indices and set them to the corresponding scalar values. For positions
+    // that are not patched, use the fill value.
+    for position in 0..len {
+        let position_is_patched = patch_idx < patch_indices.len()
+            && patch_indices[patch_idx]
                 .to_usize()
-                .vortex_expect("index must fit in usize")
-                == i
-        {
-            // This position has a sparse value - get it as a scalar and append
+                .vortex_expect("patch index must fit in usize")
+                == position;
+
+        if position_is_patched {
+            // Set with the patch value.
             builder
-                .append_value(values.scalar_at(sparse_idx).as_list())
+                .append_value(patch_values.scalar_at(patch_idx).as_list())
                 .vortex_expect("Failed to append sparse value");
-            sparse_idx += 1;
+            patch_idx += 1;
         } else {
-            // This position gets the fill value
+            // Set with the fill value.
             builder
                 .append_value(fill_value.clone())
                 .vortex_expect("Failed to append fill value");

@@ -22,7 +22,8 @@ impl ToArrowKernel for ListVTable {
     ) -> VortexResult<Option<ArrowArrayRef>> {
         match arrow_type {
             None => {
-                // Default to a `ListArray` with `i32` offsets when no type is specified.
+                // Default to a `ListArray` with `i32` offsets (preferred) when no `arrow_type` is
+                // specified.
                 list_array_to_arrow_list::<i32>(array, None)
             }
             Some(DataType::List(field)) => list_array_to_arrow_list::<i32>(array, Some(field)),
@@ -33,7 +34,7 @@ impl ToArrowKernel for ListVTable {
                 Ok(list_view.into_array().into_arrow(dt)?)
             }
             _ => vortex_bail!(
-                "Cannot convert ListArray to non-list Arrow type: {:?}",
+                "Cannot convert `ListArray` to non-list Arrow type: {:?}",
                 arrow_type
             ),
         }
@@ -59,18 +60,22 @@ fn list_array_to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     let nulls = array.validity_mask().to_null_buffer();
 
     // Convert the child `elements` array to Arrow.
-    let (elements, element_field) = if let Some(element) = element {
-        (
-            array.elements().clone().into_arrow(element.data_type())?,
-            element.clone(),
-        )
-    } else {
-        let elements = array.elements().clone().into_arrow_preferred()?;
-        let element_field = Arc::new(Field::new_list_field(
-            elements.data_type().clone(),
-            array.elements().dtype().is_nullable(),
-        ));
-        (elements, element_field)
+    let (elements, element_field) = {
+        if let Some(element) = element {
+            // Convert elements to the specific Arrow type the caller wants.
+            (
+                array.elements().clone().into_arrow(element.data_type())?,
+                element.clone(),
+            )
+        } else {
+            // Otherwise, convert into whatever Arrow prefers.
+            let elements = array.elements().clone().into_arrow_preferred()?;
+            let element_field = Arc::new(Field::new_list_field(
+                elements.data_type().clone(),
+                array.elements().dtype().is_nullable(),
+            ));
+            (elements, element_field)
+        }
     };
 
     Ok(Arc::new(GenericListArray::new(

@@ -23,14 +23,14 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
 
         match array.dtype() {
             DType::Struct(struct_dtype, _) => {
-                let struct_array = swizzle_struct_chunks(
+                let struct_array = pack_struct_chunks(
                     array.chunks(),
                     Validity::copy_from_array(array.as_ref()),
                     struct_dtype,
                 );
                 Canonical::Struct(struct_array)
             }
-            DType::List(elem_dtype, _) => Canonical::List(pack_lists(
+            DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
                 array.chunks(),
                 Validity::copy_from_array(array.as_ref()),
                 elem_dtype,
@@ -50,9 +50,11 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
     }
 }
 
-/// Swizzle the pointers within a ChunkedArray of StructArrays to instead be a single
-/// StructArray, where the Array for each Field is a ChunkedArray.
-fn swizzle_struct_chunks(
+/// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`Array`] for each
+/// field is a [`ChunkedArray`].
+///
+/// The caller guarantees there are at least 2 chunks.
+fn pack_struct_chunks(
     chunks: &[ArrayRef],
     validity: Validity,
     struct_dtype: &StructFields,
@@ -71,6 +73,7 @@ fn swizzle_struct_chunks(
                     .to_array()
             })
             .collect::<Vec<_>>();
+
         // SAFETY: field_chunks are extracted from valid StructArrays with matching dtypes.
         // Each chunk's field array is guaranteed to be valid for field_dtype.
         let field_array = unsafe { ChunkedArray::new_unchecked(field_chunks, field_dtype.clone()) };
@@ -82,10 +85,16 @@ fn swizzle_struct_chunks(
     unsafe { StructArray::new_unchecked(field_arrays, struct_dtype.clone(), len, validity) }
 }
 
-/// Packs list arrays together into a chunked `ListViewArray`.
+/// Packs [`ListViewArray`]s together into a chunked `ListViewArray`.
 ///
-/// There is guaranteed to be at least 2 chunks.
-fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> ListViewArray {
+/// We use the existing arrays (chunks) to form a chunked array of `elements` (the child array).
+///
+/// The caller guarantees there are at least 2 chunks.
+fn swizzle_list_chunks(
+    chunks: &[ArrayRef],
+    validity: Validity,
+    elem_dtype: &DType,
+) -> ListViewArray {
     let len: usize = chunks.iter().map(|c| c.len()).sum();
 
     assert_eq!(
@@ -99,6 +108,7 @@ fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> Li
 
     // Since each list array in `chunks` has offsets local to each array, we can reuse the existing
     // array's child `elements` as the chunks and recompute offsets.
+
     let mut list_elements_chunks = Vec::with_capacity(chunks.len());
     let mut num_elements = 0;
 
@@ -110,24 +120,24 @@ fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> Li
     let mut sizes = BufferMut::<u64>::with_capacity(len);
 
     for chunk in chunks {
-        let chunk = chunk.to_listview();
+        let chunk_array = chunk.to_listview();
 
         // Add the `elements` of the current array as a new chunk.
-        list_elements_chunks.push(chunk.elements().clone());
+        list_elements_chunks.push(chunk_array.elements().clone());
 
-        // Cast offsets and sizes to u64.
+        // Cast offsets and sizes to `u64`.
         let offsets_arr = cast(
-            chunk.offsets(),
+            chunk_array.offsets(),
             &DType::Primitive(PType::U64, Nullability::NonNullable),
         )
-        .vortex_expect("Must fit array offsets in u64")
+        .vortex_expect("Must be able to fit array offsets in u64")
         .to_primitive();
 
         let sizes_arr = cast(
-            chunk.sizes(),
+            chunk_array.sizes(),
             &DType::Primitive(PType::U64, Nullability::NonNullable),
         )
-        .vortex_expect("Must fit array sizes in u64")
+        .vortex_expect("Must be able to fit array offsets in u64")
         .to_primitive();
 
         let offsets_slice = offsets_arr.as_slice::<u64>();
@@ -137,7 +147,7 @@ fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> Li
         offsets.extend(offsets_slice.iter().map(|o| o + num_elements));
         sizes.extend(sizes_slice);
 
-        num_elements += chunk.elements().len() as u64;
+        num_elements += chunk_array.elements().len() as u64;
     }
 
     // SAFETY: elements are sliced from valid `ListViewArray`s (from `to_listview()`).

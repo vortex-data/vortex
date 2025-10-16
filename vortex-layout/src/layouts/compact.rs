@@ -134,6 +134,9 @@ impl CompactCompressor {
             }
             Canonical::List(list_array) => {
                 let compressed_elems = self.compress(list_array.elements())?;
+
+                // Note that since the type of our offsets and sizes is not encoded in our `DType`,
+                // we can narrow the widths.
                 let compressed_offsets =
                     self.compress(&list_array.offsets().to_primitive().narrow()?.into_array())?;
                 let compressed_sizes =

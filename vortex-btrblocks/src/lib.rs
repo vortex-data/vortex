@@ -402,6 +402,9 @@ impl BtrBlocksCompressor {
                 // Compress the inner elements.
                 let compressed_elems = self.compress(list_array.elements())?;
 
+                // Note that since the type of our offsets and sizes is not encoded in our `DType`,
+                // we can narrow the widths.
+
                 // Compress the offsets.
                 let compressed_offsets = IntCompressor::compress_no_dict(
                     &list_array.offsets().to_primitive().narrow()?,

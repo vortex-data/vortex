@@ -178,17 +178,17 @@ impl Kernel for ToArrowCanonical {
             (Canonical::Struct(array), DataType::Struct(fields)) => {
                 to_arrow_struct(array, fields.as_ref(), to_preferred)
             }
-            (Canonical::List(array), DataType::ListView(field)) => {
-                to_arrow_listview::<i32>(array, arrow_type_opt.map(|_| field))
+            (Canonical::List(list_view), DataType::ListView(field)) => {
+                to_arrow_listview::<i32>(list_view, arrow_type_opt.map(|_| field))
             }
-            (Canonical::List(array), DataType::LargeListView(field)) => {
-                to_arrow_listview::<i64>(array, arrow_type_opt.map(|_| field))
+            (Canonical::List(list_view), DataType::LargeListView(field)) => {
+                to_arrow_listview::<i64>(list_view, arrow_type_opt.map(|_| field))
             }
-            (Canonical::List(array), DataType::List(field)) => {
-                to_arrow_list::<i32>(array, arrow_type_opt.map(|_| field))
+            (Canonical::List(list_view), DataType::List(field)) => {
+                to_arrow_list::<i32>(list_view, arrow_type_opt.map(|_| field))
             }
-            (Canonical::List(array), DataType::LargeList(field)) => {
-                to_arrow_list::<i64>(array, arrow_type_opt.map(|_| field))
+            (Canonical::List(list_view), DataType::LargeList(field)) => {
+                to_arrow_list::<i64>(list_view, arrow_type_opt.map(|_| field))
             }
             (Canonical::FixedSizeList(array), DataType::FixedSizeList(field, list_size)) => {
                 to_arrow_fixed_size_list(array, arrow_type_opt.map(|_| field), *list_size)
@@ -499,26 +499,33 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
         array.len(),
     );
 
+    // TODO(connor)[ListView]: We can potentially make a generic version of `list_from_list_view`
+    // over the offsets so we don't have to rewrite this.
+
     list_builder.extend_from_array(&array.to_array());
     let list_array = list_builder.finish_into_list();
 
     // Now that we have a normal `ListArray`, we can convert all the child arrays.
 
     // Convert the child `elements` array to Arrow.
-    let (elements, element_field) = if let Some(element_field) = element_field {
-        let elements = list_array
-            .elements()
-            .clone()
-            .into_arrow(element_field.data_type())?;
-        let element_field = element_field.clone();
-        (elements, element_field)
-    } else {
-        let elements = list_array.elements().clone().into_arrow_preferred()?;
-        let element_field = Arc::new(Field::new_list_field(
-            elements.data_type().clone(),
-            list_array.elements().dtype().is_nullable(),
-        ));
-        (elements, element_field)
+    let (elements, element_field) = {
+        if let Some(element_field) = element_field {
+            // Convert elements to the specific Arrow type the caller wants.
+            let elements = list_array
+                .elements()
+                .clone()
+                .into_arrow(element_field.data_type())?;
+            let element_field = element_field.clone();
+            (elements, element_field)
+        } else {
+            // Otherwise, convert into whatever Arrow prefers.
+            let elements = list_array.elements().clone().into_arrow_preferred()?;
+            let element_field = Arc::new(Field::new_list_field(
+                elements.data_type().clone(),
+                list_array.elements().dtype().is_nullable(),
+            ));
+            (elements, element_field)
+        }
     };
 
     // Convert the child `offsets` and `validity` array to Arrow.
@@ -557,18 +564,22 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
     let nulls = array.validity_mask().to_null_buffer();
 
     // Convert the child `elements` array to Arrow.
-    let (elements, element_field) = if let Some(element) = element {
-        (
-            array.elements().clone().into_arrow(element.data_type())?,
-            element.clone(),
-        )
-    } else {
-        let elements = array.elements().clone().into_arrow_preferred()?;
-        let element_field = Arc::new(Field::new_list_field(
-            elements.data_type().clone(),
-            array.elements().dtype().is_nullable(),
-        ));
-        (elements, element_field)
+    let (elements, element_field) = {
+        if let Some(element) = element {
+            // Convert elements to the specific Arrow type the caller wants.
+            (
+                array.elements().clone().into_arrow(element.data_type())?,
+                element.clone(),
+            )
+        } else {
+            // Otherwise, convert into whatever Arrow prefers.
+            let elements = array.elements().clone().into_arrow_preferred()?;
+            let element_field = Arc::new(Field::new_list_field(
+                elements.data_type().clone(),
+                array.elements().dtype().is_nullable(),
+            ));
+            (elements, element_field)
+        }
     };
 
     Ok(Arc::new(GenericListViewArray::new(
