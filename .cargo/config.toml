@@ -9,6 +9,7 @@ rustflags = ['--cfg', 'getrandom_backend="wasm_js"', '-C', 'target-feature=+atom
 [alias]
 xtask = "run -p xtask --"
 vx = "run -p vortex-tui --"
+test-standard = "test --workspace --exclude vortex-gpu"
 
 [publish]
 # NOTE(aduffy): we run into frequent issues auto-releasing our workspace
