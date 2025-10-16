@@ -94,9 +94,9 @@ use crate::indent::IndentedWriter;
 /// The continuation receives the output parameter from a child step and returns
 /// the final output parameter after all parent steps have been applied.
 pub type KernelContinuation<'a> = dyn Fn(
-    &mut IndentedWriter<&mut dyn Write>,
-    GPUKernelParameter,
-) -> Result<GPUKernelParameter, fmt::Error>
+        &mut IndentedWriter<&mut dyn Write>,
+        GPUKernelParameter,
+    ) -> Result<GPUKernelParameter, fmt::Error>
     + 'a;
 
 /// Trait for encoding steps that can be JIT-compiled into a CUDA kernel.
