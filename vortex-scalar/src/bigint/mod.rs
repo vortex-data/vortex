@@ -243,6 +243,34 @@ impl num_traits::ToPrimitive for i256 {
     }
 }
 
+macro_rules! define_as_primitive {
+    ($native_ty:ty) => {
+        impl num_traits::AsPrimitive<i256> for $native_ty {
+            fn as_(self) -> i256 {
+                i256::from_i128(self as i128)
+            }
+        }
+
+        impl num_traits::AsPrimitive<$native_ty> for i256 {
+            fn as_(self) -> $native_ty {
+                self.0.as_i128() as $native_ty
+            }
+        }
+    };
+}
+
+impl num_traits::AsPrimitive<i256> for i256 {
+    fn as_(self) -> i256 {
+        self
+    }
+}
+
+define_as_primitive!(i8);
+define_as_primitive!(i16);
+define_as_primitive!(i32);
+define_as_primitive!(i64);
+define_as_primitive!(i128);
+
 #[cfg(test)]
 #[allow(clippy::many_single_char_names)]
 mod tests {

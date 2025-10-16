@@ -7,15 +7,18 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{DecimalValue, Scalar, match_each_decimal_value_type};
 
-use crate::arrays::{DecimalArray, DecimalVTable};
+use crate::arrays::{DecimalArray, DecimalVTable, smallest_decimal_value_type};
 use crate::compute::{SumKernel, SumKernelAdapter};
 use crate::register_kernel;
+use num_traits::{AsPrimitive, CheckedAdd};
 
+// Its safe to use `AsPrimitive` here because we always cast up.
 macro_rules! sum_decimal {
     ($ty:ty, $values:expr) => {{
         let mut sum: $ty = <$ty>::default();
         for v in $values.iter() {
-            sum = num_traits::CheckedAdd::checked_add(&sum, v)
+            let v: $ty = (*v).as_();
+            sum = CheckedAdd::checked_add(&sum, &v)
                 .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?;
         }
         sum
@@ -26,7 +29,8 @@ macro_rules! sum_decimal {
         let mut sum: $ty = <$ty>::default();
         for (v, valid) in $values.iter().zip_eq($validity.iter()) {
             if valid {
-                sum = num_traits::CheckedAdd::checked_add(&sum, v)
+                let v: $ty = (*v).as_();
+                sum = CheckedAdd::checked_add(&sum, &v)
                     .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?
             }
         }
@@ -51,25 +55,31 @@ impl SumKernel for DecimalVTable {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
             }
             Mask::AllTrue(_) => {
-                match_each_decimal_value_type!(array.values_type(), |D| {
-                    Ok(Scalar::decimal(
-                        DecimalValue::from(sum_decimal!(D, array.buffer::<D>())),
-                        return_dtype,
-                        nullability,
-                    ))
+                let values_type = smallest_decimal_value_type(&return_dtype);
+                match_each_decimal_value_type!(array.values_type(), |I| {
+                    match_each_decimal_value_type!(values_type, |O| {
+                        Ok(Scalar::decimal(
+                            DecimalValue::from(sum_decimal!(O, array.buffer::<I>())),
+                            return_dtype,
+                            nullability,
+                        ))
+                    })
                 })
             }
             Mask::Values(mask_values) => {
-                match_each_decimal_value_type!(array.values_type(), |D| {
-                    Ok(Scalar::decimal(
-                        DecimalValue::from(sum_decimal!(
-                            D,
-                            array.buffer::<D>(),
-                            mask_values.boolean_buffer()
-                        )),
-                        return_dtype,
-                        nullability,
-                    ))
+                let values_type = smallest_decimal_value_type(&return_dtype);
+                match_each_decimal_value_type!(array.values_type(), |I| {
+                    match_each_decimal_value_type!(values_type, |O| {
+                        Ok(Scalar::decimal(
+                            DecimalValue::from(sum_decimal!(
+                                O,
+                                array.buffer::<I>(),
+                                mask_values.boolean_buffer()
+                            )),
+                            return_dtype,
+                            nullability,
+                        ))
+                    })
                 })
             }
         }
