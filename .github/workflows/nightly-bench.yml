@@ -22,6 +22,13 @@ jobs:
       benchmark_matrix: |
         [
           {
+            "id": "clickbench-nvme",
+            "subcommand": "clickbench",
+            "name": "Clickbench on NVME",
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+            "build_args": "--features lance"
+          },
+          {
             "id": "tpch-nvme",
             "subcommand": "tpch",
             "name": "TPC-H on NVME",
@@ -62,12 +69,6 @@ jobs:
             "targets": "duckdb:parquet,duckdb:vortex",
             "scale_factor": "--scale-factor 1000"
           },
-          {
-            "id": "clickbench-nvme",
-            "subcommand": "clickbench",
-            "name": "Clickbench on NVME",
-            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-          }
         ]
     strategy:
       # A single run not should kill the others
