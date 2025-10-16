@@ -133,9 +133,9 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
 
         let mut encoded_output = BufferMut::<Self::ALPInt>::with_capacity(values.len());
 
-        // Estimate capacity to be one patch per 256 values.
-        let mut patch_indices = BufferMut::<u64>::with_capacity(values.len() / 256);
-        let mut patch_values = BufferMut::<Self>::with_capacity(values.len() / 256);
+        // Estimate capacity to be one patch per 32 values.
+        let mut patch_indices = BufferMut::<u64>::with_capacity(values.len() / 32);
+        let mut patch_values = BufferMut::<Self>::with_capacity(values.len() / 32);
 
         // There's exactly one offset per 1024 chunk.
         let mut chunk_offsets = BufferMut::<u64>::with_capacity(values.len().div_ceil(1024));
