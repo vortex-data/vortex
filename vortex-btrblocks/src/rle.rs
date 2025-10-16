@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::RLEArray;
 #[cfg(feature = "unstable_encodings")]
 use {
+    crate::Compressor,
     crate::integer::IntCode,
     vortex_fastlanes::{DeltaArray, delta_compress},
 };
