@@ -179,7 +179,7 @@ mod tests {
     // Pack expressions - creating struct from fields
     #[case(pack([("field1", col("a")), ("field2", col("b"))], vortex_dtype::Nullability::NonNullable))]
     // Merge expressions - merging struct expressions
-    #[case(merge([col("struct1"), col("struct2")], vortex_dtype::Nullability::NonNullable))]
+    #[case(merge([col("struct1"), col("struct2")]))]
     // Complex nested expressions
     #[case(and(gt(col("a"), lit(0)), lt(col("a"), lit(100))))]
     #[case(or(is_null(col("a")), eq(col("a"), lit(0))))]
