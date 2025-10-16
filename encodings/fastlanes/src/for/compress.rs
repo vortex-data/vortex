@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem;
-
 use fastlanes::FoR;
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
 use vortex_array::arrays::PrimitiveArray;
@@ -11,7 +9,6 @@ use vortex_array::stats::Stat;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
     NativePType, PhysicalPType, UnsignedPType, match_each_integer_ptype,
     match_each_unsigned_integer_ptype,
@@ -19,7 +16,8 @@ use vortex_dtype::{
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::FromPrimitiveOrF16;
 
-use crate::{BitPackedArray, BitPackedVTable, FoRArray};
+use crate::bitpacking::unpack_iter::{UnpackStrategy, UnpackedChunks};
+use crate::{BitPackedArray, BitPackedVTable, FoRArray, apply_patches_fn};
 
 impl FoRArray {
     pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
@@ -51,14 +49,32 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     })
 }
 
+/// FoR unpacking strategy that applies a reference value during unpacking
+struct FoRStrategy<T> {
+    reference: T,
+}
+
+impl<T: PhysicalPType<Physical = T> + FoR> UnpackStrategy<T> for FoRStrategy<T> {
+    #[inline(always)]
+    unsafe fn unpack_chunk(
+        &self,
+        bit_width: usize,
+        chunk: &[T::Physical],
+        dst: &mut [T::Physical],
+    ) {
+        // SAFETY: Caller ensures chunk and dst have correct sizes
+        unsafe {
+            FoR::unchecked_unfor_pack(bit_width, chunk, self.reference, dst);
+        }
+    }
+}
+
 pub fn decompress(array: &FoRArray) -> PrimitiveArray {
     let ptype = array.ptype();
 
     // try to do fused unpack
     if array.dtype().is_unsigned_int()
         && let Some(bp) = array.encoded().as_opt::<BitPackedVTable>()
-        && bp.patches().is_none()
-        && bp.all_valid()
     {
         return match_each_unsigned_integer_ptype!(array.ptype(), |T| {
             fused_decompress::<T>(array, bp)
@@ -86,107 +102,43 @@ pub fn decompress(array: &FoRArray) -> PrimitiveArray {
     })
 }
 
-fn fused_decompress<T: PhysicalPType + UnsignedPType + FoR + FromPrimitiveOrF16>(
+fn fused_decompress<
+    T: PhysicalPType<Physical = T> + UnsignedPType + FoR + FromPrimitiveOrF16 + WrappingAdd,
+>(
     for_: &FoRArray,
     bp: &BitPackedArray,
 ) -> PrimitiveArray {
-    const CHUNK_SIZE: usize = 1024;
-
-    let offset = bp.offset() as usize;
-    let len = bp.len();
-    let bit_width = bp.bit_width() as usize;
-    let elems_per_chunk = 128 * bit_width / size_of::<T>();
-    let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
-    let last_chunk_length = (offset + len) % CHUNK_SIZE;
-
-    let mut builder = PrimitiveBuilder::<T>::with_capacity(for_.dtype().nullability(), len);
-    let mut uninit_range = builder.uninit_range(len);
-
-    let packed_buffer = Buffer::<T>::from_byte_buffer(bp.packed().clone());
-    let packed_slice = packed_buffer.as_slice();
     let ref_ = for_
         .reference
         .as_primitive()
         .as_::<T>()
         .vortex_expect("cannot be null");
 
-    let first_chunk_is_sliced = offset != 0;
-    let last_chunk_is_sliced = last_chunk_length != 0;
+    let strategy = FoRStrategy { reference: ref_ };
 
-    // Shared temp buffer for partial chunks
-    let mut temp_buffer = [mem::MaybeUninit::<T>::uninit(); CHUNK_SIZE];
+    // Create UnpackedChunks with FoR strategy
+    let mut unpacked = UnpackedChunks::new_with_strategy(
+        strategy,
+        bp.packed().clone(),
+        bp.bit_width() as usize,
+        bp.offset() as usize,
+        bp.len(),
+    );
 
-    // Track position in output relative to the start of the UninitRange.
-    let mut local_idx = 0;
+    let mut builder = PrimitiveBuilder::<T>::with_capacity(for_.dtype().nullability(), bp.len());
+    let mut uninit_range = builder.uninit_range(bp.len());
 
-    // Handle initial partial chunk if offset != 0 or if there's only one chunk
-    // # Safety
-    //
-    // See `unpack_iter.rs`.
-    if first_chunk_is_sliced || num_chunks == 1 {
-        let chunk = &packed_slice[..elems_per_chunk];
+    // Decode all chunks (initial, full, and trailer) in one call
+    unpacked.decode_into(&mut uninit_range);
 
-        unsafe {
-            let dst: &mut [T] = mem::transmute(&mut temp_buffer[..]);
-            FoR::unchecked_unfor_pack(bit_width, chunk, ref_, dst);
-
-            let header_end_slice = if num_chunks == 1 {
-                len
-            } else {
-                CHUNK_SIZE - offset
-            };
-
-            // Copy the relevant portion to output
-            let src = mem::transmute::<&[mem::MaybeUninit<T>], &[T]>(
-                &temp_buffer[offset..][..header_end_slice],
-            );
-            let dst = uninit_range.slice_uninit_mut(local_idx, header_end_slice);
-            std::ptr::copy_nonoverlapping(
-                src.as_ptr(),
-                dst.as_mut_ptr() as *mut T,
-                header_end_slice,
-            );
-
-            local_idx += header_end_slice;
-        }
+    unsafe {
+        // Append a dense null Mask.
+        uninit_range.append_mask(bp.validity_mask());
     }
 
-    // Handle full middle chunks
-    if num_chunks > 1 {
-        let full_chunks_start = if first_chunk_is_sliced { 1 } else { 0 };
-        let full_chunks_end = num_chunks - (last_chunk_is_sliced as usize);
-
-        for i in full_chunks_start..full_chunks_end {
-            let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
-
-            unsafe {
-                let uninit_dst = uninit_range.slice_uninit_mut(local_idx, CHUNK_SIZE);
-                let dst: &mut [T] = mem::transmute(uninit_dst);
-                FoR::unchecked_unfor_pack(bit_width, chunk, ref_, dst);
-            }
-            local_idx += CHUNK_SIZE;
-        }
-    }
-
-    // Handle trailing partial chunk if len % 1024 != 0
-    if last_chunk_is_sliced && num_chunks > 1 {
-        let chunk = &packed_slice[(num_chunks - 1) * elems_per_chunk..][..elems_per_chunk];
-
-        unsafe {
-            let dst: &mut [T] = mem::transmute(&mut temp_buffer[..]);
-            FoR::unchecked_unfor_pack(bit_width, chunk, ref_, dst);
-
-            // Copy only the valid portion to output
-            let src =
-                mem::transmute::<&[mem::MaybeUninit<T>], &[T]>(&temp_buffer[..last_chunk_length]);
-            let dst = uninit_range.slice_uninit_mut(local_idx, last_chunk_length);
-            std::ptr::copy_nonoverlapping(
-                src.as_ptr(),
-                dst.as_mut_ptr() as *mut T,
-                last_chunk_length,
-            );
-        }
-    }
+    if let Some(patches) = bp.patches() {
+        apply_patches_fn(&mut uninit_range, patches, |v| v.wrapping_add(&ref_));
+    };
 
     unsafe {
         uninit_range.finish();
@@ -270,6 +222,17 @@ mod test {
         let bp = BitPackedArray::encode(array.as_ref(), 3).unwrap();
         let compressed = FoRArray::try_new(bp.into_array(), 10u32.into()).unwrap();
         let decompressed = compressed.to_primitive();
+        assert_eq!(decompressed.as_slice::<u32>(), expect.as_slice::<u32>());
+    }
+
+    #[test]
+    fn test_decompress_fused_patches() {
+        // Create a range offset by a million
+        let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
+        let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
+        let bp = BitPackedArray::encode(array.as_ref(), 2).unwrap();
+        let compressed = FoRArray::try_new(bp.clone().into_array(), 10u32.into()).unwrap();
+        let decompressed = fused_decompress::<u32>(&compressed, &bp);
         assert_eq!(decompressed.as_slice::<u32>(), expect.as_slice::<u32>());
     }
 
