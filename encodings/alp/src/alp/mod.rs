@@ -118,6 +118,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
         encoded_bytes + patch_bytes
     }
 
+    #[allow(clippy::type_complexity)]
     fn encode(
         values: &[Self],
         exponents: Option<Exponents>,

@@ -66,7 +66,7 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
                 let values = children.get(2, dtype, p.len())?;
                 let chunk_offsets = p
                     .chunk_offsets_dtype()
-                    .map(|dtype| children.get(3, &dtype, p.chunk_offsets_len() as usize))
+                    .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
                     .transpose()?;
 
                 Ok::<_, VortexError>(Patches::new(
