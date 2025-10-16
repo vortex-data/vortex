@@ -27,9 +27,10 @@ pub fn new_jit(
     for_: &FoRArray,
     stream: &Arc<CudaStream>,
     allocator: &mut StepIdAllocator,
+    output_array: String,
 ) -> Box<dyn GPUPipelineJIT> {
     match_each_native_ptype!(for_.reference_scalar().as_primitive().ptype(), |P| {
-        let child = handle_array(for_.encoded(), stream, allocator);
+        let child = handle_array(for_.encoded(), stream, allocator, output_array);
         Box::new(ScalarGPUPipelineJITNode {
             inner: FoR {
                 step_id: allocator.fresh_id(),
@@ -58,7 +59,7 @@ impl<P: NativePType + DeviceRepr> ScalarGPUPipelineJIT for FoR<P> {
     fn in_params(&self, p: &mut Vec<GPUKernelParameter>) {
         p.push(GPUKernelParameter {
             name: self.ref_var(),
-            type_: CUDAType::from(self.output_type()).to_string(),
+            type_: self.output_parameter().type_,
         })
     }
 
@@ -72,28 +73,40 @@ impl<P: NativePType + DeviceRepr> ScalarGPUPipelineJIT for FoR<P> {
     }
 
     fn decls(&self, w: &mut IndentedWriter<&mut dyn Write>) -> fmt::Result {
-        let output_cuda_type = CUDAType::from(self.output_type());
-        writeln!(w, "{} tmp{};", output_cuda_type, self.step_id)?;
+        let output_param = self.output_parameter();
+        writeln!(w, "{} {};", output_param.type_, output_param.name)?;
         Ok(())
     }
 
     fn kernel_body(
         &self,
         w: &mut IndentedWrite,
-        f: &dyn Fn(&mut IndentedWrite) -> fmt::Result,
-    ) -> fmt::Result {
-        assert_eq!(self.output_type(), self.child.output_type());
-        let in_var = self.child.output_var();
-        let out_var = self.tmp_var();
+        f: &dyn Fn(
+            &mut IndentedWrite,
+            GPUKernelParameter,
+        ) -> Result<GPUKernelParameter, fmt::Error>,
+    ) -> Result<GPUKernelParameter, fmt::Error> {
+        let output_param = self.output_parameter();
+        let child_output_type = self.child.output_parameter().type_;
+        assert_eq!(output_param.type_, child_output_type);
         let ref_var = self.ref_var();
-        self.child.kernel_body(w, &|w: &mut IndentedWrite| {
-            writeln!(w, "{out_var} = {in_var} + {ref_var};")?;
-            f(w)
-        })
+        self.child
+            .kernel_body(w, &move |w: &mut IndentedWrite, in_: GPUKernelParameter| {
+                let in_var = in_.name;
+                writeln!(
+                    w,
+                    "{out_var} = {in_var} + {ref_var};",
+                    out_var = output_param.name
+                )?;
+                f(w, output_param.clone())
+            })
     }
 
-    fn output_var(&self) -> String {
-        self.tmp_var()
+    fn output_parameter(&self) -> GPUKernelParameter {
+        GPUKernelParameter {
+            name: self.tmp_var(),
+            type_: CUDAType::from(P::PTYPE).to_string(),
+        }
     }
 
     fn output_type(&self) -> PType {

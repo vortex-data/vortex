@@ -10,7 +10,7 @@ use vortex_alp::{ALPArray, ALPFloat, match_each_alp_float_ptype};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
-use crate::indent::IndentedWriter;
+use crate::indent::{IndentedWrite, IndentedWriter};
 use crate::jit::convert::handle_array;
 use crate::jit::{
     CUDAType, GPUKernelParameter, GPUPipelineJIT, ScalarGPUPipelineJIT, ScalarGPUPipelineJITNode,
@@ -29,9 +29,10 @@ pub fn new_jit(
     alp: &ALPArray,
     stream: &Arc<CudaStream>,
     allocator: &mut StepIdAllocator,
+    output_array: String,
 ) -> Box<dyn GPUPipelineJIT> {
     match_each_alp_float_ptype!(alp.ptype(), |A| {
-        let child = handle_array(alp.encoded(), stream, allocator);
+        let child = handle_array(alp.encoded(), stream, allocator, output_array);
         let step_id = allocator.fresh_id();
         Box::new(ScalarGPUPipelineJITNode {
             inner: ALP {
@@ -92,25 +93,31 @@ impl<A: ALPFloat + DeviceRepr> ScalarGPUPipelineJIT for ALP<A> {
     fn kernel_body(
         &self,
         w: &mut IndentedWriter<&mut dyn Write>,
-        f: &dyn Fn(&mut IndentedWriter<&mut dyn Write>) -> fmt::Result,
-    ) -> fmt::Result {
+        f: &dyn Fn(
+            &mut IndentedWriter<&mut dyn Write>,
+            GPUKernelParameter,
+        ) -> Result<GPUKernelParameter, fmt::Error>,
+    ) -> Result<GPUKernelParameter, fmt::Error> {
         self.child
-            .kernel_body(w, &|w: &mut IndentedWriter<&mut dyn Write>| {
+            .kernel_body(w, &|w: &mut IndentedWrite, in_: GPUKernelParameter| {
+                let in_var = in_.name;
                 writeln!(
                     w,
-                    "{out} = ((({type_}){tmp}) * {f}) * {e};",
+                    "{out} = ((({type_}){in_var}) * {f}) * {e};",
                     out = self.tmp_var(),
                     type_ = CUDAType::from(self.float_type),
-                    tmp = self.child.output_var(),
                     f = self.f_var(),
                     e = self.e_var(),
                 )?;
-                f(w)
+                f(w, self.output_parameter())
             })
     }
 
-    fn output_var(&self) -> String {
-        self.tmp_var()
+    fn output_parameter(&self) -> GPUKernelParameter {
+        GPUKernelParameter {
+            name: self.tmp_var(),
+            type_: CUDAType::from(self.float_type).to_string(),
+        }
     }
 
     fn output_type(&self) -> PType {

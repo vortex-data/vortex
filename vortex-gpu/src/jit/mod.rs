@@ -85,14 +85,15 @@ pub trait GPUPipelineJIT {
     fn kernel_body(
         &self,
         w: &mut IndentedWriter<&mut dyn Write>,
-        f: &dyn Fn(&mut IndentedWriter<&mut dyn Write>) -> fmt::Result,
-    ) -> fmt::Result;
+        f: &dyn Fn(
+            &mut IndentedWriter<&mut dyn Write>,
+            GPUKernelParameter,
+        ) -> Result<GPUKernelParameter, fmt::Error>,
+    ) -> Result<GPUKernelParameter, fmt::Error>;
 
-    /// Returns the output variable name (e.g., "tmp0") that this step produces.
-    /// Parent steps read this variable to consume the output.
-    fn output_var(&self) -> String;
+    /// Returns the name+type of the output variable
+    fn output_parameter(&self) -> GPUKernelParameter;
 
-    /// Returns the type of the output variable
     fn output_type(&self) -> PType;
 
     /// Visits child steps in the pipeline tree
@@ -112,10 +113,14 @@ pub trait ScalarGPUPipelineJIT {
     fn kernel_body(
         &self,
         w: &mut IndentedWriter<&mut dyn Write>,
-        f: &dyn Fn(&mut IndentedWriter<&mut dyn Write>) -> fmt::Result,
-    ) -> fmt::Result;
+        f: &dyn Fn(
+            &mut IndentedWriter<&mut dyn Write>,
+            GPUKernelParameter,
+        ) -> Result<GPUKernelParameter, fmt::Error>,
+    ) -> Result<GPUKernelParameter, fmt::Error>;
 
-    fn output_var(&self) -> String;
+    /// Returns the name+type of the output variable
+    fn output_parameter(&self) -> GPUKernelParameter;
 
     fn output_type(&self) -> PType;
 
@@ -139,6 +144,7 @@ pub trait GPUVisitor<'a> {
     fn accept(&mut self, node: &'a dyn GPUPipelineJIT) -> VortexResult<()>;
 }
 
+#[derive(Clone)]
 pub struct GPUKernelParameter {
     name: String,
     type_: String,
@@ -168,13 +174,16 @@ impl<T: ScalarGPUPipelineJIT> GPUPipelineJIT for ScalarGPUPipelineJITNode<T> {
     fn kernel_body(
         &self,
         w: &mut IndentedWriter<&mut dyn Write>,
-        f: &dyn Fn(&mut IndentedWriter<&mut dyn Write>) -> fmt::Result,
-    ) -> fmt::Result {
-        self.inner.kernel_body(w, f)
+        f: &dyn Fn(
+            &mut IndentedWriter<&mut dyn Write>,
+            GPUKernelParameter,
+        ) -> Result<GPUKernelParameter, fmt::Error>,
+    ) -> Result<GPUKernelParameter, fmt::Error> {
+        self.inner.kernel_body(w, &f)
     }
 
-    fn output_var(&self) -> String {
-        self.inner.output_var()
+    fn output_parameter(&self) -> GPUKernelParameter {
+        self.inner.output_parameter()
     }
 
     fn output_type(&self) -> PType {

@@ -20,12 +20,14 @@ struct BitPack<P> {
     bit_width: u8,
     output_type: PType,
     cuda_slice: CudaSlice<P>,
+    output_array: String,
 }
 
 pub fn new_jit(
     bp: &BitPackedArray,
     stream: &Arc<CudaStream>,
     allocator: &mut StepIdAllocator,
+    output_array: String,
 ) -> Box<dyn GPUPipelineJIT> {
     assert_eq!(bp.offset(), 0);
     assert!(bp.patches().is_none());
@@ -41,6 +43,7 @@ pub fn new_jit(
             bit_width: bp.bit_width(),
             output_type: bp.ptype(),
             cuda_slice,
+            output_array,
         })
     })
 }
@@ -77,7 +80,6 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
         writeln!(w, "{output_cuda_type} {};", self.tmp_var())?;
         writeln!(w, "{uoutput_cuda_type} {};", self.src_var())?;
         writeln!(w, "{uoutput_cuda_type} {};", self.utmp_var())?;
-        writeln!(w, "unsigned int out_idx;")?;
         writeln!(w, "unsigned int lane = threadIdx.x;")?;
         writeln!(
             w,
@@ -93,8 +95,11 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
     fn kernel_body(
         &self,
         w: &mut IndentedWrite,
-        f: &dyn Fn(&mut IndentedWrite) -> fmt::Result,
-    ) -> fmt::Result {
+        f: &dyn Fn(
+            &mut IndentedWrite,
+            GPUKernelParameter,
+        ) -> Result<GPUKernelParameter, fmt::Error>,
+    ) -> Result<GPUKernelParameter, fmt::Error> {
         let bit_width = self.bit_width as usize;
         let bits = self.output_type.bit_width();
         let in_ = self.in_var_l();
@@ -104,6 +109,10 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
             for row in 0..bits {
                 writeln!(w, "out[INDEX({row}, lane)] = zero;")?;
             }
+            Ok(GPUKernelParameter {
+                name: "none".to_string(),
+                type_: "t_none_".to_string(),
+            })
         } else if bit_width == bits {
             writeln!(w)?;
             for row in 0..bits {
@@ -112,6 +121,10 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
                     "out[INDEX({row}, lane)] = {in_}[LANE_COUNT * {row} + lane];",
                 )?;
             }
+            Ok(GPUKernelParameter {
+                name: "none".to_string(),
+                type_: "t_none_".to_string(),
+            })
         } else {
             let src = self.src_var();
             let utmp = self.utmp_var();
@@ -162,20 +175,37 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
                     type_ = CUDAType::from(self.output_type),
                 )?;
 
-                writeln!(w, "out_idx = INDEX({row}, lane);")?;
-                f(w)?;
+                let out = f(
+                    w,
+                    GPUKernelParameter {
+                        name: tmp.to_string(),
+                        type_: "unsigned int".to_string(),
+                    },
+                )?;
+                writeln!(
+                    w,
+                    "{output_a}[INDEX({row}, lane)] = {in_var};",
+                    output_a = self.output_array,
+                    in_var = out.name
+                )?;
                 writeln!(w)?;
             }
+            Ok(GPUKernelParameter {
+                name: "none___".to_string(),
+                type_: "t_none_".to_string(),
+            })
         }
-        Ok(())
     }
 
-    fn output_var(&self) -> String {
-        self.tmp_var()
+    fn output_parameter(&self) -> GPUKernelParameter {
+        GPUKernelParameter {
+            name: self.tmp_var(),
+            type_: CUDAType::from(self.output_type).to_string(),
+        }
     }
 
     fn output_type(&self) -> PType {
-        self.output_type
+        P::PTYPE
     }
 
     fn children(&self, _visitor: &mut dyn GPUVisitor) -> VortexResult<()> {

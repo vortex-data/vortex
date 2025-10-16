@@ -23,17 +23,20 @@ pub fn create_run_jit_kernel(
 ) -> VortexResult<(ArrayRef, Duration)> {
     let stream = ctx.default_stream();
 
-    let output = new_jit_array(array, &stream);
-    let kernel = create_kernel(ctx.clone(), output.as_ref())?;
+    let kernel_output_arr_name = "s_output";
+    let output = new_jit_array(array, &stream, kernel_output_arr_name.to_string());
+    let kernel = create_kernel(ctx.clone(), output.as_ref(), kernel_output_arr_name)?;
 
     let num_chunks =
         u32::try_from(array.len().div_ceil(1024)).vortex_expect("Too many grid elements");
 
     let mut launch_builder = stream.launch_builder(&kernel);
 
+    let config = output.launch_config();
+
     let launch_config = LaunchConfig {
         grid_dim: (num_chunks, 1, 1),
-        block_dim: (output.launch_config().block_width, 1, 1),
+        block_dim: (config.block_width, 1, 1),
         shared_mem_bytes: u32::try_from(output.output_type().byte_width())
             .vortex_expect("oversized output type byte width")
             * 1024,

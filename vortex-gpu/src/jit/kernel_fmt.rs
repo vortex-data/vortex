@@ -8,7 +8,6 @@ use cudarc::driver::{CudaContext, CudaFunction};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::indent::{IndentedWrite, IndentedWriter};
-use crate::jit::type_::CUDAType;
 use crate::jit::{GPUKernelParameter, GPUPipelineJIT, GPUVisitor};
 
 struct DeclPrinter<'a, 'b: 'a> {
@@ -46,11 +45,15 @@ fn collect_in_param(node: &dyn GPUPipelineJIT) -> VortexResult<Vec<GPUKernelPara
     Ok(params.params)
 }
 
-pub fn create_kernel_str(w: &mut IndentedWrite, output: &dyn GPUPipelineJIT) -> VortexResult<()> {
+pub fn create_kernel_str(
+    w: &mut IndentedWrite,
+    output: &dyn GPUPipelineJIT,
+    kernel_out_array: &str,
+) -> VortexResult<()> {
     let mut params = collect_in_param(output)?;
     params.push(GPUKernelParameter {
         name: "_output".to_string(),
-        type_: format!("{} *__restrict__", CUDAType::from(output.output_type())),
+        type_: format!("{} *__restrict__", output.output_parameter().type_),
     });
 
     (|| {
@@ -74,22 +77,22 @@ pub fn create_kernel_str(w: &mut IndentedWrite, output: &dyn GPUPipelineJIT) -> 
             writeln!(
                 w,
                 "{output_type} *output = _output + (blockIdx.x * 1024);",
-                output_type = CUDAType::from(output.output_type())
+                output_type = output.output_parameter().type_
             )?;
 
-            writeln!(w, "__shared__ float s_output[1024];")?;
+            writeln!(w, "__shared__ float {kernel_out_array}[1024];")?;
 
             write_kernel_declarations(w, output);
             writeln!(w)?;
-            output.kernel_body(w, &|w: &mut IndentedWrite| {
-                writeln!(w, "s_output[out_idx] = {tmp};", tmp = output.output_var())
+            output.kernel_body(w, &|_w: &mut IndentedWrite, in_: GPUKernelParameter| {
+                Ok(in_)
             })?;
             writeln!(w)?;
 
             writeln!(w, "for (int i = 0; i < 32; i++) {{")?;
             w.indent(|w| {
                 writeln!(w, "auto idx = i * 32 + threadIdx.x;")?;
-                writeln!(w, "output[idx] = s_output[idx];")
+                writeln!(w, "output[idx] = {kernel_out_array}[idx];")
             })?;
             writeln!(w, "}}")
         })?;
@@ -102,13 +105,15 @@ pub fn create_kernel_str(w: &mut IndentedWrite, output: &dyn GPUPipelineJIT) -> 
 pub fn create_kernel(
     ctx: Arc<CudaContext>,
     array: &dyn GPUPipelineJIT,
+    kernel_out_array: &str,
 ) -> VortexResult<CudaFunction> {
     let mut s = String::new();
     let w = &mut s as &mut dyn Write;
     let mut ind = IndentedWriter::new(w);
     let w = &mut ind;
 
-    create_kernel_str(w, array).map_err(|e| vortex_err!("jit str cannot fail {e}"))?;
+    create_kernel_str(w, array, kernel_out_array)
+        .map_err(|e| vortex_err!("jit str cannot fail {e}"))?;
 
     let module =
         cudarc::nvrtc::compile_ptx(s.clone()).map_err(|e| vortex_err!("compile ptx {e}"))?;
