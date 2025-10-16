@@ -72,14 +72,14 @@ on:
             {
               "id": "fineweb",
               "subcommand": "fineweb",
-              "name": "FineWeb",
+              "name": "FineWeb NVMe",
               "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact",
               "scale_factor": "--scale-factor 100"
             },
             {
               "id": "fineweb-s3",
               "subcommand": "fineweb",
-              "name": "FineWeb",
+              "name": "FineWeb S3",
               "local_dir": "bench-vortex/data/fineweb",
               "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/fineweb/",
               "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact",
