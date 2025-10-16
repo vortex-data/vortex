@@ -63,7 +63,7 @@ where
 {
     let values_slice = values.as_slice::<T>();
 
-    let (exponents, encoded, exceptional_positions, exceptional_values) =
+    let (exponents, encoded, exceptional_positions, exceptional_values, chunk_offsets) =
         T::encode(values_slice, exponents);
 
     let encoded_array = PrimitiveArray::new(encoded, values.validity().clone()).into_array();
@@ -103,8 +103,7 @@ where
             0,
             valid_exceptional_positions.into_array(),
             valid_exceptional_values,
-            // TODO(0ax1): handle chunk offsets
-            None,
+            Some(chunk_offsets.into_array()),
         ))
     };
     Ok((exponents, encoded_array, patches))
@@ -133,6 +132,7 @@ pub fn decompress(array: &ALPArray) -> PrimitiveArray {
 mod tests {
     use core::f64;
 
+    use f64::consts::{E, PI};
     use vortex_array::validity::Validity;
     use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::NativePType;
@@ -174,7 +174,7 @@ mod tests {
     #[test]
     #[allow(clippy::approx_constant)] // Clippy objects to 2.718, an approximation of e, the base of the natural logarithm.
     fn test_patched_compress() {
-        let values = buffer![1.234f64, 2.718, f64::consts::PI, 4.0];
+        let values = buffer![1.234f64, 2.718, PI, 4.0];
         let array = PrimitiveArray::new(values.clone(), Validity::NonNullable);
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_some());
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     #[allow(clippy::approx_constant)] // Clippy objects to 2.718, an approximation of e, the base of the natural logarithm.
     fn test_compress_ignores_invalid_exceptional_values() {
-        let values = buffer![1.234f64, 2.718, f64::consts::PI, 4.0];
+        let values = buffer![1.234f64, 2.718, PI, 4.0];
         let array = PrimitiveArray::new(values, Validity::from_iter([true, true, false, true]));
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
@@ -214,7 +214,7 @@ mod tests {
         let array = PrimitiveArray::from_option_iter([
             Some(1.234f64),
             Some(2.718),
-            Some(f64::consts::PI),
+            Some(PI),
             Some(4.0),
             None,
         ]);
@@ -246,7 +246,7 @@ mod tests {
     #[test]
     fn roundtrips_all_null() {
         let original = PrimitiveArray::new(
-            Buffer::from_iter([195.26274f64, f64::consts::PI, -48.815685]),
+            Buffer::from_iter([195.26274f64, PI, -48.815685]),
             Validity::AllInvalid,
         );
         let alp_arr = alp_encode(&original, None).unwrap();
@@ -278,5 +278,86 @@ mod tests {
                 "Expected {original_val} but got {decoded_val}"
             );
         }
+    }
+
+    #[test]
+    fn test_chunk_offsets() {
+        let mut values = vec![1.0f64; 3072];
+
+        values[1023] = PI;
+        values[1024] = E;
+        values[1025] = PI;
+
+        let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
+        let encoded = alp_encode(&array, None).unwrap();
+        let patches = encoded.patches().unwrap();
+
+        let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
+        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0, 1, 3]);
+
+        let patch_indices = patches.indices().to_primitive();
+        assert_eq!(patch_indices.as_slice::<u64>(), &[1023, 1024, 1025]);
+
+        let patch_values = patches.values().to_primitive();
+        assert_eq!(patch_values.as_slice::<f64>(), &[PI, E, PI]);
+    }
+
+    #[test]
+    fn test_chunk_offsets_no_patches_in_middle() {
+        let mut values = vec![1.0f64; 3072];
+        values[0] = PI;
+        values[2048] = E;
+
+        let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
+        let encoded = alp_encode(&array, None).unwrap();
+        let patches = encoded.patches().unwrap();
+
+        let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
+        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0, 1, 1]);
+
+        let patch_indices = patches.indices().to_primitive();
+        assert_eq!(patch_indices.as_slice::<u64>(), &[0, 2048]);
+
+        let patch_values = patches.values().to_primitive();
+        assert_eq!(patch_values.as_slice::<f64>(), &[PI, E]);
+    }
+
+    #[test]
+    fn test_chunk_offsets_trailing_empty_chunks() {
+        let mut values = vec![1.0f64; 3072];
+        values[0] = PI;
+
+        let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
+        let encoded = alp_encode(&array, None).unwrap();
+        let patches = encoded.patches().unwrap();
+
+        let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
+        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0, 1, 1]);
+
+        let patch_indices = patches.indices().to_primitive();
+        assert_eq!(patch_indices.as_slice::<u64>(), &[0]);
+
+        let patch_values = patches.values().to_primitive();
+        assert_eq!(patch_values.as_slice::<f64>(), &[PI]);
+    }
+
+    #[test]
+    fn test_chunk_offsets_single_chunk() {
+        let mut values = vec![1.0f64; 512];
+        values[0] = PI;
+        values[100] = E;
+
+        let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
+        let encoded = alp_encode(&array, None).unwrap();
+        let patches = encoded.patches().unwrap();
+
+        let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
+        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0]);
+
+        let patch_indices = patches.indices().to_primitive();
+        assert_eq!(patch_indices.as_slice::<u64>(), &[0, 100]);
+
+        let patch_values = patches.values().to_primitive();
+        assert_eq!(patch_values.as_slice::<f64>(), &[PI, E]);
     }
 }

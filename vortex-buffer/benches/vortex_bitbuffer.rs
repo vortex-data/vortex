@@ -79,25 +79,57 @@ fn append_n_arrow_buffer(bencher: Bencher, length: usize) {
 }
 
 #[divan::bench(args = INPUT_SIZE)]
-fn value_vortex_buffer(bencher: Bencher, length: usize) {
+fn append_buffer_vortex_buffer(bencher: Bencher, length: usize) {
     bencher
-        .with_inputs(|| BitBuffer::from_iter((0..length).map(|i| i % 2 == 0)))
-        .bench_refs(|buffer| {
-            for idx in 0..length {
-                divan::black_box(buffer.value(idx));
+        .with_inputs(|| {
+            let source = BitBuffer::from_iter((0..length / 100).map(|i| i % 2 == 0));
+            let dest = BitBufferMut::with_capacity(length);
+            (source, dest)
+        })
+        .bench_refs(|(source, dest)| {
+            for _ in 0..100 {
+                dest.append_buffer(divan::black_box(source));
             }
         });
 }
 
 #[divan::bench(args = INPUT_SIZE)]
-fn value_arrow_buffer(bencher: Bencher, length: usize) {
+fn append_buffer_arrow_buffer(bencher: Bencher, length: usize) {
     bencher
-        .with_inputs(|| Arrow(BooleanBuffer::from_iter((0..length).map(|i| i % 2 == 0))))
-        .bench_refs(|buffer| {
-            for idx in 0..length {
-                divan::black_box(buffer.0.value(idx));
+        .with_inputs(|| {
+            let source = Arrow(BooleanBuffer::from_iter(
+                (0..length / 100).map(|i| i % 2 == 0),
+            ));
+            let dest = Arrow(BooleanBufferBuilder::new(length));
+            (source, dest)
+        })
+        .bench_refs(|(source, dest)| {
+            for _ in 0..100 {
+                for value in divan::black_box(&source.0).iter() {
+                    dest.0.append(value);
+                }
             }
         });
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn value_vortex_buffer(bencher: Bencher, length: usize) {
+    let buffer = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
+    bencher.bench_local(|| {
+        for idx in 0..length {
+            divan::black_box(buffer.value(idx));
+        }
+    });
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn value_arrow_buffer(bencher: Bencher, length: usize) {
+    let buffer = Arrow(BooleanBuffer::from_iter((0..length).map(|i| i % 2 == 0)));
+    bencher.bench_local(|| {
+        for idx in 0..length {
+            divan::black_box(buffer.0.value(idx));
+        }
+    });
 }
 
 #[divan::bench(args = INPUT_SIZE)]
@@ -122,20 +154,18 @@ fn slice_arrow_buffer(bencher: Bencher, length: usize) {
 
 #[divan::bench(args = INPUT_SIZE)]
 fn true_count_vortex_buffer(bencher: Bencher, length: usize) {
-    bencher
-        .with_inputs(|| BitBuffer::from_iter((0..length).map(|i| i % 2 == 0)))
-        .bench_refs(|buffer| {
-            divan::black_box(buffer.true_count());
-        });
+    let buffer = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
+    bencher.bench_local(|| {
+        divan::black_box(buffer.true_count());
+    })
 }
 
 #[divan::bench(args = INPUT_SIZE)]
 fn true_count_arrow_buffer(bencher: Bencher, length: usize) {
-    bencher
-        .with_inputs(|| Arrow(BooleanBuffer::from_iter((0..length).map(|i| i % 2 == 0))))
-        .bench_refs(|buffer| {
-            divan::black_box(buffer.0.count_set_bits());
-        });
+    let buffer = Arrow(BooleanBuffer::from_iter((0..length).map(|i| i % 2 == 0)));
+    bencher.bench_local(|| {
+        divan::black_box(buffer.0.count_set_bits());
+    });
 }
 
 #[divan::bench(args = INPUT_SIZE)]
@@ -210,44 +240,40 @@ fn bitwise_not_arrow_buffer(bencher: Bencher, length: usize) {
 
 #[divan::bench(args = INPUT_SIZE)]
 fn iter_vortex_buffer(bencher: Bencher, length: usize) {
-    bencher
-        .with_inputs(|| BitBuffer::from_iter((0..length).map(|i| i % 2 == 0)))
-        .bench_refs(|buffer| {
-            for value in buffer.iter() {
-                divan::black_box(value);
-            }
-        });
+    let buffer = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
+    bencher.bench_local(|| {
+        for value in buffer.iter() {
+            divan::black_box(value);
+        }
+    });
 }
 
 #[divan::bench(args = INPUT_SIZE)]
 fn iter_arrow_buffer(bencher: Bencher, length: usize) {
-    bencher
-        .with_inputs(|| Arrow(BooleanBuffer::from_iter((0..length).map(|i| i % 2 == 0))))
-        .bench_refs(|buffer| {
-            for value in buffer.0.iter() {
-                divan::black_box(value);
-            }
-        });
+    let buffer = Arrow(BooleanBuffer::from_iter((0..length).map(|i| i % 2 == 0)));
+    bencher.bench_local(|| {
+        for value in buffer.0.iter() {
+            divan::black_box(value);
+        }
+    });
 }
 
 #[divan::bench(args = INPUT_SIZE)]
 fn set_indices_vortex_buffer(bencher: Bencher, length: usize) {
-    bencher
-        .with_inputs(|| BitBuffer::from_iter((0..length).map(|i| i % 2 == 0)))
-        .bench_refs(|buffer| {
-            for idx in buffer.set_indices() {
-                divan::black_box(idx);
-            }
-        });
+    let buffer = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
+    bencher.bench_local(|| {
+        for idx in buffer.set_indices() {
+            divan::black_box(idx);
+        }
+    });
 }
 
 #[divan::bench(args = INPUT_SIZE)]
 fn set_indices_arrow_buffer(bencher: Bencher, length: usize) {
-    bencher
-        .with_inputs(|| Arrow(BooleanBuffer::from_iter((0..length).map(|i| i % 2 == 0))))
-        .bench_refs(|buffer| {
-            for idx in buffer.0.set_indices() {
-                divan::black_box(idx);
-            }
-        });
+    let buffer = Arrow(BooleanBuffer::from_iter((0..length).map(|i| i % 2 == 0)));
+    bencher.bench_local(|| {
+        for idx in buffer.0.set_indices() {
+            divan::black_box(idx);
+        }
+    });
 }

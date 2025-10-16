@@ -87,7 +87,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         let current_len = self.values.len();
         assert!(
             current_len + len <= self.values.capacity(),
-            "uninit_range of len {len} exceeds builder capacity {}",
+            "uninit_range of len {len} exceeds builder with length {} and capacity {}",
+            current_len,
             self.values.capacity()
         );
 
@@ -168,11 +169,9 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.append_validity_mask(array.validity_mask());
     }
 
-    fn ensure_capacity(&mut self, capacity: usize) {
-        if capacity > self.values.capacity() {
-            self.values.reserve(capacity - self.values.len());
-            self.nulls.ensure_capacity(capacity);
-        }
+    fn reserve_exact(&mut self, additional: usize) {
+        self.values.reserve(additional);
+        self.nulls.reserve_exact(additional);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
@@ -512,7 +511,9 @@ mod tests {
 
     /// Test that creating an uninit range exceeding capacity panics.
     #[test]
-    #[should_panic(expected = "uninit_range of len 10 exceeds builder capacity")]
+    #[should_panic(
+        expected = "uninit_range of len 10 exceeds builder with length 0 and capacity 6"
+    )]
     fn test_uninit_range_exceeds_capacity_panics() {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 5);
         let _range = builder.uninit_range(10);

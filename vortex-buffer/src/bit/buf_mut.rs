@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
-use bitvec::prelude::Lsb0;
 use bitvec::view::BitView;
-use vortex_error::VortexExpect;
 
-use crate::bit::get_bit;
-use crate::{BitBuffer, BufferMut, ByteBuffer, ByteBufferMut, buffer_mut};
+use crate::bit::{get_bit_unchecked, set_bit_unchecked, unset_bit_unchecked};
+use crate::{BitBuffer, BufferMut, ByteBufferMut, buffer_mut};
 
 /// A mutable bitset buffer that allows random access to individual bits for set and get.
 ///
@@ -28,27 +24,33 @@ use crate::{BitBuffer, BufferMut, ByteBuffer, ByteBufferMut, buffer_mut};
 /// let bools = bools.freeze();
 /// ```
 ///
-/// See also: [`crate::BitBuffer`].
+/// See also: [`BitBuffer`].
 pub struct BitBufferMut {
     buffer: ByteBufferMut,
+    offset: usize,
     len: usize,
 }
 
 impl BitBufferMut {
     /// Create new bit buffer from given byte buffer and logical bit length
-    pub fn from_buffer(buffer: ByteBufferMut, len: usize) -> Self {
+    pub fn from_buffer(buffer: ByteBufferMut, offset: usize, len: usize) -> Self {
         assert!(
             len <= buffer.len() * 8,
             "Buffer len {} is too short for the given length {len}",
             buffer.len()
         );
-        Self { buffer, len }
+        Self {
+            buffer,
+            offset,
+            len,
+        }
     }
 
     /// Create a new empty mutable bit buffer with requested capacity (in bits).
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             buffer: BufferMut::with_capacity(capacity.div_ceil(8)),
+            offset: 0,
             len: 0,
         }
     }
@@ -57,6 +59,7 @@ impl BitBufferMut {
     pub fn new_set(len: usize) -> Self {
         Self {
             buffer: buffer_mut![0xFF; len.div_ceil(8)],
+            offset: 0,
             len,
         }
     }
@@ -65,41 +68,68 @@ impl BitBufferMut {
     pub fn new_unset(len: usize) -> Self {
         Self {
             buffer: BufferMut::zeroed(len.div_ceil(8)),
+            offset: 0,
             len,
         }
     }
 
     /// Create a new empty `BitBufferMut`.
+    #[inline(always)]
     pub fn empty() -> Self {
         Self::with_capacity(0)
     }
 
+    /// Create a new mutable buffer with requested `len` and all bits set to `value`.
+    pub fn full(value: bool, len: usize) -> Self {
+        if value {
+            Self::new_set(len)
+        } else {
+            Self::new_unset(len)
+        }
+    }
+
     /// Get the current populated length of the buffer.
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// True if the buffer has length 0.
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// Get the value at the requested index.
+    #[inline(always)]
     pub fn value(&self, index: usize) -> bool {
-        get_bit(&self.buffer, index)
+        assert!(index < self.len);
+        // SAFETY: checked by assertion
+        unsafe { self.value_unchecked(index) }
+    }
+
+    /// Get the value at the requested index without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `index` is less than the length of the buffer.
+    #[inline(always)]
+    pub unsafe fn value_unchecked(&self, index: usize) -> bool {
+        unsafe { get_bit_unchecked(self.buffer.as_ptr(), self.offset + index) }
     }
 
     /// Get the bit capacity of the buffer.
+    #[inline(always)]
     pub fn capacity(&self) -> usize {
-        self.buffer.capacity() * 8
+        (self.buffer.capacity() * 8) - self.offset
     }
 
     /// Reserve additional bit capacity for the buffer.
     pub fn reserve(&mut self, additional: usize) {
-        let capacity = self.len + additional;
-        if capacity > self.capacity() {
-            // convert differential to bytes
-            let additional = capacity.div_ceil(8) - self.buffer.len();
+        let required_capacity = (self.offset + self.len + additional).div_ceil(8);
+        let buffer_capacity = self.buffer.capacity();
+        if required_capacity > self.buffer.capacity() {
+            let additional = required_capacity - buffer_capacity;
             self.buffer.reserve(additional);
         }
     }
@@ -112,6 +142,21 @@ impl BitBufferMut {
             self.set(index);
         } else {
             self.unset(index);
+        }
+    }
+
+    /// Set the bit at `index` to the given boolean value without checking bounds.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
+    pub unsafe fn set_to_unchecked(&mut self, index: usize, value: bool) {
+        if value {
+            // SAFETY: checked by caller
+            unsafe { self.set_unchecked(index) }
+        } else {
+            // SAFETY: checked by caller
+            unsafe { self.unset_unchecked(index) }
         }
     }
 
@@ -141,13 +186,8 @@ impl BitBufferMut {
     ///
     /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
     pub unsafe fn set_unchecked(&mut self, index: usize) {
-        let word_index = index / 8;
-        let bit_index = index % 8;
         // SAFETY: checked by caller
-        unsafe {
-            let word = self.buffer.as_mut_ptr().add(word_index);
-            word.write(*word | 1 << bit_index);
-        }
+        unsafe { set_bit_unchecked(self.buffer.as_mut_ptr(), self.offset + index) }
     }
 
     /// Unset the bit at `index` without checking bounds.
@@ -156,14 +196,8 @@ impl BitBufferMut {
     ///
     /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
     pub unsafe fn unset_unchecked(&mut self, index: usize) {
-        let word_index = index / 8;
-        let bit_index = index % 8;
-
         // SAFETY: checked by caller
-        unsafe {
-            let word = self.buffer.as_mut_ptr().add(word_index);
-            word.write(*word & !(1 << bit_index));
-        }
+        unsafe { unset_bit_unchecked(self.buffer.as_mut_ptr(), self.offset + index) }
     }
 
     /// Truncate the buffer to the given length.
@@ -172,20 +206,12 @@ impl BitBufferMut {
             return;
         }
 
-        let new_len_bytes = len.div_ceil(8);
+        let new_len_bytes = (self.offset + len).div_ceil(8);
         self.buffer.truncate(new_len_bytes);
         self.len = len;
-
-        let remainder = self.len % 8;
-        if remainder != 0 {
-            let mask = (1u8 << remainder).wrapping_sub(1);
-            *self.buffer.as_mut().last_mut().vortex_expect("non empty") &= mask;
-        }
     }
 
     /// Append a new boolean into the bit buffer, incrementing the length.
-    ///
-    /// Panics if the buffer is full.
     pub fn append(&mut self, value: bool) {
         if value {
             self.append_true()
@@ -195,77 +221,105 @@ impl BitBufferMut {
     }
 
     /// Append a new true value to the buffer.
-    ///
-    /// Panics if there is no remaining capacity.
     pub fn append_true(&mut self) {
-        // TODO(ngates): this is surely pretty slow.
-        if self.len % 8 == 0 {
-            // Push a new word that starts with 1
-            self.buffer.push(1u8);
-        } else {
-            // Push a 1 bit into the current word.
-            let word = self.buffer.last_mut().vortex_expect("buffer is not empty");
-            *word |= 1 << (self.len % 8);
+        let bit_pos = self.offset + self.len;
+        let byte_pos = bit_pos / 8;
+        let bit_in_byte = bit_pos % 8;
+
+        // Ensure buffer has enough bytes
+        if byte_pos >= self.buffer.len() {
+            self.buffer.push(0u8);
         }
 
+        // Set the bit
+        self.buffer.as_mut_slice()[byte_pos] |= 1 << bit_in_byte;
         self.len += 1;
     }
 
     /// Append a new false value to the buffer.
-    ///
-    /// Panics if there is no remaining capacity.
     pub fn append_false(&mut self) {
-        if self.len % 8 == 0 {
-            // push new word that starts with 0
+        let bit_pos = self.offset + self.len;
+        let byte_pos = bit_pos / 8;
+        let bit_in_byte = bit_pos % 8;
+
+        // Ensure buffer has enough bytes
+        if byte_pos >= self.buffer.len() {
             self.buffer.push(0u8);
+        }
+
+        // Bit is already 0 if we just pushed a new byte, otherwise ensure it's unset
+        if bit_in_byte != 0 {
+            self.buffer.as_mut_slice()[byte_pos] &= !(1 << bit_in_byte);
         }
 
         self.len += 1;
     }
+
     /// Append several boolean values into the bit buffer. After this operation,
     /// the length will be incremented by `n`.
     ///
     /// Panics if the buffer does not have `n` slots left.
     pub fn append_n(&mut self, value: bool, n: usize) {
-        match value {
-            true => {
-                let new_len = self.len + n;
-                let new_len_bytes = new_len.div_ceil(8);
-                let cur_remainder = self.len % 8;
-                let new_remainder = new_len % 8;
+        if n == 0 {
+            return;
+        }
 
-                if cur_remainder != 0 {
-                    // Pad cur_remainder high bits with 1s
-                    *self
-                        .buffer
-                        .as_mut_slice()
-                        .last_mut()
-                        .vortex_expect("buffer is not empty") |= !((1 << cur_remainder) - 1);
-                }
+        let start_bit_pos = self.offset + self.len;
+        let end_bit_pos = start_bit_pos + n;
+        let required_bytes = end_bit_pos.div_ceil(8);
 
-                // Push several full bytes.
-                if new_len_bytes > self.buffer.len() {
-                    // Push full bytes, except for the final byte.
-                    self.buffer.push_n(0xFF, new_len_bytes - self.buffer.len());
-                }
+        // Ensure buffer has enough bytes
+        if required_bytes > self.buffer.len() {
+            self.buffer.push_n(0x00, required_bytes - self.buffer.len());
+        }
 
-                // Patch zeros into remainder of last byte pushed
-                if new_remainder > 0 {
-                    // Set the new_remainder LSB to 1
-                    *self
-                        .buffer
-                        .as_mut_slice()
-                        .last_mut()
-                        .vortex_expect("buffer is not empty") &= (1 << new_remainder) - 1;
+        let fill_byte = if value { 0xFF } else { 0x00 };
+
+        // Calculate byte positions
+        let start_byte = start_bit_pos / 8;
+        let start_bit = start_bit_pos % 8;
+        let end_byte = end_bit_pos / 8;
+        let end_bit = end_bit_pos % 8;
+
+        let slice = self.buffer.as_mut_slice();
+
+        if start_byte == end_byte {
+            // All bits are in the same byte
+            let mask = ((1u8 << (end_bit - start_bit)) - 1) << start_bit;
+            if value {
+                slice[start_byte] |= mask;
+            } else {
+                slice[start_byte] &= !mask;
+            }
+        } else {
+            // Fill the first partial byte
+            if start_bit != 0 {
+                let mask = !((1u8 << start_bit) - 1);
+                if value {
+                    slice[start_byte] |= mask;
+                } else {
+                    slice[start_byte] &= !mask;
                 }
             }
-            false => {
-                let new_len = self.len + n;
-                let new_len_bytes = new_len.div_ceil(8);
 
-                // push new 0 bytes.
-                if new_len_bytes > self.buffer.len() {
-                    self.buffer.push_n(0, new_len_bytes - self.buffer.len());
+            // Fill the complete middle bytes
+            let fill_start = if start_bit != 0 {
+                start_byte + 1
+            } else {
+                start_byte
+            };
+            let fill_end = end_byte;
+            if fill_start < fill_end {
+                slice[fill_start..fill_end].fill(fill_byte);
+            }
+
+            // Fill the last partial byte
+            if end_bit != 0 {
+                let mask = (1u8 << end_bit) - 1;
+                if value {
+                    slice[end_byte] |= mask;
+                } else {
+                    slice[end_byte] &= !mask;
                 }
             }
         }
@@ -273,30 +327,44 @@ impl BitBufferMut {
         self.len += n;
     }
 
-    /// Append bits defined by range from values to this buffer
-    pub fn append_packed_range(&mut self, range: Range<usize>, values: &ByteBuffer) {
-        let bit_len = range.end - range.start;
-        self.buffer.reserve(bit_len.div_ceil(8));
-        // SAFETY: The copy below will populate the values
-        unsafe { self.buffer.set_len((self.len + bit_len).div_ceil(8)) };
-
-        let self_slice = self.buffer.as_mut_slice().view_bits_mut::<Lsb0>();
-        let other_slice = values.as_slice().view_bits::<Lsb0>();
-
-        let other_sliced = &other_slice[range.start..range.end];
-        self_slice[self.len..][..bit_len].copy_from_bitslice(other_sliced);
-        self.len += bit_len;
-    }
-
     /// Append a [`BitBuffer`] to this [`BitBufferMut`]
+    ///
+    /// This efficiently copies all bits from the source buffer to the end of this buffer.
     pub fn append_buffer(&mut self, buffer: &BitBuffer) {
-        let buffer_range = buffer.offset()..buffer.offset() + buffer.len();
-        self.append_packed_range(buffer_range, buffer.inner())
+        let bit_len = buffer.len();
+        if bit_len == 0 {
+            return;
+        }
+
+        let start_bit_pos = self.offset + self.len;
+        let end_bit_pos = start_bit_pos + bit_len;
+        let required_bytes = end_bit_pos.div_ceil(8);
+
+        // Ensure buffer has enough bytes
+        if required_bytes > self.buffer.len() {
+            self.buffer.push_n(0x00, required_bytes - self.buffer.len());
+        }
+
+        // Use bitvec for efficient bit copying
+        let self_slice = self
+            .buffer
+            .as_mut_slice()
+            .view_bits_mut::<bitvec::prelude::Lsb0>();
+        let other_slice = buffer
+            .inner()
+            .as_slice()
+            .view_bits::<bitvec::prelude::Lsb0>();
+
+        // Copy from source buffer (accounting for its offset) to destination (accounting for our offset + len)
+        let source_range = buffer.offset()..buffer.offset() + bit_len;
+        self_slice[start_bit_pos..end_bit_pos].copy_from_bitslice(&other_slice[source_range]);
+
+        self.len += bit_len;
     }
 
     /// Freeze the buffer in its current state into an immutable `BoolBuffer`.
     pub fn freeze(self) -> BitBuffer {
-        BitBuffer::new(self.buffer.freeze().into_byte_buffer(), self.len)
+        BitBuffer::new_with_offset(self.buffer.freeze(), self.len, self.offset)
     }
 
     /// Get the underlying bytes as a slice
@@ -316,13 +384,56 @@ impl Default for BitBufferMut {
     }
 }
 
+impl From<&[bool]> for BitBufferMut {
+    fn from(value: &[bool]) -> Self {
+        let mut buf = BitBufferMut::new_unset(value.len());
+        for (i, &v) in value.iter().enumerate() {
+            if v {
+                // SAFETY: i is in bounds
+                unsafe { buf.set_unchecked(i) }
+            }
+        }
+        buf
+    }
+}
+
+impl From<Vec<bool>> for BitBufferMut {
+    fn from(value: Vec<bool>) -> Self {
+        value.as_slice().into()
+    }
+}
+
+impl FromIterator<bool> for BitBufferMut {
+    fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
+        let iter = iter.into_iter();
+        let (low, high) = iter.size_hint();
+        if let Some(len) = high {
+            let mut buf = BitBufferMut::new_unset(len);
+            for (i, v) in iter.enumerate() {
+                if v {
+                    // SAFETY: i is in bounds
+                    unsafe { buf.set_unchecked(i) }
+                }
+            }
+            buf
+        } else {
+            let mut buf = BitBufferMut::with_capacity(low);
+            for v in iter {
+                buf.append(v);
+            }
+            buf
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::bit::buf_mut::BitBufferMut;
+    use crate::{BufferMut, bitbuffer, bitbuffer_mut, buffer_mut};
 
     #[test]
     fn test_bits_mut() {
-        let mut bools = BitBufferMut::new_unset(10);
+        let mut bools = bitbuffer_mut![false; 10];
         bools.set_to(0, true);
         bools.set_to(9, true);
 
@@ -349,5 +460,362 @@ mod tests {
         assert_eq!(bools.true_count(), 2);
         assert!(bools.value(0));
         assert!(bools.value(9));
+    }
+
+    #[test]
+    fn test_with_offset_zero() {
+        // Test basic operations when offset is 0
+        let buf = BufferMut::zeroed(2);
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 0, 16);
+
+        // Set some bits
+        bit_buf.set(0);
+        bit_buf.set(7);
+        bit_buf.set(8);
+        bit_buf.set(15);
+
+        // Verify values
+        assert!(bit_buf.value(0));
+        assert!(bit_buf.value(7));
+        assert!(bit_buf.value(8));
+        assert!(bit_buf.value(15));
+        assert!(!bit_buf.value(1));
+        assert!(!bit_buf.value(9));
+
+        // Verify underlying bytes
+        assert_eq!(bit_buf.as_slice()[0], 0b10000001);
+        assert_eq!(bit_buf.as_slice()[1], 0b10000001);
+    }
+
+    #[test]
+    fn test_with_offset_within_byte() {
+        // Test operations with offset=3 (within first byte)
+        let buf = buffer_mut![0b11111111, 0b00000000, 0b00000000];
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 3, 10);
+
+        // Initially, bits 3-7 from first byte are set (5 bits)
+        // and bits 0-4 from second byte are unset (5 bits more)
+        assert!(bit_buf.value(0)); // bit 3 of byte 0
+        assert!(bit_buf.value(4)); // bit 7 of byte 0
+        assert!(!bit_buf.value(5)); // bit 0 of byte 1
+
+        // Set a bit in the second byte's range
+        bit_buf.set(7);
+        assert!(bit_buf.value(7));
+
+        // Unset a bit in the first byte's range
+        bit_buf.unset(0);
+        assert!(!bit_buf.value(0));
+    }
+
+    #[test]
+    fn test_with_offset_byte_boundary() {
+        // Test operations with offset=8 (exactly one byte)
+        let buf = buffer_mut![0xFF, 0x00, 0xFF];
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 8, 16);
+
+        // Buffer starts at byte 1, so all bits should be unset initially
+        for i in 0..8 {
+            assert!(!bit_buf.value(i));
+        }
+        // Next byte has all bits set
+        for i in 8..16 {
+            assert!(bit_buf.value(i));
+        }
+
+        // Set some bits
+        bit_buf.set(0);
+        bit_buf.set(3);
+        assert!(bit_buf.value(0));
+        assert!(bit_buf.value(3));
+    }
+
+    #[test]
+    fn test_with_large_offset() {
+        // Test with offset=13 (one byte + 5 bits)
+        let buf = buffer_mut![0xFF, 0xFF, 0xFF, 0xFF];
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 13, 10);
+
+        // All bits should initially be set
+        for i in 0..10 {
+            assert!(bit_buf.value(i));
+        }
+
+        // Unset some bits
+        bit_buf.unset(0);
+        bit_buf.unset(5);
+        bit_buf.unset(9);
+
+        assert!(!bit_buf.value(0));
+        assert!(bit_buf.value(1));
+        assert!(!bit_buf.value(5));
+        assert!(!bit_buf.value(9));
+    }
+
+    #[test]
+    fn test_append_with_offset() {
+        // Create buffer with offset
+        let buf = buffer_mut![0b11100000]; // First 3 bits unset, last 5 set
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 3, 0); // Start at bit 3, len=0
+
+        // Append some bits
+        bit_buf.append(false); // Should use bit 3
+        bit_buf.append(true); // Should use bit 4
+        bit_buf.append(true); // Should use bit 5
+
+        assert_eq!(bit_buf.len(), 3);
+        assert!(!bit_buf.value(0));
+        assert!(bit_buf.value(1));
+        assert!(bit_buf.value(2));
+    }
+
+    #[test]
+    fn test_append_n_with_offset_crossing_boundary() {
+        // Create buffer with offset that will cross byte boundary when appending
+        let buf = BufferMut::zeroed(4);
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 5, 0);
+
+        // Append enough bits to cross into next byte
+        bit_buf.append_n(true, 10); // 5 bits left in first byte, then 5 in second
+
+        assert_eq!(bit_buf.len(), 10);
+        for i in 0..10 {
+            assert!(bit_buf.value(i));
+        }
+
+        // Verify the underlying bytes
+        // Bits 5-7 of byte 0 should be set (3 bits)
+        // Bits 0-6 of byte 1 should be set (7 bits)
+        assert_eq!(bit_buf.as_slice()[0], 0b11100000);
+        assert_eq!(bit_buf.as_slice()[1], 0b01111111);
+    }
+
+    #[test]
+    fn test_truncate_with_offset() {
+        let buf = buffer_mut![0xFF, 0xFF];
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 4, 12);
+
+        assert_eq!(bit_buf.len(), 12);
+
+        // Truncate to 8 bits
+        bit_buf.truncate(8);
+        assert_eq!(bit_buf.len(), 8);
+
+        // Truncate to 3 bits
+        bit_buf.truncate(3);
+        assert_eq!(bit_buf.len(), 3);
+
+        // Truncating to larger length should be no-op
+        bit_buf.truncate(10);
+        assert_eq!(bit_buf.len(), 3);
+    }
+
+    #[test]
+    fn test_capacity_with_offset() {
+        // Use exact buffer size to test capacity calculation
+        let buf = buffer_mut![0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; // Exactly 10 bytes = 80 bits
+        let bit_buf = BitBufferMut::from_buffer(buf, 5, 0);
+
+        // Capacity should be at least buffer length minus offset
+        // (may be more due to allocator rounding)
+        assert!(bit_buf.capacity() >= 75);
+        // And should account for offset
+        assert_eq!(bit_buf.capacity() % 8, (80 - 5) % 8);
+    }
+
+    #[test]
+    fn test_reserve_with_offset() {
+        // Use exact buffer to test reserve
+        let buf = buffer_mut![0, 0]; // Exactly 2 bytes = 16 bits
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 3, 0);
+
+        // Current capacity should be at least 13 bits (16 - 3)
+        let initial_capacity = bit_buf.capacity();
+        assert!(initial_capacity >= 13);
+
+        // Reserve 20 more bits (need total of offset 3 + len 0 + additional 20 = 23 bits)
+        bit_buf.reserve(20);
+
+        // Should now have at least 20 bits of capacity
+        assert!(bit_buf.capacity() >= 20);
+    }
+
+    #[test]
+    fn test_freeze_with_offset() {
+        let buf = buffer_mut![0b11110000, 0b00001111];
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 4, 8);
+
+        // Set some bits
+        bit_buf.set(0);
+        bit_buf.set(7);
+
+        // Freeze and verify offset is preserved
+        let frozen = bit_buf.freeze();
+        assert_eq!(frozen.offset(), 4);
+        assert_eq!(frozen.len(), 8);
+
+        // Verify values through frozen buffer
+        assert!(frozen.value(0));
+        assert!(frozen.value(7));
+    }
+
+    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
+    #[test]
+    fn test_append_buffer_with_offsets() {
+        // Create source buffer with offset
+        let source = bitbuffer![false, false, true, true, false, true];
+
+        // Create destination buffer with offset
+        let buf = BufferMut::zeroed(4);
+        let mut dest = BitBufferMut::from_buffer(buf, 3, 0);
+
+        // Append 2 initial bits
+        dest.append(true);
+        dest.append(false);
+
+        // Append the source buffer
+        dest.append_buffer(&source);
+
+        assert_eq!(dest.len(), 8);
+        assert!(dest.value(0)); // Our first append
+        assert!(!dest.value(1)); // Our second append
+        assert!(!dest.value(2)); // From source[0]
+        assert!(!dest.value(3)); // From source[1]
+        assert!(dest.value(4)); // From source[2]
+        assert!(dest.value(5)); // From source[3]
+        assert!(!dest.value(6)); // From source[4]
+        assert!(dest.value(7)); // From source[5]
+    }
+
+    #[test]
+    fn test_set_unset_unchecked_with_offset() {
+        let buf = BufferMut::zeroed(3);
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 7, 10);
+
+        unsafe {
+            bit_buf.set_unchecked(0);
+            bit_buf.set_unchecked(5);
+            bit_buf.set_unchecked(9);
+        }
+
+        assert!(bit_buf.value(0));
+        assert!(bit_buf.value(5));
+        assert!(bit_buf.value(9));
+
+        unsafe {
+            bit_buf.unset_unchecked(5);
+        }
+
+        assert!(!bit_buf.value(5));
+    }
+
+    #[test]
+    fn test_value_unchecked_with_offset() {
+        let buf = buffer_mut![0b11110000, 0b00001111];
+        let bit_buf = BitBufferMut::from_buffer(buf, 4, 8);
+
+        unsafe {
+            // First 4 bits of logical buffer come from bits 4-7 of first byte (all 1s)
+            assert!(bit_buf.value_unchecked(0));
+            assert!(bit_buf.value_unchecked(3));
+
+            // Next 4 bits come from bits 0-3 of second byte (all 1s)
+            assert!(bit_buf.value_unchecked(4));
+            assert!(bit_buf.value_unchecked(7));
+        }
+    }
+
+    #[test]
+    fn test_append_alternating_with_offset() {
+        let buf = BufferMut::zeroed(4);
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 2, 0);
+
+        // Append alternating pattern across byte boundaries
+        for i in 0..20 {
+            bit_buf.append(i % 2 == 0);
+        }
+
+        assert_eq!(bit_buf.len(), 20);
+        for i in 0..20 {
+            assert_eq!(bit_buf.value(i), i % 2 == 0);
+        }
+    }
+
+    #[test]
+    fn test_new_set_new_unset() {
+        let set_buf = bitbuffer_mut![true; 10];
+        let unset_buf = bitbuffer_mut![false; 10];
+
+        for i in 0..10 {
+            assert!(set_buf.value(i));
+            assert!(!unset_buf.value(i));
+        }
+
+        assert_eq!(set_buf.len(), 10);
+        assert_eq!(unset_buf.len(), 10);
+    }
+
+    #[test]
+    fn test_append_n_false_with_offset() {
+        let buf = BufferMut::zeroed(4);
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 5, 0);
+
+        bit_buf.append_n(false, 15);
+
+        assert_eq!(bit_buf.len(), 15);
+        for i in 0..15 {
+            assert!(!bit_buf.value(i));
+        }
+    }
+
+    #[test]
+    fn test_append_n_true_with_offset() {
+        let buf = BufferMut::zeroed(4);
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 5, 0);
+
+        bit_buf.append_n(true, 15);
+
+        assert_eq!(bit_buf.len(), 15);
+        for i in 0..15 {
+            assert!(bit_buf.value(i));
+        }
+    }
+
+    #[test]
+    fn test_mixed_operations_with_offset() {
+        // Complex test combining multiple operations with offset
+        let buf = BufferMut::zeroed(5);
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 3, 0);
+
+        // Append some bits
+        bit_buf.append_n(true, 5);
+        bit_buf.append_n(false, 3);
+        bit_buf.append(true);
+
+        assert_eq!(bit_buf.len(), 9);
+
+        // Set and unset
+        bit_buf.set(6); // Was false, now true
+        bit_buf.unset(2); // Was true, now false
+
+        // Verify
+        assert!(bit_buf.value(0));
+        assert!(bit_buf.value(1));
+        assert!(!bit_buf.value(2)); // Unset
+        assert!(bit_buf.value(3));
+        assert!(bit_buf.value(4));
+        assert!(!bit_buf.value(5));
+        assert!(bit_buf.value(6)); // Set
+        assert!(!bit_buf.value(7));
+        assert!(bit_buf.value(8));
+
+        // Truncate
+        bit_buf.truncate(6);
+        assert_eq!(bit_buf.len(), 6);
+
+        // Freeze and verify offset preserved
+        let frozen = bit_buf.freeze();
+        assert_eq!(frozen.offset(), 3);
+        assert_eq!(frozen.len(), 6);
     }
 }

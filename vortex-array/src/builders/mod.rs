@@ -170,8 +170,8 @@ pub trait ArrayBuilder: Send {
         unsafe { self.extend_from_array_unchecked(array) }
     }
 
-    /// Ensure that the builder can hold at least `capacity` number of items
-    fn ensure_capacity(&mut self, capacity: usize);
+    /// Allocate space for extra `additional` items
+    fn reserve_exact(&mut self, additional: usize);
 
     /// Override builders validity with the one provided.
     ///

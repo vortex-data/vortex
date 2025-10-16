@@ -7,10 +7,16 @@ use std::hash::Hash;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_error::VortexResult;
-use vortex_fastlanes::{DeltaArray, RLEArray, delta_compress};
+use vortex_fastlanes::RLEArray;
+#[cfg(feature = "unstable_encodings")]
+use {
+    crate::Compressor,
+    crate::integer::IntCode,
+    vortex_fastlanes::{DeltaArray, delta_compress},
+};
 
-use crate::integer::{IntCode, IntCompressor};
-use crate::{Compressor, CompressorStats, Scheme, estimate_compression_ratio_with_sampling};
+use crate::integer::IntCompressor;
+use crate::{CompressorStats, Scheme, estimate_compression_ratio_with_sampling};
 
 /// Threshold for the average run length in an array before we consider run-length encoding.
 pub const RUN_LENGTH_THRESHOLD: u32 = 4;

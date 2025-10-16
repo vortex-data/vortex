@@ -252,11 +252,11 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         }
     }
 
-    fn ensure_capacity(&mut self, capacity: usize) {
-        self.elements_builder.ensure_capacity(capacity * 2);
-        self.offsets_builder.ensure_capacity(capacity);
-        self.sizes_builder.ensure_capacity(capacity);
-        self.nulls.ensure_capacity(capacity);
+    fn reserve_exact(&mut self, capacity: usize) {
+        self.elements_builder.reserve_exact(capacity * 2);
+        self.offsets_builder.reserve_exact(capacity);
+        self.sizes_builder.reserve_exact(capacity);
+        self.nulls.reserve_exact(capacity);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {

@@ -3,30 +3,25 @@
 
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
-use arrow_schema::{DataType, Schema};
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_ensure};
 
-use crate::arrays::StructArray;
-use crate::arrow::compute::{to_arrow, to_arrow_preferred};
-use crate::{Array, ToCanonical};
+use crate::arrow::compute::to_arrow_preferred;
+use crate::{Array, Canonical};
 
 impl TryFrom<&dyn Array> for RecordBatch {
     type Error = VortexError;
 
     fn try_from(value: &dyn Array) -> VortexResult<Self> {
-        value.to_struct().into_record_batch()
-    }
-}
+        let Canonical::Struct(struct_array) = value.to_canonical() else {
+            vortex_bail!("RecordBatch can only be constructed from ")
+        };
 
-impl StructArray {
-    pub fn into_record_batch(self) -> VortexResult<RecordBatch> {
-        let array_ref = to_arrow_preferred(self.as_ref())?;
-        Ok(RecordBatch::from(array_ref.as_struct()))
-    }
+        vortex_ensure!(
+            struct_array.all_valid(),
+            "RecordBatch can only be constructed from StructArray with no nulls"
+        );
 
-    pub fn into_record_batch_with_schema(self, schema: &Schema) -> VortexResult<RecordBatch> {
-        let data_type = DataType::Struct(schema.fields.clone());
-        let array_ref = to_arrow(self.as_ref(), &data_type)?;
+        let array_ref = to_arrow_preferred(struct_array.as_ref())?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }

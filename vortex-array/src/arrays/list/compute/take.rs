@@ -82,7 +82,7 @@ fn _take<I: IntegerPType, O: IntegerPType>(
             vortex_panic!("Failed to convert range length to usize: {}", stop - start)
         });
 
-        elements_to_take.ensure_capacity(elements_to_take.len() + additional);
+        elements_to_take.reserve_exact(additional);
         for i in 0..additional {
             elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < additional"));
         }
@@ -150,7 +150,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType>(
                 vortex_panic!("Failed to convert range length to usize: {}", stop - start)
             });
 
-            elements_to_take.ensure_capacity(elements_to_take.len() + additional);
+            elements_to_take.reserve_exact(additional);
             for i in 0..additional {
                 elements_to_take
                     .append_value(start + O::from_usize(i).vortex_expect("i < additional"));

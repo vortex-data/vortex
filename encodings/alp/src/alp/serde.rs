@@ -39,6 +39,11 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
         })))
     }
 
+    /// Deserialize an ALPArray from its components.
+    ///
+    /// Note that the layout depends on whether patches and chunk_offsets are present:
+    /// - No patches: `[encoded]`
+    /// - With patches: `[encoded, patch_indices, patch_values, chunk_offsets?]`
     fn build(
         _encoding: &ALPEncoding,
         dtype: &DType,
@@ -59,7 +64,18 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
             .map(|p| {
                 let indices = children.get(1, &p.indices_dtype(), p.len())?;
                 let values = children.get(2, dtype, p.len())?;
-                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values, None))
+                let chunk_offsets = p
+                    .chunk_offsets_dtype()
+                    .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
+                    .transpose()?;
+
+                Ok::<_, VortexError>(Patches::new(
+                    len,
+                    p.offset(),
+                    indices,
+                    values,
+                    chunk_offsets,
+                ))
             })
             .transpose()?;
 

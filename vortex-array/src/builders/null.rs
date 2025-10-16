@@ -71,7 +71,7 @@ impl ArrayBuilder for NullBuilder {
         self.append_nulls(array.len());
     }
 
-    fn ensure_capacity(&mut self, _capacity: usize) {}
+    fn reserve_exact(&mut self, _additional: usize) {}
 
     unsafe fn set_validity_unchecked(&mut self, _validity: Mask) {}
 

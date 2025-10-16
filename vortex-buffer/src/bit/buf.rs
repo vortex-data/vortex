@@ -3,10 +3,11 @@
 
 use std::ops::{BitAnd, BitOr, BitXor, Not, Range};
 
-use crate::bit::aligned::BitChunks;
-use crate::bit::get_bit_unchecked;
 use crate::bit::ops::{bitwise_and, bitwise_not, bitwise_or, bitwise_unary_op, bitwise_xor};
-use crate::bit::unaligned::{BitIndexIterator, BitIterator, BitSliceIterator, UnalignedBitChunks};
+use crate::bit::{
+    BitChunks, BitIndexIterator, BitIterator, BitSliceIterator, UnalignedBitChunk,
+    get_bit_unchecked,
+};
 use crate::{Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer, buffer};
 
 /// An immutable bitset stored as a packed byte buffer.
@@ -86,6 +87,20 @@ impl BitBuffer {
             buffer,
             len,
             offset: 0,
+        }
+    }
+
+    /// Create a new empty `BitBuffer`.
+    pub fn empty() -> Self {
+        Self::new_set(0)
+    }
+
+    /// Create a new `BitBuffer` of length `len` where all bits are set to `value`.
+    pub fn full(value: bool, len: usize) -> Self {
+        if value {
+            Self::new_set(len)
+        } else {
+            Self::new_unset(len)
         }
     }
 
@@ -198,15 +213,15 @@ impl BitBuffer {
     }
 
     /// Access chunks of the buffer aligned to 8 byte boundary as [prefix, \<full chunks\>, suffix]
-    pub fn unaligned_chunks(&self) -> UnalignedBitChunks {
-        UnalignedBitChunks::new(self.buffer.clone(), self.offset, self.len)
+    pub fn unaligned_chunks(&self) -> UnalignedBitChunk<'_> {
+        UnalignedBitChunk::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Access chunks of the underlying buffer as 8 byte chunks with a final trailer
     ///
     /// If you're performing operations on a single buffer, prefer [BitBuffer::unaligned_chunks]
-    pub fn chunks(&self) -> BitChunks {
-        BitChunks::new(self.buffer.clone(), self.offset, self.len)
+    pub fn chunks(&self) -> BitChunks<'_> {
+        BitChunks::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Get the number of set bits in the buffer.
@@ -220,18 +235,18 @@ impl BitBuffer {
     }
 
     /// Iterator over bits in the buffer
-    pub fn iter(&self) -> BitIterator {
-        BitIterator::new(self.buffer.clone(), self.offset, self.len)
+    pub fn iter(&self) -> BitIterator<'_> {
+        BitIterator::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Iterator over set indices of the underlying buffer
-    pub fn set_indices(&self) -> BitIndexIterator {
-        BitIndexIterator::new(self.buffer.clone(), self.offset, self.len)
+    pub fn set_indices(&self) -> BitIndexIterator<'_> {
+        BitIndexIterator::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Iterator over set slices of the underlying buffer
-    pub fn set_slices(&self) -> BitSliceIterator {
-        BitSliceIterator::new(self.buffer.clone(), self.offset, self.len)
+    pub fn set_slices(&self) -> BitSliceIterator<'_> {
+        BitSliceIterator::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Created a new BitBuffer with offset reset to 0
@@ -266,54 +281,30 @@ impl BitBuffer {
     ///
     /// If the caller doesn't hold only reference to the underlying buffer, a copy is created.
     /// The second value of the tuple is a bit_offset of the first value in the first byte
-    pub fn into_mut(self) -> (BitBufferMut, usize) {
+    pub fn into_mut(self) -> BitBufferMut {
         let bit_offset = self.offset % 8;
         let len = self.len;
         // TODO(robert): if we are copying here we can strip offset bits
         let shrunk = self.into_inner().into_mut();
-        (BitBufferMut::from_buffer(shrunk, len), bit_offset)
+        BitBufferMut::from_buffer(shrunk, bit_offset, len)
     }
 }
 
 impl From<&[bool]> for BitBuffer {
     fn from(value: &[bool]) -> Self {
-        let mut buf = BitBufferMut::new_unset(value.len());
-        for (i, &v) in value.iter().enumerate() {
-            if v {
-                // SAFETY: i is in bounds
-                unsafe { buf.set_unchecked(i) }
-            }
-        }
-        buf.freeze()
+        BitBufferMut::from(value).freeze()
     }
 }
 
 impl From<Vec<bool>> for BitBuffer {
     fn from(value: Vec<bool>) -> Self {
-        value.as_slice().into()
+        BitBufferMut::from(value).freeze()
     }
 }
 
 impl FromIterator<bool> for BitBuffer {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        let iter = iter.into_iter();
-        let (low, high) = iter.size_hint();
-        if let Some(len) = high {
-            let mut buf = BitBufferMut::new_unset(len);
-            for (i, v) in iter.enumerate() {
-                if v {
-                    // SAFETY: i is in bounds
-                    unsafe { buf.set_unchecked(i) }
-                }
-            }
-            buf.freeze()
-        } else {
-            let mut buf = BitBufferMut::with_capacity(low);
-            for v in iter {
-                buf.append(v);
-            }
-            buf.freeze()
-        }
+        BitBufferMut::from_iter(iter).freeze()
     }
 }
 
@@ -396,18 +387,9 @@ impl BitXor for BitBuffer {
     }
 }
 
-impl IntoIterator for &BitBuffer {
+impl<'a> IntoIterator for &'a BitBuffer {
     type Item = bool;
-    type IntoIter = BitIterator;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl IntoIterator for BitBuffer {
-    type Item = bool;
-    type IntoIter = BitIterator;
+    type IntoIter = BitIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()

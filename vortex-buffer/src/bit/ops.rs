@@ -1,7 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_buffer::bit_chunk_iterator::BitChunks;
+
 use crate::{Alignment, BufferMut, ByteBuffer};
+
+impl ByteBuffer {
+    /// Returns an accessor which can be used to perform bitwise operations in u64 sized chunks
+    pub(super) fn bit_chunks(&self, bit_offset: usize, bit_length: usize) -> BitChunks<'_> {
+        BitChunks::new(self.bytes.as_ref(), bit_offset, bit_length)
+    }
+}
 
 pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(
     buffer: ByteBuffer,
