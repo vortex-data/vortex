@@ -66,12 +66,18 @@ on:
               "id": "statpopgen",
               "subcommand": "statpopgen",
               "name": "Statistical and Population Genetics",
-              "local_dir": "bench-vortex/data/statpopgen",
               "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "--scale-factor 100"
             },
             {
               "id": "fineweb",
+              "subcommand": "fineweb",
+              "name": "FineWeb",
+              "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact",
+              "scale_factor": "--scale-factor 100"
+            },
+            {
+              "id": "fineweb-s3",
               "subcommand": "fineweb",
               "name": "FineWeb",
               "local_dir": "bench-vortex/data/fineweb",
@@ -80,9 +86,16 @@ on:
               "scale_factor": "--scale-factor 100"
             },
             {
-              "id": "gharchive",
+              "id": "gharchive-nvme",
               "subcommand": "gharchive",
-              "name": "GitHub Archive",
+              "name": "GitHub Archive (NVMe)",
+              "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact",
+              "scale_factor": "--scale-factor 100"
+            },
+            {
+              "id": "gharchive-s3",
+              "subcommand": "gharchive",
+              "name": "GitHub Archive (S3)",
               "local_dir": "bench-vortex/data/gharchive",
               "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/gharchive/",
               "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact",
