@@ -120,7 +120,7 @@ impl LazyNullBufferBuilder {
     }
 
     /// Ensures the builder can hold `additional` extra values.
-    pub fn reserve(&mut self, additional: usize) {
+    pub fn reserve_exact(&mut self, additional: usize) {
         if self.inner.is_none() {
             self.capacity += additional;
         } else {

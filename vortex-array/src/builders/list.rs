@@ -228,14 +228,14 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         let non_junk_values = elements.slice(n_leading_junk_values_usize..last_offset_usize);
 
         self.nulls.append_validity_mask(array.validity_mask());
-        self.elements_builder.reserve(non_junk_values.len());
+        self.elements_builder.reserve_exact(non_junk_values.len());
         self.elements_builder.extend_from_array(&non_junk_values);
     }
 
-    fn reserve(&mut self, additional: usize) {
-        self.elements_builder.reserve(additional);
-        self.offsets_builder.reserve(additional);
-        self.nulls.reserve(additional);
+    fn reserve_exact(&mut self, additional: usize) {
+        self.elements_builder.reserve_exact(additional);
+        self.offsets_builder.reserve_exact(additional);
+        self.nulls.reserve_exact(additional);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {

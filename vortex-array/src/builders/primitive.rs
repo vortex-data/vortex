@@ -169,9 +169,9 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.append_validity_mask(array.validity_mask());
     }
 
-    fn reserve(&mut self, additional: usize) {
+    fn reserve_exact(&mut self, additional: usize) {
         self.values.reserve(additional);
-        self.nulls.reserve(additional);
+        self.nulls.reserve_exact(additional);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {

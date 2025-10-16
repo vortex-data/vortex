@@ -22,6 +22,7 @@ pub struct BoolBuilder {
 
 impl BoolBuilder {
     pub fn new(nullability: Nullability) -> Self {
+        Vec::new()
         Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY)
     }
 
@@ -111,9 +112,9 @@ impl ArrayBuilder for BoolBuilder {
         self.nulls.append_validity_mask(bool_array.validity_mask());
     }
 
-    fn reserve(&mut self, additional: usize) {
+    fn reserve_exact(&mut self, additional: usize) {
         self.inner.reserve(additional);
-        self.nulls.reserve(additional);
+        self.nulls.reserve_exact(additional);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {

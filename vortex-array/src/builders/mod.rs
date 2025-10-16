@@ -171,7 +171,7 @@ pub trait ArrayBuilder: Send {
     }
 
     /// Allocate space for extra `additional` items
-    fn reserve(&mut self, additional: usize);
+    fn reserve_exact(&mut self, additional: usize);
 
     /// Override builders validity with the one provided.
     ///

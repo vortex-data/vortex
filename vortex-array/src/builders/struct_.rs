@@ -170,11 +170,11 @@ impl ArrayBuilder for StructBuilder {
         self.nulls.append_validity_mask(array.validity_mask());
     }
 
-    fn reserve(&mut self, capacity: usize) {
+    fn reserve_exact(&mut self, capacity: usize) {
         self.builders.iter_mut().for_each(|builder| {
-            builder.reserve(capacity);
+            builder.reserve_exact(capacity);
         });
-        self.nulls.reserve(capacity);
+        self.nulls.reserve_exact(capacity);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {

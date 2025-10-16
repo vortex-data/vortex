@@ -207,10 +207,10 @@ impl ArrayBuilder for FixedSizeListBuilder {
         self.nulls.append_validity_mask(array.validity_mask());
     }
 
-    fn reserve(&mut self, additional: usize) {
+    fn reserve_exact(&mut self, additional: usize) {
         self.elements_builder
-            .reserve(additional * self.list_size() as usize);
-        self.nulls.reserve(additional);
+            .reserve_exact(additional * self.list_size() as usize);
+        self.nulls.reserve_exact(additional);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
