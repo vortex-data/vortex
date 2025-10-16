@@ -61,7 +61,7 @@ impl<O: IntegerPType> ListBuilder<O> {
         capacity: usize,
     ) -> Self {
         let elements_builder = builder_with_capacity(value_dtype.as_ref(), elements_capacity);
-        let mut offsets_builder = PrimitiveBuilder::<O>::with_capacity(NonNullable, capacity);
+        let mut offsets_builder = PrimitiveBuilder::<O>::with_capacity(NonNullable, capacity + 1);
 
         // The first offset is always 0 and represents an empty list.
         offsets_builder.append_zero();
@@ -106,7 +106,7 @@ impl<O: IntegerPType> ListBuilder<O> {
         assert_eq!(
             self.offsets_builder.len(),
             self.nulls.len() + 1,
-            "Indices length must be one more than nulls length."
+            "offsets length must be one more than nulls length."
         );
 
         ListArray::try_new(
@@ -195,35 +195,41 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
 
         fn extend_inner<O, OffsetType, SizeType>(
             builder: &mut ListBuilder<O>,
-            elements: &ArrayRef,
-            offsets: &[OffsetType],
-            sizes: &[SizeType],
+            new_elements: &ArrayRef,
+            new_offsets: &[OffsetType],
+            new_sizes: &[SizeType],
         ) where
             O: IntegerPType,
             OffsetType: IntegerPType,
             SizeType: IntegerPType,
         {
-            // We need to append each list individually, converting from `ListViewArray` format
-            // to the `ListArray` format that `ListBuilder` expects.
-            for i in 0..offsets.len() {
-                let offset: usize = offsets[i].as_();
-                let size: usize = sizes[i].as_();
+            let num_lists = new_offsets.len();
+            debug_assert_eq!(num_lists, new_sizes.len());
+
+            let mut curr_offset = builder.elements_builder.len();
+            let mut offsets_range = builder.offsets_builder.uninit_range(num_lists);
+
+            // We need to append each list individually, converting from `ListViewArray` format to
+            // the `ListArray` format that `ListBuilder` expects.
+            for i in 0..new_offsets.len() {
+                let offset: usize = new_offsets[i].as_();
+                let size: usize = new_sizes[i].as_();
 
                 if size > 0 {
-                    let list_elements = elements.slice(offset..offset + size);
-                    unsafe {
-                        builder
-                            .elements_builder
-                            .extend_from_array_unchecked(&list_elements);
-                    }
+                    let list_elements = new_elements.slice(offset..offset + size);
+                    builder.elements_builder.extend_from_array(&list_elements);
+                    curr_offset += size;
                 }
 
-                // TODO(connor): We can use `UninitRange` for the `offsets_builder` here.
-                // Update the index with the new position.
-                let new_offset = O::from_usize(builder.elements_builder.len())
-                    .vortex_expect("Failed to convert offset");
-                builder.offsets_builder.append_value(new_offset);
+                let new_offset =
+                    O::from_usize(curr_offset).vortex_expect("Failed to convert offset");
+
+                offsets_range.set_value(i, new_offset);
             }
+
+            // SAFETY: We have initialized all `num_lists` values, and since the `offsets` array is
+            // non-nullable, we are done.
+            unsafe { offsets_range.finish() };
         }
 
         match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
@@ -380,8 +386,9 @@ mod tests {
             Arc::new(I32.into()),
         )
         .unwrap();
+        assert_eq!(list.len(), 3);
 
-        let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 12, 6);
+        let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 18, 9);
 
         builder.extend_from_array(&list);
         builder.extend_from_array(&list);
