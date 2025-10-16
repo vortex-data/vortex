@@ -28,23 +28,48 @@
 //! The `output_var()` method returns the variable name (e.g., "tmp2") that subsequent
 //! steps or the final output can read from.
 //!
-//! ## Writing to Final Output
+//! ## Final Kernel Result
 //!
-//! Each step computes a value and passes `out_idx` to its continuation:
-//! - **out_idx**: The index in the output array where this value should be written
-//! - The innermost step calculates `out_idx` based on thread/block layout
-//! - Parent steps pass this index through to their continuation function
-//! - The root continuation writes: `output[out_idx] = <final_output_var>`
+//! The composed kernel computes the final value and writes it to the output array:
+//!
+//! ```cuda
+//! // BitPack unpacks data
+//! tmp0 = unpack(...)
+//! // FoR adds reference value
+//! tmp1 = tmp0 + ref0
+//! // ALP scales the result
+//! tmp2 = tmp1 * scale
+//! // Final write to output
+//! output[out_idx] = tmp2
+//! ```
+//!
+//! ## Continuation-Based Composition
+//!
+//! Each step calls a continuation function after computing its output:
+//! - The continuation function receives a `GPUKernelParameter` (the child's output variable)
+//! - The step uses this variable to perform its computation
+//! - The step then calls its own continuation with its output variable
+//! - This creates a chain: innermost → ... → outermost → final write
 //!
 //! Example flow:
-//! ```cuda
-//! // BitPack calculates out_idx
-//! out_idx = INDEX(row, lane);
-//! // Then calls continuation with out_idx available
-//! // FoR does: tmp1 = tmp0 + ref0; calls its continuation
-//! // ALP does: tmp2 = tmp1 * f2 * e2; calls its continuation
-//! // Final: output[out_idx] = tmp2;
+//! ```text
+//! BitPack.kernel_body(w, continuation):
+//!   // Unpacks data
+//!   tmp0 = unpack(...)
+//!   continuation(w, GPUKernelParameter{name: "tmp0", type_: "int32_t"})
+//!
+//! FoR.kernel_body(w, continuation):
+//!   child_var = self.child.kernel_body(w, continuation)  // Gets "tmp0"
+//!   tmp1 = child_var + ref0
+//!   continuation(w, GPUKernelParameter{name: "tmp1", type_: "int32_t"})
+//!
+//! ALP.kernel_body(w, continuation):
+//!   child_var = self.child.kernel_body(w, continuation)  // Gets "tmp1"
+//!   tmp2 = child_var * scale
+//!   continuation(w, GPUKernelParameter{name: "tmp2", type_: "float"})
 //! ```
+//!
+//! The root continuation writes the final result to the output array.
 
 mod arrays;
 mod convert;
