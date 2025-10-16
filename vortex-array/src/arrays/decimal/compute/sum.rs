@@ -2,15 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_schema::DECIMAL256_MAX_PRECISION;
+use num_traits::AsPrimitive;
 use vortex_dtype::DecimalDType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
-use vortex_scalar::{DecimalValue, Scalar, match_each_decimal_value_type};
+use vortex_scalar::{match_each_decimal_value_type, DecimalValue, Scalar};
 
-use crate::arrays::{DecimalArray, DecimalVTable, smallest_decimal_value_type};
+use crate::arrays::{smallest_decimal_value_type, DecimalArray, DecimalVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
 use crate::register_kernel;
-use num_traits::{AsPrimitive, CheckedAdd};
 
 // Its safe to use `AsPrimitive` here because we always cast up.
 macro_rules! sum_decimal {
@@ -18,8 +18,7 @@ macro_rules! sum_decimal {
         let mut sum: $ty = <$ty>::default();
         for v in $values.iter() {
             let v: $ty = (*v).as_();
-            sum = CheckedAdd::checked_add(&sum, &v)
-                .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?;
+            sum = sum + v;
         }
         sum
     }};
@@ -30,8 +29,7 @@ macro_rules! sum_decimal {
         for (v, valid) in $values.iter().zip_eq($validity.iter()) {
             if valid {
                 let v: $ty = (*v).as_();
-                sum = CheckedAdd::checked_add(&sum, &v)
-                    .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?
+                sum = sum + v;
             }
         }
         sum
@@ -39,6 +37,7 @@ macro_rules! sum_decimal {
 }
 
 impl SumKernel for DecimalVTable {
+    #[allow(clippy::cognitive_complexity)]
     fn sum(&self, array: &DecimalArray) -> VortexResult<Scalar> {
         let decimal_dtype = array.decimal_dtype();
         let nullability = array.dtype().nullability();
@@ -179,14 +178,14 @@ mod tests {
         // Test with large i64 values that require i128 accumulation
         let large_val = i64::MAX / 4;
         let decimal = DecimalArray::new(
-            buffer![large_val, large_val, large_val, large_val],
+            buffer![large_val, large_val, large_val, large_val + 1],
             DecimalDType::new(19, 0),
             Validity::AllValid,
         );
 
         let result = sum(decimal.as_ref()).unwrap();
 
-        let expected_sum = (large_val as i128) * 4;
+        let expected_sum = (large_val as i128) * 4 + 1;
         let expected = Scalar::new(
             DType::Decimal(DecimalDType::new(29, 0), Nullability::NonNullable),
             ScalarValue::from(DecimalValue::from(expected_sum)),
@@ -211,9 +210,8 @@ mod tests {
         let result = sum(decimal.as_ref()).unwrap();
 
         // Should use i256 for accumulation
-        let expected_sum = i256::from_i128(max_val)
-            + i256::from_i128(max_val)
-            + i256::from_i128(max_val);
+        let expected_sum =
+            i256::from_i128(max_val) + i256::from_i128(max_val) + i256::from_i128(max_val);
         let expected = Scalar::new(
             DType::Decimal(DecimalDType::new(48, 0), Nullability::NonNullable),
             ScalarValue::from(DecimalValue::from(expected_sum)),
@@ -265,11 +263,8 @@ mod tests {
 
     #[test]
     fn test_sum_single_value() {
-        let decimal = DecimalArray::new(
-            buffer![42i32],
-            DecimalDType::new(3, 1),
-            Validity::AllValid,
-        );
+        let decimal =
+            DecimalArray::new(buffer![42i32], DecimalDType::new(3, 1), Validity::AllValid);
 
         let result = sum(decimal.as_ref()).unwrap();
 
@@ -307,15 +302,8 @@ mod tests {
         let large_i128 = i128::MAX / 10;
         let decimal = DecimalArray::new(
             buffer![
-                large_i128,
-                large_i128,
-                large_i128,
-                large_i128,
-                large_i128,
-                large_i128,
-                large_i128,
-                large_i128,
-                large_i128
+                large_i128, large_i128, large_i128, large_i128, large_i128, large_i128, large_i128,
+                large_i128, large_i128
             ],
             DecimalDType::new(38, 0),
             Validity::AllValid,

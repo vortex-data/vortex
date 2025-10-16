@@ -252,6 +252,7 @@ macro_rules! define_as_primitive {
         }
 
         impl num_traits::AsPrimitive<$native_ty> for i256 {
+            #[allow(clippy::cast_possible_truncation)]
             fn as_(self) -> $native_ty {
                 self.0.as_i128() as $native_ty
             }
