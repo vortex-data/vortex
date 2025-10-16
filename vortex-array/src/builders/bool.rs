@@ -22,7 +22,6 @@ pub struct BoolBuilder {
 
 impl BoolBuilder {
     pub fn new(nullability: Nullability) -> Self {
-        Vec::new()
         Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY)
     }
 
