@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_schema::DECIMAL256_MAX_PRECISION;
+use vortex_dtype::DecimalDType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{DecimalValue, Scalar, match_each_decimal_value_type};
@@ -37,6 +39,13 @@ impl SumKernel for DecimalVTable {
         let decimal_dtype = array.decimal_dtype();
         let nullability = array.dtype().nullability();
 
+        // Both Spark and DataFusion use this heuristic.
+        // - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
+        // - https://github.com/apache/datafusion/blob/4153adf2c0f6e317ef476febfdc834208bd46622/datafusion/functions-aggregate/src/sum.rs#L188
+        let new_precision = u8::min(DECIMAL256_MAX_PRECISION, decimal_dtype.precision() + 10);
+        let new_scale = decimal_dtype.scale();
+        let return_dtype = DecimalDType::new(new_precision, new_scale);
+
         match array.validity_mask() {
             Mask::AllFalse(_) => {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
@@ -45,7 +54,7 @@ impl SumKernel for DecimalVTable {
                 match_each_decimal_value_type!(array.values_type(), |D| {
                     Ok(Scalar::decimal(
                         DecimalValue::from(sum_decimal!(D, array.buffer::<D>())),
-                        decimal_dtype,
+                        return_dtype,
                         nullability,
                     ))
                 })
@@ -58,7 +67,7 @@ impl SumKernel for DecimalVTable {
                             array.buffer::<D>(),
                             mask_values.boolean_buffer()
                         )),
-                        decimal_dtype,
+                        return_dtype,
                         nullability,
                     ))
                 })
