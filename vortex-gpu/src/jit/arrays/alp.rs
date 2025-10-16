@@ -17,7 +17,7 @@ use crate::jit::{
     StepIdAllocator,
 };
 
-struct ALP<A: ALPFloat> {
+struct Alp<A: ALPFloat> {
     step_id: usize,
     float_type: PType,
     child: Box<dyn GPUPipelineJIT>,
@@ -35,7 +35,7 @@ pub fn new_jit(
         let child = handle_array(alp.encoded(), stream, allocator, output_array);
         let step_id = allocator.fresh_id();
         Box::new(ScalarGPUPipelineJITNode {
-            inner: ALP {
+            inner: Alp {
                 step_id,
                 float_type: alp.ptype(),
                 child,
@@ -46,7 +46,7 @@ pub fn new_jit(
     })
 }
 
-impl<A: ALPFloat> ALP<A> {
+impl<A: ALPFloat> Alp<A> {
     fn tmp_var(&self) -> String {
         format!("tmp{}", self.step_id)
     }
@@ -60,7 +60,7 @@ impl<A: ALPFloat> ALP<A> {
     }
 }
 
-impl<A: ALPFloat + DeviceRepr> ScalarGPUPipelineJIT for ALP<A> {
+impl<A: ALPFloat + DeviceRepr> ScalarGPUPipelineJIT for Alp<A> {
     fn in_params(&self, params: &mut Vec<GPUKernelParameter>) {
         params.extend([
             GPUKernelParameter {

@@ -89,6 +89,16 @@ use vortex_error::VortexResult;
 
 use crate::indent::IndentedWriter;
 
+/// Type alias for the continuation function passed to `kernel_body`.
+///
+/// The continuation receives the output parameter from a child step and returns
+/// the final output parameter after all parent steps have been applied.
+pub type KernelContinuation<'a> = dyn Fn(
+    &mut IndentedWriter<&mut dyn Write>,
+    GPUKernelParameter,
+) -> Result<GPUKernelParameter, fmt::Error>
+    + 'a;
+
 /// Trait for encoding steps that can be JIT-compiled into a CUDA kernel.
 ///
 /// Each step contributes a piece of the kernel and specifies its output variable
@@ -110,10 +120,7 @@ pub trait GPUPipelineJIT {
     fn kernel_body(
         &self,
         w: &mut IndentedWriter<&mut dyn Write>,
-        f: &dyn Fn(
-            &mut IndentedWriter<&mut dyn Write>,
-            GPUKernelParameter,
-        ) -> Result<GPUKernelParameter, fmt::Error>,
+        f: &KernelContinuation,
     ) -> Result<GPUKernelParameter, fmt::Error>;
 
     /// Returns the name+type of the output variable
@@ -138,10 +145,7 @@ pub trait ScalarGPUPipelineJIT {
     fn kernel_body(
         &self,
         w: &mut IndentedWriter<&mut dyn Write>,
-        f: &dyn Fn(
-            &mut IndentedWriter<&mut dyn Write>,
-            GPUKernelParameter,
-        ) -> Result<GPUKernelParameter, fmt::Error>,
+        f: &KernelContinuation,
     ) -> Result<GPUKernelParameter, fmt::Error>;
 
     /// Returns the name+type of the output variable
@@ -199,12 +203,9 @@ impl<T: ScalarGPUPipelineJIT> GPUPipelineJIT for ScalarGPUPipelineJITNode<T> {
     fn kernel_body(
         &self,
         w: &mut IndentedWriter<&mut dyn Write>,
-        f: &dyn Fn(
-            &mut IndentedWriter<&mut dyn Write>,
-            GPUKernelParameter,
-        ) -> Result<GPUKernelParameter, fmt::Error>,
+        f: &KernelContinuation,
     ) -> Result<GPUKernelParameter, fmt::Error> {
-        self.inner.kernel_body(w, &f)
+        self.inner.kernel_body(w, f)
     }
 
     fn output_parameter(&self) -> GPUKernelParameter {
