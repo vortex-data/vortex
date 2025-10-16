@@ -23,7 +23,7 @@ use vortex_scalar::{PValue, Scalar};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::arrays::PrimitiveArray;
-use crate::compute::{cast, filter, take};
+use crate::compute::{cast, filter, is_sorted, take};
 use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -151,13 +151,21 @@ impl Patches {
             "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
         );
 
+        debug_assert!(
+            is_sorted(indices.as_ref())
+                .unwrap_or(Some(false))
+                .unwrap_or(false),
+            "Patch indices must be sorted"
+        );
+
         Self {
             array_len,
             offset,
             indices,
             values,
-            chunk_offsets,
-            offset_within_chunk: Some(0),
+            chunk_offsets: chunk_offsets.clone(),
+            // Initialize with `Some(0)` only if `chunk_offsets` are set.
+            offset_within_chunk: chunk_offsets.map(|_| 0),
         }
     }
 
@@ -410,6 +418,11 @@ impl Patches {
         }
     }
 
+    /// Batch version of `search_index`.
+    ///
+    /// In contrast to `search_index`, this function requires `indices` as
+    /// well as `chunk_offsets` to be passed as slices. This is to avoid
+    /// redundant canonicalization and `scalar_at` lookups across calls.
     fn search_index_chunked_batch<T, O>(
         &self,
         indices: &[T],
@@ -440,12 +453,11 @@ impl Patches {
         };
 
         // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
-        let Ok(chunk_offset_diff) = usize::try_from(chunk_offsets[chunk_idx] - chunk_offsets[0])
-        else {
+        let Ok(chunk_offset) = usize::try_from(chunk_offsets[chunk_idx] - chunk_offsets[0]) else {
             vortex_panic!("chunk_offset failed to convert to usize")
         };
 
-        let patches_start_idx = chunk_offset_diff
+        let patches_start_idx = chunk_offset
             // Chunk offsets are only sliced off in case the slice is fully
             // outside of the chunk range.
             //
