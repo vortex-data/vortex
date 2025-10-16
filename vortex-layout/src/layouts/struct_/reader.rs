@@ -80,18 +80,18 @@ impl StructReader {
     }
 
     /// Return the child reader for the field.
-    fn child(&self, name: &FieldName) -> VortexResult<&LayoutReaderRef> {
+    fn field_reader(&self, name: &FieldName) -> VortexResult<&LayoutReaderRef> {
         let idx = self
             .field_lookup
             .as_ref()
             .and_then(|lookup| lookup.get(name).copied())
             .or_else(|| self.struct_fields().find(name))
             .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
-        self.child_by_idx(idx)
+        self.field_reader_by_index(idx)
     }
 
     /// Return the child reader for the field, by index.
-    fn child_by_idx(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
+    fn field_reader_by_index(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
         let child_index = if self.dtype().is_nullable() {
             idx + 1
         } else {
@@ -209,7 +209,7 @@ impl LayoutReader for StructReader {
         splits.insert(row_offset + self.layout.row_count);
 
         self.layout.matching_fields(field_mask, |mask, idx| {
-            self.child_by_idx(idx)?
+            self.field_reader_by_index(idx)?
                 .register_splits(&[mask], row_offset, splits)
         })
     }
@@ -223,7 +223,7 @@ impl LayoutReader for StructReader {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
-                .child(name)?
+                .field_reader(name)?
                 .pruning_evaluation(row_range, partition, mask),
             Partitioned::Multi(_) => {
                 // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
@@ -242,13 +242,16 @@ impl LayoutReader for StructReader {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
-                .child(name)?
+                .field_reader(name)?
                 .filter_evaluation(row_range, partition, mask),
             Partitioned::Multi(partitioned) => partitioned.clone().into_mask_future(
                 mask,
-                |name, expr, mask| self.child(name)?.filter_evaluation(row_range, expr, mask),
                 |name, expr, mask| {
-                    self.child(name)?
+                    self.field_reader(name)?
+                        .filter_evaluation(row_range, expr, mask)
+                },
+                |name, expr, mask| {
+                    self.field_reader(name)?
                         .projection_evaluation(row_range, expr, mask)
                 },
             ),
@@ -269,13 +272,13 @@ impl LayoutReader for StructReader {
         // Partition the expression into expressions that can be evaluated over individual fields
         let projection_fut = match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
-                .child(name)?
+                .field_reader(name)?
                 .projection_evaluation(row_range, partition, mask),
             Partitioned::Multi(partitioned) => {
                 partitioned
                     .clone()
                     .into_array_future(mask, |name, expr, mask| {
-                        self.child(name)?
+                        self.field_reader(name)?
                             .projection_evaluation(row_range, expr, mask)
                     })
             }
