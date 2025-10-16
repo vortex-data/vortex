@@ -27,7 +27,11 @@ use crate::conversions::parquet_to_vortex;
 use crate::engines::EngineCtx;
 use crate::{BenchmarkDataset, Format, Target, idempotent, idempotent_async};
 
-const JSON_URL: &str = "https://data.gharchive.org/2024-10-01-1.json.gz";
+/// Template URL for raw JSON dataset
+fn raw_json_url(hour: usize) -> String {
+    assert!(hour <= 23);
+    format!("https://data.gharchive.org/2024-10-01-{hour}.json.gz")
+}
 
 const QUERIES: &[&str] = &[
     "select * from events where payload.ref = 'refs/heads/main'",
@@ -108,23 +112,26 @@ impl Benchmark for GithubArchive {
         let json = rt.block_on(idempotent_async(
             &self.json_path()?,
             |json_path| async move {
-                info!("Downloading GithubArchive JSON source");
-                // Download the file from HuggingFace snapshot
-                let client = reqwest::Client::new();
-                let response = client
-                    .get(JSON_URL)
-                    .send()
-                    .await?
-                    .error_for_status()
-                    .map_err(|err| anyhow::anyhow!("error fetching gharchive data: {err}"))?;
-
-                // On success, stream the response body to file.
-                let mut bytes = response.bytes_stream();
+                info!("Downloading GithubArchive JSON source files");
+                // Download the files from gharchive.
+                // They are all gzipped, so they can be concatenated into a single output file.
                 let mut w = tokio::fs::File::create(json_path).await?;
+                let client = reqwest::Client::new();
+                for hour in 0..=23 {
+                    let url = raw_json_url(hour);
+                    info!("Downloading archive {url}");
+                    let response = client
+                        .get(url)
+                        .send()
+                        .await?
+                        .error_for_status()
+                        .map_err(|err| anyhow::anyhow!("error fetching gharchive data: {err}"))?;
+                    let mut bytes = response.bytes_stream();
 
-                while let Some(next) = bytes.next().await {
-                    let chunk = next?;
-                    w.write(chunk).await?;
+                    while let Some(next) = bytes.next().await {
+                        let chunk = next?;
+                        w.write(chunk).await?;
+                    }
                 }
 
                 Ok(())
