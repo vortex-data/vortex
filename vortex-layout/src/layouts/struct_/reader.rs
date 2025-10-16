@@ -221,6 +221,8 @@ impl LayoutReader for StructReader {
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
+        // TODO(aduffy): handle validity expressions such as "IS NULL" that can be executed directly against
+        // the validity
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
                 .field_reader(name)?
@@ -286,6 +288,10 @@ impl LayoutReader for StructReader {
 
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
+                // Apply the validity array back onto the projected rows.
+                // NOTE: this only works while VortexExpr is linear. Once an expression
+                //  can return a result of different length (e.g. `UNNEST`) then this becomes
+                //  more complicated.
                 let (validity, projection) = try_join!(validity_fut, projection_fut)?;
                 vortex_array::compute::mask(
                     projection.as_ref(),

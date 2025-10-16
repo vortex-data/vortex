@@ -9,7 +9,7 @@ use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail};
+use vortex_error::{VortexError, VortexResult, vortex_bail};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 use vortex_utils::aliases::DefaultHashBuilder;
@@ -79,8 +79,6 @@ impl LayoutStrategy for StructStrategy {
         // stream<struct_chunk> -> stream<vec<column_chunk>>
         let is_nullable = dtype.is_nullable();
 
-        // Write the entire stream as a single flat layout child
-
         let columns_vec_stream = stream.map(move |chunk| {
             let (sequence_id, chunk) = chunk?;
             let mut sequence_pointer = sequence_id.descend();
@@ -103,11 +101,10 @@ impl LayoutStrategy for StructStrategy {
             Ok(columns)
         });
 
-        let stream_count = if is_nullable {
-            struct_dtype.nfields() + 1
-        } else {
-            struct_dtype.nfields()
-        };
+        let mut stream_count = struct_dtype.nfields();
+        if is_nullable {
+            stream_count += 1;
+        }
 
         let (column_streams_tx, column_streams_rx): (Vec<_>, Vec<_>) =
             (0..stream_count).map(|_| kanal::bounded_async(1)).unzip();
@@ -136,23 +133,17 @@ impl LayoutStrategy for StructStrategy {
             })
             .detach();
 
-        let column_dtypes = (0..stream_count).map(move |idx| {
-            let mut index = idx;
-            // If struct is nullable, the first column stream is the validity
-            if is_nullable {
-                if index == 0 {
-                    return DType::Bool(Nullability::NonNullable);
-                } else {
-                    index -= 1
-                }
-            }
-
-            struct_dtype
-                .field_by_index(index)
-                .vortex_expect("bound checked")
-        });
+        // First child column is the validity, subsequence children are the individual struct fields
+        let column_dtypes: Vec<DType> = if is_nullable {
+            std::iter::once(DType::Bool(Nullability::NonNullable))
+                .chain(struct_dtype.fields())
+                .collect()
+        } else {
+            struct_dtype.fields().collect()
+        };
 
         let layout_futures: Vec<_> = column_dtypes
+            .into_iter()
             .zip_eq(column_streams_rx)
             .enumerate()
             .map(move |(index, (dtype, recv))| {
