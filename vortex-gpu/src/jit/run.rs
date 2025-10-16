@@ -115,6 +115,7 @@ fn collect_args<'a>(
     Ok(())
 }
 
+#[cfg(all(target_os = "linux", feature = "cuda"))]
 #[cfg(test)]
 mod tests {
     use cudarc::driver::CudaContext;
