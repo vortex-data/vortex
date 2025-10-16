@@ -19,7 +19,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 ///
 /// This type provides a view into a struct scalar value, which can contain
 /// named fields with different types, or be null.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StructScalar<'a> {
     dtype: &'a DType,
     fields: Option<&'a Arc<[ScalarValue]>>,

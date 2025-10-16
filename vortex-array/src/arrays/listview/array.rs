@@ -4,15 +4,13 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
+use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_err};
 
-use crate::arrays::{ListArray, PrimitiveVTable};
-use crate::builders::PrimitiveBuilder;
+use crate::arrays::PrimitiveVTable;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical};
 
 /// The canonical encoding for variable-length list arrays.
 ///
@@ -39,17 +37,18 @@ use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 /// # Examples
 ///
 /// ```
-/// use vortex_array::arrays::{ListViewArray, PrimitiveArray};
-/// use vortex_array::validity::Validity;
-/// use vortex_array::IntoArray;
-/// use vortex_buffer::buffer;
-/// use std::sync::Arc;
+/// # use vortex_array::arrays::{ListViewArray, PrimitiveArray};
+/// # use vortex_array::validity::Validity;
+/// # use vortex_array::IntoArray;
+/// # use vortex_buffer::buffer;
+/// # use std::sync::Arc;
+/// #
+/// // Create a list view array representing [[3, 4], [1], [2, 3]].
+/// // Note: Unlike `ListArray`, offsets don't need to be monotonic.
 ///
-/// // Create a list view array representing [[3, 4], [1], [2, 5]]
-/// // Note: Unlike ListArray, offsets don't need to be monotonic
 /// let elements = buffer![1i32, 2, 3, 4, 5].into_array();
 /// let offsets = buffer![2u32, 0, 1].into_array();  // Out-of-order offsets
-/// let sizes = buffer![2u32, 1, 2].into_array();  // Corresponding sizes
+/// let sizes = buffer![2u32, 1, 2].into_array();  // The sizes cause overlaps
 ///
 /// let list_view = ListViewArray::try_new(
 ///     elements.into_array(),
@@ -238,6 +237,10 @@ impl ListViewArray {
     }
 
     /// Returns the offset at the given index.
+    ///
+    /// Note that it is possible the corresponding list view is null (which is only defined by the
+    /// validity map). Regardless, we are still guaranteed that this offset is valid by the
+    /// invariants of [`ListViewArray`].
     pub fn offset_at(&self, index: usize) -> usize {
         assert!(
             index < self.len(),
@@ -260,6 +263,10 @@ impl ListViewArray {
     }
 
     /// Returns the size at the given index.
+    ///
+    /// Note that it is possible the corresponding list view is null (which is only defined by the
+    /// validity map). Regardless, we are still guaranteed that this size is valid by the invariants
+    /// of [`ListViewArray`].
     pub fn size_at(&self, index: usize) -> usize {
         assert!(
             index < self.len(),
@@ -345,75 +352,4 @@ where
     }
 
     Ok(())
-}
-
-/// Create a [`ListViewArray`] from a [`ListArray`](crate::arrays::ListArray) by computing `sizes`
-/// from `offsets`.
-pub fn list_view_from_list(list: ListArray) -> ListViewArray {
-    // TODO(connor)[ListView]: Create a version of `Canonical::empty` for `ListView`. It might
-    // also be worth specializing that for all canonical encodings.
-    // If the list is empty, create an empty `ListView` with the same offset dtype as the input.
-    if list.is_empty() {
-        let empty_offsets = Canonical::empty(list.offsets().dtype()).into_array();
-        let empty_sizes = Canonical::empty(list.offsets().dtype()).into_array();
-        let empty_validity = list.validity().clone();
-
-        // SAFETY: Everything is empty so all the variants are satisfied.
-        return unsafe {
-            ListViewArray::new_unchecked(
-                list.elements().clone(),
-                empty_offsets,
-                empty_sizes,
-                empty_validity,
-            )
-        };
-    }
-
-    let len = list.len();
-
-    // Get the `offsets` array directly from the `ListArray` (preserving its type).
-    let list_offsets = list.offsets().clone();
-
-    // We need to slice the `offsets` to remove the last element (`ListArray` has n+1 offsets).
-    let adjusted_offsets = list_offsets.slice(0..len);
-
-    // Create sizes array by computing differences between consecutive offsets.
-    // Use the same dtype as the offsets array to ensure compatibility.
-    let sizes = match_each_integer_ptype!(list_offsets.dtype().as_ptype(), |P| {
-        let mut sizes_builder = PrimitiveBuilder::<P>::with_capacity(Nullability::NonNullable, len);
-
-        // Create uninit range for direct memory access.
-        let mut sizes_range = sizes_builder.uninit_range(len);
-
-        // Compute sizes as the difference between consecutive offsets.
-        for i in 0..len {
-            let start = list.offset_at(i);
-            let end = list.offset_at(i + 1);
-            let size = end - start;
-
-            // Set size value directly without creating scalar.
-            sizes_range.set_value(
-                i,
-                P::try_from(size).vortex_expect("size must fit in offset type"),
-            );
-        }
-
-        // SAFETY: We have initialized all values in the range.
-        unsafe {
-            sizes_range.finish();
-        }
-
-        sizes_builder.finish_into_primitive().into_array()
-    });
-
-    // SAFETY: Since everything came from an existing valid `ListArray`, and the `sizes` were
-    // derived from valid and in-order `offsets`, we know these fields are valid.
-    unsafe {
-        ListViewArray::new_unchecked(
-            list.elements().clone(),
-            adjusted_offsets,
-            sizes,
-            list.validity().clone(),
-        )
-    }
 }

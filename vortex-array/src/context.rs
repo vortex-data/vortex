@@ -12,8 +12,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::EncodingRef;
 use crate::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
-    FixedSizeListEncoding, ListEncoding, MaskedEncoding, NullEncoding, PrimitiveEncoding,
-    StructEncoding, VarBinEncoding, VarBinViewEncoding,
+    FixedSizeListEncoding, ListEncoding, ListViewEncoding, MaskedEncoding, NullEncoding,
+    PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 
 /// A collection of array encodings.
@@ -25,25 +25,26 @@ impl ArrayRegistry {
     pub fn canonical_only() -> Self {
         let mut this = Self::empty();
 
-        // Register the canonical encodings
+        // Register the canonical encodings.
         this.register_many([
-            EncodingRef::new_ref(NullEncoding.as_ref()) as EncodingRef,
+            EncodingRef::new_ref(NullEncoding.as_ref()),
             EncodingRef::new_ref(BoolEncoding.as_ref()),
             EncodingRef::new_ref(PrimitiveEncoding.as_ref()),
             EncodingRef::new_ref(DecimalEncoding.as_ref()),
-            EncodingRef::new_ref(StructEncoding.as_ref()),
-            EncodingRef::new_ref(ListEncoding.as_ref()),
-            EncodingRef::new_ref(FixedSizeListEncoding.as_ref()),
-            EncodingRef::new_ref(VarBinEncoding.as_ref()),
             EncodingRef::new_ref(VarBinViewEncoding.as_ref()),
+            EncodingRef::new_ref(ListViewEncoding.as_ref()),
+            EncodingRef::new_ref(FixedSizeListEncoding.as_ref()),
+            EncodingRef::new_ref(StructEncoding.as_ref()),
             EncodingRef::new_ref(ExtensionEncoding.as_ref()),
         ]);
 
-        // Register the utility encodings
+        // Register the utility encodings.
         this.register_many([
-            EncodingRef::new_ref(ConstantEncoding.as_ref()) as EncodingRef,
-            EncodingRef::new_ref(MaskedEncoding.as_ref()),
             EncodingRef::new_ref(ChunkedEncoding.as_ref()),
+            EncodingRef::new_ref(ConstantEncoding.as_ref()),
+            EncodingRef::new_ref(MaskedEncoding.as_ref()),
+            EncodingRef::new_ref(ListEncoding.as_ref()),
+            EncodingRef::new_ref(VarBinEncoding.as_ref()),
         ]);
 
         this

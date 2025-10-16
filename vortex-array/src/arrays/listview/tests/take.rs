@@ -4,7 +4,6 @@
 use rstest::rstest;
 use vortex_buffer::buffer;
 
-use super::ToListView;
 use super::common::{
     create_basic_listview, create_empty_lists_listview, create_large_listview,
     create_nullable_listview, create_overlapping_listview,
@@ -22,13 +21,13 @@ use crate::{Array, IntoArray, ToCanonical};
 #[case::empty_lists(create_empty_lists_listview())]
 #[case::overlapping(create_overlapping_listview())]
 #[case::large(create_large_listview())]
-#[ignore = "TODO(connor)[ListView]: Enable once ListViewArray canonicalization is implemented."]
 fn test_take_listview_conformance(#[case] listview: ListViewArray) {
     test_take_conformance(listview.as_ref());
 }
 
 // ListView-specific tests that aren't covered by conformance.
 
+#[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
 #[test]
 fn test_take_preserves_unreferenced_elements() {
     // ListView-specific: Test that take preserves the entire elements array
@@ -60,6 +59,7 @@ fn test_take_preserves_unreferenced_elements() {
     assert_eq!(result_list.offset_at(1), 0); // List 3
 }
 
+#[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
 #[test]
 fn test_take_with_gaps() {
     // ListView-specific: Test with gaps in elements array.
@@ -90,6 +90,7 @@ fn test_take_with_gaps() {
     assert_eq!(list0.scalar_at(2).as_primitive().as_::<i32>().unwrap(), 9);
 }
 
+#[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
 #[test]
 fn test_take_constant_arrays() {
     // ListView-specific: Test with ConstantArray for offsets/sizes.
@@ -144,6 +145,7 @@ fn test_take_constant_arrays() {
     assert_eq!(result2_list.size_at(1), 3);
 }
 
+#[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
 #[test]
 fn test_take_extreme_offsets() {
     // ListView-specific: Test with very large offsets to demonstrate
