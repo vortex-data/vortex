@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::{Display, Formatter};
-use std::ops::BitOr;
+use std::ops::{BitOr, BitOrAssign};
 
 /// Whether an instance of a DType can be `null or not
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -35,6 +35,12 @@ impl BitOr for Nullability {
             (Self::NonNullable, Self::NonNullable) => Self::NonNullable,
             _ => Self::Nullable,
         }
+    }
+}
+
+impl BitOrAssign for Nullability {
+    fn bitor_assign(&mut self, rhs: Self) {
+        *self = *self | rhs
     }
 }
 

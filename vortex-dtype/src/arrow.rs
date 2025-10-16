@@ -127,7 +127,10 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
             | DataType::Timestamp(..) => DType::Extension(Arc::new(
                 make_temporal_ext_dtype(data_type).with_nullability(nullability),
             )),
-            DataType::List(e) | DataType::LargeList(e) => {
+            DataType::List(e)
+            | DataType::LargeList(e)
+            | DataType::ListView(e)
+            | DataType::LargeListView(e) => {
                 DType::List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
             DataType::FixedSizeList(e, size) => DType::FixedSizeList(
@@ -209,6 +212,20 @@ impl DType {
             }
             DType::Utf8(_) => DataType::Utf8View,
             DType::Binary(_) => DataType::BinaryView,
+            // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
+            // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
+            // Arrow dtype because we do not how large our offsets are.
+            DType::List(elem_dtype, _) => DataType::ListView(FieldRef::new(Field::new_list_field(
+                elem_dtype.to_arrow_dtype()?,
+                elem_dtype.nullability().into(),
+            ))),
+            DType::FixedSizeList(elem_dtype, size, _) => DataType::FixedSizeList(
+                FieldRef::new(Field::new_list_field(
+                    elem_dtype.to_arrow_dtype()?,
+                    elem_dtype.nullability().into(),
+                )),
+                *size as i32,
+            ),
             DType::Struct(struct_dtype, _) => {
                 let mut fields = Vec::with_capacity(struct_dtype.names().len());
                 for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields())
@@ -222,20 +239,6 @@ impl DType {
 
                 DataType::Struct(Fields::from(fields))
             }
-            // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
-            // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
-            // Arrow dtype because we do not how large our offsets are.
-            DType::List(elem_dtype, _) => DataType::List(FieldRef::new(Field::new_list_field(
-                elem_dtype.to_arrow_dtype()?,
-                elem_dtype.nullability().into(),
-            ))),
-            DType::FixedSizeList(elem_dtype, size, _) => DataType::FixedSizeList(
-                FieldRef::new(Field::new_list_field(
-                    elem_dtype.to_arrow_dtype()?,
-                    elem_dtype.nullability().into(),
-                )),
-                *size as i32,
-            ),
             DType::Extension(ext_dtype) => {
                 // Try and match against the known extension DTypes.
                 if is_temporal_ext_type(ext_dtype.id()) {
@@ -323,11 +326,11 @@ mod test {
         assert_ne!(arrow_list_non_nullable, arrow_list_nullable);
         assert_eq!(
             arrow_list_nullable,
-            DataType::new_list(DataType::Int64, true)
+            DataType::ListView(Arc::new(Field::new_list_field(DataType::Int64, true))),
         );
         assert_eq!(
             arrow_list_non_nullable,
-            DataType::new_list(DataType::Int64, false)
+            DataType::ListView(Arc::new(Field::new_list_field(DataType::Int64, false))),
         );
     }
 

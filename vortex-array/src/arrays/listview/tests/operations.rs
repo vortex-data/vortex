@@ -8,13 +8,12 @@ use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_mask::Mask;
 
-use super::ToListView;
 use super::common::{create_basic_listview, create_large_listview, create_nullable_listview};
 use crate::arrays::{BoolArray, ConstantArray, ListViewArray, ListViewVTable};
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::{cast, is_constant, mask};
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
+use crate::{Array, IntoArray, ToCanonical};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Slice tests
@@ -23,6 +22,7 @@ use crate::{Array, IntoArray};
 #[test]
 fn test_slice_comprehensive() {
     // Comprehensive test for basic slicing, full array, and single element cases.
+    // Logical lists: [[1,2,3], [4,5], [6,7,8], [9,10]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
     let offsets = buffer![0i32, 3, 5, 7].into_array();
     let sizes = buffer![3i32, 2, 3, 2].into_array();
@@ -65,6 +65,7 @@ fn test_slice_comprehensive() {
 #[test]
 fn test_slice_out_of_order() {
     // ListView-specific: Test slicing with out-of-order offsets.
+    // Logical lists: [[70,80], [10,20,30], [40,50,60], [90], [30]]
     let elements = buffer![10i32, 20, 30, 40, 50, 60, 70, 80, 90].into_array();
     let offsets = buffer![6i32, 0, 3, 8, 2].into_array(); // Out of order.
     let sizes = buffer![2i32, 3, 3, 1, 1].into_array();
@@ -115,6 +116,7 @@ fn test_slice_out_of_order() {
 #[test]
 fn test_slice_with_nulls() {
     // Test slicing with nullable ListView.
+    // Logical lists: [[1,2], null, [5,6], null]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
     let offsets = buffer![0i32, 2, 4, 6].into_array();
     let sizes = buffer![2i32, 2, 2, 2].into_array();
@@ -230,6 +232,7 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
 
 #[test]
 fn test_cast_with_nulls() {
+    // Logical lists: [[10,20], null]
     let elements = buffer![10i32, 20, 30, 40].into_array();
     let offsets = buffer![0u32, 2].into_array();
     let sizes = buffer![2u32, 2].into_array();
@@ -303,6 +306,7 @@ fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_c
 #[test]
 fn test_cast_large_dataset() {
     // Test with larger data.
+    // Logical lists: [[0..4], [4..8], [8..12], ..., [76..80]] (20 lists of size 4)
     let elements = buffer![0u16..100].into_array();
     let offsets = buffer![
         0u32, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76
@@ -391,6 +395,7 @@ fn test_is_constant_basic(
 #[test]
 fn test_constant_with_constant_elements() {
     // Test with ConstantArray as elements - all lists point to same constant value.
+    // Logical lists: [[42,42], [42,42], [42,42]]
     let elements = ConstantArray::new(42i32, 10).into_array();
     let offsets = buffer![0i32, 2, 4].into_array();
     let sizes = buffer![2i32, 2, 2].into_array();
@@ -406,6 +411,7 @@ fn test_constant_with_constant_elements() {
 #[test]
 fn test_constant_with_nulls() {
     // Test nullable ListView scenarios.
+    // Logical lists: [[1,2], [3,4]] (validity varies by case)
     let elements = buffer![1i32, 2, 3, 4].into_array();
     let offsets = buffer![0i32, 2].into_array();
     let sizes = buffer![2i32, 2].into_array();
@@ -438,6 +444,7 @@ fn test_constant_with_nulls() {
 #[test]
 fn test_constant_repeated_same_lists() {
     // Test multiple lists that are identical (overlapping).
+    // Logical lists: [[10,20,30], [10,20,30], [10,20,30], [10,20,30]]
     let elements = buffer![10i32, 20, 30].into_array();
     let offsets = buffer![0i32, 0, 0, 0].into_array(); // All point to same start.
     let sizes = buffer![3i32, 3, 3, 3].into_array(); // All same size.
@@ -466,6 +473,7 @@ fn test_mask_listview_conformance(#[case] listview: ListViewArray) {
 #[test]
 fn test_mask_preserves_structure() {
     // ListView-specific: Verify mask preserves offsets and sizes.
+    // Logical lists: [[1,2], [3,4], [5,6], [7,8]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
     let offsets = buffer![0u32, 2, 4, 6].into_array();
     let sizes = buffer![2u32, 2, 2, 2].into_array();
@@ -501,6 +509,7 @@ fn test_mask_preserves_structure() {
 #[test]
 fn test_mask_with_existing_nulls() {
     // ListView-specific: Test interaction between existing nulls and mask.
+    // Logical lists: [[10,20], null, [50,60]]
     let elements = buffer![10i32, 20, 30, 40, 50, 60].into_array();
     let offsets = buffer![0u32, 2, 4].into_array();
     let sizes = buffer![2u32, 2, 2].into_array();
@@ -524,6 +533,7 @@ fn test_mask_with_existing_nulls() {
 #[test]
 fn test_mask_with_gaps() {
     // ListView-specific: Mask with gaps in elements.
+    // Logical lists: [[1,2], [5,6], [9,10]] (999 values are gaps)
     let elements = buffer![1i32, 2, 999, 999, 5, 6, 999, 999, 9, 10].into_array();
     let offsets = buffer![0u32, 4, 8].into_array();
     let sizes = buffer![2u32, 2, 2].into_array();
@@ -549,6 +559,7 @@ fn test_mask_with_gaps() {
 #[test]
 fn test_mask_constant_arrays() {
     // ListView-specific: Test mask with ConstantArray offsets/sizes.
+    // Logical lists: [[200,300], [200,300], [200,300]]
     let elements = buffer![100i32, 200, 300, 400, 500, 600].into_array();
 
     // All lists start at offset 1 and have size 2.

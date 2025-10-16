@@ -25,7 +25,6 @@ vtable!(Merge);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MergeExpr {
     values: Vec<ExprRef>,
-    nullability: Nullability,
 }
 
 pub struct MergeExprEncoding;
@@ -51,11 +50,8 @@ impl VTable for MergeVTable {
         expr.values.iter().collect()
     }
 
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        Ok(MergeExpr {
-            values: children,
-            nullability: expr.nullability,
-        })
+    fn with_children(_expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        Ok(MergeExpr { values: children })
     }
 
     fn build(
@@ -69,10 +65,7 @@ impl VTable for MergeVTable {
                 children
             );
         }
-        Ok(MergeExpr {
-            values: children,
-            nullability: Nullability::NonNullable, // Default to non-nullable
-        })
+        Ok(MergeExpr { values: children })
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
@@ -113,10 +106,8 @@ impl VTable for MergeVTable {
             }
         }
 
-        let validity = match expr.nullability {
-            Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::AllValid,
-        };
+        // TODO(DK): When children are allowed to be nullable, this needs to change.
+        let validity = Validity::NonNullable;
         Ok(
             StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
                 .into_array(),
@@ -127,11 +118,17 @@ impl VTable for MergeVTable {
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
 
+        let mut nullability = Nullability::NonNullable;
+
         for value in expr.values.iter() {
             let dtype = value.return_dtype(scope)?;
             if !dtype.is_struct() {
-                vortex_bail!("merge expects non-nullable struct input");
+                vortex_bail!("merge expects struct input");
             }
+            if dtype.is_nullable() {
+                vortex_bail!("merge expects non-nullable input");
+            }
+            nullability |= dtype.nullability();
 
             let struct_dtype = dtype
                 .as_struct_fields_opt()
@@ -151,25 +148,18 @@ impl VTable for MergeVTable {
 
         Ok(DType::Struct(
             StructFields::new(FieldNames::from(field_names), arrays),
-            expr.nullability,
+            nullability,
         ))
     }
 }
 
 impl MergeExpr {
-    pub fn new(values: Vec<ExprRef>, nullability: Nullability) -> Self {
-        MergeExpr {
-            values,
-            nullability,
-        }
+    pub fn new(values: Vec<ExprRef>) -> Self {
+        MergeExpr { values }
     }
 
-    pub fn new_expr(values: Vec<ExprRef>, nullability: Nullability) -> ExprRef {
-        Self::new(values, nullability).into_expr()
-    }
-
-    pub fn nullability(&self) -> Nullability {
-        self.nullability
+    pub fn new_expr(values: Vec<ExprRef>) -> ExprRef {
+        Self::new(values).into_expr()
     }
 }
 
@@ -181,26 +171,18 @@ impl MergeExpr {
 /// ```rust
 /// # use vortex_dtype::Nullability;
 /// # use vortex_expr::{merge, get_item, root};
-/// let expr = merge([get_item("a", root()), get_item("b", root())], Nullability::NonNullable);
+/// let expr = merge([get_item("a", root()), get_item("b", root())]);
 /// ```
-pub fn merge(
-    elements: impl IntoIterator<Item = impl Into<ExprRef>>,
-    nullability: Nullability,
-) -> ExprRef {
+pub fn merge(elements: impl IntoIterator<Item = impl Into<ExprRef>>) -> ExprRef {
     let values = elements.into_iter().map(|value| value.into()).collect_vec();
-    MergeExpr::new(values, nullability).into_expr()
+    MergeExpr::new(values).into_expr()
 }
 
 impl DisplayAs for MergeExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match df {
             DisplayFormat::Compact => {
-                write!(
-                    f,
-                    "merge({}){}",
-                    self.values.iter().format(", "),
-                    self.nullability
-                )
+                write!(f, "merge({})", self.values.iter().format(", "),)
             }
             DisplayFormat::Tree => {
                 write!(f, "Merge")
@@ -216,7 +198,6 @@ mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
     use vortex_error::{VortexResult, vortex_bail};
 
     use crate::{MergeExpr, Scope, get_item, merge, root};
@@ -237,14 +218,11 @@ mod tests {
 
     #[test]
     pub fn test_merge() {
-        let expr = MergeExpr::new(
-            vec![
-                get_item("0", root()),
-                get_item("1", root()),
-                get_item("2", root()),
-            ],
-            Nullability::NonNullable,
-        );
+        let expr = MergeExpr::new(vec![
+            get_item("0", root()),
+            get_item("1", root()),
+            get_item("2", root()),
+        ]);
 
         let test_array = StructArray::from_fields(&[
             (
@@ -318,7 +296,7 @@ mod tests {
 
     #[test]
     pub fn test_empty_merge() {
-        let expr = MergeExpr::new(Vec::new(), Nullability::NonNullable);
+        let expr = MergeExpr::new(Vec::new());
 
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
@@ -332,10 +310,7 @@ mod tests {
     pub fn test_nested_merge() {
         // Nested structs are not merged!
 
-        let expr = MergeExpr::new(
-            vec![get_item("0", root()), get_item("1", root())],
-            Nullability::NonNullable,
-        );
+        let expr = MergeExpr::new(vec![get_item("0", root()), get_item("1", root())]);
 
         let test_array = StructArray::from_fields(&[
             (
@@ -386,10 +361,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_order() {
-        let expr = MergeExpr::new(
-            vec![get_item("0", root()), get_item("1", root())],
-            Nullability::NonNullable,
-        );
+        let expr = MergeExpr::new(vec![get_item("0", root()), get_item("1", root())]);
 
         let test_array = StructArray::from_fields(&[
             (
@@ -422,33 +394,11 @@ mod tests {
     }
 
     #[test]
-    pub fn test_merge_nullable() {
-        let expr = MergeExpr::new(vec![get_item("0", root())], Nullability::Nullable);
-
-        let test_array = StructArray::from_fields(&[(
-            "0",
-            StructArray::from_fields(&[
-                ("a", buffer![0, 0, 0].into_array()),
-                ("b", buffer![1, 1, 1].into_array()),
-            ])
-            .unwrap()
-            .into_array(),
-        )])
-        .unwrap()
-        .into_array();
-        let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
-        assert!(actual_array.dtype().is_nullable());
-    }
-
-    #[test]
     pub fn test_display() {
-        let expr = merge(
-            [get_item("struct1", root()), get_item("struct2", root())],
-            Nullability::NonNullable,
-        );
+        let expr = merge([get_item("struct1", root()), get_item("struct2", root())]);
         assert_eq!(expr.to_string(), "merge($.struct1, $.struct2)");
 
-        let expr2 = MergeExpr::new(vec![get_item("a", root())], Nullability::Nullable);
-        assert_eq!(expr2.to_string(), "merge($.a)?");
+        let expr2 = MergeExpr::new(vec![get_item("a", root())]);
+        assert_eq!(expr2.to_string(), "merge($.a)");
     }
 }

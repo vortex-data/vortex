@@ -16,6 +16,7 @@ fn merge_transform(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprR
     match node.as_opt::<MergeVTable>() {
         None => Ok(Transformed::no(node)),
         Some(merge) => {
+            let merge_dtype = merge.return_dtype(ctx)?;
             let mut names = Vec::with_capacity(merge.children().len() * 2);
             let mut children = Vec::with_capacity(merge.children().len() * 2);
             let mut all_nullable = true;
@@ -47,7 +48,7 @@ fn merge_transform(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprR
                     .into_iter()
                     .zip(children)
                     .map(|(name, child)| (name.clone(), get_item(name, child))),
-                merge.nullability(),
+                merge_dtype.nullability(),
             );
             Ok(Transformed::yes(expr))
         }
@@ -57,7 +58,7 @@ fn merge_transform(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprR
 #[cfg(test)]
 mod tests {
     use vortex_dtype::DType;
-    use vortex_dtype::Nullability::{NonNullable, Nullable};
+    use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::{I32, I64, U32, U64};
 
     use crate::transform::remove_merge::remove_merge;
@@ -73,7 +74,7 @@ mod tests {
             NonNullable,
         );
 
-        let e = merge([get_item("0", root()), get_item("1", root())], NonNullable);
+        let e = merge([get_item("0", root()), get_item("1", root())]);
         let e = remove_merge(e, &dtype).unwrap();
 
         assert!(e.is::<PackVTable>());
@@ -81,19 +82,5 @@ mod tests {
             e.return_dtype(&dtype).unwrap(),
             DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
         );
-    }
-
-    #[test]
-    fn test_remove_merge_nullable() {
-        let dtype = DType::struct_(
-            [("0", DType::struct_([("a", I32), ("b", I64)], Nullable))],
-            NonNullable,
-        );
-
-        let e = merge([get_item("0", root())], Nullable);
-        let e = remove_merge(e, &dtype).unwrap();
-
-        assert!(e.is::<PackVTable>());
-        assert!(e.return_dtype(&dtype).unwrap().is_nullable());
     }
 }
