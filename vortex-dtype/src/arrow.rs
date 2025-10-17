@@ -326,11 +326,11 @@ mod test {
         assert_ne!(arrow_list_non_nullable, arrow_list_nullable);
         assert_eq!(
             arrow_list_nullable,
-            DataType::ListView(Arc::new(Field::new_list_field(DataType::Int64, true))),
+            DataType::List(Arc::new(Field::new_list_field(DataType::Int64, true))),
         );
         assert_eq!(
             arrow_list_non_nullable,
-            DataType::ListView(Arc::new(Field::new_list_field(DataType::Int64, false))),
+            DataType::List(Arc::new(Field::new_list_field(DataType::Int64, false))),
         );
     }
 
