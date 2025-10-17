@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability};
 
-use crate::ops::VectorOps;
-use crate::{NullVectorMut, Vector};
+use crate::{NullVectorMut, VectorOps};
 
 /// An immutable vector of null values.
 pub struct NullVector {
@@ -18,21 +17,19 @@ impl NullVector {
     }
 }
 
-impl From<NullVector> for Vector {
-    fn from(v: NullVector) -> Self {
-        Self::Null(v)
-    }
-}
-
 impl VectorOps for NullVector {
     type Mutable = NullVectorMut;
 
-    fn len(&self) -> usize {
-        self.len
+    fn nullability(&self) -> Nullability {
+        Nullability::Nullable
     }
 
-    fn dtype(&self) -> &DType {
-        &DType::Null
+    fn dtype(&self) -> DType {
+        DType::Null
+    }
+
+    fn len(&self) -> usize {
+        self.len
     }
 
     fn try_into_mut(self) -> Result<Self::Mutable, Self>
