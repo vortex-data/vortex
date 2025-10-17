@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::compute::{FillNullKernel, FillNullKernelAdapter, cast};
-use crate::{ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
+use crate::compute::{FillNullKernel, FillNullKernelAdapter, cast};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl FillNullKernel for ConstantVTable {
     fn fill_null(&self, array: &ConstantArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
@@ -24,9 +24,10 @@ register_kernel!(FillNullKernelAdapter(ConstantVTable).lift());
 mod test {
     use vortex_scalar::Scalar;
 
-    use crate::{
-        IntoArray as _, arrays::ConstantArray, arrow::IntoArrowArray as _, compute::fill_null,
-    };
+    use crate::IntoArray as _;
+    use crate::arrays::ConstantArray;
+    use crate::arrow::IntoArrowArray as _;
+    use crate::compute::fill_null;
 
     #[test]
     fn test_null() {
