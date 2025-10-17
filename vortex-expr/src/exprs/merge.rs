@@ -32,6 +32,12 @@ pub struct MergeExpr {
     duplicate_handling: DuplicateHandling,
 }
 
+impl MergeExpr {
+    pub fn duplicate_handling(&self) -> DuplicateHandling {
+        self.duplicate_handling
+    }
+}
+
 /// What to do when merged structs share a field name.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DuplicateHandling {
@@ -99,39 +105,26 @@ impl VTable for MergeVTable {
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        let len = scope.len();
-        let children = expr
-            .values
-            .iter()
-            .map(|value_expr| {
-                // TODO(marko): When nullable, we need to merge struct validity into field validity.
-                let array = value_expr.unchecked_evaluate(scope)?;
-                if array.dtype().is_nullable() {
-                    vortex_bail!("merge expects non-nullable input");
-                }
-                if !array.dtype().is_struct() {
-                    vortex_bail!("merge expects struct input");
-                }
-                Ok(array.to_struct())
-            })
-            .process_results(|it| it.collect::<Vec<_>>())?;
-
-        if expr.duplicate_handling == DuplicateHandling::Error {
-            let names = children
-                .iter()
-                .flat_map(|a| a.names().iter())
-                .collect::<Vec<_>>();
-            error_if_duplicates_present(&names)?;
-        }
-
         // Collect fields in order of appearance. Later fields overwrite earlier fields.
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
+        let mut duplicate_names = HashSet::<_>::new();
 
-        for child in children.iter() {
-            for (field_name, array) in child.names().iter().zip_eq(child.fields().iter().cloned()) {
+        for expr in expr.values.iter() {
+            // TODO(marko): When nullable, we need to merge struct validity into field validity.
+            let array = expr.unchecked_evaluate(scope)?;
+            if array.dtype().is_nullable() {
+                vortex_bail!("merge expects non-nullable input");
+            }
+            if !array.dtype().is_struct() {
+                vortex_bail!("merge expects struct input");
+            }
+            let array = array.to_struct();
+
+            for (field_name, array) in array.names().iter().zip_eq(array.fields().iter().cloned()) {
                 // Update or insert field.
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
+                    duplicate_names.insert(field_name.clone());
                     arrays[idx] = array;
                 } else {
                     field_names.push(field_name.clone());
@@ -140,8 +133,16 @@ impl VTable for MergeVTable {
             }
         }
 
+        if expr.duplicate_handling == DuplicateHandling::Error && !duplicate_names.is_empty() {
+            vortex_bail!(
+                "merge: duplicate fields in children: {}",
+                duplicate_names.into_iter().format(", ")
+            )
+        }
+
         // TODO(DK): When children are allowed to be nullable, this needs to change.
         let validity = Validity::NonNullable;
+        let len = scope.len();
         Ok(
             StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
                 .into_array(),
@@ -149,38 +150,25 @@ impl VTable for MergeVTable {
     }
 
     fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
-        let children_struct_dtypes = expr
-            .values
-            .iter()
-            .map(|a| {
-                let dtype = a.return_dtype(scope)?;
-                let Some(fields) = dtype.as_struct_fields_opt().cloned() else {
-                    vortex_bail!("merge expects struct input");
-                };
-                if dtype.is_nullable() {
-                    vortex_bail!("merge expects non-nullable input");
-                }
-                Ok((fields, dtype.nullability()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        if expr.duplicate_handling == DuplicateHandling::Error {
-            let names = children_struct_dtypes
-                .iter()
-                .flat_map(|(fields, _)| fields.names().iter())
-                .collect::<Vec<_>>();
-            error_if_duplicates_present(&names)?;
-        }
-
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
         let mut merge_nullability = Nullability::NonNullable;
+        let mut duplicate_names = HashSet::<_>::new();
 
-        for (fields, nullability) in children_struct_dtypes {
-            merge_nullability |= nullability;
+        for expr in expr.values.iter() {
+            let dtype = expr.return_dtype(scope)?;
+            let Some(fields) = dtype.as_struct_fields_opt().cloned() else {
+                vortex_bail!("merge expects struct input");
+            };
+            if dtype.is_nullable() {
+                vortex_bail!("merge expects non-nullable input");
+            }
+
+            merge_nullability |= dtype.nullability();
 
             for (field_name, field_dtype) in fields.names().iter().zip_eq(fields.fields()) {
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
+                    duplicate_names.insert(field_name.clone());
                     arrays[idx] = field_dtype;
                 } else {
                     field_names.push(field_name.clone());
@@ -189,36 +177,18 @@ impl VTable for MergeVTable {
             }
         }
 
+        if expr.duplicate_handling == DuplicateHandling::Error && !duplicate_names.is_empty() {
+            vortex_bail!(
+                "merge: duplicate fields in children: {}",
+                duplicate_names.into_iter().format(", ")
+            )
+        }
+
         Ok(DType::Struct(
             StructFields::new(FieldNames::from(field_names), arrays),
             merge_nullability,
         ))
     }
-}
-
-fn error_if_duplicates_present<T: Display + Eq + Hash>(names: &[T]) -> VortexResult<()> {
-    let dupes = duplicates(names);
-
-    if !dupes.is_empty() {
-        vortex_bail!(
-            "merge: duplicate fields in children: {}",
-            dupes.into_iter().format(", ")
-        )
-    }
-
-    Ok(())
-}
-
-/// Return any items which appear more than once in this slice.
-fn duplicates<T: Eq + Hash>(items: &[T]) -> HashSet<&T> {
-    let mut dupes = HashSet::new();
-    let mut seen = HashSet::new();
-    for item in items {
-        if !seen.insert(item) {
-            dupes.insert(item);
-        }
-    }
-    dupes
 }
 
 impl MergeExpr {
@@ -294,9 +264,7 @@ mod tests {
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_error::{VortexResult, vortex_bail};
-    use vortex_utils::aliases::hash_set::HashSet;
 
-    use crate::merge::duplicates;
     use crate::{DuplicateHandling, MergeExpr, Scope, get_item, merge, root};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
@@ -314,12 +282,15 @@ mod tests {
     }
 
     #[test]
-    pub fn test_merge() {
-        let expr = MergeExpr::new(vec![
-            get_item("0", root()),
-            get_item("1", root()),
-            get_item("2", root()),
-        ]);
+    pub fn test_merge_right_most() {
+        let expr = MergeExpr::new_opts(
+            vec![
+                get_item("0", root()),
+                get_item("1", root()),
+                get_item("2", root()),
+            ],
+            DuplicateHandling::RightMost,
+        );
 
         let test_array = StructArray::from_fields(&[
             (
@@ -393,7 +364,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "merge: duplicate fields in children")]
-    pub fn test_merge_duplicate_flag_return_dtype() {
+    pub fn test_merge_error_on_dupe_return_dtype() {
         let expr = MergeExpr::new_opts(
             vec![get_item("0", root()), get_item("1", root())],
             DuplicateHandling::Error,
@@ -416,7 +387,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "merge: duplicate fields in children")]
-    pub fn test_merge_duplicate_flag_evaluate() {
+    pub fn test_merge_error_on_dupe_evaluate() {
         let expr = MergeExpr::new_opts(
             vec![get_item("0", root()), get_item("1", root())],
             DuplicateHandling::Error,
@@ -453,7 +424,10 @@ mod tests {
     pub fn test_nested_merge() {
         // Nested structs are not merged!
 
-        let expr = MergeExpr::new(vec![get_item("0", root()), get_item("1", root())]);
+        let expr = MergeExpr::new_opts(
+            vec![get_item("0", root()), get_item("1", root())],
+            DuplicateHandling::RightMost,
+        );
 
         let test_array = StructArray::from_fields(&[
             (
@@ -539,34 +513,9 @@ mod tests {
     #[test]
     pub fn test_display() {
         let expr = merge([get_item("struct1", root()), get_item("struct2", root())]);
-        assert_eq!(expr.to_string(), "merge[right-most]($.struct1, $.struct2)");
+        assert_eq!(expr.to_string(), "merge[error]($.struct1, $.struct2)");
 
         let expr2 = MergeExpr::new(vec![get_item("a", root())]);
-        assert_eq!(expr2.to_string(), "merge[right-most]($.a)");
-    }
-
-    #[test]
-    pub fn test_has_duplicates() {
-        assert_eq!(duplicates(&[1]), HashSet::new());
-        assert_eq!(duplicates(&[1, 2]), HashSet::new());
-        assert_eq!(duplicates(&[2, 1]), HashSet::new());
-        assert_eq!(duplicates(&[1, 1]), [1].iter().collect::<HashSet<_>>());
-        assert_eq!(duplicates(&[2, 1, 3]), HashSet::new());
-        assert_eq!(
-            duplicates(&[2, 1, 3, 2]),
-            [2].iter().collect::<HashSet<_>>()
-        );
-        assert_eq!(
-            duplicates(&[2, 1, 3, 1]),
-            [1].iter().collect::<HashSet<_>>()
-        );
-        assert_eq!(
-            duplicates(&[2, 1, 3, 3]),
-            [3].iter().collect::<HashSet<_>>()
-        );
-        assert_eq!(
-            duplicates(&[2, 1, 3, 3, 1]),
-            [1, 3].iter().collect::<HashSet<_>>()
-        );
+        assert_eq!(expr2.to_string(), "merge[error]($.a)");
     }
 }
