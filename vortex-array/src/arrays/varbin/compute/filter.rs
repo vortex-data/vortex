@@ -196,10 +196,6 @@ mod test {
     use crate::validity::Validity;
     use crate::{IntoArray, assert_arrays_eq};
 
-    fn nullable_scalar_str(s: &str) -> Scalar {
-        Scalar::utf8(s.to_owned(), Nullable)
-    }
-
     #[test]
     fn filter_var_bin_test() {
         let arr = VarBinArray::from_vec(

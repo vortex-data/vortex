@@ -273,11 +273,9 @@ impl Default for DecimalBuffer {
 mod tests {
     use vortex_dtype::DecimalDType;
 
-    use crate::{
-        arrays::DecimalArray,
-        assert_arrays_eq,
-        builders::{ArrayBuilder, DecimalBuilder},
-    };
+    use crate::arrays::DecimalArray;
+    use crate::assert_arrays_eq;
+    use crate::builders::{ArrayBuilder, DecimalBuilder};
 
     #[test]
     fn test_mixed_extend() {

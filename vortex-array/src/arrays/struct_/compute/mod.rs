@@ -97,7 +97,6 @@ mod tests {
     use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
     use vortex_error::VortexUnwrap;
     use vortex_mask::Mask;
-    use vortex_scalar::Scalar;
 
     use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::conformance::consistency::test_array_consistency;
@@ -127,7 +126,7 @@ mod tests {
         let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
 
         assert_arrays_eq!(
-            token,
+            taken,
             StructArray::new(
                 FieldNames::empty(),
                 vec![],
@@ -143,11 +142,12 @@ mod tests {
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
         let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
         assert_arrays_eq!(
-            token,
+            taken,
             StructArray::try_from_iter_with_validity(
                 [("a", buffer![1])],
                 Validity::from_iter([true, false])
             )
+            .unwrap()
         );
     }
 

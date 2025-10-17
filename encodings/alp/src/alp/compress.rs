@@ -133,7 +133,8 @@ mod tests {
     use core::f64;
 
     use f64::consts::{E, PI};
-    use vortex_array::{assert_arrays_eq, validity::Validity};
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::validity::Validity;
     use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::NativePType;
 
