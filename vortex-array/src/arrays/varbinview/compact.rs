@@ -170,9 +170,9 @@ impl BufferUtilization {
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::IntoArray;
-    use crate::arrays::{VarBinViewArray, VarBinViewVTable};
+    use crate::arrays::{VarBinArray, VarBinViewArray, VarBinViewVTable};
     use crate::compute::take;
+    use crate::{IntoArray, assert_arrays_eq};
 
     #[test]
     fn test_optimize_compacts_buffers() {
@@ -206,9 +206,7 @@ mod tests {
         assert!(optimized_array.nbuffers() <= 1);
 
         // Verify the data is still correct
-        assert_eq!(optimized_array.len(), 2);
-        assert_eq!(optimized_array.scalar_at(0), "short".into());
-        assert_eq!(optimized_array.scalar_at(1), "tiny".into());
+        assert_arrays_eq!(optimized_array, VarBinArray::from(vec!["short", "tiny"]));
     }
 
     #[test]
@@ -238,9 +236,10 @@ mod tests {
         assert_eq!(optimized_array.nbuffers(), 1);
 
         // Verify the data is still correct
-        assert_eq!(optimized_array.len(), 2);
-        assert_eq!(optimized_array.scalar_at(0), long_string_1.into());
-        assert_eq!(optimized_array.scalar_at(1), long_string_3.into());
+        assert_arrays_eq!(
+            optimized_array,
+            VarBinArray::from(vec![long_string_1, long_string_3])
+        );
     }
 
     #[test]
@@ -255,12 +254,8 @@ mod tests {
         let optimized_array = original.compact_buffers().unwrap();
 
         assert_eq!(optimized_array.nbuffers(), 0);
-        assert_eq!(optimized_array.len(), 4);
 
-        // Verify all values are preserved
-        for i in 0..4 {
-            assert_eq!(optimized_array.scalar_at(i), original.scalar_at(i));
-        }
+        assert_arrays_eq!(optimized_array, original);
     }
 
     #[test]
@@ -278,12 +273,8 @@ mod tests {
         let optimized_array = original.compact_buffers().unwrap();
 
         assert_eq!(optimized_array.nbuffers(), 1);
-        assert_eq!(optimized_array.len(), 2);
 
-        // Verify all values are preserved
-        for i in 0..2 {
-            assert_eq!(optimized_array.scalar_at(i), original.scalar_at(i));
-        }
+        assert_arrays_eq!(optimized_array, original);
     }
 
     #[test]
@@ -309,11 +300,7 @@ mod tests {
         assert_eq!(compacted.nbuffers(), taken_array.nbuffers());
 
         // Verify correctness
-        assert_eq!(compacted.len(), 1);
-        assert_eq!(
-            compacted.scalar_at(0),
-            "this is a longer string that will be stored in a buffer".into()
-        );
+        assert_arrays_eq!(compacted, taken);
     }
 
     #[test]
@@ -339,12 +326,7 @@ mod tests {
         assert!(compacted.nbuffers() <= original_buffers);
 
         // Verify correctness
-        assert_eq!(compacted.len(), 2);
-        assert_eq!(
-            compacted.scalar_at(0),
-            "this is a longer string that will be stored in a buffer".into()
-        );
-        assert_eq!(compacted.scalar_at(1), "yet another long string".into());
+        assert_arrays_eq!(compacted, taken);
     }
 
     #[test]
@@ -366,10 +348,7 @@ mod tests {
         assert_eq!(compacted.nbuffers(), 1);
 
         // Verify all data is correct
-        assert_eq!(compacted.len(), 3);
-        assert_eq!(compacted.scalar_at(0), str1.into());
-        assert_eq!(compacted.scalar_at(1), str2.into());
-        assert_eq!(compacted.scalar_at(2), str3.into());
+        assert_arrays_eq!(compacted, original);
     }
 
     #[test]
@@ -387,7 +366,6 @@ mod tests {
         let original = VarBinViewArray::from_iter_str(strings.iter().map(|s| s.as_str()));
 
         // Take every other element to create mixed utilization
-        let indices: Vec<u32> = (0..10).step_by(2).map(|i| i as u32).collect();
         let indices_array = buffer![0u32, 2u32, 4u32, 6u32, 8u32].into_array();
         let taken = take(original.as_ref(), &indices_array).unwrap();
         let taken_array = taken.as_::<VarBinViewVTable>();
@@ -396,13 +374,7 @@ mod tests {
         let compacted = taken_array.compact_with_threshold(0.7).unwrap();
 
         // Verify correctness
-        assert_eq!(compacted.len(), 5);
-        for (i, idx) in indices.iter().enumerate() {
-            assert_eq!(
-                compacted.scalar_at(i),
-                strings[*idx as usize].as_str().into()
-            );
-        }
+        assert_arrays_eq!(compacted, taken);
     }
 
     #[test]
@@ -434,10 +406,7 @@ mod tests {
         );
 
         // Verify correctness
-        assert_eq!(compacted.len(), 5);
-        for i in 0..5 {
-            assert_eq!(compacted.scalar_at(i), strings[i].as_str().into());
-        }
+        assert_arrays_eq!(&compacted, taken);
 
         // Verify that if there was only one buffer, the compacted version also has one
         // (it was sliced, not rewritten into multiple buffers)

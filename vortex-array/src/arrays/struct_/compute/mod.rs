@@ -26,7 +26,7 @@ mod tests {
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::{cast, filter, is_constant, take};
     use crate::validity::Validity;
-    use crate::{Array, IntoArray as _};
+    use crate::{Array, IntoArray as _, assert_arrays_eq};
 
     #[test]
     fn filter_empty_struct() {
@@ -45,21 +45,15 @@ mod tests {
             StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
         let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
-        assert_eq!(taken.len(), 2);
 
-        assert_eq!(
-            taken.scalar_at(0),
-            Scalar::struct_(
-                DType::Struct(StructFields::new(FieldNames::default(), vec![]), Nullable),
-                vec![]
+        assert_arrays_eq!(
+            token,
+            StructArray::new(
+                FieldNames::empty(),
+                vec![],
+                2,
+                Validity::from_iter([true, false])
             )
-        );
-        assert_eq!(
-            taken.scalar_at(1),
-            Scalar::null(DType::Struct(
-                StructFields::new(FieldNames::default(), vec![]),
-                Nullable
-            ))
         );
     }
 
@@ -68,18 +62,12 @@ mod tests {
         let struct_arr = StructArray::from_fields(&[("a", buffer![0..10].into_array())]).unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
         let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
-        assert_eq!(taken.len(), 2);
-
-        assert_eq!(
-            taken.scalar_at(0),
-            Scalar::struct_(
-                struct_arr.dtype().union_nullability(Nullable),
-                vec![Scalar::primitive(1, NonNullable)],
+        assert_arrays_eq!(
+            token,
+            StructArray::try_from_iter_with_validity(
+                [("a", buffer![1])],
+                Validity::from_iter([true, false])
             )
-        );
-        assert_eq!(
-            taken.scalar_at(1),
-            Scalar::null(struct_arr.dtype().union_nullability(Nullable),)
         );
     }
 

@@ -52,7 +52,10 @@ where
 mod tests {
     use arrow_array::types::{Int32Type, Int64Type};
     use arrow_array::{Float64Array, Int32Array, Int64Array, RunArray};
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrow::FromArrowArray;
+    use vortex_array::{IntoArray as _, assert_arrays_eq};
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::RunEndArray;
@@ -69,20 +72,10 @@ mod tests {
         // Convert to Vortex
         let vortex_array = RunEndArray::from_arrow(&arrow_run_array, false);
 
-        // Verify basic properties
-        assert_eq!(vortex_array.len(), 8);
-        assert_eq!(
-            vortex_array.dtype(),
-            &DType::Primitive(PType::I32, Nullability::NonNullable)
+        assert_arrays_eq!(
+            vortex_array.as_ref(),
+            buffer![10i32, 10, 10, 20, 20, 30, 30, 30].into_array()
         );
-
-        // Verify the values at different positions
-        assert_eq!(vortex_array.scalar_at(0), 10.into()); // First run
-        assert_eq!(vortex_array.scalar_at(2), 10.into()); // Still first run
-        assert_eq!(vortex_array.scalar_at(3), 20.into()); // Second run
-        assert_eq!(vortex_array.scalar_at(4), 20.into()); // Still second run
-        assert_eq!(vortex_array.scalar_at(5), 30.into()); // Third run
-        assert_eq!(vortex_array.scalar_at(7), 30.into()); // Still third run
     }
 
     #[test]
@@ -95,20 +88,19 @@ mod tests {
         // Convert to Vortex with nullable=true
         let vortex_array = RunEndArray::from_arrow(&arrow_run_array, true);
 
-        // Verify basic properties
-        assert_eq!(vortex_array.len(), 6);
-        assert_eq!(
-            vortex_array.dtype(),
-            &DType::Primitive(PType::I32, Nullability::Nullable)
+        assert_arrays_eq!(
+            vortex_array.as_ref(),
+            PrimitiveArray::from_option_iter([
+                Some(100i32),
+                Some(100i32),
+                None,
+                None,
+                None,
+                None,
+                Some(300i32),
+                Some(300i32)
+            ])
         );
-
-        // Verify the values
-        assert_eq!(vortex_array.scalar_at(0), 100.into());
-        assert_eq!(vortex_array.scalar_at(1), 100.into());
-        assert!(vortex_array.scalar_at(2).is_null()); // Null value
-        assert!(vortex_array.scalar_at(3).is_null()); // Null value
-        assert_eq!(vortex_array.scalar_at(4), 300.into());
-        assert_eq!(vortex_array.scalar_at(5), 300.into());
     }
 
     #[test]
@@ -121,18 +113,7 @@ mod tests {
         // Convert to Vortex
         let vortex_array = RunEndArray::from_arrow(&arrow_run_array, false);
 
-        // Verify properties
-        assert_eq!(vortex_array.len(), 4);
-        assert_eq!(
-            vortex_array.dtype(),
-            &DType::Primitive(PType::F64, Nullability::NonNullable)
-        );
-
-        // Verify values
-        assert_eq!(vortex_array.scalar_at(0), 1.5.into());
-        assert_eq!(vortex_array.scalar_at(1), 2.5.into());
-        assert_eq!(vortex_array.scalar_at(2), 2.5.into());
-        assert_eq!(vortex_array.scalar_at(3), 3.5.into());
+        assert_arrays_eq!(vortex_array, buffer![1.5f64, 2.5, 2.5, 3.5].into_array());
     }
 
     #[test]
@@ -150,21 +131,10 @@ mod tests {
 
         // Convert the sliced array to Vortex
         let vortex_array = RunEndArray::from_arrow(&sliced_array, false);
-
-        // Verify the sliced array properties
-        assert_eq!(vortex_array.len(), 6);
-        assert_eq!(
-            vortex_array.dtype(),
-            &DType::Primitive(PType::I32, Nullability::NonNullable)
+        assert_arrays_eq!(
+            vortex_array,
+            buffer![100, 100, 200, 200, 200, 300, 300, 300, 400, 400].into_array()
         );
-
-        // Verify the values in the sliced array
-        assert_eq!(vortex_array.scalar_at(0), 100.into()); // Index 1 of original
-        assert_eq!(vortex_array.scalar_at(1), 200.into()); // Index 2 of original
-        assert_eq!(vortex_array.scalar_at(2), 200.into()); // Index 3 of original
-        assert_eq!(vortex_array.scalar_at(3), 200.into()); // Index 4 of original
-        assert_eq!(vortex_array.scalar_at(4), 300.into()); // Index 5 of original
-        assert_eq!(vortex_array.scalar_at(5), 300.into()); // Index 6 of original
     }
 
     #[test]
@@ -184,20 +154,24 @@ mod tests {
         // Convert to Vortex with nullable=true
         let vortex_array = RunEndArray::from_arrow(&sliced_array, true);
 
-        // Verify properties
-        assert_eq!(vortex_array.len(), 6);
-        assert_eq!(
-            vortex_array.dtype(),
-            &DType::Primitive(PType::I64, Nullability::Nullable)
+        assert_arrays_eq!(
+            vortex_array,
+            PrimitiveArray::from_option_iter([
+                Some(10),
+                Some(10),
+                Some(10),
+                None,
+                None,
+                None,
+                None,
+                Some(30),
+                Some(30),
+                Some(30),
+                Some(40),
+                Some(40),
+                Some(40),
+            ])
         );
-
-        // Verify the values in the sliced array
-        assert!(vortex_array.scalar_at(0).is_null());
-        assert!(vortex_array.scalar_at(1).is_null());
-        assert_eq!(vortex_array.scalar_at(2), 30i64.into());
-        assert_eq!(vortex_array.scalar_at(3), 30i64.into());
-        assert_eq!(vortex_array.scalar_at(4), 30i64.into());
-        assert_eq!(vortex_array.scalar_at(5), 40i64.into());
     }
 
     #[test]
