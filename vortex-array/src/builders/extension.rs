@@ -120,7 +120,9 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
-    use crate::{arrays::PrimitiveArray, assert_arrays_eq, builders::ArrayBuilder};
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
+    use crate::builders::ArrayBuilder;
 
     #[test]
     fn test_append_scalar() {

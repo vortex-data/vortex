@@ -78,7 +78,8 @@ impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::{arrays::PrimitiveArray, assert_arrays_eq};
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_scalar::Scalar;
 
     use crate::{ALPRDFloat, RDEncoder};
