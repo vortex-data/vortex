@@ -129,7 +129,7 @@ API of the scan operator.
 ## Layouts and Scanning
 
 Vortex scans currently operate by converting a `Layout` into a `LayoutReader`. In practice, this is largely equivalent
-to a current Vortex `Array`, except the execution function of the `LayoutReader` is async. In the new oeprator model,
+to a current Vortex `Array`, except the execution function of the `LayoutReader` is async. In the new operator model,
 arrays _are_ async, and so we can remove `LayoutReader` entirely in favor of regular Vortex arrays.
 
 This change further allows us to simplify scanning logic and avoid the current expression partitioning. Instead of
