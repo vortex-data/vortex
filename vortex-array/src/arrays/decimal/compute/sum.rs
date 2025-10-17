@@ -18,7 +18,7 @@ macro_rules! sum_decimal {
         let mut sum: $ty = <$ty>::default();
         for v in $values.iter() {
             let v: $ty = (*v).as_();
-            sum = sum + v;
+            sum += v;
         }
         sum
     }};
@@ -29,7 +29,7 @@ macro_rules! sum_decimal {
         for (v, valid) in $values.iter().zip_eq($validity.iter()) {
             if valid {
                 let v: $ty = (*v).as_();
-                sum = sum + v;
+                sum += v;
             }
         }
         sum

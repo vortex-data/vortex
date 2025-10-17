@@ -4,7 +4,7 @@
 mod bigcast;
 
 use std::fmt::Display;
-use std::ops::{Add, BitOr, Div, Mul, Rem, Shl, Shr, Sub};
+use std::ops::{Add, AddAssign, BitOr, Div, Mul, Rem, Shl, Shr, Sub};
 
 pub use bigcast::*;
 use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, WrappingAdd, WrappingSub, Zero};
@@ -222,6 +222,12 @@ impl BitOr<Self> for i256 {
 
     fn bitor(self, rhs: Self) -> Self::Output {
         Self(self.0.bitor(rhs.0))
+    }
+}
+
+impl AddAssign for i256 {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0;
     }
 }
 
