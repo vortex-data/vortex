@@ -215,7 +215,7 @@ impl DType {
             // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
             // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
             // Arrow dtype because we do not how large our offsets are.
-            DType::List(elem_dtype, _) => DataType::ListView(FieldRef::new(Field::new_list_field(
+            DType::List(elem_dtype, _) => DataType::List(FieldRef::new(Field::new_list_field(
                 elem_dtype.to_arrow_dtype()?,
                 elem_dtype.nullability().into(),
             ))),
