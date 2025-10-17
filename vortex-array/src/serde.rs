@@ -250,7 +250,7 @@ pub struct ArrayParts {
     flatbuffer: FlatBuffer,
     // The location of the current fb::ArrayNode
     flatbuffer_loc: usize,
-    buffers: Arc<[ByteBuffer]>,
+    buffers: Arc<Box<[ByteBuffer]>>,
 }
 
 impl Debug for ArrayParts {
@@ -434,7 +434,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
         let fb_root = fb_array.root().vortex_expect("Array must have a root node");
 
         let mut offset = 0;
-        let buffers: Arc<[ByteBuffer]> = fb_array
+        let buffers = fb_array
             .buffers()
             .unwrap_or_default()
             .iter()
@@ -452,7 +452,9 @@ impl TryFrom<ByteBuffer> for ArrayParts {
                 offset += buffer_len;
                 buffer
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .into_boxed_slice()
+            .into();
 
         Ok(ArrayParts {
             flatbuffer: fb_buffer.clone(),

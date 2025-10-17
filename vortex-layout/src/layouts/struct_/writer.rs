@@ -214,7 +214,7 @@ mod tests {
                 segments,
                 StructArray::try_new(
                     ["a"].into(),
-                    vec![buffer![1, 2, 3].into_array()],
+                    vec![buffer![1, 2, 3].into_array()].into(),
                     3,
                     Validity::Array(BoolArray::from_iter(vec![true, true, false]).into_array()),
                 )
@@ -243,12 +243,22 @@ mod tests {
                 ctx,
                 segments,
                 ChunkedArray::from_iter([
-                    StructArray::try_new(FieldNames::default(), vec![], 3, Validity::NonNullable)
-                        .unwrap()
-                        .into_array(),
-                    StructArray::try_new(FieldNames::default(), vec![], 5, Validity::NonNullable)
-                        .unwrap()
-                        .into_array(),
+                    StructArray::try_new(
+                        FieldNames::default(),
+                        vec![].into(),
+                        3,
+                        Validity::NonNullable,
+                    )
+                    .unwrap()
+                    .into_array(),
+                    StructArray::try_new(
+                        FieldNames::default(),
+                        vec![].into(),
+                        5,
+                        Validity::NonNullable,
+                    )
+                    .unwrap()
+                    .into_array(),
                 ])
                 .into_array()
                 .to_array_stream()

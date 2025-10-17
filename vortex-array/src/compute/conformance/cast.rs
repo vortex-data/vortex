@@ -616,9 +616,13 @@ mod tests {
         )
         .into_array();
 
-        let array =
-            StructArray::try_new(names, vec![a, b], 3, crate::validity::Validity::NonNullable)
-                .unwrap();
+        let array = StructArray::try_new(
+            names,
+            vec![a, b].into(),
+            3,
+            crate::validity::Validity::NonNullable,
+        )
+        .unwrap();
         test_cast_conformance(array.as_ref());
     }
 

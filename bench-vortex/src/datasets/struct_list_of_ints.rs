@@ -71,7 +71,7 @@ impl Dataset for StructListOfInts {
                     .collect::<Result<Vec<_>>>()?;
                 Ok(StructArray::try_new(
                     names.clone(),
-                    fields,
+                    fields.into(),
                     chunk_row_count,
                     Validity::NonNullable,
                 )?

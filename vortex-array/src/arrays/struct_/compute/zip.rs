@@ -58,8 +58,13 @@ impl ZipKernel for StructVTable {
         };
 
         Ok(Some(
-            StructArray::try_new(if_true.names().clone(), fields, if_true.len(), validity)?
-                .to_array(),
+            StructArray::try_new(
+                if_true.names().clone(),
+                fields.into(),
+                if_true.len(),
+                validity,
+            )?
+            .to_array(),
         ))
     }
 }
@@ -81,7 +86,7 @@ mod tests {
         // Both structs have Validity::Array
         let if_true = StructArray::new(
             FieldNames::from_iter(["field"]),
-            vec![PrimitiveArray::from_iter([1, 2, 3, 4]).into_array()],
+            vec![PrimitiveArray::from_iter([1, 2, 3, 4]).into_array()].into(),
             4,
             Validity::from_iter([true, false, true, false]),
         )
@@ -89,7 +94,7 @@ mod tests {
 
         let if_false = StructArray::new(
             FieldNames::from_iter(["field"]),
-            vec![PrimitiveArray::from_iter([10, 20, 30, 40]).into_array()],
+            vec![PrimitiveArray::from_iter([10, 20, 30, 40]).into_array()].into(),
             4,
             Validity::from_iter([false, true, false, true]),
         )
@@ -118,7 +123,7 @@ mod tests {
     fn test_validity_zip_allvalid_and_array() {
         let if_true = StructArray::new(
             FieldNames::from_iter(["a"]),
-            vec![PrimitiveArray::from_iter([1, 2, 3, 4]).into_array()],
+            vec![PrimitiveArray::from_iter([1, 2, 3, 4]).into_array()].into(),
             4,
             Validity::AllValid,
         )
@@ -126,7 +131,7 @@ mod tests {
 
         let if_false = StructArray::new(
             FieldNames::from_iter(["a"]),
-            vec![PrimitiveArray::from_iter([10, 20, 30, 40]).into_array()],
+            vec![PrimitiveArray::from_iter([10, 20, 30, 40]).into_array()].into(),
             4,
             Validity::from_iter([false, false, true, true]),
         )

@@ -179,7 +179,7 @@ impl BatchExecution for StructExecution {
                 .vortex_expect("Struct dtype must have fields")
                 .names()
                 .clone(),
-            children,
+            children.into(),
             self.len,
             // self.validity,
             Validity::AllValid,

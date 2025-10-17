@@ -24,7 +24,7 @@ impl OperationsVTable<StructVTable> for StructVTable {
         // - Validity length matches array length (both sliced to same range)
         unsafe {
             StructArray::new_unchecked(
-                fields,
+                fields.into(),
                 array.struct_fields().clone(),
                 range.len(),
                 array.validity().slice(range),

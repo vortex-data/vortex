@@ -33,7 +33,7 @@ fn scalar_at_struct_simple(bencher: Bencher) {
 
     let struct_array = StructArray::try_new(
         FieldNames::from(["value"]),
-        vec![field],
+        vec![field].into(),
         ARRAY_SIZE,
         Validity::NonNullable,
     )
@@ -71,8 +71,13 @@ fn scalar_at_struct_wide(bencher: Bencher) {
         "field1", "field2", "field3", "field4", "field5", "field6", "field7", "field8",
     ]);
 
-    let struct_array =
-        StructArray::try_new(field_names, fields, ARRAY_SIZE, Validity::NonNullable).unwrap();
+    let struct_array = StructArray::try_new(
+        field_names,
+        fields.into(),
+        ARRAY_SIZE,
+        Validity::NonNullable,
+    )
+    .unwrap();
 
     let indices: Vec<usize> = (0..NUM_ACCESSES)
         .map(|_| rng.random_range(0..ARRAY_SIZE))

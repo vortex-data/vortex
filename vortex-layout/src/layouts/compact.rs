@@ -126,7 +126,7 @@ impl CompactCompressor {
 
                 StructArray::try_new(
                     struct_array.names().clone(),
-                    fields,
+                    fields.into(),
                     struct_array.len(),
                     struct_array.validity().clone(),
                 )?
@@ -221,7 +221,7 @@ mod tests {
         let n_rows = columns[0].len();
         let struct_array = StructArray::try_new(
             field_names.clone().into(),
-            columns.clone(),
+            columns.clone().into(),
             n_rows,
             Validity::NonNullable,
         )

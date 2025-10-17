@@ -134,7 +134,7 @@ fn scalar_at_empty_children_leading() {
 pub fn pack_nested_structs() {
     let struct_array = StructArray::try_new(
         ["a"].into(),
-        vec![VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"]).into_array()],
+        vec![VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"]).into_array()].into(),
         4,
         Validity::NonNullable,
     )

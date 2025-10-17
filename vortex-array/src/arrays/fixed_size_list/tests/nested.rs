@@ -401,7 +401,7 @@ fn test_fsl_of_struct() {
 
     let struct_array = StructArray::try_new(
         struct_fields.names().clone(),
-        vec![a_values, b_values],
+        vec![a_values, b_values].into(),
         fsl_len * fsl_size as usize,
         Validity::NonNullable,
     )
@@ -447,7 +447,7 @@ fn test_fsl_of_nullable_struct() {
     let struct_validity = Validity::from_iter([true, false, true, true, false, true]);
     let struct_array = StructArray::try_new(
         struct_fields.names().clone(),
-        vec![x_values.into_array(), y_values.into_array()],
+        vec![x_values.into_array(), y_values.into_array()].into(),
         fsl_len * fsl_size as usize,
         struct_validity,
     )
@@ -482,7 +482,7 @@ fn test_fsl_with_empty_struct() {
 
     let struct_array = StructArray::try_new(
         struct_fields.names().clone(),
-        vec![],
+        vec![].into(),
         fsl_len * fsl_size as usize,
         Validity::NonNullable,
     )
@@ -527,7 +527,7 @@ fn test_struct_of_fsl() {
 
     let struct_array = StructArray::try_new(
         struct_fields.names().clone(),
-        vec![fsl1.into_array(), fsl2.into_array()],
+        vec![fsl1.into_array(), fsl2.into_array()].into(),
         3,
         Validity::NonNullable,
     )

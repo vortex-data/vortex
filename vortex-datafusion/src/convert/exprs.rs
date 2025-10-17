@@ -95,7 +95,7 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
                 .try_collect()?;
 
             let list = Scalar::list(
-                list_elements[0].dtype().clone(),
+                list_elements[0].dtype().clone().into(),
                 list_elements,
                 Nullability::Nullable,
             );

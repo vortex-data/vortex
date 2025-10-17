@@ -133,7 +133,7 @@ fn random_array_chunk(
                 .collect::<Result<Vec<_>>>()?;
             Ok(StructArray::try_new(
                 sdt.names().clone(),
-                children,
+                children.into(),
                 resolved_len,
                 random_validity(u, *n, resolved_len)?,
             )

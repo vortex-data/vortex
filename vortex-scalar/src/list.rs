@@ -201,13 +201,11 @@ enum ListKind {
 /// Helper functions to create a [`ListScalar`] as a [`Scalar`].
 impl Scalar {
     fn create_list(
-        element_dtype: impl Into<Arc<DType>>,
+        element_dtype: Arc<DType>,
         children: Vec<Scalar>,
         nullability: Nullability,
         list_kind: ListKind,
     ) -> Self {
-        let element_dtype = element_dtype.into();
-
         let children: Arc<[ScalarValue]> = children
             .into_iter()
             .map(|child| {
@@ -241,7 +239,7 @@ impl Scalar {
     /// Panics if any child scalar has a different type than the element type, or if there are too
     /// many children.
     pub fn list(
-        element_dtype: impl Into<Arc<DType>>,
+        element_dtype: Arc<DType>,
         children: Vec<Scalar>,
         nullability: Nullability,
     ) -> Self {
@@ -260,7 +258,7 @@ impl Scalar {
     /// Panics if any child scalar has a different type than the element type, or if there are too
     /// many children.
     pub fn fixed_size_list(
-        element_dtype: impl Into<Arc<DType>>,
+        element_dtype: Arc<DType>,
         children: Vec<Scalar>,
         nullability: Nullability,
     ) -> Self {

@@ -76,7 +76,7 @@ use crate::validity::Validity;
 #[derive(Clone, Debug)]
 pub struct VarBinViewArray {
     pub(super) dtype: DType,
-    pub(super) buffers: Arc<[ByteBuffer]>,
+    pub(super) buffers: Arc<Box<[ByteBuffer]>>,
     pub(super) views: Buffer<BinaryView>,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
@@ -91,7 +91,7 @@ impl VarBinViewArray {
     /// in [`VarBinViewArray::new_unchecked`].
     pub fn new(
         views: Buffer<BinaryView>,
-        buffers: Arc<[ByteBuffer]>,
+        buffers: Arc<Box<[ByteBuffer]>>,
         dtype: DType,
         validity: Validity,
     ) -> Self {
@@ -109,7 +109,7 @@ impl VarBinViewArray {
     /// [`VarBinViewArray::new_unchecked`].
     pub fn try_new(
         views: Buffer<BinaryView>,
-        buffers: Arc<[ByteBuffer]>,
+        buffers: Arc<Box<[ByteBuffer]>>,
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -150,7 +150,7 @@ impl VarBinViewArray {
     /// - If validity is an array, its length must match `views.len()`.
     pub unsafe fn new_unchecked(
         views: Buffer<BinaryView>,
-        buffers: Arc<[ByteBuffer]>,
+        buffers: Arc<Box<[ByteBuffer]>>,
         dtype: DType,
         validity: Validity,
     ) -> Self {
@@ -172,7 +172,7 @@ impl VarBinViewArray {
     /// This function checks all the invariants required by [`VarBinViewArray::new_unchecked`].
     pub fn validate(
         views: &Buffer<BinaryView>,
-        buffers: &Arc<[ByteBuffer]>,
+        buffers: &Arc<Box<[ByteBuffer]>>,
         dtype: &DType,
         validity: &Validity,
     ) -> VortexResult<()> {
@@ -196,7 +196,7 @@ impl VarBinViewArray {
 
     fn validate_views<F>(
         views: &Buffer<BinaryView>,
-        buffers: &Arc<[ByteBuffer]>,
+        buffers: &Arc<Box<[ByteBuffer]>>,
         validity: &Validity,
         validator: F,
     ) -> VortexResult<()>
@@ -311,7 +311,7 @@ impl VarBinViewArray {
 
     /// Iterate over the underlying raw data buffers, not including the views buffer.
     #[inline]
-    pub fn buffers(&self) -> &Arc<[ByteBuffer]> {
+    pub fn buffers(&self) -> &Arc<Box<[ByteBuffer]>> {
         &self.buffers
     }
 

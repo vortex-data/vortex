@@ -161,7 +161,7 @@ mod tests {
         let views = Buffer::from_iter([view1, view2]);
         let result = VarBinViewArray::try_new(
             views,
-            Arc::new([]),
+            Arc::new(Box::from([])),
             DType::Utf8(Nullability::NonNullable),
             Validity::NonNullable,
         );
@@ -178,7 +178,7 @@ mod tests {
         let view = BinaryView::make_view(data, 1, 0); // Buffer index 1.
 
         let views = Buffer::from_iter([view]);
-        let buffers = Arc::new([ByteBuffer::from(data.to_vec())]);
+        let buffers = Arc::new(Box::from([ByteBuffer::from(data.to_vec())]));
 
         let result = VarBinViewArray::try_new(
             views,
@@ -196,7 +196,7 @@ mod tests {
         let field2 = buffer![4.0f64, 5.0, 6.0].into_array();
         let fields = vec![field1, field2];
         let names = ["a", "b"];
-        let result = StructArray::try_new(names.into(), fields, 3, Validity::NonNullable);
+        let result = StructArray::try_new(names.into(), fields.into(), 3, Validity::NonNullable);
         assert!(result.is_ok());
     }
 
@@ -207,7 +207,7 @@ mod tests {
         let field2 = buffer![4.0f64, 5.0].into_array(); // Length 2, not 3.
         let fields = vec![field1, field2];
         let names = ["a", "b"];
-        let result = StructArray::try_new(names.into(), fields, 3, Validity::NonNullable);
+        let result = StructArray::try_new(names.into(), fields.into(), 3, Validity::NonNullable);
         assert!(result.is_err());
     }
 }

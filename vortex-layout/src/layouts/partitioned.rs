@@ -75,7 +75,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
 
             let root_scope = StructArray::try_new(
                 self.partition_names.clone(),
-                field_arrays,
+                field_arrays.into(),
                 mask.len(),
                 Validity::NonNullable,
             )?
@@ -111,7 +111,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
 
             let root_scope = StructArray::try_new(
                 self.partition_names.clone(),
-                field_arrays,
+                field_arrays.into(),
                 mask.true_count(),
                 Validity::NonNullable,
             )?

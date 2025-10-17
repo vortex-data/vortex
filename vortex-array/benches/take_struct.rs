@@ -34,7 +34,7 @@ fn take_struct_simple(bencher: Bencher) {
 
     let struct_array = StructArray::try_new(
         FieldNames::from(["value"]),
-        vec![field],
+        vec![field].into(),
         ARRAY_SIZE,
         Validity::NonNullable,
     )
@@ -70,8 +70,13 @@ fn take_struct_wide(bencher: Bencher, width: usize) {
         "field1", "field2", "field3", "field4", "field5", "field6", "field7", "field8",
     ]);
 
-    let struct_array =
-        StructArray::try_new(field_names, fields, ARRAY_SIZE, Validity::NonNullable).unwrap();
+    let struct_array = StructArray::try_new(
+        field_names,
+        fields.into(),
+        ARRAY_SIZE,
+        Validity::NonNullable,
+    )
+    .unwrap();
 
     let indices: Buffer<u64> = (0..TAKE_SIZE)
         .map(|_| rng.random_range(0..ARRAY_SIZE) as u64)
@@ -98,7 +103,7 @@ fn take_struct_sequential_indices(bencher: Bencher) {
 
     let struct_array = StructArray::try_new(
         FieldNames::from(["value"]),
-        vec![field],
+        vec![field].into(),
         ARRAY_SIZE,
         Validity::NonNullable,
     )

@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
 
     let st = StructArray::try_new(
         ["strings", "numbers"].into(),
-        vec![strings, numbers],
+        vec![strings, numbers].into(),
         8,
         Validity::NonNullable,
     )?;

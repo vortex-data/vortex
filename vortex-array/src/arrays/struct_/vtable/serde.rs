@@ -55,6 +55,6 @@ impl SerdeVTable<StructVTable> for StructVTable {
             })
             .try_collect()?;
 
-        StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
+        StructArray::try_new_with_dtype(children.into(), struct_dtype.clone(), len, validity)
     }
 }

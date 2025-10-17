@@ -51,6 +51,11 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
             vortex_bail!("Expected 0 or 1 children, got {}", children.len());
         };
 
-        VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
+        VarBinViewArray::try_new(
+            views,
+            Arc::from(buffers.into_boxed_slice()),
+            dtype.clone(),
+            validity,
+        )
     }
 }

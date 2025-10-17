@@ -21,7 +21,7 @@ impl CanonicalVTable<FSSTVTable> for FSSTVTable {
         unsafe {
             Canonical::VarBinView(VarBinViewArray::new_unchecked(
                 views,
-                Arc::new([buffer]),
+                Arc::new(Box::from([buffer])),
                 array.dtype().clone(),
                 array.codes().validity().clone(),
             ))

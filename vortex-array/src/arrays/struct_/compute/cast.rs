@@ -37,7 +37,8 @@ impl CastKernel for StructVTable {
                 .iter()
                 .zip_eq(target_sdtype.fields())
                 .map(|(field, dtype)| cast(field, &dtype))
-                .collect::<Result<Vec<_>, _>>()?,
+                .collect::<Result<Vec<_>, _>>()?
+                .into(),
             array.len(),
             validity,
         )
@@ -79,7 +80,7 @@ mod tests {
 
         StructArray::try_new(
             names,
-            vec![a, b],
+            vec![a, b].into(),
             3,
             if nullable {
                 Validity::AllValid
@@ -96,9 +97,10 @@ mod tests {
 
         let x = buffer![1.0f32, 2.0, 3.0].into_array();
         let y = buffer![4.0f32, 5.0, 6.0].into_array();
-        let inner_struct = StructArray::try_new(inner_names, vec![x, y], 3, Validity::NonNullable)
-            .unwrap()
-            .into_array();
+        let inner_struct =
+            StructArray::try_new(inner_names, vec![x, y].into(), 3, Validity::NonNullable)
+                .unwrap()
+                .into_array();
 
         // Create outer struct with inner struct as a field
         let outer_names: FieldNames = ["id", "point"].into();
@@ -108,7 +110,7 @@ mod tests {
 
         StructArray::try_new(
             outer_names,
-            vec![ids, inner_struct],
+            vec![ids, inner_struct].into(),
             3,
             Validity::NonNullable,
         )
@@ -121,14 +123,14 @@ mod tests {
 
         let values = buffer![42u8].into_array();
 
-        StructArray::try_new(names, vec![values], 1, Validity::NonNullable).unwrap()
+        StructArray::try_new(names, vec![values].into(), 1, Validity::NonNullable).unwrap()
     }
 
     #[test]
     fn cast_nullable_all_invalid() {
         let empty_struct = StructArray::try_new(
             FieldNames::from(["a"]),
-            vec![PrimitiveArray::new::<i32>(buffer![], Validity::AllInvalid).to_array()],
+            vec![PrimitiveArray::new::<i32>(buffer![], Validity::AllInvalid).to_array()].into(),
             0,
             Validity::AllInvalid,
         )

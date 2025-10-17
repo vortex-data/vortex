@@ -19,8 +19,13 @@ pub fn extract_relevant_file_stats_as_struct_row(
     struct_dtype: &StructFields,
 ) -> VortexResult<Option<ArrayRef>> {
     if access.is_empty() {
-        return StructArray::try_new(FieldNames::default(), vec![], 1, Validity::NonNullable)
-            .map(|s| Some(s.to_array()));
+        return StructArray::try_new(
+            FieldNames::default(),
+            vec![].into(),
+            1,
+            Validity::NonNullable,
+        )
+        .map(|s| Some(s.to_array()));
     }
 
     let mut columns: Vec<(FieldName, ArrayRef)> = Vec::with_capacity(access.len() * 2);

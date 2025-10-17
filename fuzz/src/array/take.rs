@@ -107,7 +107,7 @@ pub fn take_canonical_array(
 
             StructArray::try_new(
                 struct_array.names().clone(),
-                taken_children,
+                taken_children.into(),
                 indices_slice_non_opt.len(),
                 validity,
             )

@@ -392,7 +392,7 @@ impl BtrBlocksCompressor {
 
                 Ok(StructArray::try_new(
                     struct_array.names().clone(),
-                    fields,
+                    fields.into(),
                     struct_array.len(),
                     struct_array.validity().clone(),
                 )?

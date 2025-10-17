@@ -239,7 +239,8 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
                         .data_buffers()
                         .iter()
                         .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
-                        .collect::<Vec<_>>(),
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
                 ),
                 dtype,
                 nulls(value.nulls(), nullable),
@@ -322,7 +323,8 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
                         Self::from_arrow(c.as_ref(), field.is_nullable())
                     }
                 })
-                .collect::<Vec<_>>(),
+                .collect::<Vec<_>>()
+                .into(),
             value.len(),
             nulls(value.nulls(), nullable),
         )

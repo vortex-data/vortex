@@ -210,7 +210,7 @@ fn test_take_nullable_arrays_fsl_specific(
                 builder
                     .append_value(
                         Scalar::list(
-                            DType::Primitive(PType::I32, Nullability::NonNullable),
+                            DType::Primitive(PType::I32, Nullability::NonNullable).into(),
                             scalars,
                             Nullability::NonNullable,
                         )

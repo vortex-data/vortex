@@ -126,7 +126,7 @@ mod tests {
         .into_array();
         let arr = StructArray::try_new(
             ["col1", "col2"].into(),
-            vec![prim, strings],
+            vec![prim, strings].into(),
             10,
             Validity::from(BooleanBuffer::from_iter([
                 true, true, true, false, false, false, true, true, true, true,
@@ -167,7 +167,7 @@ mod tests {
         .into_array();
         let arr = StructArray::try_new(
             ["col1", "col2"].into(),
-            vec![prim, strings],
+            vec![prim, strings].into(),
             10,
             Validity::from(BooleanBuffer::from_iter([
                 true, true, true, false, false, false, true, true, true, true,

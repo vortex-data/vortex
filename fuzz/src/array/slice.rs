@@ -58,7 +58,7 @@ pub fn slice_canonical_array(
                 .map(|c| slice_canonical_array(c, start, stop))
                 .collect::<VortexResult<Vec<_>>>()?;
             StructArray::try_new_with_dtype(
-                sliced_children,
+                sliced_children.into(),
                 struct_array.struct_fields().clone(),
                 stop - start,
                 validity,

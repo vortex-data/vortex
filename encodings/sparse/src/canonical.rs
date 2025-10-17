@@ -487,7 +487,12 @@ fn canonicalize_varbin_inner<I: IntegerPType>(
 
     // SAFETY: views are constructed to maintain the invariants
     let array = unsafe {
-        VarBinViewArray::new_unchecked(views.freeze(), Arc::from(buffers), dtype, validity)
+        VarBinViewArray::new_unchecked(
+            views.freeze(),
+            Arc::new(Box::from(buffers)),
+            dtype,
+            validity,
+        )
     };
 
     Canonical::VarBinView(array)
@@ -628,7 +633,7 @@ mod test {
         let patch_values_b =
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(3)]).into_array();
         let patch_values = StructArray::try_new_with_dtype(
-            vec![patch_values_a, patch_values_b],
+            vec![patch_values_a, patch_values_b].into(),
             struct_fields.clone(),
             4,
             Validity::Array(
@@ -669,7 +674,7 @@ mod test {
         }));
 
         let expected = StructArray::try_new_with_dtype(
-            vec![expected_a.into_array(), expected_b.into_array()],
+            vec![expected_a.into_array(), expected_b.into_array()].into(),
             struct_fields,
             len,
             // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 8 is Invalid.
@@ -706,7 +711,7 @@ mod test {
         let patch_values_b =
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(3)]).into_array();
         let patch_values = StructArray::try_new_with_dtype(
-            vec![patch_values_a, patch_values_b],
+            vec![patch_values_a, patch_values_b].into(),
             struct_fields.clone(),
             4,
             Validity::Array(
@@ -744,7 +749,7 @@ mod test {
         }));
 
         let expected = StructArray::try_new_with_dtype(
-            vec![expected_a.into_array(), expected_b.into_array()],
+            vec![expected_a.into_array(), expected_b.into_array()].into(),
             struct_fields,
             len,
             // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 0, 1, 7 are valid.

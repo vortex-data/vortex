@@ -106,9 +106,13 @@ mod test {
 
     #[test]
     fn test_take_nullability() {
-        let struct_array =
-            StructArray::try_new(FieldNames::default(), vec![], 100, Validity::NonNullable)
-                .unwrap();
+        let struct_array = StructArray::try_new(
+            FieldNames::default(),
+            vec![].into(),
+            100,
+            Validity::NonNullable,
+        )
+        .unwrap();
 
         let arr = ChunkedArray::from_iter(vec![struct_array.to_array(), struct_array.to_array()]);
 
@@ -120,7 +124,7 @@ mod test {
 
         let expect = StructArray::try_new(
             FieldNames::default(),
-            vec![],
+            vec![].into(),
             3,
             Validity::Array(BoolArray::from_iter(vec![true, false, true]).to_array()),
         )

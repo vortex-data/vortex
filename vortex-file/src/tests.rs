@@ -335,7 +335,7 @@ async fn write_chunked() {
             .into_array();
     let st = StructArray::try_new(
         ["strings", "numbers"].into(),
-        vec![strings_chunked, numbers_chunked],
+        vec![strings_chunked, numbers_chunked].into(),
         16,
         Validity::NonNullable,
     )
@@ -408,7 +408,7 @@ async fn filter_string() {
         PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]).into_array();
     let st = StructArray::try_new(
         ["name", "age"].into(),
-        vec![names_orig, ages_orig],
+        vec![names_orig, ages_orig].into(),
         5,
         Validity::NonNullable,
     )
@@ -458,7 +458,7 @@ async fn filter_or() {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
         ["name", "age"].into(),
-        vec![names.into_array(), ages.into_array()],
+        vec![names.into_array(), ages.into_array()].into(),
         5,
         Validity::NonNullable,
     )
@@ -520,7 +520,7 @@ async fn filter_and() {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
         ["name", "age"].into(),
-        vec![names.into_array(), ages.into_array()],
+        vec![names.into_array(), ages.into_array()].into(),
         5,
         Validity::NonNullable,
     )
@@ -1115,7 +1115,7 @@ async fn write_nullable_top_level_struct() {
 
     let array = StructArray::try_new(
         ["age"].into(),
-        vec![ages.into_array()],
+        vec![ages.into_array()].into(),
         5,
         Validity::AllValid,
     )
@@ -1163,7 +1163,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
 
     let array = StructArray::try_new(
         ["struct"].into(),
-        vec![struct_.into_array()],
+        vec![struct_.into_array()].into(),
         3,
         Validity::NonNullable,
     )?

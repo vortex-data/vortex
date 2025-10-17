@@ -138,7 +138,12 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 // SAFETY: Fields are constructed from the same struct scalar, all have same
                 // length, dtypes match by construction.
                 Canonical::Struct(unsafe {
-                    StructArray::new_unchecked(fields, struct_dtype.clone(), array.len(), validity)
+                    StructArray::new_unchecked(
+                        fields.into(),
+                        struct_dtype.clone(),
+                        array.len(),
+                        validity,
+                    )
                 })
             }
             DType::List(..) => Canonical::List(constant_canonical_list_array(scalar, array.len())),
@@ -199,7 +204,7 @@ fn constant_canonical_byte_view(
             unsafe {
                 VarBinViewArray::new_unchecked(
                     views,
-                    Arc::from(buffers),
+                    Arc::from(buffers.into_boxed_slice()),
                     dtype.clone(),
                     Validity::from(dtype.nullability()),
                 )

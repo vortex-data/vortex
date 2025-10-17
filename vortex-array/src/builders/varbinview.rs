@@ -401,9 +401,9 @@ impl CompletedBuffers {
         }
     }
 
-    fn finish(self) -> Arc<[ByteBuffer]> {
+    fn finish(self) -> Arc<Box<[ByteBuffer]>> {
         match self {
-            Self::Default(buffers) => Arc::from(buffers),
+            Self::Default(buffers) => Arc::from(buffers.into_boxed_slice()),
             Self::Deduplicated(buffers) => buffers.finish(),
         }
     }
@@ -453,8 +453,8 @@ impl DeduplicatedBuffers {
             .collect()
     }
 
-    fn finish(self) -> Arc<[ByteBuffer]> {
-        Arc::from(self.buffers)
+    fn finish(self) -> Arc<Box<[ByteBuffer]>> {
+        Arc::from(self.buffers.into_boxed_slice())
     }
 }
 
@@ -524,7 +524,7 @@ impl BufferGrowthStrategy {
 
 enum BuffersWithOffsets {
     AllKept {
-        buffers: Arc<[ByteBuffer]>,
+        buffers: Arc<Box<[ByteBuffer]>>,
         offsets: Option<Vec<u32>>,
     },
     SomeCompacted {
@@ -574,7 +574,7 @@ impl BuffersWithOffsets {
                     .map(|(b, _)| b.vortex_expect("already checked for rewrite"))
                     .collect();
                 Self::AllKept {
-                    buffers: Arc::from(buffers),
+                    buffers: Arc::from(buffers.into_boxed_slice()),
                     offsets: None,
                 }
             }
@@ -594,7 +594,7 @@ impl BuffersWithOffsets {
                     })
                     .collect();
                 Self::AllKept {
-                    buffers: Arc::from(buffers),
+                    buffers: Arc::from(buffers.into_boxed_slice()),
                     offsets: Some(offsets),
                 }
             }

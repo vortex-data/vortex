@@ -232,8 +232,13 @@ impl StatsAccumulator {
         }
 
         Some(ZoneMap {
-            array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)
-                .vortex_expect("Failed to create zone map"),
+            array: StructArray::try_new(
+                names.into(),
+                fields.into(),
+                self.length,
+                Validity::NonNullable,
+            )
+            .vortex_expect("Failed to create zone map"),
             stats: stats.into(),
         })
     }

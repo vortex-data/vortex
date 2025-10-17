@@ -303,7 +303,7 @@ fn test_listview_of_struct_with_nulls() {
 
     let struct_array = StructArray::try_new(
         struct_fields.names().clone(),
-        vec![id_values, value_values],
+        vec![id_values, value_values].into(),
         6,
         struct_validity,
     )

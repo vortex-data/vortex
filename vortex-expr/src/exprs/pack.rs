@@ -117,7 +117,10 @@ impl VTable for PackVTable {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
         };
-        Ok(StructArray::try_new(expr.names.clone(), value_arrays, len, validity)?.into_array())
+        Ok(
+            StructArray::try_new(expr.names.clone(), value_arrays.into(), len, validity)?
+                .into_array(),
+        )
     }
 
     fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {

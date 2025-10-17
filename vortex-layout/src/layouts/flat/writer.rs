@@ -276,7 +276,8 @@ mod tests {
                 vec![
                     buffer![1_u64, 2].into_array(),
                     buffer![3_u64, 4].into_array(),
-                ],
+                ]
+                .into(),
                 2,
                 validity,
             )

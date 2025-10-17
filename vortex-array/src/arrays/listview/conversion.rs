@@ -165,7 +165,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> ArrayRef {
             if any_changed {
                 StructArray::try_new(
                     struct_array.names().clone(),
-                    converted_fields,
+                    converted_fields.into(),
                     struct_array.len(),
                     struct_array.validity().clone(),
                 )
@@ -464,7 +464,7 @@ mod tests {
 
         let struct_array = StructArray::try_new(
             FieldNames::from(["lists", "values"]),
-            vec![listview_field, primitive_field],
+            vec![listview_field, primitive_field].into(),
             4,
             Validity::NonNullable,
         )
@@ -521,7 +521,7 @@ mod tests {
 
         let struct_array = StructArray::try_new(
             FieldNames::from(["inner_lists"]),
-            vec![innermost_listview.into_array()],
+            vec![innermost_listview.into_array()].into(),
             2,
             Validity::NonNullable,
         )
@@ -559,7 +559,7 @@ mod tests {
 
         let struct_array = StructArray::try_new(
             FieldNames::from(["listview_field", "list_field"]),
-            vec![listview.into_array(), list.into_array()],
+            vec![listview.into_array(), list.into_array()].into(),
             4,
             Validity::NonNullable,
         )

@@ -288,13 +288,14 @@ mod tests {
                 vec![
                     StructArray::try_new(
                         FieldNames::from([FieldName::from("one"), FieldName::from("two")]),
-                        vec![array.clone(), array],
+                        vec![array.clone(), array].into(),
                         9,
                         Validity::NonNullable,
                     )
                     .unwrap()
                     .into_array(),
-                ],
+                ]
+                .into(),
                 9,
                 Validity::NonNullable,
             )

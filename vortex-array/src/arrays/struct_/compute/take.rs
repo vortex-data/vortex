@@ -34,7 +34,8 @@ impl TakeKernel for StructVTable {
                 .fields()
                 .iter()
                 .map(|field| compute::take(field, inner_indices))
-                .collect::<Result<Vec<_>, _>>()?,
+                .collect::<Result<Vec<_>, _>>()?
+                .into(),
             array.struct_fields().clone(),
             indices.len(),
             array.validity().take(indices)?,

@@ -230,7 +230,7 @@ mod tests {
     fn get_nullable_field() {
         let st = StructArray::try_new(
             FieldNames::from(["a"]),
-            vec![buffer![1i32].into_array()],
+            vec![buffer![1i32].into_array()].into(),
             1,
             Validity::AllInvalid,
         )

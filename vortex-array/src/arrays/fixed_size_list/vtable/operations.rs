@@ -45,9 +45,10 @@ impl OperationsVTable<FixedSizeListVTable> for FixedSizeListVTable {
         let children_elements: Vec<Scalar> = (0..list.len()).map(|i| list.scalar_at(i)).collect();
 
         debug_assert_eq!(children_elements.len(), array.list_size() as usize);
+        let element_dtype = list.dtype().clone().into();
 
         Scalar::fixed_size_list(
-            list.dtype().clone(),
+            element_dtype,
             children_elements,
             array.dtype().nullability(),
         )

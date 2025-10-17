@@ -722,7 +722,7 @@ mod tests {
 
         let struct_a = StructArray::try_new(
             FieldNames::from(["xs"]),
-            vec![xs.into_array()],
+            vec![xs.into_array()].into(),
             5,
             Validity::AllValid,
         )
@@ -741,7 +741,7 @@ mod tests {
 
         let struct_a = StructArray::try_new(
             FieldNames::from(["xs"]),
-            vec![xs.into_array()],
+            vec![xs.into_array()].into(),
             5,
             Validity::AllValid,
         )
@@ -759,7 +759,7 @@ mod tests {
 
         let struct_a = StructArray::try_new(
             FieldNames::from(["xs"]),
-            vec![xs.into_array()],
+            vec![xs.into_array()].into(),
             5,
             Validity::AllValid,
         )

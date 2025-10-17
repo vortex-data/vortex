@@ -82,7 +82,7 @@ fn pack_struct_chunks(
 
     // SAFETY: field_arrays are built from corresponding chunks of same length, dtypes match by
     // construction.
-    unsafe { StructArray::new_unchecked(field_arrays, struct_dtype.clone(), len, validity) }
+    unsafe { StructArray::new_unchecked(field_arrays.into(), struct_dtype.clone(), len, validity) }
 }
 
 /// Packs [`ListViewArray`]s together into a chunked `ListViewArray`.
@@ -184,7 +184,7 @@ mod tests {
     pub fn pack_nested_structs() {
         let struct_array = StructArray::try_new(
             ["a"].into(),
-            vec![VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"]).into_array()],
+            vec![VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"]).into_array()].into(),
             4,
             Validity::NonNullable,
         )

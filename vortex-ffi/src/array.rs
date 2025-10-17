@@ -262,7 +262,7 @@ mod tests {
             let ages = PrimitiveArray::new(buffer![30u8, 25u8, 35u8], Validity::NonNullable);
             let struct_array = StructArray::try_new(
                 ["name", "age"].into(),
-                vec![names.into_array(), ages.into_array()],
+                vec![names.into_array(), ages.into_array()].into(),
                 3,
                 Validity::NonNullable,
             )

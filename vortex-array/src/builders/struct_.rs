@@ -96,7 +96,7 @@ impl StructBuilder {
 
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
-        StructArray::try_new_with_dtype(fields, self.struct_fields().clone(), len, validity)
+        StructArray::try_new_with_dtype(fields.into(), self.struct_fields().clone(), len, validity)
             .vortex_expect("Fields must all have same length.")
     }
 

@@ -22,7 +22,7 @@ fn test_project() {
 
     let struct_a = StructArray::try_new(
         FieldNames::from(["xs", "ys", "zs"]),
-        vec![xs.into_array(), ys.into_array(), zs.into_array()],
+        vec![xs.into_array(), ys.into_array(), zs.into_array()].into(),
         5,
         Validity::NonNullable,
     )
@@ -55,7 +55,7 @@ fn test_remove_column() {
 
     let mut struct_a = StructArray::try_new(
         FieldNames::from(["xs", "ys"]),
-        vec![xs.into_array(), ys.into_array()],
+        vec![xs.into_array(), ys.into_array()].into(),
         5,
         Validity::NonNullable,
     )
@@ -98,7 +98,7 @@ fn test_duplicate_field_names() {
     // Create struct with duplicate field names - "value" appears twice
     let struct_array = StructArray::try_new(
         FieldNames::from(["value", "other", "value"]),
-        vec![field1, field2, field3],
+        vec![field1, field2, field3].into(),
         3,
         Validity::NonNullable,
     )
@@ -130,7 +130,7 @@ fn test_duplicate_field_names() {
 fn test_uncompressed_size_in_bytes() {
     let struct_array = StructArray::new(
         FieldNames::from(["integers"]),
-        vec![ConstantArray::new(5, 1000).into_array()],
+        vec![ConstantArray::new(5, 1000).into_array()].into(),
         1000,
         Validity::NonNullable,
     );
@@ -142,4 +142,107 @@ fn test_uncompressed_size_in_bytes() {
 
     assert_eq!(canonical_size, 2);
     assert_eq!(uncompressed_size, Some(4000));
+}
+
+#[test]
+fn test_struct_arrays_iterator() {
+    // Create a struct with multiple fields
+    let field1 = buffer![1i32, 2, 3].into_array();
+    let field2 = buffer![10u64, 20, 30].into_array();
+    let field3 = buffer![100i16, 200, 300].into_array();
+
+    let struct_array = StructArray::try_new(
+        FieldNames::from(["a", "b", "c"]),
+        vec![field1, field2, field3].into(),
+        3,
+        Validity::NonNullable,
+    )
+    .unwrap();
+
+    // Test IntoIterator for &StructArrays
+    let fields = struct_array.fields();
+    let mut iter = fields.into_iter();
+
+    // Verify we can iterate over all fields
+    let first = iter.next().unwrap();
+    assert_eq!(first.to_primitive().as_slice::<i32>(), [1i32, 2, 3]);
+
+    let second = iter.next().unwrap();
+    assert_eq!(second.to_primitive().as_slice::<u64>(), [10u64, 20, 30]);
+
+    let third = iter.next().unwrap();
+    assert_eq!(third.to_primitive().as_slice::<i16>(), [100i16, 200, 300]);
+
+    assert!(iter.next().is_none());
+}
+
+#[test]
+fn test_struct_arrays_for_loop() {
+    // Test that we can use StructArrays in a for loop
+    let field1 = buffer![1i32, 2].into_array();
+    let field2 = buffer![10i32, 20].into_array();
+
+    let struct_array = StructArray::try_new(
+        FieldNames::from(["x", "y"]),
+        vec![field1, field2].into(),
+        2,
+        Validity::NonNullable,
+    )
+    .unwrap();
+
+    let mut count = 0;
+    for field in struct_array.fields() {
+        assert_eq!(field.len(), 2);
+        count += 1;
+    }
+    assert_eq!(count, 2);
+}
+
+#[test]
+fn test_struct_arrays_index() {
+    // Test Index trait implementation
+    let field1 = buffer![1i32, 2, 3].into_array();
+    let field2 = buffer![10i32, 20, 30].into_array();
+
+    let struct_array = StructArray::try_new(
+        FieldNames::from(["a", "b"]),
+        vec![field1, field2].into(),
+        3,
+        Validity::NonNullable,
+    )
+    .unwrap();
+
+    let fields = struct_array.fields();
+
+    // Direct indexing should work
+    assert_eq!(fields[0].to_primitive().as_slice::<i32>(), [1i32, 2, 3]);
+    assert_eq!(fields[1].to_primitive().as_slice::<i32>(), [10i32, 20, 30]);
+}
+
+#[test]
+fn test_struct_arrays_collect() {
+    // Test that we can collect fields into a Vec
+    let field1 = buffer![1i32, 2].into_array();
+    let field2 = buffer![10i32, 20].into_array();
+    let field3 = buffer![100i32, 200].into_array();
+
+    let struct_array = StructArray::try_new(
+        FieldNames::from(["a", "b", "c"]),
+        vec![field1, field2, field3].into(),
+        2,
+        Validity::NonNullable,
+    )
+    .unwrap();
+
+    // Collect all fields
+    let collected: Vec<_> = struct_array.fields().into_iter().collect();
+    assert_eq!(collected.len(), 3);
+
+    // Verify dtypes
+    for field in collected {
+        assert_eq!(
+            field.dtype(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+    }
 }

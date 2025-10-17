@@ -109,7 +109,7 @@ impl VTable for MergeVTable {
         // TODO(DK): When children are allowed to be nullable, this needs to change.
         let validity = Validity::NonNullable;
         Ok(
-            StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
+            StructArray::try_new(FieldNames::from(field_names), arrays.into(), len, validity)?
                 .into_array(),
         )
     }
