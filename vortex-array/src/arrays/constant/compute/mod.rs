@@ -13,11 +13,13 @@ mod take;
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_dtype::half::f16;
     use vortex_scalar::Scalar;
 
     use crate::IntoArray;
-    use crate::arrays::constant::ConstantArray;
+    use crate::arrays::ConstantArray;
+    use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
 
@@ -40,15 +42,6 @@ mod test {
             &ConstantArray::new(Scalar::from(f16::from_f32(3.0f32)), 5).into_array(),
         );
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-    use vortex_scalar::Scalar;
-
-    use crate::arrays::ConstantArray;
-    use crate::compute::conformance::consistency::test_array_consistency;
 
     #[rstest]
     // From test_all_consistency

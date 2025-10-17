@@ -3,91 +3,11 @@
 
 mod cast;
 mod filter;
+mod is_constant;
 mod mask;
+mod min_max;
+mod take;
 mod zip;
-
-use vortex_dtype::Nullability::NonNullable;
-use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-
-use crate::arrays::StructVTable;
-use crate::arrays::struct_::StructArray;
-use crate::compute::{
-    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, MinMaxKernel, MinMaxKernelAdapter,
-    MinMaxResult, TakeKernel, TakeKernelAdapter, fill_null, is_constant_opts, take,
-};
-use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
-
-impl TakeKernel for StructVTable {
-    fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        // If the struct array is empty then the indices must be all null, otherwise it will access
-        // an out of bounds element
-        if array.is_empty() {
-            return StructArray::try_new_with_dtype(
-                array.fields().clone(),
-                array.struct_fields().clone(),
-                indices.len(),
-                Validity::AllInvalid,
-            )
-            .map(StructArray::into_array);
-        }
-        // The validity is applied to the struct validity,
-        let inner_indices = &fill_null(
-            indices,
-            &Scalar::default_value(indices.dtype().with_nullability(NonNullable)),
-        )?;
-        StructArray::try_new_with_dtype(
-            array
-                .fields()
-                .iter()
-                .map(|field| take(field, inner_indices))
-                .collect::<Result<Vec<_>, _>>()?,
-            array.struct_fields().clone(),
-            indices.len(),
-            array.validity().take(indices)?,
-        )
-        .map(|a| a.into_array())
-    }
-}
-
-register_kernel!(TakeKernelAdapter(StructVTable).lift());
-
-impl MinMaxKernel for StructVTable {
-    fn min_max(&self, _array: &StructArray) -> VortexResult<Option<MinMaxResult>> {
-        // TODO(joe): Implement struct min max
-        Ok(None)
-    }
-}
-
-register_kernel!(MinMaxKernelAdapter(StructVTable).lift());
-
-impl IsConstantKernel for StructVTable {
-    fn is_constant(
-        &self,
-        array: &StructArray,
-        opts: &IsConstantOpts,
-    ) -> VortexResult<Option<bool>> {
-        let children = array.children();
-        if children.is_empty() {
-            return Ok(Some(true));
-        }
-
-        for child in children.iter() {
-            match is_constant_opts(child, opts)? {
-                // Un-determined
-                None => return Ok(None),
-                Some(false) => return Ok(Some(false)),
-                Some(true) => {}
-            }
-        }
-
-        Ok(Some(true))
-    }
-}
-
-register_kernel!(IsConstantKernelAdapter(StructVTable).lift());
 
 #[cfg(test)]
 mod tests {
