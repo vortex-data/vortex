@@ -503,8 +503,8 @@ mod test {
         ListViewArray, PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
     };
     use vortex_array::arrow::IntoArrowArray as _;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::ValidityHelper;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
     use vortex_dtype::Nullability::{NonNullable, Nullable};
@@ -543,19 +543,7 @@ mod test {
             fill_value,
         );
 
-        assert_eq!(flat_bools.boolean_buffer(), expected.boolean_buffer());
-        assert_eq!(flat_bools.validity(), expected.validity());
-
-        assert!(flat_bools.boolean_buffer().value(0));
-        assert!(flat_bools.validity().is_valid(0));
-        assert_eq!(
-            flat_bools.boolean_buffer().value(1),
-            fill_value.unwrap_or_default()
-        );
-        assert!(!flat_bools.validity().is_valid(1));
-        assert_eq!(flat_bools.validity().is_valid(2), fill_value.is_some());
-        assert!(!flat_bools.boolean_buffer().value(7));
-        assert!(flat_bools.validity().is_valid(7));
+        assert_arrays_eq!(&flat_bools, &expected);
     }
 
     fn bool_array_from_nullable_vec(
@@ -596,20 +584,7 @@ mod test {
             fill_value,
         ]);
 
-        assert_eq!(flat_ints.byte_buffer(), expected.byte_buffer());
-        assert_eq!(flat_ints.validity(), expected.validity());
-
-        assert_eq!(flat_ints.as_slice::<i32>()[0], 0);
-        assert!(flat_ints.validity().is_valid(0));
-        assert_eq!(flat_ints.as_slice::<i32>()[1], 0);
-        assert!(!flat_ints.validity().is_valid(1));
-        assert_eq!(
-            flat_ints.as_slice::<i32>()[2],
-            fill_value.unwrap_or_default()
-        );
-        assert_eq!(flat_ints.validity().is_valid(2), fill_value.is_some());
-        assert_eq!(flat_ints.as_slice::<i32>()[7], 1);
-        assert!(flat_ints.validity().is_valid(7));
+        assert_arrays_eq!(&flat_ints, &expected);
     }
 
     #[test]
@@ -676,18 +651,10 @@ mod test {
             Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
         )
         .unwrap()
-        .to_array()
-        .into_arrow_preferred()
-        .unwrap();
+        .to_array();
 
-        let actual = sparse_struct
-            .to_struct()
-            .to_array()
-            .into_arrow_preferred()
-            .unwrap();
-
-        assert_eq!(expected.data_type(), actual.data_type());
-        assert_eq!(&expected, &actual);
+        let actual = sparse_struct.to_struct();
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -751,18 +718,10 @@ mod test {
             Validity::from_mask(Mask::from_indices(10, vec![0, 1, 7]), Nullable),
         )
         .unwrap()
-        .to_array()
-        .into_arrow_preferred()
-        .unwrap();
+        .to_array();
 
-        let actual = sparse_struct
-            .to_struct()
-            .to_array()
-            .into_arrow_preferred()
-            .unwrap();
-
-        assert_eq!(expected.data_type(), actual.data_type());
-        assert_eq!(&expected, &actual);
+        let actual = sparse_struct.to_struct();
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -837,11 +796,7 @@ mod test {
         ])
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -882,11 +837,7 @@ mod test {
         ])
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -917,11 +868,7 @@ mod test {
         ])
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -962,11 +909,7 @@ mod test {
         ])
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1007,11 +950,7 @@ mod test {
         ])
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1214,11 +1153,8 @@ mod test {
             None,
         ])
         .into_array();
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
 
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1253,11 +1189,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1288,11 +1220,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1337,11 +1265,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1404,11 +1328,7 @@ mod test {
                 .unwrap()
                 .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1440,11 +1360,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1476,6 +1392,7 @@ mod test {
             actual.to_listview().offsets().dtype(),
             &DType::Primitive(PType::U16, NonNullable)
         );
+        assert_arrays_eq!(&actual, &expected);
 
         // Note that the preferred arrow list representation is `List` (not `ListView`).
         let arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
@@ -1483,8 +1400,6 @@ mod test {
         let expected = expected.into_arrow(&arrow_dtype).unwrap();
 
         assert_eq!(actual.data_type(), expected.data_type());
-        // TODO(connor): Equality not implemented for Arrow's `ListView` yet.
-        // assert_eq!(&actual, &expected);
     }
 
     #[test]

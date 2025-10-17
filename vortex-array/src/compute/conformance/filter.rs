@@ -6,7 +6,7 @@ use vortex_error::VortexUnwrap;
 use vortex_mask::Mask;
 
 use crate::compute::filter;
-use crate::{Array, IntoArray};
+use crate::{Array, IntoArray, assert_arrays_eq};
 
 // Standard test array sizes
 pub const SMALL_SIZE: usize = 5;
@@ -60,12 +60,7 @@ fn test_all_filter(array: &dyn Array) {
     let len = array.len();
     let mask = Mask::new_true(len);
     let filtered = filter(array, &mask).vortex_unwrap();
-    assert_eq!(filtered.len(), len);
-
-    // Verify all elements are preserved
-    for i in 0..len {
-        assert_eq!(filtered.scalar_at(i), array.scalar_at(i));
-    }
+    assert_arrays_eq!(filtered, array);
 }
 
 /// Tests that filtering with an all-false mask returns an empty array with the same dtype

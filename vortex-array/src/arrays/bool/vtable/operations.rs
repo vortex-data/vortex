@@ -31,7 +31,7 @@ mod tests {
     use std::iter;
 
     use super::*;
-    use crate::ToCanonical;
+    use crate::{ToCanonical, assert_arrays_eq};
 
     #[test]
     fn test_slice_hundred_elements() {
@@ -47,16 +47,9 @@ mod tests {
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
         let sliced_arr = arr.slice(1..4).to_bool();
 
-        assert_eq!(sliced_arr.len(), 3);
-
-        let s = sliced_arr.scalar_at(0);
-        assert_eq!(s.as_bool().value(), Some(true));
-
-        let s = sliced_arr.scalar_at(1);
-        assert!(!sliced_arr.is_valid(1));
-        assert!(s.is_null());
-
-        let s = sliced_arr.scalar_at(2);
-        assert_eq!(s.as_bool().value(), Some(false));
+        assert_arrays_eq!(
+            sliced_arr,
+            BoolArray::from_iter([Some(true), None, Some(false)])
+        );
     }
 }

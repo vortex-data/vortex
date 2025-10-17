@@ -271,7 +271,13 @@ impl Default for DecimalBuffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::builders::{ArrayBuilder, DecimalBuilder};
+    use vortex_dtype::DecimalDType;
+
+    use crate::{
+        arrays::DecimalArray,
+        assert_arrays_eq,
+        builders::{ArrayBuilder, DecimalBuilder},
+    };
 
     #[test]
     fn test_mixed_extend() {
@@ -303,21 +309,11 @@ mod tests {
         builder.append_null();
 
         let array = builder.finish();
-        assert_eq!(array.len(), 3);
-
-        // Check actual values using scalar_at.
-        let scalar0 = array.scalar_at(0);
-        let decimal0 = scalar0.as_decimal();
-        assert!(decimal0.decimal_value().is_some());
-        // We can't easily check the exact value without accessing internals.
-
-        let scalar1 = array.scalar_at(1);
-        let decimal1 = scalar1.as_decimal();
-        assert!(decimal1.decimal_value().is_some());
-
-        let scalar2 = array.scalar_at(2);
-        let decimal2 = scalar2.as_decimal();
-        assert!(decimal2.decimal_value().is_none()); // This should be null.
+        let expected = DecimalArray::from_option_iter(
+            [Some(1234i64), Some(5678), None],
+            DecimalDType::new(10, 2),
+        );
+        assert_arrays_eq!(&array, &expected);
 
         // Test by taking a scalar from the array and appending it to a new builder.
         let mut builder2 = DecimalBuilder::new::<i64>(10, 2, true.into());
@@ -327,12 +323,7 @@ mod tests {
         }
 
         let array2 = builder2.finish();
-        assert_eq!(array2.len(), 3);
-
-        // Verify the values match.
-        for i in 0..3 {
-            assert_eq!(array.scalar_at(i), array2.scalar_at(i));
-        }
+        assert_arrays_eq!(&array2, &array);
 
         // Test wrong dtype error.
         let mut builder = DecimalBuilder::new::<i64>(10, 2, false.into());
