@@ -392,7 +392,8 @@ mod tests {
     }
 
     #[test]
-    pub fn test_merge_duplicate_flag() {
+    #[should_panic(expected = "merge: duplicate fields in children")]
+    pub fn test_merge_duplicate_flag_return_dtype() {
         let expr = MergeExpr::new_opts(
             vec![get_item("0", root()), get_item("1", root())],
             DuplicateHandling::Error,
@@ -410,25 +411,30 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let actual = expr.return_dtype(test_array.dtype());
-        assert!(
-            actual.as_ref().is_err_and(|e| {
-                e.to_string()
-                    .contains("merge: duplicate fields in children")
-            }),
-            "{:?}",
-            actual
-        );
+        expr.return_dtype(test_array.dtype()).unwrap();
+    }
 
-        let actual = expr.evaluate(&Scope::new(test_array));
-        assert!(
-            actual.as_ref().is_err_and(|e| {
-                e.to_string()
-                    .contains("merge: duplicate fields in children")
-            }),
-            "{:?}",
-            actual
+    #[test]
+    #[should_panic(expected = "merge: duplicate fields in children")]
+    pub fn test_merge_duplicate_flag_evaluate() {
+        let expr = MergeExpr::new_opts(
+            vec![get_item("0", root()), get_item("1", root())],
+            DuplicateHandling::Error,
         );
+        let test_array = StructArray::try_from_iter([
+            (
+                "0",
+                StructArray::try_from_iter([("a", buffer![1]), ("b", buffer![1])]).unwrap(),
+            ),
+            (
+                "1",
+                StructArray::try_from_iter([("c", buffer![1]), ("b", buffer![1])]).unwrap(),
+            ),
+        ])
+        .unwrap()
+        .into_array();
+
+        expr.evaluate(&Scope::new(test_array)).unwrap();
     }
 
     #[test]
