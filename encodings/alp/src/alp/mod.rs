@@ -75,7 +75,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
 
         for e in (0..Self::MAX_EXPONENT).rev() {
             for f in 0..e {
-                let (_, encoded, _, exc_patches) = Self::encode(
+                let (_, encoded, _, exc_patches, _) = Self::encode(
                     sample.as_deref().unwrap_or(values),
                     Some(Exponents { e, f }),
                 );
@@ -118,21 +118,31 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
         encoded_bytes + patch_bytes
     }
 
+    #[allow(clippy::type_complexity)]
     fn encode(
         values: &[Self],
         exponents: Option<Exponents>,
-    ) -> (Exponents, Buffer<Self::ALPInt>, Buffer<u64>, Buffer<Self>) {
+    ) -> (
+        Exponents,
+        Buffer<Self::ALPInt>,
+        Buffer<u64>,
+        Buffer<Self>,
+        Buffer<u64>,
+    ) {
         let exp = exponents.unwrap_or_else(|| Self::find_best_exponents(values));
 
         let mut encoded_output = BufferMut::<Self::ALPInt>::with_capacity(values.len());
-        let mut patch_indices = BufferMut::<u64>::with_capacity(values.len());
-        let mut patch_values = BufferMut::<Self>::with_capacity(values.len());
+
+        // Estimate capacity to be one patch per 32 values.
+        let mut patch_indices = BufferMut::<u64>::with_capacity(values.len() / 32);
+        let mut patch_values = BufferMut::<Self>::with_capacity(values.len() / 32);
+
+        // There's exactly one offset per 1024 chunk.
+        let mut chunk_offsets = BufferMut::<u64>::with_capacity(values.len().div_ceil(1024));
         let mut fill_value: Option<Self::ALPInt> = None;
 
-        // this is intentionally branchless
-        // we batch this into 32KB of values at a time to make it more L1 cache friendly
-        let encode_chunk_size: usize = (32 << 10) / size_of::<Self::ALPInt>();
-        for chunk in values.chunks(encode_chunk_size) {
+        for chunk in values.chunks(1024) {
+            chunk_offsets.push(patch_indices.len() as u64);
             encode_chunk_unchecked(
                 chunk,
                 exp,
@@ -148,6 +158,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
             encoded_output.freeze(),
             patch_indices.freeze(),
             patch_values.freeze(),
+            chunk_offsets.freeze(),
         )
     }
 

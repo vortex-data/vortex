@@ -170,8 +170,8 @@ pub trait ArrayBuilder: Send {
         unsafe { self.extend_from_array_unchecked(array) }
     }
 
-    /// Ensure that the builder can hold at least `capacity` number of items
-    fn ensure_capacity(&mut self, capacity: usize);
+    /// Allocate space for extra `additional` items
+    fn reserve_exact(&mut self, additional: usize);
 
     /// Override builders validity with the one provided.
     ///
@@ -264,10 +264,10 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             *n,
             capacity,
         )),
-        DType::List(dtype, n) => Box::new(ListBuilder::<u64>::with_capacity(
+        DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity(
             dtype.clone(),
             *n,
-            2 * capacity,
+            2 * capacity, // Arbitrarily choose 2 times the `offsets` capacity here.
             capacity,
         )),
         DType::FixedSizeList(elem_dtype, list_size, null) => Box::new(

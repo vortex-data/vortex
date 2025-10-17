@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::{ListViewArray, list_view_from_list};
+pub use array::ListViewArray;
+
+mod conversion;
+pub use conversion::{list_from_list_view, list_view_from_list, recursive_list_from_list_view};
 
 mod compute;
 

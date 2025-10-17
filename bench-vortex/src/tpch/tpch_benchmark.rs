@@ -14,17 +14,18 @@ use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
 use tokio::runtime::Runtime;
 use url::Url;
+#[cfg(feature = "lance")]
+use {crate::file::register_lance_files, crate::utils};
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::{EngineCtx, ddb};
-use crate::file::register_lance_files;
 use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
 use crate::tpch::tpchgen::TpchGenOptions;
 use crate::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, register_arrow, register_parquet,
     register_vortex_compact_file, register_vortex_file, tpch_queries, tpchgen,
 };
-use crate::{BenchmarkDataset, Format, IdempotentPath, Target, utils};
+use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
 /// TPCH benchmark implementation
 pub struct TpcHBenchmark {
@@ -86,6 +87,7 @@ impl Benchmark for TpcHBenchmark {
                     .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
 
                 match target.format() {
+                    #[cfg(feature = "lance")]
                     Format::Lance => {
                         // For Lance: first generate Parquet, then convert
                         let options =
@@ -241,6 +243,7 @@ impl TpcHBenchmark {
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
                 Format::Csv => todo!("csv unsupported for tpch benchmark"),
+                #[cfg(feature = "lance")]
                 Format::Lance => {
                     register_lance_files(session, name, &path, &self.dataset()).await?
                 }
@@ -341,6 +344,7 @@ impl TpcHBenchmark {
 }
 
 /// Convert TPCH Parquet tables to Lance format.
+#[cfg(feature = "lance")]
 pub async fn convert_all_tpch_to_lance(parquet_dir: &Path, lance_dir: &Path) -> Result<()> {
     let tables = [
         "customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier",

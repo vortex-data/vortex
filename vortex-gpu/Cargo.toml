@@ -15,9 +15,10 @@ version = { workspace = true }
 publish = false
 
 [dependencies]
-#askama = { workspace = true }
 cudarc = { workspace = true, features = ["f16"] }
+itertools = { workspace = true }
 parking_lot = { workspace = true }
+vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true, features = ["cuda"] }
 vortex-dict = { workspace = true }

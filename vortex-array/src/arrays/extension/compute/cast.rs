@@ -4,7 +4,7 @@
 use vortex_dtype::DType;
 
 use crate::arrays::{ExtensionArray, ExtensionVTable};
-use crate::compute::{CastKernel, CastKernelAdapter, cast};
+use crate::compute::{self, CastKernel, CastKernelAdapter};
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for ExtensionVTable {
@@ -21,7 +21,7 @@ impl CastKernel for ExtensionVTable {
             unreachable!("Already verified we have an extension dtype");
         };
 
-        let new_storage = match cast(array.storage(), ext_dtype.storage_dtype()) {
+        let new_storage = match compute::cast(array.storage(), ext_dtype.storage_dtype()) {
             Ok(arr) => arr,
             Err(e) => {
                 log::warn!("Failed to cast storage array: {e}");
@@ -49,6 +49,7 @@ mod tests {
     use super::*;
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
+    use crate::compute::cast;
     use crate::compute::conformance::cast::test_cast_conformance;
 
     #[test]

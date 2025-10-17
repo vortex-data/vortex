@@ -175,6 +175,10 @@ impl Operator {
             _ => None,
         }
     }
+
+    pub fn is_arithmetic(&self) -> bool {
+        matches!(self, Self::Add | Self::Sub | Self::Mul | Self::Div)
+    }
 }
 
 impl From<compute::Operator> for Operator {

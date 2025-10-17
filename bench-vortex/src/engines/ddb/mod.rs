@@ -52,6 +52,7 @@ impl DuckDBCtx {
                 format!("statpopgen/{n_rows}/{}", format.name()).to_data_path()
             }
             BenchmarkDataset::Fineweb => format!("fineweb/{}", format.name()).to_data_path(),
+            BenchmarkDataset::GhArchive => format!("gharchive/{}", format.name()).to_data_path(),
         };
         std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");
@@ -147,6 +148,7 @@ impl DuckDBCtx {
         let object = match file_format {
             Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => DuckDBObject::View,
             Format::OnDiskDuckDB => DuckDBObject::Table,
+            #[cfg(feature = "lance")]
             Format::Lance => {
                 anyhow::bail!(
                     "Lance format is not supported for DuckDB engine. \
@@ -255,6 +257,13 @@ impl DuckDBCtx {
                 let path = format!("{base_dir}*.{extension}");
                 format!(
                     "CREATE {} IF NOT EXISTS fineweb AS SELECT * FROM read_{extension}('{path}');",
+                    duckdb_object.to_str(),
+                )
+            }
+            BenchmarkDataset::GhArchive => {
+                let path = format!("{base_dir}*.{extension}");
+                format!(
+                    "CREATE {} IF NOT EXISTS events AS SELECT * FROM read_{extension}('{path}');",
                     duckdb_object.to_str(),
                 )
             }

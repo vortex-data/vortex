@@ -14,20 +14,21 @@ on:
         required: false
         type: string
         description: "JSON string containing the matrix configuration"
+        # We do not include lance in the default configuration.
         default: |
           [
+            {
+              "id": "clickbench-nvme",
+              "subcommand": "clickbench",
+              "name": "Clickbench on NVME",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+            },
             {
               "id": "tpch-nvme",
               "subcommand": "tpch",
               "name": "TPC-H SF=1 on NVME",
               "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
               "scale_factor": "--scale-factor 1.0"
-            },
-            {
-              "id": "clickbench-nvme",
-              "subcommand": "clickbench",
-              "name": "Clickbench on NVME",
-              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
             },
             {
               "id": "tpch-s3",
@@ -65,16 +66,39 @@ on:
               "id": "statpopgen",
               "subcommand": "statpopgen",
               "name": "Statistical and Population Genetics",
-              "local_dir": "bench-vortex/data/statpopgen",
               "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "--scale-factor 100"
             },
             {
               "id": "fineweb",
               "subcommand": "fineweb",
-              "name": "FineWeb",
+              "name": "FineWeb NVMe",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+              "scale_factor": "--scale-factor 100"
+            },
+            {
+              "id": "fineweb-s3",
+              "subcommand": "fineweb",
+              "name": "FineWeb S3",
               "local_dir": "bench-vortex/data/fineweb",
-              "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact",
+              "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/fineweb/",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+              "scale_factor": "--scale-factor 100"
+            },
+            {
+              "id": "gharchive-nvme",
+              "subcommand": "gharchive",
+              "name": "GitHub Archive (NVMe)",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+              "scale_factor": "--scale-factor 100"
+            },
+            {
+              "id": "gharchive-s3",
+              "subcommand": "gharchive",
+              "name": "GitHub Archive (S3)",
+              "local_dir": "bench-vortex/data/gharchive",
+              "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/gharchive/",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "--scale-factor 100"
             },
           ]
@@ -119,7 +143,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --bin query_bench --package bench-vortex --profile release_debug
+          cargo build --bin query_bench --package bench-vortex --profile release_debug ${{ matrix.build_args }}
 
       - name: Generate data
         shell: bash

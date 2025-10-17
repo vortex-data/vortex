@@ -28,7 +28,6 @@ use vortex::builders::builder_with_capacity;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, IntoArray};
 
-// TODO(connor): Remove the Lance format from default values.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -36,7 +35,7 @@ struct Args {
         long,
         value_delimiter = ',',
         value_enum,
-        default_values_t = vec![Format::Parquet, Format::Lance, Format::OnDiskVortex]
+        default_values_t = vec![Format::Parquet, Format::OnDiskVortex]
     )]
     formats: Vec<Format>,
     #[arg(short, long, default_value_t = 5)]
@@ -238,6 +237,7 @@ pub fn benchmark_compress(
                     let compress_fn: CompressFn = match format {
                         Format::OnDiskVortex => compress::benchmark_vortex_compress,
                         Format::Parquet => compress::benchmark_parquet_compress,
+                        #[cfg(feature = "lance")]
                         Format::Lance => compress::benchmark_lance_compress,
                         _ => unimplemented!("Compress bench not implemented for {format}"),
                     };
@@ -255,6 +255,7 @@ pub fn benchmark_compress(
                     let decompress_fn: DecompressFn = match format {
                         Format::OnDiskVortex => compress::benchmark_vortex_decompress,
                         Format::Parquet => compress::benchmark_parquet_decompress,
+                        #[cfg(feature = "lance")]
                         Format::Lance => compress::benchmark_lance_decompress,
                         _ => unimplemented!("Decompress bench not implemented for {format}"),
                     };

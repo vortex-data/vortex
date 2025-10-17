@@ -34,6 +34,7 @@ pub mod metrics;
 pub mod public_bi;
 pub mod query_bench;
 pub mod random_access;
+pub mod realnest;
 pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
@@ -107,8 +108,6 @@ impl Display for Target {
     }
 }
 
-// TODO(connor): Add a lance feature flag.
-
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Format {
@@ -127,6 +126,7 @@ pub enum Format {
     #[clap(name = "duckdb")]
     #[serde(rename = "duckdb")]
     OnDiskDuckDB,
+    #[cfg(feature = "lance")]
     #[clap(name = "lance")]
     #[serde(rename = "lance")]
     Lance,
@@ -147,6 +147,7 @@ impl Format {
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
             Format::OnDiskDuckDB => "duckdb",
+            #[cfg(feature = "lance")]
             Format::Lance => "lance",
         }
     }
@@ -159,6 +160,7 @@ impl Format {
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
             Format::OnDiskDuckDB => "duckdb",
+            #[cfg(feature = "lance")]
             Format::Lance => "lance",
         }
     }

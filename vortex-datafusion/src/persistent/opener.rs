@@ -5,6 +5,7 @@ use std::ops::Range;
 use std::sync::{Arc, Weak};
 
 use arrow_schema::{ArrowError, Field, SchemaRef};
+use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::{DataFusionError, Result as DFResult};
 use datafusion_datasource::file_meta::FileMeta;
 use datafusion_datasource::file_stream::{FileOpenFuture, FileOpener};
@@ -19,13 +20,14 @@ use datafusion_pruning::FilePruner;
 use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
+use tracing::Instrument;
+use vortex::ArrayRef;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
 use vortex::expr::{root, select};
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
-use vortex::{ArrayRef, ToCanonical};
 use vortex_utils::aliases::dash_map::{DashMap, Entry};
 
 use super::cache::VortexFileCache;
@@ -228,7 +230,7 @@ impl FileOpener for VortexOpener {
                 .with_projection(projection_expr)
                 .with_some_filter(filter)
                 .with_ordered(has_output_ordering)
-                .map(|chunk| chunk.to_struct().into_record_batch())
+                .map(|chunk| RecordBatch::try_from(chunk.as_ref()))
                 .into_stream()
                 .map_err(|e| {
                     DataFusionError::Execution(format!("Failed to create Vortex stream: {e}"))
@@ -266,6 +268,7 @@ impl FileOpener for VortexOpener {
 
             Ok(stream)
         }
+        .in_current_span()
         .boxed())
     }
 }

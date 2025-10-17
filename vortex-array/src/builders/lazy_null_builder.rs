@@ -119,18 +119,15 @@ impl LazyNullBufferBuilder {
         }
     }
 
-    /// Ensures the builder has at least the specified capacity.
-    pub fn ensure_capacity(&mut self, capacity: usize) {
+    /// Ensures the builder can hold `additional` extra values.
+    pub fn reserve_exact(&mut self, additional: usize) {
         if self.inner.is_none() {
-            self.capacity = capacity;
+            self.capacity += additional;
         } else {
-            let inner = self
-                .inner
+            self.inner
                 .as_mut()
-                .vortex_expect("buffer just materialized");
-            if capacity < inner.capacity() {
-                inner.reserve(capacity - inner.len());
-            }
+                .vortex_expect("buffer just materialized")
+                .reserve(additional);
         }
     }
 

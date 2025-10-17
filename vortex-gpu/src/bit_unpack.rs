@@ -163,7 +163,7 @@ pub fn new_task(
 
         let launch_config = LaunchConfig {
             grid_dim: (num_chunks, 1, 1),
-            block_dim: (if size_of::<P>() == 8 { 16 } else { 32 }, 1, 1),
+            block_dim: (if P::BITS == 64 { 16 } else { 32 }, 1, 1),
             shared_mem_bytes: 0,
         };
 

@@ -71,14 +71,10 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
             }
         };
 
-        let validity_idx = if let Some(patches_meta) = &metadata.patches {
-            if patches_meta.chunk_offsets_dtype().is_some() {
-                3
-            } else {
-                2
-            }
-        } else {
-            0
+        let validity_idx = match &metadata.patches {
+            None => 0,
+            Some(patches_meta) if patches_meta.chunk_offsets_dtype().is_some() => 3,
+            Some(_) => 2,
         };
 
         let validity = load_validity(validity_idx)?;

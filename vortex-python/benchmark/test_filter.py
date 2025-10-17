@@ -36,7 +36,7 @@ def test_polars_streaming_filter(benchmark: BenchmarkFixture, vxf: vx.VortexFile
 
 @pytest.mark.benchmark(group="filter", disable_gc=True)
 def test_duckdb_filter(benchmark: BenchmarkFixture, vxf: vx.VortexFile):
-    conn = duckdb.connect(database=":memory:")  # pyright: ignore[reportUnknownMemberType]
+    conn = duckdb.connect(database=":memory:")
     ds = vxf.to_dataset()
     _ = conn.register("ds", ds)
     benchmark(lambda: conn.sql("select ds.x from ds where x >= 50000").to_arrow_table())

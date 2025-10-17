@@ -343,10 +343,7 @@ mod tests {
     fn test_expr_merge(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
-        let expr = merge(
-            [col("a"), pack([("b", col("b"))], NonNullable)],
-            NonNullable,
-        );
+        let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
 
         let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
         let expected = pack(

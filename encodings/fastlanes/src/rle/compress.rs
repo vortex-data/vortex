@@ -129,10 +129,7 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
             }
 
             let mut builder = arrow_buffer::BooleanBufferBuilder::new(padded_len);
-
-            let bool_array = validity_array.to_bool();
-            let bool_buffer = bool_array.boolean_buffer();
-            builder.append_buffer(&bool_buffer.slice(0, len));
+            builder.append_buffer(validity_array.to_bool().boolean_buffer());
             builder.append_n(padded_len - len, false);
 
             Validity::from(builder.finish())

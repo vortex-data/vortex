@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter::Enumerate;
-
 use itertools::ProcessResults;
 
 /// Trait for all types which have a known upper-bound.
@@ -77,4 +75,16 @@ unsafe impl<'a, I, T: 'a, E: 'a> TrustedLen for ProcessResults<'a, I, E> where
 }
 
 // Enumerate
-unsafe impl<I, T> TrustedLen for Enumerate<I> where I: TrustedLen<Item = T> {}
+unsafe impl<I, T> TrustedLen for std::iter::Enumerate<I> where I: TrustedLen<Item = T> {}
+
+// Zip
+unsafe impl<T, U> TrustedLen for std::iter::Zip<T, U>
+where
+    T: TrustedLen,
+    U: TrustedLen,
+{
+}
+
+// Arrow bit iterators
+unsafe impl<'a> TrustedLen for crate::bit::BitChunkIterator<'a> {}
+unsafe impl<'a> TrustedLen for crate::bit::UnalignedBitChunkIterator<'a> {}

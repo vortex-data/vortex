@@ -5,7 +5,8 @@ use vortex_array::compute::{BetweenOptions, StrictComparison};
 
 use crate::forms::conjuncts;
 use crate::{
-    BetweenExpr, BinaryVTable, ExprRef, GetItemExpr, IntoExpr, LiteralExpr, Operator, and, lit,
+    BetweenExpr, BinaryExpr, BinaryVTable, ExprRef, GetItemVTable, IntoExpr, LiteralVTable,
+    Operator, and, lit,
 };
 
 /// This pass looks for expression of the form
@@ -53,90 +54,61 @@ fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
         return None;
     }
 
-    // Extract pairs of comparison of the form (left left_op eq) and (eq right_op right)
-    let (eq, left, left_op, right, right_op) =
-        if GetItemExpr::is(lhs.lhs()) && lhs.lhs().eq(rhs.lhs()) {
-            (
-                lhs.lhs().clone(),
-                lhs.rhs().clone(),
-                lhs.op().swap()?,
-                rhs.rhs().clone(),
-                rhs.op(),
-            )
-        } else if GetItemExpr::is(lhs.lhs()) && lhs.lhs().eq(rhs.rhs()) {
-            (
-                lhs.lhs().clone(),
-                lhs.rhs().clone(),
-                lhs.op().swap()?,
-                rhs.lhs().clone(),
-                rhs.op().swap()?,
-            )
-        } else if GetItemExpr::is(lhs.rhs()) && lhs.rhs().eq(rhs.lhs()) {
-            (
-                lhs.rhs().clone(),
-                lhs.lhs().clone(),
-                lhs.op(),
-                rhs.rhs().clone(),
-                rhs.op(),
-            )
-        } else if GetItemExpr::is(lhs.rhs()) && lhs.rhs().eq(rhs.rhs()) {
-            (
-                lhs.rhs().clone(),
-                lhs.lhs().clone(),
-                lhs.op(),
-                rhs.lhs().clone(),
-                rhs.op().swap()?,
-            )
-        } else {
-            return None;
-        };
-
-    // Find the greater op.
-    let (Some(left_lit), Some(right_lit)) = (
-        LiteralExpr::maybe_from(&left),
-        LiteralExpr::maybe_from(&right),
-    ) else {
-        return None;
-    };
-
-    let (left, left_op, right, right_op) = if left_lit.value() > right_lit.value() {
-        (right, right_op, left, left_op)
-    } else {
-        (left, left_op, right, right_op)
-    };
-
-    // Check if the operators form an inequality.
-    let (left_op, right_op) = if let (Some(left_op), Some(right_op)) = (
-        maybe_strict_comparison(left_op),
-        maybe_strict_comparison(right_op),
+    // First, get both halves to have GetItem on the left
+    let lhs = match (
+        lhs.lhs().is::<GetItemVTable>(),
+        lhs.rhs().is::<GetItemVTable>(),
     ) {
-        (left_op, right_op)
-    } else if let Some((left_op, right_op)) = left_op
-        .swap()
-        .zip(right_op.swap())
-        .and_then(|(l, r)| maybe_strict_comparison(l).zip(maybe_strict_comparison(r)))
-    {
-        (left_op, right_op)
-    } else {
-        return None;
+        (true, false) => lhs.clone(),
+        (false, true) => BinaryExpr::new(lhs.rhs().clone(), lhs.op().swap()?, lhs.lhs().clone()),
+        _ => return None,
     };
+
+    let rhs = match (
+        rhs.lhs().is::<GetItemVTable>(),
+        rhs.rhs().is::<GetItemVTable>(),
+    ) {
+        (true, false) => rhs.clone(),
+        (false, true) => BinaryExpr::new(rhs.rhs().clone(), rhs.op().swap()?, rhs.lhs().clone()),
+        _ => return None,
+    };
+
+    // Both conjuncts must reference the same GetItem column
+    if !lhs.lhs().eq(rhs.lhs()) {
+        return None;
+    }
+
+    let target = lhs.lhs().clone();
+
+    // Find the lower bound
+    let (lower, upper) = match (lhs.op(), rhs.op()) {
+        (Operator::Lt | Operator::Lte, Operator::Gt | Operator::Gte) => (rhs, lhs),
+        (Operator::Gt | Operator::Gte, Operator::Lt | Operator::Lte) => (lhs, rhs),
+        _ => return None,
+    };
+
+    let lower_lit = lower.rhs().as_opt::<LiteralVTable>()?.to_expr();
+    let upper_lit = upper.rhs().as_opt::<LiteralVTable>()?.to_expr();
+
+    let lower_strict = is_strict_comparison(lower.op())?;
+    let upper_strict = is_strict_comparison(upper.op())?;
 
     let expr = BetweenExpr::new(
-        eq.clone(),
-        left,
-        right,
+        target.clone(),
+        lower_lit,
+        upper_lit,
         BetweenOptions {
-            lower_strict: left_op,
-            upper_strict: right_op,
+            lower_strict,
+            upper_strict,
         },
     );
     Some(expr.into_expr())
 }
 
-fn maybe_strict_comparison(op: Operator) -> Option<StrictComparison> {
+fn is_strict_comparison(op: Operator) -> Option<StrictComparison> {
     match op {
-        Operator::Lt => Some(StrictComparison::Strict),
-        Operator::Lte => Some(StrictComparison::NonStrict),
+        Operator::Lt | Operator::Gt => Some(StrictComparison::Strict),
+        Operator::Lte | Operator::Gte => Some(StrictComparison::NonStrict),
         _ => None,
     }
 }
@@ -146,7 +118,27 @@ mod tests {
     use vortex_array::compute::{BetweenOptions, StrictComparison};
 
     use crate::transform::match_between::find_between;
-    use crate::{and, between, col, gt_eq, lit, lt};
+    use crate::{and, between, col, gt, gt_eq, lit, lt, lt_eq};
+
+    #[test]
+    fn test_bad_match() {
+        // An impossible expression
+        let expr = and(lt_eq(lit(100), col("x")), gt(lit(-100), col("x")));
+        let find = find_between(expr);
+
+        assert_eq!(
+            &find,
+            &between(
+                col("x"),
+                lit(100),
+                lit(-100),
+                BetweenOptions {
+                    lower_strict: StrictComparison::NonStrict,
+                    upper_strict: StrictComparison::Strict,
+                }
+            )
+        );
+    }
 
     #[test]
     fn test_match_between() {

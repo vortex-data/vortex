@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use lance::dataset::{Dataset as LanceDataset, WriteParams};
-use lance_encoding::version::LanceFileVersion;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
 use vortex::ArrayRef;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::stream::ArrayStreamExt;
+#[cfg(feature = "lance")]
+use {
+    lance::dataset::{Dataset as LanceDataset, WriteParams},
+    lance_encoding::version::LanceFileVersion,
+    parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder,
+    std::fs::File,
+};
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
@@ -89,6 +92,7 @@ pub async fn taxi_data_vortex_compact() -> Result<PathBuf> {
     .await
 }
 
+#[cfg(feature = "lance")]
 pub async fn taxi_data_lance() -> Result<PathBuf> {
     idempotent_async("taxi/taxi.lance", |output_fname| async move {
         let parquet_path = taxi_data_parquet().await?;

@@ -111,7 +111,7 @@ divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
 erased-serde = "0.4"
-fastlanes = "0.4.0"
+fastlanes = { rev = "3820eeb33433458fa035bea5a834dee0039612f5", git = "https://github.com/spiraldb/fastlanes.git" }
 flatbuffers = "25.2.10"
 fsst-rs = "0.5.2"
 futures = { version = "0.3.31", default-features = false }

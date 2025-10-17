@@ -26,7 +26,9 @@ pub enum Validity {
     AllValid,
     /// All items are null
     AllInvalid,
-    /// Specified items are null
+    /// The validity of each position in the array is determined by a boolean array.
+    ///
+    /// True values are valid, false values are invalid ("null").
     Array(ArrayRef),
 }
 
