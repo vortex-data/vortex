@@ -24,13 +24,12 @@ dictionary codes with an unknown cost.
 2. **Query Planning**
 
 Having a tree of arrays represent a logical execution plan allows us to implement alternate modes of compute. We
-currently have four modes in mind:
+currently have three modes in mind:
 
 - Batch Compute - operates over a full array, returning a canonical array.
 - Pipelined Compute - operates over vectors of 1024 elements at a time, improving CPU cache locality getting much closer
   to the performance of fused decompression kernels.
 - GPU Compute - self-explanatory
-- JIT Compute - take the logic from pipelined compute and jit-compile.
 
 3. **Async Compute**
 
@@ -40,76 +39,66 @@ or hold buffers on alternate devices (e.g. GPU memory).
 
 For both of these use-cases, it's helpful to have our batch execution function be async.
 
-4. **Zero-copy Export**
-
-The current Vortex API returns owned data from compute functions, meaning we often have an additional copy to move
-data into externally allocated buffers such as those from DuckDB, Numpy, etc.
-
-The new batch execution function will take a mutable output array as input, allowing us to write directly into
-pre-allocated buffers.
-
-## Vectors & Exporters
+## Vectors
 
 As we are re-defining arrays to be a logical plan with logical children, we need a way to represent in-memory
 canonicalized data. This is currently modelled using the `Canonical` enum, but this RFC proposes to replace this with a
-new `Vector` enum.
+new `Vector` enum holding recursively canonical vector data.
 
-Similar to canonical, there is one vector type per Vortex DType, and they use an in-memory format that is heavily
-inspired by Arrow.
+Similar to canonical there is one vector variant per Vortex DType. These variants use an in-memory format that is
+heavily inspired by Arrow. The major difference, and the reason we define our own Vector types rather than reusing
+Arrow arrays directly, is that we support arbitrary width auxiliary vectors such as those used for dictionar codes or
+run-end offsets. We have found significant speed-ups when using the narrowest integer types possible for these vectors.
 
 ```rust
 enum Vector {
-    Primitive(PrimitiveVector),
+    Null(NullVector),
+    Bool(BoolVector),
+    Primitive(PVector),
     // ...
 }
 
-struct PrimitiveVector {
-    ptype: PType,
-    buffer: ByteBuffer,
-    validity: BitView,
+enum PVector {
+    U8(PrimitiveVector<u8>),
+    // ...
 }
 ```
 
-In order to support zero-copy export, we also need a way to wrap borrowed mutable buffers in order to output canonical
-data from batch execution. This is modelled using the `Exporter` enum.
+Each vector has an associated _mutable_ version. These are owned structs modelled after the Tokio `BytesMut` type, the
+same way `vortex-buffer` has `Buffer<T>` and `BufferMut<T>`. This design allows us to pass pre-allocated vectors to
+compute kernels for in-place mutation. The primary use-case is to reduce copies when executing chunked arrays by
+passing each chunk its own pre-allocated slice of a contiguous output vector.
 
 ```rust
-enum Exporter<'a> {
-    Primitive(&'a dyn PrimitiveExporter),
+enum VectorMut {
+    Null(NullVectorMut),
+    Bool(BoolVectorMut),
+    Primitive(PVectorMut),
     // ...
 }
 
-trait PrimitiveExporter {
-    fn byte_buffer(&mut self) -> &'a ByteBufferMut;
-    fn validity(&mut self) -> &mut BitViewMut;
-}
-
-trait PrimitiveExporterExt {
-    fn elements<T: NativePType>(&mut self) -> &mut [T] {
-        // Downcast the byte buffer to the appropriate type.
-    }
-}
-
-trait VarBinViewExporter {
-    // SAFETY: caller must ensure that any binary views have valid references to data buffers.
-    unsafe fn views(&mut self) -> &mut [BinaryView];
-    fn push_buffer(&mut self, buffer: ByteBuffer);
-    // ...
+impl VectorMut {
+    fn freeze(self) -> Vector { ... }
+    fn split_off(&mut self, at: usize) -> VectorMut { ... }
+    fn unsplit(&mut self, other: VectorMut) -> VectorMut { ... }
 }
 ```
 
 ## Arrays as a Logical Plan
 
-We have long described the scope of Vortex as performing “linear compute”. In other words, any compute that doesn’t
-require shuffling data. In many ways this RFC builds on the idea that really Vortex is fundamentally a subset of a query
-engine and leans into this with somewhat familiar terminology.
+Vortex implements a subset of functionality usually performed by a query engine. Specifically, we implement a highly
+optimized physical Scan operation that supports pushdown of filters, projections, and scalar expressions. Another way
+of looking at this, is that Vortex performs optimized evaluation of a scalar compute functions.
 
-Vortex arrays will become nodes in a logical plan where the execution of such a plan returns a canonical vector. Recall
-that Vortex canonical vectors are 1:1 with the logical data type, for example String types have a canonical
-representation that is equivalent to Arrow’s VarBinView.
+The new Vortex `Array` trait will subsume much of the functionality currently found in compute functions and
+expressions. So in addition to the existing API, arrays will support push-down and pull-up optimizations, as well as
+expose falsification transformations to construct pruning predicates.
 
-Note: we are yet to decide whether Vortex canonical representations will diverge from Arrow representations, but for now
-they are all identical to some Arrow form giving us zero-copy export.
+As expected from a logical plan, all operations over arrays will have cost proportional to the size of the array tree
+rather than the size of the data represented by the array.
+
+The primary operation supported by arrays is `into_vector`, an operation which takes an optional selection mask and
+returns an async kernel for resolving the array into a canonical vector.
 
 ### Exporting Compressed Arrays
 
@@ -120,8 +109,40 @@ For these engines, we propose that the export logic inspects the root node of th
 codecs and deconstructs the array as required.
 
 For example, DuckDB supports dictionary-encoded vectors. So we would try to downcast the root node as a DictArray, and
-if successful, canonicalize the codes and values children as two separate executions. Provided these are executed
-through the same `Executor` instance, we retain common subtree elimination optimizations.
+if successful, canonicalize the codes and values children as two separate executions.
+
+## Expressions as an Abstract Plan
+
+As part of this change, the `vortex-expr` crate can be significantly simplified.
+
+* Each expression becomes an abstract node in a tree containing an `id`, `metadata`, and `children`. The leaves of
+  this tree are represented by the placeholder expression called `scope` (often denoted as `$`).
+* Expressions can be converted to arrays by first converting their children to arrays, then calling the `build`
+  function of the array encoding indicated by the `id` of the expression, along with the serialized `metadata`. This
+  process results in a bound array now with known `len` and `dtype`.
+* All evaluation logic (for executing the expression), and analysis logic (for producing pruning predicates) will be
+  moved to the `Array` trait.
+
+Expressions simply provide a way of describing an unbound query over a root scope array and make up the user-facing
+API of the scan operator.
+
+## Layouts and Scanning
+
+Vortex scans currently operate by converting a `Layout` into a `LayoutReader`. In practice, this is largely equivalent
+to a current Vortex `Array`, except the execution function of the `LayoutReader` is async. In the new oeprator model,
+arrays _are_ async, and so we can remove `LayoutReader` entirely in favor of regular Vortex arrays.
+
+This change further allows us to simplify scanning logic and avoid the current expression partitioning. Instead of
+splitting expressions and pushing the partitions down over the fields of a struct layout, we simply apply the expression
+to a row-range of a layout to produce an array: `Layout::apply(Expr, RowRange) -> ArrayRef`. A `FlatLayout` would be
+modelled as a node in the array tree allowing us to perform partial optimizations over the tree, such as pushing
+`get_item` expressions through a `StructLayout`.
+
+The scan would then find all `FlatLayout` nodes and resolve their segment IDs to load an array for each segment. These
+nodes will be swapped out for the loaded arrays, the optimizer re-run to push compute into the flat layouts, and then
+the root array can be evaluated.
+
+## Optimizations
 
 ### Common Subtree Elimination
 
@@ -251,12 +272,12 @@ struct ChildInfo {
 
 ## Array API
 
-This change essentially collapses the API for an array down to just the “into_canonical” function. Almost everything can
-be expressed via this function and it means we can strip down the surface area required for array implementations.
+This change essentially collapses the API for an array down to just an async “into_vector” function. Almost everything
+can be expressed via this function, and it means we can strip down the surface area required for array implementations.
 
 For example, functions relating to validity can be removed and implemented using an IsNull operator pushed down over the
-array tree and evaluated into a canonical array. Even scalar_at could be implemented with a singleton selection array,
-evaluated to canonical, and then converted to a scalar.
+array tree and evaluated into a boolean vector. Even scalar_at could be implemented with a singleton selection array,
+evaluated to a vector, and then converted to a scalar.
 
 Given that this model involves many more array implementations than before (i.e. every compute function), it is
 important that we keep the overhead of implementing a new array relatively low.
@@ -293,7 +314,7 @@ struct BatchBindContext {
 #[async_trait]
 trait BatchExecution {
     /// Execute the array, producing a canonical vector result.
-    async fn execute(self: Box<Self>, output: ViewMut) -> VortexResult<()>;
+    async fn execute(self: Box<Self>, output: VectorMut) -> VortexResult<Vector>;
 }
 ```
 
@@ -395,12 +416,32 @@ array = expr.evaluate(array).filter(mask);
 
 I am also shocked at how well this has worked for us thus far.
 
-Within the model of logical arrays, we should be able to do better using a FilterArray that holds a child and a resolved
-mask. This operator can be pushed down over the array tree in the same way as any other operator, allowing each array to
-decide how to handle the filter.
+In the operator model, the evaluation function takes an optional selection mask itself implemented as an Array.
+Each operator can bind each of its children using the mask, using a projection of the mask, or using no mask. For
+example:
 
-It is expected that “leaf arrays”, e.g. BitPacking, ZStd, FSST, etc provide additional arrays that are fused with
-filtering. e.g. FilteredBitPacking, FilteredZStd, and so on.
+```rust
+trait Array {
+    /// Create a kernel for resolving this array into a vector with the given selection mask.
+    fn bind(&self, ctx: &dyn BindContext, selection: Option<&ArrayRef>) -> VortexResult<Box<dyn BatchKernel>>;
+}
+```
+
+Some arrays may choose to construct multiple kernels for different selection densities, and then choose which kernel
+to execute at runtime based on the density of the selection mask.
+
+```rust
+impl BatchKernel for FooArrayKernel {
+    async fn execute(self: Box<Self>, out: VectorMut) -> VortexResult<Vector> {
+        let mask = self.selection.execute(..).await?;
+        if mask.density() < 0.2 {
+            self.low_density.execute(out).await
+        } else {
+            self.high_density.execute(out).await
+        }
+    }
+}
+```
 
 ## Benchmarking
 
@@ -417,12 +458,18 @@ We will still need complex e2e benchmarks to analyze the effect of optimization 
 
 This is a very large change that touches all arrays and fundamentally changes the array trait. I propose we roughly:
 
-1. Create `Vector` types and `Exporter` traits for each `DType`.
-1. Add `OperatorVTable` to the array `VTable`, providing the `as_batch`, `as_pipelined`, `as_gpu`, and optimization
-   functions.
-1. Implement a `to_vector` function that uses an executor to perform batch canonicalization of an array.
-1. Implement compute functions as arrays.
-1. Implement optimization rules for push-down and pull-up.
+1. Create a `vortex-vector` create holding the new recursively canonical `Vector` types.
+2. Create a new `Array` trait modelling the logical plan as described in this RFC.
+3. Create a new `Expression` struct modelling the abstract expression plan as described in this RFC.
+3. Create new array implementations for each compute function, implementing the new `Array` trait.
+4. Implement the `Layout::apply` function to convert layouts and expressions into arrays.
+5. Implement an alternate scan operator that uses the new array and expression types.
+6. Cut over the public array API to the new `Array` trait (these are largely compatible).
 
-If an array can be converted to an operator, and all expressions can be converted to operators, then the executor can
-use the operator tree for evaluation inside Vortex scan.
+## Future Work
+
+* **Physical Types** - In the future, I imagine the strict set of canonical vectors becomes too limiting for some  
+  use-cases and we may have a physical type system attached to the array tree. In this world, a `PhysicalCast` array
+  would allow defining the desired output vector and can be pushed down over the array tree as with other operators.
+  This can help avoid intermediate conversions such as when reading a `VarBin` array from disk, performing a string
+  operation over it (forcing a conversion to `VarBinView`), then returning an `arrow::VarBin` array as Arrow.
