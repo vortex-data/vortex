@@ -22,7 +22,8 @@ use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
+    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog,
+    VTable, vtable,
 };
 
 vtable!(Between);
@@ -219,7 +220,11 @@ impl DisplayAs for BetweenExpr {
     }
 }
 
-impl AnalysisExpr for BetweenExpr {}
+impl AnalysisExpr for BetweenExpr {
+    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        self.to_binary_expr().stat_falsification(catalog)
+    }
+}
 
 /// Creates an expression that checks if values are between two bounds.
 ///
