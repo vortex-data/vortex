@@ -36,9 +36,9 @@ pub struct MergeExpr {
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DuplicateHandling {
     /// If two structs share a field name, take the value from the right-most struct.
-    #[default]
     RightMost,
     /// If two structs share a field name, error.
+    #[default]
     Error,
 }
 
