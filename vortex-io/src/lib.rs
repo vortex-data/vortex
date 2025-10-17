@@ -17,6 +17,7 @@ pub use object_store::*;
 pub use read::*;
 pub use write::*;
 
+pub mod async_write_ext;
 pub mod file;
 mod io_buf;
 pub mod kanal_ext;
@@ -25,6 +26,4 @@ mod limit;
 mod object_store;
 mod read;
 pub mod runtime;
-#[cfg(feature = "tokio")]
-mod tokio;
 mod write;
