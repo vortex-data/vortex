@@ -8597,12 +8597,14 @@ dependencies = [
  "bytes",
  "codspeed-divan-compat",
  "cudarc",
+ "futures",
  "itertools 0.14.0",
  "log",
  "memmap2",
  "num-traits",
  "serde_core",
  "simdutf8",
+ "tokio",
  "vortex-error",
 ]
 

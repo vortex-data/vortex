@@ -1,26 +1,50 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use futures::AsyncWriteExt;
-
-use crate::{IoBuf, VortexWrite};
-
-impl<T> VortexWrite for T
+#[cfg(feature = "futures")]
+impl<T> crate::VortexWrite for T
 where
-    T: AsyncWriteExt + Unpin,
+    T: futures::AsyncWriteExt + Unpin,
 {
-    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = std::io::Result<B>> {
+    fn write_all<B: crate::IoBuf>(
+        &mut self,
+        buffer: B,
+    ) -> impl Future<Output = std::io::Result<B>> {
         Box::pin(async move {
-            AsyncWriteExt::write_all(self, buffer.as_slice()).await?;
+            futures::AsyncWriteExt::write_all(self, buffer.as_slice()).await?;
             Ok(buffer)
         })
     }
 
     fn flush(&mut self) -> impl Future<Output = std::io::Result<()>> {
-        AsyncWriteExt::flush(self)
+        futures::AsyncWriteExt::flush(self)
     }
 
     fn shutdown(&mut self) -> impl Future<Output = std::io::Result<()>> {
-        AsyncWriteExt::close(self)
+        futures::AsyncWriteExt::close(self)
+    }
+}
+
+#[cfg(all(feature = "tokio", not(feature = "futures")))]
+impl<T> crate::VortexWrite for T
+where
+    T: tokio::io::AsyncWriteExt + Unpin,
+{
+    fn write_all<B: crate::IoBuf>(
+        &mut self,
+        buffer: B,
+    ) -> impl Future<Output = std::io::Result<B>> {
+        Box::pin(async move {
+            tokio::io::AsyncWriteExt::write_all(self, buffer.as_slice()).await?;
+            Ok(buffer)
+        })
+    }
+
+    fn flush(&mut self) -> impl Future<Output = std::io::Result<()>> {
+        tokio::io::AsyncWriteExt::flush(self)
+    }
+
+    fn shutdown(&mut self) -> impl Future<Output = std::io::Result<()>> {
+        tokio::io::AsyncWriteExt::shutdown(self)
     }
 }

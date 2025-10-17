@@ -58,6 +58,7 @@ pub use string::*;
 mod alignment;
 #[cfg(feature = "arrow")]
 mod arrow;
+mod async_write;
 mod bit;
 mod buffer;
 mod buffer_mut;

@@ -17,6 +17,7 @@ pub use object_store::*;
 pub use read::*;
 pub use write::*;
 
+#[cfg(feature = "futures")]
 pub mod async_write_ext;
 pub mod file;
 mod io_buf;
