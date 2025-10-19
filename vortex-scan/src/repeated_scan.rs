@@ -5,8 +5,9 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::{cmp, iter};
 
-use futures::Stream;
 use futures::future::BoxFuture;
+use futures::stream::{FuturesOrdered, FuturesUnordered};
+use futures::{Stream, StreamExt};
 use itertools::{Either, Itertools};
 use vortex_array::ArrayRef;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
@@ -166,23 +167,61 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
-        use futures::StreamExt;
         let num_workers = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
         let concurrency = self.concurrency * num_workers;
         let handle = self.handle.clone();
 
-        let stream =
-            futures::stream::iter(self.execute(row_range)?).map(move |task| handle.spawn(task));
+        let tasks = self.execute(row_range)?;
+        let ordered = self.ordered;
 
-        let stream = if self.ordered {
-            stream.buffered(concurrency).boxed()
+        let stream = if tasks.len() < concurrency {
+            let stream = futures::stream::iter(tasks).map(move |task| handle.spawn(task));
+            let stream = if ordered {
+                stream.buffered(concurrency).boxed()
+            } else {
+                stream.buffer_unordered(concurrency).boxed()
+            };
+            stream
+                .filter_map(|chunk| async move { chunk.transpose() })
+                .boxed()
         } else {
-            stream.buffer_unordered(concurrency).boxed()
+            // Each group of tasks.len() / concurrency will be spawned
+            // separately. Since individual tasks may be blocked awaiting IO
+            // results, grouping them allows polling other tasks in the
+            // meantime that in turn will trigger IO requests and therefore
+            // offer better IO pipelining.
+            let chunk_size = tasks.len() / concurrency;
+            let task_chunks: Vec<Vec<_>> = tasks
+                .into_iter()
+                .chunks(chunk_size)
+                .into_iter()
+                .map(|chunk| chunk.collect())
+                .collect();
+
+            let stream = futures::stream::iter(task_chunks.into_iter().map(move |chunk| {
+                if ordered {
+                    Either::Left(FuturesOrdered::from_iter(chunk).collect::<Vec<_>>())
+                } else {
+                    Either::Right(FuturesUnordered::from_iter(chunk).collect::<Vec<_>>())
+                }
+            }))
+            .map(move |task| handle.spawn(task));
+
+            let stream = if ordered {
+                stream.buffered(concurrency).boxed()
+            } else {
+                stream.buffer_unordered(concurrency).boxed()
+            };
+
+            stream
+                .flat_map(futures::stream::iter)
+                .filter_map(|chunk| async move { chunk.transpose() })
+                .boxed()
         };
 
-        Ok(stream.filter_map(|chunk| async move { chunk.transpose() }))
+        Ok(stream)
     }
 }
 
