@@ -142,7 +142,7 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
 fn rle_decode_typed<V, I, O>(array: &RLEArray) -> PrimitiveArray
 where
     V: NativePType + RLE + Clone + Copy,
-    I: NativePType + Into<usize>,
+    I: NativePType + Ord + Into<usize>,
     O: NativePType + AsPrimitive<u64>,
 {
     let values = array.values().to_primitive();
@@ -176,6 +176,19 @@ where
         let buffer_values: &mut [V] = unsafe {
             std::mem::transmute(&mut buffer_uninit[chunk_idx * FL_CHUNK_SIZE..][..FL_CHUNK_SIZE])
         };
+
+        //let max_idx = chunk_indices
+        //    .iter()
+        //    .copied()
+        //    .max()
+        //    .unwrap_or_default()
+        //    .to_usize()
+        //    .unwrap();
+        //assert!(
+        //    chunk_values.len() > max_idx,
+        //    "cannot index chunk values (len={}) with indices (max={max_idx})",
+        //    chunk_values.len()
+        //);
 
         V::decode(
             chunk_values,

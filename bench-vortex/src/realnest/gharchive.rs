@@ -118,7 +118,7 @@ impl Benchmark for GithubArchive {
                 // They are all gzipped, so they can be concatenated into a single output file.
                 let mut w = tokio::fs::File::create(json_path).await?;
                 let client = reqwest::Client::new();
-                for hour in 0..=23 {
+                for hour in 0..=1 {
                     let url = raw_json_url(hour);
                     info!("Downloading archive {url}");
                     let response = client
