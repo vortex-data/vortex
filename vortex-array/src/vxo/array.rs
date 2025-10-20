@@ -4,14 +4,17 @@
 #![deny(missing_docs)]
 
 use crate::operator::OperatorRef;
-use crate::ArrayRef;
-use async_trait::async_trait;
+use crate::vxo::{BatchKernel, BindCtx};
 use std::any::Any;
+use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
+/// Reference-counted pointer to an array.
+pub type ArrayRef = Arc<dyn Array>;
+
 /// Trait for array-like structures.
-pub trait Array {
+pub trait Array: 'static + Send + Sync {
     /// Returns a reference to the array as `Any`.
     fn as_any(&self) -> &dyn Any;
 
@@ -66,7 +69,7 @@ pub trait Array {
 
     /// Bind the array for execution in batch mode.
     ///
-    /// This function should return a [`BindKernelRef`] that can be used to execute the array in
+    /// This function should return a [`BatchKernelRef`] that can be used to execute the array in
     /// batch mode.
     ///
     /// The selection parameter is a non-nullable boolean array that indicates which rows to
@@ -74,27 +77,9 @@ pub trait Array {
     /// true count of the selection array.
     ///
     /// The context can be used
-    fn batch_kernel(
+    fn bind_batch_kernel(
         &self,
         selection: Option<&ArrayRef>,
         ctx: &mut dyn BindCtx,
-    ) -> VortexResult<Box<dyn BindKernel>>;
+    ) -> VortexResult<Box<dyn BatchKernel>>;
 }
-
-pub type BindKernelRef = Box<dyn BindKernel>;
-
-#[async_trait]
-pub trait BindKernel {
-    async fn execute(self: Box<Self>) -> VortexResult<Vector>;
-}
-
-/// Context for binding batch execution kernels.
-///
-/// By binding child arrays through this context, we can perform common subtree elimination and
-/// share canonicalized results across multiple kernels.
-pub trait BindCtx {}
-
-/// Placeholder type for canonicalized vectors.
-///
-/// To be replaced by the Vectors PR.
-pub struct Vector;

@@ -3,3 +3,6 @@
 
 mod array;
 mod batch;
+
+pub use array::*;
+pub use batch::*;
