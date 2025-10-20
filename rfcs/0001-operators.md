@@ -1,79 +1,82 @@
 # Arrays as a Logical Plan
 
-This RFC proposes to turn Vortex arrays into logical query plans to support multiple modes of execution. Compute
-functions become lazy and are modelled as arrays.
+This RFC proposes to turn Vortex's current `Array`s into **logical query plans** that support multiple modes of execution. Compute functions (which currently are evaluated eagerly) become "lazy", and are modelled as `Array`s instead of functions (and to reiterate, `Array`s are now logical).
 
-N.B. within Spiral we have often referred to this proposal as the “Operator Model”
+_Within Spiral, we have often referred to this proposal as the “Operator Model”!_
 
 * **Proposed**: @gatesn
+* **Revised**: @connortsui20
 * **Date**: September 18, 2025
 * **Status**: In Review
-* **Prototype
-  **: [https://github.com/vortex-data/vortex/compare/ngates/operator](https://github.com/vortex-data/vortex/compare/ngates/operator?expand=1)
+* [**Prototype**](https://github.com/vortex-data/vortex/compare/ngates/operator)
 
 ## Motivations
 
 1. **Predictable Compute Cost**
 
-Compute functions in Vortex currently take and return ArrayRefs, meaning they have full decision-making control (and
-responsibility) over how much or little compute to actually perform.
+Compute functions in Vortex currently take and return `ArrayRef`s, meaning they have full decision-making control (and responsibility) over how much or how little compute to actually perform.
 
-For example, `filter(DictArray, Mask)` could fully evaluate the filter, or it could push down the filter over the
-dictionary codes with an unknown cost.
+For example, `filter(DictArray, Mask)` could fully evaluate the filter, or it could push down the filter over the dictionary codes with an unknown cost. Pushing down the filter may or may not be cheaper than fully canonicalizing (decompressing) the `DictArray` and only filtering after. With the current system, we have no choice.
 
 2. **Query Planning**
 
-Having a tree of arrays represent a logical execution plan allows us to implement alternate modes of compute. We
-currently have three modes in mind:
+Having a tree of arrays represent a logical execution plan allows us to implement alternate modes of compute. We currently have three modes in mind:
 
-- Batch Compute - operates over a full array, returning a canonical array.
-- Pipelined Compute - operates over vectors of 1024 elements at a time, improving CPU cache locality getting much closer
+- **Batch Compute**: Operates over a full array, returning a canonical array. We can think of this as compute over full Arrow `RecordBatch`es.
+- **Pipelined Compute**: Operates over vectors of 1024 elements at a time, improving CPU cache locality getting much closer
   to the performance of fused decompression kernels.
-- GPU Compute - self-explanatory
+- **GPU Compute**: Somewhat self-explanatory.
 
 3. **Async Compute**
 
-We would like to support async compute functions in the future, for example mapping strings through an HTTP API.
+We would like to support `async` compute functions in the future, for example mapping strings through an HTTP API.
 We also may want to move management of Vortex buffers into a centralized buffer pool, allowing us to spill-to-disk
 or hold buffers on alternate devices (e.g. GPU memory).
 
-For both of these use-cases, it's helpful to have our batch execution function be async.
+For both of these use-cases, it's helpful to have our batch execution function be `async`.
 
 ## Vectors
 
-As we are re-defining arrays to be a logical plan with logical children, we need a way to represent in-memory
-canonicalized data. This is currently modelled using the `Canonical` enum, but this RFC proposes to replace this with a
-new `Vector` enum holding recursively canonical vector data.
+If we want to re-define `Array`s as **logical query plans** with **logical children**, we need a way to represent in-memory
+canonicalized (fully decompressed) data.
 
-Similar to canonical there is one vector variant per Vortex DType. These variants use an in-memory format that is
-heavily inspired by Arrow. The major difference, and the reason we define our own Vector types rather than reusing
-Arrow arrays directly, is that we support arbitrary width auxiliary vectors such as those used for dictionar codes or
-run-end offsets. We have found significant speed-ups when using the narrowest integer types possible for these vectors.
+This is currently modelled using the `Canonical` enum (which holds typed `Array`s that we have defined to be the "canonical encodings"), but this RFC proposes to replace these with a new `Vector` enum holding recursively canonical (fully decompressed at every level, even nested children) vector data.
+
+Similar to the existing `Canonical`, there would be one `Vector` variant per Vortex `DType`. These variants would have an in-memory format that basically implements the `Arrow` specification.
+
+The 2 major differences, and the reason we define our own `Vector` types rather than reusing `arrow-rs` arrays directly, is that we can support arbitrary width auxiliary/child vectors. For example, dictionary codes, run-end and list offsets, list view sizes, etc. We have found significant speed-ups when using the narrowest integer types possible for these vectors.
+
+Here is an example of different vectors:
 
 ```rust
 enum Vector {
     Null(NullVector),
     Bool(BoolVector),
-    Primitive(PVector),
+    Primitive(PrimitiveVector),
     // ...
 }
 
-enum PVector {
-    U8(PrimitiveVector<u8>),
+pub struct BoolVector {
+    bits: BitBuffer,
+    validity: Option<Mask>,
+}
+
+enum PrimitiveVector {
+    U8(GenericPVector<u8>),
     // ...
 }
 ```
 
-Each vector has an associated _mutable_ version. These are owned structs modelled after the Tokio `BytesMut` type, the
-same way `vortex-buffer` has `Buffer<T>` and `BufferMut<T>`. This design allows us to pass pre-allocated vectors to
-compute kernels for in-place mutation. The primary use-case is to reduce copies when executing chunked arrays by
-passing each chunk its own pre-allocated slice of a contiguous output vector.
+Each vector has an associated **mutable** version. These are **owned** structs modeled after the Tokio `BytesMut` type, similar to how
+`vortex-buffer` has `Buffer<T>` and `BufferMut<T>`. This design allows us to pass pre-allocated vectors to
+compute kernels for in-place mutation. With that functionality, we can reduce memory copies when decompressing chunked arrays by
+passing each chunk its own pre-allocated slice in the final (contiguous) output vector.
 
 ```rust
 enum VectorMut {
     Null(NullVectorMut),
     Bool(BoolVectorMut),
-    Primitive(PVectorMut),
+    Primitive(PrimitiveVectorMut),
     // ...
 }
 
@@ -84,10 +87,12 @@ impl VectorMut {
 }
 ```
 
-The rationale for not using Arrow here is:
+### Why not Arrow?
+
+There are a few reasons we are not directly using Arrow arrays:
 
 * Vortex vectors are recursively built around variable-width primitives, allowing us to use the narrowest type possible
-  for e.g. dictionary offsets and run-end offsets.
+  (e.g. we can narrow dictionary codes, run-end offsets, list view sizes, etc.).
 * Internally we use the `vortex-buffer` crate, meaning we preserve our capabilities around runtime alignment.
 * We reserve the right to diverge from Arrow layouts in the future. For example, a `VarBinVector` could use in-memory
   pointers like DuckDB, rather than logical offsets. This makes the vectors cheaper to concatenate and slice, but
@@ -95,11 +100,11 @@ The rationale for not using Arrow here is:
 
 We may re-visit this decision in the future prior to finalizing the Vortex extension API.
 
-## Arrays as a Logical Plan
+## Logical Plans
 
 Vortex implements a subset of functionality usually performed by a query engine. Specifically, we implement a highly
-optimized physical Scan operation that supports pushdown of filters, projections, and scalar expressions. Another way
-of looking at this, is that Vortex performs optimized evaluation of a scalar compute functions.
+optimized physical Scan operator that supports pushdown of filters, projections, and scalar expressions, but we do not need to support joins.
+Another way of thinking about this is that Vortex performs optimized evaluation of a scalar compute functions.
 
 The new Vortex `Array` trait will subsume much of the functionality currently found in compute functions and
 expressions. So in addition to the existing API, arrays will support push-down and pull-up optimizations, as well as
@@ -108,8 +113,12 @@ expose falsification transformations to construct pruning predicates.
 As expected from a logical plan, all operations over arrays will have cost proportional to the size of the array tree
 rather than the size of the data represented by the array.
 
-The primary operation supported by arrays is `into_vector`, an operation which takes an optional selection mask and
+The primary operation supported by arrays is `into_vector()`, an operation which takes an optional selection mask and
 returns an async kernel for resolving the array into a canonical vector.
+
+```rust
+async fn into_vector(&self, selection_mask: &Mask) -> VortexResult<Vector>;
+```
 
 ### Exporting Compressed Arrays
 
