@@ -3,8 +3,10 @@
 
 #![deny(missing_docs)]
 
-use crate::vxo::{BatchKernel, BindCtx};
+use crate::vxo::{BatchKernel, BindCtx, DynArrayEq, DynArrayHash};
+use crate::EncodingId;
 use std::any::Any;
+use std::fmt::Debug;
 use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -13,9 +15,12 @@ use vortex_error::VortexResult;
 pub type ArrayRef = Arc<dyn Array>;
 
 /// Trait for array-like structures.
-pub trait Array: 'static + Send + Sync {
+pub trait Array: 'static + Send + Sync + Debug + DynArrayEq + DynArrayHash {
     /// Returns a reference to the array as `Any`.
     fn as_any(&self) -> &dyn Any;
+
+    /// Returns the ID of the array's encoding.
+    fn encoding_id(&self) -> EncodingId;
 
     /// Returns the length of the array.
     fn len(&self) -> usize;
@@ -43,7 +48,9 @@ pub trait Array: 'static + Send + Sync {
     /// folding and return a constant operator.
     ///
     /// This function should typically be implemented only for self-contained optimizations based
-    /// on child properties
+    /// on child properties.
+    ///
+    /// Returns `None` if no optimization is possible.
     fn reduce_children(&self) -> VortexResult<Option<ArrayRef>> {
         Ok(None)
     }
@@ -57,7 +64,9 @@ pub trait Array: 'static + Send + Sync {
     /// The returned array will replace the parent in the tree.
     ///
     /// This function should typically be implemented for cross-array optimizations where the
-    /// child needs to adapt to the parent's requirements
+    /// child needs to adapt to the parent's requirements.
+    ///
+    /// Returns `None` if no optimization is possible.
     fn reduce_parent(
         &self,
         _parent: ArrayRef,

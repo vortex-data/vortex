@@ -45,6 +45,7 @@ where
     Box::new(FnKernel(Box::new(move |out| Box::pin(f(out)))))
 }
 
+/// A [`BatchKernelRef`] wrapping a closure.
 pub struct FnKernel(Box<dyn FnOnce(VectorMut) -> KernelFut + Send>);
 #[async_trait]
 impl BatchKernel for FnKernel {
