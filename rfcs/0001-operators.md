@@ -472,10 +472,10 @@ This is a very large change that touches all arrays and fundamentally changes th
 1. Create a `vortex-vector` create holding the new recursively canonical `Vector` types.
 2. Create a new `Array` trait modelling the logical plan as described in this RFC.
 3. Create a new `Expression` struct modelling the abstract expression plan as described in this RFC.
-3. Create new array implementations for each compute function, implementing the new `Array` trait.
-4. Implement the `Layout::apply` function to convert layouts and expressions into arrays.
-5. Implement an alternate scan operator that uses the new array and expression types.
-6. Cut over the public array API to the new `Array` trait (these are largely compatible).
+4. Create new array implementations for each compute function, implementing the new `Array` trait.
+5. Implement the `Layout::apply` function to convert layouts and expressions into arrays.
+6. Implement an alternate scan operator that uses the new array and expression types.
+7. Cut over the public array API to the new `Array` trait (these are largely compatible).
 
 ## Future Work
 
