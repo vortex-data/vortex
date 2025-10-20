@@ -1,0 +1,32 @@
+[project]
+name = "vortex-gpu-benchmark"
+version = "0.1.0"
+description = "GPU benchmark scripts for Vortex using cuDF"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "cudf-cu12>=24.0.0",  # cuDF for CUDA 12.x - adjust version based on your CUDA version
+    "pyarrow>=14.0.0",    # Required for Parquet support
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []  # No package to install, just scripts
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
