@@ -401,7 +401,7 @@ impl CompletedBuffers {
         }
     }
 
-    fn finish(self) -> Arc<Box<[ByteBuffer]>> {
+    fn finish(self) -> Arc<[ByteBuffer]> {
         match self {
             Self::Default(buffers) => Arc::from(buffers.into_boxed_slice()),
             Self::Deduplicated(buffers) => buffers.finish(),
@@ -453,7 +453,7 @@ impl DeduplicatedBuffers {
             .collect()
     }
 
-    fn finish(self) -> Arc<Box<[ByteBuffer]>> {
+    fn finish(self) -> Arc<[ByteBuffer]> {
         Arc::from(self.buffers.into_boxed_slice())
     }
 }
@@ -524,7 +524,7 @@ impl BufferGrowthStrategy {
 
 enum BuffersWithOffsets {
     AllKept {
-        buffers: Arc<Box<[ByteBuffer]>>,
+        buffers: Arc<[ByteBuffer]>,
         offsets: Option<Vec<u32>>,
     },
     SomeCompacted {

@@ -487,12 +487,7 @@ fn canonicalize_varbin_inner<I: IntegerPType>(
 
     // SAFETY: views are constructed to maintain the invariants
     let array = unsafe {
-        VarBinViewArray::new_unchecked(
-            views.freeze(),
-            Arc::new(Box::from(buffers)),
-            dtype,
-            validity,
-        )
+        VarBinViewArray::new_unchecked(views.freeze(), Arc::from(buffers), dtype, validity)
     };
 
     Canonical::VarBinView(array)

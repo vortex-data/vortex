@@ -171,7 +171,7 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
         unsafe {
             Ok(VarBinViewArray::new_unchecked(
                 self.views.clone().freeze(),
-                Arc::new(Box::from([self.values.clone().freeze()])),
+                Arc::from([self.values.clone().freeze()]),
                 self.dtype.clone(),
                 Validity::from_null_buffer(
                     self.values_nulls.finish_cloned(),

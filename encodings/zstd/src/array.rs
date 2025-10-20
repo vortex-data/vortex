@@ -484,7 +484,7 @@ impl ZstdArray {
                         unsafe {
                             VarBinViewArray::new_unchecked(
                                 valid_views,
-                                Arc::new(Box::from([decompressed])),
+                                Arc::from([decompressed]),
                                 self.dtype.clone(),
                                 slice_validity,
                             )
@@ -513,7 +513,7 @@ impl ZstdArray {
                         unsafe {
                             VarBinViewArray::new_unchecked(
                                 views.freeze(),
-                                Arc::new(Box::from([decompressed])),
+                                Arc::from([decompressed]),
                                 self.dtype.clone(),
                                 slice_validity,
                             )

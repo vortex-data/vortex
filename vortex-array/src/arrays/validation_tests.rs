@@ -161,7 +161,7 @@ mod tests {
         let views = Buffer::from_iter([view1, view2]);
         let result = VarBinViewArray::try_new(
             views,
-            Arc::new(Box::from([])),
+            Arc::from([]),
             DType::Utf8(Nullability::NonNullable),
             Validity::NonNullable,
         );
@@ -178,7 +178,7 @@ mod tests {
         let view = BinaryView::make_view(data, 1, 0); // Buffer index 1.
 
         let views = Buffer::from_iter([view]);
-        let buffers = Arc::new(Box::from([ByteBuffer::from(data.to_vec())]));
+        let buffers = Arc::from([ByteBuffer::from(data.to_vec())]);
 
         let result = VarBinViewArray::try_new(
             views,
