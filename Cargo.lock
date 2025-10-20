@@ -3119,8 +3119,8 @@ checksum = "9afc2bd4d5a73106dd53d10d73d3401c2f32730ba2c0b93ddb888a8983680471"
 
 [[package]]
 name = "fastlanes"
-version = "0.4.0"
-source = "git+https://github.com/spiraldb/fastlanes.git?rev=3820eeb33433458fa035bea5a834dee0039612f5#3820eeb33433458fa035bea5a834dee0039612f5"
+version = "0.5.0"
+source = "git+https://github.com/spiraldb/fastlanes.git?rev=93c4068d6f3764b10e6c92b4034c2b7f3c897707#93c4068d6f3764b10e6c92b4034c2b7f3c897707"
 dependencies = [
  "arrayref",
  "const_for",
