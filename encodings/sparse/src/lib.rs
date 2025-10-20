@@ -258,15 +258,12 @@ impl ArrayVTable<SparseVTable> for SparseVTable {
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &SparseArray, state: &mut H) {
-        array.patches.indices().array_hash(state);
-        array.patches.values().array_hash(state);
+        array.patches.array_hash(state);
         array.fill_value.hash(state);
     }
 
     fn array_eq(array: &SparseArray, other: &SparseArray) -> bool {
-        array.patches.indices().array_eq(other.patches.indices())
-            && array.patches.values().array_eq(other.patches.values())
-            && array.fill_value == other.fill_value
+        array.patches.array_eq(&other.patches) && array.fill_value == other.fill_value
     }
 }
 

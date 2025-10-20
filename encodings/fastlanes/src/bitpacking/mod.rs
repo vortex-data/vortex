@@ -338,16 +338,7 @@ impl ArrayVTable<BitPackedVTable> for BitPackedVTable {
         array.dtype.hash(state);
         array.bit_width.hash(state);
         array.packed.array_hash(state);
-        match &array.patches {
-            Some(patches) => {
-                true.hash(state);
-                patches.indices().array_hash(state);
-                patches.values().array_hash(state);
-            }
-            None => {
-                false.hash(state);
-            }
-        }
+        array.patches.array_hash(state);
         array.validity.array_hash(state);
     }
 
@@ -357,13 +348,7 @@ impl ArrayVTable<BitPackedVTable> for BitPackedVTable {
             && array.dtype == other.dtype
             && array.bit_width == other.bit_width
             && array.packed.array_eq(&other.packed)
-            && match (&array.patches, &other.patches) {
-                (Some(p1), Some(p2)) => {
-                    p1.indices().array_eq(p2.indices()) && p1.values().array_eq(p2.values())
-                }
-                (None, None) => true,
-                _ => false,
-            }
+            && array.patches.array_eq(&other.patches)
             && array.validity.array_eq(&other.validity)
     }
 }

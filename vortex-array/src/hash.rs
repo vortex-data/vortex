@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 
+use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef};
 
@@ -112,6 +113,30 @@ impl<T> ArrayEq for Buffer<T> {
     }
 }
 
+impl<T: ArrayHash> ArrayHash for Option<T> {
+    fn array_hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Some(value) => {
+                true.hash(state);
+                value.array_hash(state);
+            }
+            None => {
+                false.hash(state);
+            }
+        }
+    }
+}
+
+impl<T: ArrayEq> ArrayEq for Option<T> {
+    fn array_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Some(v1), Some(v2)) => v1.array_eq(v2),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
 impl ArrayHash for Mask {
     fn array_hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
@@ -166,5 +191,23 @@ impl ArrayEq for Validity {
             (Validity::Array(arr1), Validity::Array(arr2)) => Arc::ptr_eq(arr1, arr2),
             _ => false,
         }
+    }
+}
+
+impl ArrayHash for Patches {
+    fn array_hash<H: Hasher>(&self, state: &mut H) {
+        self.array_len().hash(state);
+        self.offset().hash(state);
+        self.indices().array_hash(state);
+        self.values().array_hash(state);
+    }
+}
+
+impl ArrayEq for Patches {
+    fn array_eq(&self, other: &Self) -> bool {
+        self.array_len() == other.array_len()
+            && self.offset() == other.offset()
+            && self.indices().array_eq(other.indices())
+            && self.values().array_eq(other.values())
     }
 }

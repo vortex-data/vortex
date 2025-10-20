@@ -208,16 +208,7 @@ impl ArrayVTable<ALPRDVTable> for ALPRDVTable {
         array.left_parts_dictionary.array_hash(state);
         array.right_parts.array_hash(state);
         array.right_bit_width.hash(state);
-        match &array.left_parts_patches {
-            Some(patches) => {
-                true.hash(state);
-                patches.indices().array_hash(state);
-                patches.values().array_hash(state);
-            }
-            None => {
-                false.hash(state);
-            }
-        }
+        array.left_parts_patches.array_hash(state);
     }
 
     fn array_eq(array: &ALPRDArray, other: &ALPRDArray) -> bool {
@@ -228,13 +219,7 @@ impl ArrayVTable<ALPRDVTable> for ALPRDVTable {
                 .array_eq(&other.left_parts_dictionary)
             && array.right_parts.array_eq(&other.right_parts)
             && array.right_bit_width == other.right_bit_width
-            && match (&array.left_parts_patches, &other.left_parts_patches) {
-                (Some(p1), Some(p2)) => {
-                    p1.indices().array_eq(p2.indices()) && p1.values().array_eq(p2.values())
-                }
-                (None, None) => true,
-                _ => false,
-            }
+            && array.left_parts_patches.array_eq(&other.left_parts_patches)
     }
 }
 
