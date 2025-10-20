@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 import pyarrow
@@ -14,7 +14,6 @@ from vortex._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource
 from vortex._lib.serde import (  # pyright: ignore[reportMissingModuleSource]
     ArrayContext,
     ArrayParts,
-    decode_ipc_array,
     decode_ipc_array_buffers,
 )
 
@@ -473,19 +472,13 @@ class PyArray(Array, metaclass=abc.ABCMeta):
         """
 
 
-def _unpickle_array(array_bytes: bytes, dtype_bytes: bytes) -> Array:  # pyright: ignore[reportUnusedFunction]
-    """Unpickle a Vortex array from IPC-encoded bytes.
+def _unpickle_array(array_buffers: Sequence[bytes | memoryview], dtype_buffers: Sequence[bytes | memoryview]) -> Array:  # pyright: ignore[reportUnusedFunction]
+    """Unpickle a Vortex array from IPC-encoded buffer lists.
 
-    This is an internal function used by the pickle module.
-    """
-    return decode_ipc_array(array_bytes, dtype_bytes)
+    This is an internal function used by the pickle module for both protocol 4 and 5.
 
-
-def _unpickle_array_p5(array_buffers: list[bytes | memoryview], dtype_buffers: list[bytes | memoryview]) -> Array:  # pyright: ignore[reportUnusedFunction]
-    """Unpickle a Vortex array from out-of-band PickleBuffers.
-
-    This is an internal function used by the pickle module. When
-    pickle protocol 5 is supported, this methods will be called on unpickle,
-    saving one extra copy operation for array buffers.
+    For protocol 4, receives list[bytes] from __reduce__.
+    For protocol 5, receives list[PickleBuffer/memoryview] from __reduce_ex__.
+    Both use decode_ipc_array_buffers which concatenates the buffers during deserialization.
     """
     return decode_ipc_array_buffers(array_buffers, dtype_buffers)

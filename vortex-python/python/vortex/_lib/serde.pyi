@@ -1,6 +1,7 @@
 #  SPDX-License-Identifier: Apache-2.0
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from collections.abc import Sequence
 from typing import final
 
 import pyarrow as pa
@@ -30,5 +31,5 @@ class ArrayContext:
 
 def decode_ipc_array(array_bytes: bytes, dtype_bytes: bytes) -> Array: ...
 def decode_ipc_array_buffers(
-    array_buffers: list[bytes | memoryview], dtype_buffers: list[bytes | memoryview]
+    array_buffers: Sequence[bytes | memoryview], dtype_buffers: Sequence[bytes | memoryview]
 ) -> Array: ...

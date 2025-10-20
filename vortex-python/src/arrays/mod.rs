@@ -670,29 +670,23 @@ impl PyArray {
         let mut encoder = MessageEncoder::default();
         let buffers = encoder.encode(EncoderMessage::Array(&*array));
 
-        // concat all buffers
-        let mut serialized = Vec::new();
-        for buf in buffers.iter() {
-            serialized.extend_from_slice(buf);
-        }
+        // Return buffers as a list instead of concatenating
+        let array_buffers: Vec<Vec<u8>> = buffers.iter().map(|b| b.to_vec()).collect();
 
         let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()));
-        let mut dtype_bytes = Vec::new();
-        for buf in dtype_buffers.iter() {
-            dtype_bytes.extend_from_slice(buf);
-        }
+        let dtype_buffers: Vec<Vec<u8>> = dtype_buffers.iter().map(|b| b.to_vec()).collect();
 
         let vortex_module = PyModule::import(py, "vortex")?;
         let unpickle_fn = vortex_module.getattr("_unpickle_array")?;
 
-        let args = (serialized, dtype_bytes).into_pyobject(py)?;
+        let args = (array_buffers, dtype_buffers).into_pyobject(py)?;
         Ok((unpickle_fn, args.into_any()))
     }
 
-    /// Support for Python's pickle protocol with protocol version awareness.
+    /// Support for Python's pickle protocol for protocol >= 5
     ///
-    /// When protocol >= 5, this uses PickleBuffer for out-of-band buffer transfer,
-    /// which avoids copying large data buffers.
+    /// uses PickleBuffer for out-of-band buffer transfer,
+    /// which potentially avoids copying large data buffers.
     fn __reduce_ex__<'py>(
         slf: &'py Bound<'py, Self>,
         protocol: i32,
@@ -729,7 +723,7 @@ impl PyArray {
         }
 
         let vortex_module = PyModule::import(py, "vortex")?;
-        let unpickle_fn = vortex_module.getattr("_unpickle_array_p5")?;
+        let unpickle_fn = vortex_module.getattr("_unpickle_array")?;
 
         let args = (pickle_buffers, dtype_pickle_buffers).into_pyobject(py)?;
         Ok((unpickle_fn, args.into_any()))
