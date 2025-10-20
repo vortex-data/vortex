@@ -189,19 +189,19 @@ mod tests {
     use super::*;
 
     #[rstest]
-    #[case(ZonedMetadata{
+    #[case(ZonedMetadata {
             zone_len: u32::MAX,
             present_stats: Arc::new([]),
         })]
-    #[case(ZonedMetadata{
+    #[case(ZonedMetadata {
             zone_len: 0,
             present_stats: Arc::new([Stat::IsConstant]),
         })]
-    #[case::all_sorted(ZonedMetadata{
+    #[case::all_sorted(ZonedMetadata {
             zone_len: 314,
             present_stats: Arc::new([Stat::IsConstant, Stat::IsSorted, Stat::IsStrictSorted, Stat::Max, Stat::Min, Stat::Sum, Stat::NullCount, Stat::UncompressedSizeInBytes, Stat::NaNCount]),
         })]
-    #[case::some_sorted(ZonedMetadata{
+    #[case::some_sorted(ZonedMetadata {
             zone_len: 314,
             present_stats: Arc::new([Stat::IsSorted, Stat::IsStrictSorted, Stat::Max, Stat::Min, Stat::Sum, Stat::NullCount, Stat::UncompressedSizeInBytes, Stat::NaNCount]),
         })]
