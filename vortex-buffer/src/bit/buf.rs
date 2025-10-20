@@ -25,8 +25,8 @@ impl PartialEq for BitBuffer {
         }
 
         self.chunks()
-            .iter()
-            .zip(other.chunks())
+            .iter_padded()
+            .zip(other.chunks().iter_padded())
             .all(|(a, b)| a == b)
     }
 }
@@ -449,5 +449,52 @@ mod tests {
                 assert!(!sliced.value(bit));
             }
         }
+    }
+
+    #[test]
+    fn test_partial_eq_regression_under_64_bits() {
+        // Regression test: chunks().iter() returns empty for buffers < 64 bits,
+        // causing all such buffers to incorrectly compare as equal!
+
+        // Create two 32-bit buffers with completely different content
+        let buf1 = BitBuffer::new_set(32); // All bits set
+        let buf2 = BitBuffer::new_unset(32); // All bits unset
+
+        // Verify they have different bits
+        for i in 0..32 {
+            assert_ne!(buf1.value(i), buf2.value(i), "Bit {} should differ", i);
+        }
+
+        // With the buggy implementation using iter(), these would incorrectly be equal
+        // because chunks().iter() returns empty for both!
+        assert_ne!(
+            buf1, buf2,
+            "Buffers with different bits should not be equal"
+        );
+    }
+
+    #[test]
+    fn test_partial_eq_regression_over_64_bits() {
+        // Test with 65 bits where the issue is in the remainder
+        let buf1 = {
+            let mut bytes = vec![0xFF; 9];
+            bytes[8] = 0x01; // 65th bit set, rest of byte clear
+            BitBuffer::new(ByteBuffer::from(bytes), 65)
+        };
+
+        let buf2 = {
+            let mut bytes = vec![0xFF; 9];
+            bytes[8] = 0x00; // 65th bit clear
+            BitBuffer::new(ByteBuffer::from(bytes), 65)
+        };
+
+        // Bit 64 differs
+        assert_ne!(buf1.value(64), buf2.value(64));
+
+        // Should not be equal
+        assert_ne!(
+            buf1, buf2,
+            "Buffers with different bit 64 should not be equal"
+        );
     }
 }
