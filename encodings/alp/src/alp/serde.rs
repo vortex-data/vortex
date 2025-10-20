@@ -96,10 +96,7 @@ impl VisitorVTable<ALPVTable> for ALPVTable {
         ProstMetadata(ALPMetadata {
             exp_e: exponents.e as u32,
             exp_f: exponents.f as u32,
-            patches: array.patches().map(|p| {
-                p.to_metadata(array.len(), array.dtype())
-                    .expect("Failed to get patches metadata")
-            }),
+            patches: array.patches().map(|p| p.to_metadata(array.len())),
         })
     }
 

@@ -3,13 +3,13 @@
 
 use std::ops::Range;
 
+use pyo3::Python;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use pyo3::Python;
 use vortex::buffer::ByteBuffer;
 use vortex::compute::{ComputeFn, InvocationArgs, Output};
 use vortex::dtype::DType;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::serde::ArrayChildren;
@@ -19,8 +19,8 @@ use vortex::vtable::{
     SerdeVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
-    EncodingId, EncodingRef, RawMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
+    EncodingRef, RawMetadata, vtable,
 };
 
 use crate::arrays::py::{PythonArray, PythonEncoding};
@@ -109,9 +109,16 @@ impl VisitorVTable<PythonVTable> for PythonVTable {
 
             let bytes = obj
                 .call_method("__vx_metadata__", (), None)
-                .vortex_expect("Failed to call __vx_metadata__")
+                .map_err(|e| vortex_err!("Failed to get metadata from Python array: {}", e))
+                .vortex_expect("Failed to get metadata from Python array")
                 .downcast::<PyBytes>()
-                .vortex_expect("Expected array metadata to be Python bytes")
+                .map_err(|e| {
+                    vortex_err!(
+                        "Expected bytes from __vx_metadata__, got different type: {}",
+                        e
+                    )
+                })
+                .vortex_expect("Failed to get metadata from Python array")
                 .as_bytes()
                 .to_vec();
 

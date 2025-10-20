@@ -9,7 +9,6 @@ use crate::arrays::{ListViewArray, ListViewEncoding, ListViewVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
-use crate::{Array, ProstMetadata};
 
 #[derive(Clone, prost::Message)]
 pub struct ListViewMetadata {

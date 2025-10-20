@@ -266,35 +266,29 @@ impl Patches {
 
     #[inline]
     pub fn indices_ptype(&self) -> PType {
-        PType::try_from(self.indices.dtype()).vortex_expect("primitive indices")
+        self.indices.dtype().as_ptype()
     }
 
-    pub fn to_metadata(&self, len: usize, dtype: &DType) -> VortexResult<PatchesMetadata> {
-        if self.indices.len() > len {
-            vortex_bail!(
+    pub fn to_metadata(&self, array_len: usize) -> PatchesMetadata {
+        if self.indices.len() > array_len {
+            vortex_panic!(
                 "Patch indices {} are longer than the array length {}",
                 self.indices.len(),
-                len
+                array_len
             );
         }
-        if self.values.dtype() != dtype {
-            vortex_bail!(
-                "Patch values dtype {} does not match array dtype {}",
-                self.values.dtype(),
-                dtype
-            );
-        }
+
         let chunk_offsets_len = self.chunk_offsets.as_ref().map(|co| co.len());
         let chunk_offsets_ptype = self.chunk_offsets.as_ref().map(|co| co.dtype().as_ptype());
 
-        Ok(PatchesMetadata::new(
+        PatchesMetadata::new(
             self.indices.len(),
             self.offset,
             self.indices.dtype().as_ptype(),
             chunk_offsets_len,
             chunk_offsets_ptype,
             self.offset_within_chunk,
-        ))
+        )
     }
 
     pub fn cast_values(self, values_dtype: &DType) -> VortexResult<Self> {

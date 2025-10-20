@@ -153,10 +153,7 @@ impl VisitorVTable<BitPackedVTable> for BitPackedVTable {
         ProstMetadata(BitPackedMetadata {
             bit_width: array.bit_width() as u32,
             offset: array.offset() as u32,
-            patches: array.patches().map(|p| {
-                p.to_metadata(array.len(), array.dtype())
-                    .expect("Failed to get patches metadata")
-            }),
+            patches: array.patches().map(|p| p.to_metadata(array.len())),
         })
     }
 

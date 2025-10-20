@@ -8,7 +8,7 @@ use vortex_array::{
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::builders::dict_encode;
 use crate::{DictArray, DictEncoding, DictVTable};
@@ -68,7 +68,7 @@ impl VisitorVTable<DictVTable> for DictVTable {
         ProstMetadata(DictMetadata {
             codes_ptype: array.codes().dtype().as_ptype() as i32,
             values_len: u32::try_from(array.values().len())
-                .expect("Dictionary values size overflowed u32"),
+                .vortex_expect("Dictionary values size overflowed u32"),
             is_nullable_codes: Some(array.codes().dtype().is_nullable()),
         })
     }

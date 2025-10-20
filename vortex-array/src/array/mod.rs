@@ -27,8 +27,8 @@ use crate::operator::OperatorRef;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, PipelineVTable, SerdeVTable,
-    VTable, ValidityVTable, VisitorVTable,
+    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, PipelineVTable, VTable,
+    ValidityVTable, VisitorVTable,
 };
 use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
 

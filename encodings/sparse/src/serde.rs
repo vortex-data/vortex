@@ -74,10 +74,7 @@ impl EncodeVTable<SparseVTable> for SparseVTable {
 impl VisitorVTable<SparseVTable> for SparseVTable {
     fn metadata(array: &SparseArray) -> <SparseVTable as VTable>::Metadata {
         ProstMetadata(SparseMetadata {
-            patches: array
-                .patches()
-                .to_metadata(array.len(), array.dtype())
-                .expect("Failed to get patches metadata"),
+            patches: array.patches().to_metadata(array.len()),
         })
     }
 

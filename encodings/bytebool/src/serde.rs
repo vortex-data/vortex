@@ -4,7 +4,7 @@
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, EmptyMetadata};
+use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};

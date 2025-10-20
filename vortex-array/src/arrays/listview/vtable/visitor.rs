@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::PType;
-
 use super::serde::ListViewMetadata;
 use crate::arrays::{ListViewArray, ListViewVTable};
 use crate::vtable::{VTable, ValidityHelper, VisitorVTable};
@@ -12,10 +10,8 @@ impl VisitorVTable<ListViewVTable> for ListViewVTable {
     fn metadata(array: &ListViewArray) -> <ListViewVTable as VTable>::Metadata {
         ProstMetadata(ListViewMetadata {
             elements_len: array.elements().len() as u64,
-            offset_ptype: PType::try_from(array.offsets().dtype())
-                .expect("Invalid PType for offsets") as i32,
-            size_ptype: PType::try_from(array.sizes().dtype()).expect("Invalid PType for sizes")
-                as i32,
+            offset_ptype: array.offsets().dtype().as_ptype() as i32,
+            size_ptype: array.sizes().dtype().as_ptype() as i32,
         })
     }
 

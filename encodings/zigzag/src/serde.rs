@@ -3,9 +3,7 @@
 
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
-use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, EmptyMetadata,
-};
+use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, Canonical, EmptyMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};

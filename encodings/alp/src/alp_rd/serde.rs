@@ -8,7 +8,7 @@ use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, ProstMetadata};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 use super::{ALPRDEncoding, RDEncoder};
 use crate::{ALPRDArray, ALPRDVTable};
@@ -140,12 +140,10 @@ impl VisitorVTable<ALPRDVTable> for ALPRDVTable {
             right_bit_width: array.right_bit_width() as u32,
             dict_len: array.left_parts_dictionary().len() as u32,
             dict,
-            left_parts_ptype: PType::try_from(array.left_parts().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
-            patches: array.left_parts_patches().map(|p| {
-                p.to_metadata(array.len(), array.left_parts().dtype())
-                    .expect("Failed to get patches metadata")
-            }),
+            left_parts_ptype: array.left_parts().dtype().as_ptype() as i32,
+            patches: array
+                .left_parts_patches()
+                .map(|p| p.to_metadata(array.len())),
         })
     }
 
