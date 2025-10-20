@@ -92,7 +92,14 @@ mod tests {
             .into_array();
             let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
 
-            RLEArray::try_new(values, indices.clone(), values_idx_offsets, indices.len()).unwrap()
+            RLEArray::try_new(
+                values,
+                indices.clone(),
+                values_idx_offsets,
+                0,
+                indices.len(),
+            )
+            .unwrap()
         }
 
         pub(super) fn rle_array_with_nulls() -> RLEArray {
@@ -120,7 +127,14 @@ mod tests {
             )
             .into_array();
 
-            RLEArray::try_new(values, indices.clone(), values_idx_offsets, indices.len()).unwrap()
+            RLEArray::try_new(
+                values,
+                indices.clone(),
+                values_idx_offsets,
+                0,
+                indices.len(),
+            )
+            .unwrap()
         }
     }
 
