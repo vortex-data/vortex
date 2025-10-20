@@ -5,7 +5,7 @@ use std::ops::Deref;
 use std::ptr;
 use std::sync::Arc;
 
-use vortex::dtype::{DType, StructFields};
+use vortex::dtype::{DType, Fields};
 use vortex::error::VortexExpect;
 
 use crate::dtype::vx_dtype;
@@ -14,7 +14,7 @@ use crate::{arc_wrapper, box_wrapper};
 
 arc_wrapper!(
     /// Represents a Vortex struct data type, without top-level nullability.
-    StructFields,
+    Fields,
     vx_struct_fields
 );
 
@@ -121,6 +121,6 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_builder_finalize(
     builder: *mut vx_struct_fields_builder,
 ) -> *const vx_struct_fields {
     let builder = vx_struct_fields_builder::into_box(builder);
-    let struct_dtype = StructFields::new(builder.names.into(), builder.fields);
+    let struct_dtype = Fields::new(builder.names.into(), builder.fields);
     vx_struct_fields::new(Arc::new(struct_dtype))
 }

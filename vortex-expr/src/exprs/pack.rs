@@ -7,7 +7,7 @@ use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
-use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
+use vortex_dtype::{DType, FieldName, FieldNames, Fields, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
@@ -35,7 +35,7 @@ vtable!(Pack);
 /// let packed = example.evaluate(&Scope::new(buffer![100, 110, 200].into_array())).unwrap();
 /// let x_copy = packed
 ///     .to_struct()
-///     .field_by_name("x copy")
+///     .column_by_name("x copy")
 ///     .unwrap()
 ///     .clone();
 /// assert_eq!(x_copy.scalar_at(0), Scalar::from(100));
@@ -127,7 +127,7 @@ impl VTable for PackVTable {
             .map(|value_expr| value_expr.return_dtype(scope))
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(DType::Struct(
-            StructFields::new(expr.names.clone(), value_dtypes),
+            Fields::new(expr.names.clone(), value_dtypes),
             expr.nullability,
         ))
     }
@@ -245,7 +245,7 @@ mod tests {
     use crate::{IntoExpr, PackExpr, Scope, col, pack};
 
     fn test_array() -> ArrayRef {
-        StructArray::from_fields(&[
+        StructArray::from_columns(&[
             ("a", buffer![0, 1, 2].into_array()),
             ("b", buffer![4, 5, 6].into_array()),
         ])
@@ -260,9 +260,9 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array.to_struct().field_by_name(field)?.clone();
+        let mut array = array.to_struct().column_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct().field_by_name(field)?.clone();
+            array = array.to_struct().column_by_name(field)?.clone();
         }
         Ok(array.to_primitive())
     }
@@ -275,7 +275,7 @@ mod tests {
         let test_array = test_array();
         let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert_eq!(actual_array.to_struct().struct_fields().nfields(), 0);
+        assert_eq!(actual_array.to_struct().fields().nfields(), 0);
     }
 
     #[test]

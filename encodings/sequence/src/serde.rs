@@ -104,7 +104,7 @@ mod tests {
     #[tokio::test]
     async fn round_trip_seq() {
         let seq = SequenceArray::typed_new(2i8, 3, Nullability::NonNullable, 4).unwrap();
-        let st = StructArray::from_fields(&[("a", seq.to_array())]).unwrap();
+        let st = StructArray::from_columns(&[("a", seq.to_array())]).unwrap();
 
         let mut file = tokio::fs::File::create("/tmp/abc.vx").await.unwrap();
         VortexWriteOptions::default()

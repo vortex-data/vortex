@@ -4,7 +4,7 @@
 use std::any::Any;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, Nullability, StructFields};
+use vortex_dtype::{DType, Fields, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, StructScalar};
@@ -25,16 +25,12 @@ pub struct StructBuilder {
 
 impl StructBuilder {
     /// Creates a new `StructBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
-    pub fn new(struct_dtype: StructFields, nullability: Nullability) -> Self {
+    pub fn new(struct_dtype: Fields, nullability: Nullability) -> Self {
         Self::with_capacity(struct_dtype, nullability, DEFAULT_BUILDER_CAPACITY)
     }
 
     /// Creates a new `StructBuilder` with the given `capacity`.
-    pub fn with_capacity(
-        struct_dtype: StructFields,
-        nullability: Nullability,
-        capacity: usize,
-    ) -> Self {
+    pub fn with_capacity(struct_dtype: Fields, nullability: Nullability, capacity: usize) -> Self {
         let builders = struct_dtype
             .fields()
             .map(|dt| builder_with_capacity(&dt, capacity))
@@ -53,16 +49,16 @@ impl StructBuilder {
             vortex_bail!("Tried to append a null `StructScalar` to a non-nullable struct builder",);
         }
 
-        if struct_scalar.struct_fields() != self.struct_fields() {
+        if struct_scalar.fields() != self.fields() {
             vortex_bail!(
                 "Tried to append a `StructScalar` with fields {} to a \
                     struct builder with fields {}",
-                struct_scalar.struct_fields(),
-                self.struct_fields()
+                struct_scalar.fields(),
+                self.fields()
             );
         }
 
-        if let Some(fields) = struct_scalar.fields() {
+        if let Some(fields) = struct_scalar.columns() {
             for (builder, field) in self.builders.iter_mut().zip_eq(fields) {
                 builder.append_scalar(&field)?;
             }
@@ -96,12 +92,12 @@ impl StructBuilder {
 
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
-        StructArray::try_new_with_dtype(fields, self.struct_fields().clone(), len, validity)
+        StructArray::try_new_with_dtype(fields, self.fields().clone(), len, validity)
             .vortex_expect("Fields must all have same length.")
     }
 
-    /// The [`StructFields`] of this struct builder.
-    pub fn struct_fields(&self) -> &StructFields {
+    /// The [`Fields`] of this struct builder.
+    pub fn fields(&self) -> &Fields {
         let DType::Struct(struct_fields, _) = &self.dtype else {
             vortex_panic!("`StructBuilder` somehow had dtype {}", self.dtype);
         };
@@ -159,7 +155,7 @@ impl ArrayBuilder for StructBuilder {
         let array = array.to_struct();
 
         for (a, builder) in array
-            .fields()
+            .columns()
             .iter()
             .cloned()
             .zip_eq(self.builders.iter_mut())
@@ -195,7 +191,7 @@ impl ArrayBuilder for StructBuilder {
 mod tests {
 
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability, StructFields};
+    use vortex_dtype::{DType, Fields, Nullability};
     use vortex_scalar::Scalar;
 
     use crate::builders::ArrayBuilder;
@@ -203,7 +199,7 @@ mod tests {
 
     #[test]
     fn test_struct_builder() {
-        let sdt = StructFields::new(["a", "b"].into(), vec![I32.into(), I32.into()]);
+        let sdt = Fields::new(["a", "b"].into(), vec![I32.into(), I32.into()]);
         let dtype = DType::Struct(sdt.clone(), Nullability::NonNullable);
         let mut builder = StructBuilder::with_capacity(sdt, Nullability::NonNullable, 0);
 
@@ -218,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_append_nullable_struct() {
-        let sdt = StructFields::new(["a", "b"].into(), vec![I32.into(), I32.into()]);
+        let sdt = Fields::new(["a", "b"].into(), vec![I32.into(), I32.into()]);
         let dtype = DType::Struct(sdt.clone(), Nullability::Nullable);
         let mut builder = StructBuilder::with_capacity(sdt, Nullability::Nullable, 0);
 
@@ -236,7 +232,7 @@ mod tests {
         use vortex_scalar::Scalar;
 
         let dtype = DType::Struct(
-            StructFields::from_iter([
+            Fields::from_iter([
                 ("a", DType::Primitive(I32, Nullability::Nullable)),
                 ("b", DType::Utf8(Nullability::Nullable)),
             ]),
@@ -280,7 +276,7 @@ mod tests {
 
         let scalar0 = array.scalar_at(0);
         let struct0 = scalar0.as_struct();
-        if let Some(fields0) = struct0.fields() {
+        if let Some(fields0) = struct0.columns() {
             let fields0 = fields0.collect::<Vec<_>>();
             assert_eq!(fields0[0].as_primitive().typed_value::<i32>(), Some(42));
             assert_eq!(fields0[1].as_utf8().value().as_deref(), Some("hello"));
@@ -288,7 +284,7 @@ mod tests {
 
         let scalar1 = array.scalar_at(1);
         let struct1 = scalar1.as_struct();
-        if let Some(fields1) = struct1.fields() {
+        if let Some(fields1) = struct1.columns() {
             let fields1 = fields1.collect::<Vec<_>>();
             assert_eq!(fields1[0].as_primitive().typed_value::<i32>(), Some(84));
             assert_eq!(fields1[1].as_utf8().value().as_deref(), Some("world"));
@@ -296,7 +292,7 @@ mod tests {
 
         let scalar2 = array.scalar_at(2);
         let struct2 = scalar2.as_struct();
-        assert!(struct2.fields().is_none()); // Null struct has no fields.
+        assert!(struct2.columns().is_none()); // Null struct has no fields.
 
         // Check validity - first two should be valid, third should be null.
         use crate::vtable::ValidityHelper;

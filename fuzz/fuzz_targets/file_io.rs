@@ -10,7 +10,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::compute::{Operator, compare, filter};
 use vortex_array::{Array, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::{DType, StructFields};
+use vortex_dtype::{DType, Fields};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_expr::{Scope, lit, root};
 use vortex_file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
@@ -133,7 +133,7 @@ fn has_duplicate_field_names(dtype: &DType) -> bool {
     }
 }
 
-fn struct_has_duplicate_names(struct_dtype: &StructFields) -> bool {
+fn struct_has_duplicate_names(struct_dtype: &Fields) -> bool {
     HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
         != struct_dtype.names().len()
         || struct_dtype

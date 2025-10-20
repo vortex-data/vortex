@@ -132,7 +132,7 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
         // Render the stats table horizontally
         let struct_array = array.to_struct();
         // add 1 for the chunk column
-        let field_count = struct_array.struct_fields().nfields() + 1;
+        let field_count = struct_array.fields().nfields() + 1;
         let header = std::iter::once("chunk")
             .chain(struct_array.names().iter().map(|x| x.as_ref()))
             .map(Cell::from)
@@ -142,7 +142,7 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
 
         assert_eq!(app.cursor.dtype(), array.dtype());
 
-        let field_arrays: Vec<ArrayRef> = struct_array.fields().to_vec();
+        let field_arrays: Vec<ArrayRef> = struct_array.columns().to_vec();
 
         // TODO: trim the number of displayed rows and allow paging through column stats.
         let rows = (0..array.len()).map(|chunk_id| {

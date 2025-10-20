@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, DecimalDType, ExtDType, ExtID, Nullability, PType, StructFields};
+use vortex_dtype::{DType, DecimalDType, ExtDType, ExtID, Nullability, PType, Fields};
 use vortex_scalar::Scalar;
 
 use crate::builders::{ArrayBuilder, builder_with_capacity};
@@ -30,17 +30,17 @@ use crate::builders::{ArrayBuilder, builder_with_capacity};
 #[case::binary(DType::Binary(Nullability::NonNullable))]
 #[case::decimal128(DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable))]
 #[case::struct_simple(DType::Struct(
-    StructFields::from_iter([
+    Fields::from_iter([
         ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
         ("b", DType::Utf8(Nullability::NonNullable)),
     ]),
     Nullability::NonNullable
 ))]
 #[case::struct_nested(DType::Struct(
-    StructFields::from_iter([
+    Fields::from_iter([
         ("field1", DType::Bool(Nullability::NonNullable)),
         ("field2", DType::Struct(
-            StructFields::from_iter([
+            Fields::from_iter([
                 ("nested", DType::Primitive(PType::F64, Nullability::NonNullable)),
             ]),
             Nullability::NonNullable
@@ -146,13 +146,13 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
     3
 )]
 #[case::struct_type(DType::Struct(
-    StructFields::from_iter([
+    Fields::from_iter([
         ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
     ]),
     Nullability::NonNullable
 ), 1)]
 #[case::struct_type_multiple(DType::Struct(
-    StructFields::from_iter([
+    Fields::from_iter([
         ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
     ]),
     Nullability::NonNullable
@@ -355,7 +355,7 @@ fn test_to_canonical_binary() {
 #[test]
 fn test_to_canonical_struct() {
     let dtype = DType::Struct(
-        StructFields::from_iter([
+        Fields::from_iter([
             ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
             ("b", DType::Utf8(Nullability::NonNullable)),
         ]),
@@ -472,14 +472,14 @@ fn test_to_canonical_f32() {
 ))]
 #[case::decimal128_nullable(DType::Decimal(DecimalDType::new(10, 2), Nullability::Nullable))]
 #[case::struct_simple(DType::Struct(
-    StructFields::from_iter([
+    Fields::from_iter([
         ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
         ("b", DType::Utf8(Nullability::NonNullable)),
     ]),
     Nullability::NonNullable
 ))]
 #[case::struct_nullable(DType::Struct(
-    StructFields::from_iter([
+    Fields::from_iter([
         ("x", DType::Primitive(PType::F64, Nullability::NonNullable)),
     ]),
     Nullability::Nullable

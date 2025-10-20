@@ -4,7 +4,7 @@
 use std::fmt::{Display, Formatter};
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
+use vortex_dtype::{DType, FieldName, FieldNames, Nullability, Fields};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -72,7 +72,7 @@ where
         .map(|id| FieldName::from(id.clone()))
         .collect::<FieldNames>();
     let root_scope = DType::Struct(
-        StructFields::new(partition_names.clone(), partition_dtypes.clone()),
+        Fields::new(partition_names.clone(), partition_dtypes.clone()),
         Nullability::NonNullable,
     );
 
@@ -194,7 +194,7 @@ mod tests {
     use rstest::{fixture, rstest};
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, StructFields};
+    use vortex_dtype::{DType, Fields};
 
     use super::*;
     use crate::transform::immediate_access::annotate_scope_access;
@@ -206,11 +206,11 @@ mod tests {
     #[fixture]
     fn dtype() -> DType {
         DType::Struct(
-            StructFields::from_iter([
+            Fields::from_iter([
                 (
                     "a",
                     DType::Struct(
-                        StructFields::from_iter([("x", I32.into()), ("y", DType::from(I32))]),
+                        Fields::from_iter([("x", I32.into()), ("y", DType::from(I32))]),
                         NonNullable,
                     ),
                 ),

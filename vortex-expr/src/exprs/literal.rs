@@ -175,7 +175,7 @@ pub fn lit(value: impl Into<Scalar>) -> ExprRef {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, Nullability, PType, Fields};
     use vortex_scalar::Scalar;
 
     use crate::{lit, test_harness};
@@ -204,7 +204,7 @@ mod tests {
         );
 
         let sdtype = DType::Struct(
-            StructFields::new(
+            Fields::new(
                 ["dog", "cat"].into(),
                 vec![
                     DType::Primitive(PType::U32, Nullability::NonNullable),

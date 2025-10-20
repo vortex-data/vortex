@@ -20,7 +20,7 @@ impl EncodingSubclass for PyStructArray {
 impl PyStructArray {
     /// Returns the given field of the struct array.
     pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyResult<PyArrayRef> {
-        let field = self_.as_array_ref().field_by_name(name)?.clone();
+        let field = self_.as_array_ref().column_by_name(name)?.clone();
         Ok(PyArrayRef::from(field))
     }
 
@@ -28,7 +28,7 @@ impl PyStructArray {
     pub fn names(self_: PyRef<'_, Self>) -> PyResult<Vec<String>> {
         Ok(self_
             .as_array_ref()
-            .struct_fields()
+            .fields()
             .names()
             .iter()
             .map(|f| f.to_string())

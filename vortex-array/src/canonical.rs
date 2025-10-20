@@ -410,11 +410,11 @@ mod test {
     #[test]
     fn test_canonicalize_nested_struct() {
         // Create a struct array with multiple internal components.
-        let nested_struct_array = StructArray::from_fields(&[
+        let nested_struct_array = StructArray::from_columns(&[
             ("a", buffer![1u64].into_array()),
             (
                 "b",
-                StructArray::from_fields(&[(
+                StructArray::from_columns(&[(
                     "inner_a",
                     // The nested struct contains a ConstantArray representing the primitive array
                     //   [100i64]

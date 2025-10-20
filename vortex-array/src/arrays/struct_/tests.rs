@@ -38,13 +38,13 @@ fn test_project() {
 
     assert_eq!(struct_b.len(), 5);
 
-    let bools = &struct_b.fields[0];
+    let bools = &struct_b.columns[0];
     assert_eq!(
         bools.to_bool().boolean_buffer().iter().collect::<Vec<_>>(),
         vec![true, true, true, false, false]
     );
 
-    let prims = &struct_b.fields[1];
+    let prims = &struct_b.columns[1];
     assert_eq!(prims.to_primitive().as_slice::<i64>(), [0i64, 1, 2, 3, 4]);
 }
 
@@ -69,14 +69,14 @@ fn test_remove_column() {
     assert_eq!(removed.to_primitive().as_slice::<i64>(), [0i64, 1, 2, 3, 4]);
 
     assert_eq!(struct_a.names(), &["ys"]);
-    assert_eq!(struct_a.fields.len(), 1);
+    assert_eq!(struct_a.columns.len(), 1);
     assert_eq!(struct_a.len(), 5);
     assert_eq!(
-        struct_a.fields[0].dtype(),
+        struct_a.columns[0].dtype(),
         &DType::Primitive(PType::U64, Nullability::NonNullable)
     );
     assert_eq!(
-        struct_a.fields[0].to_primitive().as_slice::<u64>(),
+        struct_a.columns[0].to_primitive().as_slice::<u64>(),
         [4u64, 5, 6, 7, 8]
     );
 
@@ -104,22 +104,22 @@ fn test_duplicate_field_names() {
     )
     .unwrap();
 
-    // field_by_name should return the first field with the matching name
-    let first_value_field = struct_array.field_by_name("value").unwrap();
+    // column_by_name should return the first field with the matching name
+    let first_value_field = struct_array.column_by_name("value").unwrap();
     assert_eq!(
         first_value_field.to_primitive().as_slice::<i32>(),
         [1i32, 2, 3] // This is field1, not field3
     );
 
-    // Verify field_by_name_opt also returns the first match
-    let opt_field = struct_array.field_by_name_opt("value").unwrap();
+    // Verify column_by_name_opt also returns the first match
+    let opt_field = struct_array.column_by_name_opt("value").unwrap();
     assert_eq!(
         opt_field.to_primitive().as_slice::<i32>(),
         [1i32, 2, 3] // First "value" field
     );
 
     // Verify the third field (second "value") can be accessed by index
-    let third_field = &struct_array.fields()[2];
+    let third_field = &struct_array.columns()[2];
     assert_eq!(
         third_field.to_primitive().as_slice::<i32>(),
         [100i32, 200, 300]

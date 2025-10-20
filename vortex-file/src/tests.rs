@@ -20,7 +20,7 @@ use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dict::{DictEncoding, DictVTable};
 use vortex_dtype::PType::I32;
-use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
+use vortex_dtype::{DType, DecimalDType, Nullability, PType, Fields};
 use vortex_error::VortexResult;
 use vortex_expr::{PackExpr, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
 use vortex_scalar::Scalar;
@@ -51,7 +51,7 @@ async fn test_read_simple() {
     ])
     .into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let st = StructArray::from_columns(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
         .write(&mut buf, st.to_array_stream())
@@ -119,7 +119,7 @@ async fn test_round_trip_many_types() {
     )
     .into_array();
 
-    let st = StructArray::from_fields(&[
+    let st = StructArray::from_columns(&[
         ("strings", strings),
         ("numbers", numbers),
         ("decimal_2", decimal_2),
@@ -182,7 +182,7 @@ async fn test_read_simple_with_spawn() {
     .into_array();
 
     let st =
-        StructArray::from_fields(&[("strings", strings), ("numbers", numbers), ("lists", lists)])
+        StructArray::from_columns(&[("strings", strings), ("numbers", numbers), ("lists", lists)])
             .unwrap();
 
     let mut buf = ByteBufferMut::empty();
@@ -213,7 +213,7 @@ async fn test_read_projection() {
     .into_array();
     let numbers_dtype = numbers.dtype().clone();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let st = StructArray::from_columns(&[("strings", strings), ("numbers", numbers)]).unwrap();
 
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
@@ -235,12 +235,12 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            StructFields::new(["strings"].into(), vec![strings_dtype]),
+            Fields::new(["strings"].into(), vec![strings_dtype]),
             Nullability::NonNullable,
         )
     );
 
-    let actual = array.to_struct().fields()[0]
+    let actual = array.to_struct().columns()[0]
         .to_varbinview()
         .with_iterator(|x| {
             x.map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
@@ -262,12 +262,12 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            StructFields::new(["numbers"].into(), vec![numbers_dtype]),
+            Fields::new(["numbers"].into(), vec![numbers_dtype]),
             Nullability::NonNullable,
         )
     );
 
-    let primitive_array = array.to_struct().fields()[0].to_primitive();
+    let primitive_array = array.to_struct().columns()[0].to_primitive();
     let actual = primitive_array.as_slice::<u32>();
     assert_eq!(actual, numbers_expected);
 }
@@ -287,7 +287,7 @@ async fn unequal_batches() {
     ])
     .into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let st = StructArray::from_columns(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
         .write(&mut buf, st.to_array_stream())
@@ -311,7 +311,7 @@ async fn unequal_batches() {
 
         let numbers = array
             .to_struct()
-            .field_by_name("numbers")
+            .column_by_name("numbers")
             .unwrap()
             .to_primitive();
         assert_eq!(numbers.ptype(), PType::U32);
@@ -373,7 +373,7 @@ async fn write_chunked() {
 async fn test_empty_varbin_array_roundtrip() {
     let empty = VarBinArray::from(Vec::<&str>::new()).into_array();
 
-    let st = StructArray::from_fields(&[("a", empty)]).unwrap();
+    let st = StructArray::from_columns(&[("a", empty)]).unwrap();
 
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
@@ -433,7 +433,7 @@ async fn filter_string() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0].to_struct().fields()[0].clone();
+    let names = result[0].to_struct().columns()[0].clone();
     assert_eq!(
         names
             .to_varbinview()
@@ -444,7 +444,7 @@ async fn filter_string() {
             .unwrap(),
         vec!["Joseph".to_string()]
     );
-    let ages = result[0].to_struct().fields()[1].clone();
+    let ages = result[0].to_struct().columns()[1].clone();
     assert_eq!(ages.to_primitive().as_slice::<i32>(), vec![25]);
 }
 
@@ -490,7 +490,7 @@ async fn filter_or() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0].to_struct().fields()[0].clone();
+    let names = result[0].to_struct().columns()[0].clone();
     assert_eq!(
         names
             .to_varbinview()
@@ -501,7 +501,7 @@ async fn filter_or() {
             .unwrap(),
         vec!["Joseph".to_string(), "Angela".to_string()]
     );
-    let ages = result[0].to_struct().fields()[1].clone();
+    let ages = result[0].to_struct().columns()[1].clone();
     assert_eq!(
         ages.to_primitive()
             .with_iterator(|iter| iter.map(|x| x.cloned()).collect::<Vec<_>>())
@@ -549,7 +549,7 @@ async fn filter_and() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0].to_struct().fields()[0].clone();
+    let names = result[0].to_struct().columns()[0].clone();
     assert_eq!(
         names
             .to_varbinview()
@@ -559,7 +559,7 @@ async fn filter_and() {
             .unwrap(),
         vec![Some("Joseph".to_string()), None]
     );
-    let ages = result[0].to_struct().fields()[1].clone();
+    let ages = result[0].to_struct().columns()[1].clone();
     assert_eq!(ages.to_primitive().as_slice::<i32>(), vec![25, 31]);
 }
 
@@ -567,7 +567,7 @@ async fn filter_and() {
 #[cfg_attr(miri, ignore)]
 async fn test_with_indices_simple() {
     let expected_numbers_split: Vec<Buffer<i16>> = (0..5).map(|_| (0_i16..100).collect()).collect();
-    let expected_array = StructArray::from_fields(&[(
+    let expected_array = StructArray::from_columns(&[(
         "numbers",
         ChunkedArray::from_iter(
             expected_numbers_split
@@ -615,7 +615,7 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .to_struct();
-    let actual_kept_numbers_array = actual_kept_array.fields()[0].to_primitive();
+    let actual_kept_numbers_array = actual_kept_array.columns()[0].to_primitive();
 
     let expected_kept_numbers: Vec<i16> = kept_indices
         .iter()
@@ -636,7 +636,7 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .to_struct();
-    let actual_numbers_array = actual_array.fields()[0].to_primitive();
+    let actual_numbers_array = actual_array.columns()[0].to_primitive();
     let actual_numbers = actual_numbers_array.as_slice::<i16>();
 
     assert_eq!(expected_numbers, actual_numbers);
@@ -659,7 +659,7 @@ async fn test_with_indices_on_two_columns() {
     ])
     .into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let st = StructArray::from_columns(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
         .write(&mut buf, st.to_array_stream())
@@ -681,7 +681,7 @@ async fn test_with_indices_on_two_columns() {
         .to_struct()
         .to_struct();
 
-    let strings_actual = array.fields()[0]
+    let strings_actual = array.columns()[0]
         .to_varbinview()
         .with_iterator(|x| {
             x.map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
@@ -696,7 +696,7 @@ async fn test_with_indices_on_two_columns() {
             .collect::<Vec<_>>()
     );
 
-    let numbers_actual_array = array.fields()[1].to_primitive();
+    let numbers_actual_array = array.columns()[1].to_primitive();
     let numbers_actual = numbers_actual_array.as_slice::<u32>();
     assert_eq!(
         numbers_actual,
@@ -711,7 +711,7 @@ async fn test_with_indices_on_two_columns() {
 #[cfg_attr(miri, ignore)]
 async fn test_with_indices_and_with_row_filter_simple() {
     let expected_numbers_split: Vec<Buffer<i16>> = (0..5).map(|_| (0_i16..100).collect()).collect();
-    let expected_array = StructArray::from_fields(&[(
+    let expected_array = StructArray::from_columns(&[(
         "numbers",
         ChunkedArray::from_iter(
             expected_numbers_split
@@ -761,7 +761,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .to_struct();
 
-    let actual_kept_numbers_array = actual_kept_array.fields()[0].to_primitive();
+    let actual_kept_numbers_array = actual_kept_array.columns()[0].to_primitive();
 
     let expected_kept_numbers: Buffer<i16> = kept_indices
         .iter()
@@ -785,7 +785,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .to_struct();
 
-    let actual_numbers_array = actual_array.fields()[0].to_primitive();
+    let actual_numbers_array = actual_array.columns()[0].to_primitive();
     let actual_numbers = actual_numbers_array.as_slice::<i16>();
 
     assert_eq!(
@@ -815,10 +815,10 @@ async fn filter_string_chunked() {
     let age_chunk2 =
         PrimitiveArray::from_option_iter([Some(57_i32), Some(18), None, Some(32)]).into_array();
 
-    let chunk1 = StructArray::from_fields(&[("name", name_chunk1), ("age", age_chunk1)])
+    let chunk1 = StructArray::from_columns(&[("name", name_chunk1), ("age", age_chunk1)])
         .unwrap()
         .into_array();
-    let chunk2 = StructArray::from_fields(&[("name", name_chunk2), ("age", age_chunk2)])
+    let chunk2 = StructArray::from_columns(&[("name", name_chunk2), ("age", age_chunk2)])
         .unwrap()
         .into_array();
     let dtype = chunk1.dtype().clone();
@@ -847,7 +847,7 @@ async fn filter_string_chunked() {
         .to_struct();
 
     assert_eq!(actual_array.len(), 1);
-    let names = &actual_array.fields()[0];
+    let names = &actual_array.columns()[0];
     assert_eq!(
         names
             .to_varbinview()
@@ -858,7 +858,7 @@ async fn filter_string_chunked() {
             .unwrap(),
         vec!["Joseph".to_string()]
     );
-    let ages = &actual_array.fields()[1];
+    let ages = &actual_array.columns()[1];
     assert_eq!(ages.to_primitive().as_slice::<i32>(), vec![25]);
 }
 
@@ -900,16 +900,16 @@ async fn test_pruning_with_or() {
     let number_chunk4 =
         PrimitiveArray::from_option_iter([Some(66_i32), Some(77), Some(88)]).into_array();
 
-    let chunk1 = StructArray::from_fields(&[("letter", letter_chunk1), ("number", number_chunk1)])
+    let chunk1 = StructArray::from_columns(&[("letter", letter_chunk1), ("number", number_chunk1)])
         .unwrap()
         .into_array();
-    let chunk2 = StructArray::from_fields(&[("letter", letter_chunk2), ("number", number_chunk2)])
+    let chunk2 = StructArray::from_columns(&[("letter", letter_chunk2), ("number", number_chunk2)])
         .unwrap()
         .into_array();
-    let chunk3 = StructArray::from_fields(&[("letter", letter_chunk3), ("number", number_chunk3)])
+    let chunk3 = StructArray::from_columns(&[("letter", letter_chunk3), ("number", number_chunk3)])
         .unwrap()
         .into_array();
-    let chunk4 = StructArray::from_fields(&[("letter", letter_chunk4), ("number", number_chunk4)])
+    let chunk4 = StructArray::from_columns(&[("letter", letter_chunk4), ("number", number_chunk4)])
         .unwrap()
         .into_array();
     let dtype = chunk1.dtype().clone();
@@ -941,7 +941,7 @@ async fn test_pruning_with_or() {
         .to_struct();
 
     assert_eq!(actual_array.len(), 10);
-    let letters = &actual_array.fields()[0];
+    let letters = &actual_array.columns()[0];
     assert_eq!(
         letters
             .to_varbinview()
@@ -962,7 +962,7 @@ async fn test_pruning_with_or() {
             Some("P".to_string())
         ]
     );
-    let numbers = &actual_array.fields()[1];
+    let numbers = &actual_array.columns()[1];
     assert_eq!(
         (0..numbers.len())
             .map(|index| -> Option<i32> {
@@ -992,11 +992,11 @@ async fn test_repeated_projection() {
     ])
     .into_array();
 
-    let single_column_array = StructArray::from_fields(&[("strings", strings.clone())])
+    let single_column_array = StructArray::from_columns(&[("strings", strings.clone())])
         .unwrap()
         .into_array();
 
-    let expected = StructArray::from_fields(&[("strings", strings.clone()), ("strings", strings)])
+    let expected = StructArray::from_columns(&[("strings", strings.clone()), ("strings", strings)])
         .unwrap()
         .into_array();
 
@@ -1172,10 +1172,10 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
     let result = round_trip(&array, Ok).await?.to_struct();
 
     assert_eq!(result.len(), 3);
-    assert_eq!(result.fields().len(), 1);
+    assert_eq!(result.columns().len(), 1);
     assert!(result.all_valid());
 
-    let nested_struct = result.field_by_name("struct")?.to_struct();
+    let nested_struct = result.column_by_name("struct")?.to_struct();
     assert_eq!(nested_struct.dtype(), &nested_dtype);
     assert_eq!(nested_struct.len(), 3);
     assert!(nested_struct.all_invalid());
@@ -1215,7 +1215,7 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
     ])
     .into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let st = StructArray::from_columns(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
     VortexWriteOptions::default()
         .write(&mut buf, st.to_array_stream())
@@ -1260,7 +1260,7 @@ async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
 async fn test_writer_basic_push() -> VortexResult<()> {
     let strings = VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array();
     let numbers = buffer![1u32, 2, 3, 4].into_array();
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)])?.into_array();
+    let st = StructArray::from_columns(&[("strings", strings), ("numbers", numbers)])?.into_array();
     let dtype = st.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
@@ -1283,11 +1283,11 @@ async fn test_writer_basic_push() -> VortexResult<()> {
 #[tokio::test]
 async fn test_writer_multiple_pushes() -> VortexResult<()> {
     let chunk1 =
-        StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
+        StructArray::from_columns(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
     let chunk2 =
-        StructArray::from_fields(&[("numbers", buffer![4u32, 5, 6].into_array())])?.into_array();
+        StructArray::from_columns(&[("numbers", buffer![4u32, 5, 6].into_array())])?.into_array();
     let chunk3 =
-        StructArray::from_fields(&[("numbers", buffer![7u32, 8, 9].into_array())])?.into_array();
+        StructArray::from_columns(&[("numbers", buffer![7u32, 8, 9].into_array())])?.into_array();
 
     let dtype = chunk1.dtype().clone();
 
@@ -1305,7 +1305,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 9);
-    let numbers = result.to_struct().field_by_name("numbers")?.to_primitive();
+    let numbers = result.to_struct().column_by_name("numbers")?.to_primitive();
     assert_eq!(numbers.as_slice::<u32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
     Ok(())
@@ -1314,9 +1314,9 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
 #[tokio::test]
 async fn test_writer_push_stream() -> VortexResult<()> {
     let chunk1 =
-        StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
+        StructArray::from_columns(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
     let chunk2 =
-        StructArray::from_fields(&[("numbers", buffer![4u32, 5, 6].into_array())])?.into_array();
+        StructArray::from_columns(&[("numbers", buffer![4u32, 5, 6].into_array())])?.into_array();
 
     let dtype = chunk1.dtype().clone();
 
@@ -1335,7 +1335,7 @@ async fn test_writer_push_stream() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
-    let numbers = result.to_struct().field_by_name("numbers")?.to_primitive();
+    let numbers = result.to_struct().column_by_name("numbers")?.to_primitive();
     assert_eq!(numbers.as_slice::<u32>(), &[1, 2, 3, 4, 5, 6]);
 
     Ok(())
@@ -1343,7 +1343,7 @@ async fn test_writer_push_stream() -> VortexResult<()> {
 
 #[tokio::test]
 async fn test_writer_bytes_written() -> VortexResult<()> {
-    let array = StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3, 4, 5].into_array())])?
+    let array = StructArray::from_columns(&[("numbers", buffer![1u32, 2, 3, 4, 5].into_array())])?
         .into_array();
     let dtype = array.dtype().clone();
 
@@ -1371,13 +1371,13 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
 
 #[tokio::test]
 async fn test_writer_empty_chunks() -> VortexResult<()> {
-    let empty = StructArray::from_fields(&[(
+    let empty = StructArray::from_columns(&[(
         "numbers",
         PrimitiveArray::new::<u32>(buffer![], Validity::NonNullable).into_array(),
     )])?
     .into_array();
     let non_empty =
-        StructArray::from_fields(&[("numbers", buffer![1u32, 2].into_array())])?.into_array();
+        StructArray::from_columns(&[("numbers", buffer![1u32, 2].into_array())])?.into_array();
 
     let dtype = empty.dtype().clone();
 
@@ -1395,7 +1395,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 2);
-    let numbers = result.to_struct().field_by_name("numbers")?.to_primitive();
+    let numbers = result.to_struct().column_by_name("numbers")?.to_primitive();
     assert_eq!(numbers.as_slice::<u32>(), &[1, 2]);
 
     Ok(())
@@ -1404,11 +1404,11 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
 #[tokio::test]
 async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
     let chunk1 =
-        StructArray::from_fields(&[("numbers", buffer![1u32, 2].into_array())])?.into_array();
+        StructArray::from_columns(&[("numbers", buffer![1u32, 2].into_array())])?.into_array();
     let chunk2 =
-        StructArray::from_fields(&[("numbers", buffer![3u32, 4].into_array())])?.into_array();
+        StructArray::from_columns(&[("numbers", buffer![3u32, 4].into_array())])?.into_array();
     let chunk3 =
-        StructArray::from_fields(&[("numbers", buffer![5u32, 6].into_array())])?.into_array();
+        StructArray::from_columns(&[("numbers", buffer![5u32, 6].into_array())])?.into_array();
 
     let dtype = chunk1.dtype().clone();
 
@@ -1429,7 +1429,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
-    let numbers = result.to_struct().field_by_name("numbers")?.to_primitive();
+    let numbers = result.to_struct().column_by_name("numbers")?.to_primitive();
     assert_eq!(numbers.as_slice::<u32>(), &[1, 2, 3, 4, 5, 6]);
 
     Ok(())
@@ -1444,7 +1444,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
         Arc::new(I32.into()),
     )?;
 
-    let chunk = StructArray::from_fields(&[
+    let chunk = StructArray::from_columns(&[
         ("strings", strings),
         ("numbers", numbers),
         ("lists", lists.into_array()),
@@ -1467,7 +1467,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     assert_eq!(result.len(), 3);
     assert_eq!(result.dtype(), &dtype);
 
-    let strings_field = result.to_struct().field_by_name("strings").cloned()?;
+    let strings_field = result.to_struct().column_by_name("strings").cloned()?;
     let strings = strings_field.to_varbinview().with_iterator(|iter| {
         iter.map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
             .collect::<Vec<_>>()
@@ -1486,7 +1486,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
 
 #[tokio::test]
 async fn test_writer_with_statistics() -> VortexResult<()> {
-    let array = StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3, 4, 5].into_array())])?
+    let array = StructArray::from_columns(&[("numbers", buffer![1u32, 2, 3, 4, 5].into_array())])?
         .into_array();
 
     let mut buf = ByteBufferMut::empty();

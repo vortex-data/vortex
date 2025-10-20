@@ -174,7 +174,7 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BufferString;
     use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, Fields};
     use vortex_error::vortex_panic;
     use vortex_proto::scalar as pb;
 
@@ -281,7 +281,7 @@ mod tests {
     #[case(Scalar::list(Arc::new(PType::U8.into()), vec![Scalar::primitive(1u8, Nullability::NonNullable)], Nullability::NonNullable
     ))]
     #[case(Scalar::struct_(DType::Struct(
-        StructFields::from_iter([
+        Fields::from_iter([
             ("a", FieldDType::from(DType::Primitive(PType::U32, Nullability::NonNullable))),
             ("b", FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable))),
         ]),
@@ -292,7 +292,7 @@ mod tests {
         ],
     ))]
     #[case(Scalar::struct_(DType::Struct(
-        StructFields::from_iter([
+        Fields::from_iter([
             ("a", FieldDType::from(DType::Primitive(PType::U64, Nullability::NonNullable))),
             ("b", FieldDType::from(DType::Primitive(PType::F32, Nullability::NonNullable))),
             ("c", FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable))),

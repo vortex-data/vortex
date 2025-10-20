@@ -13,7 +13,7 @@ use crate::{ArrayRef, IntoArray};
 impl OperationsVTable<StructVTable> for StructVTable {
     fn slice(array: &StructArray, range: Range<usize>) -> ArrayRef {
         let fields = array
-            .fields()
+            .columns()
             .iter()
             .map(|field| field.slice(range.clone()))
             .collect_vec();
@@ -25,7 +25,7 @@ impl OperationsVTable<StructVTable> for StructVTable {
         unsafe {
             StructArray::new_unchecked(
                 fields,
-                array.struct_fields().clone(),
+                array.fields().clone(),
                 range.len(),
                 array.validity().slice(range),
             )
@@ -37,7 +37,7 @@ impl OperationsVTable<StructVTable> for StructVTable {
         Scalar::struct_(
             array.dtype().clone(),
             array
-                .fields()
+                .columns()
                 .iter()
                 .map(|field| field.scalar_at(index))
                 .collect_vec(),

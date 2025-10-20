@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, Nullability, PType, StructFields};
+use vortex_dtype::{DType, Nullability, PType, Fields};
 use vortex_error::VortexExpect;
 
 use crate::arrays::{ChunkedArray, ChunkedVTable, ListViewArray, PrimitiveArray, StructArray};
@@ -57,7 +57,7 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
 fn pack_struct_chunks(
     chunks: &[ArrayRef],
     validity: Validity,
-    struct_dtype: &StructFields,
+    struct_dtype: &Fields,
 ) -> StructArray {
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();
@@ -67,7 +67,7 @@ fn pack_struct_chunks(
             .iter()
             .map(|c| {
                 c.to_struct()
-                    .fields()
+                    .columns()
                     .get(field_idx)
                     .vortex_expect("Invalid field index")
                     .to_array()
@@ -201,8 +201,8 @@ mod tests {
         .unwrap()
         .into_array();
         let canonical_struct = chunked.to_struct();
-        let canonical_varbin = canonical_struct.fields()[0].to_varbinview();
-        let original_varbin = struct_array.fields()[0].to_varbinview();
+        let canonical_varbin = canonical_struct.columns()[0].to_varbinview();
+        let original_varbin = struct_array.columns()[0].to_varbinview();
         let orig_values = original_varbin
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>())
             .unwrap();

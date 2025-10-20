@@ -537,13 +537,13 @@ mod tests {
         let bool_field2 = BoolArray::from_iter([Some(true), Some(false), Some(false)]);
         let int_field2 = PrimitiveArray::from_iter([1i32, 2, 4]);
 
-        let struct1 = StructArray::from_fields(&[
+        let struct1 = StructArray::from_columns(&[
             ("bool_col", bool_field1.into_array()),
             ("int_col", int_field1.into_array()),
         ])
         .unwrap();
 
-        let struct2 = StructArray::from_fields(&[
+        let struct2 = StructArray::from_columns(&[
             ("bool_col", bool_field2.into_array()),
             ("int_col", int_field2.into_array()),
         ])

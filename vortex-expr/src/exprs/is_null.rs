@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn evaluate_struct() {
-        let test_array = StructArray::from_fields(&[(
+        let test_array = StructArray::from_columns(&[(
             "a",
             PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2), None, Some(3)])
                 .into_array(),

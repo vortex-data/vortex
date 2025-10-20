@@ -7,7 +7,7 @@ use jni::JNIEnv;
 use jni::objects::{JClass, JLongArray, JObject, JObjectArray, JString, JValue};
 use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyte, jint, jlong, jobject, jstring};
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex::dtype::{DType, DecimalDType, ExtDType, Nullability, PType, StructFields};
+use vortex::dtype::{DType, DecimalDType, ExtDType, Nullability, PType, Fields};
 use vortex::error::vortex_err;
 
 use crate::errors::{JNIError, try_or_throw};
@@ -521,7 +521,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newStruct<'local>(
             dtypes.push(dtype);
         }
 
-        let fields = StructFields::new(field_names_arc.into(), dtypes);
+        let fields = Fields::new(field_names_arc.into(), dtypes);
 
         let struct_type = DType::Struct(fields, to_nullability(is_nullable));
         Ok(Box::into_raw(Box::new(struct_type)) as jlong)

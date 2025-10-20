@@ -7,7 +7,7 @@ use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray, ToCanonical};
-use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
+use vortex_dtype::{DType, FieldNames, Nullability, Fields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 use crate::display::{DisplayAs, DisplayFormat};
@@ -94,7 +94,7 @@ impl VTable for MergeVTable {
             for (field_name, array) in struct_array
                 .names()
                 .iter()
-                .zip_eq(struct_array.fields().iter().cloned())
+                .zip_eq(struct_array.columns().iter().cloned())
             {
                 // Update or insert field.
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
@@ -147,7 +147,7 @@ impl VTable for MergeVTable {
         }
 
         Ok(DType::Struct(
-            StructFields::new(FieldNames::from(field_names), arrays),
+            Fields::new(FieldNames::from(field_names), arrays),
             nullability,
         ))
     }
@@ -209,9 +209,9 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array.to_struct().field_by_name(field)?.clone();
+        let mut array = array.to_struct().column_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct().field_by_name(field)?.clone();
+            array = array.to_struct().column_by_name(field)?.clone();
         }
         Ok(array.to_primitive())
     }
@@ -224,10 +224,10 @@ mod tests {
             get_item("2", root()),
         ]);
 
-        let test_array = StructArray::from_fields(&[
+        let test_array = StructArray::from_columns(&[
             (
                 "0",
-                StructArray::from_fields(&[
+                StructArray::from_columns(&[
                     ("a", buffer![0, 0, 0].into_array()),
                     ("b", buffer![1, 1, 1].into_array()),
                 ])
@@ -236,7 +236,7 @@ mod tests {
             ),
             (
                 "1",
-                StructArray::from_fields(&[
+                StructArray::from_columns(&[
                     ("b", buffer![2, 2, 2].into_array()),
                     ("c", buffer![3, 3, 3].into_array()),
                 ])
@@ -245,7 +245,7 @@ mod tests {
             ),
             (
                 "2",
-                StructArray::from_fields(&[
+                StructArray::from_columns(&[
                     ("d", buffer![4, 4, 4].into_array()),
                     ("e", buffer![5, 5, 5].into_array()),
                 ])
@@ -298,7 +298,7 @@ mod tests {
     pub fn test_empty_merge() {
         let expr = MergeExpr::new(Vec::new());
 
-        let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
+        let test_array = StructArray::from_columns(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
         let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
@@ -312,12 +312,12 @@ mod tests {
 
         let expr = MergeExpr::new(vec![get_item("0", root()), get_item("1", root())]);
 
-        let test_array = StructArray::from_fields(&[
+        let test_array = StructArray::from_columns(&[
             (
                 "0",
-                StructArray::from_fields(&[(
+                StructArray::from_columns(&[(
                     "a",
-                    StructArray::from_fields(&[
+                    StructArray::from_columns(&[
                         ("x", buffer![0, 0, 0].into_array()),
                         ("y", buffer![1, 1, 1].into_array()),
                     ])
@@ -329,9 +329,9 @@ mod tests {
             ),
             (
                 "1",
-                StructArray::from_fields(&[(
+                StructArray::from_columns(&[(
                     "a",
-                    StructArray::from_fields(&[("x", buffer![0, 0, 0].into_array())])
+                    StructArray::from_columns(&[("x", buffer![0, 0, 0].into_array())])
                         .unwrap()
                         .into_array(),
                 )])
@@ -348,7 +348,7 @@ mod tests {
 
         assert_eq!(
             actual_array
-                .field_by_name("a")
+                .column_by_name("a")
                 .unwrap()
                 .to_struct()
                 .names()
@@ -363,10 +363,10 @@ mod tests {
     pub fn test_merge_order() {
         let expr = MergeExpr::new(vec![get_item("0", root()), get_item("1", root())]);
 
-        let test_array = StructArray::from_fields(&[
+        let test_array = StructArray::from_columns(&[
             (
                 "0",
-                StructArray::from_fields(&[
+                StructArray::from_columns(&[
                     ("a", buffer![0, 0, 0].into_array()),
                     ("c", buffer![1, 1, 1].into_array()),
                 ])
@@ -375,7 +375,7 @@ mod tests {
             ),
             (
                 "1",
-                StructArray::from_fields(&[
+                StructArray::from_columns(&[
                     ("b", buffer![2, 2, 2].into_array()),
                     ("d", buffer![3, 3, 3].into_array()),
                 ])

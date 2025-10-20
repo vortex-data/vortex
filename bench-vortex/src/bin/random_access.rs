@@ -207,10 +207,10 @@ fn validate_vortex_array(array: ArrayRef) {
     let struct_ = array.to_struct();
     assert_eq!(struct_.len(), 6, "expected 6 rows");
     let pu_location_id = struct_
-        .field_by_name("PULocationID")
+        .column_by_name("PULocationID")
         .vortex_expect("could not get PULocationID");
     let do_location_id = struct_
-        .field_by_name("DOLocationID")
+        .column_by_name("DOLocationID")
         .vortex_expect("could not get DOLocationID");
     for (idx, loc) in [90i32, 249, 230, 79, 239, 236].iter().enumerate() {
         assert_eq!(

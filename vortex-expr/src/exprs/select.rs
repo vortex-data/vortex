@@ -324,7 +324,7 @@ mod tests {
     use crate::{FieldSelection, Scope, SelectExpr, root, select, select_exclude, test_harness};
 
     fn test_array() -> StructArray {
-        StructArray::from_fields(&[
+        StructArray::from_columns(&[
             ("a", buffer![0, 1, 2].into_array()),
             ("b", buffer![4, 5, 6].into_array()),
         ])

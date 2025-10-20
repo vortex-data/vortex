@@ -15,7 +15,7 @@ impl FilterKernel for StructVTable {
         let validity = array.validity().filter(mask)?;
 
         let fields: Vec<ArrayRef> = array
-            .fields()
+            .columns()
             .iter()
             .map(|field| filter(field, mask))
             .try_collect()?;
@@ -24,7 +24,7 @@ impl FilterKernel for StructVTable {
             .map(|a| a.len())
             .unwrap_or_else(|| mask.true_count());
 
-        StructArray::try_new_with_dtype(fields, array.struct_fields().clone(), length, validity)
+        StructArray::try_new_with_dtype(fields, array.fields().clone(), length, validity)
             .map(|a| a.into_array())
     }
 }

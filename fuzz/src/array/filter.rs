@@ -86,14 +86,14 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
         DType::Struct(..) => {
             let struct_array = array.to_struct();
             let filtered_children = struct_array
-                .fields()
+                .columns()
                 .iter()
                 .map(|c| filter_canonical_array(c, filter))
                 .collect::<VortexResult<Vec<_>>>()?;
 
             StructArray::try_new_with_dtype(
                 filtered_children,
-                struct_array.struct_fields().clone(),
+                struct_array.fields().clone(),
                 filter.iter().filter(|b| **b).map(|b| *b as usize).sum(),
                 validity,
             )

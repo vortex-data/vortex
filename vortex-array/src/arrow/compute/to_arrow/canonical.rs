@@ -418,17 +418,17 @@ fn to_arrow_struct(
     fields: &[FieldRef],
     to_preferred: bool,
 ) -> VortexResult<ArrowArrayRef> {
-    if array.fields().len() != fields.len() {
+    if array.columns().len() != fields.len() {
         vortex_bail!(
             "StructArray has {} fields, but target Arrow type has {} fields",
-            array.fields().len(),
+            array.columns().len(),
             fields.len()
         );
     }
 
     let field_arrays = fields
         .iter()
-        .zip_eq(array.fields().iter())
+        .zip_eq(array.columns().iter())
         .map(|(field, arr)| {
             // We check that the Vortex array nullability is compatible with the field
             // nullability. In other words, make sure we don't return any nulls for a

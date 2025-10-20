@@ -13,7 +13,7 @@ use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
 use vortex::dtype::Nullability::{NonNullable, Nullable};
-use vortex::dtype::{DType, StructFields};
+use vortex::dtype::{DType, Fields};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::file::{VortexWriteOptions, WriteSummary};
 use vortex::stream::ArrayStreamAdapter;
@@ -26,7 +26,7 @@ pub struct VortexCopyFunction;
 
 pub struct BindData {
     dtype: DType,
-    fields: StructFields,
+    fields: Fields,
 }
 
 static COPY_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {

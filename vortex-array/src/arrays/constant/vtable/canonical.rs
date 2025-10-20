@@ -119,7 +119,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
             }
             DType::Struct(struct_dtype, _) => {
                 let value = StructScalar::try_from(scalar).vortex_expect("must be struct");
-                let fields: Vec<_> = match value.fields() {
+                let fields: Vec<_> = match value.columns() {
                     Some(fields) => fields
                         .into_iter()
                         .map(|s| ConstantArray::new(s, array.len()).into_array())
@@ -460,7 +460,7 @@ mod tests {
         assert_eq!(struct_array.len(), 3);
         assert_eq!(struct_array.valid_count(), 0);
 
-        let field = struct_array.field_by_name("non_null_field").unwrap();
+        let field = struct_array.column_by_name("non_null_field").unwrap();
 
         assert_eq!(
             field.dtype(),

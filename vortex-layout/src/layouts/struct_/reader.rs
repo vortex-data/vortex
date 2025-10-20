@@ -8,7 +8,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::MaskFuture;
 use vortex_array::stats::Precision;
-use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
+use vortex_dtype::{DType, FieldMask, FieldName, Fields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
@@ -43,7 +43,7 @@ impl StructReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
     ) -> VortexResult<Self> {
-        let struct_dt = layout.struct_fields();
+        let struct_dt = layout.fields();
 
         // NOTE: This number is arbitrary and likely depends on the longest common prefix of field names
         let field_lookup = (struct_dt.nfields() > 80).then(|| {
@@ -73,9 +73,9 @@ impl StructReader {
         })
     }
 
-    /// Return the [`StructFields`] of this layout.
-    fn struct_fields(&self) -> &StructFields {
-        self.layout.struct_fields()
+    /// Return the [`Fields`] of this layout.
+    fn fields(&self) -> &Fields {
+        self.layout.fields()
     }
 
     /// Return the child reader for the field.
@@ -84,7 +84,7 @@ impl StructReader {
             .field_lookup
             .as_ref()
             .and_then(|lookup| lookup.get(name).copied())
-            .or_else(|| self.struct_fields().find(name))
+            .or_else(|| self.fields().find(name))
             .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
         self.child_by_idx(idx)
     }
@@ -92,10 +92,10 @@ impl StructReader {
     /// Return the child reader for the field, by index.
     fn child_by_idx(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
         let field_dtype = self
-            .struct_fields()
+            .fields()
             .field_by_index(idx)
             .ok_or_else(|| vortex_err!("Missing field {idx}"))?;
-        let name = &self.struct_fields().names()[idx];
+        let name = &self.fields().names()[idx];
         self.lazy_children
             .get(idx, &field_dtype, &format!("{}.{}", self.name, name).into())
     }
@@ -283,7 +283,7 @@ mod tests {
             strategy.write_stream(
                 ctx,
                 segments.clone(),
-                StructArray::from_fields(
+                StructArray::from_columns(
                     [
                         ("a", buffer![7, 2, 3].into_array()),
                         ("b", buffer![4, 5, 6].into_array()),
@@ -394,7 +394,7 @@ mod tests {
         assert_eq!(
             result
                 .to_struct()
-                .field_by_name("a")
+                .column_by_name("a")
                 .unwrap()
                 .to_primitive()
                 .as_slice::<i32>(),
@@ -404,7 +404,7 @@ mod tests {
         assert_eq!(
             result
                 .to_struct()
-                .field_by_name("b")
+                .column_by_name("b")
                 .unwrap()
                 .to_primitive()
                 .as_slice::<i32>(),

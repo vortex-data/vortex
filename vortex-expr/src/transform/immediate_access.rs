@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{FieldName, StructFields};
+use vortex_dtype::{FieldName, Fields};
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -11,7 +11,7 @@ use crate::{ExprRef, GetItemVTable, SelectVTable, is_root};
 pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
 
 /// An [`AnnotationFn`] for annotating scope accesses.
-pub fn annotate_scope_access(scope: &StructFields) -> impl AnnotationFn<Annotation = FieldName> {
+pub fn annotate_scope_access(scope: &Fields) -> impl AnnotationFn<Annotation = FieldName> {
     move |expr: &ExprRef| {
         assert!(
             !expr.is::<SelectVTable>(),
@@ -39,7 +39,7 @@ pub fn annotate_scope_access(scope: &StructFields) -> impl AnnotationFn<Annotati
 /// by an expression.
 pub fn immediate_scope_accesses<'a>(
     expr: &'a ExprRef,
-    scope: &'a StructFields,
+    scope: &'a Fields,
 ) -> FieldAccesses<'a> {
     descendent_annotations(expr, annotate_scope_access(scope))
 }
@@ -47,7 +47,7 @@ pub fn immediate_scope_accesses<'a>(
 /// This returns the immediate scope_access (as explained `immediate_scope_accesses`) for `expr`.
 pub fn immediate_scope_access<'a>(
     expr: &'a ExprRef,
-    scope: &'a StructFields,
+    scope: &'a Fields,
 ) -> HashSet<FieldName> {
     immediate_scope_accesses(expr, scope)
         .get(expr)

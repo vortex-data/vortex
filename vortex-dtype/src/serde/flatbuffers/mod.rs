@@ -9,7 +9,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, dtype as fbd};
 
 use crate::{
-    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, StructFields,
+    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, Fields,
     flatbuffers as fb,
 };
 
@@ -45,7 +45,7 @@ impl ViewedDType {
     }
 }
 
-impl StructFields {
+impl Fields {
     /// Creates a new instance from a flatbuffer-defined object and its underlying buffer.
     fn from_fb(fb_struct: fbd::Struct_<'_>, buffer: FlatBuffer) -> VortexResult<Self> {
         let names = fb_struct
@@ -61,7 +61,7 @@ impl StructFields {
             .map(|dt| FieldDType::from(ViewedDType::from_fb_loc(dt._tab.loc(), buffer.clone())))
             .collect::<Vec<_>>();
 
-        Ok(StructFields::from_fields(names, dtypes))
+        Ok(Fields::from_fields(names, dtypes))
     }
 }
 
@@ -155,7 +155,7 @@ impl TryFrom<ViewedDType> for DType {
                 let fb_struct = fb
                     .type__as_struct_()
                     .ok_or_else(|| vortex_err!("failed to parse struct from flatbuffer"))?;
-                let struct_dtype = StructFields::from_fb(fb_struct, vfdt.buffer().clone())?;
+                let struct_dtype = Fields::from_fb(fb_struct, vfdt.buffer().clone())?;
 
                 Ok(Self::Struct(struct_dtype, fb_struct.nullable().into()))
             }
@@ -374,7 +374,7 @@ mod test {
 
     use crate::nullability::Nullability;
     use crate::serde::flatbuffers::ViewedDType;
-    use crate::{DType, PType, StructFields, flatbuffers as fb};
+    use crate::{DType, PType, Fields, flatbuffers as fb};
 
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes();
@@ -412,7 +412,7 @@ mod test {
             Nullability::NonNullable,
         ));
         roundtrip_dtype(DType::Struct(
-            StructFields::new(
+            Fields::new(
                 ["strings", "ints"].into(),
                 vec![
                     DType::Utf8(Nullability::NonNullable),

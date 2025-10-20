@@ -91,7 +91,7 @@ pub struct ArrayExporter {
 impl ArrayExporter {
     pub fn try_new(array: &StructArray, cache: &ConversionCache) -> VortexResult<Self> {
         let fields = array
-            .fields()
+            .columns()
             .iter()
             .map(|field| new_array_exporter(field.as_ref(), cache))
             .try_collect()?;

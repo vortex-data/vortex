@@ -214,10 +214,10 @@ fn test_null_decimal_to_arrow() {
 #[test]
 #[should_panic(expected = "struct scalar conversion")]
 fn test_struct_scalar_to_arrow_todo() {
-    use vortex_dtype::{FieldDType, StructFields};
+    use vortex_dtype::{FieldDType, Fields};
 
     let struct_dtype = DType::Struct(
-        StructFields::from_iter([(
+        Fields::from_iter([(
             "field1",
             FieldDType::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
         )]),

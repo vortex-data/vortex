@@ -135,7 +135,7 @@ async fn write_vortex_file_to_dir(
     field_name: &str,
     array: impl IntoArray,
 ) -> NamedTempFile {
-    let struct_array = StructArray::from_fields(&[(field_name, array.into_array())]).unwrap();
+    let struct_array = StructArray::from_columns(&[(field_name, array.into_array())]).unwrap();
     let temp_file_path = tempfile::Builder::new()
         .suffix(".vortex")
         .tempfile_in(dir)

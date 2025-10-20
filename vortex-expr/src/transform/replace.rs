@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{Nullability, StructFields};
+use vortex_dtype::{Nullability, Fields};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::traversal::{NodeExt, Transformed};
@@ -15,7 +15,7 @@ pub fn replace(expr: ExprRef, needle: &ExprRef, replacement: ExprRef) -> ExprRef
 }
 
 /// Expand the `root` expression with a pack of the given struct fields.
-pub fn replace_root_fields(expr: ExprRef, fields: &StructFields) -> ExprRef {
+pub fn replace_root_fields(expr: ExprRef, fields: &Fields) -> ExprRef {
     replace(
         expr,
         &root(),

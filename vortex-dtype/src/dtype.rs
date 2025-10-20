@@ -12,7 +12,7 @@ use vortex_error::vortex_panic;
 
 use crate::decimal::DecimalDType;
 use crate::nullability::Nullability;
-use crate::{ExtDType, FieldDType, FieldName, PType, StructFields};
+use crate::{ExtDType, FieldDType, FieldName, Fields, PType};
 
 /// The logical types of elements in Vortex arrays.
 ///
@@ -82,8 +82,8 @@ pub enum DType {
     /// A logical struct type.
     ///
     /// A `Struct` type is composed of an ordered list of fields, each with a corresponding name and
-    /// `DType`. See [`StructFields`] for more information.
-    Struct(StructFields, Nullability),
+    /// `DType`. See [`Fields`] for more information.
+    Struct(Fields, Nullability),
 
     /// A user-defined extension type.
     ///
@@ -370,7 +370,7 @@ impl DType {
     }
 
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
-    pub fn as_struct_fields_opt(&self) -> Option<&StructFields> {
+    pub fn as_struct_fields_opt(&self) -> Option<&Fields> {
         if let Struct(f, _) = self {
             Some(f)
         } else {
@@ -388,7 +388,7 @@ impl DType {
         iter: I,
         nullability: Nullability,
     ) -> Self {
-        Struct(StructFields::from_iter(iter), nullability)
+        Struct(Fields::from_iter(iter), nullability)
     }
 }
 

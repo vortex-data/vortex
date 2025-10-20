@@ -178,7 +178,7 @@ mod tests {
     use crate::{ConcatExpr, Scope, col, concat, lit, root};
 
     fn test_array() -> vortex_array::ArrayRef {
-        vortex_array::arrays::StructArray::from_fields(&[
+        vortex_array::arrays::StructArray::from_columns(&[
             ("a", buffer![1, 2, 3].into_array()),
             ("b", buffer![4, 5, 6].into_array()),
         ])

@@ -7,7 +7,7 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::FlatBuffer;
 
 use crate::field::Field;
-use crate::{DType, StructFields, flatbuffers as fb};
+use crate::{DType, Fields, flatbuffers as fb};
 
 /// Convert name references in projection list into index references.
 ///
@@ -58,10 +58,7 @@ pub fn project_and_deserialize(
         .map(|idx| idx.and_then(|i| read_field(fb_struct, i, buffer)))
         .collect::<VortexResult<Vec<_>>>()?;
 
-    Ok(DType::Struct(
-        StructFields::from_iter(struct_dtype),
-        nullability,
-    ))
+    Ok(DType::Struct(Fields::from_iter(struct_dtype), nullability))
 }
 
 fn read_field(
@@ -88,11 +85,11 @@ mod tests {
     use vortex_flatbuffers::WriteFlatBufferExt;
 
     use super::*;
-    use crate::{DType, FieldName, Nullability, PType, StructFields};
+    use crate::{DType, FieldName, Fields, Nullability, PType};
 
     fn create_test_struct_dtype() -> DType {
         DType::Struct(
-            StructFields::from_iter([
+            Fields::from_iter([
                 ("id", DType::Primitive(PType::I64, Nullability::NonNullable)),
                 ("name", DType::Utf8(Nullability::Nullable)),
                 ("age", DType::Primitive(PType::I32, Nullability::Nullable)),
@@ -108,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_field_by_name() {
+    fn test_resolve_column_by_name() {
         let dtype = create_test_struct_dtype();
         let buffer = serialize_dtype(&dtype);
         let fb_dtype = fb::root_as_dtype(buffer.as_ref()).unwrap();

@@ -15,12 +15,14 @@
 
 use std::sync::Arc;
 
-use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef};
+use arrow_schema::{
+    DataType, Field, FieldRef, Fields as ArrowFields, Schema, SchemaBuilder, SchemaRef,
+};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use crate::datetime::is_temporal_ext_type;
-use crate::{DType, DecimalDType, FieldName, Nullability, PType, StructFields};
+use crate::{DType, DecimalDType, FieldName, Fields, Nullability, PType};
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
@@ -81,15 +83,15 @@ impl FromArrowType<SchemaRef> for DType {
 impl FromArrowType<&Schema> for DType {
     fn from_arrow(value: &Schema) -> Self {
         Self::Struct(
-            StructFields::from_arrow(value.fields()),
+            Fields::from_arrow(value.fields()),
             Nullability::NonNullable, // Must match From<RecordBatch> for Array
         )
     }
 }
 
-impl FromArrowType<&Fields> for StructFields {
-    fn from_arrow(value: &Fields) -> Self {
-        StructFields::from_iter(value.into_iter().map(|f| {
+impl FromArrowType<&ArrowFields> for Fields {
+    fn from_arrow(value: &ArrowFields) -> Self {
+        Fields::from_iter(value.into_iter().map(|f| {
             (
                 FieldName::from(f.name().as_str()),
                 DType::from_arrow(f.as_ref()),
@@ -138,7 +140,7 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
                 *size as u32,
                 nullability,
             ),
-            DataType::Struct(f) => DType::Struct(StructFields::from_arrow(f), nullability),
+            DataType::Struct(f) => DType::Struct(Fields::from_arrow(f), nullability),
             DataType::Dictionary(_, value_type) => {
                 Self::from_arrow((value_type.as_ref(), nullability))
             }
@@ -237,7 +239,7 @@ impl DType {
                     )));
                 }
 
-                DataType::Struct(Fields::from(fields))
+                DataType::Struct(ArrowFields::from(fields))
             }
             DType::Extension(ext_dtype) => {
                 // Try and match against the known extension DTypes.
@@ -253,11 +255,11 @@ impl DType {
 
 #[cfg(test)]
 mod test {
-    use arrow_schema::{DataType, Field, FieldRef, Fields, Schema};
+    use arrow_schema::{DataType, Field, FieldRef, Fields as ArrowFields, Schema};
     use rstest::{fixture, rstest};
 
     use super::*;
-    use crate::{DType, ExtDType, ExtID, FieldName, FieldNames, Nullability, PType, StructFields};
+    use crate::{DType, ExtDType, ExtID, FieldName, FieldNames, Fields, Nullability, PType};
 
     #[test]
     fn test_dtype_conversion_success() {
@@ -301,7 +303,7 @@ mod test {
             )
             .to_arrow_dtype()
             .unwrap(),
-            DataType::Struct(Fields::from(vec![
+            DataType::Struct(ArrowFields::from(vec![
                 FieldRef::from(Field::new("field_a", DataType::Boolean, false)),
                 FieldRef::from(Field::new("field_b", DataType::Utf8View, true)),
             ]))
@@ -347,8 +349,8 @@ mod test {
     }
 
     #[fixture]
-    fn the_struct() -> StructFields {
-        StructFields::new(
+    fn the_struct() -> Fields {
+        Fields::new(
             FieldNames::from([
                 FieldName::from("field_a"),
                 FieldName::from("field_b"),
@@ -363,12 +365,12 @@ mod test {
     }
 
     #[rstest]
-    fn test_schema_conversion(the_struct: StructFields) {
+    fn test_schema_conversion(the_struct: Fields) {
         let schema_nonnull = DType::Struct(the_struct, Nullability::NonNullable);
 
         assert_eq!(
             schema_nonnull.to_arrow_schema().unwrap(),
-            Schema::new(Fields::from(vec![
+            Schema::new(ArrowFields::from(vec![
                 Field::new("field_a", DataType::Boolean, false),
                 Field::new("field_b", DataType::Utf8View, false),
                 Field::new("field_c", DataType::Int32, true),
@@ -378,7 +380,7 @@ mod test {
 
     #[rstest]
     #[should_panic]
-    fn test_schema_conversion_panics(the_struct: StructFields) {
+    fn test_schema_conversion_panics(the_struct: Fields) {
         let schema_null = DType::Struct(the_struct, Nullability::Nullable);
         let _ = schema_null.to_arrow_schema().unwrap();
     }

@@ -125,10 +125,10 @@ mod tests {
 
     #[test]
     fn test_null_struct() {
-        use vortex_dtype::{FieldDType, StructFields};
+        use vortex_dtype::{FieldDType, Fields};
 
         let struct_dtype = DType::Struct(
-            StructFields::from_iter([("field1", FieldDType::from(DType::Null))]),
+            Fields::from_iter([("field1", FieldDType::from(DType::Null))]),
             Nullability::Nullable,
         );
 

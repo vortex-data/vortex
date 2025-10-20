@@ -150,11 +150,11 @@ impl FieldPath {
     /// use vortex_dtype::Nullability::*;
     ///
     /// let dtype = DType::Struct(
-    ///     StructFields::from_iter([(
+    ///     Fields::from_iter([(
     ///         "a",
     ///         DType::List(
     ///             Arc::new(DType::Struct(
-    ///                 StructFields::from_iter([(
+    ///                 Fields::from_iter([(
     ///                     "b",
     ///                     DType::Primitive(PType::U32, NonNullable),
     ///                 )]),
@@ -241,7 +241,7 @@ impl FromIterator<FieldPath> for FieldPathSet {
 mod tests {
     use super::*;
     use crate::Nullability::*;
-    use crate::{DType, PType, StructFields};
+    use crate::{DType, Fields, PType};
 
     #[test]
     fn test_field_path() {
@@ -282,7 +282,7 @@ mod tests {
         );
 
         let outer = DType::Struct(
-            StructFields::from_iter([("outer_a", DType::Bool(NonNullable)), ("outer_b", inner)]),
+            Fields::from_iter([("outer_a", DType::Bool(NonNullable)), ("outer_b", inner)]),
             NonNullable,
         );
 

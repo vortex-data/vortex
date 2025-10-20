@@ -22,7 +22,7 @@ pub(crate) fn new_exporter(
     let validity_for_mask = array.dtype().is_nullable().then(|| !&validity);
 
     let children = array
-        .fields()
+        .columns()
         .iter()
         .map(|child| {
             if let Some(mv) = validity_for_mask.as_ref() {
@@ -72,7 +72,7 @@ mod tests {
             VarBinViewArray::from_iter_str(vec!["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"])
                 .into_array();
         let arr =
-            StructArray::from_fields(&[("a", prim), ("b", strings)]).vortex_expect("struct array");
+            StructArray::from_columns(&[("a", prim), ("b", strings)]).vortex_expect("struct array");
         let mut chunk = DataChunk::new([LogicalType::struct_type(
             vec![
                 LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),

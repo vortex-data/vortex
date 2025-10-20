@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::{DType, Field, FieldMask, StructFields};
+use vortex_dtype::{DType, Field, FieldMask, Fields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
@@ -49,14 +49,14 @@ impl VTable for StructVTable {
     }
 
     fn nchildren(layout: &Self::Layout) -> usize {
-        layout.struct_fields().nfields()
+        layout.fields().nfields()
     }
 
     fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
         layout.children.child(
             idx,
             &layout
-                .struct_fields()
+                .fields()
                 .field_by_index(idx)
                 .ok_or_else(|| vortex_err!("Missing field {idx}"))?,
         )
@@ -65,7 +65,7 @@ impl VTable for StructVTable {
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType {
         LayoutChildType::Field(
             layout
-                .struct_fields()
+                .fields()
                 .field_name(idx)
                 .vortex_expect("Field index out of bounds")
                 .clone(),
@@ -130,7 +130,7 @@ impl StructLayout {
         }
     }
 
-    pub fn struct_fields(&self) -> &StructFields {
+    pub fn fields(&self) -> &Fields {
         let DType::Struct(dtype, _) = self.dtype() else {
             vortex_panic!("Mismatched dtype {} for struct layout", self.dtype());
         };
@@ -143,7 +143,7 @@ impl StructLayout {
     {
         // If the field mask contains an `All` fields, then enumerate all fields.
         if field_mask.iter().any(|mask| mask.matches_all()) {
-            for idx in 0..self.struct_fields().nfields() {
+            for idx in 0..self.fields().nfields() {
                 per_child(FieldMask::All, idx)?;
             }
             return Ok(());
@@ -159,7 +159,7 @@ impl StructLayout {
                 vortex_bail!("Expected field name, got {field:?}");
             };
             let idx = self
-                .struct_fields()
+                .fields()
                 .find(field_name)
                 .ok_or_else(|| vortex_err!("Field not found: {field_name}"))?;
 

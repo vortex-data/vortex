@@ -19,8 +19,8 @@ use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
 use vortex_array::{Array, Canonical, ToCanonical};
 use vortex_buffer::{Buffer, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
-    DType, DecimalDType, IntegerPType, NativePType, Nullability, StructFields,
-    match_each_integer_ptype, match_each_native_ptype,
+    DType, DecimalDType, Fields, IntegerPType, NativePType, Nullability, match_each_integer_ptype,
+    match_each_native_ptype,
 };
 use vortex_error::{VortexError, VortexExpect, vortex_panic};
 use vortex_scalar::{
@@ -352,14 +352,14 @@ fn canonicalize_sparse_primitives<
 }
 
 fn canonicalize_sparse_struct(
-    struct_fields: &StructFields,
+    struct_fields: &Fields,
     fill_struct: StructScalar,
     dtype: &DType,
     // Resolution is unnecessary b/c we're just pushing the patches into the fields.
     unresolved_patches: &Patches,
     len: usize,
 ) -> Canonical {
-    let (fill_values, top_level_fill_validity) = match fill_struct.fields() {
+    let (fill_values, top_level_fill_validity) = match fill_struct.columns() {
         Some(fill_values) => (fill_values.collect::<Vec<_>>(), Validity::AllValid),
         None => (
             struct_fields
@@ -370,7 +370,7 @@ fn canonicalize_sparse_struct(
         ),
     };
     let patch_values_as_struct = unresolved_patches.values().to_struct();
-    let columns_patch_values = patch_values_as_struct.fields();
+    let columns_patch_values = patch_values_as_struct.columns();
     let names = patch_values_as_struct.names();
     let validity = if dtype.is_nullable() {
         top_level_fill_validity.patch(
@@ -508,7 +508,7 @@ mod test {
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
     use vortex_dtype::Nullability::{NonNullable, Nullable};
-    use vortex_dtype::{DType, DecimalDType, FieldNames, PType, StructFields};
+    use vortex_dtype::{DType, DecimalDType, FieldNames, Fields, PType};
     use vortex_mask::Mask;
     use vortex_scalar::{DecimalValue, Scalar};
 
@@ -619,7 +619,7 @@ mod test {
             DType::Primitive(PType::I32, Nullable),
             DType::Primitive(PType::I32, Nullable),
         ];
-        let struct_fields = StructFields::new(field_names, field_types);
+        let struct_fields = Fields::new(field_names, field_types);
         let struct_dtype = DType::Struct(struct_fields.clone(), Nullable);
 
         let indices = buffer![0u64, 1, 7, 8].into_array();
@@ -697,7 +697,7 @@ mod test {
             DType::Primitive(PType::I32, Nullable),
             DType::Primitive(PType::I32, Nullable),
         ];
-        let struct_fields = StructFields::new(field_names, field_types);
+        let struct_fields = Fields::new(field_names, field_types);
         let struct_dtype = DType::Struct(struct_fields.clone(), Nullable);
 
         let indices = buffer![0u64, 1, 7, 8].into_array();

@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow() {
-        let array = arrays::StructArray::from_fields(
+        let array = arrays::StructArray::from_columns(
             vec![
                 (
                     "a",

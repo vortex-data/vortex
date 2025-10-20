@@ -167,19 +167,19 @@ impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
 
 /// Type information for a struct column.
 ///
-/// The `StructFields` holds all field names and field types, and provides
+/// The `Fields` holds all field names and field types, and provides
 /// access to them by index or by name.
 ///
 /// ## Duplicate field names
 ///
-/// In memory, it is not an error for a `StructFields` to contain duplicate
+/// In memory, it is not an error for a `Fields` to contain duplicate
 /// field names. In that case, any name-based access to fields will resolve
 /// to the first such field with a given name.
 ///
 /// ```rust
-/// # use vortex_dtype::{DType, Nullability, PType, StructFields};
+/// # use vortex_dtype::{DType, Nullability, PType, Fields};
 ///
-/// let fields = StructFields::from_iter([
+/// let fields = Fields::from_iter([
 ///     ("string_col", DType::Utf8(Nullability::NonNullable)),
 ///     ("binary_col", DType::Binary(Nullability::NonNullable)),
 ///     ("int_col", DType::Primitive(PType::I32, Nullability::Nullable)),
@@ -191,18 +191,18 @@ impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct StructFields(Arc<StructFieldsInner>);
+pub struct Fields(Arc<FieldsInner>);
 
-impl std::fmt::Debug for StructFields {
+impl std::fmt::Debug for Fields {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StructFields")
+        f.debug_struct("Fields")
             .field("names", &self.0.names)
             .field("dtypes", &self.0.dtypes)
             .finish()
     }
 }
 
-impl Display for StructFields {
+impl Display for Fields {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -217,14 +217,14 @@ impl Display for StructFields {
 }
 
 #[derive(Default)]
-struct StructFieldsInner {
+struct FieldsInner {
     names: FieldNames,
     dtypes: Arc<[FieldDType]>,
     // Derived from names, maps from field name to first index.
     indices: OnceLock<HashMap<FieldName, usize>>,
 }
 
-impl StructFieldsInner {
+impl FieldsInner {
     fn from_fields(names: FieldNames, dtypes: Arc<[FieldDType]>) -> Self {
         Self {
             names,
@@ -244,15 +244,15 @@ impl StructFieldsInner {
     }
 }
 
-impl PartialEq for StructFieldsInner {
+impl PartialEq for FieldsInner {
     fn eq(&self, other: &Self) -> bool {
         self.names == other.names && self.dtypes == other.dtypes
     }
 }
 
-impl Eq for StructFieldsInner {}
+impl Eq for FieldsInner {}
 
-impl Hash for StructFieldsInner {
+impl Hash for FieldsInner {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.names.hash(state);
         self.dtypes.hash(state);
@@ -260,14 +260,14 @@ impl Hash for StructFieldsInner {
 }
 
 #[cfg(feature = "serde")]
-impl serde::Serialize for StructFieldsInner {
+impl serde::Serialize for FieldsInner {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
 
-        let mut state = serializer.serialize_struct("StructFieldsInner", 2)?;
+        let mut state = serializer.serialize_struct("FieldsInner", 2)?;
         state.serialize_field("names", &self.names)?;
         state.serialize_field("dtypes", &self.dtypes)?;
         state.end()
@@ -275,39 +275,39 @@ impl serde::Serialize for StructFieldsInner {
 }
 
 #[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for StructFieldsInner {
+impl<'de> serde::Deserialize<'de> for FieldsInner {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         #[derive(serde::Deserialize)]
-        struct StructFieldsInnerHelper {
+        struct FieldsInnerHelper {
             names: FieldNames,
             dtypes: Arc<[FieldDType]>,
         }
 
-        let helper = StructFieldsInnerHelper::deserialize(deserializer)?;
-        Ok(StructFieldsInner::from_fields(helper.names, helper.dtypes))
+        let helper = FieldsInnerHelper::deserialize(deserializer)?;
+        Ok(FieldsInner::from_fields(helper.names, helper.dtypes))
     }
 }
 
-impl Default for StructFields {
+impl Default for Fields {
     fn default() -> Self {
         Self::empty()
     }
 }
 
-impl StructFields {
+impl Fields {
     /// The fields of the empty struct.
     pub fn empty() -> Self {
-        Self(Arc::new(StructFieldsInner {
+        Self(Arc::new(FieldsInner {
             names: FieldNames::default(),
             dtypes: Arc::from([]),
             indices: OnceLock::new(),
         }))
     }
 
-    /// Create a new [`StructFields`] from a list of names and dtypes
+    /// Create a new [`Fields`] from a list of names and dtypes
     pub fn new(names: FieldNames, dtypes: Vec<DType>) -> Self {
         if names.len() != dtypes.len() {
             vortex_panic!(
@@ -327,7 +327,7 @@ impl StructFields {
         Self::from_fields(names, dtypes)
     }
 
-    /// Create a new [`StructFields`] from a  list of names and [`FieldDType`] which can be either lazily or eagerly serialized.
+    /// Create a new [`Fields`] from a  list of names and [`FieldDType`] which can be either lazily or eagerly serialized.
     pub fn from_fields(names: FieldNames, dtypes: Vec<FieldDType>) -> Self {
         if names.len() != dtypes.len() {
             vortex_panic!(
@@ -336,10 +336,7 @@ impl StructFields {
                 dtypes.len()
             );
         }
-        Self(Arc::new(StructFieldsInner::from_fields(
-            names,
-            dtypes.into(),
-        )))
+        Self(Arc::new(FieldsInner::from_fields(names, dtypes.into())))
     }
 
     /// Get the names of the fields in the struct
@@ -399,10 +396,10 @@ impl StructFields {
             dtypes.push(self.0.dtypes[idx].clone());
         }
 
-        Ok(StructFields::from_fields(names.into(), dtypes))
+        Ok(Fields::from_fields(names.into(), dtypes))
     }
 
-    /// Returns a new [`StructFields`] without the field at the given index.
+    /// Returns a new [`Fields`] without the field at the given index.
     ///
     /// ## Errors
     /// Returns an error if the index is out of bounds for the struct fields.
@@ -433,10 +430,10 @@ impl StructFields {
             .map(|(_, dtype)| dtype.clone())
             .collect::<Vec<_>>();
 
-        Ok(StructFields::from_fields(names, dtypes))
+        Ok(Fields::from_fields(names, dtypes))
     }
 
-    /// Merge two [`StructFields`] instances into a new one.
+    /// Merge two [`Fields`] instances into a new one.
     /// Order of fields in arguments is preserved
     ///
     /// # Errors
@@ -466,7 +463,7 @@ impl StructFields {
     }
 }
 
-impl<T, V> FromIterator<(T, V)> for StructFields
+impl<T, V> FromIterator<(T, V)> for Fields
 where
     T: Into<FieldName>,
     V: Into<FieldDType>,
@@ -476,7 +473,7 @@ where
             .into_iter()
             .map(|(name, dtype)| (name.into(), dtype.into()))
             .unzip();
-        StructFields::from_fields(names.into(), dtypes)
+        Fields::from_fields(names.into(), dtypes)
     }
 }
 
@@ -485,13 +482,13 @@ mod test {
     use itertools::Itertools;
 
     use crate::dtype::DType;
-    use crate::{FieldNames, Nullability, PType, StructFields};
+    use crate::{FieldNames, Fields, Nullability, PType};
 
     #[test]
     fn nullability() {
         assert!(
             !DType::Struct(
-                StructFields::new(FieldNames::default(), Vec::new()),
+                Fields::new(FieldNames::default(), Vec::new()),
                 Nullability::NonNullable
             )
             .is_nullable()
@@ -509,7 +506,7 @@ mod test {
         let b_type = DType::Bool(Nullability::NonNullable);
 
         let dtype = DType::Struct(
-            StructFields::from_iter([("A", a_type.clone()), ("B", b_type.clone())]),
+            Fields::from_iter([("A", a_type.clone()), ("B", b_type.clone())]),
             Nullability::Nullable,
         );
         assert!(dtype.is_nullable());
@@ -542,7 +539,7 @@ mod test {
     fn test_without_field_out_of_bounds() {
         let a_type = DType::Primitive(PType::I32, Nullability::Nullable);
         let b_type = DType::Bool(Nullability::NonNullable);
-        let sdt = StructFields::from_iter([("A", a_type), ("B", b_type)]);
+        let sdt = Fields::from_iter([("A", a_type), ("B", b_type)]);
 
         let result = sdt.without_field(2);
         assert!(result.is_err());
@@ -556,7 +553,7 @@ mod test {
     fn test_without_field_deprecated() {
         let a_type = DType::Primitive(PType::I32, Nullability::Nullable);
         let b_type = DType::Bool(Nullability::NonNullable);
-        let sdt = StructFields::from_iter([("A", a_type), ("B", b_type.clone())]);
+        let sdt = Fields::from_iter([("A", a_type), ("B", b_type.clone())]);
 
         let without_a = sdt.without_field(0).unwrap();
         assert_eq!(without_a.names(), ["B"]);
@@ -570,24 +567,24 @@ mod test {
         let child_b = DType::Bool(Nullability::Nullable);
         let child_c = DType::Utf8(Nullability::NonNullable);
 
-        let sf1 = StructFields::from_iter([("A", child_a.clone()), ("B", child_b.clone())]);
+        let sf1 = Fields::from_iter([("A", child_a.clone()), ("B", child_b.clone())]);
 
-        let sf2 = StructFields::from_iter([("C", child_c.clone())]);
+        let sf2 = Fields::from_iter([("C", child_c.clone())]);
 
-        let merged = StructFields::disjoint_merge(&sf1, &sf2).unwrap();
+        let merged = Fields::disjoint_merge(&sf1, &sf2).unwrap();
         assert_eq!(merged.names(), ["A", "B", "C"]);
         assert_eq!(
             merged.fields().collect_vec(),
             vec![child_a, child_b, child_c]
         );
 
-        let err = StructFields::disjoint_merge(&sf1, &sf1).err().unwrap();
+        let err = Fields::disjoint_merge(&sf1, &sf1).err().unwrap();
         assert!(err.to_string().contains("duplicate names"),);
     }
 
     #[test]
     fn test_display() {
-        let fields = StructFields::from_iter([
+        let fields = Fields::from_iter([
             ("name", DType::Utf8(Nullability::NonNullable)),
             ("age", DType::Primitive(PType::I32, Nullability::Nullable)),
             ("active", DType::Bool(Nullability::NonNullable)),
@@ -596,11 +593,11 @@ mod test {
         assert_eq!(fields.to_string(), "{name=utf8, age=i32?, active=bool}");
 
         // Test empty struct
-        let empty = StructFields::empty();
+        let empty = Fields::empty();
         assert_eq!(empty.to_string(), "{}");
 
         // Test nested struct
-        let nested = StructFields::from_iter([
+        let nested = Fields::from_iter([
             ("id", DType::Primitive(PType::U64, Nullability::NonNullable)),
             ("data", DType::Struct(fields, Nullability::Nullable)),
         ]);

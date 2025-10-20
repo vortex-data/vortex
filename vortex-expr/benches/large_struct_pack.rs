@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
-use vortex_dtype::{DType, FieldName, Nullability, PType, StructFields};
+use vortex_dtype::{DType, FieldName, Nullability, PType, Fields};
 use vortex_expr::{get_item, pack, root};
 
 fn main() {
@@ -19,7 +19,7 @@ fn pack_return_dtype(bencher: Bencher, num_fields: usize) {
         .collect();
     let field_types = vec![DType::Primitive(PType::I64, Nullability::Nullable); num_fields];
 
-    let struct_fields = StructFields::new(field_names.clone().into(), field_types);
+    let struct_fields = Fields::new(field_names.clone().into(), field_types);
     let dtype = DType::Struct(struct_fields, Nullability::NonNullable);
 
     let root_expr = root();

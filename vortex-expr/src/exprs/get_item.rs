@@ -86,7 +86,7 @@ impl VTable for GetItemVTable {
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
         let input = expr.child.unchecked_evaluate(scope)?.to_struct();
-        let field = input.field_by_name(expr.field()).cloned()?;
+        let field = input.column_by_name(expr.field()).cloned()?;
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),
@@ -204,7 +204,7 @@ mod tests {
     use crate::{Scope, root};
 
     fn test_array() -> StructArray {
-        StructArray::from_fields(&[
+        StructArray::from_columns(&[
             ("a", buffer![0i32, 1, 2].into_array()),
             ("b", buffer![4i64, 5, 6].into_array()),
         ])

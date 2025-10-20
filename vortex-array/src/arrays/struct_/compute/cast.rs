@@ -33,7 +33,7 @@ impl CastKernel for StructVTable {
         StructArray::try_new(
             target_sdtype.names().clone(),
             array
-                .fields()
+                .columns()
                 .iter()
                 .zip_eq(target_sdtype.fields())
                 .map(|(field, dtype)| cast(field, &dtype))

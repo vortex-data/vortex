@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn evaluate() {
-        let test_array = StructArray::from_fields(&[
+        let test_array = StructArray::from_columns(&[
             ("a", buffer![0i32, 1, 2].into_array()),
             ("b", buffer![4i64, 5, 6].into_array()),
         ])

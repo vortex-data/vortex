@@ -53,7 +53,7 @@ mod tests {
 
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, StructFields};
+    use vortex_dtype::{DType, Fields};
 
     use crate::transform::remove_select::remove_select;
     use crate::{PackVTable, root, select};
@@ -61,7 +61,7 @@ mod tests {
     #[test]
     fn test_remove_select() {
         let dtype = DType::Struct(
-            StructFields::new(["a", "b"].into(), vec![I32.into(), I32.into()]),
+            Fields::new(["a", "b"].into(), vec![I32.into(), I32.into()]),
             Nullable,
         );
         let e = select(["a", "b"], root());

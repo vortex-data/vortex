@@ -14,8 +14,8 @@ impl MaskKernel for StructVTable {
         let validity = array.validity().mask(filter_mask);
 
         StructArray::try_new_with_dtype(
+            array.columns().clone(),
             array.fields().clone(),
-            array.struct_fields().clone(),
             array.len(),
             validity,
         )

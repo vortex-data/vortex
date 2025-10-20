@@ -9,7 +9,7 @@ use vortex_array::compute::sum;
 use vortex_array::stats::{Precision, Stat, StatsProvider, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{DType, Nullability, PType, StructFields};
+use vortex_dtype::{DType, Nullability, PType, Fields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_expr::{ExprRef, Scope};
 use vortex_mask::Mask;
@@ -61,7 +61,7 @@ impl ZoneMap {
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
         assert!(present_stats.is_sorted(), "Stats must be sorted");
         DType::Struct(
-            StructFields::from_iter(
+            Fields::from_iter(
                 present_stats
                     .iter()
                     .filter_map(|stat| {
@@ -126,7 +126,7 @@ impl ZoneMap {
 
     /// Returns the array for a given stat.
     pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<ArrayRef>> {
-        Ok(self.array.field_by_name_opt(stat.name()).cloned())
+        Ok(self.array.column_by_name_opt(stat.name()).cloned())
     }
 
     /// Apply a pruning predicate against the ZoneMap, yielding a mask indicating which zones can
@@ -285,11 +285,11 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1].to_bool().boolean_buffer(),
+            stats_table.array.columns()[1].to_bool().boolean_buffer(),
             &BooleanBuffer::from(vec![false, true])
         );
         assert_eq!(
-            stats_table.array.fields()[3].to_bool().boolean_buffer(),
+            stats_table.array.columns()[3].to_bool().boolean_buffer(),
             &BooleanBuffer::from(vec![true, false])
         );
     }
@@ -311,11 +311,11 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1].to_bool().boolean_buffer(),
+            stats_table.array.columns()[1].to_bool().boolean_buffer(),
             &BooleanBuffer::from(vec![false])
         );
         assert_eq!(
-            stats_table.array.fields()[3].to_bool().boolean_buffer(),
+            stats_table.array.columns()[3].to_bool().boolean_buffer(),
             &BooleanBuffer::from(vec![false])
         );
     }
@@ -341,7 +341,7 @@ mod tests {
         // +----------+----------+
         let zone_map = ZoneMap::try_new(
             PType::I32.into(),
-            StructArray::from_fields(&[
+            StructArray::from_columns(&[
                 (
                     "max",
                     PrimitiveArray::new(buffer![5i32, 6i32, 7i32], Validity::AllValid).into_array(),

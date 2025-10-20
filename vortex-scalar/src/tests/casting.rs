@@ -8,7 +8,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, ExtDType, ExtID, FieldDType, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, ExtDType, ExtID, FieldDType, Fields, Nullability, PType};
     use vortex_error::VortexExpect;
 
     use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
@@ -168,7 +168,7 @@ mod tests {
         let f32_value = std::f32::consts::PI;
 
         let struct_dtype = DType::Struct(
-            StructFields::from_iter([
+            Fields::from_iter([
                 (
                     "a",
                     FieldDType::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
@@ -199,7 +199,7 @@ mod tests {
         );
 
         let struct_scalar = scalar.as_struct();
-        let fields = struct_scalar.fields().unwrap().collect::<Vec<_>>();
+        let fields = struct_scalar.columns().unwrap().collect::<Vec<_>>();
 
         // Check first field (no coercion needed)
         assert_eq!(fields[0].as_primitive().pvalue().unwrap(), PValue::U32(42));
@@ -315,7 +315,7 @@ mod tests {
         // Create an extension type with struct storage that contains f16 field
         let ext_id = ExtID::new("test_struct_ext".into());
         let struct_dtype = Arc::new(DType::Struct(
-            StructFields::from_iter([
+            Fields::from_iter([
                 (
                     "id",
                     FieldDType::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
@@ -348,7 +348,7 @@ mod tests {
             .as_extension()
             .storage()
             .as_struct()
-            .fields()
+            .columns()
             .vortex_expect("non null")
             .collect::<Vec<_>>();
         assert_eq!(

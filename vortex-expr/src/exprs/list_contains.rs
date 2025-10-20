@@ -178,7 +178,7 @@ mod tests {
     use vortex_array::{Array, ArrayRef, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability, StructFields};
+    use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability, Fields};
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
 
@@ -278,7 +278,7 @@ mod tests {
     #[test]
     pub fn test_return_type() {
         let scope = DType::Struct(
-            StructFields::new(
+            Fields::new(
                 ["array"].into(),
                 vec![DType::List(
                     Arc::new(DType::Primitive(I32, Nullability::NonNullable)),

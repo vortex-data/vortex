@@ -119,7 +119,7 @@ impl CompactCompressor {
             Canonical::Struct(struct_array) => {
                 // recurse
                 let fields = struct_array
-                    .fields()
+                    .columns()
                     .iter()
                     .map(|field| self.compress(field))
                     .collect::<VortexResult<Vec<_>>>()?;
@@ -239,7 +239,7 @@ mod tests {
         for (i, name) in decompressed_struct.names().iter().enumerate() {
             assert_eq!(name, field_names[i]);
             let decompressed_array = decompressed_struct
-                .field_by_name(name)
+                .column_by_name(name)
                 .unwrap()
                 .to_primitive();
             // is there no direct way to assert_eq on (primitive) arrays?

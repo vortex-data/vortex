@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
+use vortex_dtype::{DType, FieldNames, Nullability, PType, Fields};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{FixedSizeListArray, PrimitiveArray, StructArray};
@@ -387,7 +387,7 @@ fn test_fsl_of_struct() {
     let fsl_size = 3u32;
 
     // Create a struct with two fields: a: i32, b: f64.
-    let struct_fields = StructFields::new(
+    let struct_fields = Fields::new(
         FieldNames::from(["a", "b"].as_slice()),
         vec![
             DType::Primitive(PType::I32, Nullability::NonNullable),
@@ -432,7 +432,7 @@ fn test_fsl_of_nullable_struct() {
     let fsl_size = 2u32;
 
     // Create a nullable struct.
-    let struct_fields = StructFields::new(
+    let struct_fields = Fields::new(
         FieldNames::from(["x", "y"].as_slice()),
         vec![
             DType::Primitive(PType::U32, Nullability::NonNullable),
@@ -478,7 +478,7 @@ fn test_fsl_with_empty_struct() {
     let fsl_size = 3u32;
 
     // Create an empty struct (no fields).
-    let struct_fields = StructFields::empty();
+    let struct_fields = Fields::empty();
 
     let struct_array = StructArray::try_new(
         struct_fields.names().clone(),
@@ -509,7 +509,7 @@ fn test_struct_of_fsl() {
     let fsl2_elements = buffer![1.1f64, 2.2, 3.3, 4.4, 5.5, 6.6].into_array();
     let fsl2 = FixedSizeListArray::new(fsl2_elements, 2, Validity::NonNullable, 3);
 
-    let struct_fields = StructFields::new(
+    let struct_fields = Fields::new(
         FieldNames::from(["int_lists", "float_lists"].as_slice()),
         vec![
             DType::FixedSizeList(

@@ -9,7 +9,7 @@ use crate::field::{Field, FieldPath};
 use crate::proto::dtype as pb;
 use crate::proto::dtype::d_type::DtypeType;
 use crate::proto::dtype::field::FieldType;
-use crate::{DType, DecimalDType, ExtDType, ExtID, ExtMetadata, PType, StructFields};
+use crate::{DType, DecimalDType, ExtDType, ExtID, ExtMetadata, PType, Fields};
 
 impl TryFrom<&pb::DType> for DType {
     type Error = VortexError;
@@ -31,7 +31,7 @@ impl TryFrom<&pb::DType> for DType {
             DtypeType::Utf8(u) => Ok(Self::Utf8(u.nullable.into())),
             DtypeType::Binary(b) => Ok(Self::Binary(b.nullable.into())),
             DtypeType::Struct(s) => Ok(Self::Struct(
-                StructFields::new(
+                Fields::new(
                     s.names.iter().map(|s| s.as_str()).collect(),
                     s.dtypes
                         .iter()
@@ -194,7 +194,7 @@ mod tests {
     use crate::proto::dtype::field::FieldType;
     use crate::{
         DType, DecimalDType, ExtDType, ExtID, ExtMetadata, Field, FieldPath, Nullability, PType,
-        StructFields,
+        Fields,
     };
 
     fn round_trip_dtype(dtype: &DType) -> DType {
@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn test_struct_round_trip() {
         let struct_dtype = DType::Struct(
-            StructFields::from_iter([
+            Fields::from_iter([
                 ("id", DType::Primitive(PType::I64, Nullability::NonNullable)),
                 ("name", DType::Utf8(Nullability::Nullable)),
                 ("active", DType::Bool(Nullability::NonNullable)),
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn test_nested_struct_round_trip() {
         let inner_struct = DType::Struct(
-            StructFields::from_iter([
+            Fields::from_iter([
                 ("street", DType::Utf8(Nullability::NonNullable)),
                 ("city", DType::Utf8(Nullability::NonNullable)),
             ]),
@@ -261,7 +261,7 @@ mod tests {
         );
 
         let outer_struct = DType::Struct(
-            StructFields::from_iter([
+            Fields::from_iter([
                 ("name", DType::Utf8(Nullability::NonNullable)),
                 ("address", inner_struct),
             ]),

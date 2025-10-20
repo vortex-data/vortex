@@ -322,7 +322,7 @@ mod tests {
             assert_eq!(
                 result
                     .to_struct()
-                    .field_by_name("a")
+                    .column_by_name("a")
                     .unwrap()
                     .to_primitive()
                     .as_slice::<u64>(),
@@ -331,7 +331,7 @@ mod tests {
             assert_eq!(
                 result
                     .to_struct()
-                    .field_by_name("b")
+                    .column_by_name("b")
                     .unwrap()
                     .to_primitive()
                     .as_slice::<u64>(),

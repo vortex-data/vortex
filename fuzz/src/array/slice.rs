@@ -53,13 +53,13 @@ pub fn slice_canonical_array(
         DType::Struct(..) => {
             let struct_array = array.to_struct();
             let sliced_children = struct_array
-                .fields()
+                .columns()
                 .iter()
                 .map(|c| slice_canonical_array(c, start, stop))
                 .collect::<VortexResult<Vec<_>>>()?;
             StructArray::try_new_with_dtype(
                 sliced_children,
-                struct_array.struct_fields().clone(),
+                struct_array.fields().clone(),
                 stop - start,
                 validity,
             )

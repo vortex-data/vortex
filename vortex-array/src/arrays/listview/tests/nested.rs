@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
+use vortex_dtype::{DType, FieldNames, Nullability, PType, Fields};
 
 use crate::arrays::{ListViewArray, ListViewVTable, PrimitiveArray, StructArray};
 use crate::validity::Validity;
@@ -278,7 +278,7 @@ fn test_listview_zero_and_overlapping() {
 #[test]
 fn test_listview_of_struct_with_nulls() {
     // Create structs with fields that could be null.
-    let struct_fields = StructFields::new(
+    let struct_fields = Fields::new(
         FieldNames::from(["id", "value"].as_slice()),
         vec![
             DType::Primitive(PType::U32, Nullability::NonNullable),

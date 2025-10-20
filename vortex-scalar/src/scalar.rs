@@ -177,7 +177,7 @@ impl Scalar {
                 .map_or(0, |s| s.len()),
             DType::Struct(_dtype, _) => self
                 .as_struct()
-                .fields()
+                .columns()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
                 .unwrap_or_default(),
             DType::List(..) | DType::FixedSizeList(..) => self

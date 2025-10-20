@@ -85,7 +85,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<StructScalar<'_>> {
     type Error = PyErr;
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let Some(fields) = self.0.fields() else {
+        let Some(fields) = self.0.columns() else {
             return Ok(py.None().into_pyobject(py)?);
         };
 

@@ -70,7 +70,7 @@ pub enum DisplayOptions {
     /// # use vortex_array::arrays::StructArray;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
-    /// let s = StructArray::from_fields(&[
+    /// let s = StructArray::from_columns(&[
     ///     ("x", buffer![1, 2].into_array()),
     ///     ("y", buffer![3, 4].into_array()),
     /// ]).unwrap().into_array();
@@ -199,7 +199,7 @@ impl dyn Array + '_ {
     /// # use vortex_array::arrays::StructArray;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
-    /// let s = StructArray::from_fields(&[
+    /// let s = StructArray::from_columns(&[
     ///     ("x", buffer![1, 2].into_array()),
     ///     ("y", buffer![3, 4].into_array()),
     /// ]).unwrap().into_array();
@@ -274,7 +274,7 @@ impl dyn Array + '_ {
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
-                        for field_array in struct_.fields().iter() {
+                        for field_array in struct_.columns().iter() {
                             let value = field_array.scalar_at(row_idx);
                             row.push(value.to_string());
                         }
@@ -342,7 +342,7 @@ mod test {
 
     #[test]
     fn test_simple_struct() {
-        let s = StructArray::from_fields(&[
+        let s = StructArray::from_columns(&[
             ("x", buffer![1, 2, 3, 4].into_array()),
             ("y", buffer![-1, -2, -3, -4].into_array()),
         ])
