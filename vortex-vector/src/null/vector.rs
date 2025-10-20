@@ -1,17 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of [`NullVector`].
+
 use vortex_dtype::{DType, Nullability};
 
 use crate::{NullVectorMut, VectorOps};
 
 /// An immutable vector of null values.
+///
+/// Since a "null" value does not require any data storage, the nulls are stored internally with a
+/// single `length` counter.
+///
+/// The mutable equivalent of this type is [`NullVectorMut`].
+#[derive(Debug, Clone, Copy)]
 pub struct NullVector {
     pub(super) len: usize,
 }
 
 impl NullVector {
-    /// Creates a new `NullVector` with the given length.
+    /// Creates a new immutable vector of nulls with the given length.
     pub fn new(len: usize) -> Self {
         Self { len }
     }

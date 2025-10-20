@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_buffer::bit_chunk_iterator::BitChunks;
 use bitvec::view::BitView;
 
 use crate::bit::{get_bit_unchecked, set_bit_unchecked, unset_bit_unchecked};
@@ -25,10 +26,24 @@ use crate::{BitBuffer, BufferMut, ByteBufferMut, buffer_mut};
 /// ```
 ///
 /// See also: [`BitBuffer`].
+#[derive(Debug, Clone, Eq)]
 pub struct BitBufferMut {
     buffer: ByteBufferMut,
     offset: usize,
     len: usize,
+}
+
+impl PartialEq for BitBufferMut {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+
+        self.chunks()
+            .iter()
+            .zip(other.chunks())
+            .all(|(a, b)| a == b)
+    }
 }
 
 impl BitBufferMut {
@@ -116,6 +131,13 @@ impl BitBufferMut {
     #[inline(always)]
     pub unsafe fn value_unchecked(&self, index: usize) -> bool {
         unsafe { get_bit_unchecked(self.buffer.as_ptr(), self.offset + index) }
+    }
+
+    /// Access chunks of the underlying buffer as 8 byte chunks with a final trailer
+    ///
+    /// If you're performing operations on a single buffer, prefer [BitBuffer::unaligned_chunks]
+    pub fn chunks(&self) -> BitChunks<'_> {
+        BitChunks::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Get the bit capacity of the buffer.

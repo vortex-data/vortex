@@ -10,6 +10,7 @@
 
 use crate::*;
 
+/// A private trait for sealing implementations of other traits.
 pub trait Sealed {}
 
 impl Sealed for Vector {}

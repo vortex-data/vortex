@@ -1,22 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of [`GenericPVector<T>`].
+
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_mask::Mask;
 
-use crate::{GenericPVectorMut, PrimitiveVector, Vector, VectorOps};
+use crate::{GenericPVectorMut, VectorOps};
 
 /// An immutable vector of generic primitive values.
+///
+/// `T` is expected to be bound by [`NativePType`], which templates an internal [`Buffer<T>`] that
+/// stores the elements of the vector. Additionally, an optional [`Mask`] is stored to track null
+/// primitive elements.
+///
+/// The mutable equivalent of this type is [`GenericPVectorMut<T>`].
+#[derive(Debug, Clone)]
 pub struct GenericPVector<T> {
     pub(super) elements: Buffer<T>,
     pub(super) validity: Option<Mask>,
-}
-
-impl<T: NativePType> From<GenericPVector<T>> for Vector {
-    fn from(v: GenericPVector<T>) -> Self {
-        Self::Primitive(PrimitiveVector::from(v))
-    }
 }
 
 impl<T: NativePType> VectorOps for GenericPVector<T> {

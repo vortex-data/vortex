@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of [`NullVector`] and [`NullVectorMut`].
+
 mod vector;
 pub use vector::NullVector;
 

@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of [`PrimitiveVectorMut`].
+
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::{DType, NativePType, Nullability, PType, PTypeUpcast};
 
 use crate::{
-    GenericPVectorMut, PrimitiveVector, VectorMut, VectorMutOps, match_each_pvector_mut,
+    GenericPVectorMut, PrimitiveVector, VectorMutOps, match_each_pvector_mut,
     match_each_pvector_mut_immut_pair, match_each_pvector_mut_pair,
 };
 
-/// An enum over all mutable primitive vector types.
+/// A mutable vector of primitive values.
+///
+/// `PrimitiveVector` is represented by an enum over all possible [`GenericPVectorMut`] types (which
+/// are templated by the types that implement [`NativePType`]).
+///
+/// The immutable equivalent of this type is [`PrimitiveVector`].
+#[derive(Debug, Clone)]
 pub enum PrimitiveVectorMut {
     /// U8
     U8(GenericPVectorMut<u8>),
@@ -54,12 +62,6 @@ impl PrimitiveVectorMut {
     }
 }
 
-impl From<PrimitiveVectorMut> for VectorMut {
-    fn from(v: PrimitiveVectorMut) -> Self {
-        Self::Primitive(v)
-    }
-}
-
 impl VectorMutOps for PrimitiveVectorMut {
     type Immutable = PrimitiveVector;
 
@@ -101,5 +103,63 @@ impl VectorMutOps for PrimitiveVectorMut {
         match_each_pvector_mut_pair!(self, other, |a, b| {
             a.unsplit(b);
         });
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Upcast Conversion
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+impl<T: NativePType> From<GenericPVectorMut<T>> for PrimitiveVectorMut {
+    fn from(v: GenericPVectorMut<T>) -> Self {
+        T::upcast(v)
+    }
+}
+
+impl PTypeUpcast for PrimitiveVectorMut {
+    type Input<T: NativePType> = GenericPVectorMut<T>;
+
+    fn from_u8(input: Self::Input<u8>) -> Self {
+        PrimitiveVectorMut::U8(input)
+    }
+
+    fn from_u16(input: Self::Input<u16>) -> Self {
+        PrimitiveVectorMut::U16(input)
+    }
+
+    fn from_u32(input: Self::Input<u32>) -> Self {
+        PrimitiveVectorMut::U32(input)
+    }
+
+    fn from_u64(input: Self::Input<u64>) -> Self {
+        PrimitiveVectorMut::U64(input)
+    }
+
+    fn from_i8(input: Self::Input<i8>) -> Self {
+        PrimitiveVectorMut::I8(input)
+    }
+
+    fn from_i16(input: Self::Input<i16>) -> Self {
+        PrimitiveVectorMut::I16(input)
+    }
+
+    fn from_i32(input: Self::Input<i32>) -> Self {
+        PrimitiveVectorMut::I32(input)
+    }
+
+    fn from_i64(input: Self::Input<i64>) -> Self {
+        PrimitiveVectorMut::I64(input)
+    }
+
+    fn from_f16(input: Self::Input<f16>) -> Self {
+        PrimitiveVectorMut::F16(input)
+    }
+
+    fn from_f32(input: Self::Input<f32>) -> Self {
+        PrimitiveVectorMut::F32(input)
+    }
+
+    fn from_f64(input: Self::Input<f64>) -> Self {
+        PrimitiveVectorMut::F64(input)
     }
 }

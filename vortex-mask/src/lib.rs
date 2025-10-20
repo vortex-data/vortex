@@ -97,7 +97,7 @@ impl<T> Eq for AllOr<T> where T: Eq {}
 ///
 /// A [`Mask`] can be constructed from various representations, and converted to various
 /// others. Internally, these are cached.
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub enum Mask {
     /// All values are included.
     AllTrue(usize),

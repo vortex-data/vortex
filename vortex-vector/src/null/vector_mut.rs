@@ -1,18 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of [`NullVectorMut`].
+
 use vortex_dtype::{DType, Nullability};
 
 use super::NullVector;
 use crate::VectorMutOps;
 
 /// A mutable vector of null values.
+///
+/// Since a "null" value does not require any data storage, the nulls are stored internally with a
+/// single `length` counter.
+///
+/// The immutable equivalent of this type is [`NullVector`].
+#[derive(Debug, Clone, Copy)]
 pub struct NullVectorMut {
     pub(super) len: usize,
 }
 
 impl NullVectorMut {
-    /// Creates a new `NullVectorMut` with the given length.
+    /// Creates a new mutable vector of nulls with the given length.
     pub fn new(len: usize) -> Self {
         Self { len }
     }
@@ -50,7 +58,6 @@ impl VectorMutOps for NullVectorMut {
     }
 
     fn split_off(&mut self, at: usize) -> Self {
-        // TODO(connor): This is wrong (https://docs.rs/bytes/latest/src/bytes/bytes_mut.rs.html#320-335)
         assert!(
             at <= self.capacity(),
             "split_off out of bounds: {:?} <= {:?}",
@@ -58,6 +65,7 @@ impl VectorMutOps for NullVectorMut {
             self.capacity(),
         );
 
+        // TODO(connor): This is wrong (https://docs.rs/bytes/latest/src/bytes/bytes_mut.rs.html#320-335)
         let new_len = self.len - at;
         self.len = at;
         NullVectorMut { len: new_len }

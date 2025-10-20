@@ -1,13 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of [`GenericPVectorMut<T>`].
+
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_mask::MaskMut;
 
-use crate::{GenericPVector, PrimitiveVectorMut, VectorMut, VectorMutOps};
+use crate::{GenericPVector, VectorMutOps};
 
-/// A mutable vector of primitive values.
+/// A mutable vector of generic primitive values.
+///
+/// `T` is expected to be bound by [`NativePType`], which templates an internal [`BufferMut<T>`]
+/// that stores the elements of the vector. Additionally, an optional [`MaskMut`] is stored to track
+/// null primitive elements.
+///
+/// The immutable equivalent of this type is [`GenericPVector<T>`].
+#[derive(Debug, Clone)]
 pub struct GenericPVectorMut<T> {
     pub(super) elements: BufferMut<T>,
     pub(super) validity: Option<MaskMut>,
@@ -25,12 +34,6 @@ impl<T: NativePType> GenericPVectorMut<T> {
             elements: BufferMut::with_capacity(capacity),
             validity,
         }
-    }
-}
-
-impl<T: NativePType> From<GenericPVectorMut<T>> for VectorMut {
-    fn from(val: GenericPVectorMut<T>) -> Self {
-        VectorMut::Primitive(PrimitiveVectorMut::from(val))
     }
 }
 
