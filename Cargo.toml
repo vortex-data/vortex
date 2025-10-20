@@ -101,6 +101,7 @@ datafusion-common-runtime = { version = "50" }
 datafusion-datasource = { version = "50", default-features = false }
 datafusion-execution = { version = "50" }
 datafusion-expr = { version = "50" }
+datafusion-functions = { version = "50" }
 datafusion-physical-expr = { version = "50" }
 datafusion-physical-expr-adapter = { version = "50" }
 datafusion-physical-expr-common = { version = "50" }

@@ -5,16 +5,17 @@ use std::sync::Arc;
 
 use arrow_schema::{DataType, Schema};
 use datafusion_expr::Operator as DFOperator;
-use datafusion_physical_expr::{PhysicalExpr, PhysicalExprRef};
+use datafusion_functions::core::getfield::GetFieldFunc;
+use datafusion_physical_expr::{PhysicalExpr, PhysicalExprRef, ScalarFunctionExpr};
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::{DType, Nullability};
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::error::{vortex_bail, vortex_err, VortexResult};
 use vortex::expr::{
-    BinaryExpr, ExprRef, LikeExpr, Operator, and, cast, get_item, is_null, list_contains, lit, not,
-    root,
+    and, cast, get_item, is_null, list_contains, lit, not, root, BinaryExpr, ExprRef, LikeExpr,
+    Operator,
 };
 use vortex::scalar::Scalar;
 
@@ -104,8 +105,45 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
             return Ok(if in_list.negated() { not(expr) } else { expr });
         }
 
+        if let Some(scalar_fn) = df.as_any().downcast_ref::<ScalarFunctionExpr>() {
+            return try_convert_scalar_function(scalar_fn);
+        }
+
         vortex_bail!("Couldn't convert DataFusion physical {df} expression to a vortex expression")
     }
+}
+
+/// Attempts to convert a DataFusion ScalarFunctionExpr to a Vortex expression.
+fn try_convert_scalar_function(scalar_fn: &ScalarFunctionExpr) -> VortexResult<ExprRef> {
+    if let Some(get_field_fn) = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn) {
+        let source_expr = get_field_fn
+            .args()
+            .first()
+            .ok_or_else(|| vortex_err!("get_field missing source expression"))?
+            .as_ref();
+        let field_name_expr = get_field_fn
+            .args()
+            .get(1)
+            .ok_or_else(|| vortex_err!("get_field missing field name argument"))?;
+        let field_name = field_name_expr
+            .as_any()
+            .downcast_ref::<df_expr::Literal>()
+            .ok_or_else(|| vortex_err!("get_field field name must be a literal"))?
+            .value()
+            .try_as_str()
+            .flatten()
+            .ok_or_else(|| vortex_err!("get_field field name must be a UTF-8 string"))?;
+        return Ok(get_item(
+            field_name.to_string(),
+            ExprRef::try_from_df(source_expr)?,
+        ));
+    }
+
+    tracing::debug!(
+        function_name = scalar_fn.name(),
+        "Unsupported ScalarFunctionExpr"
+    );
+    vortex_bail!("Unsupported ScalarFunctionExpr: {}", scalar_fn.name())
 }
 
 impl TryFromDataFusion<DFOperator> for Operator {
@@ -188,6 +226,9 @@ pub(crate) fn can_be_pushed_down(df_expr: &PhysicalExprRef, schema: &Schema) -> 
     } else if let Some(in_list) = expr.downcast_ref::<df_expr::InListExpr>() {
         can_be_pushed_down(in_list.expr(), schema)
             && in_list.list().iter().all(|e| can_be_pushed_down(e, schema))
+    } else if let Some(scalar_fn) = expr.downcast_ref::<ScalarFunctionExpr>() {
+        // Only get_field pushdown is supported.
+        ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some()
     } else {
         tracing::debug!(%df_expr, "DataFusion expression can't be pushed down");
         false
@@ -232,9 +273,11 @@ fn supported_data_types(dt: &DataType) -> bool {
 mod tests {
     use std::sync::Arc;
 
-    use arrow_schema::{DataType, Field, Schema, TimeUnit as ArrowTimeUnit};
+    use arrow_schema::{DataType, Field, Fields, Schema, TimeUnit as ArrowTimeUnit};
+    use datafusion::functions::core::getfield::GetFieldFunc;
+    use datafusion_common::config::ConfigOptions;
     use datafusion_common::ScalarValue;
-    use datafusion_expr::Operator as DFOperator;
+    use datafusion_expr::{Operator as DFOperator, ScalarUDF};
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_plan::expressions as df_expr;
     use insta::assert_snapshot;
@@ -517,5 +560,54 @@ mod tests {
             Arc::new(df_expr::LikeExpr::new(false, false, expr, pattern)) as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down(&like_expr, &test_schema));
+    }
+
+    #[test]
+    fn test_expr_from_df_get_field() {
+        let struct_col = Arc::new(df_expr::Column::new("my_struct", 0)) as Arc<dyn PhysicalExpr>;
+        let field_name = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
+            "field1".to_string(),
+        )))) as Arc<dyn PhysicalExpr>;
+        let get_field_expr = ScalarFunctionExpr::new(
+            "get_field",
+            Arc::new(ScalarUDF::from(GetFieldFunc::new())),
+            vec![struct_col, field_name],
+            Arc::new(Field::new("field1", DataType::Utf8, true)),
+            Arc::new(ConfigOptions::new()),
+        );
+        let result = ExprRef::try_from_df(&get_field_expr).unwrap();
+        assert_snapshot!(result.display_tree().to_string(), @r"
+        GetItem(field1)
+        └── GetItem(my_struct)
+            └── Root
+        ");
+    }
+
+    #[test]
+    fn test_can_be_pushed_down_get_field() {
+        let struct_fields = Fields::from(vec![
+            Field::new("field1", DataType::Utf8, true),
+            Field::new("field2", DataType::Int32, true),
+        ]);
+        let schema = Schema::new(vec![Field::new(
+            "my_struct",
+            DataType::Struct(struct_fields),
+            true,
+        )]);
+
+        let struct_col = Arc::new(df_expr::Column::new("my_struct", 0)) as Arc<dyn PhysicalExpr>;
+        let field_name = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
+            "field1".to_string(),
+        )))) as Arc<dyn PhysicalExpr>;
+
+        let get_field_expr = Arc::new(ScalarFunctionExpr::new(
+            "get_field",
+            Arc::new(ScalarUDF::from(GetFieldFunc::new())),
+            vec![struct_col, field_name],
+            Arc::new(Field::new("field1", DataType::Utf8, true)),
+            Arc::new(ConfigOptions::new()),
+        )) as Arc<dyn PhysicalExpr>;
+
+        assert!(can_be_pushed_down(&get_field_expr, &schema));
     }
 }
