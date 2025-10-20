@@ -27,6 +27,7 @@ vtable!(Arrow);
 impl VTable for ArrowVTable {
     type Array = ArrowArray;
     type Encoding = ArrowEncoding;
+    type Metadata = crate::EmptyMetadata;
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
     type OperationsVTable = Self;
@@ -132,6 +133,10 @@ impl ValidityVTable<ArrowVTable> for ArrowVTable {
 }
 
 impl VisitorVTable<ArrowVTable> for ArrowVTable {
+    fn metadata(_array: &ArrowArray) -> crate::EmptyMetadata {
+        crate::EmptyMetadata
+    }
+
     fn visit_buffers(_array: &ArrowArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(_array: &ArrowArray, _visitor: &mut dyn ArrayChildVisitor) {}

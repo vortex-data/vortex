@@ -13,17 +13,11 @@ use vortex_error::{VortexResult, vortex_bail};
 use crate::{ZigZagArray, ZigZagEncoding, ZigZagVTable, zigzag_encode};
 
 impl SerdeVTable<ZigZagVTable> for ZigZagVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &ZigZagArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
     fn build(
         _encoding: &ZigZagEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _metadata: &<ZigZagVTable as vortex_array::vtable::VTable>::Metadata,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ZigZagArray> {
@@ -60,6 +54,10 @@ impl EncodeVTable<ZigZagVTable> for ZigZagVTable {
 }
 
 impl VisitorVTable<ZigZagVTable> for ZigZagVTable {
+    fn metadata(_array: &ZigZagArray) -> EmptyMetadata {
+        EmptyMetadata
+    }
+
     fn visit_buffers(_array: &ZigZagArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &ZigZagArray, visitor: &mut dyn ArrayChildVisitor) {

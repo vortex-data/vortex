@@ -24,6 +24,7 @@ vtable!(DecimalByteParts);
 impl VTable for DecimalBytePartsVTable {
     type Array = DecimalBytePartsArray;
     type Encoding = DecimalBytePartsEncoding;
+    type Metadata = vortex_array::ProstMetadata<serde::DecimalBytesPartsMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

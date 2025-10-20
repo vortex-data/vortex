@@ -20,6 +20,7 @@ pub struct ListViewEncoding;
 impl VTable for ListViewVTable {
     type Array = ListViewArray;
     type Encoding = ListViewEncoding;
+    type Metadata = crate::ProstMetadata<serde::ListViewMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

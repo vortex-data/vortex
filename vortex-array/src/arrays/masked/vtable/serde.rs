@@ -8,21 +8,15 @@ use vortex_error::{VortexResult, vortex_bail};
 use crate::arrays::{MaskedArray, MaskedEncoding, MaskedVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, VisitorVTable};
+use crate::vtable::{SerdeVTable, VTable, VisitorVTable};
 use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
 
 impl SerdeVTable<MaskedVTable> for MaskedVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &MaskedArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
     fn build(
         _encoding: &MaskedEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: &<MaskedVTable as VTable>::Metadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<MaskedArray> {
@@ -49,6 +43,10 @@ impl SerdeVTable<MaskedVTable> for MaskedVTable {
 }
 
 impl VisitorVTable<MaskedVTable> for MaskedVTable {
+    fn metadata(_array: &MaskedArray) -> EmptyMetadata {
+        EmptyMetadata
+    }
+
     fn visit_buffers(_array: &MaskedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &MaskedArray, visitor: &mut dyn ArrayChildVisitor) {

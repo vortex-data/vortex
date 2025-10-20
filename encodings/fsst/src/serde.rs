@@ -4,7 +4,7 @@
 use fsst::{Compressor, Symbol};
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
@@ -21,20 +21,11 @@ pub struct FSSTMetadata {
 }
 
 impl SerdeVTable<FSSTVTable> for FSSTVTable {
-    type Metadata = ProstMetadata<FSSTMetadata>;
-
-    fn metadata(array: &FSSTArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(FSSTMetadata {
-            uncompressed_lengths_ptype: PType::try_from(array.uncompressed_lengths().dtype())?
-                as i32,
-        })))
-    }
-
     fn build(
         _encoding: &FSSTEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<<FSSTVTable as VTable>::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<FSSTArray> {
@@ -94,6 +85,12 @@ impl EncodeVTable<FSSTVTable> for FSSTVTable {
 }
 
 impl VisitorVTable<FSSTVTable> for FSSTVTable {
+    fn metadata(array: &FSSTArray) -> <FSSTVTable as VTable>::Metadata {
+        ProstMetadata(FSSTMetadata {
+            uncompressed_lengths_ptype: array.uncompressed_lengths().dtype().as_ptype() as i32,
+        })
+    }
+
     fn visit_buffers(array: &FSSTArray, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(&array.symbols().clone().into_byte_buffer());
         visitor.visit_buffer(&array.symbol_lengths().clone().into_byte_buffer());

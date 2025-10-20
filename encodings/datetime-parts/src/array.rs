@@ -7,8 +7,8 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
-use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
-use vortex_dtype::DType;
+use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, ProstMetadata, vtable};
+use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 
 vtable!(DateTimeParts);
@@ -16,6 +16,7 @@ vtable!(DateTimeParts);
 impl VTable for DateTimePartsVTable {
     type Array = DateTimePartsArray;
     type Encoding = DateTimePartsEncoding;
+    type Metadata = ProstMetadata<DateTimePartsMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -47,6 +48,19 @@ pub struct DateTimePartsArray {
 
 #[derive(Clone, Debug)]
 pub struct DateTimePartsEncoding;
+
+#[derive(Clone, prost::Message)]
+#[repr(C)]
+pub struct DateTimePartsMetadata {
+    // Validity lives in the days array
+    // TODO(ngates): we should actually model this with a Tuple array when we have one.
+    #[prost(enumeration = "PType", tag = "1")]
+    pub days_ptype: i32,
+    #[prost(enumeration = "PType", tag = "2")]
+    pub seconds_ptype: i32,
+    #[prost(enumeration = "PType", tag = "3")]
+    pub subseconds_ptype: i32,
+}
 
 impl DateTimePartsArray {
     pub fn try_new(

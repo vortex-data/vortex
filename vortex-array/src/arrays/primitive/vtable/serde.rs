@@ -6,24 +6,17 @@ use vortex_dtype::{DType, PType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 
 use super::PrimitiveArray;
-use crate::EmptyMetadata;
 use crate::arrays::{PrimitiveEncoding, PrimitiveVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::SerdeVTable;
+use crate::vtable::{SerdeVTable, VTable};
 
 impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &PrimitiveArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
     fn build(
         _encoding: &PrimitiveEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: &<PrimitiveVTable as VTable>::Metadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<PrimitiveArray> {

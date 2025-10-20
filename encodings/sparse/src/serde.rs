@@ -3,7 +3,7 @@
 
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
@@ -22,19 +22,11 @@ pub struct SparseMetadata {
 }
 
 impl SerdeVTable<SparseVTable> for SparseVTable {
-    type Metadata = ProstMetadata<SparseMetadata>;
-
-    fn metadata(array: &SparseArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(SparseMetadata {
-            patches: array.patches().to_metadata(array.len(), array.dtype())?,
-        })))
-    }
-
     fn build(
         _encoding: &SparseEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<<SparseVTable as VTable>::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<SparseArray> {
@@ -80,6 +72,15 @@ impl EncodeVTable<SparseVTable> for SparseVTable {
 }
 
 impl VisitorVTable<SparseVTable> for SparseVTable {
+    fn metadata(array: &SparseArray) -> <SparseVTable as VTable>::Metadata {
+        ProstMetadata(SparseMetadata {
+            patches: array
+                .patches()
+                .to_metadata(array.len(), array.dtype())
+                .expect("Failed to get patches metadata"),
+        })
+    }
+
     fn visit_buffers(array: &SparseArray, visitor: &mut dyn ArrayBufferVisitor) {
         let fill_value_buffer = array
             .fill_value

@@ -21,12 +21,14 @@ mod compress;
 mod compute;
 mod ops;
 mod serde;
+pub use serde::DeltaMetadata;
 
 vtable!(Delta);
 
 impl VTable for DeltaVTable {
     type Array = DeltaArray;
     type Encoding = DeltaEncoding;
+    type Metadata = vortex_array::ProstMetadata<DeltaMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

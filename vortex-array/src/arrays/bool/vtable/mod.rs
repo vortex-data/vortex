@@ -17,6 +17,7 @@ vtable!(Bool);
 impl VTable for BoolVTable {
     type Array = BoolArray;
     type Encoding = BoolEncoding;
+    type Metadata = crate::ProstMetadata<serde::BoolMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

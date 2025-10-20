@@ -27,6 +27,7 @@ vtable!(Null);
 impl VTable for NullVTable {
     type Array = NullArray;
     type Encoding = NullEncoding;
+    type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -104,17 +105,11 @@ impl ArrayVTable<NullVTable> for NullVTable {
 }
 
 impl SerdeVTable<NullVTable> for NullVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &NullArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
     fn build(
         _encoding: &NullEncoding,
         _dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: &<NullVTable as VTable>::Metadata,
         _buffers: &[ByteBuffer],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<NullArray> {
@@ -123,6 +118,10 @@ impl SerdeVTable<NullVTable> for NullVTable {
 }
 
 impl VisitorVTable<NullVTable> for NullVTable {
+    fn metadata(_array: &NullArray) -> EmptyMetadata {
+        EmptyMetadata
+    }
+
     fn visit_buffers(_array: &NullArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(_array: &NullArray, _visitor: &mut dyn ArrayChildVisitor) {}

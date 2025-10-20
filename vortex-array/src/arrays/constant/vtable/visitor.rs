@@ -5,9 +5,13 @@ use vortex_buffer::ByteBufferMut;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::vtable::VisitorVTable;
-use crate::{ArrayBufferVisitor, ArrayChildVisitor};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
 
 impl VisitorVTable<ConstantVTable> for ConstantVTable {
+    fn metadata(_array: &ConstantArray) -> EmptyMetadata {
+        EmptyMetadata
+    }
+
     fn visit_buffers(array: &ConstantArray, visitor: &mut dyn ArrayBufferVisitor) {
         let buffer = array
             .scalar

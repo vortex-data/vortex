@@ -8,4 +8,4 @@ mod serde;
 mod test;
 
 pub use array::*;
-pub use serde::*;
+pub use serde::{PcoChunkInfo, PcoMetadata, PcoPageInfo};

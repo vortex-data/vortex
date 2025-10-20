@@ -17,6 +17,7 @@ vtable!(List);
 impl VTable for ListVTable {
     type Array = ListArray;
     type Encoding = ListEncoding;
+    type Metadata = crate::ProstMetadata<serde::ListMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

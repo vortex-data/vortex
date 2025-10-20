@@ -17,6 +17,7 @@ vtable!(VarBinView);
 impl VTable for VarBinViewVTable {
     type Array = VarBinViewArray;
     type Encoding = VarBinViewEncoding;
+    type Metadata = crate::EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

@@ -15,24 +15,15 @@ use crate::{Array, ProstMetadata};
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {
     #[prost(enumeration = "PType", tag = "1")]
-    pub(crate) offsets_ptype: i32,
+    pub(super) offsets_ptype: i32,
 }
 
 impl SerdeVTable<VarBinVTable> for VarBinVTable {
-    type Metadata = ProstMetadata<VarBinMetadata>;
-
-    fn metadata(array: &VarBinArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(VarBinMetadata {
-            offsets_ptype: PType::try_from(array.offsets().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
-        })))
-    }
-
     fn build(
         _encoding: &VarBinEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &VarBinMetadata,
+        metadata: &<<VarBinVTable as crate::vtable::VTable>::Metadata as crate::DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<VarBinArray> {

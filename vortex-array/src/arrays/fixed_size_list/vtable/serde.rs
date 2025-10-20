@@ -6,19 +6,12 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 
 use super::{FixedSizeListArray, FixedSizeListVTable};
-use crate::EmptyMetadata;
 use crate::arrays::FixedSizeListEncoding;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::SerdeVTable;
+use crate::vtable::{SerdeVTable, VTable};
 
 impl SerdeVTable<FixedSizeListVTable> for FixedSizeListVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &FixedSizeListArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
     /// Builds a [`FixedSizeListArray`].
     ///
     /// This method expects 1 or 2 children (a second child indicates a validity array).
@@ -26,7 +19,7 @@ impl SerdeVTable<FixedSizeListVTable> for FixedSizeListVTable {
         _encoding: &FixedSizeListEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &EmptyMetadata,
+        _metadata: &<FixedSizeListVTable as VTable>::Metadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<FixedSizeListArray> {

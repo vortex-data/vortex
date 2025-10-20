@@ -3,7 +3,7 @@
 
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
@@ -25,20 +25,6 @@ pub struct ALPMetadata {
 }
 
 impl SerdeVTable<ALPVTable> for ALPVTable {
-    type Metadata = ProstMetadata<ALPMetadata>;
-
-    fn metadata(array: &ALPArray) -> VortexResult<Option<Self::Metadata>> {
-        let exponents = array.exponents();
-        Ok(Some(ProstMetadata(ALPMetadata {
-            exp_e: exponents.e as u32,
-            exp_f: exponents.f as u32,
-            patches: array
-                .patches()
-                .map(|p| p.to_metadata(array.len(), array.dtype()))
-                .transpose()?,
-        })))
-    }
-
     /// Deserialize an ALPArray from its components.
     ///
     /// Note that the layout depends on whether patches and chunk_offsets are present:
@@ -48,7 +34,7 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
         _encoding: &ALPEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<<ALPVTable as VTable>::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ALPArray> {
@@ -105,6 +91,18 @@ impl EncodeVTable<ALPVTable> for ALPVTable {
 }
 
 impl VisitorVTable<ALPVTable> for ALPVTable {
+    fn metadata(array: &ALPArray) -> <ALPVTable as VTable>::Metadata {
+        let exponents = array.exponents();
+        ProstMetadata(ALPMetadata {
+            exp_e: exponents.e as u32,
+            exp_f: exponents.f as u32,
+            patches: array.patches().map(|p| {
+                p.to_metadata(array.len(), array.dtype())
+                    .expect("Failed to get patches metadata")
+            }),
+        })
+    }
+
     fn visit_buffers(_array: &ALPArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &ALPArray, visitor: &mut dyn ArrayChildVisitor) {

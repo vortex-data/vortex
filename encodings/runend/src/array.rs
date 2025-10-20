@@ -8,7 +8,8 @@ use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
-    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
+    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ProstMetadata, ToCanonical,
+    vtable,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
@@ -16,12 +17,14 @@ use vortex_mask::Mask;
 use vortex_scalar::PValue;
 
 use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
+use crate::serde::RunEndMetadata;
 
 vtable!(RunEnd);
 
 impl VTable for RunEndVTable {
     type Array = RunEndArray;
     type Encoding = RunEndEncoding;
+    type Metadata = ProstMetadata<RunEndMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

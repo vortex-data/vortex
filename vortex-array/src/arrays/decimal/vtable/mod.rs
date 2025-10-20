@@ -17,6 +17,7 @@ vtable!(Decimal);
 impl VTable for DecimalVTable {
     type Array = DecimalArray;
     type Encoding = DecimalEncoding;
+    type Metadata = crate::ProstMetadata<serde::DecimalMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

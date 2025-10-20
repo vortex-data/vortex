@@ -3,45 +3,24 @@
 
 use vortex_array::arrays::TemporalArray;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::{DateTimePartsArray, DateTimePartsEncoding, DateTimePartsVTable};
-
-#[derive(Clone, prost::Message)]
-#[repr(C)]
-pub struct DateTimePartsMetadata {
-    // Validity lives in the days array
-    // TODO(ngates): we should actually model this with a Tuple array when we have one.
-    #[prost(enumeration = "PType", tag = "1")]
-    days_ptype: i32,
-    #[prost(enumeration = "PType", tag = "2")]
-    seconds_ptype: i32,
-    #[prost(enumeration = "PType", tag = "3")]
-    subseconds_ptype: i32,
-}
+use crate::{
+    DateTimePartsArray, DateTimePartsEncoding, DateTimePartsMetadata, DateTimePartsVTable,
+};
 
 impl SerdeVTable<DateTimePartsVTable> for DateTimePartsVTable {
-    type Metadata = ProstMetadata<DateTimePartsMetadata>;
-
-    fn metadata(array: &DateTimePartsArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(DateTimePartsMetadata {
-            days_ptype: PType::try_from(array.days().dtype())? as i32,
-            seconds_ptype: PType::try_from(array.seconds().dtype())? as i32,
-            subseconds_ptype: PType::try_from(array.subseconds().dtype())? as i32,
-        })))
-    }
-
     fn build(
         _encoding: &DateTimePartsEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<<DateTimePartsVTable as VTable>::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DateTimePartsArray> {
@@ -86,6 +65,14 @@ impl EncodeVTable<DateTimePartsVTable> for DateTimePartsVTable {
 }
 
 impl VisitorVTable<DateTimePartsVTable> for DateTimePartsVTable {
+    fn metadata(array: &DateTimePartsArray) -> <DateTimePartsVTable as VTable>::Metadata {
+        ProstMetadata(DateTimePartsMetadata {
+            days_ptype: array.days().dtype().as_ptype() as i32,
+            seconds_ptype: array.seconds().dtype().as_ptype() as i32,
+            subseconds_ptype: array.subseconds().dtype().as_ptype() as i32,
+        })
+    }
+
     fn visit_buffers(_array: &DateTimePartsArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &DateTimePartsArray, visitor: &mut dyn ArrayChildVisitor) {

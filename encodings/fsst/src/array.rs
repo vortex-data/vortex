@@ -20,6 +20,7 @@ vtable!(FSST);
 impl VTable for FSSTVTable {
     type Array = FSSTArray;
     type Encoding = FSSTEncoding;
+    type Metadata = vortex_array::ProstMetadata<crate::serde::FSSTMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

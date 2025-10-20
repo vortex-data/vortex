@@ -14,29 +14,19 @@ use crate::{Array, ProstMetadata};
 #[derive(Clone, prost::Message)]
 pub struct ListViewMetadata {
     #[prost(uint64, tag = "1")]
-    elements_len: u64,
+    pub(super) elements_len: u64,
     #[prost(enumeration = "PType", tag = "2")]
-    offset_ptype: i32,
+    pub(super) offset_ptype: i32,
     #[prost(enumeration = "PType", tag = "3")]
-    size_ptype: i32,
+    pub(super) size_ptype: i32,
 }
 
 impl SerdeVTable<ListViewVTable> for ListViewVTable {
-    type Metadata = ProstMetadata<ListViewMetadata>;
-
-    fn metadata(array: &ListViewArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(ListViewMetadata {
-            elements_len: array.elements().len() as u64,
-            offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
-            size_ptype: PType::try_from(array.sizes().dtype())? as i32,
-        })))
-    }
-
     fn build(
         _encoding: &ListViewEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &ListViewMetadata,
+        metadata: &<<ListViewVTable as crate::vtable::VTable>::Metadata as crate::DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ListViewArray> {

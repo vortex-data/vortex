@@ -22,6 +22,7 @@ pub struct ConstantEncoding;
 impl VTable for ConstantVTable {
     type Array = ConstantArray;
     type Encoding = ConstantEncoding;
+    type Metadata = crate::EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

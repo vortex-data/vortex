@@ -13,6 +13,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 
 use crate::ALPFloat;
+use crate::alp::serde::ALPMetadata;
 use crate::alp::{Exponents, decompress};
 
 vtable!(ALP);
@@ -20,6 +21,7 @@ vtable!(ALP);
 impl VTable for ALPVTable {
     type Array = ALPArray;
     type Encoding = ALPEncoding;
+    type Metadata = vortex_array::ProstMetadata<ALPMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

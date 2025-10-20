@@ -3,7 +3,7 @@
 
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -29,17 +29,11 @@ pub struct ZstdMetadata {
 }
 
 impl SerdeVTable<ZstdVTable> for ZstdVTable {
-    type Metadata = ProstMetadata<ZstdMetadata>;
-
-    fn metadata(array: &ZstdArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(array.metadata.clone())))
-    }
-
     fn build(
         _encoding: &ZstdEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &ZstdMetadata,
+        metadata: &<<ZstdVTable as VTable>::Metadata as vortex_array::DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ZstdArray> {
@@ -73,7 +67,7 @@ impl SerdeVTable<ZstdVTable> for ZstdVTable {
 
 impl EncodeVTable<ZstdVTable> for ZstdVTable {
     fn encode(
-        _encoding: &<ZstdVTable as vortex_array::vtable::VTable>::Encoding,
+        _encoding: &<ZstdVTable as VTable>::Encoding,
         canonical: &vortex_array::Canonical,
         _like: Option<&ZstdArray>,
     ) -> VortexResult<Option<ZstdArray>> {
@@ -82,6 +76,10 @@ impl EncodeVTable<ZstdVTable> for ZstdVTable {
 }
 
 impl VisitorVTable<ZstdVTable> for ZstdVTable {
+    fn metadata(array: &ZstdArray) -> <ZstdVTable as VTable>::Metadata {
+        ProstMetadata(array.metadata.clone())
+    }
+
     fn visit_buffers(array: &ZstdArray, visitor: &mut dyn ArrayBufferVisitor) {
         if let Some(buffer) = &array.dictionary {
             visitor.visit_buffer(buffer);

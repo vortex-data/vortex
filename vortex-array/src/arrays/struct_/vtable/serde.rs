@@ -6,24 +6,17 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::EmptyMetadata;
 use crate::arrays::struct_::{StructArray, StructEncoding, StructVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::SerdeVTable;
+use crate::vtable::{SerdeVTable, VTable};
 
 impl SerdeVTable<StructVTable> for StructVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &StructArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
     fn build(
         _encoding: &StructEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: &<StructVTable as VTable>::Metadata,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<StructArray> {

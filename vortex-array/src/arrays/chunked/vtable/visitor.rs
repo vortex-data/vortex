@@ -4,9 +4,13 @@
 use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
 use crate::validity::Validity;
 use crate::vtable::VisitorVTable;
-use crate::{ArrayBufferVisitor, ArrayChildVisitor};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
 
 impl VisitorVTable<ChunkedVTable> for ChunkedVTable {
+    fn metadata(_array: &ChunkedArray) -> EmptyMetadata {
+        EmptyMetadata
+    }
+
     fn visit_buffers(_array: &ChunkedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &ChunkedArray, visitor: &mut dyn ArrayChildVisitor) {

@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::builders::dict_encode;
 use crate::{DictArray, DictEncoding, DictVTable};
@@ -16,35 +16,20 @@ use crate::{DictArray, DictEncoding, DictVTable};
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {
     #[prost(uint32, tag = "1")]
-    values_len: u32,
+    pub values_len: u32,
     #[prost(enumeration = "PType", tag = "2")]
-    codes_ptype: i32,
+    pub codes_ptype: i32,
     // nullable codes are optional since they were added after stabilisation
     #[prost(optional, bool, tag = "3")]
-    is_nullable_codes: Option<bool>,
+    pub is_nullable_codes: Option<bool>,
 }
 
 impl SerdeVTable<DictVTable> for DictVTable {
-    type Metadata = ProstMetadata<DictMetadata>;
-
-    fn metadata(array: &DictArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(DictMetadata {
-            codes_ptype: PType::try_from(array.codes().dtype())? as i32,
-            values_len: u32::try_from(array.values().len()).map_err(|_| {
-                vortex_err!(
-                    "Dictionary values size {} overflowed u32",
-                    array.values().len()
-                )
-            })?,
-            is_nullable_codes: Some(array.codes().dtype().is_nullable()),
-        })))
-    }
-
     fn build(
         _encoding: &DictEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<<DictVTable as VTable>::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DictArray> {
@@ -79,6 +64,15 @@ impl EncodeVTable<DictVTable> for DictVTable {
 }
 
 impl VisitorVTable<DictVTable> for DictVTable {
+    fn metadata(array: &DictArray) -> <DictVTable as VTable>::Metadata {
+        ProstMetadata(DictMetadata {
+            codes_ptype: array.codes().dtype().as_ptype() as i32,
+            values_len: u32::try_from(array.values().len())
+                .expect("Dictionary values size overflowed u32"),
+            is_nullable_codes: Some(array.codes().dtype().is_nullable()),
+        })
+    }
+
     fn visit_buffers(_array: &DictArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &DictArray, visitor: &mut dyn ArrayChildVisitor) {

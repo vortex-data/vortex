@@ -26,6 +26,7 @@ mod compute;
 pub mod operator;
 mod ops;
 mod serde;
+pub use serde::BitPackedMetadata;
 pub mod unpack_iter;
 
 vtable!(BitPacked);
@@ -33,6 +34,7 @@ vtable!(BitPacked);
 impl VTable for BitPackedVTable {
     type Array = BitPackedArray;
     type Encoding = BitPackedEncoding;
+    type Metadata = vortex_array::ProstMetadata<BitPackedMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

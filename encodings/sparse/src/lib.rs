@@ -21,12 +21,14 @@ mod canonical;
 mod compute;
 mod ops;
 mod serde;
+pub use serde::SparseMetadata;
 
 vtable!(Sparse);
 
 impl VTable for SparseVTable {
     type Array = SparseArray;
     type Encoding = SparseEncoding;
+    type Metadata = vortex_array::ProstMetadata<SparseMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

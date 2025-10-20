@@ -7,6 +7,11 @@ use crate::vtable::VTable;
 use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor};
 
 pub trait VisitorVTable<V: VTable> {
+    /// Exports metadata for an array.
+    ///
+    /// If the array does not have any metadata, it can return [`crate::metadata::EmptyMetadata`].
+    fn metadata(array: &V::Array) -> V::Metadata;
+
     /// Visit the buffers of the array.
     fn visit_buffers(array: &V::Array, visitor: &mut dyn ArrayBufferVisitor);
 

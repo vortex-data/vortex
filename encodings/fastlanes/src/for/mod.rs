@@ -17,12 +17,14 @@ mod compute;
 mod ops;
 mod pipeline;
 mod serde;
+pub use serde::ScalarValueMetadata;
 
 vtable!(FoR);
 
 impl VTable for FoRVTable {
     type Array = FoRArray;
     type Encoding = FoREncoding;
+    type Metadata = ScalarValueMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

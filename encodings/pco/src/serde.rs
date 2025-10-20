@@ -3,7 +3,7 @@
 
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -38,17 +38,11 @@ pub struct PcoMetadata {
 }
 
 impl SerdeVTable<PcoVTable> for PcoVTable {
-    type Metadata = ProstMetadata<PcoMetadata>;
-
-    fn metadata(array: &PcoArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(array.metadata.clone())))
-    }
-
     fn build(
         _encoding: &PcoEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &PcoMetadata,
+        metadata: &<<PcoVTable as VTable>::Metadata as vortex_array::DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<PcoArray> {
@@ -85,7 +79,7 @@ impl SerdeVTable<PcoVTable> for PcoVTable {
 
 impl EncodeVTable<PcoVTable> for PcoVTable {
     fn encode(
-        _encoding: &<PcoVTable as vortex_array::vtable::VTable>::Encoding,
+        _encoding: &<PcoVTable as VTable>::Encoding,
         canonical: &vortex_array::Canonical,
         _like: Option<&PcoArray>,
     ) -> VortexResult<Option<PcoArray>> {
@@ -96,6 +90,10 @@ impl EncodeVTable<PcoVTable> for PcoVTable {
 }
 
 impl VisitorVTable<PcoVTable> for PcoVTable {
+    fn metadata(array: &PcoArray) -> <PcoVTable as VTable>::Metadata {
+        ProstMetadata(array.metadata.clone())
+    }
+
     fn visit_buffers(array: &PcoArray, visitor: &mut dyn ArrayBufferVisitor) {
         for buffer in &array.chunk_metas {
             visitor.visit_buffer(buffer);

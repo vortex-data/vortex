@@ -24,6 +24,7 @@ vtable!(ZigZag);
 impl VTable for ZigZagVTable {
     type Array = ZigZagArray;
     type Encoding = ZigZagEncoding;
+    type Metadata = vortex_array::EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

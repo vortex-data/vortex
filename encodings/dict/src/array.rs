@@ -16,6 +16,7 @@ vtable!(Dict);
 impl VTable for DictVTable {
     type Array = DictArray;
     type Encoding = DictEncoding;
+    type Metadata = vortex_array::ProstMetadata<crate::serde::DictMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

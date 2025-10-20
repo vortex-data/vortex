@@ -20,6 +20,7 @@ pub struct FixedSizeListEncoding;
 impl VTable for FixedSizeListVTable {
     type Array = FixedSizeListArray;
     type Encoding = FixedSizeListEncoding;
+    type Metadata = crate::EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

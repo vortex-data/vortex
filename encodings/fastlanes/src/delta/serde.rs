@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, ProstMetadata,
 };
@@ -23,20 +23,11 @@ pub struct DeltaMetadata {
 }
 
 impl SerdeVTable<DeltaVTable> for DeltaVTable {
-    type Metadata = ProstMetadata<DeltaMetadata>;
-
-    fn metadata(array: &DeltaArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(DeltaMetadata {
-            deltas_len: array.deltas().len() as u64,
-            offset: array.offset() as u32,
-        })))
-    }
-
     fn build(
         _encoding: &DeltaEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<<DeltaVTable as VTable>::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DeltaArray> {
@@ -60,6 +51,13 @@ impl SerdeVTable<DeltaVTable> for DeltaVTable {
 }
 
 impl VisitorVTable<DeltaVTable> for DeltaVTable {
+    fn metadata(array: &DeltaArray) -> <DeltaVTable as VTable>::Metadata {
+        ProstMetadata(DeltaMetadata {
+            deltas_len: array.deltas().len() as u64,
+            offset: array.offset() as u32,
+        })
+    }
+
     fn visit_buffers(_array: &DeltaArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &DeltaArray, visitor: &mut dyn ArrayChildVisitor) {

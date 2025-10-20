@@ -8,25 +8,18 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::VarBinViewVTable;
-use crate::EmptyMetadata;
 use crate::arrays::binary_view::BinaryView;
 use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::SerdeVTable;
+use crate::vtable::{SerdeVTable, VTable};
 
 impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &VarBinViewArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
     fn build(
         _encoding: &VarBinViewEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: &<VarBinViewVTable as VTable>::Metadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<VarBinViewArray> {

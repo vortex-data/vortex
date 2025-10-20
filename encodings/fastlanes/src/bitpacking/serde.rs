@@ -4,7 +4,7 @@
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, ValidityHelper, VisitorVTable};
 use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, Canonical, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
@@ -24,19 +24,6 @@ pub struct BitPackedMetadata {
 }
 
 impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
-    type Metadata = ProstMetadata<BitPackedMetadata>;
-
-    fn metadata(array: &BitPackedArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(BitPackedMetadata {
-            bit_width: array.bit_width() as u32,
-            offset: array.offset() as u32,
-            patches: array
-                .patches()
-                .map(|p| p.to_metadata(array.len(), array.dtype()))
-                .transpose()?,
-        })))
-    }
-
     /// Deserialize a BitPackedArray from its components.
     ///
     /// Note that the layout depends on whether patches and chunk_offsets are present:
@@ -46,7 +33,7 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
         _encoding: &BitPackedEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &BitPackedMetadata,
+        metadata: &<<BitPackedVTable as VTable>::Metadata as vortex_array::DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<BitPackedArray> {
@@ -162,6 +149,17 @@ impl EncodeVTable<BitPackedVTable> for BitPackedVTable {
 }
 
 impl VisitorVTable<BitPackedVTable> for BitPackedVTable {
+    fn metadata(array: &BitPackedArray) -> <BitPackedVTable as VTable>::Metadata {
+        ProstMetadata(BitPackedMetadata {
+            bit_width: array.bit_width() as u32,
+            offset: array.offset() as u32,
+            patches: array.patches().map(|p| {
+                p.to_metadata(array.len(), array.dtype())
+                    .expect("Failed to get patches metadata")
+            }),
+        })
+    }
+
     fn visit_buffers(array: &BitPackedArray, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(array.packed());
     }

@@ -19,12 +19,14 @@ mod compress;
 mod compute;
 mod ops;
 mod serde;
+pub use serde::RLEMetadata;
 
 vtable!(RLE);
 
 impl VTable for RLEVTable {
     type Array = RLEArray;
     type Encoding = RLEEncoding;
+    type Metadata = vortex_array::ProstMetadata<RLEMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

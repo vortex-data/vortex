@@ -6,35 +6,25 @@ use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail};
 
 use super::ListArray;
-use crate::ProstMetadata;
 use crate::arrays::{ListEncoding, ListVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::SerdeVTable;
+use crate::vtable::{SerdeVTable, VTable};
 
 #[derive(Clone, prost::Message)]
 pub struct ListMetadata {
     #[prost(uint64, tag = "1")]
-    elements_len: u64,
+    pub(super) elements_len: u64,
     #[prost(enumeration = "PType", tag = "2")]
-    offset_ptype: i32,
+    pub(super) offset_ptype: i32,
 }
 
 impl SerdeVTable<ListVTable> for ListVTable {
-    type Metadata = ProstMetadata<ListMetadata>;
-
-    fn metadata(array: &ListArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(ListMetadata {
-            elements_len: array.elements().len() as u64,
-            offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
-        })))
-    }
-
     fn build(
         _encoding: &ListEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &ListMetadata,
+        metadata: &<<ListVTable as VTable>::Metadata as crate::DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ListArray> {

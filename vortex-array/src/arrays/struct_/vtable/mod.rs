@@ -18,6 +18,7 @@ vtable!(Struct);
 impl VTable for StructVTable {
     type Array = StructArray;
     type Encoding = StructEncoding;
+    type Metadata = crate::EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

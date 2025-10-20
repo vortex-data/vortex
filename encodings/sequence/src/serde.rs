@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable};
-use vortex_array::{Canonical, DeserializeMetadata, ProstMetadata};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, VisitorVTable};
+use vortex_array::{
+    ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
+};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
@@ -33,20 +35,11 @@ impl EncodeVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl SerdeVTable<SequenceVTable> for SequenceVTable {
-    type Metadata = ProstMetadata<SequenceMetadata>;
-
-    fn metadata(array: &SequenceArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(SequenceMetadata {
-            base: Some((&array.base()).into()),
-            multiplier: Some((&array.multiplier()).into()),
-        })))
-    }
-
     fn build(
         _encoding: &SequenceEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<<SequenceVTable as VTable>::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<SequenceArray> {
@@ -85,6 +78,21 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
             len,
         ))
     }
+}
+
+impl VisitorVTable<SequenceVTable> for SequenceVTable {
+    fn metadata(array: &SequenceArray) -> <SequenceVTable as VTable>::Metadata {
+        ProstMetadata(SequenceMetadata {
+            base: Some((&array.base()).into()),
+            multiplier: Some((&array.multiplier()).into()),
+        })
+    }
+
+    fn visit_buffers(_array: &SequenceArray, _visitor: &mut dyn ArrayBufferVisitor) {
+        // TODO(joe): expose scalar values
+    }
+
+    fn visit_children(_array: &SequenceArray, _visitor: &mut dyn ArrayChildVisitor) {}
 }
 
 #[cfg(test)]

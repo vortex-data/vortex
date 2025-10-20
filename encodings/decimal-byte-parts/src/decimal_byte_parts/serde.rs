@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, ProstMetadata,
 };
@@ -21,20 +21,11 @@ pub struct DecimalBytesPartsMetadata {
 }
 
 impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
-
-    fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(DecimalBytesPartsMetadata {
-            zeroth_child_ptype: PType::try_from(array.msp.dtype())? as i32,
-            lower_part_count: 0,
-        })))
-    }
-
     fn build(
         _encoding: &DecimalBytePartsEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<<DecimalBytePartsVTable as VTable>::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DecimalBytePartsArray> {
@@ -56,6 +47,13 @@ impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 }
 
 impl VisitorVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
+    fn metadata(array: &DecimalBytePartsArray) -> <DecimalBytePartsVTable as VTable>::Metadata {
+        ProstMetadata(DecimalBytesPartsMetadata {
+            zeroth_child_ptype: array.msp.dtype().as_ptype() as i32,
+            lower_part_count: 0,
+        })
+    }
+
     fn visit_buffers(_array: &DecimalBytePartsArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &DecimalBytePartsArray, visitor: &mut dyn ArrayChildVisitor) {

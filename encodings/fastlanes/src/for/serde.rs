@@ -4,7 +4,7 @@
 use std::fmt::{Debug, Formatter};
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, SerializeMetadata,
 };
@@ -17,19 +17,11 @@ use super::FoREncoding;
 use crate::{FoRArray, FoRVTable};
 
 impl SerdeVTable<FoRVTable> for FoRVTable {
-    type Metadata = ScalarValueMetadata;
-
-    fn metadata(array: &FoRArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ScalarValueMetadata(
-            array.reference_scalar().value().clone(),
-        )))
-    }
-
     fn build(
         _encoding: &FoREncoding,
         dtype: &DType,
         len: usize,
-        metadata: &ScalarValue,
+        metadata: &<<FoRVTable as VTable>::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<FoRArray> {
@@ -59,6 +51,10 @@ impl EncodeVTable<FoRVTable> for FoRVTable {
 }
 
 impl VisitorVTable<FoRVTable> for FoRVTable {
+    fn metadata(array: &FoRArray) -> <FoRVTable as VTable>::Metadata {
+        ScalarValueMetadata(array.reference_scalar().value().clone())
+    }
+
     fn visit_buffers(_array: &FoRArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &FoRArray, visitor: &mut dyn ArrayChildVisitor) {

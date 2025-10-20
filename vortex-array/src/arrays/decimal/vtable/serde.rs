@@ -9,11 +9,10 @@ use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 use vortex_scalar::{DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
 
 use super::{DecimalArray, DecimalEncoding};
-use crate::ProstMetadata;
 use crate::arrays::DecimalVTable;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::SerdeVTable;
+use crate::vtable::{SerdeVTable, VTable};
 
 // The type of the values can be determined by looking at the type info...right?
 #[derive(prost::Message)]
@@ -23,19 +22,11 @@ pub struct DecimalMetadata {
 }
 
 impl SerdeVTable<DecimalVTable> for DecimalVTable {
-    type Metadata = ProstMetadata<DecimalMetadata>;
-
-    fn metadata(array: &DecimalArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(DecimalMetadata {
-            values_type: array.values_type() as i32,
-        })))
-    }
-
     fn build(
         _encoding: &DecimalEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &DecimalMetadata,
+        metadata: &<<DecimalVTable as VTable>::Metadata as crate::DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DecimalArray> {

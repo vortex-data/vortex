@@ -3,10 +3,9 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 
 use super::BoolArray;
-use crate::ProstMetadata;
 use crate::arrays::BoolVTable;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -20,20 +19,11 @@ pub struct BoolMetadata {
 }
 
 impl SerdeVTable<BoolVTable> for BoolVTable {
-    type Metadata = ProstMetadata<BoolMetadata>;
-
-    fn metadata(array: &BoolArray) -> VortexResult<Option<Self::Metadata>> {
-        let bit_offset = array.boolean_buffer().offset();
-        let bit_offset = u32::try_from(bit_offset)
-            .map_err(|_| vortex_err!("bit_offset {bit_offset} overflows u32"))?;
-        Ok(Some(ProstMetadata(BoolMetadata { offset: bit_offset })))
-    }
-
     fn build(
         _encoding: &<BoolVTable as VTable>::Encoding,
         dtype: &DType,
         len: usize,
-        metadata: &BoolMetadata,
+        metadata: &<<BoolVTable as VTable>::Metadata as crate::DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<BoolArray> {

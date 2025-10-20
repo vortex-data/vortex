@@ -6,23 +6,16 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::EmptyMetadata;
 use crate::arrays::{ConstantArray, ConstantEncoding, ConstantVTable};
 use crate::serde::ArrayChildren;
-use crate::vtable::SerdeVTable;
+use crate::vtable::{SerdeVTable, VTable};
 
 impl SerdeVTable<ConstantVTable> for ConstantVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &ConstantArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
     fn build(
         _encoding: &ConstantEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: &<ConstantVTable as VTable>::Metadata,
         buffers: &[ByteBuffer],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<ConstantArray> {

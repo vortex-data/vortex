@@ -3,9 +3,13 @@
 
 use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
 use crate::vtable::{ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
 
 impl VisitorVTable<FixedSizeListVTable> for FixedSizeListVTable {
+    fn metadata(_array: &FixedSizeListArray) -> EmptyMetadata {
+        EmptyMetadata
+    }
+
     fn visit_buffers(_array: &FixedSizeListArray, _visitor: &mut dyn ArrayBufferVisitor) {
         // `FixedSizeListArray` has no byte buffers.
     }

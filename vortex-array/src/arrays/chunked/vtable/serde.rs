@@ -6,23 +6,17 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
+use crate::ToCanonical;
 use crate::arrays::{ChunkedArray, ChunkedEncoding, ChunkedVTable};
 use crate::serde::ArrayChildren;
-use crate::vtable::SerdeVTable;
-use crate::{EmptyMetadata, ToCanonical};
+use crate::vtable::{SerdeVTable, VTable};
 
 impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &ChunkedArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
     fn build(
         _encoding: &ChunkedEncoding,
         dtype: &DType,
         _len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: &<ChunkedVTable as VTable>::Metadata,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ChunkedArray> {

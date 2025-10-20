@@ -19,6 +19,7 @@ pub struct MaskedEncoding;
 impl VTable for MaskedVTable {
     type Array = MaskedArray;
     type Encoding = MaskedEncoding;
+    type Metadata = crate::EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

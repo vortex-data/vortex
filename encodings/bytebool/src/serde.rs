@@ -12,17 +12,11 @@ use vortex_error::{VortexResult, vortex_bail};
 use crate::{ByteBoolArray, ByteBoolEncoding, ByteBoolVTable};
 
 impl SerdeVTable<ByteBoolVTable> for ByteBoolVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &ByteBoolArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
     fn build(
         _encoding: &ByteBoolEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _metadata: &<ByteBoolVTable as vortex_array::vtable::VTable>::Metadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ByteBoolArray> {
@@ -45,6 +39,10 @@ impl SerdeVTable<ByteBoolVTable> for ByteBoolVTable {
 }
 
 impl VisitorVTable<ByteBoolVTable> for ByteBoolVTable {
+    fn metadata(_array: &ByteBoolArray) -> EmptyMetadata {
+        EmptyMetadata
+    }
+
     fn visit_buffers(array: &ByteBoolArray, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(array.buffer());
     }

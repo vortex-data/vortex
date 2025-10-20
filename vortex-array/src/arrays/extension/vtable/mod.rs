@@ -17,6 +17,7 @@ vtable!(Extension);
 impl VTable for ExtensionVTable {
     type Array = ExtensionArray;
     type Encoding = ExtensionEncoding;
+    type Metadata = crate::EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

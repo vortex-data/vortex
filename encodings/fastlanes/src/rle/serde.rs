@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
@@ -28,23 +28,11 @@ pub struct RLEMetadata {
 }
 
 impl SerdeVTable<RLEVTable> for RLEVTable {
-    type Metadata = ProstMetadata<RLEMetadata>;
-
-    fn metadata(array: &RLEArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(RLEMetadata {
-            values_len: array.values().len() as u64,
-            indices_len: array.indices().len() as u64,
-            indices_ptype: PType::try_from(array.indices().dtype())? as i32,
-            values_idx_offsets_len: array.values_idx_offsets().len() as u64,
-            values_idx_offsets_ptype: PType::try_from(array.values_idx_offsets().dtype())? as i32,
-        })))
-    }
-
     fn build(
         _encoding: &RLEEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<<RLEVTable as VTable>::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<RLEArray> {
@@ -85,6 +73,16 @@ impl EncodeVTable<RLEVTable> for RLEVTable {
 }
 
 impl VisitorVTable<RLEVTable> for RLEVTable {
+    fn metadata(array: &RLEArray) -> <RLEVTable as VTable>::Metadata {
+        ProstMetadata(RLEMetadata {
+            values_len: array.values().len() as u64,
+            indices_len: array.indices().len() as u64,
+            indices_ptype: array.indices().dtype().as_ptype() as i32,
+            values_idx_offsets_len: array.values_idx_offsets().len() as u64,
+            values_idx_offsets_ptype: array.values_idx_offsets().dtype().as_ptype() as i32,
+        })
+    }
+
     fn visit_buffers(_array: &RLEArray, _visitor: &mut dyn ArrayBufferVisitor) {
         // RLE stores all data in child arrays, no direct buffers
     }

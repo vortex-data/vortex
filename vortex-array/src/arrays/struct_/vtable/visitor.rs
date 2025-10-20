@@ -5,9 +5,13 @@ use itertools::Itertools;
 
 use crate::arrays::struct_::{StructArray, StructVTable};
 use crate::vtable::{ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
 
 impl VisitorVTable<StructVTable> for StructVTable {
+    fn metadata(_array: &StructArray) -> EmptyMetadata {
+        EmptyMetadata
+    }
+
     fn visit_buffers(_array: &StructArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &StructArray, visitor: &mut dyn ArrayChildVisitor) {

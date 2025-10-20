@@ -5,11 +5,11 @@ use std::ops::Range;
 
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use pyo3::{Python, intern};
+use pyo3::Python;
 use vortex::buffer::ByteBuffer;
 use vortex::compute::{ComputeFn, InvocationArgs, Output};
 use vortex::dtype::DType;
-use vortex::error::{VortexResult, vortex_err};
+use vortex::error::{VortexExpect, VortexResult};
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::serde::ArrayChildren;
@@ -19,8 +19,8 @@ use vortex::vtable::{
     SerdeVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
-    EncodingRef, RawMetadata, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
+    EncodingId, EncodingRef, RawMetadata,
 };
 
 use crate::arrays::py::{PythonArray, PythonEncoding};
@@ -30,6 +30,7 @@ vtable!(Python);
 impl VTable for PythonVTable {
     type Array = PythonArray;
     type Encoding = PythonEncoding;
+    type Metadata = RawMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -99,6 +100,25 @@ impl ValidityVTable<PythonVTable> for PythonVTable {
 }
 
 impl VisitorVTable<PythonVTable> for PythonVTable {
+    fn metadata(array: &PythonArray) -> <PythonVTable as VTable>::Metadata {
+        // TODO(ngates): metadata should be extracted in the constructor and stored in the array
+        // so it can be returned here without error. For now we use expect which will panic
+        // if the Python call fails.
+        Python::attach(|py| {
+            let obj = array.object.bind(py);
+
+            let bytes = obj
+                .call_method("__vx_metadata__", (), None)
+                .vortex_expect("Failed to call __vx_metadata__")
+                .downcast::<PyBytes>()
+                .vortex_expect("Expected array metadata to be Python bytes")
+                .as_bytes()
+                .to_vec();
+
+            RawMetadata(bytes)
+        })
+    }
+
     fn visit_buffers(_array: &PythonArray, _visitor: &mut dyn ArrayBufferVisitor) {
         todo!()
     }
@@ -129,32 +149,11 @@ impl EncodeVTable<PythonVTable> for PythonVTable {
 }
 
 impl SerdeVTable<PythonVTable> for PythonVTable {
-    type Metadata = RawMetadata;
-
-    fn metadata(array: &PythonArray) -> VortexResult<Option<Self::Metadata>> {
-        Python::attach(|py| {
-            let obj = array.object.bind(py);
-            if !obj.hasattr(intern!(py, "metadata"))? {
-                // The class does not have a metadata attribute so does not support serialization.
-                return Ok(None);
-            }
-
-            let bytes = obj
-                .call_method("__vx_metadata__", (), None)?
-                .downcast::<PyBytes>()
-                .map_err(|_| vortex_err!("Expected array metadata to be Python bytes"))?
-                .as_bytes()
-                .to_vec();
-
-            Ok(Some(RawMetadata(bytes)))
-        })
-    }
-
     fn build(
         _encoding: &PythonEncoding,
         _dtype: &DType,
         _len: usize,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _metadata: &<<PythonVTable as VTable>::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<PythonArray> {

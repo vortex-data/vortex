@@ -91,10 +91,7 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ArrayRef> {
-        let metadata =
-            <<V::SerdeVTable as SerdeVTable<V>>::Metadata as DeserializeMetadata>::deserialize(
-                metadata,
-            )?;
+        let metadata = <<V as VTable>::Metadata as DeserializeMetadata>::deserialize(metadata)?;
         let array = <V::SerdeVTable as SerdeVTable<V>>::build(
             &self.0, dtype, len, &metadata, buffers, children,
         )?;

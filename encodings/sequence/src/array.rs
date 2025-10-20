@@ -8,11 +8,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityVTable,
-    VisitorVTable,
 };
-use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
-};
+use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{
     DType, NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
@@ -20,6 +17,8 @@ use vortex_dtype::{
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{PValue, Scalar, ScalarValue};
+
+use crate::SequenceMetadata;
 
 vtable!(Sequence);
 
@@ -149,6 +148,7 @@ impl SequenceArray {
 impl VTable for SequenceVTable {
     type Array = SequenceArray;
     type Encoding = SequenceEncoding;
+    type Metadata = vortex_array::ProstMetadata<SequenceMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -235,14 +235,6 @@ impl ValidityVTable<SequenceVTable> for SequenceVTable {
     fn validity_mask(array: &SequenceArray) -> Mask {
         Mask::AllTrue(array.len())
     }
-}
-
-impl VisitorVTable<SequenceVTable> for SequenceVTable {
-    fn visit_buffers(_array: &SequenceArray, _visitor: &mut dyn ArrayBufferVisitor) {
-        // TODO(joe): expose scalar values
-    }
-
-    fn visit_children(_array: &SequenceArray, _visitor: &mut dyn ArrayChildVisitor) {}
 }
 
 #[derive(Clone, Debug)]

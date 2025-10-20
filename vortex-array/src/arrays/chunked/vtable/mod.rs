@@ -18,6 +18,7 @@ vtable!(Chunked);
 impl VTable for ChunkedVTable {
     type Array = ChunkedArray;
     type Encoding = ChunkedEncoding;
+    type Metadata = crate::EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

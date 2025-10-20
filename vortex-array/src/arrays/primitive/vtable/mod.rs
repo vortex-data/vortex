@@ -18,6 +18,7 @@ vtable!(Primitive);
 impl VTable for PrimitiveVTable {
     type Array = PrimitiveArray;
     type Encoding = PrimitiveEncoding;
+    type Metadata = crate::EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

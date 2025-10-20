@@ -16,12 +16,14 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::alp_rd::alp_rd_decode;
+use crate::alp_rd::serde::ALPRDMetadata;
 
 vtable!(ALPRD);
 
 impl VTable for ALPRDVTable {
     type Array = ALPRDArray;
     type Encoding = ALPRDEncoding;
+    type Metadata = vortex_array::ProstMetadata<ALPRDMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

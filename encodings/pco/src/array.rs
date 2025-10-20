@@ -51,6 +51,7 @@ vtable!(Pco);
 impl VTable for PcoVTable {
     type Array = PcoArray;
     type Encoding = PcoEncoding;
+    type Metadata = vortex_array::ProstMetadata<PcoMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

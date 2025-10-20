@@ -23,7 +23,8 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_p
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
-use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
+pub(crate) use crate::serde::ZstdFrameMetadata;
+use crate::serde::ZstdMetadata;
 
 // Zstd doesn't support training dictionaries on very few samples.
 const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;
@@ -52,6 +53,7 @@ vtable!(Zstd);
 impl VTable for ZstdVTable {
     type Array = ZstdArray;
     type Encoding = ZstdEncoding;
+    type Metadata = vortex_array::ProstMetadata<ZstdMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

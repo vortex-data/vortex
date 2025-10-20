@@ -17,6 +17,7 @@ vtable!(VarBin);
 impl VTable for VarBinVTable {
     type Array = VarBinArray;
     type Encoding = VarBinEncoding;
+    type Metadata = crate::ProstMetadata<serde::VarBinMetadata>;
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
     type OperationsVTable = Self;

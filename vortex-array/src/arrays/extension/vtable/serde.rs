@@ -5,23 +5,16 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::EmptyMetadata;
 use crate::arrays::extension::{ExtensionArray, ExtensionEncoding, ExtensionVTable};
 use crate::serde::ArrayChildren;
-use crate::vtable::SerdeVTable;
+use crate::vtable::{SerdeVTable, VTable};
 
 impl SerdeVTable<ExtensionVTable> for ExtensionVTable {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &ExtensionArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
-    }
-
     fn build(
         _encoding: &ExtensionEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: &<ExtensionVTable as VTable>::Metadata,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ExtensionArray> {

@@ -3,9 +3,13 @@
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::vtable::{ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
 
 impl VisitorVTable<PrimitiveVTable> for PrimitiveVTable {
+    fn metadata(_array: &PrimitiveArray) -> EmptyMetadata {
+        EmptyMetadata
+    }
+
     fn visit_buffers(array: &PrimitiveArray, visitor: &mut dyn ArrayBufferVisitor) {
         visitor.visit_buffer(array.byte_buffer());
     }

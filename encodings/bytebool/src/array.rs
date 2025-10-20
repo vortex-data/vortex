@@ -23,6 +23,7 @@ vtable!(ByteBool);
 impl VTable for ByteBoolVTable {
     type Array = ByteBoolArray;
     type Encoding = ByteBoolEncoding;
+    type Metadata = vortex_array::EmptyMetadata;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;

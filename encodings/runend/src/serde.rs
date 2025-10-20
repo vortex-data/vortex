@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VTable, VisitorVTable};
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
@@ -24,22 +24,11 @@ pub struct RunEndMetadata {
 }
 
 impl SerdeVTable<RunEndVTable> for RunEndVTable {
-    type Metadata = ProstMetadata<RunEndMetadata>;
-
-    fn metadata(array: &RunEndArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(RunEndMetadata {
-            ends_ptype: PType::try_from(array.ends().dtype()).vortex_expect("Must be a valid PType")
-                as i32,
-            num_runs: array.ends().len() as u64,
-            offset: array.offset() as u64,
-        })))
-    }
-
     fn build(
         _encoding: &RunEndEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<<RunEndVTable as VTable>::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<RunEndArray> {
@@ -80,6 +69,14 @@ impl EncodeVTable<RunEndVTable> for RunEndVTable {
 }
 
 impl VisitorVTable<RunEndVTable> for RunEndVTable {
+    fn metadata(array: &RunEndArray) -> <RunEndVTable as VTable>::Metadata {
+        ProstMetadata(RunEndMetadata {
+            ends_ptype: array.ends().dtype().as_ptype() as i32,
+            num_runs: array.ends().len() as u64,
+            offset: array.offset() as u64,
+        })
+    }
+
     fn visit_buffers(_array: &RunEndArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &RunEndArray, visitor: &mut dyn ArrayChildVisitor) {

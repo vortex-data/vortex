@@ -15,17 +15,6 @@ use crate::{DeserializeMetadata, EmptyMetadata, SerializeMetadata};
 ///
 /// # Guarantees
 pub trait SerdeVTable<V: VTable> {
-    type Metadata: Debug + SerializeMetadata + DeserializeMetadata;
-
-    /// Exports metadata for an array.
-    ///
-    /// All other parts of the array are exported using the [`crate::vtable::VisitorVTable`].
-    ///
-    /// * If the array does not require serialized metadata, it should return
-    ///   [`crate::metadata::EmptyMetadata`].
-    /// * If the array does not support serialization, it should return `None`.
-    fn metadata(array: &V::Array) -> VortexResult<Option<Self::Metadata>>;
-
     /// Build an array from components.
     ///
     /// This is called on the file and IPC deserialization pathways, to reconstruct the array from
@@ -61,24 +50,18 @@ pub trait SerdeVTable<V: VTable> {
         encoding: &V::Encoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<V::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<V::Array>;
 }
 
 impl<V: VTable> SerdeVTable<V> for NotSupported {
-    type Metadata = EmptyMetadata;
-
-    fn metadata(_array: &V::Array) -> VortexResult<Option<Self::Metadata>> {
-        Ok(None)
-    }
-
     fn build(
         encoding: &V::Encoding,
         _dtype: &DType,
         _len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: &<V::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<V::Array> {
