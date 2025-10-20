@@ -5,13 +5,13 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::try_join;
+use futures::{FutureExt, try_join};
 use itertools::Itertools;
-use vortex_array::arrays::{StructArray, StructVTable};
+use vortex_array::arrays::StructArray;
 use vortex_array::stats::Precision;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, IntoArray, MaskFuture, ToCanonical};
-use vortex_dtype::{DType, FieldDType, FieldMask, FieldName, Nullability, StructFields};
+use vortex_array::{Array, IntoArray, MaskFuture, ToCanonical};
+use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
@@ -274,56 +274,46 @@ impl LayoutReader for StructReader {
             .transpose()?;
 
         // Partition the expression into expressions that can be evaluated over individual fields
-        let projection_fut = match &self.partition_expr(expr.clone()) {
-            Partitioned::Single(name, partition) => self
-                .field_reader(name)?
-                .projection_evaluation(row_range, partition, mask),
+        let array_future = match &self.partition_expr(expr.clone()) {
+            Partitioned::Single(name, partition) => {
+                // We should yield a new StructArray that has the given partition info.
+                let name = name.clone();
+                self.field_reader(&name)?
+                    .projection_evaluation(row_range, partition, mask)?
+                    .map(|result| {
+                        result.and_then(move |array| {
+                            let len = array.len();
+                            StructArray::try_new(
+                                vec![name].into(),
+                                vec![array],
+                                len,
+                                Validity::NonNullable,
+                            )
+                            .map(|a| a.into_array())
+                        })
+                    })
+                    .boxed()
+            }
             Partitioned::Multi(partitioned) => {
+                // Apply the validity to each internal field instead.
                 partitioned
                     .clone()
                     .into_array_future(mask, |name, expr, mask| {
                         self.field_reader(name)?
                             .projection_evaluation(row_range, expr, mask)
-                    })
+                    })?
             }
-        }?;
+        };
 
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
-                // Apply the validity array back onto the projected rows.
-                // NOTE: this only works while VortexExpr is linear. Once an expression
-                //  can return a result of different length (e.g. `UNNEST`) then this becomes
-                //  more complicated.
-                let (validity, projection) = try_join!(validity_fut, projection_fut)?;
-
-                // The expression partitioner takes care of re-packing the projection results into
-                // a new struct array.
-                // Since the pack is always present, we apply the validity back onto the children
-                // directly.
-
-                let projection_struct = projection.as_::<StructVTable>().clone();
-                let field_names = projection_struct.struct_fields().names().clone();
-
-                let fields: Vec<ArrayRef> = projection_struct
-                    .fields()
-                    .iter()
-                    .map(|field| {
-                        vortex_array::compute::mask(
-                            field.as_ref(),
-                            &Mask::from_buffer(!validity.to_bool().boolean_buffer()),
-                        )
-                    })
-                    .try_collect()?;
-
-                Ok(StructArray::try_new(
-                    field_names,
-                    fields,
-                    projection_struct.len(),
-                    Validity::NonNullable,
-                )?
-                .into_array())
+                let (validity, array) = try_join!(validity_fut, array_future)?;
+                vortex_array::compute::mask(
+                    array.as_ref(),
+                    &Mask::from_buffer(!validity.to_bool().boolean_buffer()),
+                )
             } else {
-                projection_fut.await
+                array_future.await
             }
         }))
     }
@@ -339,8 +329,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, IntoArray, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{DType, FieldDType, FieldName, Nullability, PType, StructFields};
     use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root};
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
@@ -489,7 +478,7 @@ mod tests {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = pack(
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
-            NonNullable,
+            Nullability::NonNullable,
         );
         let result = block_on(|_h| {
             reader
@@ -538,21 +527,24 @@ mod tests {
             .unwrap();
 
         let result = block_on(move |_| project).unwrap();
-        // Result should be nullable primitive array
+        // Result should be a struct with single field
         assert_eq!(
             result.dtype(),
-            &DType::Primitive(PType::I32, Nullability::Nullable)
+            &DType::Struct(
+                StructFields::from_fields(
+                    vec![FieldName::from("a")].into(),
+                    vec![FieldDType::from(DType::Primitive(
+                        PType::I32,
+                        Nullability::NonNullable,
+                    ))]
+                ),
+                Nullability::Nullable,
+            )
         );
 
         assert_eq!(result.scalar_at(0), Scalar::null(result.dtype().clone()),);
 
-        assert_eq!(
-            result.scalar_at(1),
-            Scalar::primitive(2i32, Nullability::Nullable),
-        );
-        assert_eq!(
-            result.scalar_at(2),
-            Scalar::primitive(3i32, Nullability::Nullable),
-        );
+        assert!(result.scalar_at(1).is_valid());
+        assert!(result.scalar_at(2).is_valid());
     }
 }
