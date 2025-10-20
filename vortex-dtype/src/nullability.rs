@@ -37,7 +37,7 @@ impl Nullability {
     ///
     /// // `a` is incremented once because the closure is evaluated lazily by `is_nullable_then`.
     /// assert_eq!(a, 1);
-    /// ```c
+    /// ```
     ///
     /// Inspired by the [`bool::then`] function.
     pub fn is_nullable_then<T, F: FnOnce() -> T>(self, f: F) -> Option<T> {

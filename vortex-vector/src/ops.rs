@@ -3,10 +3,7 @@
 
 use vortex_dtype::{DType, Nullability};
 
-use crate::{
-    Vector, VectorMut, match_each_vector, match_each_vector_mut, match_each_vector_mut_immut_pair,
-    match_each_vector_mut_pair, private,
-};
+use crate::{Vector, VectorMut, private};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
 pub trait VectorOps: private::Sealed + Into<Vector> {
@@ -39,31 +36,6 @@ pub trait VectorOps: private::Sealed + Into<Vector> {
     fn try_into_mut(self) -> Result<Self::Mutable, Self>
     where
         Self: Sized;
-}
-
-impl VectorOps for Vector {
-    type Mutable = VectorMut;
-
-    fn nullability(&self) -> Nullability {
-        match_each_vector!(self, |v| { v.nullability() })
-    }
-
-    fn dtype(&self) -> DType {
-        match_each_vector!(self, |v| { v.dtype() })
-    }
-
-    fn len(&self) -> usize {
-        match_each_vector!(self, |v| { v.len() })
-    }
-
-    fn try_into_mut(self) -> Result<Self::Mutable, Self>
-    where
-        Self: Sized,
-    {
-        match_each_vector!(self, |v| {
-            v.try_into_mut().map(VectorMut::from).map_err(Vector::from)
-        })
-    }
 }
 
 /// Common operations for mutable vectors (all the variants of [`VectorMut`]).
@@ -131,48 +103,4 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     ///
     /// [`split_off()`]: Self::split_off
     fn unsplit(&mut self, other: Self);
-}
-
-impl VectorMutOps for VectorMut {
-    type Immutable = Vector;
-
-    fn nullability(&self) -> Nullability {
-        match_each_vector_mut!(self, |v| { v.nullability() })
-    }
-
-    fn dtype(&self) -> DType {
-        match_each_vector_mut!(self, |v| { v.dtype() })
-    }
-
-    fn len(&self) -> usize {
-        match_each_vector_mut!(self, |v| { v.len() })
-    }
-
-    fn capacity(&self) -> usize {
-        match_each_vector_mut!(self, |v| { v.capacity() })
-    }
-
-    fn reserve(&mut self, additional: usize) {
-        match_each_vector_mut!(self, |v| { v.reserve(additional) })
-    }
-
-    fn extend_from_vector(&mut self, other: &Self::Immutable) {
-        match_each_vector_mut_immut_pair!(self, other, |a, b| {
-            a.extend_from_vector(b);
-        });
-    }
-
-    fn freeze(self) -> Self::Immutable {
-        match_each_vector_mut!(self, |v| { v.freeze().into() })
-    }
-
-    fn split_off(&mut self, at: usize) -> Self {
-        match_each_vector_mut!(self, |v| { v.split_off(at).into() })
-    }
-
-    fn unsplit(&mut self, other: Self) {
-        match_each_vector_mut_pair!(self, other, |a, b| {
-            a.unsplit(b);
-        });
-    }
 }
