@@ -4,7 +4,7 @@
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use vortex_dtype::{DType, Nullability, Fields};
+use vortex_dtype::{DType, Fields, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 

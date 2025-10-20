@@ -37,18 +37,12 @@ pub fn annotate_scope_access(scope: &Fields) -> impl AnnotationFn<Annotation = F
 /// Note: This is a very naive, but simple analysis to find the fields that are accessed directly on an
 /// identity node. This is combined to provide an over-approximation of the fields that are accessed
 /// by an expression.
-pub fn immediate_scope_accesses<'a>(
-    expr: &'a ExprRef,
-    scope: &'a Fields,
-) -> FieldAccesses<'a> {
+pub fn immediate_scope_accesses<'a>(expr: &'a ExprRef, scope: &'a Fields) -> FieldAccesses<'a> {
     descendent_annotations(expr, annotate_scope_access(scope))
 }
 
 /// This returns the immediate scope_access (as explained `immediate_scope_accesses`) for `expr`.
-pub fn immediate_scope_access<'a>(
-    expr: &'a ExprRef,
-    scope: &'a Fields,
-) -> HashSet<FieldName> {
+pub fn immediate_scope_access<'a>(expr: &'a ExprRef, scope: &'a Fields) -> HashSet<FieldName> {
     immediate_scope_accesses(expr, scope)
         .get(expr)
         .vortex_expect("Expression missing from scope accesses, this is a internal bug")

@@ -174,7 +174,7 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BufferString;
     use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, Fields};
+    use vortex_dtype::{DType, DecimalDType, FieldDType, Fields, Nullability, PType};
     use vortex_error::vortex_panic;
     use vortex_proto::scalar as pb;
 

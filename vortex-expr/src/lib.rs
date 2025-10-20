@@ -389,7 +389,7 @@ impl Hash for ExactExpr {
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
-    use vortex_dtype::{DType, Nullability, PType, Fields};
+    use vortex_dtype::{DType, Fields, Nullability, PType};
 
     pub fn struct_dtype() -> DType {
         DType::Struct(
@@ -410,7 +410,7 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, Fields};
+    use vortex_dtype::{DType, FieldNames, Fields, Nullability, PType};
     use vortex_scalar::Scalar;
 
     use super::*;

@@ -178,7 +178,7 @@ mod tests {
     use vortex_array::{Array, ArrayRef, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability, Fields};
+    use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Fields, Nullability};
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
 

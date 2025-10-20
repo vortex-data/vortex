@@ -7,7 +7,7 @@ use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray, ToCanonical};
-use vortex_dtype::{DType, FieldNames, Nullability, Fields};
+use vortex_dtype::{DType, FieldNames, Fields, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 use crate::display::{DisplayAs, DisplayFormat};

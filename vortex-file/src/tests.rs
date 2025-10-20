@@ -20,7 +20,7 @@ use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dict::{DictEncoding, DictVTable};
 use vortex_dtype::PType::I32;
-use vortex_dtype::{DType, DecimalDType, Nullability, PType, Fields};
+use vortex_dtype::{DType, DecimalDType, Fields, Nullability, PType};
 use vortex_error::VortexResult;
 use vortex_expr::{PackExpr, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
 use vortex_scalar::Scalar;

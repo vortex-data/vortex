@@ -9,8 +9,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, dtype as fbd};
 
 use crate::{
-    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, Fields,
-    flatbuffers as fb,
+    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldDType, Fields, PType, flatbuffers as fb,
 };
 
 mod project;
@@ -374,7 +373,7 @@ mod test {
 
     use crate::nullability::Nullability;
     use crate::serde::flatbuffers::ViewedDType;
-    use crate::{DType, PType, Fields, flatbuffers as fb};
+    use crate::{DType, Fields, PType, flatbuffers as fb};
 
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes();

@@ -175,7 +175,7 @@ pub fn lit(value: impl Into<Scalar>) -> ExprRef {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability, PType, Fields};
+    use vortex_dtype::{DType, Fields, Nullability, PType};
     use vortex_scalar::Scalar;
 
     use crate::{lit, test_harness};

@@ -34,7 +34,7 @@ use std::sync::Arc;
 use vortex::dtype::PType::{F32, F64, I8, I16, I32, I64, U8, U16, U32, U64};
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 use vortex::dtype::{
-    DType, DecimalDType, ExtDType, FieldName, Nullability, PType, Fields, datetime,
+    DType, DecimalDType, ExtDType, FieldName, Fields, Nullability, PType, datetime,
 };
 use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
@@ -269,7 +269,7 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use vortex::dtype::{DType, FieldName, FieldNames, Nullability, PType, Fields};
+    use vortex::dtype::{DType, FieldName, FieldNames, Fields, Nullability, PType};
 
     use crate::cpp;
     use crate::duckdb::LogicalType;

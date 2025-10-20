@@ -30,7 +30,7 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-    use vortex_dtype::{DType, ExtDType, ExtMetadata, FieldName, PType, Fields};
+    use vortex_dtype::{DType, ExtDType, ExtMetadata, FieldName, Fields, PType};
 
     use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 

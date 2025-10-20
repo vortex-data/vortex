@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{Nullability, Fields};
+use vortex_dtype::{Fields, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::traversal::{NodeExt, Transformed};

@@ -9,7 +9,7 @@ use crate::field::{Field, FieldPath};
 use crate::proto::dtype as pb;
 use crate::proto::dtype::d_type::DtypeType;
 use crate::proto::dtype::field::FieldType;
-use crate::{DType, DecimalDType, ExtDType, ExtID, ExtMetadata, PType, Fields};
+use crate::{DType, DecimalDType, ExtDType, ExtID, ExtMetadata, Fields, PType};
 
 impl TryFrom<&pb::DType> for DType {
     type Error = VortexError;
@@ -193,8 +193,8 @@ mod tests {
     use crate::proto::dtype::d_type::DtypeType;
     use crate::proto::dtype::field::FieldType;
     use crate::{
-        DType, DecimalDType, ExtDType, ExtID, ExtMetadata, Field, FieldPath, Nullability, PType,
-        Fields,
+        DType, DecimalDType, ExtDType, ExtID, ExtMetadata, Field, FieldPath, Fields, Nullability,
+        PType,
     };
 
     fn round_trip_dtype(dtype: &DType) -> DType {

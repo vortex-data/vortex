@@ -7,7 +7,7 @@ use jni::JNIEnv;
 use jni::objects::{JClass, JLongArray, JObject, JObjectArray, JString, JValue};
 use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyte, jint, jlong, jobject, jstring};
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex::dtype::{DType, DecimalDType, ExtDType, Nullability, PType, Fields};
+use vortex::dtype::{DType, DecimalDType, ExtDType, Fields, Nullability, PType};
 use vortex::error::vortex_err;
 
 use crate::errors::{JNIError, try_or_throw};

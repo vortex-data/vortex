@@ -8,7 +8,7 @@ use pyo3::prelude::PyAnyMethods;
 use pyo3::types::PyDict;
 use pyo3::{Bound, PyResult, Python, pyfunction};
 use vortex::dtype::{
-    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldName, FieldNames, PType, Fields,
+    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldName, FieldNames, Fields, PType,
 };
 
 use crate::dtype::PyDType;
@@ -361,10 +361,7 @@ pub(super) fn dtype_struct<'py>(
     } else {
         PyDType::init(
             py,
-            DType::Struct(
-                Fields::new(FieldNames::empty(), vec![]),
-                nullable.into(),
-            ),
+            DType::Struct(Fields::new(FieldNames::empty(), vec![]), nullable.into()),
         )
     }
 }

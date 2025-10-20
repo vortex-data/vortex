@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, Nullability, PType, Fields};
+use vortex_dtype::{DType, Fields, Nullability, PType};
 use vortex_error::VortexExpect;
 
 use crate::arrays::{ChunkedArray, ChunkedVTable, ListViewArray, PrimitiveArray, StructArray};

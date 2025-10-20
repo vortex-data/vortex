@@ -7,7 +7,7 @@ use itertools::Itertools;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString};
-use vortex::dtype::{DType, FieldName, FieldNames, Nullability, Fields};
+use vortex::dtype::{DType, FieldName, FieldNames, Fields, Nullability};
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;

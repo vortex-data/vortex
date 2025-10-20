@@ -8,7 +8,7 @@ use vortex_error::VortexExpect;
 
 use crate::{
     DECIMAL256_MAX_PRECISION, DECIMAL256_MAX_SCALE, DType, DecimalDType, FieldName, FieldNames,
-    Nullability, PType, Fields,
+    Fields, Nullability, PType,
 };
 
 impl<'a> Arbitrary<'a> for DType {

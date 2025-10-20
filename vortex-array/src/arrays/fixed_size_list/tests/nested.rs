@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, FieldNames, Nullability, PType, Fields};
+use vortex_dtype::{DType, FieldNames, Fields, Nullability, PType};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{FixedSizeListArray, PrimitiveArray, StructArray};

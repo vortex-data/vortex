@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, FieldNames, Nullability, PType, Fields};
+use vortex_dtype::{DType, FieldNames, Fields, Nullability, PType};
 
 use crate::arrays::{ListViewArray, ListViewVTable, PrimitiveArray, StructArray};
 use crate::validity::Validity;

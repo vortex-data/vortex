@@ -9,7 +9,7 @@ use vortex_array::compute::sum;
 use vortex_array::stats::{Precision, Stat, StatsProvider, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{DType, Nullability, PType, Fields};
+use vortex_dtype::{DType, Fields, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_expr::{ExprRef, Scope};
 use vortex_mask::Mask;

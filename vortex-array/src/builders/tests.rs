@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, DecimalDType, ExtDType, ExtID, Nullability, PType, Fields};
+use vortex_dtype::{DType, DecimalDType, ExtDType, ExtID, Fields, Nullability, PType};
 use vortex_scalar::Scalar;
 
 use crate::builders::{ArrayBuilder, builder_with_capacity};

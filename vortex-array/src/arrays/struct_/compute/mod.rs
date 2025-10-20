@@ -14,7 +14,7 @@ mod tests {
     use Nullability::{NonNullable, Nullable};
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, Fields};
+    use vortex_dtype::{DType, FieldNames, Fields, Nullability, PType};
     use vortex_error::VortexUnwrap;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
@@ -182,15 +182,12 @@ mod tests {
         let array = StructArray::try_new(FieldNames::default(), vec![], 5, Validity::NonNullable)
             .unwrap()
             .into_array();
-        let non_nullable_dtype = DType::Struct(
-            Fields::new(FieldNames::default(), vec![]),
-            NonNullable,
-        );
+        let non_nullable_dtype =
+            DType::Struct(Fields::new(FieldNames::default(), vec![]), NonNullable);
         let casted = cast(&array, &non_nullable_dtype).unwrap();
         assert_eq!(casted.dtype(), &non_nullable_dtype);
 
-        let nullable_dtype =
-            DType::Struct(Fields::new(FieldNames::default(), vec![]), Nullable);
+        let nullable_dtype = DType::Struct(Fields::new(FieldNames::default(), vec![]), Nullable);
         let casted = cast(&array, &nullable_dtype).unwrap();
         assert_eq!(casted.dtype(), &nullable_dtype);
     }

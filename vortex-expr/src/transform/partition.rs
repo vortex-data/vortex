@@ -4,7 +4,7 @@
 use std::fmt::{Display, Formatter};
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, FieldNames, Nullability, Fields};
+use vortex_dtype::{DType, FieldName, FieldNames, Fields, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 
