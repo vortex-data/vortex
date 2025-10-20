@@ -7,9 +7,11 @@ use std::sync::Arc;
 
 use futures::try_join;
 use itertools::Itertools;
+use vortex_array::arrays::{StructArray, StructVTable};
 use vortex_array::stats::Precision;
-use vortex_array::{MaskFuture, ToCanonical};
-use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
+use vortex_array::validity::Validity;
+use vortex_array::{ArrayRef, IntoArray, MaskFuture, ToCanonical};
+use vortex_dtype::{DType, FieldDType, FieldMask, FieldName, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
@@ -293,10 +295,33 @@ impl LayoutReader for StructReader {
                 //  can return a result of different length (e.g. `UNNEST`) then this becomes
                 //  more complicated.
                 let (validity, projection) = try_join!(validity_fut, projection_fut)?;
-                vortex_array::compute::mask(
-                    projection.as_ref(),
-                    &Mask::from_buffer(!validity.to_bool().boolean_buffer()),
-                )
+
+                // The expression partitioner takes care of re-packing the projection results into
+                // a new struct array.
+                // Since the pack is always present, we apply the validity back onto the children
+                // directly.
+
+                let projection_struct = projection.as_::<StructVTable>().clone();
+                let field_names = projection_struct.struct_fields().names().clone();
+
+                let fields: Vec<ArrayRef> = projection_struct
+                    .fields()
+                    .iter()
+                    .map(|field| {
+                        vortex_array::compute::mask(
+                            field.as_ref(),
+                            &Mask::from_buffer(!validity.to_bool().boolean_buffer()),
+                        )
+                    })
+                    .try_collect()?;
+
+                Ok(StructArray::try_new(
+                    field_names,
+                    fields,
+                    projection_struct.len(),
+                    Validity::NonNullable,
+                )?
+                .into_array())
             } else {
                 projection_fut.await
             }
