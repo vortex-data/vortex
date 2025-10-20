@@ -3,13 +3,20 @@
 
 //! Mutable decompressed (canonical) vectors for Vortex.
 //!
-//! TODO docs.
+//! TODO(connor) More docs.
+
+// TODO(connor)
+// - Document everything
+// - Figure out correct panic propagation
+// - Figure out exact semantics of `split_off` w.r.t. length of capacity
+// - Fix bugs in implementations
+// - Add tests
+// - Figure out error semantics on ops traits
+// - Implement PartialEq and Eq for vectors
+// - Add stubs for remaining vector variants
+// - Potentially add `TryFrom<<Type>Vector> for Vector` or some other conversion method
 
 #![deny(missing_docs)]
-// #![warn(clippy::missing_docs_in_private_items)]
-// #![warn(clippy::missing_errors_doc)]
-// #![warn(clippy::missing_panics_doc)]
-// #![warn(clippy::missing_safety_doc)]
 
 mod vector;
 pub use vector::ops::{VectorMutOps, VectorOps};

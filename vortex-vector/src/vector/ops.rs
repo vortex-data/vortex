@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definition and implementation of [`VectorOps`] and [`VectorOpsMut`] for [`Vector`] and
-//! [`VectorMut`], respecitively.
-
 use vortex_dtype::{DType, Nullability};
 
 use crate::{
@@ -11,7 +8,7 @@ use crate::{
     match_each_vector_mut_pair, private,
 };
 
-/// Common operations for immutable vectors.
+/// Common operations for immutable vectors (all the variants of [`Vector`]).
 pub trait VectorOps: private::Sealed + Into<Vector> {
     /// The mutable equivalent of this immutable vector.
     type Mutable: VectorMutOps<Immutable = Self>;
@@ -30,13 +27,15 @@ pub trait VectorOps: private::Sealed + Into<Vector> {
         self.len() == 0
     }
 
-    /// Try to convert `self` into a mutable vector (implementing [`VectorMutOps`]).
+    /// Tries to convert `self` into a mutable vector (implementing [`VectorMutOps`]).
     ///
-    /// If `self` is the only unique strong reference (it effectively "owns" the buffer), this
-    /// method will succeed and return a mutable vector with the contents of `self` **without**
-    /// copying.
+    /// This method will only succeed if `self` is the only unique strong reference (it effectively
+    /// "owns" the buffer). If this is true, this method will return a mutable vector with the
+    /// contents of `self` **without** any copying of data.
     ///
-    /// If `self` is not unique, this will fail and return `self` back.
+    /// # Errors
+    ///
+    /// If `self` is not unique, this will fail and return `self` back to the caller.
     fn try_into_mut(self) -> Result<Self::Mutable, Self>
     where
         Self: Sized;
@@ -67,7 +66,7 @@ impl VectorOps for Vector {
     }
 }
 
-/// Common operations for mutable vectors.
+/// Common operations for mutable vectors (all the variants of [`VectorMut`]).
 pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     /// The immutable equivalent of this mutable vector.
     type Immutable: VectorOps<Mutable = Self>;
@@ -100,6 +99,9 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     fn reserve(&mut self, additional: usize);
 
     /// Extends the vector by appending elements from another vector.
+    ///
+    /// TODO(connor): Document semantics of what happens if `self` is non-nullable and `other` is
+    /// nullable (should panic?).
     fn extend_from_vector(&mut self, other: &Self::Immutable);
 
     /// Converts `self` into an immutable vector.
@@ -122,10 +124,12 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     /// Absorbs a mutable vector that was previously split off.
     ///
     /// If the two vectors were previously contiguous and not mutated in a way that causes
-    /// re-allocation i.e., if other was created by calling split_off on this vector, then this is
-    /// an O(1) operation that just decreases a reference count and sets a few indices.
+    /// re-allocation i.e., if other was created by calling [`split_off()`] on this vector, then
+    /// this is an `O(1)` operation (simply decreases a reference count and sets a few indices).
     ///
-    /// Otherwise, this method degenerates to `self.extend_from_vector(other.as_ref())`.
+    /// Otherwise, this method falls back to `self.extend_from_vector(other)`.
+    ///
+    /// [`split_off()`]: Self::split_off
     fn unsplit(&mut self, other: Self);
 }
 

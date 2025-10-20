@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of [`BoolVectorMut`].
+
 use vortex_buffer::BitBufferMut;
 use vortex_dtype::{DType, Nullability};
 use vortex_mask::MaskMut;
@@ -9,13 +11,19 @@ use super::BoolVector;
 use crate::VectorMutOps;
 
 /// A mutable vector of boolean values.
+///
+/// Internally, the boolean values are stored as the bits of a [`BitBufferMut`] plus an optional
+/// [`MaskMut`] for null booleans.
+///
+/// The immutable equivalent of this type is [`BoolVector`].
+#[derive(Debug, Clone)]
 pub struct BoolVectorMut {
     pub(super) bits: BitBufferMut,
     pub(super) validity: Option<MaskMut>,
 }
 
 impl BoolVectorMut {
-    /// Create a new mutable boolean vector with the given capacity and nullability.
+    /// Creates a new mutable boolean vector with the given `capacity` and `nullability`.
     pub fn with_capacity(capacity: usize, nullability: Nullability) -> Self {
         let validity = match nullability {
             Nullability::NonNullable => None,
@@ -41,6 +49,12 @@ impl VectorMutOps for BoolVectorMut {
     }
 
     fn len(&self) -> usize {
+        debug_assert!(
+            self.validity
+                .as_ref()
+                .is_none_or(|mask| mask.len() == self.bits.len())
+        );
+
         self.bits.len()
     }
 
@@ -50,6 +64,7 @@ impl VectorMutOps for BoolVectorMut {
 
     fn reserve(&mut self, additional: usize) {
         self.bits.reserve(additional);
+
         if let Some(v) = self.validity.as_mut() {
             v.reserve(additional);
         }
@@ -57,6 +72,8 @@ impl VectorMutOps for BoolVectorMut {
 
     fn extend_from_vector(&mut self, other: &BoolVector) {
         self.bits.append_buffer(&other.bits);
+
+        // TODO(connor): We must `other`'s nullability in relation to `self`.
         match (&mut self.validity, &other.validity) {
             (Some(self_v), Some(other_v)) => self_v.append_mask(other_v),
             (Some(self_v), None) => self_v.append_n(true, other.bits.len()),
@@ -84,8 +101,11 @@ impl VectorMutOps for BoolVectorMut {
     }
 
     fn unsplit(&mut self, other: Self) {
+        // TODO(connor): We must check `other`'s nullability in relation to `self`.
+
         let other_len = other.bits.len();
         self.bits.unsplit(other.bits);
+
         match (&mut self.validity, other.validity) {
             (Some(self_v), Some(other_v)) => self_v.unsplit(other_v),
             (Some(self_v), None) => self_v.append_n(true, other_len),

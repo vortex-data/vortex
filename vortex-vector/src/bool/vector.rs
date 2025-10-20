@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of [`BoolVector`].
+
 use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_mask::Mask;
@@ -9,6 +11,12 @@ use super::BoolVectorMut;
 use crate::VectorOps;
 
 /// An immutable vector of boolean values.
+///
+/// Internally, the boolean values are stored as the bits of a [`BitBuffer`] plus an optional
+/// [`Mask`] for null booleans.
+///
+/// The mutable equivalent of this type is [`BoolVectorMut`].
+#[derive(Debug, Clone)]
 pub struct BoolVector {
     pub(super) bits: BitBuffer,
     pub(super) validity: Option<Mask>,
@@ -26,6 +34,12 @@ impl VectorOps for BoolVector {
     }
 
     fn len(&self) -> usize {
+        debug_assert!(
+            self.validity
+                .as_ref()
+                .is_none_or(|mask| mask.len() == self.bits.len())
+        );
+
         self.bits.len()
     }
 

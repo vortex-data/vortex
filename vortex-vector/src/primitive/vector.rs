@@ -1,13 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of [`PrimitiveVector`].
+
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, NativePType, Nullability, PTypeUpcast};
 
-use super::{GenericPVector, GenericPVectorMut, PrimitiveVectorMut};
-use crate::{Vector, VectorOps, match_each_pvector};
+use super::{GenericPVector, PrimitiveVectorMut};
+use crate::{VectorOps, match_each_pvector};
 
-/// An enum over all primitive vector types.
+/// An immutable vector of primitive values.
+///
+/// `PrimitiveVector` is represented by an enum over all possible [`GenericPVector`] types (which
+/// are templated by the types that implement [`NativePType`]).
+///
+/// The mutable equivalent of this type is [`PrimitiveVectorMut`].
+#[derive(Debug, Clone)]
 pub enum PrimitiveVector {
     /// U8
     U8(GenericPVector<u8>),
@@ -31,12 +39,6 @@ pub enum PrimitiveVector {
     F32(GenericPVector<f32>),
     /// F64
     F64(GenericPVector<f64>),
-}
-
-impl From<PrimitiveVector> for Vector {
-    fn from(v: PrimitiveVector) -> Self {
-        Self::Primitive(v)
-    }
 }
 
 impl VectorOps for PrimitiveVector {
@@ -66,7 +68,10 @@ impl VectorOps for PrimitiveVector {
     }
 }
 
-// From impls for PrimitiveVector variants
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Upcast Conversion
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 impl<T: NativePType> From<GenericPVector<T>> for PrimitiveVector {
     fn from(v: GenericPVector<T>) -> Self {
         T::upcast(v)
@@ -118,60 +123,5 @@ impl PTypeUpcast for PrimitiveVector {
 
     fn from_f64(input: Self::Input<f64>) -> Self {
         PrimitiveVector::F64(input)
-    }
-}
-
-// From impls for PrimitiveVectorMut variants
-impl<T: NativePType> From<GenericPVectorMut<T>> for PrimitiveVectorMut {
-    fn from(v: GenericPVectorMut<T>) -> Self {
-        T::upcast(v)
-    }
-}
-
-impl PTypeUpcast for PrimitiveVectorMut {
-    type Input<T: NativePType> = GenericPVectorMut<T>;
-
-    fn from_u8(input: Self::Input<u8>) -> Self {
-        PrimitiveVectorMut::U8(input)
-    }
-
-    fn from_u16(input: Self::Input<u16>) -> Self {
-        PrimitiveVectorMut::U16(input)
-    }
-
-    fn from_u32(input: Self::Input<u32>) -> Self {
-        PrimitiveVectorMut::U32(input)
-    }
-
-    fn from_u64(input: Self::Input<u64>) -> Self {
-        PrimitiveVectorMut::U64(input)
-    }
-
-    fn from_i8(input: Self::Input<i8>) -> Self {
-        PrimitiveVectorMut::I8(input)
-    }
-
-    fn from_i16(input: Self::Input<i16>) -> Self {
-        PrimitiveVectorMut::I16(input)
-    }
-
-    fn from_i32(input: Self::Input<i32>) -> Self {
-        PrimitiveVectorMut::I32(input)
-    }
-
-    fn from_i64(input: Self::Input<i64>) -> Self {
-        PrimitiveVectorMut::I64(input)
-    }
-
-    fn from_f16(input: Self::Input<f16>) -> Self {
-        PrimitiveVectorMut::F16(input)
-    }
-
-    fn from_f32(input: Self::Input<f32>) -> Self {
-        PrimitiveVectorMut::F32(input)
-    }
-
-    fn from_f64(input: Self::Input<f64>) -> Self {
-        PrimitiveVectorMut::F64(input)
     }
 }

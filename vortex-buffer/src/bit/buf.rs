@@ -11,7 +11,7 @@ use crate::bit::{
 use crate::{Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer, buffer};
 
 /// An immutable bitset stored as a packed byte buffer.
-#[derive(Clone, Debug, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct BitBuffer {
     buffer: ByteBuffer,
     len: usize,

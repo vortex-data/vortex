@@ -8,8 +8,10 @@ use vortex_buffer::{BitBuffer, BitBufferMut};
 use crate::Mask;
 
 /// A mutable mask, used for lazily allocating the bit buffer as required.
+#[derive(Debug, Clone)]
 pub struct MaskMut(Inner);
 
+#[derive(Debug, Clone)]
 enum Inner {
     /// Initially, the mask is empty but may have some capacity.
     Empty { capacity: usize },

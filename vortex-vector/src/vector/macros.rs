@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// TODO(connor): Finish implementing the rest of the macros.
+
 /// TODO(connor): Write docs.
 #[macro_export]
 macro_rules! match_each_vector {
