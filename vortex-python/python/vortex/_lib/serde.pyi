@@ -5,6 +5,7 @@ from typing import final
 
 import pyarrow as pa
 
+from .arrays import Array
 from .dtype import DType
 
 @final
@@ -26,3 +27,8 @@ class ArrayParts:
 @final
 class ArrayContext:
     def __len__(self) -> int: ...
+
+def decode_ipc_array(array_bytes: bytes, dtype_bytes: bytes) -> Array: ...
+def decode_ipc_array_buffers(
+    array_buffers: list[bytes | memoryview], dtype_buffers: list[bytes | memoryview]
+) -> Array: ...

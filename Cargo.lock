@@ -6292,6 +6292,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pyo3-bytes"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f01f356a8686c821ce6ec5ac74a442ffbda3ce1fb26a113d4120fd78faf9f726"
+dependencies = [
+ "bytes",
+ "pyo3",
+]
+
+[[package]]
 name = "pyo3-ffi"
 version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9227,15 +9237,18 @@ dependencies = [
  "arrow-array",
  "arrow-data",
  "arrow-schema",
+ "bytes",
  "itertools 0.14.0",
  "log",
  "object_store",
  "parking_lot",
  "pyo3",
+ "pyo3-bytes",
  "pyo3-log",
  "tokio",
  "url",
  "vortex",
+ "vortex-ipc",
 ]
 
 [[package]]

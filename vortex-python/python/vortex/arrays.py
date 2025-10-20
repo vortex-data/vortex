@@ -11,7 +11,12 @@ from typing_extensions import override
 
 import vortex._lib.arrays as _arrays  # pyright: ignore[reportMissingModuleSource]
 from vortex._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
-from vortex._lib.serde import ArrayContext, ArrayParts  # pyright: ignore[reportMissingModuleSource]
+from vortex._lib.serde import (  # pyright: ignore[reportMissingModuleSource]
+    ArrayContext,
+    ArrayParts,
+    decode_ipc_array,
+    decode_ipc_array_buffers,
+)
 
 try:
     import pandas
@@ -466,3 +471,21 @@ class PyArray(Array, metaclass=abc.ABCMeta):
         current array. Implementations of this function should validate this information, and then construct
         a new array.
         """
+
+
+def _unpickle_array(array_bytes: bytes, dtype_bytes: bytes) -> Array:  # pyright: ignore[reportUnusedFunction]
+    """Unpickle a Vortex array from IPC-encoded bytes.
+
+    This is an internal function used by the pickle module.
+    """
+    return decode_ipc_array(array_bytes, dtype_bytes)
+
+
+def _unpickle_array_p5(array_buffers: list[bytes | memoryview], dtype_buffers: list[bytes | memoryview]) -> Array:  # pyright: ignore[reportUnusedFunction]
+    """Unpickle a Vortex array from out-of-band PickleBuffers.
+
+    This is an internal function used by the pickle module. When
+    pickle protocol 5 is supported, this methods will be called on unpickle,
+    saving one extra copy operation for array buffers.
+    """
+    return decode_ipc_array_buffers(array_buffers, dtype_buffers)
