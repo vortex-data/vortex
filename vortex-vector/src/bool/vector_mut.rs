@@ -25,10 +25,7 @@ pub struct BoolVectorMut {
 impl BoolVectorMut {
     /// Creates a new mutable boolean vector with the given `capacity` and `nullability`.
     pub fn with_capacity(capacity: usize, nullability: Nullability) -> Self {
-        let validity = match nullability {
-            Nullability::NonNullable => None,
-            Nullability::Nullable => Some(MaskMut::with_capacity(capacity)),
-        };
+        let validity = nullability.is_nullable_then(|| MaskMut::with_capacity(capacity));
 
         Self {
             bits: BitBufferMut::with_capacity(capacity),
