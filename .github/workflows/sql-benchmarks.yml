@@ -194,7 +194,6 @@ jobs:
           target/release_debug/query_bench ${{ matrix.subcommand }} \
             -d gh-json \
             --targets ${{ matrix.targets }} \
-            --export-spans \
             ${{ matrix.scale_factor }} \
             --delete-duckdb-database \
             -o results.json
@@ -213,7 +212,6 @@ jobs:
           target/release_debug/query_bench ${{ matrix.subcommand }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
               --targets ${{ matrix.targets }} \
-              --export-spans \
               ${{ matrix.scale_factor }} \
               -d gh-json \
               --delete-duckdb-database \
