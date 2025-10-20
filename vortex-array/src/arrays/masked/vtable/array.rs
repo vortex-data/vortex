@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
+
 use vortex_dtype::DType;
 
 use crate::arrays::masked::{MaskedArray, MaskedVTable};
+use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
 use crate::vtable::ArrayVTable;
 
@@ -18,5 +21,17 @@ impl ArrayVTable<MaskedVTable> for MaskedVTable {
 
     fn stats(array: &MaskedArray) -> StatsSetRef<'_> {
         array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &MaskedArray, state: &mut H) {
+        array.child.array_hash(state);
+        array.validity.array_hash(state);
+        array.dtype.hash(state);
+    }
+
+    fn array_eq(array: &MaskedArray, other: &MaskedArray) -> bool {
+        array.child.array_eq(&other.child)
+            && array.validity.array_eq(&other.validity)
+            && array.dtype == other.dtype
     }
 }

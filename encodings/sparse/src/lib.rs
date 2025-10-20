@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use itertools::Itertools as _;
 use num_traits::NumCast;
@@ -10,7 +11,9 @@ use vortex_array::compute::{Operator, compare, fill_null, filter, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
-use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
+use vortex_array::{
+    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
@@ -252,6 +255,18 @@ impl ArrayVTable<SparseVTable> for SparseVTable {
 
     fn stats(array: &SparseArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &SparseArray, state: &mut H) {
+        array.patches.indices().array_hash(state);
+        array.patches.values().array_hash(state);
+        array.fill_value.hash(state);
+    }
+
+    fn array_eq(array: &SparseArray, other: &SparseArray) -> bool {
+        array.patches.indices().array_eq(other.patches.indices())
+            && array.patches.values().array_eq(other.patches.values())
+            && array.fill_value == other.fill_value
     }
 }
 

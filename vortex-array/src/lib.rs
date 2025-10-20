@@ -16,6 +16,7 @@ pub use array::*;
 pub use canonical::*;
 pub use context::*;
 pub use encoding::*;
+pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
 
@@ -31,6 +32,7 @@ pub mod compute;
 mod context;
 mod encoding;
 pub mod executor;
+mod hash;
 pub mod iter;
 mod mask_future;
 mod metadata;

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -16,7 +17,10 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
 };
-use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
+use vortex_array::{
+    ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical,
+    vtable,
+};
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
@@ -569,6 +573,49 @@ impl ArrayVTable<ZstdVTable> for ZstdVTable {
 
     fn stats(array: &ZstdArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ZstdArray, state: &mut H) {
+        match &array.dictionary {
+            Some(dict) => {
+                true.hash(state);
+                dict.array_hash(state);
+            }
+            None => {
+                false.hash(state);
+            }
+        }
+        for frame in &array.frames {
+            frame.array_hash(state);
+        }
+        array.dtype.hash(state);
+        array.unsliced_validity.array_hash(state);
+        array.unsliced_n_rows.hash(state);
+        array.slice_start.hash(state);
+        array.slice_stop.hash(state);
+    }
+
+    fn array_eq(array: &ZstdArray, other: &ZstdArray) -> bool {
+        if !match (&array.dictionary, &other.dictionary) {
+            (Some(d1), Some(d2)) => d1.array_eq(d2),
+            (None, None) => true,
+            _ => false,
+        } {
+            return false;
+        }
+        if array.frames.len() != other.frames.len() {
+            return false;
+        }
+        for (a, b) in array.frames.iter().zip(&other.frames) {
+            if !a.array_eq(b) {
+                return false;
+            }
+        }
+        array.dtype == other.dtype
+            && array.unsliced_validity.array_eq(&other.unsliced_validity)
+            && array.unsliced_n_rows == other.unsliced_n_rows
+            && array.slice_start == other.slice_start
+            && array.slice_stop == other.slice_stop
     }
 }
 

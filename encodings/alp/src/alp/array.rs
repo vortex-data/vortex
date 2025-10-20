@@ -2,13 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
-use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
+use vortex_array::{
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
+};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 
@@ -260,6 +263,36 @@ impl ArrayVTable<ALPVTable> for ALPVTable {
 
     fn stats(array: &ALPArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H) {
+        array.dtype.hash(state);
+        array.encoded.array_hash(state);
+        array.exponents.e.hash(state);
+        array.exponents.f.hash(state);
+        match &array.patches {
+            Some(patches) => {
+                true.hash(state);
+                patches.indices().array_hash(state);
+                patches.values().array_hash(state);
+            }
+            None => {
+                false.hash(state);
+            }
+        }
+    }
+
+    fn array_eq(array: &ALPArray, other: &ALPArray) -> bool {
+        array.dtype == other.dtype
+            && array.encoded.array_eq(&other.encoded)
+            && array.exponents == other.exponents
+            && match (&array.patches, &other.patches) {
+                (Some(p1), Some(p2)) => {
+                    p1.indices().array_eq(p2.indices()) && p1.values().array_eq(p2.values())
+                }
+                (None, None) => true,
+                _ => false,
+            }
     }
 }
 

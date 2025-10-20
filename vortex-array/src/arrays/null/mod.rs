@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
 use std::ops::Range;
 
 use vortex_buffer::ByteBuffer;
@@ -100,6 +101,14 @@ impl ArrayVTable<NullVTable> for NullVTable {
 
     fn stats(array: &NullArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &NullArray, state: &mut H) {
+        array.len.hash(state);
+    }
+
+    fn array_eq(array: &NullArray, other: &NullArray) -> bool {
+        array.len == other.len
     }
 }
 

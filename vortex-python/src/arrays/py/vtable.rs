@@ -62,6 +62,21 @@ impl ArrayVTable<PythonVTable> for PythonVTable {
     fn stats(array: &PythonArray) -> StatsSetRef<'_> {
         array.stats.to_ref(array.as_ref())
     }
+
+    fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H) {
+        use std::hash::Hash;
+        std::sync::Arc::as_ptr(&array.object).hash(state);
+        array.encoding.id().hash(state);
+        array.len.hash(state);
+        array.dtype.hash(state);
+    }
+
+    fn array_eq(array: &PythonArray, other: &PythonArray) -> bool {
+        std::sync::Arc::ptr_eq(&array.object, &other.object)
+            && array.encoding == other.encoding
+            && array.len == other.len
+            && array.dtype == other.dtype
+    }
 }
 
 impl CanonicalVTable<PythonVTable> for PythonVTable {

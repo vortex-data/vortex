@@ -85,6 +85,17 @@ impl ArrayVTable<ArrowVTable> for ArrowVTable {
     fn stats(array: &ArrowArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
     }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ArrowArray, state: &mut H) {
+        use std::hash::Hash;
+        array.dtype.hash(state);
+        // Hash based on pointer to the inner Arrow array
+        std::sync::Arc::as_ptr(&array.inner).hash(state);
+    }
+
+    fn array_eq(array: &ArrowArray, other: &ArrowArray) -> bool {
+        array.dtype == other.dtype && std::sync::Arc::ptr_eq(&array.inner, &other.inner)
+    }
 }
 
 impl CanonicalVTable<ArrowVTable> for ArrowVTable {

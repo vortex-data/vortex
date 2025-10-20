@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
+
 use vortex_dtype::DType;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
@@ -18,5 +20,14 @@ impl ArrayVTable<ConstantVTable> for ConstantVTable {
 
     fn stats(array: &ConstantArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ConstantArray, state: &mut H) {
+        array.scalar.hash(state);
+        array.len.hash(state);
+    }
+
+    fn array_eq(array: &ConstantArray, other: &ConstantArray) -> bool {
+        array.scalar == other.scalar && array.len == other.len
     }
 }

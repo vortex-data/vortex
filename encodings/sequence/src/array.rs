@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
 use std::ops::Range;
 
 use num_traits::cast::FromPrimitive;
@@ -180,6 +181,20 @@ impl ArrayVTable<SequenceVTable> for SequenceVTable {
 
     fn stats(array: &SequenceArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &SequenceArray, state: &mut H) {
+        array.base.hash(state);
+        array.multiplier.hash(state);
+        array.dtype.hash(state);
+        array.length.hash(state);
+    }
+
+    fn array_eq(array: &SequenceArray, other: &SequenceArray) -> bool {
+        array.base == other.base
+            && array.multiplier == other.multiplier
+            && array.dtype == other.dtype
+            && array.length == other.length
     }
 }
 

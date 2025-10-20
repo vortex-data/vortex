@@ -2,11 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use arrow_buffer::BooleanBuffer;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
-use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, ToCanonical, vtable};
+use vortex_array::{
+    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, ToCanonical, vtable,
+};
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
@@ -115,6 +118,18 @@ impl ArrayVTable<DictVTable> for DictVTable {
 
     fn stats(array: &DictArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &DictArray, state: &mut H) {
+        array.dtype.hash(state);
+        array.codes.array_hash(state);
+        array.values.array_hash(state);
+    }
+
+    fn array_eq(array: &DictArray, other: &DictArray) -> bool {
+        array.dtype == other.dtype
+            && array.codes.array_eq(&other.codes)
+            && array.values.array_eq(&other.values)
     }
 }
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+
 use vortex_dtype::DType;
 
 use crate::stats::StatsSetRef;
@@ -12,4 +14,8 @@ pub trait ArrayVTable<V: VTable> {
     fn dtype(array: &V::Array) -> &DType;
 
     fn stats(array: &V::Array) -> StatsSetRef<'_>;
+
+    fn array_hash<H: Hasher>(array: &V::Array, state: &mut H);
+
+    fn array_eq(array: &V::Array, other: &V::Array) -> bool;
 }

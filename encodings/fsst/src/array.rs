@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::{Debug, Formatter};
+use std::hash::Hash;
 use std::sync::{Arc, LazyLock};
 
 use fsst::{Compressor, Decompressor, Symbol};
@@ -10,7 +11,7 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
-use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
+use vortex_array::{Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, vtable};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -199,6 +200,24 @@ impl ArrayVTable<FSSTVTable> for FSSTVTable {
 
     fn stats(array: &FSSTArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &FSSTArray, state: &mut H) {
+        array.dtype.hash(state);
+        array.symbols.array_hash(state);
+        array.symbol_lengths.array_hash(state);
+        array.codes.as_ref().array_hash(state);
+        array.uncompressed_lengths.array_hash(state);
+    }
+
+    fn array_eq(array: &FSSTArray, other: &FSSTArray) -> bool {
+        array.dtype == other.dtype
+            && array.symbols.array_eq(&other.symbols)
+            && array.symbol_lengths.array_eq(&other.symbol_lengths)
+            && array.codes.as_ref().array_eq(other.codes.as_ref())
+            && array
+                .uncompressed_lengths
+                .array_eq(&other.uncompressed_lengths)
     }
 }
 
