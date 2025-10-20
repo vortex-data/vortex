@@ -84,6 +84,17 @@ impl VectorMut {
 }
 ```
 
+The rationale for not using Arrow here is:
+
+* Vortex vectors are recursively built around variable-width primitives, allowing us to use the narrowest type possible
+  for e.g. dictionary offsets and run-end offsets.
+* Internally we use the `vortex-buffer` crate, meaning we preserve our capabilities around runtime alignment.
+* We reserve the right to diverge from Arrow layouts in the future. For example, a `VarBinVector` could use in-memory
+  pointers like DuckDB, rather than logical offsets. This makes the vectors cheaper to concatenate and slice, but
+  incurs a conversion cost to/from Arrow.
+
+We may re-visit this decision in the future prior to finalizing the Vortex extension API.
+
 ## Arrays as a Logical Plan
 
 Vortex implements a subset of functionality usually performed by a query engine. Specifically, we implement a highly
