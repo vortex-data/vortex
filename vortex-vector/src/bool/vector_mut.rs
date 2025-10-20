@@ -8,7 +8,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_mask::MaskMut;
 
 use super::BoolVector;
-use crate::VectorMutOps;
+use crate::{VectorMutOps, VectorOps};
 
 /// A mutable vector of boolean values.
 ///
@@ -25,7 +25,9 @@ pub struct BoolVectorMut {
 impl BoolVectorMut {
     /// Creates a new mutable boolean vector with the given `capacity` and `nullability`.
     pub fn with_capacity(capacity: usize, nullability: Nullability) -> Self {
-        let validity = nullability.is_nullable_then(|| MaskMut::with_capacity(capacity));
+        let validity = nullability
+            .is_nullable()
+            .then(|| MaskMut::with_capacity(capacity));
 
         Self {
             bits: BitBufferMut::with_capacity(capacity),
@@ -68,9 +70,13 @@ impl VectorMutOps for BoolVectorMut {
     }
 
     fn extend_from_vector(&mut self, other: &BoolVector) {
+        assert!(
+            self.is_nullable() || !other.is_nullable(),
+            "tried to extend a non-nullable `BoolVector` with a nullable vector"
+        );
+
         self.bits.append_buffer(&other.bits);
 
-        // TODO(connor): We must `other`'s nullability in relation to `self`.
         match (&mut self.validity, &other.validity) {
             (Some(self_v), Some(other_v)) => self_v.append_mask(other_v),
             (Some(self_v), None) => self_v.append_n(true, other.bits.len()),

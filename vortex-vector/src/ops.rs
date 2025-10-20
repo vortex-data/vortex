@@ -13,6 +13,13 @@ pub trait VectorOps: private::Sealed + Into<Vector> {
     /// Returns the [`Nullability`] of the vector.
     fn nullability(&self) -> Nullability;
 
+    /// Returns `true` if the nullability of this vector is [`Nullable`].
+    ///
+    /// [`Nullable`]: Nullability::Nullable
+    fn is_nullable(&self) -> bool {
+        self.nullability().is_nullable()
+    }
+
     /// Returns the [`DType`] (or data type) of the vector.
     fn dtype(&self) -> DType;
 
@@ -46,6 +53,13 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     /// Returns the [`Nullability`] of the vector.
     fn nullability(&self) -> Nullability;
 
+    /// Returns `true` if the nullability of this vector is [`Nullable`].
+    ///
+    /// [`Nullable`]: Nullability::Nullable
+    fn is_nullable(&self) -> bool {
+        self.nullability().is_nullable()
+    }
+
     /// Returns the [`DType`] (or data type) of the vector.
     fn dtype(&self) -> DType;
 
@@ -72,8 +86,10 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
 
     /// Extends the vector by appending elements from another vector.
     ///
-    /// TODO(connor): Document semantics of what happens if `self` is non-nullable and `other` is
-    /// nullable (should panic?).
+    /// # Panics
+    ///
+    /// If `self` is a non-nullable vector, and `other` is a nullable vector, implementors should
+    /// ensure that this function panics.
     fn extend_from_vector(&mut self, other: &Self::Immutable);
 
     /// Converts `self` into an immutable vector.
@@ -93,6 +109,7 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     /// `at > capacity`).
     fn split_off(&mut self, at: usize) -> Self;
 
+    // TODO(connor): Should this panic if other has a different nullability?
     /// Absorbs a mutable vector that was previously split off.
     ///
     /// If the two vectors were previously contiguous and not mutated in a way that causes

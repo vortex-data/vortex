@@ -7,7 +7,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_mask::MaskMut;
 
-use crate::{GenericPVector, VectorMutOps};
+use crate::{GenericPVector, VectorMutOps, VectorOps};
 
 /// A mutable vector of generic primitive values.
 ///
@@ -25,7 +25,9 @@ pub struct GenericPVectorMut<T> {
 impl<T: NativePType> GenericPVectorMut<T> {
     /// Create a new mutable primitive vector with the given capacity and nullability.
     pub fn with_capacity(capacity: usize, nullability: Nullability) -> Self {
-        let validity = nullability.is_nullable_then(|| MaskMut::with_capacity(capacity));
+        let validity = nullability
+            .is_nullable()
+            .then(|| MaskMut::with_capacity(capacity));
 
         Self {
             elements: BufferMut::with_capacity(capacity),
@@ -62,7 +64,13 @@ impl<T: NativePType> VectorMutOps for GenericPVectorMut<T> {
 
     /// Extends the vector by appending elements from another vector.
     fn extend_from_vector(&mut self, other: &GenericPVector<T>) {
+        assert!(
+            self.is_nullable() || !other.is_nullable(),
+            "tried to extend a non-nullable `GenericPVector` with a nullable vector"
+        );
+
         self.elements.extend_from_slice(other.elements.as_slice());
+
         match (&mut self.validity, &other.validity) {
             (Some(self_v), Some(other_v)) => self_v.append_mask(other_v),
             (Some(self_v), None) => self_v.append_n(true, other.elements.len()),

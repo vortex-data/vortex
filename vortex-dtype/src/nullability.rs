@@ -15,72 +15,21 @@ pub enum Nullability {
 }
 
 impl Nullability {
-    /// Returns `Some(f())` if the the nullability is [`Nullable`](Self::Nullable), otherwise
-    /// returns `None`.
+    /// Returns `true` if the nullability is [`Nullable`](Self::Nullable), otherwise returns
+    /// `false`.
     ///
     /// # Examples
     ///
     /// ```
     /// use vortex_dtype::Nullability::*;
     ///
-    /// assert_eq!(NonNullable.is_nullable_then(|| 0), None);
-    /// assert_eq!(Nullable.is_nullable_then(|| 0), Some(0));
+    /// assert!(!NonNullable.is_nullable());
+    /// assert!(Nullable.is_nullable());
     /// ```
-    ///
-    /// ```
-    /// # use vortex_dtype::Nullability::*;
-    /// #
-    /// let mut a = 0;
-    ///
-    /// Nullable.is_nullable_then(|| { a += 1; });
-    /// NonNullable.is_nullable_then(|| { a += 1; });
-    ///
-    /// // `a` is incremented once because the closure is evaluated lazily by `is_nullable_then`.
-    /// assert_eq!(a, 1);
-    /// ```
-    ///
-    /// Inspired by the [`bool::then`] function.
-    pub fn is_nullable_then<T, F: FnOnce() -> T>(self, f: F) -> Option<T> {
+    pub fn is_nullable(&self) -> bool {
         match self {
-            Nullability::NonNullable => None,
-            Nullability::Nullable => Some(f()),
-        }
-    }
-
-    /// Returns `Some(t)` if the the nullability is [`Nullable`](Self::Nullable), otherwise returns
-    /// `None`.
-    ///
-    /// Arguments passed to `is_nullable_then_some` are eagerly evaluated; if you are passing the
-    /// result of a function call, it is recommended to use [`then`](bool::then), which is lazily
-    /// evaluated.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vortex_dtype::Nullability::*;
-    ///
-    /// assert_eq!(NonNullable.is_nullable_then_some(0), None);
-    /// assert_eq!(Nullable.is_nullable_then_some(0), Some(0));
-    /// ```
-    ///
-    /// ```
-    /// # use vortex_dtype::Nullability::*;
-    /// #
-    /// let mut a = 0;
-    /// let mut function_with_side_effects = || { a += 1; };
-    ///
-    /// Nullable.is_nullable_then_some(function_with_side_effects());
-    /// NonNullable.is_nullable_then_some(function_with_side_effects());
-    ///
-    /// // `a` is incremented twice because the value passed to `then_some` is evaluated eagerly.
-    /// assert_eq!(a, 2);
-    /// ```
-    ///
-    /// Inspired by the [`bool::then_some`] function.
-    pub fn is_nullable_then_some<T>(self, t: T) -> Option<T> {
-        match self {
-            Nullability::NonNullable => None,
-            Nullability::Nullable => Some(t),
+            Nullability::NonNullable => false,
+            Nullability::Nullable => true,
         }
     }
 }
