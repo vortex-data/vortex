@@ -175,6 +175,7 @@ jobs:
           aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
 
       - name: Setup Polar Signals
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         uses: polarsignals/gh-actions-ps-profiling@v0.6.0
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
@@ -189,8 +190,8 @@ jobs:
         env:
           OTEL_SERVICE_NAME: "vortex-bench"
           OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
-          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}"
-          OTEL_EXPORTER_OTLP_HEADERS: "${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}"
+          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
+          OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
           target/release_debug/query_bench ${{ matrix.subcommand }} \
@@ -208,8 +209,8 @@ jobs:
           AWS_REGION: "eu-west-1"
           OTEL_SERVICE_NAME: "vortex-bench"
           OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
-          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}"
-          OTEL_EXPORTER_OTLP_HEADERS: "${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}"
+          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
+          OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
           target/release_debug/query_bench ${{ matrix.subcommand }} \
