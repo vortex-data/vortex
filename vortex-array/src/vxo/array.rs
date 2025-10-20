@@ -3,7 +3,6 @@
 
 #![deny(missing_docs)]
 
-use crate::operator::OperatorRef;
 use crate::vxo::{BatchKernel, BindCtx};
 use std::any::Any;
 use std::sync::Arc;
@@ -45,7 +44,7 @@ pub trait Array: 'static + Send + Sync {
     ///
     /// This function should typically be implemented only for self-contained optimizations based
     /// on child properties
-    fn reduce_children(&self) -> VortexResult<Option<OperatorRef>> {
+    fn reduce_children(&self) -> VortexResult<Option<ArrayRef>> {
         Ok(None)
     }
 
@@ -61,9 +60,9 @@ pub trait Array: 'static + Send + Sync {
     /// child needs to adapt to the parent's requirements
     fn reduce_parent(
         &self,
-        _parent: OperatorRef,
+        _parent: ArrayRef,
         _child_idx: usize,
-    ) -> VortexResult<Option<OperatorRef>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         Ok(None)
     }
 
@@ -76,8 +75,10 @@ pub trait Array: 'static + Send + Sync {
     /// return. i.e. the result of the kernel should be a vector whose length is equal to the
     /// true count of the selection array.
     ///
-    /// The context can be used
-    fn bind_batch_kernel(
+    /// The context should be used to bind child arrays in order to support common subtree
+    /// elimination. See also the utility functions on the `BindCtx` for efficiently extracting
+    /// common objects such as a [`vortex_mask::Mask`].
+    fn bind(
         &self,
         selection: Option<&ArrayRef>,
         ctx: &mut dyn BindCtx,

@@ -3,6 +3,7 @@
 
 mod array;
 mod batch;
+mod mask;
 
 pub use array::*;
 pub use batch::*;
