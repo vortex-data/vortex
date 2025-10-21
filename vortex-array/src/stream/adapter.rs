@@ -5,19 +5,20 @@ use std::pin::Pin;
 use std::task::Poll;
 
 use futures::Stream;
-use pin_project::pin_project;
+use pin_project_lite::pin_project;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::stream::ArrayStream;
 
-/// An adapter for a stream of array chunks to implement an ArrayReader.
-#[pin_project]
-pub struct ArrayStreamAdapter<S> {
-    dtype: DType,
-    #[pin]
-    inner: S,
+pin_project! {
+    /// An adapter for a stream of array chunks to implement an ArrayReader.
+    pub struct ArrayStreamAdapter<S> {
+        dtype: DType,
+        #[pin]
+        inner: S,
+    }
 }
 
 impl<S> ArrayStreamAdapter<S>
