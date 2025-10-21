@@ -103,9 +103,9 @@ impl VectorMutOps for PrimitiveVectorMut {
     }
 }
 
-impl<T: NativePType> From<PrimitiveVectorMut> for PVectorMut<T> {
-    fn from(v: PrimitiveVectorMut) -> Self {
-        T::downcast(v)
+impl<T: NativePType> From<PVectorMut<T>> for PrimitiveVectorMut {
+    fn from(v: PVectorMut<T>) -> Self {
+        T::upcast(v)
     }
 }
 
@@ -154,12 +154,6 @@ impl PTypeUpcast for PrimitiveVectorMut {
 
     fn from_f64(input: Self::Input<f64>) -> Self {
         PrimitiveVectorMut::F64(input)
-    }
-}
-
-impl<T: NativePType> From<PVectorMut<T>> for PrimitiveVectorMut {
-    fn from(v: PVectorMut<T>) -> Self {
-        T::upcast(v)
     }
 }
 

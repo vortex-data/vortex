@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 use crate::{Vector, VectorMut, private};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
-pub trait VectorOps: private::Sealed + From<Vector> + Into<Vector> {
+pub trait VectorOps: private::Sealed + Into<Vector> {
     /// The mutable equivalent of this immutable vector.
     type Mutable: VectorMutOps<Immutable = Self>;
 
@@ -44,7 +44,7 @@ pub trait VectorOps: private::Sealed + From<Vector> + Into<Vector> {
 }
 
 /// Common operations for mutable vectors (all the variants of [`VectorMut`]).
-pub trait VectorMutOps: private::Sealed + From<VectorMut> + Into<VectorMut> {
+pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     /// The immutable equivalent of this mutable vector.
     type Immutable: VectorOps<Mutable = Self>;
 

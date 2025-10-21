@@ -9345,7 +9345,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
 ]
 
 [[package]]

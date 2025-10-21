@@ -119,12 +119,6 @@ impl PTypeUpcast for PrimitiveVector {
     }
 }
 
-impl<T: NativePType> From<PrimitiveVector> for PVector<T> {
-    fn from(value: PrimitiveVector) -> Self {
-        T::downcast(value)
-    }
-}
-
 impl PTypeDowncast for PrimitiveVector {
     type Output<T: NativePType> = PVector<T>;
 

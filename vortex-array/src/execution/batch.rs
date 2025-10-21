@@ -8,20 +8,6 @@ use vortex_vector::{Vector, VectorMut};
 
 use crate::ArrayRef;
 
-/// Context for binding batch execution kernels.
-///
-/// By binding child arrays through this context, we can perform common subtree elimination and
-/// share canonicalized results across multiple kernels.
-pub trait BindCtx {
-    /// Bind the given array and optional selection to produce a batch kernel, possibly reusing
-    /// previously bound results from this context.
-    fn bind(
-        &mut self,
-        array: &ArrayRef,
-        selection: Option<&ArrayRef>,
-    ) -> VortexResult<BatchKernelRef>;
-}
-
 /// Type-alias for heap-allocated batch execution kernels.
 pub type BatchKernelRef = Box<dyn BatchKernel>;
 
@@ -54,4 +40,18 @@ impl BatchKernel for FnKernel {
     async fn execute(self: Box<Self>, out: VectorMut) -> VortexResult<Vector> {
         self.0(out).await
     }
+}
+
+/// Context for binding batch execution kernels.
+///
+/// By binding child arrays through this context, we can perform common subtree elimination and
+/// share canonicalized results across multiple kernels.
+pub trait BindCtx {
+    /// Bind the given array and optional selection to produce a batch kernel, possibly reusing
+    /// previously bound results from this context.
+    fn bind(
+        &mut self,
+        array: &ArrayRef,
+        selection: Option<&ArrayRef>,
+    ) -> VortexResult<BatchKernelRef>;
 }

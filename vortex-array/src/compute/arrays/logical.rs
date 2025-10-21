@@ -220,7 +220,7 @@ where
         // We pass the output into the LHS and then attempt to call the mutate-in-place op.
         let rhs_out = BoolVectorMut::with_capacity(0);
         let (lhs, rhs) = try_join!(self.lhs.execute(out), self.rhs.execute(rhs_out.into()))?;
-        let (lhs, rhs) = (BoolVector::from(lhs), BoolVector::from(rhs));
+        let (lhs, rhs) = (lhs.into_bool(), rhs.into_bool());
 
         // First, we compute the union the input validity.
         let validity = lhs.validity() | rhs.validity();
