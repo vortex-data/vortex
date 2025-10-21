@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::ops::Not;
 
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
+use vortex_array::compute::mask;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
@@ -17,10 +19,19 @@ vtable!(Merge);
 
 /// Merge zero or more expressions that ALL return structs.
 ///
-/// If any field names are duplicated, the field from later expressions wins.
+/// If any field names are duplicated, the field from later expressions wins. The result is always
+/// non-nullable because top-level nulls are "pushed" into the fields before merging.
 ///
-/// NOTE: Fields are not recursively merged, i.e. the later field REPLACES the earlier field.
-/// This makes struct fields behaviour consistent with other dtypes.
+/// Warnings
+/// --------
+///
+/// Fields are not recursively merged, i.e. the later field *replaces* the earlier field.  This
+/// makes struct fields behaviour consistent with other dtypes.
+///
+/// See also
+/// --------
+///
+/// [`merge`](merge).
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MergeExpr {
@@ -80,23 +91,23 @@ impl VTable for MergeVTable {
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
 
-        for value_array in value_arrays.iter() {
-            // TODO(marko): When nullable, we need to merge struct validity into field validity.
-            if value_array.dtype().is_nullable() {
-                todo!("merge nullable structs");
-            }
+        for (_i, value_array) in value_arrays.iter().enumerate() {
             if !value_array.dtype().is_struct() {
                 vortex_bail!("merge expects non-nullable struct input");
             }
 
             let struct_array = value_array.to_struct();
+            let top_level_validity = value_array.validity_mask();
 
             for (field_name, array) in struct_array
                 .names()
                 .iter()
                 .zip_eq(struct_array.fields().iter().cloned())
             {
-                // Update or insert field.
+                let array = match struct_array.dtype().nullability() {
+                    Nullability::NonNullable => array,
+                    Nullability::Nullable => mask(&array, &top_level_validity.clone().not())?,
+                };
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
                     arrays[idx] = array;
                 } else {
@@ -106,29 +117,25 @@ impl VTable for MergeVTable {
             }
         }
 
-        // TODO(DK): When children are allowed to be nullable, this needs to change.
-        let validity = Validity::NonNullable;
-        Ok(
-            StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
-                .into_array(),
-        )
+        Ok(StructArray::try_new(
+            FieldNames::from(field_names),
+            arrays,
+            len,
+            Validity::NonNullable,
+        )?
+        .into_array())
     }
 
     fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
 
-        let mut nullability = Nullability::NonNullable;
-
         for value in expr.values.iter() {
             let dtype = value.return_dtype(scope)?;
             if !dtype.is_struct() {
                 vortex_bail!("merge expects struct input");
             }
-            if dtype.is_nullable() {
-                vortex_bail!("merge expects non-nullable input");
-            }
-            nullability |= dtype.nullability();
+            let top_level_nullability = dtype.nullability();
 
             let struct_dtype = dtype
                 .as_struct_fields_opt()
@@ -136,7 +143,10 @@ impl VTable for MergeVTable {
 
             for i in 0..struct_dtype.nfields() {
                 let field_name = struct_dtype.field_name(i).vortex_expect("never OOB");
-                let field_dtype = struct_dtype.field_by_index(i).vortex_expect("never OOB");
+                let field_dtype = struct_dtype
+                    .field_by_index(i)
+                    .vortex_expect("never OOB")
+                    .union_nullability(top_level_nullability);
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
                     arrays[idx] = field_dtype;
                 } else {
@@ -148,7 +158,7 @@ impl VTable for MergeVTable {
 
         Ok(DType::Struct(
             StructFields::new(FieldNames::from(field_names), arrays),
-            nullability,
+            Nullability::NonNullable,
         ))
     }
 }
@@ -165,13 +175,93 @@ impl MergeExpr {
 
 /// Creates an expression that merges struct expressions into a single struct.
 ///
-/// Combines fields from all input expressions. If field names are duplicated,
-/// later expressions win. Fields are not recursively merged.
+/// Combines fields from all input expressions. If field names are duplicated, later expressions
+/// win. The result is always non-nullable because top-level nulls are "pushed" into the fields
+/// before merging.
+///
+/// Warnings
+/// --------
+///
+/// Fields are not recursively merged, i.e. the later field *replaces* the earlier field.  This
+/// makes struct fields behaviour consistent with other dtypes.
+///
+/// Examples
+/// --------
+///
+/// Merge structs with no overlapping fields:
 ///
 /// ```rust
+/// # use vortex_array::IntoArray;
+/// # use vortex_array::arrays::StructArray;
+/// # use vortex_buffer::buffer;
 /// # use vortex_dtype::Nullability;
-/// # use vortex_expr::{merge, get_item, root};
-/// let expr = merge([get_item("a", root()), get_item("b", root())]);
+/// # use vortex_expr::{merge, get_item, root, Scope};
+/// let left  = StructArray::try_from_iter([("a", buffer![1, 2]), ("b", buffer![3, 4])]).unwrap();
+/// let right = StructArray::try_from_iter([("c", buffer![7, 8])]).unwrap();
+/// let scope = Scope::new(
+///     StructArray::try_from_iter([("left", left), ("right", right)]).unwrap().into_array()
+/// );
+///
+/// let output = merge([
+///     get_item("left", root()),
+///     get_item("right", root())
+/// ]).evaluate(&scope).unwrap();
+/// assert_eq!(
+///     output.display_values().to_string(),
+///     "[{a: 1i32, b: 3i32, c: 7i32}, {a: 2i32, b: 4i32, c: 8i32}]",
+/// );
+/// ```
+///
+/// Merge structs which share a field named "b":
+///
+/// ```rust
+/// # use vortex_array::IntoArray;
+/// # use vortex_array::arrays::StructArray;
+/// # use vortex_buffer::buffer;
+/// # use vortex_dtype::Nullability;
+/// # use vortex_expr::{merge, get_item, root, Scope};
+/// let left  = StructArray::try_from_iter([("a", buffer![1, 2]), ("b", buffer![3, 4])]).unwrap();
+/// let right = StructArray::try_from_iter([("b", buffer![5, 6]), ("c", buffer![7, 8])]).unwrap();
+/// let scope = Scope::new(
+///     StructArray::try_from_iter([("left", left), ("right", right)]).unwrap().into_array()
+/// );
+///
+/// let output = merge([
+///     get_item("left", root()),
+///     get_item("right", root())
+/// ]).evaluate(&scope).unwrap();
+/// assert_eq!(
+///     output.display_values().to_string(),
+///     "[{a: 1i32, b: 5i32, c: 7i32}, {a: 2i32, b: 6i32, c: 8i32}]",
+/// );
+/// ```
+///
+/// Merge a struct with top-level nullability into one without:
+///
+/// ```rust
+/// # use vortex_array::IntoArray;
+/// # use vortex_array::arrays::StructArray;
+/// # use vortex_array::validity::Validity;
+/// # use vortex_buffer::buffer;
+/// # use vortex_dtype::Nullability;
+/// # use vortex_expr::{merge, get_item, root, Scope};
+/// let left  = StructArray::try_from_iter_with_validity(
+///     [("a", buffer![1, 2]), ("b", buffer![3, 4])],
+///     Validity::from_iter([true, false]),
+/// ).unwrap();
+/// let right = StructArray::try_from_iter([("b", buffer![5, 6]), ("c", buffer![7, 8])]).unwrap();
+/// let scope = Scope::new(
+///     StructArray::try_from_iter([("left", left), ("right", right)]).unwrap().into_array()
+/// );
+///
+/// let output = merge([
+///     get_item("left", root()),
+///     get_item("right", root())
+/// ]).evaluate(&scope).unwrap();
+/// assert_eq!(
+///     output.display_values().to_string(),
+///     "[{a: 1i32, b: 5i32, c: 7i32}, {a: null, b: 6i32, c: 8i32}]",
+/// );
 /// ```
 pub fn merge(elements: impl IntoIterator<Item = impl Into<ExprRef>>) -> ExprRef {
     let values = elements.into_iter().map(|value| value.into()).collect_vec();
