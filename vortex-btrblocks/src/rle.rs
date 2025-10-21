@@ -13,7 +13,6 @@ use vortex_fastlanes::RLEArray;
 use {
     crate::integer::IntCode,
     crate::Compressor,
-    vortex_fastlanes::{delta_compress, DeltaArray},
 };
 
 use crate::integer::IntCompressor;

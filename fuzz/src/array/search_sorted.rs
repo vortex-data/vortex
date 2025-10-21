@@ -9,9 +9,9 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::search_sorted::{IndexOrd, SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_err};
-use vortex_scalar::{Scalar, match_each_decimal_value_type};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_error::{vortex_err, VortexResult};
+use vortex_scalar::{match_each_decimal_value_type, Scalar};
 
 struct SearchNullableSlice<T>(Vec<Option<T>>);
 
@@ -55,9 +55,9 @@ pub fn search_sorted_canonical_array(
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool();
-            let validity = bool_array.validity_mask().to_boolean_buffer();
+            let validity = bool_array.validity_mask().to_bit_buffer();
             let opt_values = bool_array
-                .boolean_buffer()
+                .bit_buffer()
                 .iter()
                 .zip(validity.iter())
                 .map(|(b, v)| v.then_some(b))
@@ -67,7 +67,7 @@ pub fn search_sorted_canonical_array(
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive();
-            let validity = primitive_array.validity_mask().to_boolean_buffer();
+            let validity = primitive_array.validity_mask().to_bit_buffer();
             match_each_native_ptype!(p, |P| {
                 let opt_values = primitive_array
                     .as_slice::<P>()
@@ -82,7 +82,7 @@ pub fn search_sorted_canonical_array(
         }
         DType::Decimal(d, _) => {
             let decimal_array = array.to_decimal();
-            let validity = decimal_array.validity_mask().to_boolean_buffer();
+            let validity = decimal_array.validity_mask().to_bit_buffer();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
                 let opt_values = buf
