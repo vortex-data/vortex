@@ -157,7 +157,7 @@ impl VTable for MergeVTable {
 
         for expr in expr.values.iter() {
             let dtype = expr.return_dtype(scope)?;
-            let Some(fields) = dtype.as_struct_fields_opt().cloned() else {
+            let Some(fields) = dtype.as_struct_fields_opt() else {
                 vortex_bail!("merge expects struct input");
             };
             if dtype.is_nullable() {
