@@ -185,7 +185,6 @@ mod test {
     use vortex_buffer::{ByteBuffer, buffer};
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
-    use vortex_scalar::Scalar;
 
     use crate::arrays::BoolArray;
     use crate::arrays::varbin::VarBinArray;
