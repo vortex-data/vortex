@@ -12,10 +12,10 @@ use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::{DType, Nullability};
-use vortex::error::{vortex_bail, vortex_err, VortexResult};
+use vortex::error::{VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    and, cast, get_item, is_null, list_contains, lit, not, root, BinaryExpr, ExprRef, LikeExpr,
-    Operator,
+    BinaryExpr, ExprRef, LikeExpr, Operator, and, cast, get_item, is_null, list_contains, lit, not,
+    root,
 };
 use vortex::scalar::Scalar;
 
@@ -281,8 +281,8 @@ mod tests {
 
     use arrow_schema::{DataType, Field, Fields, Schema, TimeUnit as ArrowTimeUnit};
     use datafusion::functions::core::getfield::GetFieldFunc;
-    use datafusion_common::config::ConfigOptions;
     use datafusion_common::ScalarValue;
+    use datafusion_common::config::ConfigOptions;
     use datafusion_expr::{Operator as DFOperator, ScalarUDF};
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_plan::expressions as df_expr;
