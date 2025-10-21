@@ -749,8 +749,6 @@ impl Scheme for SequenceScheme {
 
 #[cfg(test)]
 mod tests {
-    use std::iter;
-
     use itertools::Itertools;
     use log::LevelFilter;
     use rand::rngs::StdRng;
