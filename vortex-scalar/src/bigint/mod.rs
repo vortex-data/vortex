@@ -7,7 +7,9 @@ use std::fmt::Display;
 use std::ops::{Add, AddAssign, BitOr, Div, Mul, Rem, Shl, Shr, Sub};
 
 pub use bigcast::*;
-use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, WrappingAdd, WrappingSub, Zero};
+use num_traits::{
+    CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, ConstZero, One, WrappingAdd, WrappingSub, Zero,
+};
 use vortex_error::VortexExpect;
 
 /// Signed 256-bit integer type.
@@ -67,6 +69,11 @@ impl i256 {
     /// Raises self to the power of `exp`, wrapping around on overflow.
     pub fn wrapping_pow(&self, exp: u32) -> Self {
         Self(self.0.wrapping_pow(exp))
+    }
+
+    /// Raises self to the power of `exp`, wrapping around on overflow.
+    pub fn checked_pow(&self, exp: u32) -> Option<Self> {
+        self.0.checked_pow(exp).map(Self)
     }
 
     /// Wrapping (modular) addition. Computes `self + other`, wrapping around at the boundary.
@@ -186,6 +193,18 @@ impl CheckedSub for i256 {
 impl WrappingSub for i256 {
     fn wrapping_sub(&self, v: &Self) -> Self {
         Self(self.0.wrapping_sub(v.0))
+    }
+}
+
+impl CheckedMul for i256 {
+    fn checked_mul(&self, v: &Self) -> Option<Self> {
+        self.0.checked_mul(v.0).map(Self)
+    }
+}
+
+impl CheckedDiv for i256 {
+    fn checked_div(&self, v: &Self) -> Option<Self> {
+        self.0.checked_div(v.0).map(Self)
     }
 }
 
