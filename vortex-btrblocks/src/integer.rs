@@ -23,7 +23,7 @@ use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
 use crate::integer::dictionary::dictionary_encode;
 use crate::patches::compress_patches;
-use crate::rle::RLEScheme;
+//use crate::rle::RLEScheme;
 use crate::{
     Compressor, CompressorStats, GenerateStatsOptions, Scheme,
     estimate_compression_ratio_with_sampling,
@@ -47,7 +47,7 @@ impl Compressor for IntCompressor {
             &DictScheme,
             &RunEndScheme,
             &SequenceScheme,
-            &RLE_INTEGER_SCHEME,
+            // &RLE_INTEGER_SCHEME,
         ]
     }
 
@@ -103,7 +103,7 @@ const SPARSE_SCHEME: IntCode = IntCode(5);
 const DICT_SCHEME: IntCode = IntCode(6);
 const RUN_END_SCHEME: IntCode = IntCode(7);
 const SEQUENCE_SCHEME: IntCode = IntCode(8);
-const RUN_LENGTH_SCHEME: IntCode = IntCode(9);
+//const RUN_LENGTH_SCHEME: IntCode = IntCode(9);
 
 #[derive(Debug, Copy, Clone)]
 pub struct UncompressedScheme;
@@ -135,12 +135,12 @@ pub struct SequenceScheme;
 /// Threshold for the average run length in an array before we consider run-end encoding.
 const RUN_END_THRESHOLD: u32 = 4;
 
-pub const RLE_INTEGER_SCHEME: RLEScheme<IntegerStats, IntCode> = RLEScheme::new(
-    RUN_LENGTH_SCHEME,
-    |values, is_sample, allowed_cascading, excludes| {
-        IntCompressor::compress_no_dict(values, is_sample, allowed_cascading, excludes)
-    },
-);
+//pub const RLE_INTEGER_SCHEME: RLEScheme<IntegerStats, IntCode> = RLEScheme::new(
+//    RUN_LENGTH_SCHEME,
+//    |values, is_sample, allowed_cascading, excludes| {
+//        IntCompressor::compress_no_dict(values, is_sample, allowed_cascading, excludes)
+//    },
+//);
 
 impl Scheme for UncompressedScheme {
     type StatsType = IntegerStats;
