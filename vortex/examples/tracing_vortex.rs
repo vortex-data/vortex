@@ -45,18 +45,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (vortex_layer, writer_handle, shutdown) =
         VortexLayer::new(output_dir.clone(), 100_000).await;
 
-    // Set up tracing with both console output and Vortex backend
-    let subscriber = tracing_subscriber::registry()
-        // .with(tracing_subscriber::fmt::layer())
-        .with(vortex_layer);
+    // Set up the subscriber to write all spans and logs to Vortex
+    let subscriber = tracing_subscriber::registry().with(vortex_layer);
 
     tracing::subscriber::set_global_default(subscriber)?;
 
-    println!("Step 1: Generating traced events...\n");
+    println!("Step 1: Simulating 100,000 user interactions...\n");
 
     // Generate some traced activity
     let mut tasks = JoinSet::new();
-    for user_id in 10_000..100_000 {
+    for user_id in 0..100_000 {
         tasks.spawn(simulate_application_activity(user_id));
     }
     tasks.join_all().await;
