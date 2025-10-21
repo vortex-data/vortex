@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Compression Strategies Showcase
 //!
 //! This example demonstrates Vortex's powerful compression capabilities,
@@ -6,11 +9,11 @@
 //! Run with: cargo run --example compression_showcase
 
 use vortex::arrays::{PrimitiveArray, StructArray, VarBinArray};
-use vortex::buffer::buffer;
 use vortex::compressor::BtrBlocksCompressor;
-use vortex::dtype::{DType, Nullability, PType};
+use vortex::dtype::{DType, Nullability};
 use vortex::validity::Validity;
-use vortex::{Array, ArrayLen, IntoArray};
+use vortex::{Array, IntoArray};
+use vortex_buffer::Buffer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Vortex Compression Showcase ===\n");
@@ -50,7 +53,7 @@ fn compress_sequential_data() -> Result<(), Box<dyn std::error::Error>> {
     // Create sequential data (e.g., timestamps, IDs)
     let sequential: PrimitiveArray = (1000..11000).map(|i| i as u64).collect();
 
-    let uncompressed_size = estimate_size(&sequential);
+    let uncompressed_size = estimate_size(sequential.as_ref());
     println!("  Original sequential data (10,000 values):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
@@ -79,7 +82,7 @@ fn compress_repetitive_data() -> Result<(), Box<dyn std::error::Error>> {
     }
     let array: PrimitiveArray = repetitive.into_iter().collect();
 
-    let uncompressed_size = estimate_size(&array);
+    let uncompressed_size = estimate_size(array.as_ref());
     println!("  Repetitive data (100 values, each repeated 100 times):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
@@ -105,13 +108,13 @@ fn compress_string_data() -> Result<(), Box<dyn std::error::Error>> {
     // Repeat categories multiple times (good for dictionary encoding)
     for _ in 0..2500 {
         for category in &categories {
-            strings.push(*category);
+            strings.push(Some(*category));
         }
     }
 
-    let array = VarBinArray::from_iter(strings.iter(), DType::Utf8(Nullability::NonNullable));
+    let array = VarBinArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
 
-    let uncompressed_size = estimate_size(&array);
+    let uncompressed_size = estimate_size(array.as_ref());
     println!("  Categorical string data (10,000 strings, 4 categories):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
@@ -131,8 +134,8 @@ fn compress_string_data() -> Result<(), Box<dyn std::error::Error>> {
 
 fn compress_float_data() -> Result<(), Box<dyn std::error::Error>> {
     // Create floating-point data with patterns
-    let floats: Vec<f64> = (0..10000).map(|i| (i as f64) * 0.1 + 100.0).collect();
-    let array = buffer![floats].into_array();
+    let floats: Buffer<f64> = (0..10000).map(|i| (i as f64) * 0.1 + 100.0).collect();
+    let array = floats.into_array();
 
     let uncompressed_size = estimate_size(&array);
     println!("  Floating-point data (10,000 values):");
@@ -160,7 +163,7 @@ fn compress_sparse_data() -> Result<(), Box<dyn std::error::Error>> {
     }
     let array: PrimitiveArray = sparse.into_iter().collect();
 
-    let uncompressed_size = estimate_size(&array);
+    let uncompressed_size = estimate_size(array.as_ref());
     println!("  Sparse data (10,000 values, 99% zeros):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
@@ -186,15 +189,15 @@ fn compress_structured_data() -> Result<(), Box<dyn std::error::Error>> {
     let ids: PrimitiveArray = (1..=size).map(|i| i as u64).collect();
 
     // Status column (categorical)
-    let statuses: Vec<&str> = (0..size)
+    let statuses: Vec<Option<&str>> = (0..size)
         .map(|i| match i % 3 {
             0 => "active",
             1 => "pending",
             _ => "completed",
         })
+        .map(Some)
         .collect();
-    let status_array =
-        VarBinArray::from_iter(statuses.iter(), DType::Utf8(Nullability::NonNullable));
+    let status_array = VarBinArray::from_iter(statuses, DType::Utf8(Nullability::NonNullable));
 
     // Value column (floats)
     let values: PrimitiveArray = (0..size).map(|i| (i as f64) * 1.5).collect();
@@ -210,7 +213,7 @@ fn compress_structured_data() -> Result<(), Box<dyn std::error::Error>> {
         Validity::NonNullable,
     )?;
 
-    let uncompressed_size = estimate_size(&struct_array);
+    let uncompressed_size = estimate_size(struct_array.as_ref());
     println!("  Structured data (5,000 records, 3 columns):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
@@ -229,6 +232,7 @@ fn compress_structured_data() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Estimate the size of an array in bytes (approximation)
-fn estimate_size<T: Array>(array: &T) -> usize {
-    array.nbytes()
+#[allow(clippy::cast_possible_truncation)]
+fn estimate_size(array: &dyn Array) -> usize {
+    array.nbytes() as usize
 }

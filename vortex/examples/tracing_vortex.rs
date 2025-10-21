@@ -1,29 +1,34 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Tracing Subscriber with Vortex Backend
 //!
 //! This example demonstrates a real-world use case: implementing a `tracing` subscriber
 //! that writes all log events and spans to Vortex files.
 //!
-//! This showcases:
-//! 1. Nested data structures (spans with fields, events with metadata)
-//! 2. Pluggability of Vortex into existing Rust ecosystems
-//! 3. Async writing and batching of events
-//! 4. Compression of high-volume structured logs
-//!
 //! Run with: cargo run --example tracing_vortex --features tokio
 
+#![allow(
+    clippy::disallowed_types,
+    clippy::unwrap_used,
+    clippy::cast_possible_truncation
+)]
+
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::path::PathBuf;
 
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tracing::{Level, debug, error, info, span, warn};
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::{Context, SubscriberExt};
+use vortex::IntoArray;
 use vortex::arrays::{PrimitiveArray, StructArray, VarBinArray};
 use vortex::compressor::CompactCompressor;
 use vortex::dtype::{DType, Nullability};
 use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
 use vortex::validity::Validity;
-use vortex::{ArrayLen, IntoArray};
+use vortex_array::stream::ArrayStreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,15 +36,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("This example demonstrates using Vortex as a backend for structured logging.\n");
 
     // Create output directory
-    let output_dir = std::env::temp_dir().join("vortex_traces");
+    let output_dir: PathBuf = "vortex-traces/".into();
     std::fs::create_dir_all(&output_dir)?;
 
     // Create the Vortex tracing layer
-    let (vortex_layer, writer_handle) = VortexLayer::new(output_dir.clone(), 100).await;
+    let (vortex_layer, writer_handle) = VortexLayer::new(output_dir.clone(), 8192).await;
 
     // Set up tracing with both console output and Vortex backend
     let subscriber = tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
+        // .with(tracing_subscriber::fmt::layer())
         .with(vortex_layer);
 
     tracing::subscriber::set_global_default(subscriber)?;
@@ -47,33 +52,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Step 1: Generating traced events...\n");
 
     // Generate some traced activity
-    simulate_application_activity().await;
+    let mut tasks = JoinSet::new();
+    for user_id in 10_000..11_000 {
+        tasks.spawn(simulate_application_activity(user_id));
+    }
+    tasks.join_all().await;
 
     println!("\nStep 2: Flushing remaining events to disk...");
 
     // Flush and shutdown
-    writer_handle.shutdown().await?;
+    writer_handle.shutdown().await.unwrap();
 
     println!("\nStep 3: Reading back trace data from Vortex files...");
 
     // Read back and display the logged events
     read_trace_files(&output_dir).await?;
 
-    // Cleanup
-    std::fs::remove_dir_all(&output_dir)?;
-
     println!("\n=== Example completed successfully! ===");
     Ok(())
 }
 
 /// Simulates application activity with various log levels and spans
-async fn simulate_application_activity() {
+async fn simulate_application_activity(user_id: u32) {
     // Simulate HTTP request handling
     let request_span = span!(
         Level::INFO,
         "http_request",
         method = "GET",
-        path = "/api/users"
+        path = "/api/users",
+        user_id = user_id
     );
     let _enter = request_span.enter();
 
@@ -94,7 +101,7 @@ async fn simulate_application_activity() {
     }
 
     // Simulate some business logic
-    info!(user_id = 12345, "Processing user data");
+    info!("Processing user data");
 
     // Simulate a warning
     warn!(cache_hit = false, "Cache miss, fetching from database");
@@ -109,7 +116,7 @@ async fn simulate_application_activity() {
     );
     let _enter2 = request_span2.enter();
 
-    info!(order_id = 67890, "Creating new order");
+    info!(order_id = user_id + 10_000, "Creating new order");
 
     // Simulate an error condition
     {
@@ -149,7 +156,7 @@ struct TraceEvent {
 }
 
 impl VortexLayer {
-    async fn new(output_dir: std::path::PathBuf, batch_size: usize) -> (Self, WriterHandle) {
+    async fn new(output_dir: PathBuf, batch_size: usize) -> (Self, WriterHandle) {
         let (tx, rx) = mpsc::unbounded_channel();
         let handle = WriterHandle::spawn(rx, output_dir, batch_size);
         (Self { sender: tx }, handle)
@@ -220,7 +227,7 @@ struct WriterHandle {
 impl WriterHandle {
     fn spawn(
         mut rx: mpsc::UnboundedReceiver<TraceEvent>,
-        output_dir: std::path::PathBuf,
+        output_dir: PathBuf,
         batch_size: usize,
     ) -> Self {
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
@@ -256,10 +263,9 @@ impl WriterHandle {
         Self { shutdown_tx, task }
     }
 
-    async fn shutdown(self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn shutdown(self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let _ = self.shutdown_tx.send(());
-        self.task.await??;
-        Ok(())
+        self.task.await.unwrap()
     }
 }
 
@@ -274,24 +280,28 @@ async fn write_batch_to_vortex(
     }
 
     // Extract columns
+    let span_names = VarBinArray::from_iter(
+        events.iter().map(|e| e.span_name.clone()),
+        DType::Utf8(Nullability::Nullable),
+    );
     let timestamps: PrimitiveArray = events.iter().map(|e| e.timestamp).collect();
 
     let levels = VarBinArray::from_iter(
-        events.iter().map(|e| e.level.as_str()),
+        events.iter().map(|e| Some(e.level.as_str())),
         DType::Utf8(Nullability::NonNullable),
     );
 
     let targets = VarBinArray::from_iter(
-        events.iter().map(|e| e.target.as_str()),
+        events.iter().map(|e| Some(e.target.as_str())),
         DType::Utf8(Nullability::NonNullable),
     );
 
     let messages = VarBinArray::from_iter(
-        events.iter().map(|e| e.message.as_str()),
+        events.iter().map(|e| Some(e.message.as_str())),
         DType::Utf8(Nullability::NonNullable),
     );
 
-    // Serialize fields as JSON strings (demonstrates nested data handling)
+    // Serialize fields as JSON strings
     let fields_json: Vec<String> = events
         .iter()
         .map(|e| {
@@ -305,14 +315,23 @@ async fn write_batch_to_vortex(
         .collect();
 
     let fields = VarBinArray::from_iter(
-        fields_json.iter().map(|s| s.as_str()),
+        fields_json.iter().map(|s| Some(s.as_str())),
         DType::Utf8(Nullability::NonNullable),
     );
 
     // Create struct array
     let struct_array = StructArray::try_new(
-        ["timestamp", "level", "target", "message", "fields"].into(),
+        [
+            "span_names",
+            "timestamp",
+            "level",
+            "target",
+            "message",
+            "fields",
+        ]
+        .into(),
         vec![
+            span_names.into_array(),
             timestamps.into_array(),
             levels.into_array(),
             targets.into_array(),
@@ -327,6 +346,7 @@ async fn write_batch_to_vortex(
     let file_path = output_dir.join(format!("traces_{:04}.vortex", file_index));
     let mut file = tokio::fs::File::create(&file_path).await?;
 
+    // Use the write-optimized CompactCompressor for the telemetry files.
     let write_opts = VortexWriteOptions::default().with_strategy(
         WriteStrategyBuilder::new()
             .with_compressor(CompactCompressor::default())
@@ -359,7 +379,9 @@ async fn read_trace_files(output_dir: &std::path::Path) -> Result<(), Box<dyn st
             file_count += 1;
 
             // Read the file
-            let reader = vortex::file::VortexOpenOptions::new().open(&path).await?;
+            let reader = vortex::file::VortexOpenOptions::new()
+                .open(path.clone())
+                .await?;
             let array = reader.scan()?.into_array_stream()?.read_all().await?;
 
             total_events += array.len();
@@ -375,8 +397,7 @@ async fn read_trace_files(output_dir: &std::path::Path) -> Result<(), Box<dyn st
             .await?
             .next_entry()
             .await?
-            .map(|e| std::fs::metadata(e.path()).ok().map(|m| m.len()))
-            .flatten()
+            .and_then(|e| std::fs::metadata(e.path()).ok().map(|m| m.len()))
             .unwrap_or(0);
 
         println!(
