@@ -3,6 +3,7 @@
 
 mod batch;
 mod mask;
+mod validity;
 
 pub use batch::*;
 pub use mask::*;

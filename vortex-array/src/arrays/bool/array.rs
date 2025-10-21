@@ -6,17 +6,17 @@ use std::ops::BitAnd;
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use itertools::Itertools;
-use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_buffer::{BitBuffer, BitBufferMut, ByteBuffer};
+use vortex_dtype::{match_each_integer_ptype, DType};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::ToCanonical;
 use crate::arrays::bool;
 use crate::patches::Patches;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
+use crate::{ArrayRef, IntoArray, ToCanonical};
 
 pub trait BooleanBufferExt {
     /// Slice any full bytes from the buffer, leaving the offset < 8.
@@ -313,6 +313,21 @@ impl FromIterator<Option<bool>> for BoolArray {
             buffer,
             nulls.map(Validity::from).unwrap_or(Validity::AllValid),
         )
+    }
+}
+
+impl IntoArray for BitBuffer {
+    fn into_array(self) -> ArrayRef {
+        let len = self.len();
+        BoolArray::try_new(self.into_inner(), 0, len, Validity::NonNullable)
+            .vortex_expect("known correct")
+            .into_array()
+    }
+}
+
+impl IntoArray for BitBufferMut {
+    fn into_array(self) -> ArrayRef {
+        self.freeze().into_array()
     }
 }
 

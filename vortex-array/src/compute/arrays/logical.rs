@@ -5,7 +5,7 @@ use std::ops::{BitAnd, BitOr};
 use std::sync::LazyLock;
 
 use async_trait::async_trait;
-use enum_map::{Enum, EnumMap, enum_map};
+use enum_map::{enum_map, Enum, EnumMap};
 use futures::try_join;
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::DType;
@@ -20,8 +20,8 @@ use crate::vtable::{
     ArrayVTable, NotSupported, OperatorVTable, SerdeVTable, VTable, VisitorVTable,
 };
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata, EmptyMetadata,
-    EncodingId, EncodingRef, vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata,
+    EmptyMetadata, EncodingId, EncodingRef,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Enum)]
@@ -229,5 +229,23 @@ where
         //   means it's better for us to evaluate over scalars vs over the entire bit-buffer.
 
         Ok(BoolVector::new((self.op)(lhs.bits(), rhs.bits()), validity).into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::compute::arrays::logical::{LogicalArray, LogicalOperator};
+    use crate::IntoArray;
+    use vortex_buffer::bitbuffer;
+
+    #[test]
+    fn test_and() {
+        let lhs = bitbuffer![0 1 0].into_array();
+        let rhs = bitbuffer![0 1 1].into_array();
+        let result = LogicalArray::new(lhs, rhs, LogicalOperator::And)
+            .execute_blocking()
+            .unwrap()
+            .into_bool();
+        assert_eq!(result.bits(), &bitbuffer![0 1 0])
     }
 }

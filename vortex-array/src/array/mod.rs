@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod display;
+mod operator;
 mod visitor;
 
 use std::any::Any;
@@ -9,10 +10,11 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::sync::Arc;
 
+pub use operator::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -22,7 +24,7 @@ use crate::arrays::{
     VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
+use crate::compute::{is_constant_opts, ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output};
 use crate::operator::OperatorRef;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
@@ -33,7 +35,9 @@ use crate::vtable::{
 use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
 
 /// The public API trait for all Vortex arrays.
-pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor {
+pub trait Array:
+    'static + private::Sealed + Send + Sync + Debug + ArrayVisitor + ArrayOperator
+{
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
@@ -153,7 +157,7 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
     -> VortexResult<Option<Output>>;
 
-    /// Convert the array to a operator operator if supported by the encoding.
+    /// Convert the array to an operator if supported by the encoding.
     ///
     /// Returns `None` if the encoding does not support operator operations.
     fn to_operator(&self) -> VortexResult<Option<OperatorRef>>;

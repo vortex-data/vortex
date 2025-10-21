@@ -1,38 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
-use futures::FutureExt;
 use futures::future::BoxFuture;
-use pin_project_lite::pin_project;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::ArrayRef;
 use crate::execution::BindCtx;
+use crate::ArrayRef;
 
-pin_project! {
-    /// A batch execution that produces a Vortex `Mask`.
-    #[project = MaskExecutionProj]
-    pub enum MaskExecution {
-        AllTrue { len: usize },
-        AllFalse { len: usize },
-        Future { #[pin] fut: BoxFuture<'static, VortexResult<Mask>> },
-    }
+pub enum MaskExecution {
+    AllTrue(usize),
+    AllFalse(usize),
+    Future(BoxFuture<'static, VortexResult<Mask>>),
 }
 
-impl Future for MaskExecution {
-    type Output = VortexResult<Mask>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.project() {
-            MaskExecutionProj::AllTrue { len } => Poll::Ready(Ok(Mask::new_true(*len))),
-            MaskExecutionProj::AllFalse { len } => Poll::Ready(Ok(Mask::new_false(*len))),
-            MaskExecutionProj::Future { mut fut } => fut.poll_unpin(cx),
+impl MaskExecution {
+    pub async fn execute(self) -> VortexResult<Mask> {
+        match self {
+            MaskExecution::AllTrue(len) => Ok(Mask::new_true(len)),
+            MaskExecution::AllFalse(len) => Ok(Mask::new_false(len)),
+            MaskExecution::Future(fut) => fut.await,
         }
     }
 }
@@ -42,11 +31,7 @@ impl dyn BindCtx + '_ {
     ///
     /// This binding will optimize for constant arrays or other array types that can be more
     /// efficiently converted into a `Mask`.
-    pub fn bind_mask(
-        &mut self,
-        mask: &ArrayRef,
-        ctx: &mut dyn BindCtx,
-    ) -> VortexResult<MaskExecution> {
+    pub fn bind_mask(&mut self, mask: &ArrayRef) -> VortexResult<MaskExecution> {
         if !matches!(mask.dtype(), DType::Bool(NonNullable)) {
             vortex_bail!(
                 "Expected non-nullable boolean array for mask binding, got {}",
@@ -62,9 +47,9 @@ impl dyn BindCtx + '_ {
                 .vortex_expect("checked non-nullable");
             let len = mask.len();
             if constant {
-                return Ok(MaskExecution::AllTrue { len });
+                return Ok(MaskExecution::AllTrue(len));
             } else {
-                return Ok(MaskExecution::AllFalse { len });
+                return Ok(MaskExecution::AllFalse(len));
             }
         }
 
@@ -72,7 +57,7 @@ impl dyn BindCtx + '_ {
         //  case we could check for run-end encoding here?
 
         // If none of the above patterns match, we fall back to canonicalizing.
-        let _execution = ctx.bind(mask, None)?;
+        let _execution = self.bind(mask, None)?;
         // Ok(Self::Future {
         //     fut: async move { Ok(execution.execute().await?.into_bool().to_mask()) }.boxed(),
         // })
