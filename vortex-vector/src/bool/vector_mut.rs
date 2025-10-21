@@ -22,8 +22,8 @@ use crate::{VectorMutOps, VectorOps};
 /// ```
 /// use vortex_vector::{BoolVectorMut, VectorMutOps};
 ///
-/// let mut vec1 = BoolVectorMut::from_option_iter([true, false].map(Some));
-/// let vec2 = BoolVectorMut::from_option_iter([true, true].map(Some)).freeze();
+/// let mut vec1 = BoolVectorMut::from_iter([true, false].map(Some));
+/// let vec2 = BoolVectorMut::from_iter([true, true].map(Some)).freeze();
 ///
 /// // Extend from another vector.
 /// vec1.extend_from_vector(&vec2);
@@ -39,7 +39,7 @@ use crate::{VectorMutOps, VectorOps};
 /// ```
 /// use vortex_vector::{BoolVectorMut, VectorMutOps};
 ///
-/// let mut vec = BoolVectorMut::from_option_iter([true, false, true, false, true].map(Some));
+/// let mut vec = BoolVectorMut::from_iter([true, false, true, false, true].map(Some));
 ///
 /// // Split the vector at index 3.
 /// let mut second_half = vec.split_off(3);
@@ -56,7 +56,7 @@ use crate::{VectorMutOps, VectorOps};
 /// ```
 /// use vortex_vector::{BoolVectorMut, VectorMutOps, VectorOps};
 ///
-/// let mut vec = BoolVectorMut::from_option_iter([true, false, true].map(Some));
+/// let mut vec = BoolVectorMut::from_iter([true, false, true].map(Some));
 ///
 /// // Freeze into an immutable vector.
 /// let immutable = vec.freeze();
@@ -76,7 +76,9 @@ impl BoolVectorMut {
             validity: MaskMut::with_capacity(capacity),
         }
     }
+}
 
+impl FromIterator<Option<bool>> for BoolVectorMut {
     /// Creates a new [`BoolVectorMut`] from an iterator of `Option<bool>` values.
     ///
     /// `None` values will be marked as invalid in the validity mask.
@@ -86,10 +88,10 @@ impl BoolVectorMut {
     /// ```
     /// use vortex_vector::{BoolVectorMut, VectorMutOps};
     ///
-    /// let mut vec = BoolVectorMut::from_option_iter([Some(true), None, Some(false)]);
+    /// let mut vec = BoolVectorMut::from_iter([Some(true), None, Some(false)]);
     /// assert_eq!(vec.len(), 3);
     /// ```
-    pub fn from_option_iter<I>(iter: I) -> Self
+    fn from_iter<I>(iter: I) -> Self
     where
         I: IntoIterator<Item = Option<bool>>,
     {

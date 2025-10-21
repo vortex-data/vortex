@@ -25,7 +25,7 @@
 /// assert_eq!(get_vector_length(&null_vec), 5);
 ///
 /// // Works with `Bool` vectors.
-/// let bool_vec: Vector = BoolVectorMut::from_option_iter([true, false, true].map(Some))
+/// let bool_vec: Vector = BoolVectorMut::from_iter([true, false, true].map(Some))
 ///     .freeze()
 ///     .into();
 /// assert_eq!(get_vector_length(&bool_vec), 3);
@@ -75,7 +75,7 @@ macro_rules! match_each_vector {
 /// assert!(null_vec.capacity() >= 15);
 ///
 /// // Works with `Bool` mutable vectors.
-/// let mut bool_vec: VectorMut = BoolVectorMut::from_option_iter([true, false].map(Some)).into();
+/// let mut bool_vec: VectorMut = BoolVectorMut::from_iter([true, false].map(Some)).into();
 /// reserve_space(&mut bool_vec, 5);
 /// assert!(bool_vec.capacity() >= 7);
 /// ```

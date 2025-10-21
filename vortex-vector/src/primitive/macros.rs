@@ -26,13 +26,13 @@
 /// }
 ///
 /// // Works with `I32` primitive vectors.
-/// let i32_vec: PrimitiveVector = PVectorMut::<i32>::from_option_iter([1, 2, 3].map(Some))
+/// let i32_vec: PrimitiveVector = PVectorMut::<i32>::from_iter([1, 2, 3].map(Some))
 ///     .freeze()
 ///     .into();
 /// assert_eq!(get_primitive_len(&i32_vec), 3);
 ///
 /// // Works with `F64` primitive vectors.
-/// let f64_vec: PrimitiveVector = PVectorMut::<f64>::from_option_iter([1.0, 2.5].map(Some))
+/// let f64_vec: PrimitiveVector = PVectorMut::<f64>::from_iter([1.0, 2.5].map(Some))
 ///     .freeze()
 ///     .into();
 /// assert_eq!(get_primitive_len(&f64_vec), 2);
@@ -113,12 +113,12 @@ macro_rules! match_each_pvector {
 /// }
 ///
 /// // Works with `U8` mutable primitive vectors.
-/// let mut u8_vec: PrimitiveVectorMut = PVectorMut::<u8>::from_option_iter([1, 2].map(Some)).into();
+/// let mut u8_vec: PrimitiveVectorMut = PVectorMut::<u8>::from_iter([1, 2].map(Some)).into();
 /// reserve_primitive_space(&mut u8_vec, 10);
 /// assert!(u8_vec.capacity() >= 12);
 ///
 /// // Works with `I64` mutable primitive vectors.
-/// let mut i64_vec: PrimitiveVectorMut = PVectorMut::<i64>::from_option_iter([100].map(Some)).into();
+/// let mut i64_vec: PrimitiveVectorMut = PVectorMut::<i64>::from_iter([100].map(Some)).into();
 /// reserve_primitive_space(&mut i64_vec, 5);
 /// assert!(i64_vec.capacity() >= 6);
 /// ```

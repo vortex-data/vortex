@@ -31,11 +31,11 @@ use crate::{PVector, VectorMutOps, VectorOps};
 /// assert!(vec.capacity() >= 10);
 ///
 /// // Create from an iterator of optional values.
-/// let mut vec = PVectorMut::<i32>::from_option_iter([Some(1), None, Some(3)]);
+/// let mut vec = PVectorMut::<i32>::from_iter([Some(1), None, Some(3)]);
 /// assert_eq!(vec.len(), 3);
 ///
 /// // Works with different primitive types.
-/// let mut f64_vec = PVectorMut::<f64>::from_option_iter([1.5, 2.5, 3.5].map(Some));
+/// let mut f64_vec = PVectorMut::<f64>::from_iter([1.5, 2.5, 3.5].map(Some));
 /// assert_eq!(f64_vec.len(), 3);
 /// ```
 ///
@@ -44,8 +44,8 @@ use crate::{PVector, VectorMutOps, VectorOps};
 /// ```
 /// use vortex_vector::{PVectorMut, VectorMutOps};
 ///
-/// let mut vec1 = PVectorMut::<i32>::from_option_iter([1, 2].map(Some));
-/// let vec2 = PVectorMut::<i32>::from_option_iter([3, 4].map(Some)).freeze();
+/// let mut vec1 = PVectorMut::<i32>::from_iter([1, 2].map(Some));
+/// let vec2 = PVectorMut::<i32>::from_iter([3, 4].map(Some)).freeze();
 ///
 /// // Extend from another vector.
 /// vec1.extend_from_vector(&vec2);
@@ -61,7 +61,7 @@ use crate::{PVector, VectorMutOps, VectorOps};
 /// ```
 /// use vortex_vector::{PVectorMut, VectorMutOps};
 ///
-/// let mut vec = PVectorMut::<i64>::from_option_iter([10, 20, 30, 40, 50].map(Some));
+/// let mut vec = PVectorMut::<i64>::from_iter([10, 20, 30, 40, 50].map(Some));
 ///
 /// // Split the vector at index 3.
 /// let mut second_half = vec.split_off(3);
@@ -79,7 +79,7 @@ use crate::{PVector, VectorMutOps, VectorOps};
 /// use vortex_vector::{PVectorMut, VectorMutOps};
 ///
 /// // Create a vector with some null values.
-/// let mut vec = PVectorMut::<u32>::from_option_iter([Some(100), None, Some(200), None]);
+/// let mut vec = PVectorMut::<u32>::from_iter([Some(100), None, Some(200), None]);
 /// assert_eq!(vec.len(), 4);
 ///
 /// // Add more nulls.
@@ -92,7 +92,7 @@ use crate::{PVector, VectorMutOps, VectorOps};
 /// ```
 /// use vortex_vector::{PVectorMut, VectorMutOps, VectorOps};
 ///
-/// let mut vec = PVectorMut::<f32>::from_option_iter([1.0, 2.0, 3.0].map(Some));
+/// let mut vec = PVectorMut::<f32>::from_iter([1.0, 2.0, 3.0].map(Some));
 ///
 /// // Freeze into an immutable vector.
 /// let immutable = vec.freeze();
@@ -104,7 +104,7 @@ pub struct PVectorMut<T> {
     pub(super) validity: MaskMut,
 }
 
-impl<T: NativePType> PVectorMut<T> {
+impl<T> PVectorMut<T> {
     /// Create a new mutable primitive vector with the given capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -112,7 +112,9 @@ impl<T: NativePType> PVectorMut<T> {
             validity: MaskMut::with_capacity(capacity),
         }
     }
+}
 
+impl<T: NativePType> FromIterator<Option<T>> for PVectorMut<T> {
     /// Creates a new [`PVectorMut<T>`] from an iterator of `Option<T>` values.
     ///
     /// `None` values will be marked as invalid in the validity mask.
@@ -122,10 +124,10 @@ impl<T: NativePType> PVectorMut<T> {
     /// ```
     /// use vortex_vector::{PVectorMut, VectorMutOps};
     ///
-    /// let mut vec = PVectorMut::<i32>::from_option_iter([Some(1), None, Some(3)]);
+    /// let mut vec = PVectorMut::<i32>::from_iter([Some(1), None, Some(3)]);
     /// assert_eq!(vec.len(), 3);
     /// ```
-    pub fn from_option_iter<I>(iter: I) -> Self
+    fn from_iter<I>(iter: I) -> Self
     where
         I: IntoIterator<Item = Option<T>>,
     {
