@@ -26,6 +26,30 @@ impl BoolVectorMut {
             validity: MaskMut::with_capacity(capacity),
         }
     }
+
+    // TODO(connor): Make this a proper Rust test after we replace `BooleanBuffer` with `BitBuffer`
+    // in `MaskValues`.
+    /// Creates a new [`BoolVectorMut`] from an iterator of `Option<bool>` values.
+    ///
+    /// `None` values will be marked as invalid in the validity mask.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// use vortex_vector::{BoolVectorMut, VectorMutOps};
+    ///
+    /// let mut vec = BoolVectorMut::from_option_iter([Some(true), None, Some(false)]);
+    /// assert_eq!(vec.len(), 3);
+    /// ```
+    pub fn from_option_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = Option<bool>>,
+    {
+        match BoolVector::from_option_iter(iter).try_into_mut() {
+            Ok(res) => res,
+            Err(_) => unreachable!("We just created the `BoolVector`, so we must own it"),
+        }
+    }
 }
 
 impl VectorMutOps for BoolVectorMut {

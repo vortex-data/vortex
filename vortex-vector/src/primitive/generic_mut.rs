@@ -29,6 +29,30 @@ impl<T: NativePType> PVectorMut<T> {
             validity: MaskMut::with_capacity(capacity),
         }
     }
+
+    // TODO(connor): Make this a proper Rust test after we replace `BooleanBuffer` with `BitBuffer`
+    // in `MaskValues`.
+    /// Creates a new [`PVectorMut<T>`] from an iterator of `Option<T>` values.
+    ///
+    /// `None` values will be marked as invalid in the validity mask.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// use vortex_vector::{PVectorMut, VectorMutOps};
+    ///
+    /// let mut vec = PVectorMut::<i32>::from_option_iter([Some(1), None, Some(3)]);
+    /// assert_eq!(vec.len(), 3);
+    /// ```
+    pub fn from_option_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = Option<T>>,
+    {
+        match PVector::from_option_iter(iter).try_into_mut() {
+            Ok(res) => res,
+            Err(_) => unreachable!("We just created the `PVector`, so we must own it"),
+        }
+    }
 }
 
 impl<T: NativePType> VectorMutOps for PVectorMut<T> {
