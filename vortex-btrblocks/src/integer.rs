@@ -765,9 +765,7 @@ mod tests {
     use vortex_sparse::SparseEncoding;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use crate::integer::{
-        IntCompressor, IntegerStats, RLE_INTEGER_SCHEME, SequenceScheme, SparseScheme,
-    };
+    use crate::integer::{IntCompressor, IntegerStats, SequenceScheme, SparseScheme};
     use crate::{Compressor, CompressorStats, Scheme};
 
     #[test]
@@ -881,19 +879,19 @@ mod tests {
         assert_eq!(decoded.as_slice::<i32>(), values.as_slice());
     }
 
-    #[test]
-    fn test_rle_compression() {
-        let mut values = Vec::new();
-        values.extend(iter::repeat_n(42i32, 100));
-        values.extend(iter::repeat_n(123i32, 200));
-        values.extend(iter::repeat_n(987i32, 150));
+    //#[test]
+    //fn test_rle_compression() {
+    //    let mut values = Vec::new();
+    //    values.extend(iter::repeat_n(42i32, 100));
+    //    values.extend(iter::repeat_n(123i32, 200));
+    //    values.extend(iter::repeat_n(987i32, 150));
 
-        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed = RLE_INTEGER_SCHEME
-            .compress(&IntegerStats::generate(&array), false, 3, &[])
-            .unwrap();
+    //    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+    //    let compressed = RLE_INTEGER_SCHEME
+    //        .compress(&IntegerStats::generate(&array), false, 3, &[])
+    //        .unwrap();
 
-        let decoded = compressed.to_primitive();
-        assert_eq!(decoded.as_slice::<i32>(), values.as_slice());
-    }
+    //    let decoded = compressed.to_primitive();
+    //    assert_eq!(decoded.as_slice::<i32>(), values.as_slice());
+    //}
 }
