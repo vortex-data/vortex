@@ -11,10 +11,6 @@ use crate::VectorOps;
 
 /// An immutable vector of boolean values.
 ///
-/// Internally, the boolean values are stored as the bits of a [`BitBuffer`] plus an optional
-/// [`Mask`] for null booleans (where `true` represents a _valid_ boolean and `false` represents a
-/// `null` boolean).
-///
 /// The mutable equivalent of this type is [`BoolVectorMut`].
 #[derive(Debug, Clone)]
 pub struct BoolVector {
@@ -46,13 +42,13 @@ impl BoolVector {
 impl VectorOps for BoolVector {
     type Mutable = BoolVectorMut;
 
-    fn validity(&self) -> &Mask {
-        &self.validity
+    fn len(&self) -> usize {
+        debug_assert!(self.validity.len() == self.bits.len());
+        self.bits.len()
     }
 
-    fn len(&self) -> usize {
-        debug_assert!(self.validity.len() == self.bits.len(),);
-        self.bits.len()
+    fn validity(&self) -> &Mask {
+        &self.validity
     }
 
     fn try_into_mut(self) -> Result<Self::Mutable, Self>
@@ -69,19 +65,15 @@ impl VectorOps for BoolVector {
             }
         };
 
-        let validity = match self.validity {
-            Some(v) => match v.try_into_mut() {
-                Ok(v) => Some(v),
-                Err(v) => {
-                    return Err(BoolVector {
-                        bits: bits.freeze(),
-                        validity: Some(v),
-                    });
-                }
-            },
-            None => None,
-        };
-
-        Ok(BoolVectorMut { bits, validity })
+        match self.validity.try_into_mut() {
+            Ok(validity_mut) => Ok(BoolVectorMut {
+                bits,
+                validity: validity_mut,
+            }),
+            Err(validity) => Err(BoolVector {
+                bits: bits.freeze(),
+                validity,
+            }),
+        }
     }
 }

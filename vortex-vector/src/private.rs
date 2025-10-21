@@ -9,6 +9,7 @@
 //! backward compatibility.
 
 use crate::*;
+use vortex_dtype::NativePType;
 
 /// A private trait for sealing implementations of other traits.
 pub trait Sealed {}
@@ -24,5 +25,5 @@ impl Sealed for BoolVectorMut {}
 
 impl Sealed for PrimitiveVector {}
 impl Sealed for PrimitiveVectorMut {}
-impl<T> Sealed for PVector<T> {}
-impl<T> Sealed for PVectorMut<T> {}
+impl<T: NativePType> Sealed for PVector<T> {}
+impl<T: NativePType> Sealed for PVectorMut<T> {}

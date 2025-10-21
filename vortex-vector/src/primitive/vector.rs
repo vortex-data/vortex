@@ -6,7 +6,7 @@
 use super::{PVector, PrimitiveVectorMut};
 use crate::{match_each_pvector, VectorOps};
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, Nullability, PTypeDowncast, PTypeUpcast};
+use vortex_dtype::{NativePType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
 
 /// An immutable vector of primitive values.
@@ -44,12 +44,12 @@ pub enum PrimitiveVector {
 impl VectorOps for PrimitiveVector {
     type Mutable = PrimitiveVectorMut;
 
-    fn nullability(&self) -> Nullability {
-        match_each_pvector!(self, |v| { v.nullability() })
-    }
-
     fn len(&self) -> usize {
         match_each_pvector!(self, |v| { v.len() })
+    }
+
+    fn validity(&self) -> &vortex_mask::Mask {
+        match_each_pvector!(self, |v| { v.validity() })
     }
 
     fn try_into_mut(self) -> Result<Self::Mutable, Self>

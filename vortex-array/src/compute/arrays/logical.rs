@@ -214,7 +214,7 @@ where
 {
     async fn execute(self: Box<Self>, out: VectorMut) -> VortexResult<Vector> {
         // We pass the output into the LHS and then attempt to call the mutate-in-place op.
-        let rhs_out = BoolVectorMut::with_capacity(0, out.nullability());
+        let rhs_out = BoolVectorMut::with_capacity(0);
         let (lhs, rhs) = try_join!(self.lhs.execute(out), self.rhs.execute(rhs_out.into()))?;
         let (lhs, rhs) = (BoolVector::from(lhs), BoolVector::from(rhs));
 

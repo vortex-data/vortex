@@ -23,6 +23,14 @@ pub trait VectorOps: private::Sealed + From<Vector> + Into<Vector> {
         self.len() == 0
     }
 
+    /// Returns the validity mask of the vector, where `true` represents a _valid_ element and
+    /// `false` represents a `null` element.
+    ///
+    /// Note that vectors are **always** considered nullable. "Non-nullable" data will simply have a
+    /// [`Mask`] of [`AllTrue(len)`](Mask::AllTrue). It is on the caller to ensure that they do not
+    /// add nullable data to a vector they want to keep as non-nullable.
+    fn validity(&self) -> &Mask;
+
     /// Tries to convert `self` into a mutable vector (implementing [`VectorMutOps`]).
     ///
     /// This method will only succeed if `self` is the only unique strong reference (it effectively
