@@ -16,10 +16,11 @@ using namespace duckdb;
 
 namespace vortex {
 struct CTableFunctionInfo final : TableFunctionInfo {
-    explicit CTableFunctionInfo(const duckdb_vx_tfunc_vtab_t &vtab) : vtab(vtab) {
+    explicit CTableFunctionInfo(const duckdb_vx_tfunc_vtab_t &vtab) : vtab(vtab), max_threads(vtab.max_threads) {
     }
 
     duckdb_vx_tfunc_vtab_t vtab;
+    idx_t max_threads;
 };
 
 struct CTableBindData final : TableFunctionData {
@@ -44,13 +45,15 @@ struct CTableBindData final : TableFunctionData {
 };
 
 struct CTableGlobalData final : GlobalTableFunctionState {
-    explicit CTableGlobalData(unique_ptr<vortex::CData> ffi_data_p) : ffi_data(std::move(ffi_data_p)) {
+    explicit CTableGlobalData(unique_ptr<vortex::CData> ffi_data_p, idx_t max_threads_p)
+        : ffi_data(std::move(ffi_data_p)), max_threads(max_threads_p) {
     }
 
     unique_ptr<vortex::CData> ffi_data;
+    idx_t max_threads;
 
     idx_t MaxThreads() const override {
-        return GlobalTableFunctionState::MAX_THREADS;
+        return max_threads;
     }
 };
 
@@ -111,7 +114,8 @@ unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, Table
     }
 
     return make_uniq<CTableGlobalData>(
-        unique_ptr<vortex::CData>(reinterpret_cast<vortex::CData *>(ffi_global_data)));
+        unique_ptr<vortex::CData>(reinterpret_cast<vortex::CData *>(ffi_global_data)),
+        bind.info->max_threads);
 }
 
 unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, TableFunctionInitInput &input,
