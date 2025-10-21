@@ -48,10 +48,6 @@ impl VectorMutOps for VectorMut {
         match_each_vector_mut!(self, |v| { v.nullability() })
     }
 
-    fn dtype(&self) -> DType {
-        match_each_vector_mut!(self, |v| { v.dtype() })
-    }
-
     fn len(&self) -> usize {
         match_each_vector_mut!(self, |v| { v.len() })
     }

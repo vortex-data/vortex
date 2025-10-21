@@ -3,7 +3,7 @@
 
 //! Definition and implementation of [`NullVector`].
 
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::Nullability;
 
 use crate::{NullVectorMut, VectorOps};
 
@@ -30,10 +30,6 @@ impl VectorOps for NullVector {
 
     fn nullability(&self) -> Nullability {
         Nullability::Nullable
-    }
-
-    fn dtype(&self) -> DType {
-        DType::Null
     }
 
     fn len(&self) -> usize {

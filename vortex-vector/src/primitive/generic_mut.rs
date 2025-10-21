@@ -4,7 +4,7 @@
 //! Definition and implementation of [`GenericPVectorMut<T>`].
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_dtype::{NativePType, Nullability};
 use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
@@ -43,10 +43,6 @@ impl<T: NativePType> VectorMutOps for GenericPVectorMut<T> {
 
     fn nullability(&self) -> Nullability {
         Nullability::from(self.validity.is_some())
-    }
-
-    fn dtype(&self) -> DType {
-        DType::Primitive(T::PTYPE, self.nullability())
     }
 
     fn len(&self) -> usize {

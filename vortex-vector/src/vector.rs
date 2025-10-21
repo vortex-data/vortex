@@ -4,7 +4,7 @@
 //! Definition of the [`Vector`] type, which represent immutable and fully decompressed (canonical)
 //! array data.
 
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::Nullability;
 
 use crate::{BoolVector, NullVector, PrimitiveVector, VectorMut, VectorOps, match_each_vector};
 
@@ -14,8 +14,6 @@ use crate::{BoolVector, NullVector, PrimitiveVector, VectorMut, VectorOps, match
 /// Most of the behavior of `Vector` is described by the [`VectorOps`] trait.
 ///
 /// The mutable equivalent of this type is [`VectorMut`], which implements.
-///
-/// [`VectorOps`]: crate::VectorOps
 #[derive(Debug, Clone)]
 pub enum Vector {
     /// Null
@@ -47,10 +45,6 @@ impl VectorOps for Vector {
 
     fn nullability(&self) -> Nullability {
         match_each_vector!(self, |v| { v.nullability() })
-    }
-
-    fn dtype(&self) -> DType {
-        match_each_vector!(self, |v| { v.dtype() })
     }
 
     fn len(&self) -> usize {

@@ -4,7 +4,7 @@
 //! Definition and implementation of [`BoolVectorMut`].
 
 use vortex_buffer::BitBufferMut;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::Nullability;
 use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
@@ -43,10 +43,6 @@ impl VectorMutOps for BoolVectorMut {
 
     fn nullability(&self) -> Nullability {
         Nullability::from(self.validity.is_some())
-    }
-
-    fn dtype(&self) -> DType {
-        DType::Bool(self.nullability())
     }
 
     fn len(&self) -> usize {

@@ -4,7 +4,7 @@
 //! Definition and implementation of [`GenericPVector<T>`].
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_dtype::{NativePType, Nullability};
 use vortex_mask::Mask;
 
 use crate::{GenericPVectorMut, VectorOps};
@@ -28,10 +28,6 @@ impl<T: NativePType> VectorOps for GenericPVector<T> {
 
     fn nullability(&self) -> Nullability {
         Nullability::from(self.validity.is_some())
-    }
-
-    fn dtype(&self) -> DType {
-        DType::Primitive(T::PTYPE, self.nullability())
     }
 
     fn len(&self) -> usize {

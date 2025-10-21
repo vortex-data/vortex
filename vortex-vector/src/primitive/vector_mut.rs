@@ -4,7 +4,7 @@
 //! Definition and implementation of [`PrimitiveVectorMut`].
 
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, NativePType, Nullability, PType, PTypeUpcast};
+use vortex_dtype::{NativePType, Nullability, PType, PTypeUpcast};
 
 use crate::{
     GenericPVectorMut, PrimitiveVector, VectorMutOps, match_each_pvector_mut,
@@ -67,10 +67,6 @@ impl VectorMutOps for PrimitiveVectorMut {
 
     fn nullability(&self) -> Nullability {
         match_each_pvector_mut!(self, |v| { v.nullability() })
-    }
-
-    fn dtype(&self) -> DType {
-        match_each_pvector_mut!(self, |v| { v.dtype() })
     }
 
     fn len(&self) -> usize {

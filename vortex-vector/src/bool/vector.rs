@@ -4,7 +4,7 @@
 //! Definition and implementation of [`BoolVector`].
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
 use super::BoolVectorMut;
@@ -28,10 +28,6 @@ impl VectorOps for BoolVector {
 
     fn nullability(&self) -> Nullability {
         Nullability::from(self.validity.is_some())
-    }
-
-    fn dtype(&self) -> DType {
-        DType::Bool(self.nullability())
     }
 
     fn len(&self) -> usize {

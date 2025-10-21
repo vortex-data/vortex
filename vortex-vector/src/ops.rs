@@ -4,7 +4,7 @@
 //! Definition and implementation of [`VectorOps`] and [`VectorMutOps`] for [`Vector`] and
 //! [`VectorMut`], respectively.
 
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::Nullability;
 
 use crate::{Vector, VectorMut, private};
 
@@ -22,9 +22,6 @@ pub trait VectorOps: private::Sealed + Into<Vector> {
     fn is_nullable(&self) -> bool {
         self.nullability().is_nullable()
     }
-
-    /// Returns the [`DType`] (or data type) of the vector.
-    fn dtype(&self) -> DType;
 
     /// Returns the number of elements in the vector, also referred to as its "length".
     fn len(&self) -> usize;
@@ -62,9 +59,6 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     fn is_nullable(&self) -> bool {
         self.nullability().is_nullable()
     }
-
-    /// Returns the [`DType`] (or data type) of the vector.
-    fn dtype(&self) -> DType;
 
     /// Returns the number of elements in the vector, also referred to as its "length".
     fn len(&self) -> usize;

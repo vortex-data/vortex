@@ -4,7 +4,7 @@
 //! Definition and implementation of [`PrimitiveVector`].
 
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, NativePType, Nullability, PTypeUpcast};
+use vortex_dtype::{NativePType, Nullability, PTypeUpcast};
 
 use super::{GenericPVector, PrimitiveVectorMut};
 use crate::{VectorOps, match_each_pvector};
@@ -46,10 +46,6 @@ impl VectorOps for PrimitiveVector {
 
     fn nullability(&self) -> Nullability {
         match_each_pvector!(self, |v| { v.nullability() })
-    }
-
-    fn dtype(&self) -> DType {
-        match_each_pvector!(self, |v| { v.dtype() })
     }
 
     fn len(&self) -> usize {
