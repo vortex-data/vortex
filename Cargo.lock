@@ -8575,6 +8575,7 @@ dependencies = [
  "vortex-metrics",
  "vortex-scalar",
  "vortex-utils",
+ "vortex-vector",
 ]
 
 [[package]]

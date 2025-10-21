@@ -5,8 +5,8 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::vortex_panic;
 
 use crate::{
-    BoolVectorMut, NullVectorMut, PrimitiveVectorMut, Vector, VectorMutOps, match_each_vector_mut,
-    match_each_vector_mut_immut_pair, match_each_vector_mut_pair,
+    match_each_vector_mut, match_each_vector_mut_immut_pair, match_each_vector_mut_pair, BoolVectorMut, NullVectorMut, PrimitiveVectorMut,
+    Vector, VectorMutOps,
 };
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
@@ -15,8 +15,6 @@ use crate::{
 /// Most of the behavior of `VectorMut` is described by the [`VectorMutOps`] trait.
 ///
 /// The immutable equivalent of this type is [`Vector`].
-///
-/// [`VectorMutOps`]: crate::VectorMutOps
 #[derive(Debug, Clone)]
 pub enum VectorMut {
     /// Null

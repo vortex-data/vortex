@@ -3,13 +3,13 @@
 
 //! Definition and implementation of [`PrimitiveVectorMut`].
 
-use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, Nullability, PType, PTypeUpcast};
-
 use crate::{
-    PVectorMut, PrimitiveVector, VectorMutOps, match_each_pvector_mut,
-    match_each_pvector_mut_immut_pair, match_each_pvector_mut_pair,
+    match_each_pvector_mut, match_each_pvector_mut_immut_pair, match_each_pvector_mut_pair, PVectorMut,
+    PrimitiveVector, VectorMutOps,
 };
+use vortex_dtype::half::f16;
+use vortex_dtype::{NativePType, Nullability, PType, PTypeDowncast, PTypeUpcast};
+use vortex_error::vortex_panic;
 
 /// A mutable vector of primitive values.
 ///
@@ -106,9 +106,9 @@ impl VectorMutOps for PrimitiveVectorMut {
     }
 }
 
-impl<T: NativePType> From<PVectorMut<T>> for PrimitiveVectorMut {
-    fn from(v: PVectorMut<T>) -> Self {
-        T::upcast(v)
+impl<T: NativePType> From<PrimitiveVectorMut> for PVectorMut<T> {
+    fn from(v: PrimitiveVectorMut) -> Self {
+        T::downcast(v)
     }
 }
 
@@ -157,5 +157,92 @@ impl PTypeUpcast for PrimitiveVectorMut {
 
     fn from_f64(input: Self::Input<f64>) -> Self {
         PrimitiveVectorMut::F64(input)
+    }
+}
+
+impl<T: NativePType> From<PVectorMut<T>> for PrimitiveVectorMut {
+    fn from(v: PVectorMut<T>) -> Self {
+        T::upcast(v)
+    }
+}
+
+impl PTypeDowncast for PrimitiveVectorMut {
+    type Output<T: NativePType> = PVectorMut<T>;
+
+    fn into_u8(self) -> Self::Output<u8> {
+        if let PrimitiveVectorMut::U8(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut::U8, got {self:?}");
+    }
+
+    fn into_u16(self) -> Self::Output<u16> {
+        if let PrimitiveVectorMut::U16(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut::U16, got {self:?}");
+    }
+
+    fn into_u32(self) -> Self::Output<u32> {
+        if let PrimitiveVectorMut::U32(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut::U32, got {self:?}");
+    }
+
+    fn into_u64(self) -> Self::Output<u64> {
+        if let PrimitiveVectorMut::U64(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut::U64, got {self:?}");
+    }
+
+    fn into_i8(self) -> Self::Output<i8> {
+        if let PrimitiveVectorMut::I8(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut::I8, got {self:?}");
+    }
+
+    fn into_i16(self) -> Self::Output<i16> {
+        if let PrimitiveVectorMut::I16(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut::I16, got {self:?}");
+    }
+
+    fn into_i32(self) -> Self::Output<i32> {
+        if let PrimitiveVectorMut::I32(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut::I32, got {self:?}");
+    }
+
+    fn into_i64(self) -> Self::Output<i64> {
+        if let PrimitiveVectorMut::I64(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut::I64, got {self:?}");
+    }
+
+    fn into_f16(self) -> Self::Output<f16> {
+        if let PrimitiveVectorMut::F16(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut::F16, got {self:?}");
+    }
+
+    fn into_f32(self) -> Self::Output<f32> {
+        if let PrimitiveVectorMut::F32(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut::F32, got {self:?}");
+    }
+
+    fn into_f64(self) -> Self::Output<f64> {
+        if let PrimitiveVectorMut::F64(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut::F64, got {self:?}");
     }
 }

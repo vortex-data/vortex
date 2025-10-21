@@ -4,7 +4,6 @@
 //! Definition and implementation of [`BoolVector`].
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
 use super::BoolVectorMut;
@@ -20,23 +19,39 @@ use crate::VectorOps;
 #[derive(Debug, Clone)]
 pub struct BoolVector {
     pub(super) bits: BitBuffer,
-    pub(super) validity: Option<Mask>,
+    pub(super) validity: Mask,
+}
+
+impl BoolVector {
+    /// Creates a new [`BoolVector`] from the given bits and validity mask.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the length of the validity mask does not match the length of the bits.
+    pub fn new(bits: BitBuffer, validity: Mask) -> Self {
+        assert_eq!(
+            validity.len(),
+            bits.len(),
+            "BoolVector validity mask must have the same length as bits"
+        );
+        Self { bits, validity }
+    }
+
+    /// Returns the bits buffer of the boolean vector.
+    pub fn bits(&self) -> &BitBuffer {
+        &self.bits
+    }
 }
 
 impl VectorOps for BoolVector {
     type Mutable = BoolVectorMut;
 
-    fn nullability(&self) -> Nullability {
-        Nullability::from(self.validity.is_some())
+    fn validity(&self) -> &Mask {
+        &self.validity
     }
 
     fn len(&self) -> usize {
-        debug_assert!(
-            self.validity
-                .as_ref()
-                .is_none_or(|mask| mask.len() == self.bits.len())
-        );
-
+        debug_assert!(self.validity.len() == self.bits.len(),);
         self.bits.len()
     }
 

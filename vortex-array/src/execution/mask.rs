@@ -4,16 +4,16 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::FutureExt;
 use pin_project_lite::pin_project;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::ArrayRef;
 use crate::execution::BindCtx;
+use crate::ArrayRef;
 
 pin_project! {
     /// A batch execution that produces a Vortex `Mask`.
@@ -49,21 +49,20 @@ impl dyn BindCtx + '_ {
                 mask.dtype()
             );
         }
-        //
-        // // Check for a constant mask
-        // if let Some(array) = operator.as_any().downcast_ref::<ConstantArray>() {
-        //     let constant = array
-        //         .scalar()
-        //         .as_bool()
-        //         .value()
-        //         .vortex_expect("checked non-nullable");
-        //     let len = array.len();
-        //     if constant {
-        //         return Ok(Self::AllTrue { len });
-        //     } else {
-        //         return Ok(Self::AllFalse { len });
-        //     }
-        // }
+
+        // Check for a constant mask
+        if let Some(scalar) = mask.as_constant() {
+            let constant = scalar
+                .as_bool()
+                .value()
+                .vortex_expect("checked non-nullable");
+            let len = mask.len();
+            if constant {
+                return Ok(MaskExecution::AllTrue { len });
+            } else {
+                return Ok(MaskExecution::AllFalse { len });
+            }
+        }
 
         // TODO(ngates): we may want to support creating masks from iterator of slices, in which
         //  case we could check for run-end encoding here?

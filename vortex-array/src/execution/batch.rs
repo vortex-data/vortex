@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::ArrayRef;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use vortex_error::VortexResult;
-
-use crate::ArrayRef;
+use vortex_vector::{Vector, VectorMut};
 
 /// Context for binding batch execution kernels.
 ///
@@ -54,13 +54,3 @@ impl BatchKernel for FnKernel {
         self.0(out).await
     }
 }
-
-/// Placeholder type for canonicalized vectors.
-///
-/// To be replaced by the Vectors PR.
-pub struct Vector;
-
-/// Placeholder type for mutable canonicalized vectors.
-///
-/// To be replaced by the Vectors PR.
-pub struct VectorMut;
