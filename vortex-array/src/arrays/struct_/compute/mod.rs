@@ -64,7 +64,7 @@ mod tests {
         assert_arrays_eq!(
             taken,
             StructArray::try_from_iter_with_validity(
-                [("a", buffer![1])],
+                [("a", buffer![1, 0])],
                 Validity::from_iter([true, false])
             )
             .unwrap()

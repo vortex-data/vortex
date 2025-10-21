@@ -206,7 +206,10 @@ mod tests {
         assert!(optimized_array.nbuffers() <= 1);
 
         // Verify the data is still correct
-        assert_arrays_eq!(optimized_array, VarBinArray::from(vec!["short", "tiny"]));
+        assert_arrays_eq!(
+            optimized_array,
+            <VarBinArray as FromIterator<_>>::from_iter([Some("short"), Some("tiny")])
+        );
     }
 
     #[test]

@@ -322,25 +322,25 @@ impl From<Vec<&str>> for VarBinArray {
 
 impl From<Vec<Option<&[u8]>>> for VarBinArray {
     fn from(value: Vec<Option<&[u8]>>) -> Self {
-        Self::from_iter(value, DType::Binary(Nullability::NonNullable))
+        Self::from_iter(value, DType::Binary(Nullability::Nullable))
     }
 }
 
 impl From<Vec<Option<Vec<u8>>>> for VarBinArray {
     fn from(value: Vec<Option<Vec<u8>>>) -> Self {
-        Self::from_iter(value, DType::Binary(Nullability::NonNullable))
+        Self::from_iter(value, DType::Binary(Nullability::Nullable))
     }
 }
 
 impl From<Vec<Option<String>>> for VarBinArray {
     fn from(value: Vec<Option<String>>) -> Self {
-        Self::from_iter(value, DType::Utf8(Nullability::NonNullable))
+        Self::from_iter(value, DType::Utf8(Nullability::Nullable))
     }
 }
 
 impl From<Vec<Option<&str>>> for VarBinArray {
     fn from(value: Vec<Option<&str>>) -> Self {
-        Self::from_iter(value, DType::Utf8(Nullability::NonNullable))
+        Self::from_iter(value, DType::Utf8(Nullability::Nullable))
     }
 }
 
