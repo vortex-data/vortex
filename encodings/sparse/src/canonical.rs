@@ -854,16 +854,8 @@ mod test {
         .unwrap();
 
         let actual = array.to_varbinview().into_array();
-        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
-            Some("hello"),
-            Some("123"),
-            Some("123"),
-            Some("goodbye"),
-            Some("hello"),
-            Some("bonjour"),
-            Some("123"),
-            Some("123"),
-            Some("你好"),
+        let expected = VarBinViewArray::from_iter_str([
+            "hello", "123", "123", "goodbye", "hello", "bonjour", "123", "123", "你好",
         ])
         .into_array();
 
