@@ -16,8 +16,10 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinSet;
 use tracing::{Level, debug, error, info, span, warn};
 use tracing_subscriber::Layer;
@@ -31,7 +33,7 @@ use vortex::validity::Validity;
 use vortex_array::stream::ArrayStreamExt;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("=== Vortex Tracing Subscriber Example ===\n");
     println!("This example demonstrates using Vortex as a backend for structured logging.\n");
 
@@ -40,7 +42,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&output_dir)?;
 
     // Create the Vortex tracing layer
-    let (vortex_layer, writer_handle) = VortexLayer::new(output_dir.clone(), 8192).await;
+    let (vortex_layer, writer_handle, shutdown) =
+        VortexLayer::new(output_dir.clone(), 100_000).await;
 
     // Set up tracing with both console output and Vortex backend
     let subscriber = tracing_subscriber::registry()
@@ -53,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generate some traced activity
     let mut tasks = JoinSet::new();
-    for user_id in 10_000..11_000 {
+    for user_id in 10_000..100_000 {
         tasks.spawn(simulate_application_activity(user_id));
     }
     tasks.join_all().await;
@@ -61,7 +64,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStep 2: Flushing remaining events to disk...");
 
     // Flush and shutdown
-    writer_handle.shutdown().await.unwrap();
+    shutdown.signal();
+    writer_handle.shutdown().await?;
 
     println!("\nStep 3: Reading back trace data from Vortex files...");
 
@@ -140,8 +144,9 @@ async fn simulate_application_activity(user_id: u32) {
 }
 
 /// A tracing Layer that writes events to Vortex files
+#[derive(Clone)]
 struct VortexLayer {
-    sender: mpsc::UnboundedSender<TraceEvent>,
+    sender: Arc<Mutex<Option<UnboundedSender<TraceEvent>>>>,
 }
 
 /// Represents a captured trace event
@@ -155,11 +160,29 @@ struct TraceEvent {
     fields: Vec<(String, String)>,
 }
 
+struct ShutdownSignal {
+    inner: Arc<Mutex<Option<UnboundedSender<TraceEvent>>>>,
+}
+
+impl ShutdownSignal {
+    fn signal(self) {
+        // Drop the sender, signaling to any receiver that it is finished writing.
+        let _ = self.inner.lock().unwrap().take();
+    }
+}
+
 impl VortexLayer {
-    async fn new(output_dir: PathBuf, batch_size: usize) -> (Self, WriterHandle) {
+    async fn new(output_dir: PathBuf, batch_size: usize) -> (Self, WriterHandle, ShutdownSignal) {
         let (tx, rx) = mpsc::unbounded_channel();
+        let signal = Arc::new(Mutex::new(Some(tx)));
         let handle = WriterHandle::spawn(rx, output_dir, batch_size);
-        (Self { sender: tx }, handle)
+        (
+            Self {
+                sender: signal.clone(),
+            },
+            handle,
+            ShutdownSignal { inner: signal },
+        )
     }
 }
 
@@ -168,6 +191,11 @@ where
     S: tracing::Subscriber,
 {
     fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
+        let mut guard = self.sender.lock().unwrap();
+        let Some(ref mut sender) = guard.as_mut() else {
+            return;
+        };
+
         let metadata = event.metadata();
 
         // Extract fields from the event
@@ -187,7 +215,7 @@ where
         };
 
         // Send to async writer (non-blocking)
-        let _ = self.sender.send(trace_event);
+        let _ = sender.send(trace_event);
     }
 }
 
@@ -220,7 +248,6 @@ impl tracing::field::Visit for FieldVisitor {
 
 /// Handle for managing the async writer task
 struct WriterHandle {
-    shutdown_tx: tokio::sync::oneshot::Sender<()>,
     task: tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
 }
 
@@ -230,41 +257,31 @@ impl WriterHandle {
         output_dir: PathBuf,
         batch_size: usize,
     ) -> Self {
-        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
-
         let task = tokio::spawn(async move {
             let mut buffer = Vec::new();
             let mut file_counter = 0;
 
-            loop {
-                tokio::select! {
-                    Some(event) = rx.recv() => {
-                        buffer.push(event);
+            while let Some(event) = rx.recv().await {
+                buffer.push(event);
 
-                        if buffer.len() >= batch_size {
-                            write_batch_to_vortex(&output_dir, &buffer, file_counter).await?;
-                            file_counter += 1;
-                            buffer.clear();
-                        }
-                    }
-                    _ = &mut shutdown_rx => {
-                        // Flush remaining events
-                        if !buffer.is_empty() {
-                            write_batch_to_vortex(&output_dir, &buffer, file_counter).await?;
-                        }
-                        break;
-                    }
+                if buffer.len() >= batch_size {
+                    write_batch_to_vortex(&output_dir, &buffer, file_counter).await?;
+                    file_counter += 1;
+                    buffer.clear();
                 }
+            }
+
+            if !buffer.is_empty() {
+                write_batch_to_vortex(&output_dir, &buffer, file_counter).await?;
             }
 
             Ok(())
         });
 
-        Self { shutdown_tx, task }
+        Self { task }
     }
 
     async fn shutdown(self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let _ = self.shutdown_tx.send(());
         self.task.await.unwrap()
     }
 }
@@ -368,7 +385,9 @@ async fn write_batch_to_vortex(
 }
 
 /// Reads and displays trace files
-async fn read_trace_files(output_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+async fn read_trace_files(
+    output_dir: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut entries = tokio::fs::read_dir(output_dir).await?;
     let mut file_count = 0;
     let mut total_events = 0;
