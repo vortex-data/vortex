@@ -5,7 +5,7 @@ inputs:
   repo-token:
     description: "GitHub token for accessing the repository (typically secrets.GITHUB_TOKEN)"
     required: false
-    default: ""
+    default: "${{ github.token }}"
   toolchain:
     description: "optional override for the toolchain version (e.g. nightly)"
     required: false
