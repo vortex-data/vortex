@@ -4,7 +4,7 @@
 use arrow_array::BooleanArray;
 use vortex_buffer::{BitBuffer, BitBufferMut, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
 use crate::arrays::bool;
@@ -241,7 +241,7 @@ impl FromIterator<Option<bool>> for BoolArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{buffer, BitBuffer, BitBufferMut};
+    use vortex_buffer::{BitBuffer, BitBufferMut, buffer};
 
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::patches::Patches;
@@ -292,9 +292,10 @@ mod tests {
     fn patch_sliced_bools() {
         let arr = BoolArray::from(BitBuffer::new_set(12));
         let sliced = arr.slice(4..12);
+        assert_eq!(sliced.len(), 8);
         let values = sliced.to_bool().into_bit_buffer().into_mut();
-        assert_eq!(values.len(), 12);
-        assert_eq!(values.as_slice(), &[255, 15]);
+        assert_eq!(values.len(), 8);
+        assert_eq!(values.as_slice(), &[255, 255]);
 
         let arr = {
             let mut builder = BitBufferMut::new_unset(12);
@@ -360,6 +361,6 @@ mod tests {
         let arr = BoolArray::from(BitBuffer::new_set(15));
         let sliced = arr.slice(4..15);
         let values = sliced.to_bool().into_bit_buffer().into_mut();
-        assert_eq!(values.as_slice(), &[255, 127]);
+        assert_eq!(values.as_slice(), &[255, 255]);
     }
 }

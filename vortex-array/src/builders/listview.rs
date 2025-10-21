@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use vortex_dtype::{DType, IntegerPType, Nullability};
-use vortex_error::{vortex_ensure, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{ListScalar, Scalar};
 
@@ -19,7 +19,7 @@ use crate::array::{Array, ArrayRef, IntoArray};
 use crate::arrays::ListViewArray;
 use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
 use crate::builders::{
-    builder_with_capacity, ArrayBuilder, PrimitiveBuilder, DEFAULT_BUILDER_CAPACITY,
+    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, PrimitiveBuilder, builder_with_capacity,
 };
 use crate::{Canonical, ToCanonical};
 
@@ -284,11 +284,11 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::ListViewBuilder;
+    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::ListArray;
     use crate::builders::ArrayBuilder;
     use crate::vtable::ValidityHelper;
-    use crate::IntoArray;
 
     #[test]
     fn test_empty() {

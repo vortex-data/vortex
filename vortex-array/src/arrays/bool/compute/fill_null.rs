@@ -44,7 +44,7 @@ register_kernel!(FillNullKernelAdapter(BoolVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_buffer::BitBuffer;
+    use vortex_buffer::{BitBuffer, bitbuffer};
     use vortex_dtype::{DType, Nullability};
 
     use crate::arrays::BoolArray;
@@ -53,9 +53,9 @@ mod tests {
     use crate::validity::Validity;
 
     #[rstest]
-    #[case(true, vec![true, true, false, true])]
-    #[case(false, vec![true, false, false, false])]
-    fn bool_fill_null(#[case] fill_value: bool, #[case] expected: Vec<bool>) {
+    #[case(true, bitbuffer![true, true, false, true])]
+    #[case(false, bitbuffer![true, false, false, false])]
+    fn bool_fill_null(#[case] fill_value: bool, #[case] expected: BitBuffer) {
         let bool_array = BoolArray::from_bit_buffer(
             BitBuffer::from_iter([true, true, false, false]),
             Validity::from_iter([true, false, true, false]),
@@ -63,10 +63,7 @@ mod tests {
         let non_null_array = fill_null(bool_array.as_ref(), &fill_value.into())
             .unwrap()
             .to_bool();
-        assert_eq!(
-            non_null_array.bit_buffer().iter().collect::<Vec<_>>(),
-            expected
-        );
+        assert_eq!(non_null_array.bit_buffer(), &expected);
         assert_eq!(
             non_null_array.dtype(),
             &DType::Bool(Nullability::NonNullable)

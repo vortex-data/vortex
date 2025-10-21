@@ -12,8 +12,8 @@ use arcref::ArcRef;
 use arrow_buffer::bit_iterator::BitIndexIterator;
 use num_traits::Zero;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{match_each_integer_ptype, DType, IntegerPType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{ListScalar, Scalar};
 
 use crate::arrays::{BoolArray, ConstantArray, ListViewArray, PrimitiveArray};
@@ -56,7 +56,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// # use vortex_array::arrays::{ConstantArray, ListViewArray, VarBinArray};
 /// # use vortex_array::compute;
 /// # use vortex_array::validity::Validity;
-/// # use vortex_buffer::buffer;
+/// # use vortex_buffer::{buffer, bitbuffer};
 /// # use vortex_dtype::DType;
 /// # use vortex_scalar::Scalar;
 /// #
@@ -73,8 +73,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///     list_array.len()).as_ref()
 /// ).unwrap();
 ///
-/// let to_vec: Vec<bool> = matches.to_bool().boolean_buffer().iter().collect();
-/// assert_eq!(to_vec, vec![false, true, false]);
+/// assert_eq!(matches.to_bool().bit_buffer(), &bitbuffer![false, true, false]);
 /// ```
 pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<ArrayRef> {
     LIST_CONTAINS_FN
@@ -394,13 +393,13 @@ mod tests {
 
     use itertools::Itertools;
     use rstest::rstest;
-    use vortex_buffer::{bitbuffer, Buffer};
+    use vortex_buffer::{Buffer, bitbuffer};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
     use crate::arrays::{
-        list_view_from_list, BoolArray, ConstantArray, ConstantVTable, ListArray, ListVTable,
-        ListViewArray, PrimitiveArray, VarBinArray,
+        BoolArray, ConstantArray, ConstantVTable, ListArray, ListVTable, ListViewArray,
+        PrimitiveArray, VarBinArray, list_view_from_list,
     };
     use crate::canonical::ToCanonical;
     use crate::compute::list_contains;

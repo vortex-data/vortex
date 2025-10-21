@@ -11,11 +11,11 @@ use num_traits::NumCast;
 use vortex_buffer::{BitBuffer, BufferMut};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, IntegerPType, NativePType, PType,
-    UnsignedPType,
+    DType, IntegerPType, NativePType, PType, UnsignedPType, match_each_integer_ptype,
+    match_each_unsigned_integer_ptype,
 };
 use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
+    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::{PValue, Scalar};
@@ -1001,7 +1001,7 @@ fn take_indices_with_search_fn<I: UnsignedPType, T: IntegerPType, F: Fn(I) -> Se
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::{buffer, BufferMut};
+    use vortex_buffer::{BufferMut, buffer};
     use vortex_mask::Mask;
 
     use crate::arrays::PrimitiveArray;

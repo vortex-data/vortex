@@ -3,15 +3,15 @@
 
 use vortex_buffer::BitBufferMut;
 use vortex_dtype::{IntegerPType, Nullability};
-use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
-use crate::arrays::{list_view_from_list, ListArray, ListVTable, PrimitiveArray};
+use crate::arrays::{ListArray, ListVTable, PrimitiveArray, list_view_from_list};
 use crate::builders::{ArrayBuilder, PrimitiveBuilder};
 use crate::compute::{self, TakeKernel, TakeKernelAdapter};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{register_kernel, Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 // TODO(connor): For very short arrays it is probably more efficient to build the list from scratch.
 /// Take implementation for [`ListArray`].

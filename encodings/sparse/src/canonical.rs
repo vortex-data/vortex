@@ -7,25 +7,25 @@ use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::arrays::{
-    smallest_decimal_value_type, BoolArray, ConstantArray, FixedSizeListArray, ListViewArray, NullArray,
-    PrimitiveArray, StructArray, VarBinViewArray,
+    BoolArray, ConstantArray, FixedSizeListArray, ListViewArray, NullArray, PrimitiveArray,
+    StructArray, VarBinViewArray, smallest_decimal_value_type,
 };
 use vortex_array::builders::{
-    builder_with_capacity, ArrayBuilder, DecimalBuilder, ListViewBuilder,
+    ArrayBuilder, DecimalBuilder, ListViewBuilder, builder_with_capacity,
 };
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
 use vortex_array::{Array, Canonical, ToCanonical};
-use vortex_buffer::{buffer, buffer_mut, BitBuffer, Buffer, BufferString, ByteBuffer};
+use vortex_buffer::{BitBuffer, Buffer, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_native_ptype, DType, DecimalDType, IntegerPType, NativePType,
-    Nullability, StructFields,
+    DType, DecimalDType, IntegerPType, NativePType, Nullability, StructFields,
+    match_each_integer_ptype, match_each_native_ptype,
 };
-use vortex_error::{vortex_panic, VortexError, VortexExpect};
+use vortex_error::{VortexError, VortexExpect, vortex_panic};
 use vortex_scalar::{
-    match_each_decimal_value_type, DecimalScalar, ListScalar, NativeDecimalType, Scalar,
-    StructScalar,
+    DecimalScalar, ListScalar, NativeDecimalType, Scalar, StructScalar,
+    match_each_decimal_value_type,
 };
 
 use crate::{SparseArray, SparseVTable};
@@ -500,7 +500,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{buffer, buffer_mut, BitBufferMut, ByteBuffer};
+    use vortex_buffer::{BitBufferMut, ByteBuffer, buffer, buffer_mut};
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::{DType, DecimalDType, FieldNames, PType, StructFields};
     use vortex_mask::Mask;

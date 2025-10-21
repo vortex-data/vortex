@@ -11,13 +11,13 @@ mod zip;
 
 #[cfg(test)]
 mod tests {
+    use Nullability::{NonNullable, Nullable};
     use rstest::rstest;
-    use vortex_buffer::{buffer, BitBuffer};
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
     use vortex_error::VortexUnwrap;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
-    use Nullability::{NonNullable, Nullable};
 
     use crate::arrays::{BoolArray, PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::conformance::consistency::test_array_consistency;

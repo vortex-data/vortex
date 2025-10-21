@@ -8,15 +8,11 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_fastlanes::RLEArray;
-
 #[cfg(feature = "unstable_encodings")]
-use {
-    crate::integer::IntCode,
-    crate::Compressor,
-};
+use {crate::Compressor, crate::integer::IntCode};
 
 use crate::integer::IntCompressor;
-use crate::{estimate_compression_ratio_with_sampling, CompressorStats, Scheme};
+use crate::{CompressorStats, Scheme, estimate_compression_ratio_with_sampling};
 
 /// Threshold for the average run length in an array before we consider run-length encoding.
 pub const RUN_LENGTH_THRESHOLD: u32 = 4;
@@ -165,7 +161,7 @@ fn try_compress_delta(
     allowed_cascading: usize,
     excludes: &[IntCode],
 ) -> VortexResult<ArrayRef> {
-    use vortex_fastlanes::{delta_compress, DeltaArray};
+    use vortex_fastlanes::{DeltaArray, delta_compress};
 
     let (bases, deltas) = delta_compress(primitive_array)?;
     let compressed_bases = IntCompressor::compress(&bases, is_sample, allowed_cascading, excludes)?;

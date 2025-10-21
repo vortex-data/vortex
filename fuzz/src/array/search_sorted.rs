@@ -9,9 +9,9 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::search_sorted::{IndexOrd, SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_err, VortexResult};
-use vortex_scalar::{match_each_decimal_value_type, Scalar};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_err};
+use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 struct SearchNullableSlice<T>(Vec<Option<T>>);
 

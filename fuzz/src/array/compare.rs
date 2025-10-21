@@ -6,13 +6,13 @@ use std::ops::Deref;
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
-use vortex_array::compute::{scalar_cmp, Operator};
+use vortex_array::compute::{Operator, scalar_cmp};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_scalar::{match_each_decimal_value_type, NativeDecimalType, Scalar};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
 
 pub fn compare_canonical_array(
     array: &dyn Array,

@@ -3,20 +3,20 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::{buffer, BitBuffer, Buffer};
-use vortex_dtype::{match_each_native_ptype, DType, Nullability};
+use vortex_buffer::{BitBuffer, Buffer, buffer};
+use vortex_dtype::{DType, Nullability, match_each_native_ptype};
 use vortex_error::VortexExpect;
 use vortex_scalar::{
-    match_each_decimal_value, match_each_decimal_value_type, BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar,
-    Scalar, StructScalar, Utf8Scalar,
+    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, StructScalar,
+    Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
 };
 
 use crate::arrays::binary_view::BinaryView;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
-    smallest_decimal_value_type, BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray,
-    ListViewArray, NullArray, StructArray, VarBinViewArray,
+    BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray,
+    NullArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
 };
 use crate::builders::builder_with_capacity;
 use crate::validity::Validity;

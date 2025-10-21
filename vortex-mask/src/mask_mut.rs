@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::Mask;
 use std::ops::Sub;
+
 use vortex_buffer::BitBufferMut;
+
+use crate::Mask;
 
 /// A mutable mask, used for lazily allocating the bit buffer as required.
 #[derive(Debug, Clone)]

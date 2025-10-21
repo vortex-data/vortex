@@ -4,10 +4,10 @@
 use itertools::Itertools;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 
+use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::patches::Patches;
 use crate::vtable::ValidityHelper;
-use crate::ToCanonical;
 
 impl BoolArray {
     pub fn patch(self, patches: &Patches) -> Self {
@@ -41,8 +41,8 @@ impl BoolArray {
 mod tests {
     use vortex_buffer::BitBuffer;
 
-    use crate::arrays::BoolArray;
     use crate::ToCanonical;
+    use crate::arrays::BoolArray;
 
     #[test]
     fn patch_sliced_bools() {
