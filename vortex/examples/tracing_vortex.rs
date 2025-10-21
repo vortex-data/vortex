@@ -15,7 +15,7 @@
 )]
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
@@ -286,7 +286,7 @@ impl WriterHandle {
 
 /// Writes a batch of events to a Vortex file
 async fn write_batch_to_vortex(
-    output_dir: &std::path::Path,
+    output_dir: &Path,
     events: &[TraceEvent],
     file_index: usize,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -384,7 +384,7 @@ async fn write_batch_to_vortex(
 
 /// Reads and displays trace files
 async fn read_trace_files(
-    output_dir: &std::path::Path,
+    output_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut entries = tokio::fs::read_dir(output_dir).await?;
     let mut file_count = 0;
@@ -405,24 +405,32 @@ async fn read_trace_files(
         }
     }
 
+    let total_size = du(output_dir).await?;
+
     println!("  Found {} trace file(s)", file_count);
     println!("  Total events captured: {}", total_events);
+    println!("  Vortex files size: {} bytes", total_size);
 
     // Demonstrate compression efficiency
-    if file_count > 0 {
-        let total_size: u64 = tokio::fs::read_dir(output_dir)
-            .await?
-            .next_entry()
-            .await?
-            .and_then(|e| std::fs::metadata(e.path()).ok().map(|m| m.len()))
-            .unwrap_or(0);
 
-        println!(
-            "  Approximate bytes per event: {:.1}",
-            total_size as f64 / total_events as f64
-        );
-        println!("\n  Note: Nested field data is stored in compressed columnar format");
-    }
+    println!(
+        "  Approximate bytes per event: {:.2}",
+        total_size as f64 / total_events as f64
+    );
+    println!("\n  Note: Nested field data is stored in compressed columnar format");
 
     Ok(())
+}
+
+async fn du(path: impl AsRef<Path>) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    let mut total_size = 0;
+    let mut dirs = tokio::fs::read_dir(path.as_ref()).await?;
+    while let Some(entry) = dirs.next_entry().await? {
+        if !entry.file_type().await?.is_file() {
+            continue;
+        }
+        total_size += entry.metadata().await?.len();
+    }
+
+    Ok(total_size)
 }
