@@ -3,7 +3,7 @@
 
 use crate::arrays::ChunkedArray;
 use crate::vtable::{NotSupported, VTable};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::{vtable, EncodingId, EncodingRef};
 
 mod array;
 mod canonical;
@@ -26,7 +26,7 @@ impl VTable for ChunkedVTable {
     type VisitorVTable = Self;
     type ComputeVTable = Self;
     type EncodeVTable = NotSupported;
-    type PipelineVTable = NotSupported;
+    type OperatorVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

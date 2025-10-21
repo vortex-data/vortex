@@ -3,7 +3,7 @@
 
 use crate::arrays::ConstantArray;
 use crate::vtable::{NotSupported, VTable};
-use crate::{EncodingId, EncodingRef, vtable};
+use crate::{vtable, EncodingId, EncodingRef};
 
 mod array;
 mod canonical;
@@ -31,7 +31,7 @@ impl VTable for ConstantVTable {
     // TODO(ngates): implement a compute kernel for elementwise operations
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type PipelineVTable = Self;
+    type OperatorVTable = Self;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

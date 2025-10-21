@@ -5,11 +5,11 @@ use std::ops::Range;
 
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use pyo3::{Python, intern};
+use pyo3::{intern, Python};
 use vortex::buffer::ByteBuffer;
 use vortex::compute::{ComputeFn, InvocationArgs, Output};
 use vortex::dtype::DType;
-use vortex::error::{VortexResult, vortex_err};
+use vortex::error::{vortex_err, VortexResult};
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::serde::ArrayChildren;
@@ -19,8 +19,8 @@ use vortex::vtable::{
     SerdeVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
-    EncodingRef, RawMetadata, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
+    EncodingId, EncodingRef, RawMetadata,
 };
 
 use crate::arrays::py::{PythonArray, PythonEncoding};
@@ -39,7 +39,7 @@ impl VTable for PythonVTable {
     type ComputeVTable = Self;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
+    type OperatorVTable = NotSupported;
 
     fn id(encoding: &Self::Encoding) -> EncodingId {
         encoding.id.clone()

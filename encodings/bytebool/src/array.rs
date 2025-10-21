@@ -12,7 +12,7 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use vortex_array::{vtable, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
@@ -32,7 +32,7 @@ impl VTable for ByteBoolVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
+    type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.bytebool")

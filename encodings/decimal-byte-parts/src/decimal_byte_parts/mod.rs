@@ -13,10 +13,10 @@ use vortex_array::vtable::{
     ValidityHelper, ValidityVTableFromChild,
 };
 use vortex_array::{
-    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
+    vtable, Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical,
 };
-use vortex_dtype::{DType, DecimalDType, match_each_signed_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::{match_each_signed_integer_ptype, DType, DecimalDType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{DecimalValue, Scalar};
 
 vtable!(DecimalByteParts);
@@ -33,7 +33,7 @@ impl VTable for DecimalBytePartsVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
+    type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.decimal_byte_parts")
@@ -165,9 +165,9 @@ impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::Array;
     use vortex_array::arrays::{BoolArray, PrimitiveArray};
     use vortex_array::validity::Validity;
+    use vortex_array::Array;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, DecimalDType, Nullability};
     use vortex_scalar::{DecimalValue, Scalar};

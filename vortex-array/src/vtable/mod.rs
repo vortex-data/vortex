@@ -65,7 +65,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type SerdeVTable: SerdeVTable<Self>;
     /// Optionally enable the [`OperatorVTable`] for this encoding. This allows it to partake in
     /// operator operations.
-    type PipelineVTable: OperatorVTable<Self>;
+    type OperatorVTable: OperatorVTable<Self>;
 
     /// Returns the ID of the encoding.
     fn id(encoding: &Self::Encoding) -> EncodingId;

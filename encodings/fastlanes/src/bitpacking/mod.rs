@@ -14,10 +14,10 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use vortex_array::{Array, Canonical, EncodingId, EncodingRef, vtable};
+use vortex_array::{vtable, Array, Canonical, EncodingId, EncodingRef};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType, PType};
+use vortex_error::{vortex_bail, vortex_ensure, VortexExpect, VortexResult};
 
 use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 
@@ -42,7 +42,7 @@ impl VTable for BitPackedVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
-    type PipelineVTable = Self;
+    type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("fastlanes.bitpacked")

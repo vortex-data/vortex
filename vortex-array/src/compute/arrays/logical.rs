@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::BitAnd;
+use std::ops::{BitAnd, BitOr};
 use std::sync::LazyLock;
 
 use crate::execution::{BatchKernel, BatchKernelRef, BindCtx};
+use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{ArrayVTable, NotSupported, OperatorVTable, VTable, VisitorVTable};
+use crate::vtable::{
+    ArrayVTable, NotSupported, OperatorVTable, SerdeVTable, VTable, VisitorVTable,
+};
 use crate::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingId, EncodingRef,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata,
+    EmptyMetadata, EncodingId, EncodingRef,
 };
 use enum_map::{enum_map, Enum, EnumMap};
 use futures::try_join;
-use vortex_buffer::BitBuffer;
+use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -34,7 +38,6 @@ pub struct LogicalArray {
     encoding: EncodingRef,
     lhs: ArrayRef,
     rhs: ArrayRef,
-    dtype: DType,
     stats: ArrayStats,
 }
 
@@ -46,15 +49,15 @@ impl LogicalArray {
             rhs.len(),
             "Logical arrays require lhs and rhs to have the same length"
         );
+
+        // TODO(ngates): should we automatically cast non-null to nullable if required?
         assert!(matches!(lhs.dtype(), DType::Bool(_)));
-        assert!(matches!(rhs.dtype(), DType::Bool(_)));
-        let dtype = DType::Bool(lhs.dtype().nullability() | rhs.dtype().nullability());
+        assert_eq!(lhs.dtype(), rhs.dtype());
 
         Self {
             encoding: ENCODINGS[operator].clone(),
             lhs,
             rhs,
-            dtype,
             stats: ArrayStats::default(),
         }
     }
@@ -89,8 +92,8 @@ impl VTable for LogicalVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type SerdeVTable = NotSupported;
-    type PipelineVTable = Self;
+    type SerdeVTable = Self;
+    type OperatorVTable = Self;
 
     fn id(encoding: &Self::Encoding) -> EncodingId {
         match encoding.operator {
@@ -113,7 +116,7 @@ impl ArrayVTable<LogicalVTable> for LogicalVTable {
     }
 
     fn dtype(array: &LogicalArray) -> &DType {
-        &array.dtype
+        array.lhs.dtype()
     }
 
     fn stats(array: &LogicalArray) -> StatsSetRef<'_> {
@@ -129,6 +132,30 @@ impl VisitorVTable<LogicalVTable> for LogicalVTable {
     fn visit_children(array: &LogicalArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("lhs", array.lhs.as_ref());
         visitor.visit_child("rhs", array.rhs.as_ref());
+    }
+}
+
+impl SerdeVTable<LogicalVTable> for LogicalVTable {
+    type Metadata = EmptyMetadata;
+
+    fn metadata(_array: &LogicalVTable::Array) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(EmptyMetadata))
+    }
+
+    fn build(
+        encoding: &LogicalVTable::Encoding,
+        dtype: &DType,
+        len: usize,
+        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<LogicalArray> {
+        assert!(buffers.is_empty());
+        Ok(LogicalArray::new(
+            children.get(0, dtype, len)?,
+            children.get(1, dtype, len)?,
+            encoding.operator,
+        ))
     }
 }
 
@@ -152,10 +179,16 @@ impl OperatorVTable<LogicalVTable> for LogicalVTable {
 
         match array.operator() {
             LogicalOperator::And => LogicalKernel::new(lhs, rhs, |l, r| l.bitand(r)),
-            LogicalOperator::AndKleene => {}
-            LogicalOperator::Or => {}
-            LogicalOperator::OrKleene => {}
-            LogicalOperator::AndNot => {}
+            LogicalOperator::AndKleene => {
+                todo!()
+            }
+            LogicalOperator::Or => LogicalKernel::new(lhs, rhs, |l, r| l.bitor(r)),
+            LogicalOperator::OrKleene => {
+                todo!()
+            }
+            LogicalOperator::AndNot => {
+                todo!()
+            }
         }
     }
 }

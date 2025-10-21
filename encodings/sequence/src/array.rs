@@ -11,13 +11,13 @@ use vortex_array::vtable::{
     VisitorVTable,
 };
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef,
 };
 use vortex_buffer::BufferMut;
 use vortex_dtype::{
-    DType, NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
+    match_each_integer_ptype, match_each_native_ptype, DType, NativePType, Nullability, PType,
 };
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::{PValue, Scalar, ScalarValue};
 
@@ -158,7 +158,7 @@ impl VTable for SequenceVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
-    type PipelineVTable = Self;
+    type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.sequence")
@@ -250,8 +250,8 @@ pub struct SequenceEncoding;
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::ToCanonical;
     use vortex_dtype::Nullability;
     use vortex_scalar::{Scalar, ScalarValue};
 
