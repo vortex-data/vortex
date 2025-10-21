@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definition and implementation of [`GenericPVectorMut<T>`].
+//! Definition and implementation of [`PVectorMut<T>`].
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, Nullability};
@@ -17,7 +17,7 @@ use crate::{PVector, VectorMutOps, VectorOps};
 /// null primitive elements (where `true` represents a _valid_ element and `false` represents a
 /// `null` element).
 ///
-/// The immutable equivalent of this type is [`GenericPVector<T>`].
+/// The immutable equivalent of this type is [`PVector<T>`].
 #[derive(Debug, Clone)]
 pub struct PVectorMut<T> {
     pub(super) elements: BufferMut<T>,
@@ -62,9 +62,12 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
 
     /// Extends the vector by appending elements from another vector.
     fn extend_from_vector(&mut self, other: &PVector<T>) {
-        assert!(
-            self.is_nullable() || !other.is_nullable(),
-            "tried to extend a non-nullable `GenericPVector` with a nullable vector"
+        assert_eq!(
+            self.nullability(),
+            other.nullability(),
+            "tried to extend a vector with nullability {} with another vector with nullability {}",
+            self.nullability(),
+            other.nullability(),
         );
 
         self.elements.extend_from_slice(other.elements.as_slice());

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Helper macros for working with the different variants of [`Vector`] and [`VectorMut`].
+//! Helper macros for working with the different variants of [`Vector`](crate::Vector) and
+//! [`VectorMut`](crate::VectorMut).
 //!
 //! All macros are exported at the crate level with `#[macro_use]`.
 

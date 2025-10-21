@@ -13,8 +13,8 @@ use crate::{
 
 /// A mutable vector of primitive values.
 ///
-/// `PrimitiveVector` is represented by an enum over all possible [`GenericPVectorMut`] types (which
-/// are templated by the types that implement [`NativePType`]).
+/// `PrimitiveVector` is represented by an enum over all possible [`PVectorMut`] types (which are
+/// templated by the types that implement [`NativePType`]).
 ///
 /// The immutable equivalent of this type is [`PrimitiveVector`].
 #[derive(Debug, Clone)]

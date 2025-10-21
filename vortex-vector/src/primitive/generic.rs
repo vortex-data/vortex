@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definition and implementation of [`GenericPVector<T>`].
+//! Definition and implementation of [`PVector<T>`].
 
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, Nullability};
@@ -16,7 +16,7 @@ use crate::{PVectorMut, VectorOps};
 /// primitive elements (where `true` represents a _valid_ primitive and `false` represents a `null`
 /// primitive).
 ///
-/// The mutable equivalent of this type is [`GenericPVectorMut<T>`].
+/// The mutable equivalent of this type is [`PVectorMut<T>`].
 #[derive(Debug, Clone)]
 pub struct PVector<T> {
     pub(super) elements: Buffer<T>,

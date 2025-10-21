@@ -68,9 +68,12 @@ impl VectorMutOps for BoolVectorMut {
     }
 
     fn extend_from_vector(&mut self, other: &BoolVector) {
-        assert!(
-            self.is_nullable() || !other.is_nullable(),
-            "tried to extend a non-nullable `BoolVector` with a nullable vector"
+        assert_eq!(
+            self.nullability(),
+            other.nullability(),
+            "tried to extend a vector with nullability {} with another vector with nullability {}",
+            self.nullability(),
+            other.nullability(),
         );
 
         self.bits.append_buffer(&other.bits);

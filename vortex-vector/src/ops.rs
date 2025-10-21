@@ -85,8 +85,7 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     ///
     /// # Panics
     ///
-    /// If `self` is a non-nullable vector, and `other` is a nullable vector, implementors should
-    /// ensure that this function panics.
+    /// Panics if `other` does not have the same nullability as `self`.
     fn extend_from_vector(&mut self, other: &Self::Immutable);
 
     /// Appends `n` null elements to the vector (if it is nullable).

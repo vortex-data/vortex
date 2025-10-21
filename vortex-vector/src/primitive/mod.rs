@@ -3,12 +3,12 @@
 
 //! Definitions and implementations of native primitive vector types.
 //!
-//! The types that hold data are [`GenericPVector`] and [`GenericPVectorMut`], which are generic
-//! over types `T` that implement [`NativePType`] (which are just the integer and floating-point
-//! types that are native to Rust plus [`f16`]).
+//! The types that hold data are [`PVector`] and [`PVectorMut`], which are generic over types `T`
+//! that implement [`NativePType`] (which are just the integer and floating-point types that are
+//! native to Rust plus [`f16`]).
 //!
 //! [`PrimitiveVector`] and [`PrimitiveVectorMut`] are enums that wrap all of the different possible
-//! [`GenericPVector`]s. There are several macros defined in this crate to make working with these
+//! [`PVector`]s. There are several macros defined in this crate to make working with these
 //! primitive vector types easier.
 //!
 //! [`NativePType`]: vortex_dtype::NativePType
