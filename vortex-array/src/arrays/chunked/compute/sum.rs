@@ -81,7 +81,8 @@ fn sum_decimal(chunks: &[ArrayRef], result_decimal_type: DecimalDType) -> Vortex
 
         let chunk_decimal = DecimalScalar::try_from(&chunk_sum)?;
         let Some(chunk_value) = chunk_decimal.decimal_value() else {
-            return Ok(null());
+            // skips all null chunks
+            continue;
         };
 
         // Perform checked addition with current result
@@ -90,6 +91,7 @@ fn sum_decimal(chunks: &[ArrayRef], result_decimal_type: DecimalDType) -> Vortex
                 .fits_in_precision(result_decimal_type)
                 .unwrap_or(false)
         }) else {
+            // Overflow
             return Ok(null());
         };
 
@@ -286,7 +288,7 @@ mod tests {
         );
         assert_eq!(
             result.dtype(),
-            &DType::Decimal(DecimalDType::new(13, 0), Nullability::NonNullable)
+            &DType::Decimal(DecimalDType::new(13, 0), Nullability::Nullable)
         );
     }
 }
