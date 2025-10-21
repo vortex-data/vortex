@@ -27,7 +27,7 @@ use crate::operator::OperatorRef;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, PipelineVTable, SerdeVTable,
+    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, OperatorVTable, SerdeVTable,
     VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
@@ -634,7 +634,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn to_operator(&self) -> VortexResult<Option<OperatorRef>> {
-        <V::PipelineVTable as PipelineVTable<V>>::to_operator(&self.0)
+        <V::PipelineVTable as OperatorVTable<V>>::to_operator(&self.0)
     }
 }
 

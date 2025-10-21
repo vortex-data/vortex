@@ -63,9 +63,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Optionally enable serde for this encoding by implementing the [`SerdeVTable`] trait.
     /// Can be disabled by assigning to the [`NotSupported`] type.
     type SerdeVTable: SerdeVTable<Self>;
-    /// Optionally enable the [`PipelineVTable`] for this encoding. This allows it to partake in
+    /// Optionally enable the [`OperatorVTable`] for this encoding. This allows it to partake in
     /// operator operations.
-    type PipelineVTable: PipelineVTable<Self>;
+    type PipelineVTable: OperatorVTable<Self>;
 
     /// Returns the ID of the encoding.
     fn id(encoding: &Self::Encoding) -> EncodingId;

@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::ArrayRef;
 use crate::execution::{BatchKernel, BindCtx};
 use crate::operator::OperatorRef;
 use crate::vtable::{NotSupported, VTable};
+use crate::ArrayRef;
 
-pub trait PipelineVTable<V: VTable> {
+/// A vtable for the new operator-based array functionality. Eventually this vtable will be
+/// merged into the main `VTable`, but for now it is kept separate to allow for incremental
+/// adoption of the new operator framework.
+///
+/// See <https://github.com/vortex-data/vortex/pull/4726> for the operators RFC.
+pub trait OperatorVTable<V: VTable> {
     /// Convert the current array into a [`OperatorRef`].
     /// Returns `None` if the array cannot be converted to an operator.
     fn to_operator(_array: &V::Array) -> VortexResult<Option<OperatorRef>> {
@@ -84,7 +89,7 @@ pub trait PipelineVTable<V: VTable> {
     }
 }
 
-impl<V: VTable> PipelineVTable<V> for NotSupported {
+impl<V: VTable> OperatorVTable<V> for NotSupported {
     fn to_operator(_array: &V::Array) -> VortexResult<Option<OperatorRef>> {
         Ok(None)
     }

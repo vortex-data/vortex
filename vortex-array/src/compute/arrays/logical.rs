@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::BitAnd;
 use std::sync::LazyLock;
 
-use enum_map::{Enum, EnumMap, enum_map};
-use vortex_dtype::DType;
+use enum_map::{enum_map, Enum, EnumMap};
+use vortex_buffer::BitBuffer;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
+use crate::execution::{BatchKernel, BatchKernelRef, BindCtx, Vector, VectorMut};
 use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{ArrayVTable, NotSupported, PipelineVTable, VTable, VisitorVTable};
+use crate::vtable::{ArrayVTable, NotSupported, OperatorVTable, VTable, VisitorVTable};
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingId, EncodingRef, vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingId, EncodingRef,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Enum)]
@@ -128,13 +131,76 @@ impl VisitorVTable<LogicalVTable> for LogicalVTable {
     }
 }
 
-impl PipelineVTable<LogicalVTable> for LogicalVTable {
+impl OperatorVTable<LogicalVTable> for LogicalVTable {
     fn compute_constant(
         _array: &LogicalArray,
         children: &[&Scalar],
     ) -> VortexResult<Option<ArrayRef>> {
         let lhs = children[0].as_bool();
         let rhs = children[1].as_bool();
+        todo!()
+    }
+
+    fn bind(
+        array: &LogicalVTable::Array,
+        selection: Option<&ArrayRef>,
+        ctx: &mut dyn BindCtx,
+    ) -> VortexResult<BatchKernelRef> {
+        let lhs = ctx.bind(&array.lhs, selection)?;
+        let rhs = ctx.bind(&array.rhs, selection)?;
+
+        match array.operator() {
+            LogicalOperator::And => LogicalKernel::new(lhs, rhs, |l, r| l.bitand(r)),
+            LogicalOperator::AndKleene => {}
+            LogicalOperator::Or => {}
+            LogicalOperator::OrKleene => {}
+            LogicalOperator::AndNot => {}
+        }
+    }
+}
+
+struct LogicalKernel<O> {
+    lhs: BatchKernelRef,
+    rhs: BatchKernelRef,
+    nullability: Nullability,
+    op: O,
+}
+
+impl<O> LogicalKernel<O>
+where
+    O: Fn(&BitBuffer, &BitBuffer) -> BitBuffer,
+{
+    pub fn new(
+        lhs: BatchKernelRef,
+        rhs: BatchKernelRef,
+        nullability: Nullability,
+        op: O,
+    ) -> VortexResult<BatchKernelRef> {
+        Ok(Box::new(Self {
+            lhs,
+            rhs,
+            nullability,
+            op,
+        }))
+    }
+}
+
+impl<O> BatchKernel for LogicalKernel<O>
+where
+    O: Fn(&BitBuffer, &BitBuffer) -> BitBuffer,
+{
+    async fn execute(self: Box<Self>, out: VectorMut) -> VortexResult<Vector> {
+        // We pass the output into the LHS and then attempt to call the mutate-in-place op.
+        // TODO(ngates): implement in-place logical ops if it makes a difference?
+        // let (lhs, rhs) = try_join!(
+        //     self.lhs.execute(out),
+        //     self.rhs.execute(out), // TODO(ngates): we must pass a _new_ BoolVecMut here. API doesn't exist yet.
+        // )?;
+
+        // First, we compute the intersection validity.
+        // We should then find the threshold by which a low enough result validity means it's
+        // better for us to evaluate over scalars vs over the entire bit-buffer.
+        // self.op(lhs.as_bool(), rhs.as_bool())
         todo!()
     }
 }
