@@ -102,12 +102,15 @@ pub fn checked_pruning_expr(
 #[cfg(test)]
 mod tests {
     use rstest::{fixture, rstest};
+    use vortex_array::compute::{BetweenOptions, StrictComparison};
     use vortex_array::stats::Stat;
     use vortex_dtype::{FieldName, FieldPath, FieldPathSet};
 
     use crate::pruning::pruning_expr::HashMap;
     use crate::pruning::{checked_pruning_expr, field_path_stat_field_name};
-    use crate::{HashSet, and, col, eq, get_item, gt, gt_eq, lit, lt, lt_eq, not_eq, or, root};
+    use crate::{
+        HashSet, and, between, col, eq, get_item, gt, gt_eq, lit, lt, lt_eq, not_eq, or, root,
+    };
 
     // Implement some checked pruning expressions.
     #[fixture]
@@ -462,5 +465,30 @@ mod tests {
                 gt_eq(col("int_col_min"), lit(10)),
             )
         )
+    }
+
+    #[rstest]
+    fn pruning_between(available_stats: FieldPathSet) {
+        let expr = between(
+            col("a"),
+            lit(10),
+            lit(50),
+            BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+        );
+        let (converted, refs) = checked_pruning_expr(&expr, &available_stats).unwrap();
+        assert_eq!(
+            refs.map(),
+            &HashMap::from_iter([(
+                FieldPath::from_name("a"),
+                HashSet::from_iter([Stat::Min, Stat::Max])
+            )])
+        );
+        assert_eq!(
+            &converted,
+            &or(gt(lit(10), col("a_max")), gt(col("a_min"), lit(50)))
+        );
     }
 }

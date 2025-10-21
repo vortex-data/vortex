@@ -45,7 +45,10 @@ pub fn extract_relevant_file_stats_as_struct_row(
         let typed_stats = stat_set.as_typed_ref(&field_dtype);
 
         for stat in stats {
-            if stat == &Stat::Max || stat == &Stat::Min || stat == &Stat::NaNCount {
+            if matches!(
+                stat,
+                Stat::Max | Stat::Min | Stat::NaNCount | Stat::NullCount
+            ) {
                 let Some(stat_value) = typed_stats.get(*stat).and_then(|p| p.as_exact()) else {
                     vortex_bail!("missing stat {}, {} from stats set", field, stat)
                 };

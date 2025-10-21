@@ -34,7 +34,7 @@ def test_polars_streaming(benchmark: BenchmarkFixture, vxf: vx.VortexFile):
 
 @pytest.mark.benchmark(group="scan", disable_gc=True)
 def test_duckdb(benchmark: BenchmarkFixture, vxf: vx.VortexFile):
-    conn = duckdb.connect(database=":memory:")  # pyright: ignore[reportUnknownMemberType]
+    conn = duckdb.connect(database=":memory:")
     ds = vxf.to_dataset()
     _ = conn.register("ds", ds)
     benchmark(lambda: conn.sql("select ds.x from ds").to_arrow_table())

@@ -12,14 +12,15 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
-    IntegerPType, NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
+    IntegerPType, NativePType, PType, PhysicalPType, match_each_integer_ptype,
+    match_each_unsigned_integer_ptype,
 };
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
-use crate::unpack_iter::BitPacked;
+use crate::unpack_iter::{BitPacked, UnpackStrategy};
 
 pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
     let bit_width_freq = bit_width_histogram(array)?;
@@ -284,6 +285,24 @@ where
     })
 }
 
+/// BitPacking strategy - uses plain bitpacking without reference value
+pub struct BitPackingStrategy;
+
+impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStrategy {
+    #[inline(always)]
+    unsafe fn unpack_chunk(
+        &self,
+        bit_width: usize,
+        chunk: &[T::Physical],
+        dst: &mut [T::Physical],
+    ) {
+        // SAFETY: Caller must ensure [`BitPacking::unchecked_unpack`] safety requirements hold.
+        unsafe {
+            BitPacking::unchecked_unpack(bit_width, chunk, dst);
+        }
+    }
+}
+
 pub fn unpack(array: &BitPackedArray) -> PrimitiveArray {
     match_each_integer_ptype!(array.ptype(), |P| { unpack_primitive::<P>(array) })
 }
@@ -314,14 +333,7 @@ pub(crate) fn unpack_into<T: BitPacked>(
     }
 
     let mut bit_packed_iter = array.unpacked_chunks();
-    if let Some(header) = bit_packed_iter.initial() {
-        uninit_range.copy_from_slice(0, header);
-    }
-
-    let out_idx = bit_packed_iter.decode_full_chunks_into(&mut uninit_range);
-    if let Some(trailer) = bit_packed_iter.trailer() {
-        uninit_range.copy_from_slice(out_idx, trailer);
-    }
+    bit_packed_iter.decode_into(&mut uninit_range);
 
     if let Some(patches) = array.patches() {
         apply_patches(&mut uninit_range, patches);
@@ -334,7 +346,15 @@ pub(crate) fn unpack_into<T: BitPacked>(
     }
 }
 
-fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) {
+pub fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) {
+    apply_patches_fn(dst, patches, |x| x)
+}
+
+pub fn apply_patches_fn<T: NativePType, F: Fn(T) -> T>(
+    dst: &mut UninitRange<T>,
+    patches: &Patches,
+    f: F,
+) {
     assert_eq!(patches.array_len(), dst.len());
 
     let indices = patches.indices().to_primitive();
@@ -349,21 +369,23 @@ fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) {
             values,
             validity,
             patches.offset(),
+            f,
         )
     });
 }
 
-fn insert_values_and_validity_at_indices<T: NativePType, IndexT: IntegerPType>(
+fn insert_values_and_validity_at_indices<T: NativePType, IndexT: IntegerPType, F: Fn(T) -> T>(
     dst: &mut UninitRange<T>,
     indices: &[IndexT],
     values: &[T],
     values_validity: Mask,
     indices_offset: usize,
+    f: F,
 ) {
     match values_validity {
         Mask::AllTrue(_) => {
             for (index, &value) in indices.iter().zip_eq(values) {
-                dst.set_value(index.as_() - indices_offset, value);
+                dst.set_value(index.as_() - indices_offset, f(value));
             }
         }
         Mask::AllFalse(_) => {
@@ -374,7 +396,7 @@ fn insert_values_and_validity_at_indices<T: NativePType, IndexT: IntegerPType>(
         Mask::Values(vb) => {
             for (index, &value) in indices.iter().zip_eq(values) {
                 let out_index = index.as_() - indices_offset;
-                dst.set_value(out_index, value);
+                dst.set_value(out_index, f(value));
                 dst.set_validity_bit(out_index, vb.value(out_index));
             }
         }

@@ -115,6 +115,7 @@ fn collect_args<'a>(
     Ok(())
 }
 
+#[cfg(all(target_os = "linux", feature = "cuda"))]
 #[cfg(test)]
 mod tests {
     use cudarc::driver::CudaContext;
@@ -127,7 +128,7 @@ mod tests {
     use crate::jit::create_run_jit_kernel;
 
     #[test]
-    fn jit_arr_f32() -> VortexResult<()> {
+    fn test_jit_alp() -> VortexResult<()> {
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
         let for_ = ALPArray::try_new(
@@ -158,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn jit_arrs() -> VortexResult<()> {
+    fn test_jit_bitpack() -> VortexResult<()> {
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
         let for_ = BitPackedArray::encode(
