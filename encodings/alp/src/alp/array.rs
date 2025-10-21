@@ -8,12 +8,12 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
-use vortex_array::{vtable, Array, ArrayRef, Canonical, EncodingId, EncodingRef};
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 
-use crate::alp::{decompress, Exponents};
 use crate::ALPFloat;
+use crate::alp::{Exponents, decompress};
 
 vtable!(ALP);
 

@@ -10,10 +10,10 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
-use vortex_array::{vtable, Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::alp_rd::alp_rd_decode;
 
@@ -239,10 +239,10 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::PrimitiveArray;
 
-    use crate::{alp_rd, ALPRDFloat};
+    use crate::{ALPRDFloat, alp_rd};
 
     #[rstest]
     #[case(vec![0.1f32.next_up(); 1024], 1.123_848_f32)]

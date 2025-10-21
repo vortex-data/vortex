@@ -9,10 +9,10 @@ use vortex_array::vtable::{
     ValidityVTableFromChild,
 };
 use vortex_array::{
-    vtable, Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical,
+    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
-use vortex_dtype::{match_each_unsigned_integer_ptype, DType, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 use zigzag::ZigZag as ExternalZigZag;
 

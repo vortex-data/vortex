@@ -18,8 +18,8 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId,
-    EncodingRef, IntoArray,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef,
+    IntoArray, vtable,
 };
 
 vtable!(Arrow);

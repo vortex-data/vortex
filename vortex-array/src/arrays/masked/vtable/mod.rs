@@ -9,7 +9,7 @@ mod validity;
 
 use crate::arrays::masked::MaskedArray;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{vtable, EncodingId, EncodingRef};
+use crate::{EncodingId, EncodingRef, vtable};
 
 vtable!(Masked);
 

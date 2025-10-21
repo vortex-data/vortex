@@ -5,8 +5,8 @@ use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 
 use crate::{
-    match_each_vector_mut, match_each_vector_mut_immut_pair, match_each_vector_mut_pair, BoolVectorMut, NullVectorMut, PrimitiveVectorMut,
-    Vector, VectorMutOps,
+    BoolVectorMut, NullVectorMut, PrimitiveVectorMut, Vector, VectorMutOps, match_each_vector_mut,
+    match_each_vector_mut_immut_pair, match_each_vector_mut_pair,
 };
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array

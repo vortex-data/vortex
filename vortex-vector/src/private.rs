@@ -8,8 +8,9 @@
 //! usage, which gives us the freedom to add new trait methods in the future without breaking
 //! backward compatibility.
 
-use crate::*;
 use vortex_dtype::NativePType;
+
+use crate::*;
 
 /// A private trait for sealing implementations of other traits.
 pub trait Sealed {}

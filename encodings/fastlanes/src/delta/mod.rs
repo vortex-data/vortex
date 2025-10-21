@@ -12,10 +12,10 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChildSliceHelper,
     ValidityVTableFromChildSliceHelper,
 };
-use vortex_array::{vtable, Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray};
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType, PType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_dtype::{DType, NativePType, PType, match_each_unsigned_integer_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 mod compress;
 mod compute;

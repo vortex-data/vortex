@@ -28,9 +28,10 @@ pub use vector_mut::PrimitiveVectorMut;
 
 mod macros;
 
-use crate::{Vector, VectorMut};
 use vortex_dtype::NativePType;
 use vortex_error::vortex_panic;
+
+use crate::{Vector, VectorMut};
 
 impl From<PrimitiveVector> for Vector {
     fn from(v: PrimitiveVector) -> Self {

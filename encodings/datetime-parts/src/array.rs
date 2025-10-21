@@ -7,9 +7,9 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
-use vortex_array::{vtable, Array, ArrayRef, EncodingId, EncodingRef};
+use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 vtable!(DateTimeParts);
 

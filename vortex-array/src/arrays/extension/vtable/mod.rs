@@ -10,7 +10,7 @@ mod visitor;
 
 use crate::arrays::extension::ExtensionArray;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromChild};
-use crate::{vtable, EncodingId, EncodingRef};
+use crate::{EncodingId, EncodingRef, vtable};
 
 vtable!(Extension);
 

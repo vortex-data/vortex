@@ -3,13 +3,14 @@
 
 //! Definition and implementation of [`PrimitiveVectorMut`].
 
-use crate::{
-    match_each_pvector_mut, match_each_pvector_mut_immut_pair, match_each_pvector_mut_pair, PVectorMut,
-    PrimitiveVector, VectorMutOps,
-};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
+
+use crate::{
+    PVectorMut, PrimitiveVector, VectorMutOps, match_each_pvector_mut,
+    match_each_pvector_mut_immut_pair, match_each_pvector_mut_pair,
+};
 
 /// A mutable vector of primitive values.
 ///

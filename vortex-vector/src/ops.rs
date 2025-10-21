@@ -4,8 +4,9 @@
 //! Definition and implementation of [`VectorOps`] and [`VectorMutOps`] for [`Vector`] and
 //! [`VectorMut`], respectively.
 
-use crate::{private, Vector, VectorMut};
 use vortex_mask::Mask;
+
+use crate::{Vector, VectorMut, private};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
 pub trait VectorOps: private::Sealed + From<Vector> + Into<Vector> {

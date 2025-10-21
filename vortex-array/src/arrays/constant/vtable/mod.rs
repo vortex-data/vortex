@@ -3,7 +3,7 @@
 
 use crate::arrays::ConstantArray;
 use crate::vtable::{NotSupported, VTable};
-use crate::{vtable, EncodingId, EncodingRef};
+use crate::{EncodingId, EncodingRef, vtable};
 
 mod array;
 mod canonical;

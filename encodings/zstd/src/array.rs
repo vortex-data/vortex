@@ -16,10 +16,10 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
 };
-use vortex_array::{vtable, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical};
+use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 

@@ -7,9 +7,10 @@ mod vector;
 pub use vector::NullVector;
 
 mod vector_mut;
-use crate::{Vector, VectorMut};
 pub use vector_mut::NullVectorMut;
 use vortex_error::vortex_panic;
+
+use crate::{Vector, VectorMut};
 
 impl From<NullVector> for Vector {
     fn from(v: NullVector) -> Self {

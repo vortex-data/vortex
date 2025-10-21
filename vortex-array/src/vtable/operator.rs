@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
+use crate::ArrayRef;
 use crate::execution::{BatchKernel, BindCtx};
 use crate::operator::OperatorRef;
 use crate::vtable::{NotSupported, VTable};
-use crate::ArrayRef;
 
 /// A vtable for the new operator-based array functionality. Eventually this vtable will be
 /// merged into the main `VTable`, but for now it is kept separate to allow for incremental

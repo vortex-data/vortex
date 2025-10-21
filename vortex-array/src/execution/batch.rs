@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::ArrayRef;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use vortex_error::VortexResult;
 use vortex_vector::{Vector, VectorMut};
+
+use crate::ArrayRef;
 
 /// Context for binding batch execution kernels.
 ///

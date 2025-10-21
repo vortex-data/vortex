@@ -6,9 +6,9 @@ use std::fmt::Debug;
 use arrow_buffer::BooleanBuffer;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
-use vortex_array::{vtable, Array, ArrayRef, EncodingId, EncodingRef, ToCanonical};
-use vortex_dtype::{match_each_integer_ptype, DType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, ToCanonical, vtable};
+use vortex_dtype::{DType, match_each_integer_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 
 vtable!(Dict);
@@ -185,7 +185,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, NativePType, PType, UnsignedPType};
-    use vortex_error::{vortex_panic, VortexExpect, VortexUnwrap};
+    use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
     use vortex_mask::AllOr;
 
     use crate::DictArray;

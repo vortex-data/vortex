@@ -4,16 +4,16 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use pin_project_lite::pin_project;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::execution::BindCtx;
 use crate::ArrayRef;
+use crate::execution::BindCtx;
 
 pin_project! {
     /// A batch execution that produces a Vortex `Mask`.

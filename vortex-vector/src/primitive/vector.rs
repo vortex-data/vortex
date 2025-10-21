@@ -3,11 +3,12 @@
 
 //! Definition and implementation of [`PrimitiveVector`].
 
-use super::{PVector, PrimitiveVectorMut};
-use crate::{match_each_pvector, VectorOps};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
+
+use super::{PVector, PrimitiveVectorMut};
+use crate::{VectorOps, match_each_pvector};
 
 /// An immutable vector of primitive values.
 ///

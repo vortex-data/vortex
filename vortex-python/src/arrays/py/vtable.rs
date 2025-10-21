@@ -5,11 +5,11 @@ use std::ops::Range;
 
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use pyo3::{intern, Python};
+use pyo3::{Python, intern};
 use vortex::buffer::ByteBuffer;
 use vortex::compute::{ComputeFn, InvocationArgs, Output};
 use vortex::dtype::DType;
-use vortex::error::{vortex_err, VortexResult};
+use vortex::error::{VortexResult, vortex_err};
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::serde::ArrayChildren;
@@ -19,8 +19,8 @@ use vortex::vtable::{
     SerdeVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
-    EncodingId, EncodingRef, RawMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
+    EncodingRef, RawMetadata, vtable,
 };
 
 use crate::arrays::py::{PythonArray, PythonEncoding};

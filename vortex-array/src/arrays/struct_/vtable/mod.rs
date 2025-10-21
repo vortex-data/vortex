@@ -3,7 +3,7 @@
 
 use crate::arrays::struct_::StructArray;
 use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
-use crate::{vtable, EncodingId, EncodingRef};
+use crate::{EncodingId, EncodingRef, vtable};
 
 mod array;
 mod canonical;

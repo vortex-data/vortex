@@ -8,10 +8,10 @@ use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
-    vtable, Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical,
+    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_ensure, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 

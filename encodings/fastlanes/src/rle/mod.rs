@@ -9,9 +9,9 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityChildSliceHelper,
     ValidityVTableFromChildSliceHelper,
 };
-use vortex_array::{vtable, Array, ArrayRef, Canonical, EncodingId, EncodingRef};
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_ensure, VortexResult};
+use vortex_error::{VortexResult, vortex_ensure};
 
 use crate::FL_CHUNK_SIZE;
 
@@ -257,9 +257,9 @@ impl ValidityChildSliceHelper for RLEArray {
 
 #[cfg(test)]
 mod test {
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
     use vortex_buffer::Buffer;
 
     use super::*;
