@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod canonical;
+mod list;
 mod null_buffer;
 mod temporal;
 mod varbin;
@@ -12,14 +13,14 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
-use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::DType;
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
-use crate::Array;
 use crate::arrow::array::{ArrowArray, ArrowVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
+use crate::Array;
 
 static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("to_arrow".into(), ArcRef::new_ref(&ToArrow));
@@ -228,7 +229,7 @@ mod tests {
     use arrow_buffer::NullBuffer;
 
     use super::to_arrow;
-    use crate::{IntoArray, arrays};
+    use crate::{arrays, IntoArray};
 
     #[test]
     fn test_to_arrow() {

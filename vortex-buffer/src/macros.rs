@@ -25,7 +25,7 @@ macro_rules! buffer {
 #[macro_export]
 macro_rules! buffer_mut {
     () => (
-        $crate::BufferMut:empty()
+        $crate::BufferMut::empty()
     );
     ($start:tt .. $end:tt) => (
         $crate::BufferMut::from_iter($start..$end)

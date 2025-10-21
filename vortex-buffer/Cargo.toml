@@ -17,14 +17,14 @@ version = { workspace = true }
 all-features = true
 
 [features]
-arrow = ["dep:arrow-buffer"]
+arrow = []
 cuda = ["dep:cudarc"]
 memmap2 = ["dep:memmap2"]
 serde = ["dep:serde_core"]
 warn-copy = ["dep:log"]
 
 [dependencies]
-arrow-buffer = { workspace = true, optional = true }
+arrow-buffer = { workspace = true }
 bitvec = { workspace = true }
 bytes = { workspace = true }
 cudarc = { workspace = true, optional = true }

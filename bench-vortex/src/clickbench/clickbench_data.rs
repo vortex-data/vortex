@@ -30,8 +30,10 @@ use vortex::file::VortexWriteOptions;
 use vortex_datafusion::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
+#[cfg(feature = "lance")]
+use crate::utils;
 use crate::utils::file_utils::{idempotent, idempotent_async};
-use crate::{CompactionStrategy, Format, utils};
+use crate::{CompactionStrategy, Format};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -223,6 +225,7 @@ pub async fn convert_parquet_to_vortex(
 /// Convert Parquet files to Lance format for ClickBench.
 /// Lance manages its own internal partitioning, so we convert all Parquet files
 /// (whether Single or Partitioned flavor) into a single Lance dataset.
+#[cfg(feature = "lance")]
 pub async fn convert_parquet_to_lance(input_path: &Path) -> anyhow::Result<()> {
     let lance_dir = input_path.join(Format::Lance.name());
     let parquet_dir = input_path.join(Format::Parquet.name());

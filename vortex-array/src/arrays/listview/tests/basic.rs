@@ -138,6 +138,10 @@ fn test_from_list_array() {
 #[case::constant_offsets(false, true)] // Varying sizes, constant offsets
 #[case::both_constant(true, true)] // Both constant
 fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_offsets: bool) {
+    // Logical lists vary by case:
+    // - constant_sizes: [[1,2,3], [4,5,6], [7,8,9]] (size 3 each, varying offsets)
+    // - constant_offsets: [[1,2,3], [1,2], [1]] (all start at 0, varying sizes)
+    // - both_constant: [[1,2,3], [1,2,3], [1,2,3]] (all identical)
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
 
     let offsets = if const_offsets {
@@ -156,7 +160,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
     assert_eq!(listview.len(), 3);
 
     if const_sizes && const_offsets {
-        // All lists are identical [1, 2, 3].
+        // All lists are identical [1, 2, 3] (overlapping).
         for i in 0..3 {
             let list = listview.list_elements_at(i);
             assert_eq!(list.scalar_at(0), 1i32.into());
@@ -164,12 +168,12 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             assert_eq!(list.scalar_at(2), 3i32.into());
         }
     } else if const_sizes {
-        // All lists have size 3, different offsets.
+        // All lists have size 3, different offsets (no overlap).
         assert_eq!(listview.list_elements_at(0).len(), 3);
         assert_eq!(listview.list_elements_at(1).len(), 3);
         assert_eq!(listview.list_elements_at(2).len(), 3);
     } else if const_offsets {
-        // All lists start at offset 0, different sizes.
+        // All lists start at offset 0, different sizes (overlapping).
         assert_eq!(listview.list_elements_at(0).scalar_at(0), 1i32.into());
         assert_eq!(listview.list_elements_at(1).scalar_at(0), 1i32.into());
         assert_eq!(listview.list_elements_at(2).scalar_at(0), 1i32.into());
@@ -213,6 +217,7 @@ fn test_validation_errors(
 
 #[test]
 fn test_validate_nullable_offsets() {
+    // Logical lists (invalid due to nullable offsets): [[1,2], [3], ???]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = PrimitiveArray::from_option_iter(vec![Some(0u32), Some(2), None]).into_array();
     let sizes = buffer![2u32, 1, 2].into_array();
@@ -230,6 +235,7 @@ fn test_validate_nullable_offsets() {
 
 #[test]
 fn test_validate_nullable_sizes() {
+    // Logical lists (invalid due to nullable sizes): [[1,2], ???, [2,3]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0u32, 2, 1].into_array();
     let sizes = PrimitiveArray::from_option_iter(vec![Some(2u32), None, Some(2)]).into_array();
@@ -247,6 +253,7 @@ fn test_validate_nullable_sizes() {
 
 #[test]
 fn test_validate_size_type_too_large() {
+    // Logical lists (invalid due to size type > offset type): [[1,2], [3], [2,3]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     // Use u64 for sizes and u32 for offsets (sizes type is larger).
     let offsets = buffer![0u32, 2, 1].into_array();
@@ -260,6 +267,7 @@ fn test_validate_size_type_too_large() {
 
 #[test]
 fn test_validate_offset_plus_size_overflow() {
+    // Logical lists (invalid due to overflow): would overflow, [[1], [1]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     // Create an offset + size that would overflow.
     let offsets = buffer![u32::MAX - 1, 0, 0].into_array();
@@ -277,6 +285,7 @@ fn test_validate_offset_plus_size_overflow() {
 
 #[test]
 fn test_validate_invalid_validity_length() {
+    // Logical lists (invalid due to validity length mismatch): [[1,2], [3,4], [5]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0u32, 2, 4].into_array();
     let sizes = buffer![2u32, 2, 1].into_array();
@@ -295,6 +304,7 @@ fn test_validate_invalid_validity_length() {
 
 #[test]
 fn test_validate_non_integer_offsets() {
+    // Logical lists (invalid due to float offsets): [[1,2], [3,4], [5]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     // Try to use float offsets.
     let offsets = buffer![0.0f32, 2.0, 4.0].into_array();
@@ -313,6 +323,7 @@ fn test_validate_non_integer_offsets() {
 #[test]
 fn test_validate_different_int_types() {
     // Test that different integer types work as long as sizes type ≤ offsets type.
+    // Logical lists: [[1,2], [3], [2,3]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0u64, 2, 1].into_array();
     let sizes = buffer![2u32, 1, 2].into_array();
@@ -324,6 +335,7 @@ fn test_validate_different_int_types() {
 #[test]
 fn test_validate_u64_overflow() {
     // Test overflow with u64 offsets and sizes.
+    // Logical lists (invalid due to u64 overflow): would overflow, [[0], [0]]
     let elements = PrimitiveArray::from_iter(0i32..100).into_array();
     let offsets = buffer![u64::MAX - 10, 0, 0].into_array();
     let sizes = buffer![20u64, 1, 1].into_array();

@@ -188,6 +188,7 @@ impl TpcDsBenchmark {
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
                 Format::Csv => todo!(),
+                #[cfg(feature = "lance")]
                 Format::Lance => unimplemented!(),
             }
         }

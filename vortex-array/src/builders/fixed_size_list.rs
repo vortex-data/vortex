@@ -139,11 +139,6 @@ impl FixedSizeListBuilder {
 
         list_size
     }
-
-    /// Returns the current length of underlying `elements` array.
-    fn elements_len(&self) -> usize {
-        self.len() * self.list_size() as usize
-    }
 }
 
 impl ArrayBuilder for FixedSizeListBuilder {
@@ -208,19 +203,14 @@ impl ArrayBuilder for FixedSizeListBuilder {
             return;
         }
 
-        let new_elements = fsl.elements();
-
-        self.elements_builder
-            .ensure_capacity(self.elements_len() + new_elements.len());
-        self.elements_builder.extend_from_array(new_elements);
-
+        self.elements_builder.extend_from_array(fsl.elements());
         self.nulls.append_validity_mask(array.validity_mask());
     }
 
-    fn ensure_capacity(&mut self, capacity: usize) {
+    fn reserve_exact(&mut self, additional: usize) {
         self.elements_builder
-            .ensure_capacity(capacity * self.list_size() as usize);
-        self.nulls.ensure_capacity(capacity);
+            .reserve_exact(additional * self.list_size() as usize);
+        self.nulls.reserve_exact(additional);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {

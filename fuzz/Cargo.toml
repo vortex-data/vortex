@@ -18,7 +18,6 @@ version = { workspace = true }
 cargo-fuzz = true
 
 [dependencies]
-arrow-ord = { workspace = true }
 itertools = { workspace = true }
 libfuzzer-sys = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
@@ -28,8 +27,9 @@ vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["arbitrary"] }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true, features = ["arbitrary"] }
-vortex-file = { workspace = true, features = ["tokio"] }
+vortex-file = { workspace = true, features = ["tokio", "zstd"] }
 vortex-io = { workspace = true }
+vortex-layout = { workspace = true, features = ["zstd"] }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
 vortex-utils = { workspace = true }

@@ -18,7 +18,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{
     BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, FixedSizeListEncoding,
-    ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
+    ListViewEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
     VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
@@ -88,7 +88,7 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
             || self.is_encoding(PrimitiveEncoding.id())
             || self.is_encoding(DecimalEncoding.id())
             || self.is_encoding(StructEncoding.id())
-            || self.is_encoding(ListEncoding.id())
+            || self.is_encoding(ListViewEncoding.id())
             || self.is_encoding(FixedSizeListEncoding.id())
             || self.is_encoding(VarBinViewEncoding.id())
             || self.is_encoding(ExtensionEncoding.id())

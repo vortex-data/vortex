@@ -157,6 +157,7 @@ fn generate_unpack_for_width<T: FastLanes, W: Write>(
         writeln!(output)?;
         generate_device_kernel_for_width::<T, _>(output, bit_width, thread_count)?;
         writeln!(output)?;
+
         generate_global_kernel_for_width::<T, _>(output, bit_width, thread_count)?;
         writeln!(output)?;
     }

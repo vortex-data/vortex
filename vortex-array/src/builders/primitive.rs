@@ -87,7 +87,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         let current_len = self.values.len();
         assert!(
             current_len + len <= self.values.capacity(),
-            "uninit_range of len {len} exceeds builder capacity {}",
+            "uninit_range of len {len} exceeds builder with length {} and capacity {}",
+            current_len,
             self.values.capacity()
         );
 
@@ -168,11 +169,9 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.append_validity_mask(array.validity_mask());
     }
 
-    fn ensure_capacity(&mut self, capacity: usize) {
-        if capacity > self.values.capacity() {
-            self.values.reserve(capacity - self.values.len());
-            self.nulls.ensure_capacity(capacity);
-        }
+    fn reserve_exact(&mut self, additional: usize) {
+        self.values.reserve(additional);
+        self.nulls.reserve_exact(additional);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
@@ -259,7 +258,7 @@ impl<T> UninitRange<'_, T> {
     /// builder).
     ///
     /// Note that this will have no effect if the builder is non-nullable.
-    pub fn set_bit(&mut self, index: usize, v: bool) {
+    pub fn set_validity_bit(&mut self, index: usize, v: bool) {
         assert!(index < self.len, "set_bit index out of bounds");
         // Note that this won't panic because we can only create an `UninitRange` within the
         // capacity of the builder (it will not automatically resize).
@@ -320,11 +319,13 @@ impl<T> UninitRange<'_, T> {
     /// # Safety
     ///
     /// The caller must ensure that they have safely initialized all `len` values via
-    /// [`UninitRange::copy_from_slice`] as well as correctly set all of the null bits via
-    /// [`set_bit`] or [`append_mask`] if the builder is nullable.
+    /// [`copy_from_slice()`] or [`set_value()`], as well as correctly set all of the null bits via
+    /// [`set_validity_bit()`] or [`append_mask()`] if the builder is nullable.
     ///
-    /// [`set_bit`]: UninitRange::set_bit
-    /// [`append_mask`]: UninitRange::append_mask
+    /// [`copy_from_slice()`]: UninitRange::copy_from_slice
+    /// [`set_value()`]: UninitRange::set_value
+    /// [`set_validity_bit()`]: UninitRange::set_validity_bit
+    /// [`append_mask()`]: UninitRange::append_mask
     pub unsafe fn finish(self) {
         // SAFETY: constructor enforces that current length + len does not exceed the capacity of the array.
         let new_len = self.builder.values.len() + self.len;
@@ -474,8 +475,8 @@ mod tests {
         }
 
         // Now we can use set_bit to modify individual bits with relative indexing.
-        range.set_bit(0, true); // Change first bit to valid
-        range.set_bit(2, true); // Change third bit to valid
+        range.set_validity_bit(0, true); // Change first bit to valid
+        range.set_validity_bit(2, true); // Change third bit to valid
         // Leave middle bit as false (null)
 
         // Initialize the values.
@@ -512,7 +513,9 @@ mod tests {
 
     /// Test that creating an uninit range exceeding capacity panics.
     #[test]
-    #[should_panic(expected = "uninit_range of len 10 exceeds builder capacity")]
+    #[should_panic(
+        expected = "uninit_range of len 10 exceeds builder with length 0 and capacity 6"
+    )]
     fn test_uninit_range_exceeds_capacity_panics() {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 5);
         let _range = builder.uninit_range(10);

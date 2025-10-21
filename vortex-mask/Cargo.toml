@@ -15,7 +15,7 @@ version = { workspace = true }
 
 [dependencies]
 itertools = { workspace = true }
-vortex-buffer = { workspace = true }
+vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
 
 [dev-dependencies]

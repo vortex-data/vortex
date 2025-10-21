@@ -10,12 +10,15 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use cudarc::driver::CudaContext;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_array::{IntoArray, ToCanonical};
+use vortex_alp::{ALPArray, Exponents};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_error::VortexUnwrap;
 use vortex_fastlanes::{BitPackedArray, FoRArray};
-use vortex_gpu::{cuda_bit_unpack_timed, cuda_for_bp_unpack_timed, cuda_for_unpack_timed};
+use vortex_gpu::{
+    create_run_jit_kernel, cuda_bit_unpack_timed, cuda_for_bp_unpack_timed, cuda_for_unpack_timed,
+};
 
 // Data sizes: 1GB, 2.5GB, 5GB, 10GB
 // These are approximate sizes in bytes, accounting for bit-packing compression
@@ -59,6 +62,32 @@ fn make_for_bitpackable_array(len: usize) -> FoRArray {
 
     // Wrap in FoR encoding with reference value
     FoRArray::try_new(bitpacked.into_array(), reference.into()).vortex_unwrap()
+}
+
+fn make_alp_array(len: usize) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(42);
+    let reference = 100i32;
+
+    // Generate values that fit in 6 bits (0-63)
+    let values = (0..len)
+        .map(|_| rng.random_range(0..64))
+        .collect::<BufferMut<i32>>()
+        .into_array()
+        .to_primitive();
+
+    // Create bitpacked array first
+    let bitpacked = BitPackedArray::encode(values.as_ref(), 6).unwrap();
+
+    // Wrap in FoR encoding with reference value
+    ALPArray::try_new(
+        FoRArray::try_new(bitpacked.into_array(), reference.into())
+            .vortex_unwrap()
+            .into_array(),
+        Exponents { e: 4, f: 5 },
+        None,
+    )
+    .vortex_unwrap()
+    .into_array()
 }
 
 fn benchmark_gpu_decompress_kernel_only(c: &mut Criterion) {
@@ -155,6 +184,37 @@ fn benchmark_gpu_for_bp_fused_decompress_kernel_only(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_gpu_for_bp_jit_decompress_kernel_only(c: &mut Criterion) {
+    let mut group = c.benchmark_group("benchmark_gpu_for_bp_jit_decompress_kernel_only");
+
+    group.sample_size(10);
+
+    for (len, label) in DATA_SIZES {
+        let len = len.next_multiple_of(1024);
+        let array = make_alp_array(len).into_array();
+
+        let ctx = CudaContext::new(0).unwrap();
+        ctx.set_blocking_synchronize().unwrap();
+
+        group.throughput(Throughput::Bytes(
+            (len * array.dtype().as_ptype().byte_width()) as u64,
+        ));
+        group.bench_with_input(BenchmarkId::new("for/jit", label), &array, |b, array| {
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::ZERO;
+                for _ in 0..iters {
+                    // This only measures kernel execution time, not memory transfers
+                    let (_result, kernel_time) = create_run_jit_kernel(ctx.clone(), array).unwrap();
+                    total_time += kernel_time;
+                }
+                total_time
+            });
+        });
+    }
+
+    group.finish();
+}
+
 #[allow(dead_code)]
 fn benchmark_cpu_canonicalize(c: &mut Criterion) {
     let mut group = c.benchmark_group("cpu_canonicalize");
@@ -176,6 +236,9 @@ criterion_group!(
     benches,
     benchmark_gpu_decompress_kernel_only,
     benchmark_gpu_for_decompress_kernel_only,
-    benchmark_gpu_for_bp_fused_decompress_kernel_only
+    benchmark_gpu_for_bp_fused_decompress_kernel_only,
+    benchmark_gpu_for_bp_jit_decompress_kernel_only
 );
+
+// criterion_group!(benches, benchmark_gpu_for_bp_jit_decompress_kernel_only);
 criterion_main!(benches);

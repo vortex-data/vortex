@@ -4,21 +4,19 @@
 #![no_main]
 #![allow(clippy::result_large_err)]
 
-use arrow_ord::ord::make_comparator;
-use arrow_ord::sort::SortOptions;
 use itertools::Itertools;
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{Operator, compare, filter};
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
-use vortex_buffer::{BitBuffer, ByteBufferMut};
+use vortex_array::{Array, Canonical, IntoArray, ToCanonical};
+use vortex_buffer::ByteBufferMut;
 use vortex_dtype::{DType, StructFields};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_expr::{Scope, lit, root};
-use vortex_file::{VortexOpenOptions, VortexWriteOptions};
-use vortex_fuzz::FuzzFileAction;
+use vortex_file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
+use vortex_fuzz::{CompressorStrategy, FuzzFileAction};
 use vortex_io::runtime::single::SingleThreadRuntime;
+use vortex_layout::layouts::compact::CompactCompressor;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -27,6 +25,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         array,
         projection_expr,
         filter_expr,
+        compressor_strategy,
     } = fuzz;
     let array_data = array;
 
@@ -49,8 +48,18 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .vortex_unwrap()
     };
 
+    let write_options = match compressor_strategy {
+        CompressorStrategy::Default => VortexWriteOptions::default(),
+        CompressorStrategy::Compact => {
+            let strategy = WriteStrategyBuilder::new()
+                .with_compressor(CompactCompressor::default())
+                .build();
+            VortexWriteOptions::default().with_strategy(strategy)
+        }
+    };
+
     let mut full_buff = ByteBufferMut::empty();
-    let _footer = VortexWriteOptions::default()
+    let _footer = write_options
         .blocking::<SingleThreadRuntime>()
         .write(&mut full_buff, array_data.to_array_iterator())
         .vortex_unwrap();
@@ -86,48 +95,21 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         output_array.dtype()
     );
 
-    if matches!(
-        expected_array.dtype(),
-        DType::Struct(_, _) | DType::List(_, _)
-    ) {
-        compare_struct(expected_array, output_array);
-    } else {
-        let bool_result = compare(&expected_array, &output_array, Operator::Eq)
-            .vortex_unwrap()
-            .to_bool();
-        let true_count = bool_result.bit_buffer().true_count();
-        if true_count != expected_array.len()
-            && (bool_result.all_valid() || expected_array.all_valid())
-        {
-            vortex_panic!(
-                "Failed to match original array {}with{}",
-                expected_array.display_tree(),
-                output_array.display_tree()
-            );
-        }
+    let bool_result = compare(&expected_array, &output_array, Operator::Eq)
+        .vortex_unwrap()
+        .to_bool();
+    let true_count = bool_result.boolean_buffer().count_set_bits();
+    if true_count != expected_array.len() && (bool_result.all_valid() || expected_array.all_valid())
+    {
+        vortex_panic!(
+            "Failed to match original array {}with{}",
+            expected_array.display_tree(),
+            output_array.display_tree()
+        );
     }
 
     Corpus::Keep
 });
-
-fn compare_struct(expected: ArrayRef, actual: ArrayRef) {
-    let arrow_expected = expected.clone().into_arrow_preferred().vortex_unwrap();
-    let arrow_actual = actual.clone().into_arrow_preferred().vortex_unwrap();
-
-    let cmp_fn =
-        make_comparator(&arrow_expected, &arrow_actual, SortOptions::default()).vortex_unwrap();
-
-    let comparison_result =
-        BitBuffer::collect_bool(arrow_expected.len(), |idx| cmp_fn(idx, idx).is_eq());
-
-    assert_eq!(
-        comparison_result.true_count(),
-        arrow_expected.len(),
-        "\nEXPECTED: {}ACTUAL: {}",
-        expected.display_tree(),
-        actual.display_tree()
-    );
-}
 
 fn has_nullable_struct(dtype: &DType) -> bool {
     dtype.is_struct() && dtype.is_nullable()

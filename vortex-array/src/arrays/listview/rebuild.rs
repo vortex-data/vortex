@@ -331,7 +331,6 @@ mod tests {
         assert_eq!(list2.as_slice::<i32>(), &[5, 6]);
     }
 
-    #[ignore = "TODO(connor)[ListView]: Reenable when `ListView` becomes canonical"]
     #[test]
     fn test_rebuild_flatten_removes_overlaps() {
         // Create a list view with overlapping lists: [A, B, C]
@@ -364,7 +363,6 @@ mod tests {
         assert_eq!(list1.as_slice::<i32>(), &[2, 3]);
     }
 
-    #[ignore = "TODO(connor)[ListView]: Reenable when `ListView` becomes canonical"]
     #[test]
     fn test_rebuild_flatten_with_nullable() {
         use crate::arrays::BoolArray;

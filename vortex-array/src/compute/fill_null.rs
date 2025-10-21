@@ -24,6 +24,20 @@ pub(crate) fn warm_up_vtable() -> usize {
     FILL_NULL_FN.kernels().len()
 }
 
+/// Replace nulls in the array with another value.
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::{PrimitiveArray};
+/// use vortex_array::compute::{fill_null};
+/// use vortex_scalar::Scalar;
+///
+/// let array =
+///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
+/// let array = fill_null(array.as_ref(), &Scalar::from(42i32)).unwrap();
+/// assert_eq!(array.display_values().to_string(), "[0i32, 42i32, 1i32, 42i32, 2i32]");
+/// ```
 pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     FILL_NULL_FN
         .invoke(&InvocationArgs {

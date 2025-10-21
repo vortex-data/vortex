@@ -103,11 +103,15 @@ impl VTable for BinaryVTable {
         let lhs = expr.lhs.return_dtype(scope)?;
         let rhs = expr.rhs.return_dtype(scope)?;
 
-        if expr.operator == Operator::Add {
+        if expr.operator.is_arithmetic() {
             if lhs.is_primitive() && lhs.eq_ignore_nullability(&rhs) {
                 return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
             }
-            vortex_bail!("incompatible types for checked add: {} {}", lhs, rhs);
+            vortex_bail!(
+                "incompatible types for arithmetic operation: {} {}",
+                lhs,
+                rhs
+            );
         }
 
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))

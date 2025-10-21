@@ -9,10 +9,10 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::{BitBufferMut, BufferMut};
-use vortex_dtype::{NativePType, match_each_native_ptype, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_dtype::{match_each_native_ptype, match_each_unsigned_integer_ptype, NativePType};
+use vortex_error::{vortex_panic, VortexResult};
 
-use crate::{FL_CHUNK_SIZE, RLEArray};
+use crate::{RLEArray, FL_CHUNK_SIZE};
 
 impl RLEArray {
     /// Encodes a primitive array of unsigned integers using FastLanes RLE.
@@ -110,6 +110,7 @@ where
         values_buf.into_array(),
         PrimitiveArray::new(indices_buf.freeze(), padded_validity(array)).into_array(),
         values_idx_offsets.into_array(),
+        0,
         array.len(),
     )
 }
@@ -131,8 +132,7 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
             let mut builder = BitBufferMut::with_capacity(padded_len);
 
             let bool_array = validity_array.to_bool();
-            let bool_buffer = bool_array.bit_buffer();
-            builder.append_buffer(&bool_buffer.slice(0..len));
+            builder.append_buffer(bool_array.bit_buffer());
             builder.append_n(false, padded_len - len);
 
             Validity::from(builder.freeze())

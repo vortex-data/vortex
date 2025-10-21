@@ -7,11 +7,14 @@ use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_expr::ExprRef;
 use vortex_expr::arbitrary::{filter_expr, projection_expr};
 
+use crate::array::CompressorStrategy;
+
 #[derive(Debug)]
 pub struct FuzzFileAction {
     pub array: ArrayRef,
     pub projection_expr: Option<ExprRef>,
     pub filter_expr: Option<ExprRef>,
+    pub compressor_strategy: CompressorStrategy,
 }
 
 impl<'a> Arbitrary<'a> for FuzzFileAction {
@@ -22,6 +25,7 @@ impl<'a> Arbitrary<'a> for FuzzFileAction {
             array,
             projection_expr: projection_expr(u, &dtype)?,
             filter_expr: filter_expr(u, &dtype)?,
+            compressor_strategy: CompressorStrategy::arbitrary(u)?,
         })
     }
 }

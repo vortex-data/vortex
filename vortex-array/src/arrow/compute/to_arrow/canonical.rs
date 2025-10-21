@@ -5,35 +5,37 @@ use std::sync::Arc;
 
 use arrow_array::types::{
     BinaryType, BinaryViewType, ByteArrayType, ByteViewType, Float16Type, Float32Type, Float64Type,
-    Int8Type, Int16Type, Int32Type, Int64Type, LargeBinaryType, LargeUtf8Type, StringViewType,
-    UInt8Type, UInt16Type, UInt32Type, UInt64Type, Utf8Type,
+    Int16Type, Int32Type, Int64Type, Int8Type, LargeBinaryType, LargeUtf8Type, StringViewType,
+    UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8Type,
 };
 use arrow_array::{
     Array, ArrayRef as ArrowArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray,
-    Decimal32Array as ArrowDecimal32Array, Decimal64Array as ArrowDecimal64Array,
     Decimal128Array as ArrowDecimal128Array, Decimal256Array as ArrowDecimal256Array,
+    Decimal32Array as ArrowDecimal32Array, Decimal64Array as ArrowDecimal64Array,
     FixedSizeListArray as ArrowFixedSizeListArray, GenericByteArray, GenericByteViewArray,
-    GenericListArray, NullArray as ArrowNullArray, OffsetSizeTrait,
+    GenericListArray, GenericListViewArray, NullArray as ArrowNullArray, OffsetSizeTrait,
     PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
 };
-use arrow_buffer::{ScalarBuffer, i256};
+use arrow_buffer::{i256, ScalarBuffer};
+use arrow_data::ArrayData;
 use arrow_schema::{DataType, Field, FieldRef, Fields};
 use itertools::Itertools;
 use num_traits::{AsPrimitive, ToPrimitive};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, IntegerPType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::DecimalValueType;
 
 use crate::arrays::{
-    BoolArray, DecimalArray, FixedSizeListArray, ListArray, NullArray, PrimitiveArray, StructArray,
-    VarBinViewArray,
+    BoolArray, DecimalArray, FixedSizeListArray, ListViewArray, NullArray, PrimitiveArray,
+    StructArray, VarBinViewArray,
 };
-use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
-use crate::arrow::compute::ToArrowArgs;
 use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
-use crate::compute::{InvocationArgs, Kernel, Output, cast};
+use crate::arrow::compute::ToArrowArgs;
+use crate::arrow::IntoArrowArray;
+use crate::builders::{ArrayBuilder, ListBuilder};
+use crate::compute::{cast, InvocationArgs, Kernel, Output};
 use crate::{Array as _, Canonical, IntoArray, ToCanonical};
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
@@ -177,11 +179,17 @@ impl Kernel for ToArrowCanonical {
             (Canonical::Struct(array), DataType::Struct(fields)) => {
                 to_arrow_struct(array, fields.as_ref(), to_preferred)
             }
-            (Canonical::List(array), DataType::List(field)) => {
-                to_arrow_list::<i32>(array, arrow_type_opt.map(|_| field))
+            (Canonical::List(list_view), DataType::ListView(field)) => {
+                to_arrow_listview::<i32>(list_view, arrow_type_opt.map(|_| field))
             }
-            (Canonical::List(array), DataType::LargeList(field)) => {
-                to_arrow_list::<i64>(array, arrow_type_opt.map(|_| field))
+            (Canonical::List(list_view), DataType::LargeListView(field)) => {
+                to_arrow_listview::<i64>(list_view, arrow_type_opt.map(|_| field))
+            }
+            (Canonical::List(list_view), DataType::List(field)) => {
+                to_arrow_list::<i32>(list_view, arrow_type_opt.map(|_| field))
+            }
+            (Canonical::List(list_view), DataType::LargeList(field)) => {
+                to_arrow_list::<i64>(list_view, arrow_type_opt.map(|_| field))
             }
             (Canonical::FixedSizeList(array), DataType::FixedSizeList(field, list_size)) => {
                 to_arrow_fixed_size_list(array, arrow_type_opt.map(|_| field), *list_size)
@@ -474,35 +482,112 @@ fn to_arrow_struct(
     )?))
 }
 
+/// Converts a Vortex [`ListViewArray`] into an arrow [`GenericListArray`].
 fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
-    array: ListArray,
-    element: Option<&FieldRef>,
+    array: ListViewArray,
+    element_field: Option<&FieldRef>,
 ) -> VortexResult<ArrowArrayRef> {
-    // First we cast the offsets into the correct width.
-    let offsets_dtype = DType::Primitive(O::PTYPE, array.dtype().nullability());
-    let arrow_offsets = cast(array.offsets(), &offsets_dtype)
-        .map_err(|err| err.with_context(format!("Failed to cast offsets to {offsets_dtype}")))?
-        .to_primitive();
+    // Since `ListViewArray` can have lists stored out-of-order, we must rebuild the entire array.
+    // We also can't use `list_from_list_view` because we need this specific `O` type for offsets.
+    let mut list_builder = ListBuilder::<O>::with_capacity(
+        array
+            .dtype()
+            .as_list_element_opt()
+            .vortex_expect("`ListViewArray` somehow was not of type `List`")
+            .clone(),
+        array.dtype().nullability(),
+        array.elements().len(), // This might be wrong, but it's better than nothing.
+        array.len(),
+    );
 
-    let (values, element_field) = if let Some(element) = element {
-        (
-            array.elements().clone().into_arrow(element.data_type())?,
-            element.clone(),
-        )
-    } else {
-        let values = array.elements().clone().into_arrow_preferred()?;
-        let element_field = Arc::new(Field::new_list_field(
-            values.data_type().clone(),
-            array.elements().dtype().is_nullable(),
-        ));
-        (values, element_field)
+    // TODO(connor)[ListView]: We can potentially make a generic version of `list_from_list_view`
+    // over the offsets so we don't have to rewrite this.
+
+    list_builder.extend_from_array(&array.to_array());
+    let list_array = list_builder.finish_into_list();
+
+    // Now that we have a normal `ListArray`, we can convert all the child arrays.
+
+    // Convert the child `elements` array to Arrow.
+    let (elements, element_field) = {
+        if let Some(element_field) = element_field {
+            // Convert elements to the specific Arrow type the caller wants.
+            let elements = list_array
+                .elements()
+                .clone()
+                .into_arrow(element_field.data_type())?;
+            let element_field = element_field.clone();
+            (elements, element_field)
+        } else {
+            // Otherwise, convert into whatever Arrow prefers.
+            let elements = list_array.elements().clone().into_arrow_preferred()?;
+            let element_field = Arc::new(Field::new_list_field(
+                elements.data_type().clone(),
+                list_array.elements().dtype().is_nullable(),
+            ));
+            (elements, element_field)
+        }
     };
-    let nulls = to_null_buffer(array.validity_mask());
+
+    // Convert the child `offsets` and `validity` array to Arrow.
+    let offsets = list_array
+        .offsets()
+        .to_primitive()
+        .buffer::<O>()
+        .into_arrow_offset_buffer();
+    let nulls = to_null_buffer(list_array.validity_mask());
 
     Ok(Arc::new(GenericListArray::new(
         element_field,
-        arrow_offsets.buffer::<O>().into_arrow_offset_buffer(),
-        values,
+        offsets,
+        elements,
+        nulls,
+    )))
+}
+
+/// Converts a Vortex [`ListViewArray`] into an arrow [`GenericListViewArray`].
+fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
+    array: ListViewArray,
+    element: Option<&FieldRef>,
+) -> VortexResult<ArrowArrayRef> {
+    // First we cast the offsets and sizes into the specified width (determined by `O::PTYPE`).
+    let offsets_dtype = DType::Primitive(O::PTYPE, array.dtype().nullability());
+    let offsets = cast(array.offsets(), &offsets_dtype)
+        .map_err(|err| err.with_context(format!("Failed to cast offsets to {offsets_dtype}")))?
+        .to_primitive();
+    let sizes = cast(array.sizes(), &offsets_dtype)
+        .map_err(|err| err.with_context(format!("Failed to cast sizes to {offsets_dtype}")))?
+        .to_primitive();
+
+    // Convert `offsets`, `sizes`, and `validity` to Arrow buffers.
+    let arrow_offsets = offsets.buffer::<O>().into_arrow_scalar_buffer();
+    let arrow_sizes = sizes.buffer::<O>().into_arrow_scalar_buffer();
+    let nulls = array.validity_mask().to_null_buffer();
+
+    // Convert the child `elements` array to Arrow.
+    let (elements, element_field) = {
+        if let Some(element) = element {
+            // Convert elements to the specific Arrow type the caller wants.
+            (
+                array.elements().clone().into_arrow(element.data_type())?,
+                element.clone(),
+            )
+        } else {
+            // Otherwise, convert into whatever Arrow prefers.
+            let elements = array.elements().clone().into_arrow_preferred()?;
+            let element_field = Arc::new(Field::new_list_field(
+                elements.data_type().clone(),
+                array.elements().dtype().is_nullable(),
+            ));
+            (elements, element_field)
+        }
+    };
+
+    Ok(Arc::new(GenericListViewArray::new(
+        element_field,
+        arrow_offsets,
+        arrow_sizes,
+        elements,
         nulls,
     )))
 }
@@ -539,12 +624,28 @@ fn to_arrow_fixed_size_list(
     };
     let nulls = to_null_buffer(array.validity_mask());
 
-    Ok(Arc::new(ArrowFixedSizeListArray::new(
-        element_field,
-        list_size,
-        values,
-        nulls,
-    )))
+    // TODO(connor): Revert this once the issue below is resolved.
+    // Ok(Arc::new(ArrowFixedSizeListArray::new(
+    //     element_field,
+    //     list_size,
+    //     values,
+    //     nulls,
+    // )))
+
+    // Build ArrayData directly to avoid the length calculation bug in try_new.
+    // See: https://github.com/apache/arrow-rs/issues/8623
+    let data_type = DataType::FixedSizeList(element_field, list_size);
+    let list_data = ArrayData::builder(data_type)
+        .len(array.len())
+        .add_child_data(values.into_data())
+        .nulls(nulls)
+        .build()?;
+
+    let arrow_array = ArrowFixedSizeListArray::from(list_data);
+
+    assert_eq!(array.len(), arrow_array.len());
+
+    Ok(Arc::new(arrow_array))
 }
 
 fn to_arrow_varbinview<T: ByteViewType>(array: VarBinViewArray) -> VortexResult<ArrowArrayRef> {
@@ -582,7 +683,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use arrow_array::{Array, Decimal128Array, Decimal256Array};
+    use arrow_array::{
+        Array, Decimal128Array, Decimal256Array, GenericListArray, GenericListViewArray,
+    };
     use arrow_buffer::i256;
     use arrow_schema::{DataType, Field};
     use rstest::rstest;
@@ -590,12 +693,12 @@ mod tests {
     use vortex_dtype::{DecimalDType, FieldNames};
     use vortex_scalar::NativeDecimalType;
 
-    use crate::IntoArray;
-    use crate::arrays::{DecimalArray, ListArray, PrimitiveArray, StructArray};
-    use crate::arrow::IntoArrowArray;
+    use crate::arrays::{DecimalArray, ListViewArray, PrimitiveArray, StructArray};
     use crate::arrow::compute::to_arrow;
+    use crate::arrow::IntoArrowArray;
     use crate::builders::{ArrayBuilder, DecimalBuilder};
     use crate::validity::Validity;
+    use crate::IntoArray;
 
     #[test]
     fn decimal_to_arrow() {
@@ -781,16 +884,189 @@ mod tests {
     }
 
     #[test]
-    fn to_arrow_list_preferred() {
-        let elements = PrimitiveArray::new(buffer![1u8, 2, 3, 4, 5], Validity::NonNullable);
-        let offsets = PrimitiveArray::new(buffer![0i32, 3, 5], Validity::NonNullable);
-        let list_array = ListArray::try_new(
+    fn test_to_arrow_list_i32() {
+        // Create a ListViewArray with i32 elements: [[1, 2, 3], [4, 5]]
+        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i32, 3], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![3i32, 2], Validity::NonNullable);
+
+        let list_array = ListViewArray::try_new(
             elements.into_array(),
             offsets.into_array(),
+            sizes.into_array(),
             Validity::AllValid,
         )
         .unwrap();
 
-        list_array.into_array().into_arrow_preferred().unwrap();
+        // Convert to Arrow List with i32 offsets.
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::List(field.into());
+        let arrow_array = list_array.into_array().into_arrow(&arrow_dt).unwrap();
+
+        // Verify the type is correct.
+        assert_eq!(arrow_array.data_type(), &arrow_dt);
+
+        // Downcast and verify the structure.
+        let list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i32>>()
+            .unwrap();
+
+        assert_eq!(list.len(), 2);
+        assert!(!list.is_null(0));
+        assert!(!list.is_null(1));
+
+        // Verify the values in the first list.
+        let first_list = list.value(0);
+        assert_eq!(first_list.len(), 3);
+        let first_values = first_list
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(first_values.value(0), 1);
+        assert_eq!(first_values.value(1), 2);
+        assert_eq!(first_values.value(2), 3);
+
+        // Verify the values in the second list.
+        let second_list = list.value(1);
+        assert_eq!(second_list.len(), 2);
+        let second_values = second_list
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(second_values.value(0), 4);
+        assert_eq!(second_values.value(1), 5);
+    }
+
+    #[test]
+    fn test_to_arrow_list_i64() {
+        // Create a ListViewArray with i64 offsets: [[10, 20], [30]]
+        let elements = PrimitiveArray::new(buffer![10i64, 20, 30], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i64, 2], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![2i64, 1], Validity::NonNullable);
+
+        let list_array = ListViewArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            sizes.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        // Convert to Arrow LargeList with i64 offsets.
+        let field = Field::new("item", DataType::Int64, false);
+        let arrow_dt = DataType::LargeList(field.into());
+        let arrow_array = list_array.into_array().into_arrow(&arrow_dt).unwrap();
+
+        // Verify the type is correct.
+        assert_eq!(arrow_array.data_type(), &arrow_dt);
+
+        // Downcast and verify the structure.
+        let list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i64>>()
+            .unwrap();
+
+        assert_eq!(list.len(), 2);
+        assert!(!list.is_null(0));
+        assert!(!list.is_null(1));
+    }
+
+    #[test]
+    fn test_to_arrow_listview_i32() {
+        // Create a ListViewArray with overlapping views: [[1, 2], [2, 3], [3, 4]]
+        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i32, 1, 2], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![2i32, 2, 2], Validity::NonNullable);
+
+        let list_array = ListViewArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            sizes.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        // Convert to Arrow ListView with i32 offsets.
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::ListView(field.into());
+        let arrow_array = list_array.into_array().into_arrow(&arrow_dt).unwrap();
+
+        // Verify the type is correct.
+        assert_eq!(arrow_array.data_type(), &arrow_dt);
+
+        // Downcast and verify the structure.
+        let listview = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListViewArray<i32>>()
+            .unwrap();
+
+        assert_eq!(listview.len(), 3);
+
+        // Verify first list view [1, 2].
+        let first_list = listview.value(0);
+        assert_eq!(first_list.len(), 2);
+        let first_values = first_list
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(first_values.value(0), 1);
+        assert_eq!(first_values.value(1), 2);
+
+        // Verify second list view [2, 3].
+        let second_list = listview.value(1);
+        assert_eq!(second_list.len(), 2);
+        let second_values = second_list
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(second_values.value(0), 2);
+        assert_eq!(second_values.value(1), 3);
+    }
+
+    #[test]
+    fn test_to_arrow_listview_i64() {
+        // Create a ListViewArray with nullable elements: [[100], null, [200, 300]]
+        let elements = PrimitiveArray::new(buffer![100i64, 200, 300], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i64, 0, 1], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![1i64, 0, 2], Validity::NonNullable);
+        let validity = Validity::from_iter([true, false, true]);
+
+        let list_array = ListViewArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            sizes.into_array(),
+            validity,
+        )
+        .unwrap();
+
+        // Convert to Arrow LargeListView with i64 offsets.
+        let field = Field::new("item", DataType::Int64, false);
+        let arrow_dt = DataType::LargeListView(field.into());
+        let arrow_array = list_array.into_array().into_arrow(&arrow_dt).unwrap();
+
+        // Verify the type is correct.
+        assert_eq!(arrow_array.data_type(), &arrow_dt);
+
+        // Downcast and verify the structure.
+        let listview = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListViewArray<i64>>()
+            .unwrap();
+
+        assert_eq!(listview.len(), 3);
+        assert!(!listview.is_null(0));
+        assert!(listview.is_null(1));
+        assert!(!listview.is_null(2));
+
+        // Verify the third list [200, 300].
+        let third_list = listview.value(2);
+        assert_eq!(third_list.len(), 2);
+        let third_values = third_list
+            .as_any()
+            .downcast_ref::<arrow_array::Int64Array>()
+            .unwrap();
+        assert_eq!(third_values.value(0), 200);
+        assert_eq!(third_values.value(1), 300);
     }
 }

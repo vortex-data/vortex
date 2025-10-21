@@ -2,38 +2,31 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBufferMut;
-use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_dtype::{IntegerPType, Nullability};
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::arrays::{ListArray, ListVTable, PrimitiveArray};
+use crate::arrays::{list_view_from_list, ListArray, ListVTable, PrimitiveArray};
 use crate::builders::{ArrayBuilder, PrimitiveBuilder};
-use crate::compute::{TakeKernel, TakeKernelAdapter, take};
+use crate::compute::{self, take, TakeKernel, TakeKernelAdapter};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::{register_kernel, Array, ArrayRef, IntoArray};
 
+// TODO(connor): For very short arrays it is probably more efficient to build the list from scratch.
 /// Take implementation for [`ListArray`].
 ///
-/// Unlike `ListView`, `ListArray` must rebuild the elements array to maintain its invariant
-/// that lists are stored contiguously and in-order (`offset[i+1] >= offset[i]`). Taking
-/// non-contiguous indices would violate this requirement.
+/// This implementation converts the [`ListArray`] to a [`ListViewArray`] and then delegates to its
+/// `take` implementation. This approach avoids the need to rebuild the `elements` array.
+///
+/// The resulting [`ListViewArray`] can represent non-contiguous and out-of-order lists, which would
+/// violate [`ListArray`]'s invariants (but not [`ListViewArray`]'s).
+///
+/// [`ListViewArray`]: crate::arrays::ListViewArray
 impl TakeKernel for ListVTable {
     fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive();
-        let offsets = array.offsets().to_primitive();
-
-        match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
-            match_each_integer_ptype!(indices.ptype(), |I| {
-                _take::<I, O>(
-                    array,
-                    offsets.as_slice::<O>(),
-                    &indices,
-                    array.validity_mask(),
-                    indices.validity_mask(),
-                )
-            })
-        })
+        let list_view = list_view_from_list(array.clone());
+        compute::take(&list_view.into_array(), indices)
     }
 }
 
@@ -214,7 +207,7 @@ mod test {
             )
         );
 
-        let result = result.to_list();
+        let result = result.to_listview();
 
         assert_eq!(result.len(), 4);
 
@@ -294,7 +287,7 @@ mod test {
             )
         );
 
-        let result = result.to_list();
+        let result = result.to_listview();
 
         assert_eq!(result.len(), 3);
 

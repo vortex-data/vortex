@@ -2,32 +2,39 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use std::{fmt, fs};
 
 use anyhow::Result;
-use arrow_array::RecordBatch;
 use bytes::Bytes;
 use clap::ValueEnum;
-use parking_lot::Mutex;
 use parquet::basic::{Compression, ZstdLevel};
 use serde::Serialize;
 use tokio::runtime::Runtime;
 use vortex::Array;
 use vortex::arrays::ChunkedVTable;
 use vortex::utils::aliases::hash_map::HashMap;
+#[cfg(feature = "lance")]
+use {
+    super::lance::*,
+    crate::{
+        bench_run::run_with_setup,
+        utils::{convert_utf8view_batch, convert_utf8view_schema},
+    },
+    arrow_array::RecordBatch,
+    parking_lot::Mutex,
+    std::fs,
+    std::path::PathBuf,
+    std::sync::Arc,
+};
 
 use crate::Format;
-use crate::bench_run::{run, run_with_setup};
+use crate::bench_run::run;
 use crate::compress::chunked_to_vec_record_batch;
-use crate::compress::lance::*;
 use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
 use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
 use crate::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
-use crate::utils::{convert_utf8view_batch, convert_utf8view_schema};
 
 #[derive(Default)]
 pub struct CompressMeasurements {
@@ -217,6 +224,7 @@ pub fn benchmark_parquet_decompress(
     Ok((time, timing))
 }
 
+#[cfg(feature = "lance")]
 pub fn benchmark_lance_compress(
     runtime: &Runtime,
     uncompressed: &dyn Array,
@@ -297,6 +305,7 @@ pub fn benchmark_lance_compress(
     Ok((time, lance_compressed_size_val, ratios, timing))
 }
 
+#[cfg(feature = "lance")]
 pub fn benchmark_lance_decompress(
     runtime: &Runtime,
     uncompressed: &dyn Array,
@@ -341,6 +350,18 @@ pub fn calculate_ratios(
     bench_name: &str,
     ratios: &mut Vec<CustomUnitMeasurement>,
 ) {
+    calculate_vortex_parquet_ratios(measurements, compressed_sizes, bench_name, ratios);
+
+    #[cfg(feature = "lance")]
+    calculate_vortex_lance_ratios(measurements, compressed_sizes, bench_name, ratios);
+}
+
+fn calculate_vortex_parquet_ratios(
+    measurements: &HashMap<(Format, CompressOp), Duration>,
+    compressed_sizes: &HashMap<Format, u64>,
+    bench_name: &str,
+    ratios: &mut Vec<CustomUnitMeasurement>,
+) {
     // Size ratio: vortex vs parquet.
     if let (Some(vortex_size), Some(parquet_size)) = (
         compressed_sizes.get(&Format::OnDiskVortex),
@@ -379,7 +400,15 @@ pub fn calculate_ratios(
             value: vortex_time.as_nanos() as f64 / parquet_time.as_nanos() as f64,
         });
     }
+}
 
+#[cfg(feature = "lance")]
+fn calculate_vortex_lance_ratios(
+    measurements: &HashMap<(Format, CompressOp), Duration>,
+    compressed_sizes: &HashMap<Format, u64>,
+    bench_name: &str,
+    ratios: &mut Vec<CustomUnitMeasurement>,
+) {
     // Size ratio: vortex vs lance.
     if let (Some(vortex_size), Some(lance_size)) = (
         compressed_sizes.get(&Format::OnDiskVortex),

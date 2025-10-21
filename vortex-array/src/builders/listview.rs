@@ -11,15 +11,15 @@
 use std::sync::Arc;
 
 use vortex_dtype::{DType, IntegerPType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
+use vortex_error::{vortex_ensure, vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::{ListScalar, Scalar};
 
 use crate::array::{Array, ArrayRef, IntoArray};
-use crate::arrays::{ListViewArray, list_view_from_list};
+use crate::arrays::ListViewArray;
 use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
 use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, PrimitiveBuilder, builder_with_capacity,
+    builder_with_capacity, ArrayBuilder, PrimitiveBuilder, DEFAULT_BUILDER_CAPACITY,
 };
 use crate::{Canonical, ToCanonical};
 
@@ -104,7 +104,6 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         }
     }
 
-    // TODO(connor): This should probably take a `&ListScalar` instead.
     /// Append a list of values to the builder.
     ///
     /// This method extends the value builder with the provided values and records
@@ -233,13 +232,15 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        let list_array = array.to_list();
-        if list_array.is_empty() {
+        let listview_array = array.to_listview();
+        if listview_array.is_empty() {
             return;
         }
 
-        // TODO(connor)[ListView]: fix this after list view is canonical
-        let listview_array = list_view_from_list(list_array);
+        // TODO(connor)[ListView]: We could potentially concatenate the new elements on top of the
+        // existing elements and recalculate offsets (and then use `UninitRange`). However, that
+        // would mean we lose the guarantee that the output `ListViewArray` does not look like a
+        // `ListArray` (because the incoming array could have garbage data).
 
         // We assume the worst case scenario, where the list view array is stored completely out of
         // order, with many out-of-order offsets, and lots of garbage data. Thus, we simply iterate
@@ -252,11 +253,11 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         }
     }
 
-    fn ensure_capacity(&mut self, capacity: usize) {
-        self.elements_builder.ensure_capacity(capacity * 2);
-        self.offsets_builder.ensure_capacity(capacity);
-        self.sizes_builder.ensure_capacity(capacity);
-        self.nulls.ensure_capacity(capacity);
+    fn reserve_exact(&mut self, capacity: usize) {
+        self.elements_builder.reserve_exact(capacity * 2);
+        self.offsets_builder.reserve_exact(capacity);
+        self.sizes_builder.reserve_exact(capacity);
+        self.nulls.reserve_exact(capacity);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
@@ -269,8 +270,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     fn finish_into_canonical(&mut self) -> Canonical {
-        // TODO(connor)[ListView]: fix this after list view is canonical
-        unimplemented!("TODO(connor)[ListView]: fix this after list view is canonical")
+        Canonical::List(self.finish_into_listview())
     }
 }
 
@@ -284,11 +284,11 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::ListViewBuilder;
-    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::ListArray;
     use crate::builders::ArrayBuilder;
     use crate::vtable::ValidityHelper;
+    use crate::IntoArray;
 
     #[test]
     fn test_empty() {

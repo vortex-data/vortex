@@ -109,7 +109,7 @@ else
     echo
     echo "$FMT_OUTPUT"
     echo
-    print_info "💡 Fix with: cargo fmt"
+    print_info "💡 Fix with: cargo +nightly fmt"
     echo
     print_warning "⚠️  To skip checks: git push --no-verify"
     exit 1

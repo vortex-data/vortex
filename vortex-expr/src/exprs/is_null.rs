@@ -4,13 +4,17 @@
 use std::ops::Not;
 
 use vortex_array::arrays::{BoolArray, ConstantArray};
+use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::{
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, eq, lit,
+    vtable,
+};
 
 vtable!(IsNull);
 
@@ -101,7 +105,13 @@ impl DisplayAs for IsNullExpr {
     }
 }
 
-impl AnalysisExpr for IsNullExpr {}
+impl AnalysisExpr for IsNullExpr {
+    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        let field_path = self.child.field_path()?;
+        let null_count_expr = catalog.stats_ref(&field_path, Stat::NullCount)?;
+        Some(eq(null_count_expr, lit(0u64)))
+    }
+}
 
 /// Creates an expression that checks for null values.
 ///
@@ -119,12 +129,15 @@ pub fn is_null(child: ExprRef) -> ExprRef {
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
+    use vortex_array::stats::Stat;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability};
     use vortex_scalar::Scalar;
+    use vortex_utils::aliases::hash_map::HashMap;
 
     use crate::is_null::is_null;
-    use crate::{Scope, get_item, root, test_harness};
+    use crate::pruning::checked_pruning_expr;
+    use crate::{HashSet, Scope, col, eq, get_item, lit, root, test_harness};
 
     #[test]
     fn dtype() {
@@ -228,5 +241,25 @@ mod tests {
 
         let expr2 = is_null(root());
         assert_eq!(expr2.to_string(), "is_null($)");
+    }
+
+    #[test]
+    fn test_is_null_falsification() {
+        let expr = is_null(col("a"));
+
+        let (pruning_expr, st) = checked_pruning_expr(
+            &expr,
+            &FieldPathSet::from_iter([FieldPath::from_iter([
+                Field::Name("a".into()),
+                Field::Name("null_count".into()),
+            ])]),
+        )
+        .unwrap();
+
+        assert_eq!(&pruning_expr, &eq(col("a_null_count"), lit(0u64)));
+        assert_eq!(
+            st.map(),
+            &HashMap::from_iter([(FieldPath::from_name("a"), HashSet::from([Stat::NullCount]))])
+        );
     }
 }

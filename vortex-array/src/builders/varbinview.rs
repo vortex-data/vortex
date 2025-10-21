@@ -300,12 +300,9 @@ impl ArrayBuilder for VarBinViewBuilder {
         }
     }
 
-    fn ensure_capacity(&mut self, capacity: usize) {
-        if capacity > self.views_builder.capacity() {
-            self.views_builder
-                .reserve(capacity - self.views_builder.len());
-            self.nulls.ensure_capacity(capacity);
-        }
+    fn reserve_exact(&mut self, additional: usize) {
+        self.views_builder.reserve(additional);
+        self.nulls.reserve_exact(additional);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {

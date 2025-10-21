@@ -283,12 +283,9 @@ fn test_fsl_size_0_validation() {
             len,
         );
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("empty `FixedSizeList` should have no elements")
-        );
+        assert!(result.unwrap_err().to_string().contains(
+            "a degenerate (`list_size == 0`) `FixedSizeList` should have no underlying elements"
+        ));
     }
 
     // Should succeed: validity length matches array length.

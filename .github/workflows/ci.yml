@@ -270,7 +270,7 @@ jobs:
         shell: bash
         run: |
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
-          cargo hack clippy --no-default-features
+          cargo hack clippy --no-default-features -- -D warnings
 
   rust-coverage:
     name: "Rust tests (coverage)"

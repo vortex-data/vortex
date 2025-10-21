@@ -1,0 +1,534 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::ops::Sub;
+
+use vortex_buffer::{BitBuffer, BitBufferMut};
+
+use crate::Mask;
+
+/// A mutable mask, used for lazily allocating the bit buffer as required.
+#[derive(Debug, Clone)]
+pub struct MaskMut(Inner);
+
+#[derive(Debug, Clone)]
+enum Inner {
+    /// Initially, the mask is empty but may have some capacity.
+    Empty { capacity: usize },
+    /// When the first value is pushed, the mask becomes constant.
+    Constant {
+        value: bool,
+        len: usize,
+        capacity: usize,
+    },
+    /// When the first non-constant value is written, we allocate the bit buffer and switch
+    /// into the builder state.
+    Builder(BitBufferMut),
+}
+
+impl MaskMut {
+    /// Creates a new empty mask with the default capacity.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self(Inner::Empty { capacity })
+    }
+
+    /// Creates a new mask with all values set to `true`.
+    pub fn new_true(len: usize) -> Self {
+        Self(Inner::Constant {
+            value: true,
+            len,
+            capacity: len,
+        })
+    }
+
+    /// Creates a new mask with all values set to `false`.
+    pub fn new_false(len: usize) -> Self {
+        Self(Inner::Constant {
+            value: false,
+            len,
+            capacity: len,
+        })
+    }
+
+    /// Reserve capacity for at least `additional` more values to be appended.
+    pub fn reserve(&mut self, additional: usize) {
+        match &mut self.0 {
+            Inner::Empty { capacity } => {
+                *capacity += additional;
+            }
+            Inner::Constant { capacity, .. } => {
+                *capacity += additional;
+            }
+            Inner::Builder(bits) => {
+                bits.reserve(additional);
+            }
+        }
+    }
+
+    /// Append n values to the mask.
+    pub fn append_n(&mut self, new_value: bool, n: usize) {
+        match &mut self.0 {
+            Inner::Empty { capacity } => {
+                self.0 = Inner::Constant {
+                    value: new_value,
+                    len: n,
+                    capacity: (*capacity).max(n),
+                }
+            }
+            Inner::Constant {
+                value,
+                len,
+                capacity,
+            } => {
+                if *value == new_value {
+                    // Same value, just increase length.
+                    self.0 = Inner::Constant {
+                        value: *value,
+                        len: *len + n,
+                        capacity: (*capacity).max(*len + n),
+                    }
+                } else {
+                    // Different value, need to allocate the bit buffer.
+                    // Note: materialize() already appends the existing constant values
+                    let bits = self.materialize();
+                    bits.append_n(new_value, n);
+                }
+            }
+            Inner::Builder(bits) => {
+                bits.append_n(new_value, n);
+            }
+        }
+    }
+
+    /// Append a [`Mask`] to this mutable mask.
+    pub fn append_mask(&mut self, other: &Mask) {
+        match other {
+            Mask::AllTrue(len) => self.append_n(true, *len),
+            Mask::AllFalse(len) => self.append_n(false, *len),
+            Mask::Values(values) => {
+                let bitbuffer = BitBuffer::from(values.buffer.clone());
+                self.materialize().append_buffer(&bitbuffer);
+            }
+        }
+    }
+
+    /// Ensures that the internal bit buffer is allocated and returns a mutable reference to it.
+    fn materialize(&mut self) -> &mut BitBufferMut {
+        let needs_materialization = !matches!(self.0, Inner::Builder(_));
+
+        if needs_materialization {
+            let new_builder = match &self.0 {
+                Inner::Empty { capacity } => BitBufferMut::with_capacity(*capacity),
+                Inner::Constant {
+                    value,
+                    len,
+                    capacity,
+                } => {
+                    let required_capacity = (*capacity).max(*len);
+                    let mut bits = BitBufferMut::with_capacity(required_capacity);
+                    bits.append_n(*value, *len);
+                    bits
+                }
+                Inner::Builder(_) => unreachable!(),
+            };
+            self.0 = Inner::Builder(new_builder);
+        }
+
+        match &mut self.0 {
+            Inner::Builder(bits) => bits,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Split-off the mask at the given index, returning a new mask with the
+    /// values from `at` to the end, and leaving `self` with the values from
+    /// the start to `at`.
+    pub fn split_off(&mut self, at: usize) -> Self {
+        assert!(at <= self.len(), "split_off index out of bounds");
+        match &mut self.0 {
+            Inner::Empty { capacity } => {
+                let new_capacity = (*capacity).saturating_sub(at);
+                Self(Inner::Empty {
+                    capacity: new_capacity,
+                })
+            }
+            Inner::Constant {
+                value,
+                len,
+                capacity,
+            } => {
+                let new_len = len.sub(at);
+                *len = at;
+                let new_capacity = (*capacity).saturating_sub(at);
+                Self(Inner::Constant {
+                    value: *value,
+                    len: new_len,
+                    capacity: new_capacity,
+                })
+            }
+            Inner::Builder(bits) => {
+                let new_bits = bits.split_off(at);
+                Self(Inner::Builder(new_bits))
+            }
+        }
+    }
+
+    /// Absorb another mask into this one, appending its values.
+    pub fn unsplit(&mut self, other: Self) {
+        match other.0 {
+            Inner::Empty { .. } => {
+                // No work to do
+            }
+            Inner::Constant { value, len, .. } => {
+                self.append_n(value, len);
+            }
+            Inner::Builder(bits) => {
+                self.materialize().unsplit(bits);
+            }
+        }
+    }
+
+    /// Freezes the mutable mask into an immutable one.
+    pub fn freeze(self) -> Mask {
+        match self.0 {
+            Inner::Empty { .. } => Mask::new_true(0),
+            Inner::Constant { value, len, .. } => {
+                if value {
+                    Mask::new_true(len)
+                } else {
+                    Mask::new_false(len)
+                }
+            }
+            Inner::Builder(bits) => Mask::from_buffer(bits.freeze().into()),
+        }
+    }
+
+    /// Returns the logical length of the mask.
+    pub fn len(&self) -> usize {
+        match &self.0 {
+            Inner::Empty { .. } => 0,
+            Inner::Constant { len, .. } => *len,
+            Inner::Builder(bits) => bits.len(),
+        }
+    }
+
+    /// Returns true if the mask is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl Mask {
+    /// Attempts to convert an immutable mask into a mutable one.
+    pub fn try_into_mut(self) -> Result<MaskMut, Self> {
+        match self {
+            Mask::AllTrue(len) => Ok(MaskMut::new_true(len)),
+            Mask::AllFalse(len) => Ok(MaskMut::new_false(len)),
+            Mask::Values(values) => {
+                // FIXME(ngates): we can never convert Arrow BooleanBuffer to ByteBufferMut,
+                //  so we have to wait until we use BitBuffer internally in MaskValues.
+                Err(Mask::Values(values))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_off_empty() {
+        let mut mask = MaskMut::with_capacity(10);
+        assert_eq!(mask.len(), 0);
+
+        let other = mask.split_off(0);
+        assert_eq!(mask.len(), 0);
+        assert_eq!(other.len(), 0);
+    }
+
+    #[test]
+    fn test_split_off_constant_true_at_zero() {
+        let mut mask = MaskMut::new_true(10);
+        let other = mask.split_off(0);
+
+        assert_eq!(mask.len(), 0);
+        assert_eq!(other.len(), 10);
+
+        let frozen = other.freeze();
+        assert_eq!(frozen.true_count(), 10);
+    }
+
+    #[test]
+    fn test_split_off_constant_true_at_end() {
+        let mut mask = MaskMut::new_true(10);
+        let other = mask.split_off(10);
+
+        assert_eq!(mask.len(), 10);
+        assert_eq!(other.len(), 0);
+
+        let frozen = mask.freeze();
+        assert_eq!(frozen.true_count(), 10);
+    }
+
+    #[test]
+    fn test_split_off_constant_true_in_middle() {
+        let mut mask = MaskMut::new_true(10);
+        let other = mask.split_off(6);
+
+        assert_eq!(mask.len(), 6);
+        assert_eq!(other.len(), 4);
+
+        let frozen_first = mask.freeze();
+        assert_eq!(frozen_first.true_count(), 6);
+
+        let frozen_second = other.freeze();
+        assert_eq!(frozen_second.true_count(), 4);
+    }
+
+    #[test]
+    fn test_split_off_constant_false() {
+        let mut mask = MaskMut::new_false(20);
+        let other = mask.split_off(12);
+
+        assert_eq!(mask.len(), 12);
+        assert_eq!(other.len(), 8);
+
+        let frozen_first = mask.freeze();
+        assert_eq!(frozen_first.true_count(), 0);
+
+        let frozen_second = other.freeze();
+        assert_eq!(frozen_second.true_count(), 0);
+    }
+
+    // Note: Tests using BitBuffer operations are marked as ignored under miri
+    // because bitvec uses raw pointer operations that miri cannot verify.
+    #[test]
+    fn test_split_off_builder_at_byte_boundary() {
+        let mut mask = MaskMut::with_capacity(16);
+        // Create a pattern: 8 true, 8 false
+        mask.append_n(true, 8);
+        mask.append_n(false, 8);
+
+        let mask_ptr = match &mask.0 {
+            Inner::Builder(bits) => bits.as_slice().as_ptr(),
+            _ => unreachable!(),
+        };
+
+        let other = mask.split_off(8);
+
+        assert_eq!(mask.len(), 8);
+        assert_eq!(other.len(), 8);
+
+        // Ensure the unsplit was zero-copy.
+        mask.unsplit(other);
+        let new_mask_ptr = match &mask.0 {
+            Inner::Builder(bits) => bits.as_slice().as_ptr(),
+            _ => unreachable!(),
+        };
+        assert_eq!(mask_ptr, new_mask_ptr);
+    }
+
+    #[test]
+    fn test_split_off_builder_not_byte_aligned() {
+        let mut mask = MaskMut::with_capacity(20);
+        // Create a pattern: 10 true, 10 false
+        mask.append_n(true, 10);
+        mask.append_n(false, 10);
+
+        let other = mask.split_off(10);
+
+        assert_eq!(mask.len(), 10);
+        assert_eq!(other.len(), 10);
+
+        let frozen_first = mask.freeze();
+        assert_eq!(frozen_first.true_count(), 10);
+
+        let frozen_second = other.freeze();
+        assert_eq!(frozen_second.true_count(), 0);
+    }
+
+    #[test]
+    fn test_split_off_builder_mixed_pattern() {
+        let mut mask = MaskMut::with_capacity(15);
+        // Create pattern: TFTFTFTFTFTFTFT (alternating)
+        for i in 0..15 {
+            mask.append_n(i % 2 == 0, 1);
+        }
+
+        let other = mask.split_off(7);
+
+        assert_eq!(mask.len(), 7);
+        assert_eq!(other.len(), 8);
+
+        let frozen_first = mask.freeze();
+        assert_eq!(frozen_first.true_count(), 4); // positions 0,2,4,6
+
+        let frozen_second = other.freeze();
+        assert_eq!(frozen_second.true_count(), 4); // positions 7,9,11,13 => 0,2,4,6 in split
+    }
+
+    #[test]
+    fn test_unsplit_empty_with_empty() {
+        let mut mask = MaskMut::with_capacity(10);
+        let other = MaskMut::with_capacity(10);
+
+        mask.unsplit(other);
+        assert_eq!(mask.len(), 0);
+    }
+
+    #[test]
+    fn test_unsplit_empty_with_constant() {
+        let mut mask = MaskMut::with_capacity(10);
+        let other = MaskMut::new_true(5);
+
+        mask.unsplit(other);
+        assert_eq!(mask.len(), 5);
+
+        let frozen = mask.freeze();
+        assert_eq!(frozen.true_count(), 5);
+    }
+
+    #[test]
+    fn test_unsplit_constant_with_constant_same() {
+        let mut mask = MaskMut::new_true(5);
+        let other = MaskMut::new_true(5);
+
+        mask.unsplit(other);
+        assert_eq!(mask.len(), 10);
+
+        let frozen = mask.freeze();
+        assert_eq!(frozen.true_count(), 10);
+    }
+
+    #[test]
+    fn test_unsplit_constant_with_constant_different() {
+        let mut mask = MaskMut::new_true(5);
+        let other = MaskMut::new_false(5);
+
+        mask.unsplit(other);
+        assert_eq!(mask.len(), 10);
+
+        let frozen = mask.freeze();
+        assert_eq!(frozen.true_count(), 5);
+    }
+
+    #[test]
+    fn test_unsplit_constant_with_builder() {
+        let mut mask = MaskMut::new_true(5);
+
+        let mut other = MaskMut::with_capacity(10);
+        other.append_n(true, 3);
+        other.append_n(false, 2);
+
+        mask.unsplit(other);
+        assert_eq!(mask.len(), 10);
+
+        let frozen = mask.freeze();
+        assert_eq!(frozen.true_count(), 8); // 5 from first + 3 from second
+    }
+
+    #[test]
+    fn test_unsplit_builder_with_constant() {
+        let mut mask = MaskMut::with_capacity(10);
+        mask.append_n(true, 3);
+        mask.append_n(false, 2);
+
+        let other = MaskMut::new_true(5);
+
+        mask.unsplit(other);
+        assert_eq!(mask.len(), 10);
+
+        let frozen = mask.freeze();
+        assert_eq!(frozen.true_count(), 8); // 3 from first + 5 from second
+    }
+
+    #[test]
+    fn test_unsplit_builder_with_builder() {
+        let mut mask = MaskMut::with_capacity(10);
+        mask.append_n(true, 3);
+        mask.append_n(false, 2);
+
+        let mut other = MaskMut::with_capacity(10);
+        other.append_n(false, 3);
+        other.append_n(true, 2);
+
+        mask.unsplit(other);
+        assert_eq!(mask.len(), 10);
+
+        let frozen = mask.freeze();
+        assert_eq!(frozen.true_count(), 5); // 3 from first + 2 from second
+    }
+
+    #[test]
+    // TODO(ngates): when mask uses BitBuffer internally, into_mut should succeed
+    #[should_panic]
+    fn test_round_trip_split_unsplit() {
+        let mut original = MaskMut::with_capacity(20);
+        // Pattern: 10 true, 10 false
+        original.append_n(true, 10);
+        original.append_n(false, 10);
+
+        let original_frozen = original.freeze();
+        let original_true_count = original_frozen.true_count();
+
+        // Convert back to mutable for split
+        let mut mask = original_frozen.try_into_mut().unwrap();
+
+        // Split at 10
+        let other = mask.split_off(10);
+
+        // Unsplit back together
+        mask.unsplit(other);
+
+        assert_eq!(mask.len(), 20);
+        let frozen = mask.freeze();
+        assert_eq!(frozen.true_count(), original_true_count);
+    }
+
+    #[test]
+    #[should_panic(expected = "split_off index out of bounds")]
+    fn test_split_off_out_of_bounds() {
+        let mut mask = MaskMut::new_true(10);
+        let _ = mask.split_off(11);
+    }
+
+    #[test]
+    fn test_split_off_builder_at_bit_1() {
+        let mut mask = MaskMut::with_capacity(16);
+        mask.append_n(true, 16);
+
+        let other = mask.split_off(1);
+
+        assert_eq!(mask.len(), 1);
+        assert_eq!(other.len(), 15);
+
+        let frozen_first = mask.freeze();
+        assert_eq!(frozen_first.true_count(), 1);
+
+        let frozen_second = other.freeze();
+        assert_eq!(frozen_second.true_count(), 15);
+    }
+
+    #[test]
+    fn test_multiple_split_unsplit() {
+        let mut mask = MaskMut::new_true(30);
+
+        // Split into 3 parts
+        let third = mask.split_off(20); // 20-30
+        let second = mask.split_off(10); // 10-20
+        // first is 0-10
+
+        assert_eq!(mask.len(), 10);
+        assert_eq!(second.len(), 10);
+        assert_eq!(third.len(), 10);
+
+        // Recombine in order
+        mask.unsplit(second);
+        mask.unsplit(third);
+
+        assert_eq!(mask.len(), 30);
+        let frozen = mask.freeze();
+        assert_eq!(frozen.true_count(), 30);
+    }
+}

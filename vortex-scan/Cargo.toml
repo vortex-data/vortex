@@ -39,6 +39,7 @@ parking_lot = { workspace = true }
 roaring = { workspace = true, optional = true }
 sketches-ddsketch = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 loom = { workspace = true }

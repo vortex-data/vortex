@@ -3,10 +3,12 @@
 
 //! A mask is a set of sorted unique positive integers.
 #![deny(missing_docs)]
+
 mod bitops;
 mod eq;
 mod intersect_by_rank;
 mod iter_bools;
+mod mask_mut;
 
 #[cfg(test)]
 mod tests;
@@ -17,8 +19,9 @@ use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use itertools::Itertools;
+pub use mask_mut::*;
 use vortex_buffer::{BitBuffer, BitBufferMut};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexResult};
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {
@@ -94,7 +97,7 @@ impl<T> Eq for AllOr<T> where T: Eq {}
 ///
 /// A [`Mask`] can be constructed from various representations, and converted to various
 /// others. Internally, these are cached.
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub enum Mask {
     /// All values are included.
     AllTrue(usize),
