@@ -28,9 +28,9 @@ pub use vector_mut::PrimitiveVectorMut;
 
 mod macros;
 
-use vortex_dtype::NativePType;
-
 use crate::{Vector, VectorMut};
+use vortex_dtype::NativePType;
+use vortex_error::vortex_panic;
 
 impl From<PrimitiveVector> for Vector {
     fn from(v: PrimitiveVector) -> Self {
@@ -43,7 +43,7 @@ impl From<Vector> for PrimitiveVector {
         if let Vector::Primitive(v) = value {
             return v;
         }
-        panic!("Expected PrimitiveVector, got {value:?}");
+        vortex_panic!("Expected PrimitiveVector, got {value:?}");
     }
 }
 
@@ -58,7 +58,7 @@ impl<T: NativePType> From<Vector> for PVector<T> {
         if let Vector::Primitive(v) = value {
             return PVector::from(v);
         }
-        panic!("Expected PrimitiveVector, got {value:?}");
+        vortex_panic!("Expected PrimitiveVector, got {value:?}");
     }
 }
 
@@ -73,7 +73,7 @@ impl From<VectorMut> for PrimitiveVectorMut {
         if let VectorMut::Primitive(v) = value {
             return v;
         }
-        panic!("Expected PrimitiveVectorMut, got {value:?}");
+        vortex_panic!("Expected PrimitiveVectorMut, got {value:?}");
     }
 }
 
@@ -88,6 +88,6 @@ impl<T: NativePType> From<VectorMut> for PVectorMut<T> {
         if let VectorMut::Primitive(v) = value {
             return PVectorMut::from(v);
         }
-        panic!("Expected PrimitiveVectorMut, got {value:?}");
+        vortex_panic!("Expected PrimitiveVectorMut, got {value:?}");
     }
 }

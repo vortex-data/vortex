@@ -7,9 +7,9 @@ mod vector;
 pub use vector::NullVector;
 
 mod vector_mut;
-pub use vector_mut::NullVectorMut;
-
 use crate::{Vector, VectorMut};
+pub use vector_mut::NullVectorMut;
+use vortex_error::vortex_panic;
 
 impl From<NullVector> for Vector {
     fn from(v: NullVector) -> Self {
@@ -22,7 +22,7 @@ impl From<Vector> for NullVector {
         if let Vector::Null(v) = value {
             return v;
         }
-        panic!("Expected NullVector, got {value:?}");
+        vortex_panic!("Expected NullVector, got {value:?}");
     }
 }
 
@@ -37,6 +37,6 @@ impl From<VectorMut> for NullVectorMut {
         if let VectorMut::Null(v) = value {
             return v;
         }
-        panic!("Expected NullVectorMut, got {value:?}");
+        vortex_panic!("Expected NullVectorMut, got {value:?}");
     }
 }

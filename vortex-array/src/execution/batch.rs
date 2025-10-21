@@ -26,7 +26,7 @@ pub type BatchKernelRef = Box<dyn BatchKernel>;
 
 /// Trait for batch execution kernels.
 #[async_trait]
-pub trait BatchKernel {
+pub trait BatchKernel: Send {
     /// Execute the batch kernel and produce a canonicalized vector.
     ///
     /// If the kernel can return data zero-copy from its own state, then it should prefer to do so.

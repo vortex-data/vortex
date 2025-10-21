@@ -12,9 +12,6 @@ pub trait VectorOps: private::Sealed + From<Vector> + Into<Vector> {
     /// The mutable equivalent of this immutable vector.
     type Mutable: VectorMutOps<Immutable = Self>;
 
-    /// Returns the validity mask of the vector.
-    fn validity(&self) -> &Mask;
-
     /// Returns the number of elements in the vector, also referred to as its "length".
     fn len(&self) -> usize;
 

@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitAnd, BitOr};
-use std::sync::LazyLock;
-
 use crate::execution::{BatchKernel, BatchKernelRef, BindCtx};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -14,13 +11,16 @@ use crate::{
     vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata,
     EmptyMetadata, EncodingId, EncodingRef,
 };
+use async_trait::async_trait;
 use enum_map::{enum_map, Enum, EnumMap};
 use futures::try_join;
+use std::ops::{BitAnd, BitOr};
+use std::sync::LazyLock;
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
-use vortex_vector::{BoolVector, BoolVectorMut, Vector, VectorMut, VectorMutOps, VectorOps};
+use vortex_vector::{BoolVector, BoolVectorMut, Vector, VectorMut, VectorOps};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Enum)]
 pub enum LogicalOperator {
@@ -76,6 +76,7 @@ pub struct LogicalEncoding {
     operator: LogicalOperator,
 }
 
+#[allow(clippy::mem_forget)]
 static ENCODINGS: LazyLock<EnumMap<LogicalOperator, EncodingRef>> = LazyLock::new(|| {
     enum_map! {
         operator => LogicalEncoding { operator }.to_encoding(),
@@ -138,12 +139,12 @@ impl VisitorVTable<LogicalVTable> for LogicalVTable {
 impl SerdeVTable<LogicalVTable> for LogicalVTable {
     type Metadata = EmptyMetadata;
 
-    fn metadata(_array: &LogicalVTable::Array) -> VortexResult<Option<Self::Metadata>> {
+    fn metadata(_array: &LogicalArray) -> VortexResult<Option<Self::Metadata>> {
         Ok(Some(EmptyMetadata))
     }
 
     fn build(
-        encoding: &LogicalVTable::Encoding,
+        encoding: &LogicalEncoding,
         dtype: &DType,
         len: usize,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
@@ -164,13 +165,13 @@ impl OperatorVTable<LogicalVTable> for LogicalVTable {
         _array: &LogicalArray,
         children: &[&Scalar],
     ) -> VortexResult<Option<ArrayRef>> {
-        let lhs = children[0].as_bool();
-        let rhs = children[1].as_bool();
+        let _lhs = children[0].as_bool();
+        let _rhs = children[1].as_bool();
         todo!()
     }
 
     fn bind(
-        array: &LogicalVTable::Array,
+        array: &LogicalArray,
         selection: Option<&ArrayRef>,
         ctx: &mut dyn BindCtx,
     ) -> VortexResult<BatchKernelRef> {
@@ -178,11 +179,11 @@ impl OperatorVTable<LogicalVTable> for LogicalVTable {
         let rhs = ctx.bind(&array.rhs, selection)?;
 
         match array.operator() {
-            LogicalOperator::And => LogicalKernel::new(lhs, rhs, |l, r| l.bitand(r)),
+            LogicalOperator::And => LogicalKernel::new_kernel(lhs, rhs, |l, r| l.bitand(r)),
             LogicalOperator::AndKleene => {
                 todo!()
             }
-            LogicalOperator::Or => LogicalKernel::new(lhs, rhs, |l, r| l.bitor(r)),
+            LogicalOperator::Or => LogicalKernel::new_kernel(lhs, rhs, |l, r| l.bitor(r)),
             LogicalOperator::OrKleene => {
                 todo!()
             }
@@ -201,16 +202,17 @@ struct LogicalKernel<O> {
 
 impl<O> LogicalKernel<O>
 where
-    O: Fn(&BitBuffer, &BitBuffer) -> BitBuffer,
+    O: Fn(&BitBuffer, &BitBuffer) -> BitBuffer + Send + 'static,
 {
-    pub fn new(lhs: BatchKernelRef, rhs: BatchKernelRef, op: O) -> VortexResult<BatchKernelRef> {
+    fn new_kernel(lhs: BatchKernelRef, rhs: BatchKernelRef, op: O) -> VortexResult<BatchKernelRef> {
         Ok(Box::new(Self { lhs, rhs, op }))
     }
 }
 
+#[async_trait]
 impl<O> BatchKernel for LogicalKernel<O>
 where
-    O: Fn(&BitBuffer, &BitBuffer) -> BitBuffer,
+    O: Fn(&BitBuffer, &BitBuffer) -> BitBuffer + Send + 'static,
 {
     async fn execute(self: Box<Self>, out: VectorMut) -> VortexResult<Vector> {
         // We pass the output into the LHS and then attempt to call the mutate-in-place op.

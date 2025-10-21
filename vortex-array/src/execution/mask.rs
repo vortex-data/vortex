@@ -42,7 +42,11 @@ impl dyn BindCtx + '_ {
     ///
     /// This binding will optimize for constant arrays or other array types that can be more
     /// efficiently converted into a `Mask`.
-    fn bind_mask(&mut self, mask: &ArrayRef, ctx: &mut dyn BindCtx) -> VortexResult<MaskExecution> {
+    pub fn bind_mask(
+        &mut self,
+        mask: &ArrayRef,
+        ctx: &mut dyn BindCtx,
+    ) -> VortexResult<MaskExecution> {
         if !matches!(mask.dtype(), DType::Bool(NonNullable)) {
             vortex_bail!(
                 "Expected non-nullable boolean array for mask binding, got {}",
