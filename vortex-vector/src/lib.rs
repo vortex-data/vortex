@@ -32,7 +32,7 @@ mod primitive;
 
 pub use bool::{BoolVector, BoolVectorMut};
 pub use null::{NullVector, NullVectorMut};
-pub use primitive::{GenericPVector, GenericPVectorMut, PrimitiveVector, PrimitiveVectorMut};
+pub use primitive::{PVector, PVectorMut, PrimitiveVector, PrimitiveVectorMut};
 
 mod macros;
 

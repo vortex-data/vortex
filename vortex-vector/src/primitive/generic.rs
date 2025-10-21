@@ -7,7 +7,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, Nullability};
 use vortex_mask::Mask;
 
-use crate::{GenericPVectorMut, VectorOps};
+use crate::{PVectorMut, VectorOps};
 
 /// An immutable vector of generic primitive values.
 ///
@@ -18,13 +18,13 @@ use crate::{GenericPVectorMut, VectorOps};
 ///
 /// The mutable equivalent of this type is [`GenericPVectorMut<T>`].
 #[derive(Debug, Clone)]
-pub struct GenericPVector<T> {
+pub struct PVector<T> {
     pub(super) elements: Buffer<T>,
     pub(super) validity: Option<Mask>,
 }
 
-impl<T: NativePType> VectorOps for GenericPVector<T> {
-    type Mutable = GenericPVectorMut<T>;
+impl<T: NativePType> VectorOps for PVector<T> {
+    type Mutable = PVectorMut<T>;
 
     fn nullability(&self) -> Nullability {
         Nullability::from(self.validity.is_some())
@@ -35,11 +35,11 @@ impl<T: NativePType> VectorOps for GenericPVector<T> {
     }
 
     /// Try to convert self into a mutable vector.
-    fn try_into_mut(self) -> Result<GenericPVectorMut<T>, Self> {
+    fn try_into_mut(self) -> Result<PVectorMut<T>, Self> {
         let elements = match self.elements.try_into_mut() {
             Ok(elements) => elements,
             Err(elements) => {
-                return Err(GenericPVector {
+                return Err(PVector {
                     elements,
                     validity: self.validity,
                 });
@@ -50,7 +50,7 @@ impl<T: NativePType> VectorOps for GenericPVector<T> {
             Some(v) => match v.try_into_mut() {
                 Ok(v) => Some(v),
                 Err(v) => {
-                    return Err(GenericPVector {
+                    return Err(PVector {
                         elements: elements.freeze(),
                         validity: Some(v),
                     });
@@ -59,6 +59,6 @@ impl<T: NativePType> VectorOps for GenericPVector<T> {
             None => None,
         };
 
-        Ok(GenericPVectorMut { elements, validity })
+        Ok(PVectorMut { elements, validity })
     }
 }

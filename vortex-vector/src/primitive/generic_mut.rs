@@ -8,7 +8,7 @@ use vortex_dtype::{NativePType, Nullability};
 use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
-use crate::{GenericPVector, VectorMutOps, VectorOps};
+use crate::{PVector, VectorMutOps, VectorOps};
 
 /// A mutable vector of generic primitive values.
 ///
@@ -19,12 +19,12 @@ use crate::{GenericPVector, VectorMutOps, VectorOps};
 ///
 /// The immutable equivalent of this type is [`GenericPVector<T>`].
 #[derive(Debug, Clone)]
-pub struct GenericPVectorMut<T> {
+pub struct PVectorMut<T> {
     pub(super) elements: BufferMut<T>,
     pub(super) validity: Option<MaskMut>,
 }
 
-impl<T: NativePType> GenericPVectorMut<T> {
+impl<T: NativePType> PVectorMut<T> {
     /// Create a new mutable primitive vector with the given capacity and nullability.
     pub fn with_capacity(capacity: usize, nullability: Nullability) -> Self {
         let validity = nullability
@@ -38,8 +38,8 @@ impl<T: NativePType> GenericPVectorMut<T> {
     }
 }
 
-impl<T: NativePType> VectorMutOps for GenericPVectorMut<T> {
-    type Immutable = GenericPVector<T>;
+impl<T: NativePType> VectorMutOps for PVectorMut<T> {
+    type Immutable = PVector<T>;
 
     fn nullability(&self) -> Nullability {
         Nullability::from(self.validity.is_some())
@@ -61,7 +61,7 @@ impl<T: NativePType> VectorMutOps for GenericPVectorMut<T> {
     }
 
     /// Extends the vector by appending elements from another vector.
-    fn extend_from_vector(&mut self, other: &GenericPVector<T>) {
+    fn extend_from_vector(&mut self, other: &PVector<T>) {
         assert!(
             self.is_nullable() || !other.is_nullable(),
             "tried to extend a non-nullable `GenericPVector` with a nullable vector"
@@ -93,15 +93,15 @@ impl<T: NativePType> VectorMutOps for GenericPVectorMut<T> {
     }
 
     /// Freeze the vector into an immutable one.
-    fn freeze(self) -> GenericPVector<T> {
-        GenericPVector {
+    fn freeze(self) -> PVector<T> {
+        PVector {
             elements: self.elements.freeze(),
             validity: self.validity.map(|v| v.freeze()),
         }
     }
 
     fn split_off(&mut self, at: usize) -> Self {
-        GenericPVectorMut {
+        PVectorMut {
             elements: self.elements.split_off(at),
             validity: self.validity.as_mut().map(|v| v.split_off(at)),
         }

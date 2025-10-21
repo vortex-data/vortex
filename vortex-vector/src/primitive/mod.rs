@@ -15,10 +15,10 @@
 //! [`f16`]: vortex_dtype::half::f16
 
 mod generic;
-pub use generic::GenericPVector;
+pub use generic::PVector;
 
 mod generic_mut;
-pub use generic_mut::GenericPVectorMut;
+pub use generic_mut::PVectorMut;
 
 mod vector;
 pub use vector::PrimitiveVector;
@@ -38,8 +38,8 @@ impl From<PrimitiveVector> for Vector {
     }
 }
 
-impl<T: NativePType> From<GenericPVector<T>> for Vector {
-    fn from(v: GenericPVector<T>) -> Self {
+impl<T: NativePType> From<PVector<T>> for Vector {
+    fn from(v: PVector<T>) -> Self {
         Self::Primitive(PrimitiveVector::from(v))
     }
 }
@@ -50,8 +50,8 @@ impl From<PrimitiveVectorMut> for VectorMut {
     }
 }
 
-impl<T: NativePType> From<GenericPVectorMut<T>> for VectorMut {
-    fn from(val: GenericPVectorMut<T>) -> Self {
+impl<T: NativePType> From<PVectorMut<T>> for VectorMut {
+    fn from(val: PVectorMut<T>) -> Self {
         Self::Primitive(PrimitiveVectorMut::from(val))
     }
 }

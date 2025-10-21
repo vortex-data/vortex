@@ -24,5 +24,5 @@ impl Sealed for BoolVectorMut {}
 
 impl Sealed for PrimitiveVector {}
 impl Sealed for PrimitiveVectorMut {}
-impl<T> Sealed for GenericPVector<T> {}
-impl<T> Sealed for GenericPVectorMut<T> {}
+impl<T> Sealed for PVector<T> {}
+impl<T> Sealed for PVectorMut<T> {}

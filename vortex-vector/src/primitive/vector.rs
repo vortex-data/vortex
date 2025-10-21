@@ -6,7 +6,7 @@
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, Nullability, PTypeUpcast};
 
-use super::{GenericPVector, PrimitiveVectorMut};
+use super::{PVector, PrimitiveVectorMut};
 use crate::{VectorOps, match_each_pvector};
 
 /// An immutable vector of primitive values.
@@ -18,27 +18,27 @@ use crate::{VectorOps, match_each_pvector};
 #[derive(Debug, Clone)]
 pub enum PrimitiveVector {
     /// U8
-    U8(GenericPVector<u8>),
+    U8(PVector<u8>),
     /// U16
-    U16(GenericPVector<u16>),
+    U16(PVector<u16>),
     /// U32
-    U32(GenericPVector<u32>),
+    U32(PVector<u32>),
     /// U64
-    U64(GenericPVector<u64>),
+    U64(PVector<u64>),
     /// I8
-    I8(GenericPVector<i8>),
+    I8(PVector<i8>),
     /// I16
-    I16(GenericPVector<i16>),
+    I16(PVector<i16>),
     /// I32
-    I32(GenericPVector<i32>),
+    I32(PVector<i32>),
     /// I64
-    I64(GenericPVector<i64>),
+    I64(PVector<i64>),
     /// F16
-    F16(GenericPVector<f16>),
+    F16(PVector<f16>),
     /// F32
-    F32(GenericPVector<f32>),
+    F32(PVector<f32>),
     /// F64
-    F64(GenericPVector<f64>),
+    F64(PVector<f64>),
 }
 
 impl VectorOps for PrimitiveVector {
@@ -64,14 +64,14 @@ impl VectorOps for PrimitiveVector {
     }
 }
 
-impl<T: NativePType> From<GenericPVector<T>> for PrimitiveVector {
-    fn from(v: GenericPVector<T>) -> Self {
+impl<T: NativePType> From<PVector<T>> for PrimitiveVector {
+    fn from(v: PVector<T>) -> Self {
         T::upcast(v)
     }
 }
 
 impl PTypeUpcast for PrimitiveVector {
-    type Input<T: NativePType> = GenericPVector<T>;
+    type Input<T: NativePType> = PVector<T>;
 
     fn from_u8(input: Self::Input<u8>) -> Self {
         PrimitiveVector::U8(input)
