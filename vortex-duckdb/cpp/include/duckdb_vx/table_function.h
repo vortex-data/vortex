@@ -140,6 +140,7 @@ typedef struct {
     bool filter_prune;
     bool sampling_pushdown;
     bool late_materialization;
+    idx_t max_threads;
 } duckdb_vx_tfunc_vtab_t;
 
 // A single function for configuring the DuckDB table function vtable.
