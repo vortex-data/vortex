@@ -6,10 +6,7 @@
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, PTypeUpcast};
 
-use crate::{
-    PVectorMut, PrimitiveVector, VectorMutOps, match_each_pvector_mut,
-    match_each_pvector_mut_immut_pair, match_each_pvector_mut_pair,
-};
+use crate::{PVectorMut, PrimitiveVector, VectorMutOps, match_each_pvector_mut};
 
 /// A mutable vector of primitive values.
 ///
@@ -78,9 +75,20 @@ impl VectorMutOps for PrimitiveVectorMut {
     }
 
     fn extend_from_vector(&mut self, other: &Self::Immutable) {
-        match_each_pvector_mut_immut_pair!(self, other, |a, b| {
-            a.extend_from_vector(b);
-        });
+        match (self, other) {
+            (PrimitiveVectorMut::U8(a), PrimitiveVector::U8(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::U16(a), PrimitiveVector::U16(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::U32(a), PrimitiveVector::U32(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::U64(a), PrimitiveVector::U64(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::I8(a), PrimitiveVector::I8(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::I16(a), PrimitiveVector::I16(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::I32(a), PrimitiveVector::I32(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::I64(a), PrimitiveVector::I64(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::F16(a), PrimitiveVector::F16(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::F32(a), PrimitiveVector::F32(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::F64(a), PrimitiveVector::F64(b)) => a.extend_from_vector(b),
+            _ => ::vortex_error::vortex_panic!("Mismatched primitive vector types"),
+        }
     }
 
     fn append_nulls(&mut self, n: usize) {
@@ -96,9 +104,20 @@ impl VectorMutOps for PrimitiveVectorMut {
     }
 
     fn unsplit(&mut self, other: Self) {
-        match_each_pvector_mut_pair!(self, other, |a, b| {
-            a.unsplit(b);
-        });
+        match (self, other) {
+            (PrimitiveVectorMut::U8(a), PrimitiveVectorMut::U8(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::U16(a), PrimitiveVectorMut::U16(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::U32(a), PrimitiveVectorMut::U32(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::U64(a), PrimitiveVectorMut::U64(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::I8(a), PrimitiveVectorMut::I8(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::I16(a), PrimitiveVectorMut::I16(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::I32(a), PrimitiveVectorMut::I32(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::I64(a), PrimitiveVectorMut::I64(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::F16(a), PrimitiveVectorMut::F16(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::F32(a), PrimitiveVectorMut::F32(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::F64(a), PrimitiveVectorMut::F64(b)) => a.unsplit(b),
+            _ => ::vortex_error::vortex_panic!("Mismatched primitive vector types"),
+        }
     }
 }
 

@@ -6,7 +6,6 @@ use vortex_error::vortex_panic;
 
 use crate::{
     BoolVectorMut, NullVectorMut, PrimitiveVectorMut, Vector, VectorMutOps, match_each_vector_mut,
-    match_each_vector_mut_immut_pair, match_each_vector_mut_pair,
 };
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
@@ -58,9 +57,12 @@ impl VectorMutOps for VectorMut {
     }
 
     fn extend_from_vector(&mut self, other: &Self::Immutable) {
-        match_each_vector_mut_immut_pair!(self, other, |a, b| {
-            a.extend_from_vector(b);
-        });
+        match (self, other) {
+            (VectorMut::Null(a), Vector::Null(b)) => a.extend_from_vector(b),
+            (VectorMut::Bool(a), Vector::Bool(b)) => a.extend_from_vector(b),
+            (VectorMut::Primitive(a), Vector::Primitive(b)) => a.extend_from_vector(b),
+            _ => vortex_panic!("Mismatched vector types"),
+        }
     }
 
     fn append_nulls(&mut self, n: usize) {
@@ -76,8 +78,11 @@ impl VectorMutOps for VectorMut {
     }
 
     fn unsplit(&mut self, other: Self) {
-        match_each_vector_mut_pair!(self, other, |a, b| {
-            a.unsplit(b);
-        });
+        match (self, other) {
+            (VectorMut::Null(a), VectorMut::Null(b)) => a.unsplit(b),
+            (VectorMut::Bool(a), VectorMut::Bool(b)) => a.unsplit(b),
+            (VectorMut::Primitive(a), VectorMut::Primitive(b)) => a.unsplit(b),
+            _ => vortex_panic!("Mismatched vector types"),
+        }
     }
 }
