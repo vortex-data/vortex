@@ -25,6 +25,8 @@ pub struct RLEMetadata {
     pub values_idx_offsets_len: u64,
     #[prost(enumeration = "PType", tag = "5")]
     pub values_idx_offsets_ptype: i32,
+    #[prost(uint64, tag = "6", default = "0")]
+    pub offset: u64,
 }
 
 impl SerdeVTable<RLEVTable> for RLEVTable {
@@ -37,6 +39,7 @@ impl SerdeVTable<RLEVTable> for RLEVTable {
             indices_ptype: PType::try_from(array.indices().dtype())? as i32,
             values_idx_offsets_len: array.values_idx_offsets().len() as u64,
             values_idx_offsets_ptype: PType::try_from(array.values_idx_offsets().dtype())? as i32,
+            offset: array.offset() as u64,
         })))
     }
 
@@ -69,7 +72,13 @@ impl SerdeVTable<RLEVTable> for RLEVTable {
             usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        RLEArray::try_new(values, indices, values_idx_offsets, len)
+        RLEArray::try_new(
+            values,
+            indices,
+            values_idx_offsets,
+            metadata.offset as usize,
+            len,
+        )
     }
 }
 
@@ -99,7 +108,11 @@ impl VisitorVTable<RLEVTable> for RLEVTable {
 
 #[cfg(test)]
 mod test {
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::serde::{ArrayParts, SerializeOptions};
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::{Array, ArrayContext, EncodingRef, ToCanonical};
+    use vortex_buffer::ByteBufferMut;
 
     use super::*;
 
@@ -114,7 +127,74 @@ mod test {
                 indices_ptype: i32::MAX,
                 values_idx_offsets_len: u64::MAX,
                 values_idx_offsets_ptype: i32::MAX,
+                offset: u64::MAX,
             }),
         );
+    }
+
+    #[test]
+    fn test_rle_serialization() {
+        let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
+        let rle_array = RLEArray::encode(&primitive).unwrap();
+        assert_eq!(rle_array.len(), 2048);
+
+        let original_data = rle_array.to_primitive();
+        let original_values = original_data.as_slice::<u32>();
+
+        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(RLEEncoding.as_ref()));
+        let serialized = rle_array
+            .to_array()
+            .serialize(&ctx, &SerializeOptions::default())
+            .unwrap();
+
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
+        }
+        let concat = concat.freeze();
+
+        let parts = ArrayParts::try_from(concat).unwrap();
+        let decoded = parts
+            .decode(
+                &ctx,
+                &DType::Primitive(PType::U32, Nullability::NonNullable),
+                2048,
+            )
+            .unwrap();
+
+        let decoded_data = decoded.to_primitive();
+        let decoded_values = decoded_data.as_slice::<u32>();
+
+        assert_eq!(original_values, decoded_values);
+    }
+
+    #[test]
+    fn test_rle_serialization_slice() {
+        let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
+        let rle_array = RLEArray::encode(&primitive).unwrap();
+        let sliced = rle_array.slice(100..200);
+        assert_eq!(sliced.len(), 100);
+
+        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(RLEEncoding.as_ref()));
+        let serialized = sliced
+            .serialize(&ctx, &SerializeOptions::default())
+            .unwrap();
+
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
+        }
+        let concat = concat.freeze();
+
+        let parts = ArrayParts::try_from(concat).unwrap();
+        let decoded = parts.decode(&ctx, sliced.dtype(), sliced.len()).unwrap();
+
+        let original_data = sliced.to_primitive();
+        let decoded_data = decoded.to_primitive();
+
+        let original_values = original_data.as_slice::<u32>();
+        let decoded_values = decoded_data.as_slice::<u32>();
+
+        assert_eq!(original_values, decoded_values);
     }
 }
