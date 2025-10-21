@@ -15,5 +15,6 @@ pub(crate) mod merge;
 pub(crate) mod not;
 pub(crate) mod operators;
 pub(crate) mod pack;
+pub(crate) mod push_nulls;
 pub(crate) mod root;
 pub(crate) mod select;

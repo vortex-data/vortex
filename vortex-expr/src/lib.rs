@@ -50,6 +50,7 @@ pub use merge::*;
 pub use not::*;
 pub use operators::*;
 pub use pack::*;
+pub use push_nulls::*;
 pub use registry::*;
 pub use root::*;
 pub use scope::*;
