@@ -4,8 +4,8 @@
 //! This module contains the VTable definitions for a Vortex encoding.
 
 mod array;
+mod canonical;
 mod compute;
-mod decode;
 mod encode;
 mod operations;
 mod operator;
@@ -17,8 +17,8 @@ use std::fmt::Debug;
 use std::ops::Deref;
 
 pub use array::*;
+pub use canonical::*;
 pub use compute::*;
-pub use decode::*;
 pub use encode::*;
 pub use operations::*;
 pub use operator::*;

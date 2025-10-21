@@ -110,6 +110,7 @@ dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
+enum-map = "2.7.3"
 erased-serde = "0.4"
 fastlanes = "0.5"
 flatbuffers = "25.2.10"

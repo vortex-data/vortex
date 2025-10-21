@@ -34,6 +34,7 @@ async-trait = { workspace = true }
 bitvec = { workspace = true }
 cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
+enum-map = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
 getrandom_v03 = { workspace = true }

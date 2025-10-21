@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(dead_code)]
+
 use std::any::Any;
 use std::hash::Hasher;
 use std::marker::PhantomData;

@@ -2,22 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::env;
 use std::ops::{BitAnd, Range};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::compute::filter;
-use vortex_array::executor::Executor;
-use vortex_array::operator::OperatorRef;
-use vortex_array::operator::filter::FilterOperator;
-use vortex_array::operator::slice::SliceOperator;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef, IntoArray, MaskFuture};
+use vortex_array::{Array, ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, is_root};
 use vortex_mask::Mask;
 
@@ -32,13 +27,6 @@ use crate::segments::SegmentSource;
 // TODO(ngates): more experimentation is needed, and this should probably be dynamic based on the
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
-
-/// While we develop operator-based evaluation, we can enable it via an environment variable.
-static USE_OPERATOR_EVAL: LazyLock<bool> = LazyLock::new(|| {
-    env::var("VORTEX_USE_OPERATOR_EVAL")
-        .ok()
-        .is_some_and(|v| v == "1")
-});
 
 pub struct FlatReader {
     layout: FlatLayout,
@@ -134,14 +122,6 @@ impl LayoutReader for FlatReader {
             let mut array = array.clone().await?;
             let mask = mask.await?;
 
-            if *USE_OPERATOR_EVAL {
-                let array =
-                    try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await?;
-                let array_mask = array.try_to_mask_fill_null_false()?;
-                let mask = mask.intersect_by_rank(&array_mask);
-                return Ok(mask);
-            }
-
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
                 array = array.slice(row_range.clone());
@@ -201,10 +181,6 @@ impl LayoutReader for FlatReader {
             let mut array = array.clone().await?;
             let mask = mask.await?;
 
-            if *USE_OPERATOR_EVAL {
-                return try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await;
-            }
-
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
                 array = array.slice(row_range.clone());
@@ -224,34 +200,6 @@ impl LayoutReader for FlatReader {
         }
         .boxed())
     }
-}
-
-async fn try_evaluate_using_operator(
-    row_range: Range<usize>,
-    array: &ArrayRef,
-    expr: &ExprRef,
-    mask: &Mask,
-) -> VortexResult<ArrayRef> {
-    let Some(operator) = array.to_operator()? else {
-        vortex_bail!(
-            "ArrayEvaluation: cannot convert array to operator {}",
-            array.display_tree()
-        );
-    };
-    let Some(operator) = expr.operator(&operator)? else {
-        vortex_bail!("ArrayEvaluation: cannot convert expr to operator {}", expr);
-    };
-
-    let mut operator: OperatorRef = Arc::new(SliceOperator::try_new(operator, row_range)?);
-    if !mask.all_true() {
-        operator = Arc::new(FilterOperator::new(operator, mask.clone()));
-    }
-
-    // TODO(ngates): in the future we should be able to return operators from projection.
-    println!("Optimizing operator: {}", operator.display_tree());
-    let operator = operator.optimize()?;
-    println!("Executing operator: {}", operator.display_tree());
-    Ok(Executor::default().execute(operator).await?.into_array())
 }
 
 #[cfg(test)]

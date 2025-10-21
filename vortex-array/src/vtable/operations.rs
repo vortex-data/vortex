@@ -3,10 +3,11 @@
 
 use std::ops::Range;
 
+use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
-use crate::vtable::VTable;
+use crate::vtable::{NotSupported, VTable};
 
 pub trait OperationsVTable<V: VTable> {
     /// Perform a constant-time slice of the array.
@@ -29,4 +30,20 @@ pub trait OperationsVTable<V: VTable> {
     /// Bounds-checking has already been performed by the time this function is called,
     /// and the index is guaranteed to be non-null.
     fn scalar_at(array: &V::Array, index: usize) -> Scalar;
+}
+
+impl<V: VTable> OperationsVTable<V> for NotSupported {
+    fn slice(array: &V::Array, _range: Range<usize>) -> ArrayRef {
+        vortex_panic!(
+            "Legacy slice operation is not supported for {} arrays",
+            array.encoding_id()
+        )
+    }
+
+    fn scalar_at(array: &V::Array, _index: usize) -> Scalar {
+        vortex_panic!(
+            "Legacy scalar_at operation is not supported for {} arrays",
+            array.encoding_id()
+        )
+    }
 }

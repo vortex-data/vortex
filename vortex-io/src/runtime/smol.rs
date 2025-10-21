@@ -14,7 +14,7 @@ impl Executor for smol::Executor<'static> {
     }
 
     fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        // For now, we spawn CPU work back onto the same executor.
+        // For now, we spawn CPU work back onto the same execution.
         SmolAbortHandle::new_handle(smol::Executor::spawn(self, async move { task() }))
     }
 
