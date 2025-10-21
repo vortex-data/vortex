@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::PrimInt;
+use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::{DType, DecimalDType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{DecimalScalar, DecimalValue, FromPrimitiveOrF16, Scalar, i256};
@@ -18,9 +19,7 @@ impl SumKernel for ChunkedVTable {
             .ok_or_else(|| vortex_err!("Sum not supported for dtype {}", array.dtype()))?;
 
         match sum_dtype {
-            DType::Decimal(decimal_dtype, _) => {
-                sum_decimal(array.chunks(), decimal_dtype, sum_dtype)
-            }
+            DType::Decimal(decimal_dtype, _) => sum_decimal(array.chunks(), decimal_dtype),
             DType::Primitive(sum_ptype, _) => {
                 let scalar_value = match_each_native_ptype!(
                     sum_ptype,
@@ -72,40 +71,32 @@ fn sum_float(chunks: &[ArrayRef]) -> VortexResult<f64> {
     Ok(result)
 }
 
-fn sum_decimal(
-    chunks: &[ArrayRef],
-    result_decimal_type: DecimalDType,
-    result_dtype: DType,
-) -> VortexResult<Scalar> {
-    let mut result = Some(DecimalValue::I256(i256::ZERO));
+fn sum_decimal(chunks: &[ArrayRef], result_decimal_type: DecimalDType) -> VortexResult<Scalar> {
+    let mut result = DecimalValue::I256(i256::ZERO);
+
+    let null = || Scalar::null(DType::Decimal(result_decimal_type, Nullable));
 
     for chunk in chunks {
         let chunk_sum = sum(chunk)?;
 
         let chunk_decimal = DecimalScalar::try_from(&chunk_sum)?;
         let Some(chunk_value) = chunk_decimal.decimal_value() else {
-            // null op _ == null
-            continue;
+            return Ok(null());
         };
 
         // Perform checked addition with current result
-        result = result
-            .and_then(|current| current.checked_add(&chunk_value))
-            .filter(|sum_value| {
-                sum_value
-                    .fits_in_precision(result_decimal_type)
-                    .unwrap_or(false)
-            });
+        let Some(r) = result.checked_add(&chunk_value).filter(|sum_value| {
+            sum_value
+                .fits_in_precision(result_decimal_type)
+                .unwrap_or(false)
+        }) else {
+            return Ok(null());
+        };
 
-        if result.is_none() {
-            break;
-        }
+        result = r;
     }
 
-    Ok(match result {
-        Some(value) => Scalar::decimal(value, result_decimal_type, result_dtype.nullability()),
-        None => Scalar::null(result_dtype),
-    })
+    Ok(Scalar::decimal(result, result_decimal_type, Nullable))
 }
 
 #[cfg(test)]
