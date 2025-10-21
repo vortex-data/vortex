@@ -300,15 +300,15 @@ mod tests {
         let list_view = create_overlapping_listview();
         let list_array = list_from_list_view(list_view.clone());
 
-        // The data should still be correct even though it required a rebuild.
-        assert_arrays_eq!(list_view, list_array.clone());
-
         // The resulting ListArray should have monotonic offsets.
         for i in 0..list_array.len() {
             let start = list_array.offset_at(i);
             let end = list_array.offset_at(i + 1);
             assert!(end >= start, "Offsets should be monotonic after conversion");
         }
+
+        // The data should still be correct even though it required a rebuild.
+        assert_arrays_eq!(list_view, list_array);
     }
 
     #[test]
@@ -395,7 +395,7 @@ mod tests {
         assert_arrays_eq!(expected_sizes, list_view.sizes().clone());
 
         // Round-trip.
-        let converted_back = list_from_list_view(list_view.clone());
+        let converted_back = list_from_list_view(list_view);
         assert_arrays_eq!(single_elem_list, converted_back);
     }
 
@@ -415,7 +415,7 @@ mod tests {
         assert_arrays_eq!(expected_sizes, list_view.sizes().clone());
 
         // Round-trip.
-        let converted_back = list_from_list_view(list_view.clone());
+        let converted_back = list_from_list_view(list_view);
         assert_arrays_eq!(mixed_list, converted_back);
     }
 

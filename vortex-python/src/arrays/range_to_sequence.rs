@@ -90,19 +90,19 @@ mod test {
     #[test]
     fn test_sequence_array_from_len() {
         let dtype = DType::Primitive(PType::U16, Nullability::NonNullable);
-        let arr = sequence_array_from_range::<u16>(0, 10, 1, dtype.clone()).unwrap();
+        let arr = sequence_array_from_range::<u16>(0, 10, 1, dtype).unwrap();
         assert_arrays_eq!(arr, buffer![0u16, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array());
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let arr = sequence_array_from_range::<i32>(0, 10, 5, dtype.clone()).unwrap();
+        let arr = sequence_array_from_range::<i32>(0, 10, 5, dtype).unwrap();
         assert_arrays_eq!(arr, buffer![0i32, 5].into_array());
 
         let dtype = DType::Primitive(PType::I8, Nullability::NonNullable);
-        let arr = sequence_array_from_range::<i8>(-5, 5, 3, dtype.clone()).unwrap();
+        let arr = sequence_array_from_range::<i8>(-5, 5, 3, dtype).unwrap();
         assert_arrays_eq!(arr, buffer![-5i8, -2, 1, 4].into_array());
 
         let dtype = DType::Primitive(PType::I8, Nullability::NonNullable);
-        let arr = sequence_array_from_range::<i8>(3, -3, -1, dtype.clone()).unwrap();
+        let arr = sequence_array_from_range::<i8>(3, -3, -1, dtype).unwrap();
         assert_arrays_eq!(arr, buffer![3i8, 2, 1, 0, -1, -2].into_array());
 
         let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
@@ -112,7 +112,7 @@ mod test {
         );
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let arr = sequence_array_from_range::<i32>(1_000_000, 10, -500_000, dtype.clone()).unwrap();
+        let arr = sequence_array_from_range::<i32>(1_000_000, 10, -500_000, dtype).unwrap();
         assert_arrays_eq!(arr, buffer![1_000_000i32, 500_000].into_array());
     }
 }
