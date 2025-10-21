@@ -22,7 +22,7 @@ mod scan_builder;
 pub use scan_builder::ScanBuilder;
 
 #[cfg(feature = "gpu")]
-mod gpu;
+pub mod gpu;
 mod repeated_scan;
 
 pub use repeated_scan::RepeatedScan;

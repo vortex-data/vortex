@@ -13,12 +13,12 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{ExprRef, root};
 use vortex_io::runtime::{BlockingRuntime, Handle};
+use vortex_layout::gpu::GpuLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
 
+use crate::SplitBy;
 use crate::gpu::GpuScan;
 use crate::scan_builder::filter_and_projection_masks;
-use crate::splits::Splits;
-use crate::{RepeatedScan, SplitBy};
 
 pub struct GpuScanBuilder<A> {
     handle: Option<Handle>,
@@ -29,7 +29,7 @@ pub struct GpuScanBuilder<A> {
 }
 
 impl GpuScanBuilder<ArrayRef> {
-    pub fn new(layout_reader: Arc<dyn LayoutReader>) -> Self {
+    pub fn new(layout_reader: Arc<dyn GpuLayoutReader>) -> Self {
         Self {
             handle: Handle::find(),
             layout_reader,

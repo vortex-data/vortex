@@ -52,8 +52,6 @@ impl GpuScan<ArrayRef> {
 }
 
 impl<A: 'static + Send> GpuScan<A> {
-    /// Constructor just to allow `scan_builder` to create a `RepeatedScan`.
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         handle: Handle,
         layout_reader: LayoutReaderRef,

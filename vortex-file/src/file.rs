@@ -97,7 +97,7 @@ impl VortexFile {
             .footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_gpu_reader("".into(), segment_source);
+            .new_gpu_reader("".into(), segment_source)?;
 
         Ok(vortex_scan::gpu::GpuScanBuilder::new(gpu_reader))
     }
