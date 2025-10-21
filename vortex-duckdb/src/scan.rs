@@ -40,6 +40,7 @@ pub struct VortexBindData {
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
     runtime: CurrentThreadRuntime,
+    max_threads: u64,
 }
 
 impl Clone for VortexBindData {
@@ -53,6 +54,7 @@ impl Clone for VortexBindData {
             column_names: self.column_names.clone(),
             column_types: self.column_types.clone(),
             runtime: self.runtime.clone(),
+            max_threads: self.max_threads,
         }
     }
 }
@@ -258,6 +260,7 @@ impl TableFunction for VortexTableFunction {
             column_names,
             column_types,
             runtime,
+            max_threads: u64::MAX,
         })
     }
 
