@@ -65,10 +65,6 @@ impl PrimitiveVectorMut {
 impl VectorMutOps for PrimitiveVectorMut {
     type Immutable = PrimitiveVector;
 
-    fn nullability(&self) -> Nullability {
-        match_each_pvector_mut!(self, |v| { v.nullability() })
-    }
-
     fn len(&self) -> usize {
         match_each_pvector_mut!(self, |v| { v.len() })
     }

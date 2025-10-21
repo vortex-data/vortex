@@ -4,8 +4,6 @@
 //! Definition of the [`Vector`] type, which represent immutable and fully decompressed (canonical)
 //! array data.
 
-use vortex_dtype::Nullability;
-
 use crate::{BoolVector, NullVector, PrimitiveVector, VectorMut, VectorOps, match_each_vector};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
@@ -42,10 +40,6 @@ pub enum Vector {
 
 impl VectorOps for Vector {
     type Mutable = VectorMut;
-
-    fn nullability(&self) -> Nullability {
-        match_each_vector!(self, |v| { v.nullability() })
-    }
 
     fn len(&self) -> usize {
         match_each_vector!(self, |v| { v.len() })

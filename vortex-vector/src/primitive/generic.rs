@@ -4,7 +4,7 @@
 //! Definition and implementation of [`PVector<T>`].
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{NativePType, Nullability};
+use vortex_dtype::NativePType;
 use vortex_mask::Mask;
 
 use crate::{PVectorMut, VectorOps};
@@ -25,10 +25,6 @@ pub struct PVector<T> {
 
 impl<T: NativePType> VectorOps for PVector<T> {
     type Mutable = PVectorMut<T>;
-
-    fn nullability(&self) -> Nullability {
-        Nullability::from(self.validity.is_some())
-    }
 
     fn len(&self) -> usize {
         self.elements.len()

@@ -9,7 +9,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
 use super::BoolVector;
-use crate::{VectorMutOps, VectorOps};
+use crate::VectorMutOps;
 
 /// A mutable vector of boolean values.
 ///
@@ -41,10 +41,6 @@ impl BoolVectorMut {
 impl VectorMutOps for BoolVectorMut {
     type Immutable = BoolVector;
 
-    fn nullability(&self) -> Nullability {
-        Nullability::from(self.validity.is_some())
-    }
-
     fn len(&self) -> usize {
         debug_assert!(
             self.validity
@@ -68,14 +64,6 @@ impl VectorMutOps for BoolVectorMut {
     }
 
     fn extend_from_vector(&mut self, other: &BoolVector) {
-        assert_eq!(
-            self.nullability(),
-            other.nullability(),
-            "tried to extend a vector with nullability {} with another vector with nullability {}",
-            self.nullability(),
-            other.nullability(),
-        );
-
         self.bits.append_buffer(&other.bits);
 
         match (&mut self.validity, &other.validity) {

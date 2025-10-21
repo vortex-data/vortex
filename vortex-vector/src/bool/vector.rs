@@ -4,7 +4,6 @@
 //! Definition and implementation of [`BoolVector`].
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
 use super::BoolVectorMut;
@@ -25,10 +24,6 @@ pub struct BoolVector {
 
 impl VectorOps for BoolVector {
     type Mutable = BoolVectorMut;
-
-    fn nullability(&self) -> Nullability {
-        Nullability::from(self.validity.is_some())
-    }
 
     fn len(&self) -> usize {
         debug_assert!(

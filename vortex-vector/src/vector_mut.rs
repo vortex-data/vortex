@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 
 use crate::{
@@ -43,10 +43,6 @@ impl VectorMut {
 
 impl VectorMutOps for VectorMut {
     type Immutable = Vector;
-
-    fn nullability(&self) -> Nullability {
-        match_each_vector_mut!(self, |v| { v.nullability() })
-    }
 
     fn len(&self) -> usize {
         match_each_vector_mut!(self, |v| { v.len() })

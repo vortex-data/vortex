@@ -4,24 +4,12 @@
 //! Definition and implementation of [`VectorOps`] and [`VectorMutOps`] for [`Vector`] and
 //! [`VectorMut`], respectively.
 
-use vortex_dtype::Nullability;
-
 use crate::{Vector, VectorMut, private};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
 pub trait VectorOps: private::Sealed + Into<Vector> {
     /// The mutable equivalent of this immutable vector.
     type Mutable: VectorMutOps<Immutable = Self>;
-
-    /// Returns the [`Nullability`] of the vector.
-    fn nullability(&self) -> Nullability;
-
-    /// Returns `true` if the nullability of this vector is [`Nullable`].
-    ///
-    /// [`Nullable`]: Nullability::Nullable
-    fn is_nullable(&self) -> bool {
-        self.nullability().is_nullable()
-    }
 
     /// Returns the number of elements in the vector, also referred to as its "length".
     fn len(&self) -> usize;
@@ -49,16 +37,6 @@ pub trait VectorOps: private::Sealed + Into<Vector> {
 pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     /// The immutable equivalent of this mutable vector.
     type Immutable: VectorOps<Mutable = Self>;
-
-    /// Returns the [`Nullability`] of the vector.
-    fn nullability(&self) -> Nullability;
-
-    /// Returns `true` if the nullability of this vector is [`Nullable`].
-    ///
-    /// [`Nullable`]: Nullability::Nullable
-    fn is_nullable(&self) -> bool {
-        self.nullability().is_nullable()
-    }
 
     /// Returns the number of elements in the vector, also referred to as its "length".
     fn len(&self) -> usize;
@@ -115,7 +93,6 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     /// `at > capacity`).
     fn split_off(&mut self, at: usize) -> Self;
 
-    // TODO(connor): Should this panic if other has a different nullability?
     /// Absorbs a mutable vector that was previously split off.
     ///
     /// If the two vectors were previously contiguous and not mutated in a way that causes

@@ -3,8 +3,6 @@
 
 //! Definition and implementation of [`NullVectorMut`].
 
-use vortex_dtype::Nullability;
-
 use super::NullVector;
 use crate::VectorMutOps;
 
@@ -28,10 +26,6 @@ impl NullVectorMut {
 
 impl VectorMutOps for NullVectorMut {
     type Immutable = NullVector;
-
-    fn nullability(&self) -> Nullability {
-        Nullability::Nullable
-    }
 
     fn len(&self) -> usize {
         self.len

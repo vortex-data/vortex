@@ -3,8 +3,6 @@
 
 //! Definition and implementation of [`NullVector`].
 
-use vortex_dtype::Nullability;
-
 use crate::{NullVectorMut, VectorOps};
 
 /// An immutable vector of null values.
@@ -27,10 +25,6 @@ impl NullVector {
 
 impl VectorOps for NullVector {
     type Mutable = NullVectorMut;
-
-    fn nullability(&self) -> Nullability {
-        Nullability::Nullable
-    }
 
     fn len(&self) -> usize {
         self.len

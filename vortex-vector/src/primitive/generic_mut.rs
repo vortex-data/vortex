@@ -8,7 +8,7 @@ use vortex_dtype::{NativePType, Nullability};
 use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
-use crate::{PVector, VectorMutOps, VectorOps};
+use crate::{PVector, VectorMutOps};
 
 /// A mutable vector of generic primitive values.
 ///
@@ -41,10 +41,6 @@ impl<T: NativePType> PVectorMut<T> {
 impl<T: NativePType> VectorMutOps for PVectorMut<T> {
     type Immutable = PVector<T>;
 
-    fn nullability(&self) -> Nullability {
-        Nullability::from(self.validity.is_some())
-    }
-
     fn len(&self) -> usize {
         self.elements.len()
     }
@@ -62,14 +58,6 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
 
     /// Extends the vector by appending elements from another vector.
     fn extend_from_vector(&mut self, other: &PVector<T>) {
-        assert_eq!(
-            self.nullability(),
-            other.nullability(),
-            "tried to extend a vector with nullability {} with another vector with nullability {}",
-            self.nullability(),
-            other.nullability(),
-        );
-
         self.elements.extend_from_slice(other.elements.as_slice());
 
         match (&mut self.validity, &other.validity) {
