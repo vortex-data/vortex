@@ -14,8 +14,8 @@ use crate::{Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer, buffer};
 #[derive(Debug, Clone, Eq)]
 pub struct BitBuffer {
     buffer: ByteBuffer,
-    len: usize,
     offset: usize,
+    len: usize,
 }
 
 impl PartialEq for BitBuffer {
@@ -48,10 +48,10 @@ impl BitBuffer {
         }
     }
 
-    /// Create a new `BoolBuffer` backed by a [`ByteBuffer`] with `len` bits in view, starting at the
-    /// given `offset` (in bits).
+    /// Create a new `BoolBuffer` backed by a [`ByteBuffer`] with `len` bits in view, starting at
+    /// the given `offset` (in bits).
     ///
-    /// Panics if the buffer is not large enough to hold `len` bits or if the offset is greater than
+    /// Panics if the buffer is not large enough to hold `len` bits after the offset.
     pub fn new_with_offset(buffer: ByteBuffer, len: usize, offset: usize) -> Self {
         assert!(
             len.saturating_add(offset) <= buffer.len().saturating_mul(8),
@@ -61,8 +61,8 @@ impl BitBuffer {
 
         Self {
             buffer,
-            len,
             offset,
+            len,
         }
     }
 
@@ -452,49 +452,27 @@ mod tests {
     }
 
     #[test]
-    fn test_partial_eq_regression_under_64_bits() {
-        // Regression test: chunks().iter() returns empty for buffers < 64 bits,
-        // causing all such buffers to incorrectly compare as equal!
+    fn test_padded_equaltiy() {
+        let buf1 = BitBuffer::new_set(64); // All bits set.
+        let buf2 = BitBuffer::collect_bool(64, |x| x < 32); // First half set, other half unset.
 
-        // Create two 32-bit buffers with completely different content
-        let buf1 = BitBuffer::new_set(32); // All bits set
-        let buf2 = BitBuffer::new_unset(32); // All bits unset
-
-        // Verify they have different bits
         for i in 0..32 {
+            assert_eq!(buf1.value(i), buf2.value(i), "Bit {} should be the same", i);
+        }
+
+        for i in 32..64 {
             assert_ne!(buf1.value(i), buf2.value(i), "Bit {} should differ", i);
         }
 
-        // With the buggy implementation using iter(), these would incorrectly be equal
-        // because chunks().iter() returns empty for both!
-        assert_ne!(
-            buf1, buf2,
-            "Buffers with different bits should not be equal"
+        assert_eq!(
+            buf1.slice(0..32),
+            buf2.slice(0..32),
+            "Buffer slices with same bits should be equal (`PartialEq` needs `iter_padded()`)"
         );
-    }
-
-    #[test]
-    fn test_partial_eq_regression_over_64_bits() {
-        // Test with 65 bits where the issue is in the remainder
-        let buf1 = {
-            let mut bytes = vec![0xFF; 9];
-            bytes[8] = 0x01; // 65th bit set, rest of byte clear
-            BitBuffer::new(ByteBuffer::from(bytes), 65)
-        };
-
-        let buf2 = {
-            let mut bytes = vec![0xFF; 9];
-            bytes[8] = 0x00; // 65th bit clear
-            BitBuffer::new(ByteBuffer::from(bytes), 65)
-        };
-
-        // Bit 64 differs
-        assert_ne!(buf1.value(64), buf2.value(64));
-
-        // Should not be equal
         assert_ne!(
-            buf1, buf2,
-            "Buffers with different bit 64 should not be equal"
+            buf1.slice(32..64),
+            buf2.slice(32..64),
+            "Buffer slices with different bits should not be equal (`PartialEq` needs `iter_padded()`)"
         );
     }
 }

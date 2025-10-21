@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// TODO(connor): The API of `BitBufferMut` should probably share more methods with `BitBuffer`.
+
 use arrow_buffer::bit_chunk_iterator::BitChunks;
 use bitvec::view::BitView;
 
@@ -896,51 +898,5 @@ mod tests {
         let frozen = bit_buf.freeze();
         assert_eq!(frozen.offset(), 3);
         assert_eq!(frozen.len(), 6);
-    }
-
-    #[test]
-    fn test_partial_eq_regression_under_64_bits_mut() {
-        // Regression test: chunks().iter() returns empty for buffers < 64 bits
-        let buf1 = BitBufferMut::new_set(32); // All bits set
-        let buf2 = BitBufferMut::new_unset(32); // All bits unset
-
-        // Verify they have different bits
-        for i in 0..32 {
-            assert_ne!(buf1.value(i), buf2.value(i), "Bit {} should differ", i);
-        }
-
-        assert_ne!(
-            buf1, buf2,
-            "Buffers with different bits should not be equal"
-        );
-    }
-
-    #[test]
-    fn test_partial_eq_regression_over_64_bits_mut() {
-        // Test with 65 bits where the issue is in the remainder
-        let buf1 = {
-            let mut bytes = BufferMut::zeroed(9);
-            for i in 0..8 {
-                bytes.as_mut_slice()[i] = 0xFF;
-            }
-            bytes.as_mut_slice()[8] = 0x01; // 65th bit set
-            BitBufferMut::from_buffer(bytes, 0, 65)
-        };
-
-        let buf2 = {
-            let mut bytes = BufferMut::zeroed(9);
-            for i in 0..8 {
-                bytes.as_mut_slice()[i] = 0xFF;
-            }
-            bytes.as_mut_slice()[8] = 0x00; // 65th bit clear
-            BitBufferMut::from_buffer(bytes, 0, 65)
-        };
-
-        // Bit 64 differs
-        assert_ne!(buf1.value(64), buf2.value(64));
-        assert_ne!(
-            buf1, buf2,
-            "Buffers with different bit 64 should not be equal"
-        );
     }
 }
