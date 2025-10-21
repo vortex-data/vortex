@@ -14,7 +14,7 @@
 /// # Examples
 ///
 /// ```
-/// use vortex_vector::{Vector, BoolVector, NullVector, VectorOps, match_each_vector};
+/// use vortex_vector::{Vector, BoolVectorMut, NullVector, VectorOps, VectorMutOps, match_each_vector};
 ///
 /// fn get_vector_length(vector: &Vector) -> usize {
 ///     match_each_vector!(vector, |v| { v.len() })
@@ -25,7 +25,9 @@
 /// assert_eq!(get_vector_length(&null_vec), 5);
 ///
 /// // Works with `Bool` vectors.
-/// let bool_vec: Vector = BoolVector::from_option_iter([true, false, true].map(Some)).into();
+/// let bool_vec: Vector = BoolVectorMut::from_option_iter([true, false, true].map(Some))
+///     .freeze()
+///     .into();
 /// assert_eq!(get_vector_length(&bool_vec), 3);
 /// ```
 ///

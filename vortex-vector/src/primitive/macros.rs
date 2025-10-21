@@ -19,18 +19,22 @@
 /// # Examples
 ///
 /// ```
-/// use vortex_vector::{PrimitiveVector, PVector, VectorOps, match_each_pvector};
+/// use vortex_vector::{PrimitiveVector, PVectorMut, VectorOps, VectorMutOps, match_each_pvector};
 ///
 /// fn get_primitive_len(vector: &PrimitiveVector) -> usize {
 ///     match_each_pvector!(vector, |v| { v.len() })
 /// }
 ///
 /// // Works with `I32` primitive vectors.
-/// let i32_vec: PrimitiveVector = PVector::<i32>::from_option_iter([1, 2, 3].map(Some)).into();
+/// let i32_vec: PrimitiveVector = PVectorMut::<i32>::from_option_iter([1, 2, 3].map(Some))
+///     .freeze()
+///     .into();
 /// assert_eq!(get_primitive_len(&i32_vec), 3);
 ///
 /// // Works with `F64` primitive vectors.
-/// let f64_vec: PrimitiveVector = PVector::<f64>::from_option_iter([1.0, 2.5].map(Some)).into();
+/// let f64_vec: PrimitiveVector = PVectorMut::<f64>::from_option_iter([1.0, 2.5].map(Some))
+///     .freeze()
+///     .into();
 /// assert_eq!(get_primitive_len(&f64_vec), 2);
 /// ```
 ///
@@ -101,7 +105,7 @@ macro_rules! match_each_pvector {
 ///
 /// # Examples
 ///
-/// ```text
+/// ```
 /// use vortex_vector::{PrimitiveVectorMut, PVectorMut, VectorMutOps, match_each_pvector_mut};
 ///
 /// fn reserve_primitive_space(vector: &mut PrimitiveVectorMut, additional: usize) {

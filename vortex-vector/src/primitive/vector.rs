@@ -11,10 +11,12 @@ use crate::{VectorOps, match_each_pvector};
 
 /// An immutable vector of primitive values.
 ///
+/// The mutable equivalent of this type is [`PrimitiveVectorMut`].
+///
 /// `PrimitiveVector` is represented by an enum over all possible [`PVector`] types (which are
 /// templated by the types that implement [`NativePType`]).
 ///
-/// The mutable equivalent of this type is [`PrimitiveVectorMut`].
+/// See the documentation for [`PVector`] for more information.
 #[derive(Debug, Clone)]
 pub enum PrimitiveVector {
     /// U8

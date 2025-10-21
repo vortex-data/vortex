@@ -11,7 +11,57 @@ use crate::{VectorMutOps, VectorOps};
 
 /// A mutable vector of boolean values.
 ///
-/// The immutable equivalent of this type is [`BoolVector`].
+/// `BoolVectorMut` is the primary way to construct boolean vectors. It provides efficient methods
+/// for building vectors incrementally before converting them to an immutable [`BoolVector`] using
+/// the [`freeze`](crate::VectorMutOps::freeze) method.
+///
+/// # Examples
+///
+/// ## Extending and appending
+///
+/// ```
+/// use vortex_vector::{BoolVectorMut, VectorMutOps};
+///
+/// let mut vec1 = BoolVectorMut::from_option_iter([true, false].map(Some));
+/// let vec2 = BoolVectorMut::from_option_iter([true, true].map(Some)).freeze();
+///
+/// // Extend from another vector.
+/// vec1.extend_from_vector(&vec2);
+/// assert_eq!(vec1.len(), 4);
+///
+/// // Append null values.
+/// vec1.append_nulls(2);
+/// assert_eq!(vec1.len(), 6);
+/// ```
+///
+/// ## Splitting and unsplitting
+///
+/// ```
+/// use vortex_vector::{BoolVectorMut, VectorMutOps};
+///
+/// let mut vec = BoolVectorMut::from_option_iter([true, false, true, false, true].map(Some));
+///
+/// // Split the vector at index 3.
+/// let mut second_half = vec.split_off(3);
+/// assert_eq!(vec.len(), 3);
+/// assert_eq!(second_half.len(), 2);
+///
+/// // Rejoin the vectors.
+/// vec.unsplit(second_half);
+/// assert_eq!(vec.len(), 5);
+/// ```
+///
+/// ## Converting to immutable
+///
+/// ```
+/// use vortex_vector::{BoolVectorMut, VectorMutOps, VectorOps};
+///
+/// let mut vec = BoolVectorMut::from_option_iter([true, false, true].map(Some));
+///
+/// // Freeze into an immutable vector.
+/// let immutable = vec.freeze();
+/// assert_eq!(immutable.len(), 3);
+/// ```
 #[derive(Debug, Clone)]
 pub struct BoolVectorMut {
     pub(super) bits: BitBufferMut,
@@ -27,15 +77,13 @@ impl BoolVectorMut {
         }
     }
 
-    // TODO(connor): Make this a proper Rust test after we replace `BooleanBuffer` with `BitBuffer`
-    // in `MaskValues`.
     /// Creates a new [`BoolVectorMut`] from an iterator of `Option<bool>` values.
     ///
     /// `None` values will be marked as invalid in the validity mask.
     ///
     /// # Examples
     ///
-    /// ```text
+    /// ```
     /// use vortex_vector::{BoolVectorMut, VectorMutOps};
     ///
     /// let mut vec = BoolVectorMut::from_option_iter([Some(true), None, Some(false)]);
@@ -45,9 +93,28 @@ impl BoolVectorMut {
     where
         I: IntoIterator<Item = Option<bool>>,
     {
-        match BoolVector::from_option_iter(iter).try_into_mut() {
-            Ok(res) => res,
-            Err(_) => unreachable!("We just created the `BoolVector`, so we must own it"),
+        let iter = iter.into_iter();
+        let (lower_bound, _) = iter.size_hint();
+
+        let mut bits = Vec::with_capacity(lower_bound);
+        let mut validity = MaskMut::with_capacity(lower_bound);
+
+        for opt_val in iter {
+            match opt_val {
+                Some(val) => {
+                    bits.push(val);
+                    validity.append_n(true, 1);
+                }
+                None => {
+                    bits.push(false); // Value doesn't matter for invalid entries.
+                    validity.append_n(false, 1);
+                }
+            }
+        }
+
+        BoolVectorMut {
+            bits: BitBufferMut::from_iter(bits),
+            validity,
         }
     }
 }
