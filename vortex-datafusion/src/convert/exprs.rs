@@ -244,6 +244,12 @@ fn can_binary_be_pushed_down(binary: &df_expr::BinaryExpr, schema: &Schema) -> b
 
 fn supported_data_types(dt: &DataType) -> bool {
     use DataType::*;
+
+    // For dictionary types, check if the value type is supported.
+    if let Dictionary(_, value_type) = dt {
+        return supported_data_types(value_type.as_ref());
+    }
+
     let is_supported = dt.is_null()
         || dt.is_numeric()
         || matches!(
@@ -458,6 +464,22 @@ mod tests {
         false
     )]
     #[case::struct_type(DataType::Struct(vec![Field::new("field", DataType::Int32, true)].into()), false)]
+    // Dictionary types - should be supported if value type is supported
+    #[case::dict_utf8(
+        DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
+        true
+    )]
+    #[case::dict_int32(
+        DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Int32)),
+        true
+    )]
+    #[case::dict_unsupported(
+        DataType::Dictionary(
+            Box::new(DataType::UInt32),
+            Box::new(DataType::List(Arc::new(Field::new("item", DataType::Int32, true))))
+        ),
+        false
+    )]
     fn test_supported_data_types(#[case] data_type: DataType, #[case] expected: bool) {
         assert_eq!(supported_data_types(&data_type), expected);
     }
