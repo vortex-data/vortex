@@ -4,7 +4,7 @@
 mod bigcast;
 
 use std::fmt::Display;
-use std::ops::{Add, AddAssign, BitOr, Div, Mul, Rem, Shl, Shr, Sub};
+use std::ops::{Add, AddAssign, BitOr, Div, Mul, Neg, Rem, Shl, Shr, Sub};
 
 pub use bigcast::*;
 use num_traits::{
@@ -125,6 +125,14 @@ impl Sub for i256 {
 
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0.sub(rhs.0))
+    }
+}
+
+impl Neg for i256 {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self(self.0.neg())
     }
 }
 
