@@ -13,7 +13,8 @@ use crate::{GenericPVectorMut, VectorOps};
 ///
 /// `T` is expected to be bound by [`NativePType`], which templates an internal [`Buffer<T>`] that
 /// stores the elements of the vector. Additionally, an optional [`Mask`] is stored to track null
-/// primitive elements.
+/// primitive elements (where `true` represents a _valid_ primitive and `false` represents a `null`
+/// primitive).
 ///
 /// The mutable equivalent of this type is [`GenericPVectorMut<T>`].
 #[derive(Debug, Clone)]

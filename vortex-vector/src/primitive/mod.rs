@@ -26,15 +26,7 @@ pub use vector::PrimitiveVector;
 mod vector_mut;
 pub use vector_mut::PrimitiveVectorMut;
 
-/// Helper macros for working with the different variants of [`PrimitiveVector`] and
-/// [`PrimitiveVectorMut`].
-///
-/// All macros are exported at the crate level with `#[macro_use]`.
 mod macros;
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Vector Conversions
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
 use vortex_dtype::NativePType;
 

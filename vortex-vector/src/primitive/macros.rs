@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Helper macros for working with the different variants of [`PrimitiveVector`] and
+//! [`PrimitiveVectorMut`].
+//!
+//! All macros are exported at the crate level with `#[macro_use]`.
+//!
+//! [`PrimitiveVector`]: crate::PrimitiveVector
+//! [`PrimitiveVectorMut`]: crate::PrimitiveVectorMut
+
 /// TODO(connor): Write docs.
 #[macro_export]
 macro_rules! match_each_pvector {

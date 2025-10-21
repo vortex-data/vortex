@@ -70,6 +70,10 @@ impl VectorMutOps for VectorMut {
         });
     }
 
+    fn append_nulls(&mut self, n: usize) {
+        match_each_vector_mut!(self, |v| { v.append_nulls(n) })
+    }
+
     fn freeze(self) -> Self::Immutable {
         match_each_vector_mut!(self, |v| { v.freeze().into() })
     }

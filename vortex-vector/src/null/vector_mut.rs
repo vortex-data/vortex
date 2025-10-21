@@ -53,6 +53,10 @@ impl VectorMutOps for NullVectorMut {
         self.len += other.len;
     }
 
+    fn append_nulls(&mut self, n: usize) {
+        self.len += n;
+    }
+
     fn freeze(self) -> Self::Immutable {
         NullVector::new(self.len)
     }

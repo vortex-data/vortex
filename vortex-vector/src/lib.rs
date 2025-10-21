@@ -23,11 +23,6 @@ pub use vector::Vector;
 mod vector_mut;
 pub use vector_mut::VectorMut;
 
-/// Definition and implementation of [`VectorOps`] and [`VectorMutOps`] for [`Vector`] and
-/// [`VectorMut`], respectively.
-///
-/// [`VectorOps`]: ops::VectorOps
-/// [`VectorMutOps`]: ops::VectorMutOps
 mod ops;
 pub use ops::{VectorMutOps, VectorOps};
 
@@ -39,9 +34,6 @@ pub use bool::{BoolVector, BoolVectorMut};
 pub use null::{NullVector, NullVectorMut};
 pub use primitive::{GenericPVector, GenericPVectorMut, PrimitiveVector, PrimitiveVectorMut};
 
-/// Helper macros for working with the different variants of [`Vector`] and [`VectorMut`].
-///
-/// All macros are exported at the crate level with `#[macro_use]`.
 mod macros;
 
 mod private;

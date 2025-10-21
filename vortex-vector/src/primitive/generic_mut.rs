@@ -5,6 +5,7 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
 use crate::{GenericPVector, VectorMutOps, VectorOps};
@@ -13,7 +14,8 @@ use crate::{GenericPVector, VectorMutOps, VectorOps};
 ///
 /// `T` is expected to be bound by [`NativePType`], which templates an internal [`BufferMut<T>`]
 /// that stores the elements of the vector. Additionally, an optional [`MaskMut`] is stored to track
-/// null primitive elements.
+/// null primitive elements (where `true` represents a _valid_ element and `false` represents a
+/// `null` element).
 ///
 /// The immutable equivalent of this type is [`GenericPVector<T>`].
 #[derive(Debug, Clone)]
@@ -82,6 +84,16 @@ impl<T: NativePType> VectorMutOps for GenericPVectorMut<T> {
             }
             (None, None) => {}
         }
+    }
+
+    fn append_nulls(&mut self, n: usize) {
+        let Some(mask) = &mut self.validity else {
+            vortex_panic!("tried to append nulls to a non-nullable vector")
+        };
+
+        mask.append_n(false, n);
+
+        self.elements.push_n(T::zero(), n)
     }
 
     /// Freeze the vector into an immutable one.

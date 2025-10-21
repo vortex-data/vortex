@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of [`VectorOps`] and [`VectorMutOps`] for [`Vector`] and
+//! [`VectorMut`], respectively.
+
 use vortex_dtype::{DType, Nullability};
 
 use crate::{Vector, VectorMut, private};
@@ -91,6 +94,16 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     /// If `self` is a non-nullable vector, and `other` is a nullable vector, implementors should
     /// ensure that this function panics.
     fn extend_from_vector(&mut self, other: &Self::Immutable);
+
+    /// Appends `n` null elements to the vector (if it is nullable).
+    ///
+    /// Implementors should ensure that they correctly append "null" or garbage values to their
+    /// elements in addition to adding nulls to their validity mask.
+    ///
+    /// # Panics
+    ///
+    /// If `self` is a non-nullable vector, implementors should ensure that this function panics.
+    fn append_nulls(&mut self, n: usize);
 
     /// Converts `self` into an immutable vector.
     fn freeze(self) -> Self::Immutable;

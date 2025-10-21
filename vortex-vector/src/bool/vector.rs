@@ -13,7 +13,8 @@ use crate::VectorOps;
 /// An immutable vector of boolean values.
 ///
 /// Internally, the boolean values are stored as the bits of a [`BitBuffer`] plus an optional
-/// [`Mask`] for null booleans.
+/// [`Mask`] for null booleans (where `true` represents a _valid_ boolean and `false` represents a
+/// `null` boolean).
 ///
 /// The mutable equivalent of this type is [`BoolVectorMut`].
 #[derive(Debug, Clone)]

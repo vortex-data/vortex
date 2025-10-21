@@ -5,6 +5,7 @@
 
 use vortex_buffer::BitBufferMut;
 use vortex_dtype::{DType, Nullability};
+use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
 use super::BoolVector;
@@ -13,7 +14,8 @@ use crate::{VectorMutOps, VectorOps};
 /// A mutable vector of boolean values.
 ///
 /// Internally, the boolean values are stored as the bits of a [`BitBufferMut`] plus an optional
-/// [`MaskMut`] for null booleans.
+/// [`MaskMut`] for null booleans (where `true` represents a _valid_ boolean and `false` represents
+/// a `null` boolean).
 ///
 /// The immutable equivalent of this type is [`BoolVector`].
 #[derive(Debug, Clone)]
@@ -87,6 +89,16 @@ impl VectorMutOps for BoolVectorMut {
             }
             (None, None) => {}
         }
+    }
+
+    fn append_nulls(&mut self, n: usize) {
+        let Some(mask) = &mut self.validity else {
+            vortex_panic!("tried to append nulls to a non-nullable vector")
+        };
+
+        mask.append_n(false, n);
+
+        self.bits.append_n(false, n);
     }
 
     fn freeze(self) -> Self::Immutable {

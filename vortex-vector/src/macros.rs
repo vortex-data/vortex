@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Helper macros for working with the different variants of [`Vector`] and [`VectorMut`].
+//!
+//! All macros are exported at the crate level with `#[macro_use]`.
+
 // TODO(connor): Finish implementing the rest of the macros.
 
 /// TODO(connor): Write docs.

@@ -91,6 +91,10 @@ impl VectorMutOps for PrimitiveVectorMut {
         });
     }
 
+    fn append_nulls(&mut self, n: usize) {
+        match_each_pvector_mut!(self, |v| { v.append_nulls(n) })
+    }
+
     fn freeze(self) -> Self::Immutable {
         match_each_pvector_mut!(self, |v| { v.freeze().into() })
     }
@@ -105,10 +109,6 @@ impl VectorMutOps for PrimitiveVectorMut {
         });
     }
 }
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Upcast Conversion
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
 impl<T: NativePType> From<GenericPVectorMut<T>> for PrimitiveVectorMut {
     fn from(v: GenericPVectorMut<T>) -> Self {
