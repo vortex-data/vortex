@@ -12,11 +12,12 @@ use crate::{
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
 /// data.
 ///
-/// Most of the behavior of `VectorMut` is described by the [`VectorMutOps`] trait.
+/// Most of the behavior of `VectorMut` is described by the [`VectorMutOps`] trait. Note that
+/// vectors are **always** considered as nullable, and it is the responsibility of the user to not
+/// add any nullable data to a vector they want to keep as non-nullable.
 ///
-/// The immutable equivalent of this type is [`Vector`].
-///
-/// [`VectorMutOps`]: crate::VectorMutOps
+/// The immutable equivalent of this type is [`Vector`], which implements the
+/// [`VectorOps`](crate::VectorOps) trait.
 #[derive(Debug, Clone)]
 pub enum VectorMut {
     /// Null
@@ -32,9 +33,9 @@ impl VectorMut {
     pub fn with_capacity(capacity: usize, dtype: &DType) -> Self {
         match dtype {
             DType::Null => NullVectorMut::new(0).into(), // `NullVector` has `usize::MAX` capacity.
-            DType::Bool(n) => BoolVectorMut::with_capacity(capacity, *n).into(),
-            DType::Primitive(ptype, nullability) => {
-                PrimitiveVectorMut::with_capacity(capacity, *ptype, *nullability).into()
+            DType::Bool(_) => BoolVectorMut::with_capacity(capacity).into(),
+            DType::Primitive(ptype, _) => {
+                PrimitiveVectorMut::with_capacity(*ptype, capacity).into()
             }
             _ => vortex_panic!("Unsupported dtype for VectorMut"),
         }

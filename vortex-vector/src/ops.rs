@@ -4,6 +4,8 @@
 //! Definition and implementation of [`VectorOps`] and [`VectorMutOps`] for [`Vector`] and
 //! [`VectorMut`], respectively.
 
+use vortex_mask::Mask;
+
 use crate::{Vector, VectorMut, private};
 
 /// Common operations for immutable vectors (all the variants of [`Vector`]).
@@ -18,6 +20,14 @@ pub trait VectorOps: private::Sealed + Into<Vector> {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns the validity mask of the vector, where `true` represents a _valid_ element and
+    /// `false` represents a `null` element.
+    ///
+    /// Note that vectors are **always** considered nullable. "Non-nullable" data will simply have a
+    /// [`Mask`] of [`AllTrue(len)`](Mask::AllTrue). It is on the caller to ensure that they do not
+    /// add nullable data to a vector they want to keep as non-nullable.
+    fn validity(&self) -> &Mask;
 
     /// Tries to convert `self` into a mutable vector (implementing [`VectorMutOps`]).
     ///
@@ -60,20 +70,12 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     fn reserve(&mut self, additional: usize);
 
     /// Extends the vector by appending elements from another vector.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `other` does not have the same nullability as `self`.
     fn extend_from_vector(&mut self, other: &Self::Immutable);
 
-    /// Appends `n` null elements to the vector (if it is nullable).
+    /// Appends `n` null elements to the vector.
     ///
     /// Implementors should ensure that they correctly append "null" or garbage values to their
-    /// elements in addition to adding nulls to their validity mask.
-    ///
-    /// # Panics
-    ///
-    /// If `self` is a non-nullable vector, implementors should ensure that this function panics.
+    /// elements in addition to adding nulls to their validity mask.s.
     fn append_nulls(&mut self, n: usize);
 
     /// Converts `self` into an immutable vector.

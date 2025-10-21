@@ -9,9 +9,12 @@ use crate::{BoolVector, NullVector, PrimitiveVector, VectorMut, VectorOps, match
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.
 ///
-/// Most of the behavior of `Vector` is described by the [`VectorOps`] trait.
+/// Most of the behavior of `Vector` is described by the [`VectorOps`] trait. Note that vectors are
+/// **always** considered as nullable, and it is the responsibility of the user to not add any
+/// nullable data to a vector they want to keep as non-nullable.
 ///
-/// The mutable equivalent of this type is [`VectorMut`], which implements.
+/// The mutable equivalent of this type is [`VectorMut`], which implements the
+/// [`VectorMutOps`](crate::VectorMutOps) trait.
 #[derive(Debug, Clone)]
 pub enum Vector {
     /// Null
@@ -43,6 +46,10 @@ impl VectorOps for Vector {
 
     fn len(&self) -> usize {
         match_each_vector!(self, |v| { v.len() })
+    }
+
+    fn validity(&self) -> &vortex_mask::Mask {
+        match_each_vector!(self, |v| { v.validity() })
     }
 
     fn try_into_mut(self) -> Result<Self::Mutable, Self>

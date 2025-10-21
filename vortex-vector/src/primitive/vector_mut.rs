@@ -4,7 +4,7 @@
 //! Definition and implementation of [`PrimitiveVectorMut`].
 
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, Nullability, PType, PTypeUpcast};
+use vortex_dtype::{NativePType, PType, PTypeUpcast};
 
 use crate::{
     PVectorMut, PrimitiveVector, VectorMutOps, match_each_pvector_mut,
@@ -44,20 +44,20 @@ pub enum PrimitiveVectorMut {
 }
 
 impl PrimitiveVectorMut {
-    /// Create a new mutable primitive vector with the given capacity, primitive type, and nullability.
-    pub fn with_capacity(capacity: usize, ptype: PType, nullability: Nullability) -> Self {
+    /// Create a new mutable primitive vector with the given primitive type and capacity.
+    pub fn with_capacity(ptype: PType, capacity: usize) -> Self {
         match ptype {
-            PType::U8 => PVectorMut::<u8>::with_capacity(capacity, nullability).into(),
-            PType::U16 => PVectorMut::<u16>::with_capacity(capacity, nullability).into(),
-            PType::U32 => PVectorMut::<u32>::with_capacity(capacity, nullability).into(),
-            PType::U64 => PVectorMut::<u64>::with_capacity(capacity, nullability).into(),
-            PType::I8 => PVectorMut::<i8>::with_capacity(capacity, nullability).into(),
-            PType::I16 => PVectorMut::<i16>::with_capacity(capacity, nullability).into(),
-            PType::I32 => PVectorMut::<i32>::with_capacity(capacity, nullability).into(),
-            PType::I64 => PVectorMut::<i64>::with_capacity(capacity, nullability).into(),
-            PType::F16 => PVectorMut::<f16>::with_capacity(capacity, nullability).into(),
-            PType::F32 => PVectorMut::<f32>::with_capacity(capacity, nullability).into(),
-            PType::F64 => PVectorMut::<f64>::with_capacity(capacity, nullability).into(),
+            PType::U8 => PVectorMut::<u8>::with_capacity(capacity).into(),
+            PType::U16 => PVectorMut::<u16>::with_capacity(capacity).into(),
+            PType::U32 => PVectorMut::<u32>::with_capacity(capacity).into(),
+            PType::U64 => PVectorMut::<u64>::with_capacity(capacity).into(),
+            PType::I8 => PVectorMut::<i8>::with_capacity(capacity).into(),
+            PType::I16 => PVectorMut::<i16>::with_capacity(capacity).into(),
+            PType::I32 => PVectorMut::<i32>::with_capacity(capacity).into(),
+            PType::I64 => PVectorMut::<i64>::with_capacity(capacity).into(),
+            PType::F16 => PVectorMut::<f16>::with_capacity(capacity).into(),
+            PType::F32 => PVectorMut::<f32>::with_capacity(capacity).into(),
+            PType::F64 => PVectorMut::<f64>::with_capacity(capacity).into(),
         }
     }
 }
