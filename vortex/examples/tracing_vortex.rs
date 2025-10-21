@@ -1,0 +1,390 @@
+//! Tracing Subscriber with Vortex Backend
+//!
+//! This example demonstrates a real-world use case: implementing a `tracing` subscriber
+//! that writes all log events and spans to Vortex files.
+//!
+//! This showcases:
+//! 1. Nested data structures (spans with fields, events with metadata)
+//! 2. Pluggability of Vortex into existing Rust ecosystems
+//! 3. Async writing and batching of events
+//! 4. Compression of high-volume structured logs
+//!
+//! Run with: cargo run --example tracing_vortex --features tokio
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use tokio::sync::mpsc;
+use tracing::{Level, debug, error, info, span, warn};
+use tracing_subscriber::Layer;
+use tracing_subscriber::layer::{Context, SubscriberExt};
+use vortex::arrays::{PrimitiveArray, StructArray, VarBinArray};
+use vortex::compressor::CompactCompressor;
+use vortex::dtype::{DType, Nullability};
+use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::validity::Validity;
+use vortex::{ArrayLen, IntoArray};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("=== Vortex Tracing Subscriber Example ===\n");
+    println!("This example demonstrates using Vortex as a backend for structured logging.\n");
+
+    // Create output directory
+    let output_dir = std::env::temp_dir().join("vortex_traces");
+    std::fs::create_dir_all(&output_dir)?;
+
+    // Create the Vortex tracing layer
+    let (vortex_layer, writer_handle) = VortexLayer::new(output_dir.clone(), 100).await;
+
+    // Set up tracing with both console output and Vortex backend
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(vortex_layer);
+
+    tracing::subscriber::set_global_default(subscriber)?;
+
+    println!("Step 1: Generating traced events...\n");
+
+    // Generate some traced activity
+    simulate_application_activity().await;
+
+    println!("\nStep 2: Flushing remaining events to disk...");
+
+    // Flush and shutdown
+    writer_handle.shutdown().await?;
+
+    println!("\nStep 3: Reading back trace data from Vortex files...");
+
+    // Read back and display the logged events
+    read_trace_files(&output_dir).await?;
+
+    // Cleanup
+    std::fs::remove_dir_all(&output_dir)?;
+
+    println!("\n=== Example completed successfully! ===");
+    Ok(())
+}
+
+/// Simulates application activity with various log levels and spans
+async fn simulate_application_activity() {
+    // Simulate HTTP request handling
+    let request_span = span!(
+        Level::INFO,
+        "http_request",
+        method = "GET",
+        path = "/api/users"
+    );
+    let _enter = request_span.enter();
+
+    info!("Handling incoming request");
+
+    // Simulate database query
+    {
+        let db_span = span!(
+            Level::DEBUG,
+            "database_query",
+            table = "users",
+            op = "SELECT"
+        );
+        let _db_enter = db_span.enter();
+
+        debug!(rows = 42, "Query executed successfully");
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    }
+
+    // Simulate some business logic
+    info!(user_id = 12345, "Processing user data");
+
+    // Simulate a warning
+    warn!(cache_hit = false, "Cache miss, fetching from database");
+
+    // Simulate another request
+    drop(_enter);
+    let request_span2 = span!(
+        Level::INFO,
+        "http_request",
+        method = "POST",
+        path = "/api/orders"
+    );
+    let _enter2 = request_span2.enter();
+
+    info!(order_id = 67890, "Creating new order");
+
+    // Simulate an error condition
+    {
+        let validation_span = span!(Level::ERROR, "validation");
+        let _val_enter = validation_span.enter();
+
+        error!(
+            field = "email",
+            reason = "invalid format",
+            "Validation failed"
+        );
+    }
+
+    // Generate more events for demonstration
+    for i in 0..20 {
+        debug!(iteration = i, "Processing batch item");
+        tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+    }
+
+    info!("Request completed successfully");
+}
+
+/// A tracing Layer that writes events to Vortex files
+struct VortexLayer {
+    sender: mpsc::UnboundedSender<TraceEvent>,
+}
+
+/// Represents a captured trace event
+#[derive(Debug, Clone)]
+struct TraceEvent {
+    timestamp: i64,
+    level: String,
+    target: String,
+    message: String,
+    span_name: Option<String>,
+    fields: Vec<(String, String)>,
+}
+
+impl VortexLayer {
+    async fn new(output_dir: std::path::PathBuf, batch_size: usize) -> (Self, WriterHandle) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let handle = WriterHandle::spawn(rx, output_dir, batch_size);
+        (Self { sender: tx }, handle)
+    }
+}
+
+impl<S> Layer<S> for VortexLayer
+where
+    S: tracing::Subscriber,
+{
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
+        let metadata = event.metadata();
+
+        // Extract fields from the event
+        let mut visitor = FieldVisitor::new();
+        event.record(&mut visitor);
+
+        let trace_event = TraceEvent {
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as i64,
+            level: metadata.level().to_string(),
+            target: metadata.target().to_string(),
+            message: visitor.message.unwrap_or_default(),
+            span_name: None, // Could extract current span info here
+            fields: visitor.fields,
+        };
+
+        // Send to async writer (non-blocking)
+        let _ = self.sender.send(trace_event);
+    }
+}
+
+/// Visitor to extract fields from tracing events
+struct FieldVisitor {
+    message: Option<String>,
+    fields: Vec<(String, String)>,
+}
+
+impl FieldVisitor {
+    fn new() -> Self {
+        Self {
+            message: None,
+            fields: Vec::new(),
+        }
+    }
+}
+
+impl tracing::field::Visit for FieldVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        let value_str = format!("{:?}", value);
+
+        if field.name() == "message" {
+            self.message = Some(value_str);
+        } else {
+            self.fields.push((field.name().to_string(), value_str));
+        }
+    }
+}
+
+/// Handle for managing the async writer task
+struct WriterHandle {
+    shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    task: tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+}
+
+impl WriterHandle {
+    fn spawn(
+        mut rx: mpsc::UnboundedReceiver<TraceEvent>,
+        output_dir: std::path::PathBuf,
+        batch_size: usize,
+    ) -> Self {
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
+
+        let task = tokio::spawn(async move {
+            let mut buffer = Vec::new();
+            let mut file_counter = 0;
+
+            loop {
+                tokio::select! {
+                    Some(event) = rx.recv() => {
+                        buffer.push(event);
+
+                        if buffer.len() >= batch_size {
+                            write_batch_to_vortex(&output_dir, &buffer, file_counter).await?;
+                            file_counter += 1;
+                            buffer.clear();
+                        }
+                    }
+                    _ = &mut shutdown_rx => {
+                        // Flush remaining events
+                        if !buffer.is_empty() {
+                            write_batch_to_vortex(&output_dir, &buffer, file_counter).await?;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            Ok(())
+        });
+
+        Self { shutdown_tx, task }
+    }
+
+    async fn shutdown(self) -> Result<(), Box<dyn std::error::Error>> {
+        let _ = self.shutdown_tx.send(());
+        self.task.await??;
+        Ok(())
+    }
+}
+
+/// Writes a batch of events to a Vortex file
+async fn write_batch_to_vortex(
+    output_dir: &std::path::Path,
+    events: &[TraceEvent],
+    file_index: usize,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if events.is_empty() {
+        return Ok(());
+    }
+
+    // Extract columns
+    let timestamps: PrimitiveArray = events.iter().map(|e| e.timestamp).collect();
+
+    let levels = VarBinArray::from_iter(
+        events.iter().map(|e| e.level.as_str()),
+        DType::Utf8(Nullability::NonNullable),
+    );
+
+    let targets = VarBinArray::from_iter(
+        events.iter().map(|e| e.target.as_str()),
+        DType::Utf8(Nullability::NonNullable),
+    );
+
+    let messages = VarBinArray::from_iter(
+        events.iter().map(|e| e.message.as_str()),
+        DType::Utf8(Nullability::NonNullable),
+    );
+
+    // Serialize fields as JSON strings (demonstrates nested data handling)
+    let fields_json: Vec<String> = events
+        .iter()
+        .map(|e| {
+            if e.fields.is_empty() {
+                "{}".to_string()
+            } else {
+                let map: HashMap<_, _> = e.fields.iter().cloned().collect();
+                serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())
+            }
+        })
+        .collect();
+
+    let fields = VarBinArray::from_iter(
+        fields_json.iter().map(|s| s.as_str()),
+        DType::Utf8(Nullability::NonNullable),
+    );
+
+    // Create struct array
+    let struct_array = StructArray::try_new(
+        ["timestamp", "level", "target", "message", "fields"].into(),
+        vec![
+            timestamps.into_array(),
+            levels.into_array(),
+            targets.into_array(),
+            messages.into_array(),
+            fields.into_array(),
+        ],
+        events.len(),
+        Validity::NonNullable,
+    )?;
+
+    // Write to file with compression
+    let file_path = output_dir.join(format!("traces_{:04}.vortex", file_index));
+    let mut file = tokio::fs::File::create(&file_path).await?;
+
+    let write_opts = VortexWriteOptions::default().with_strategy(
+        WriteStrategyBuilder::new()
+            .with_compressor(CompactCompressor::default())
+            .build(),
+    );
+
+    write_opts
+        .write(&mut file, struct_array.to_array_stream())
+        .await?;
+
+    println!(
+        "  Wrote {} events to {} ({} bytes)",
+        events.len(),
+        file_path.display(),
+        tokio::fs::metadata(&file_path).await?.len()
+    );
+
+    Ok(())
+}
+
+/// Reads and displays trace files
+async fn read_trace_files(output_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut entries = tokio::fs::read_dir(output_dir).await?;
+    let mut file_count = 0;
+    let mut total_events = 0;
+
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("vortex") {
+            file_count += 1;
+
+            // Read the file
+            let reader = vortex::file::VortexOpenOptions::new().open(&path).await?;
+            let array = reader.scan()?.into_array_stream()?.read_all().await?;
+
+            total_events += array.len();
+        }
+    }
+
+    println!("  Found {} trace file(s)", file_count);
+    println!("  Total events captured: {}", total_events);
+
+    // Demonstrate compression efficiency
+    if file_count > 0 {
+        let total_size: u64 = tokio::fs::read_dir(output_dir)
+            .await?
+            .next_entry()
+            .await?
+            .map(|e| std::fs::metadata(e.path()).ok().map(|m| m.len()))
+            .flatten()
+            .unwrap_or(0);
+
+        println!(
+            "  Approximate bytes per event: {:.1}",
+            total_size as f64 / total_events as f64
+        );
+        println!("\n  Note: Nested field data is stored in compressed columnar format");
+    }
+
+    Ok(())
+}
