@@ -58,7 +58,7 @@ mod tests {
         );
 
         xs.append_scalar(&Scalar::list(
-            xs.element_dtype().clone(),
+            xs.element_dtype().clone().into(),
             vec![1i32.into(), 2i32.into(), 3i32.into()],
             Nullability::Nullable,
         ))
