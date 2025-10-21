@@ -65,9 +65,8 @@ impl VectorMutOps for NullVectorMut {
             self.capacity(),
         );
 
-        // TODO(connor): This is wrong (https://docs.rs/bytes/latest/src/bytes/bytes_mut.rs.html#320-335)
-        let new_len = self.len - at;
-        self.len = at;
+        let new_len = self.len.saturating_sub(at);
+        self.len = std::cmp::min(self.len, at);
         NullVectorMut { len: new_len }
     }
 
