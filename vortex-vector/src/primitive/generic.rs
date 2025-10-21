@@ -4,7 +4,7 @@
 //! Definition and implementation of [`PVector<T>`].
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{NativePType, Nullability};
+use vortex_dtype::NativePType;
 use vortex_mask::Mask;
 
 use crate::{PVectorMut, VectorOps};
@@ -12,26 +12,24 @@ use crate::{PVectorMut, VectorOps};
 /// An immutable vector of generic primitive values.
 ///
 /// `T` is expected to be bound by [`NativePType`], which templates an internal [`Buffer<T>`] that
-/// stores the elements of the vector. Additionally, an optional [`Mask`] is stored to track null
-/// primitive elements (where `true` represents a _valid_ primitive and `false` represents a `null`
-/// primitive).
+/// stores the elements of the vector.
 ///
 /// The mutable equivalent of this type is [`PVectorMut<T>`].
 #[derive(Debug, Clone)]
 pub struct PVector<T> {
     pub(super) elements: Buffer<T>,
-    pub(super) validity: Option<Mask>,
+    pub(super) validity: Mask,
 }
 
 impl<T: NativePType> VectorOps for PVector<T> {
     type Mutable = PVectorMut<T>;
 
-    fn nullability(&self) -> Nullability {
-        Nullability::from(self.validity.is_some())
-    }
-
     fn len(&self) -> usize {
         self.elements.len()
+    }
+
+    fn validity(&self) -> &Mask {
+        &self.validity
     }
 
     /// Try to convert self into a mutable vector.
@@ -46,19 +44,15 @@ impl<T: NativePType> VectorOps for PVector<T> {
             }
         };
 
-        let validity = match self.validity {
-            Some(v) => match v.try_into_mut() {
-                Ok(v) => Some(v),
-                Err(v) => {
-                    return Err(PVector {
-                        elements: elements.freeze(),
-                        validity: Some(v),
-                    });
-                }
-            },
-            None => None,
-        };
-
-        Ok(PVectorMut { elements, validity })
+        match self.validity.try_into_mut() {
+            Ok(validity_mut) => Ok(PVectorMut {
+                elements,
+                validity: validity_mut,
+            }),
+            Err(validity) => Err(PVector {
+                elements: elements.freeze(),
+                validity,
+            }),
+        }
     }
 }

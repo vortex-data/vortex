@@ -4,7 +4,7 @@
 //! Definition and implementation of [`VectorOps`] and [`VectorMutOps`] for [`Vector`] and
 //! [`VectorMut`], respectively.
 
-use vortex_dtype::Nullability;
+use vortex_mask::Mask;
 
 use crate::{Vector, VectorMut, private};
 
@@ -13,16 +13,6 @@ pub trait VectorOps: private::Sealed + Into<Vector> {
     /// The mutable equivalent of this immutable vector.
     type Mutable: VectorMutOps<Immutable = Self>;
 
-    /// Returns the [`Nullability`] of the vector.
-    fn nullability(&self) -> Nullability;
-
-    /// Returns `true` if the nullability of this vector is [`Nullable`].
-    ///
-    /// [`Nullable`]: Nullability::Nullable
-    fn is_nullable(&self) -> bool {
-        self.nullability().is_nullable()
-    }
-
     /// Returns the number of elements in the vector, also referred to as its "length".
     fn len(&self) -> usize;
 
@@ -30,6 +20,14 @@ pub trait VectorOps: private::Sealed + Into<Vector> {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns the validity mask of the vector, where `true` represents a _valid_ element and
+    /// `false` represents a `null` element.
+    ///
+    /// Note that vectors are **always** considered nullable. "Non-nullable" data will simply have a
+    /// [`Mask`] of [`AllTrue(len)`](Mask::AllTrue). It is on the caller to ensure that they do not
+    /// add nullable data to a vector they want to keep as non-nullable.
+    fn validity(&self) -> &Mask;
 
     /// Tries to convert `self` into a mutable vector (implementing [`VectorMutOps`]).
     ///
@@ -49,16 +47,6 @@ pub trait VectorOps: private::Sealed + Into<Vector> {
 pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     /// The immutable equivalent of this mutable vector.
     type Immutable: VectorOps<Mutable = Self>;
-
-    /// Returns the [`Nullability`] of the vector.
-    fn nullability(&self) -> Nullability;
-
-    /// Returns `true` if the nullability of this vector is [`Nullable`].
-    ///
-    /// [`Nullable`]: Nullability::Nullable
-    fn is_nullable(&self) -> bool {
-        self.nullability().is_nullable()
-    }
 
     /// Returns the number of elements in the vector, also referred to as its "length".
     fn len(&self) -> usize;
@@ -82,20 +70,12 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     fn reserve(&mut self, additional: usize);
 
     /// Extends the vector by appending elements from another vector.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `other` does not have the same nullability as `self`.
     fn extend_from_vector(&mut self, other: &Self::Immutable);
 
-    /// Appends `n` null elements to the vector (if it is nullable).
+    /// Appends `n` null elements to the vector.
     ///
     /// Implementors should ensure that they correctly append "null" or garbage values to their
-    /// elements in addition to adding nulls to their validity mask.
-    ///
-    /// # Panics
-    ///
-    /// If `self` is a non-nullable vector, implementors should ensure that this function panics.
+    /// elements in addition to adding nulls to their validity mask.s.
     fn append_nulls(&mut self, n: usize);
 
     /// Converts `self` into an immutable vector.
@@ -115,7 +95,6 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     /// `at > capacity`).
     fn split_off(&mut self, at: usize) -> Self;
 
-    // TODO(connor): Should this panic if other has a different nullability?
     /// Absorbs a mutable vector that was previously split off.
     ///
     /// If the two vectors were previously contiguous and not mutated in a way that causes

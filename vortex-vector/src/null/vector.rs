@@ -3,7 +3,7 @@
 
 //! Definition and implementation of [`NullVector`].
 
-use vortex_dtype::Nullability;
+use vortex_mask::Mask;
 
 use crate::{NullVectorMut, VectorOps};
 
@@ -13,27 +13,31 @@ use crate::{NullVectorMut, VectorOps};
 /// single `length` counter.
 ///
 /// The mutable equivalent of this type is [`NullVectorMut`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct NullVector {
     pub(super) len: usize,
+    pub(super) validity: Mask,
 }
 
 impl NullVector {
     /// Creates a new immutable vector of nulls with the given length.
     pub fn new(len: usize) -> Self {
-        Self { len }
+        Self {
+            len,
+            validity: Mask::AllFalse(len),
+        }
     }
 }
 
 impl VectorOps for NullVector {
     type Mutable = NullVectorMut;
 
-    fn nullability(&self) -> Nullability {
-        Nullability::Nullable
-    }
-
     fn len(&self) -> usize {
         self.len
+    }
+
+    fn validity(&self) -> &Mask {
+        &self.validity
     }
 
     fn try_into_mut(self) -> Result<Self::Mutable, Self>
