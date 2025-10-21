@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Sub;
-
-use vortex_buffer::{BitBuffer, BitBufferMut};
-
 use crate::Mask;
+use std::ops::Sub;
+use vortex_buffer::BitBufferMut;
 
 /// A mutable mask, used for lazily allocating the bit buffer as required.
 #[derive(Debug, Clone)]
@@ -106,7 +104,7 @@ impl MaskMut {
             Mask::AllTrue(len) => self.append_n(true, *len),
             Mask::AllFalse(len) => self.append_n(false, *len),
             Mask::Values(values) => {
-                let bitbuffer = BitBuffer::from(values.buffer.clone());
+                let bitbuffer = values.buffer.clone();
                 self.materialize().append_buffer(&bitbuffer);
             }
         }
@@ -199,7 +197,7 @@ impl MaskMut {
                     Mask::new_false(len)
                 }
             }
-            Inner::Builder(bits) => Mask::from_buffer(bits.freeze().into()),
+            Inner::Builder(bits) => Mask::from_buffer(bits.freeze()),
         }
     }
 

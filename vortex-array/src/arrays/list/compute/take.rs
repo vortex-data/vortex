@@ -8,7 +8,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::{list_view_from_list, ListArray, ListVTable, PrimitiveArray};
 use crate::builders::{ArrayBuilder, PrimitiveBuilder};
-use crate::compute::{self, take, TakeKernel, TakeKernelAdapter};
+use crate::compute::{self, TakeKernel, TakeKernelAdapter};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{register_kernel, Array, ArrayRef, IntoArray};
@@ -75,7 +75,7 @@ fn _take<I: IntegerPType, O: IntegerPType>(
             vortex_panic!("Failed to convert range length to usize: {}", stop - start)
         });
 
-        elements_to_take.ensure_capacity(elements_to_take.len() + additional);
+        elements_to_take.reserve_exact(additional);
         for i in 0..additional {
             elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < additional"));
         }
@@ -86,7 +86,7 @@ fn _take<I: IntegerPType, O: IntegerPType>(
     let elements_to_take = elements_to_take.finish();
     let new_offsets = new_offsets.finish();
 
-    let new_elements = take(array.elements(), elements_to_take.as_ref())?;
+    let new_elements = compute::take(array.elements(), elements_to_take.as_ref())?;
 
     Ok(ListArray::try_new(
         new_elements,
@@ -143,7 +143,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType>(
                 vortex_panic!("Failed to convert range length to usize: {}", stop - start)
             });
 
-            elements_to_take.ensure_capacity(elements_to_take.len() + additional);
+            elements_to_take.reserve_exact(additional);
             for i in 0..additional {
                 elements_to_take
                     .append_value(start + O::from_usize(i).vortex_expect("i < additional"));
@@ -159,7 +159,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType>(
 
     let elements_to_take = elements_to_take.finish();
     let new_offsets = new_offsets.finish();
-    let new_elements = take(array.elements(), elements_to_take.as_ref())?;
+    let new_elements = compute::take(array.elements(), elements_to_take.as_ref())?;
 
     let new_validity: Validity = Validity::from(new_validity.freeze());
     // data are indexes are nullable, so the final result is also nullable.

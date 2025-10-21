@@ -8,7 +8,7 @@ use vortex_mask::{Mask, MaskIter};
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{FilterKernel, FilterKernelAdapter};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{register_kernel, ArrayRef, IntoArray};
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
@@ -61,12 +61,10 @@ pub fn filter_slices(
     indices_len: usize,
     slices: impl Iterator<Item = (usize, usize)>,
 ) -> BitBuffer {
-    let offset = buffer.offset();
-    let src = buffer.inner();
-
     let mut builder = BitBufferMut::with_capacity(indices_len);
     for (start, end) in slices {
-        builder.append_packed_range(start + offset..end + offset, src)
+        // TODO(ngates): we probably want a borrowed slice for things like this.
+        builder.append_buffer(&buffer.slice(start..end));
     }
     builder.freeze()
 }
@@ -76,8 +74,8 @@ mod test {
     use itertools::Itertools;
     use vortex_mask::Mask;
 
-    use crate::arrays::BoolArray;
     use crate::arrays::bool::compute::filter::{filter_indices, filter_slices};
+    use crate::arrays::BoolArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::filter;

@@ -6,13 +6,14 @@ use std::sync::Arc;
 use arrow_array::{ArrayRef as ArrowArrayRef, GenericListArray, OffsetSizeTrait};
 use arrow_schema::{DataType, Field, FieldRef};
 use vortex_dtype::{DType, IntegerPType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
-use crate::arrays::{ListArray, ListVTable, list_view_from_list};
-use crate::arrow::IntoArrowArray;
+use crate::arrays::{list_view_from_list, ListArray, ListVTable};
+use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
 use crate::arrow::compute::{ToArrowKernel, ToArrowKernelAdapter};
+use crate::arrow::IntoArrowArray;
 use crate::compute::cast;
-use crate::{IntoArray, ToCanonical, register_kernel};
+use crate::{register_kernel, IntoArray, ToCanonical};
 
 impl ToArrowKernel for ListVTable {
     fn to_arrow(
@@ -57,7 +58,7 @@ fn list_array_to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
 
     // Convert `offsets` and `validity` to Arrow buffers.
     let arrow_offsets = offsets.buffer::<O>().into_arrow_offset_buffer();
-    let nulls = array.validity_mask().to_null_buffer();
+    let nulls = to_null_buffer(array.validity_mask());
 
     // Convert the child `elements` array to Arrow.
     let (elements, element_field) = {

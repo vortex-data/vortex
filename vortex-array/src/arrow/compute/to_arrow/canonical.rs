@@ -562,7 +562,7 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
     // Convert `offsets`, `sizes`, and `validity` to Arrow buffers.
     let arrow_offsets = offsets.buffer::<O>().into_arrow_scalar_buffer();
     let arrow_sizes = sizes.buffer::<O>().into_arrow_scalar_buffer();
-    let nulls = array.validity_mask().to_null_buffer();
+    let nulls = to_null_buffer(array.validity_mask());
 
     // Convert the child `elements` array to Arrow.
     let (elements, element_field) = {

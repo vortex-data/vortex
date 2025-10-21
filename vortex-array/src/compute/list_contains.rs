@@ -10,7 +10,6 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use arrow_buffer::bit_iterator::BitIndexIterator;
-use num_traits::AsPrimitive;
 use num_traits::Zero;
 use vortex_buffer::BitBuffer;
 use vortex_dtype::{match_each_integer_ptype, DType, IntegerPType, Nullability};
@@ -317,7 +316,8 @@ where
 
             // BitIndexIterator yields indices of true bits only. If `.next()` returns
             // `Some(_)`, at least one element in this list's range matches.
-            let mut set_bits = BitIndexIterator::new(matches.bit_buffer().values(), offset, size);
+            let mut set_bits =
+                BitIndexIterator::new(matches.bit_buffer().inner().as_ref(), offset, size);
             set_bits.next().is_some()
         })
         .collect::<BitBuffer>()
@@ -608,7 +608,7 @@ mod tests {
         // All lists are empty, so all should return false
         assert_eq!(result.len(), 4);
         assert_eq!(
-            result.to_bool().bool_vec().unwrap(),
+            result.to_bool().bool_vec(),
             vec![false, false, false, false]
         );
     }
@@ -641,10 +641,7 @@ mod tests {
 
         // All comparisons result in null, but search is not null, so should return false
         assert_eq!(result2.len(), 3);
-        assert_eq!(
-            result2.to_bool().bool_vec().unwrap(),
-            vec![false, false, false]
-        );
+        assert_eq!(result2.to_bool().bool_vec(), vec![false, false, false]);
     }
 
     #[test]
@@ -671,7 +668,7 @@ mod tests {
 
         assert_eq!(result.len(), 4);
         assert_eq!(
-            result.to_bool().bool_vec().unwrap(),
+            result.to_bool().bool_vec(),
             vec![false, true, false, false] // Value 2 is only in list 1
         );
 
@@ -680,7 +677,7 @@ mod tests {
         let result5 = list_contains(list_array.as_ref(), search5.as_ref()).unwrap();
 
         assert_eq!(
-            result5.to_bool().bool_vec().unwrap(),
+            result5.to_bool().bool_vec(),
             vec![false, false, true, false] // Value 5 is only in list 2
         );
     }
@@ -704,17 +701,14 @@ mod tests {
         let result = list_contains(list_array.as_ref(), search.as_ref()).unwrap();
 
         assert_eq!(result.len(), 4);
-        assert_eq!(
-            result.to_bool().bool_vec().unwrap(),
-            vec![false, false, false, true]
-        );
+        assert_eq!(result.to_bool().bool_vec(), vec![false, false, false, true]);
 
         // Search for value 0 which should only be in the first list
         let search_zero = ConstantArray::new(Scalar::from(0i32), list_array.len());
         let result_zero = list_contains(list_array.as_ref(), search_zero.as_ref()).unwrap();
 
         assert_eq!(
-            result_zero.to_bool().bool_vec().unwrap(),
+            result_zero.to_bool().bool_vec(),
             vec![true, false, false, false]
         );
     }

@@ -4,10 +4,10 @@
 use itertools::Itertools;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 
-use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::patches::Patches;
 use crate::vtable::ValidityHelper;
+use crate::ToCanonical;
 
 impl BoolArray {
     pub fn patch(self, patches: &Patches) -> Self {
@@ -21,7 +21,7 @@ impl BoolArray {
                 .clone()
                 .patch(len, offset, indices.as_ref(), values.validity());
 
-        let (mut own_values, bit_offset) = self.into_bit_buffer().into_mut();
+        let mut own_values = self.into_bit_buffer().into_mut();
         match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
             for (idx, value) in indices
                 .as_slice::<I>()
@@ -29,14 +29,11 @@ impl BoolArray {
                 .zip_eq(values.bit_buffer().iter())
             {
                 #[allow(clippy::cast_possible_truncation)]
-                own_values.set_to(*idx as usize - offset + bit_offset, value);
+                own_values.set_to(*idx as usize - offset, value);
             }
         });
 
-        Self::from_bit_buffer(
-            own_values.freeze().slice(bit_offset..(bit_offset + len)),
-            patched_validity,
-        )
+        Self::from_bit_buffer(own_values.freeze(), patched_validity)
     }
 }
 
@@ -44,15 +41,14 @@ impl BoolArray {
 mod tests {
     use vortex_buffer::BitBuffer;
 
-    use crate::ToCanonical;
     use crate::arrays::BoolArray;
+    use crate::ToCanonical;
 
     #[test]
     fn patch_sliced_bools() {
         let arr = BoolArray::from(BitBuffer::new_set(12));
         let sliced = arr.slice(4..12);
-        let (values, offset) = sliced.to_bool().into_bit_buffer().into_mut();
-        assert_eq!(offset, 4);
+        let values = sliced.to_bool().into_bit_buffer().into_mut();
         assert_eq!(values.len(), 8);
         assert_eq!(values.as_slice(), &[255, 255]);
     }
@@ -61,8 +57,7 @@ mod tests {
     fn patch_sliced_bools_offset() {
         let arr = BoolArray::from(BitBuffer::new_set(15));
         let sliced = arr.slice(4..15);
-        let (values, offset) = sliced.to_bool().into_bit_buffer().into_mut();
-        assert_eq!(offset, 4);
+        let values = sliced.to_bool().into_bit_buffer().into_mut();
         assert_eq!(values.len(), 11);
         assert_eq!(values.as_slice(), &[255, 255]);
     }

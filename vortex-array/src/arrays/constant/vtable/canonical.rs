@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use vortex_buffer::{buffer, BitBuffer, Buffer};
-use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
+use vortex_dtype::{match_each_native_ptype, DType, Nullability};
 use vortex_error::VortexExpect;
 use vortex_scalar::{
     match_each_decimal_value, match_each_decimal_value_type, BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar,
