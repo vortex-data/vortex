@@ -9,7 +9,7 @@
 use vortex_error::vortex_panic;
 
 use crate::macros::match_each_vector;
-use crate::{BoolVector, NullVector, PrimitiveVector, VectorMut, VectorOps, match_each_vector};
+use crate::{BoolVector, NullVector, PrimitiveVector, VectorMut, VectorOps};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.
