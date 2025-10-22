@@ -246,6 +246,6 @@ mod tests {
             .execute_blocking()
             .unwrap()
             .into_bool();
-        assert_eq!(result.bits(), &bitbuffer![0 1 0])
+        assert_eq!(result.bits(), &bitbuffer![0 1 0]);
     }
 }
