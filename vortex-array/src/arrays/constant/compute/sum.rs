@@ -50,7 +50,7 @@ fn sum_decimal(
     decimal_dtype: DecimalDType,
 ) -> VortexResult<ScalarValue> {
     let result_dtype = Stat::Sum
-        .dtype(&DType::Decimal(decimal_dtype, Nullability::NonNullable))
+        .dtype(&DType::Decimal(decimal_dtype, Nullability::Nullable))
         .vortex_expect("decimal supports sum");
     let result_decimal_type = result_dtype
         .as_decimal_opt()
@@ -111,9 +111,10 @@ mod tests {
     use vortex_dtype::{DType, DecimalDType, Nullability, PType};
     use vortex_scalar::{DecimalValue, Scalar};
 
-    use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::compute::sum;
+    use crate::stats::Stat;
+    use crate::{Array, IntoArray};
 
     #[test]
     fn test_sum_unsigned() {
@@ -181,10 +182,7 @@ mod tests {
             result.as_decimal().decimal_value(),
             Some(DecimalValue::I256(vortex_scalar::i256::from_i128(500)))
         );
-        assert_eq!(
-            result.dtype(),
-            &DType::Decimal(DecimalDType::new(20, 2), Nullability::NonNullable)
-        );
+        assert_eq!(result.dtype(), &Stat::Sum.dtype(array.dtype()).unwrap());
     }
 
     #[test]

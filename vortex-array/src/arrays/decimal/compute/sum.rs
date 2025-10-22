@@ -4,6 +4,7 @@
 use arrow_schema::DECIMAL256_MAX_PRECISION;
 use num_traits::AsPrimitive;
 use vortex_dtype::DecimalDType;
+use vortex_dtype::Nullability::Nullable;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::{DecimalValue, Scalar, match_each_decimal_value_type};
@@ -40,7 +41,6 @@ impl SumKernel for DecimalVTable {
     #[allow(clippy::cognitive_complexity)]
     fn sum(&self, array: &DecimalArray) -> VortexResult<Scalar> {
         let decimal_dtype = array.decimal_dtype();
-        let nullability = array.dtype().nullability();
 
         // Both Spark and DataFusion use this heuristic.
         // - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
@@ -60,7 +60,7 @@ impl SumKernel for DecimalVTable {
                         Ok(Scalar::decimal(
                             DecimalValue::from(sum_decimal!(O, array.buffer::<I>())),
                             return_dtype,
-                            nullability,
+                            Nullable,
                         ))
                     })
                 })
@@ -76,7 +76,7 @@ impl SumKernel for DecimalVTable {
                                 mask_values.boolean_buffer()
                             )),
                             return_dtype,
-                            nullability,
+                            Nullable,
                         ))
                     })
                 })
