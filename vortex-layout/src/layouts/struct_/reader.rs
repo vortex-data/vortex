@@ -271,6 +271,12 @@ impl LayoutReader for StructReader {
             .map(|reader| reader.projection_evaluation(row_range, &root(), mask.clone()))
             .transpose()?;
 
+        println!(
+            "StructReader::projection_eval on layout\n\t\tvalidity: {}\n\t\tdtype: {}\n\t\texpr: {expr}",
+            validity_fut.is_some(),
+            self.dtype(),
+        );
+
         // Partition the expression into expressions that can be evaluated over individual fields
         let array_future = match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
@@ -586,12 +592,22 @@ mod tests {
             get_item("b", get_item("a", root())),
         );
 
-        // Also make sure that nulls are handled appropriately.
-        // Also make sure the mask is pushed down and applied to the nested types.
         let project = reader
             .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
             .unwrap();
 
-        // evaluate the projection, yielding some buff
+        let result = block_on(move |_| project).unwrap();
+        assert!(result.dtype().is_struct());
+
+        // Struct scalars holding the "c" field value scalars
+        assert_eq!(
+            result.scalar_at(0).as_struct().field_by_idx(0).unwrap(),
+            Scalar::primitive(4, Nullability::Nullable)
+        );
+        assert_eq!(result.scalar_at(1), Scalar::null(result.dtype().clone()));
+        assert_eq!(
+            result.scalar_at(2).as_struct().field_by_idx(0).unwrap(),
+            Scalar::primitive(6, Nullability::Nullable)
+        );
     }
 }
