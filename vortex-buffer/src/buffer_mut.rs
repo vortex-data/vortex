@@ -500,8 +500,7 @@ impl<T> BufferMut<T> {
             }
         }
 
-        // TODO(joe): replace with ptr_sub when stable
-        let length = self.len() + unsafe { dst.byte_offset_from(begin) as usize / size_of::<T>() };
+        let length = self.len() + unsafe { dst.offset_from_unsigned(begin) };
         unsafe { self.set_len(length) };
 
         // Append remaining elements
@@ -526,8 +525,8 @@ impl<T> BufferMut<T> {
                 dst = dst.add(1);
             }
         });
-        // TODO(joe): replace with ptr_sub when stable
-        let length = self.len() + unsafe { dst.byte_offset_from(begin) as usize / size_of::<T>() };
+
+        let length = self.len() + unsafe { dst.offset_from_unsigned(begin) };
         unsafe { self.set_len(length) };
     }
 }
