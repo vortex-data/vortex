@@ -3,10 +3,14 @@
 
 mod cast;
 mod compare;
+mod fill_null;
 mod filter;
+mod mask;
+mod min_max;
 mod search_sorted;
 mod slice;
 mod sort;
+mod sum;
 mod take;
 
 use std::iter;
@@ -14,19 +18,23 @@ use std::ops::Range;
 
 pub(crate) use cast::*;
 pub(crate) use compare::*;
+pub(crate) use fill_null::*;
 pub(crate) use filter::*;
 use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Unstructured};
+pub(crate) use mask::*;
+pub(crate) use min_max::*;
 pub(crate) use search_sorted::*;
 pub(crate) use slice::*;
 pub use sort::sort_canonical_array;
 use strum::EnumCount;
+pub(crate) use sum::*;
 pub(crate) use take::*;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
-use vortex_array::compute::Operator;
+use vortex_array::compute::{MinMaxResult, Operator};
 use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
@@ -68,12 +76,18 @@ pub enum Action {
     Filter(Mask),
     Compare(Scalar, Operator),
     Cast(DType),
+    Sum,
+    MinMax,
+    FillNull(Scalar),
+    Mask(Mask),
 }
 
 #[derive(Debug)]
 pub enum ExpectedValue {
     Array(ArrayRef),
     Search(SearchResult),
+    Scalar(Scalar),
+    MinMax(Option<MinMaxResult>),
 }
 
 impl ExpectedValue {
@@ -88,6 +102,20 @@ impl ExpectedValue {
         match self {
             ExpectedValue::Search(s) => s,
             _ => vortex_panic!("expected search"),
+        }
+    }
+
+    pub fn scalar(self) -> Scalar {
+        match self {
+            ExpectedValue::Scalar(s) => s,
+            _ => vortex_panic!("expected scalar"),
+        }
+    }
+
+    pub fn min_max(self) -> Option<MinMaxResult> {
+        match self {
+            ExpectedValue::MinMax(m) => m,
+            _ => vortex_panic!("expected min_max"),
         }
     }
 }
@@ -223,7 +251,69 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 
                     (Cast(to), ExpectedValue::Array(result))
                 }
-                7.. => unreachable!(),
+                7 => {
+                    // Sum - returns a scalar, does NOT update current_array (terminal operation)
+                    let sum_result =
+                        sum_canonical_array(current_array.to_canonical()).vortex_unwrap();
+                    (Action::Sum, ExpectedValue::Scalar(sum_result))
+                }
+                8 => {
+                    // MinMax - returns a scalar, does NOT update current_array (terminal operation)
+                    let min_max_result =
+                        min_max_canonical_array(current_array.to_canonical()).vortex_unwrap();
+                    (Action::MinMax, ExpectedValue::MinMax(min_max_result))
+                }
+                9 => {
+                    // FillNull - returns an array, updates current_array
+                    if !current_array.dtype().nullability().is_nullable() {
+                        return Err(EmptyChoose);
+                    }
+                    let fill_value = if u.arbitrary()? && !current_array.is_empty() {
+                        current_array.scalar_at(u.choose_index(current_array.len())?)
+                    } else {
+                        random_scalar(
+                            u,
+                            &current_array
+                                .dtype()
+                                .with_nullability(Nullability::NonNullable),
+                        )?
+                    };
+
+                    if fill_value.is_null() {
+                        return Err(EmptyChoose);
+                    }
+
+                    // Compute expected result on canonical form
+                    let expected_result =
+                        fill_null_canonical_array(current_array.to_canonical(), &fill_value)
+                            .vortex_unwrap();
+                    // Update current_array to the result for chaining
+                    current_array = expected_result.clone();
+                    (
+                        Action::FillNull(fill_value),
+                        ExpectedValue::Array(expected_result),
+                    )
+                }
+                10 => {
+                    // Mask - returns an array, updates current_array
+                    let mask = (0..current_array.len())
+                        .map(|_| bool::arbitrary(u))
+                        .collect::<libfuzzer_sys::arbitrary::Result<Vec<_>>>()?;
+
+                    // Compute expected result on canonical form
+                    let expected_result = mask_canonical_array(
+                        current_array.to_canonical(),
+                        &Mask::from_iter(mask.iter().copied()),
+                    )
+                    .vortex_unwrap();
+                    // Update current_array to the result for chaining
+                    current_array = expected_result.clone();
+                    (
+                        Action::Mask(Mask::from_iter(mask)),
+                        ExpectedValue::Array(expected_result),
+                    )
+                }
+                11.. => unreachable!(),
             })
         }
 
@@ -232,19 +322,43 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 }
 
 fn actions_for_dtype(dtype: &DType) -> HashSet<usize> {
-    // We exclude compare on the nested types.
-    let nested_actions = [0, 1, 2, 3, 4, 6];
+    // Action indices:
+    // 0=Compress, 1=Slice, 2=Take, 3=SearchSorted, 4=Filter, 5=Compare, 6=Cast,
+    // 7=Sum, 8=MinMax, 9=FillNull, 10=Mask
 
     match dtype {
-        DType::Struct(sdt, _) => sdt
-            .fields()
-            .map(|child| actions_for_dtype(&child))
-            // exclude compare
-            .fold(nested_actions.into(), |acc, actions| {
-                acc.intersection(&actions).copied().collect()
-            }),
-        DType::List(..) | DType::FixedSizeList(..) => nested_actions.into(),
-        _ => ALL_ACTIONS.collect(),
+        DType::Struct(sdt, _) => {
+            // Struct supports: Compress, Slice, Take, Filter, MinMax, Mask
+            // Does NOT support: SearchSorted (requires scalar comparison), Compare, Cast, Sum, FillNull
+            let struct_actions = [0, 1, 2, 4, 8, 10];
+            sdt.fields()
+                .map(|child| actions_for_dtype(&child))
+                .fold(struct_actions.into(), |acc, actions| {
+                    acc.intersection(&actions).copied().collect()
+                })
+        }
+        DType::List(..) | DType::FixedSizeList(..) => {
+            // List supports: Compress, Slice, Take, Filter, MinMax, Mask
+            // Does NOT support: SearchSorted, Compare, Cast, Sum, FillNull
+            [0, 1, 2, 4, 8, 10].into()
+        }
+        DType::Utf8(_) | DType::Binary(_) => {
+            // Utf8/Binary supports everything except Sum
+            // Actions: Compress, Slice, Take, SearchSorted, Filter, Compare, Cast, MinMax, FillNull, Mask
+            [0, 1, 2, 3, 4, 5, 6, 8, 9, 10].into()
+        }
+        DType::Bool(_) | DType::Primitive(..) | DType::Decimal(..) => {
+            // These support all actions
+            ALL_ACTIONS.collect()
+        }
+        DType::Null => {
+            // Null arrays support most operations but not Sum or MinMax (return None for dtype)
+            [0, 1, 2, 3, 4, 5, 6, 9, 10].into()
+        }
+        DType::Extension(_) => {
+            // Extension types delegate to storage dtype, support most operations
+            ALL_ACTIONS.collect()
+        }
     }
 }
 

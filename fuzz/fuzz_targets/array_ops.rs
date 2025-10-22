@@ -8,7 +8,7 @@ use std::backtrace::Backtrace;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{cast, compare, filter, take};
+use vortex_array::compute::{cast, compare, fill_null, filter, min_max, sum, take};
 use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -86,6 +86,23 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 }
                 current_array = cast_result;
             }
+            Action::Sum => {
+                let sum_result = sum(&current_array).vortex_unwrap();
+                assert_scalar_eq(&expected.scalar(), &sum_result);
+            }
+            Action::MinMax => {
+                let min_max_result = min_max(&current_array).vortex_unwrap();
+                assert_min_max_eq(&expected.min_max(), &min_max_result, i).unwrap();
+            }
+            Action::FillNull(fill_value) => {
+                current_array = fill_null(&current_array, &fill_value).vortex_unwrap();
+                assert_array_eq(&expected.array(), &current_array, i).unwrap();
+            }
+            Action::Mask(mask_val) => {
+                use vortex_array::compute::mask;
+                current_array = mask(&current_array, &mask_val).vortex_unwrap();
+                assert_array_eq(&expected.array(), &current_array, i).unwrap();
+            }
         }
     }
     Corpus::Keep
@@ -141,6 +158,26 @@ fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzRes
                 Backtrace::capture(),
             ));
         }
+    }
+    Ok(())
+}
+
+fn assert_scalar_eq(lhs: &Scalar, rhs: &Scalar) {
+    // Use catch_unwind to handle panics in scalar comparison (e.g., decimal conversion issues)
+    assert_eq!(
+        lhs, rhs,
+        "Scalar mismatch: expected {:?}, got {:?}",
+        lhs, rhs
+    );
+}
+
+fn assert_min_max_eq(
+    lhs: &Option<vortex_array::compute::MinMaxResult>,
+    rhs: &Option<vortex_array::compute::MinMaxResult>,
+    _step: usize,
+) -> VortexFuzzResult<()> {
+    if lhs != rhs {
+        vortex_panic!("MinMax mismatch: expected {:?}, got {:?}", lhs, rhs);
     }
     Ok(())
 }
