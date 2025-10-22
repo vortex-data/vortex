@@ -5,12 +5,10 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::{FutureExt, try_join};
+use futures::try_join;
 use itertools::Itertools;
-use vortex_array::arrays::StructArray;
 use vortex_array::stats::Precision;
-use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray, MaskFuture, ToCanonical};
+use vortex_array::{MaskFuture, ToCanonical};
 use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
@@ -275,25 +273,10 @@ impl LayoutReader for StructReader {
 
         // Partition the expression into expressions that can be evaluated over individual fields
         let array_future = match &self.partition_expr(expr.clone()) {
-            Partitioned::Single(name, partition) => {
-                // We should yield a new StructArray that has the given partition info.
-                let name = name.clone();
-                self.field_reader(&name)?
-                    .projection_evaluation(row_range, partition, mask)?
-                    .map(|result| {
-                        result.and_then(move |array| {
-                            let len = array.len();
-                            StructArray::try_new(
-                                vec![name].into(),
-                                vec![array],
-                                len,
-                                Validity::NonNullable,
-                            )
-                            .map(|a| a.into_array())
-                        })
-                    })
-                    .boxed()
-            }
+            Partitioned::Single(name, partition) => self
+                .field_reader(name)?
+                .projection_evaluation(row_range, partition, mask)?,
+
             Partitioned::Multi(partitioned) => {
                 // Apply the validity to each internal field instead.
                 partitioned
@@ -329,8 +312,8 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, IntoArray, MaskFuture, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldDType, FieldName, Nullability, PType, StructFields};
-    use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root};
+    use vortex_dtype::{DType, FieldName, Nullability, PType};
+    use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root, select};
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
@@ -393,6 +376,57 @@ mod tests {
                         ("c", buffer![4, 5, 6].into_array()),
                     ],
                     Validity::Array(BoolArray::from_iter([false, true, true]).into_array()),
+                )
+                .unwrap()
+                .into_array()
+                .to_array_stream()
+                .sequenced(ptr),
+                eof,
+                handle,
+            )
+        })
+        .unwrap();
+
+        (segments, layout)
+    }
+
+    /// Writes a nested struct layout with the following values:
+    ///
+    /// |        a         |
+    /// |------------------|
+    /// |`{"b": {"c": 4 }}`|
+    /// |     `NULL`       |
+    /// |`{"b": {"c": 6 }}`|
+    #[fixture]
+    fn nested_struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy =
+            StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
+        let layout = block_on(|handle| {
+            strategy.write_stream(
+                ctx,
+                segments.clone(),
+                StructArray::try_from_iter_with_validity(
+                    [(
+                        "a",
+                        StructArray::try_from_iter_with_validity(
+                            [(
+                                "b",
+                                StructArray::try_from_iter_with_validity(
+                                    [("c", buffer![4, 5, 6].into_array())],
+                                    Validity::NonNullable,
+                                )
+                                .unwrap()
+                                .into_array(),
+                            )],
+                            Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+                        )
+                        .unwrap()
+                        .into_array(),
+                    )],
+                    Validity::NonNullable,
                 )
                 .unwrap()
                 .into_array()
@@ -527,24 +561,37 @@ mod tests {
             .unwrap();
 
         let result = block_on(move |_| project).unwrap();
-        // Result should be a struct with single field
+        // Result should be the primitive array with a single field.
         assert_eq!(
             result.dtype(),
-            &DType::Struct(
-                StructFields::from_fields(
-                    vec![FieldName::from("a")].into(),
-                    vec![FieldDType::from(DType::Primitive(
-                        PType::I32,
-                        Nullability::NonNullable,
-                    ))]
-                ),
-                Nullability::Nullable,
-            )
+            &DType::Primitive(PType::I32, Nullability::Nullable)
         );
 
+        // ...and the result is masked with the validity of the parent StructArray
         assert_eq!(result.scalar_at(0), Scalar::null(result.dtype().clone()),);
+        assert_eq!(result.scalar_at(1), 2.into());
+        assert_eq!(result.scalar_at(2), 3.into());
+    }
 
-        assert!(result.scalar_at(1).is_valid());
-        assert!(result.scalar_at(2).is_valid());
+    #[rstest]
+    fn test_struct_layout_nested(
+        #[from(nested_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        // Project out the nested struct field.
+        // The projection should preserve the nulls of the `a` column when we select out the
+        // child column `c`.
+        let reader = layout.new_reader("".into(), segments).unwrap();
+        let expr = select(
+            vec![FieldName::from("c")],
+            get_item("b", get_item("a", root())),
+        );
+
+        // Also make sure that nulls are handled appropriately.
+        // Also make sure the mask is pushed down and applied to the nested types.
+        let project = reader
+            .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
+            .unwrap();
+
+        // evaluate the projection, yielding some buff
     }
 }
