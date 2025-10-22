@@ -86,3 +86,96 @@ impl VectorMutOps for VectorMut {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::{Nullability, PType};
+
+    use super::*;
+    use crate::{PVectorMut, VectorOps};
+
+    #[test]
+    fn test_with_capacity() {
+        // Test capacity allocation for different types.
+        let null_vec = VectorMut::with_capacity(10, &DType::Null);
+        assert_eq!(null_vec.capacity(), usize::MAX); // Null vectors have unlimited capacity.
+
+        let bool_vec = VectorMut::with_capacity(100, &DType::Bool(Nullability::Nullable));
+        assert!(bool_vec.capacity() >= 100);
+
+        let prim_vec =
+            VectorMut::with_capacity(50, &DType::Primitive(PType::I32, Nullability::Nullable));
+        assert!(prim_vec.capacity() >= 50);
+    }
+
+    #[test]
+    #[should_panic(expected = "Mismatched vector types")]
+    fn test_type_mismatch_panics() {
+        // Test that operations between mismatched types panic.
+        let mut vec1 = VectorMut::with_capacity(10, &DType::Bool(Nullability::Nullable));
+        let vec2 =
+            VectorMut::with_capacity(10, &DType::Primitive(PType::I32, Nullability::Nullable));
+
+        vec1.unsplit(vec2); // Should panic.
+    }
+
+    #[test]
+    fn test_split_and_unsplit() {
+        // Test split at various positions.
+        let mut vec: VectorMut = BoolVectorMut::from_iter([true, false, true].map(Some)).into();
+
+        // Split at beginning.
+        let second = vec.split_off(0);
+        assert_eq!(vec.len(), 0);
+        assert_eq!(second.len(), 3);
+
+        // Unsplit to restore.
+        vec.unsplit(second);
+        assert_eq!(vec.len(), 3);
+
+        // Split at end.
+        let second = vec.split_off(3);
+        assert_eq!(vec.len(), 3);
+        assert_eq!(second.len(), 0);
+    }
+
+    #[test]
+    fn test_reserve_ensures_len_plus_additional() {
+        // Test that reserve ensures capacity >= len + additional.
+        // This specifically tests the fix for the BitBufferMut::reserve bug.
+        let mut bool_vec: VectorMut = BoolVectorMut::with_capacity(10).into();
+        let initial_len = bool_vec.len();
+        assert_eq!(initial_len, 0);
+
+        // Reserve 100 additional capacity.
+        bool_vec.reserve(100);
+
+        // Should have capacity for at least len + 100.
+        assert!(bool_vec.capacity() >= initial_len + 100);
+        assert!(bool_vec.capacity() >= 100); // Since len is 0.
+
+        // Test with primitive vector too.
+        let mut prim_vec: VectorMut = PVectorMut::<i32>::with_capacity(10).into();
+        prim_vec.reserve(100);
+        assert!(prim_vec.capacity() >= prim_vec.len() + 100);
+
+        // Test with non-empty vector.
+        let mut vec: VectorMut = BoolVectorMut::from_iter([true, false, true].map(Some)).into();
+        let len = vec.len();
+        assert_eq!(len, 3);
+        vec.reserve(50);
+        assert!(vec.capacity() >= len + 50);
+        assert!(vec.capacity() >= 53);
+    }
+
+    #[test]
+    fn test_append_nulls_preserves_validity() {
+        // Test that appending nulls preserves existing validity.
+        let mut vec: VectorMut = BoolVectorMut::from_iter([true].map(Some)).into();
+        vec.append_nulls(2);
+        assert_eq!(vec.len(), 3);
+
+        let frozen = vec.freeze();
+        assert_eq!(frozen.validity().true_count(), 1); // Only first element is valid.
+    }
+}

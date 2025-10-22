@@ -195,3 +195,54 @@ impl VectorMutOps for BoolVectorMut {
         self.validity.unsplit(other.validity);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_iter_with_options() {
+        // Test FromIterator<Option<bool>> with nulls and empty.
+        let vec_empty = BoolVectorMut::from_iter(std::iter::empty::<Option<bool>>());
+        assert_eq!(vec_empty.len(), 0);
+
+        let vec = BoolVectorMut::from_iter([Some(true), None, Some(false), None, Some(true)]);
+        assert_eq!(vec.len(), 5);
+        let frozen = vec.freeze();
+        assert_eq!(frozen.validity().true_count(), 3);
+    }
+
+    #[test]
+    fn test_from_iter_non_null() {
+        // Test FromIterator<bool> creates all-valid vector.
+        let vec = BoolVectorMut::from_iter([true, false, true, true, false]);
+        assert_eq!(vec.len(), 5);
+        let frozen = vec.freeze();
+        assert_eq!(frozen.validity().true_count(), 5);
+    }
+
+    #[test]
+    fn test_operations_preserve_validity() {
+        // Comprehensive test for split/unsplit/extend preserving validity.
+        let mut vec = BoolVectorMut::from_iter([Some(true), None, Some(false), None, Some(true)]);
+
+        // Test split.
+        let second_half = vec.split_off(2);
+        assert_eq!(vec.len(), 2);
+        assert_eq!(second_half.len(), 3);
+
+        // Test validity after split.
+        let frozen_first = vec.freeze();
+        assert_eq!(frozen_first.validity().true_count(), 1);
+        let frozen_second = second_half.freeze();
+        assert_eq!(frozen_second.validity().true_count(), 2);
+
+        // Test unsplit.
+        let mut vec1 = BoolVectorMut::from_iter([Some(true), None]);
+        let vec2 = BoolVectorMut::from_iter([Some(false), Some(true)]);
+        vec1.unsplit(vec2);
+        assert_eq!(vec1.len(), 4);
+        let frozen = vec1.freeze();
+        assert_eq!(frozen.validity().true_count(), 3);
+    }
+}

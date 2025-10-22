@@ -231,3 +231,64 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
         self.validity.unsplit(other.validity);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_iter_with_options() {
+        // Test FromIterator<Option<T>> with different types.
+        let vec_i32 = PVectorMut::<i32>::from_iter(vec![Some(1), None, Some(3), None, Some(5)]);
+        assert_eq!(vec_i32.len(), 5);
+        let frozen = vec_i32.freeze();
+        assert_eq!(frozen.validity().true_count(), 3);
+
+        // Test empty iterator.
+        let vec_empty = PVectorMut::<f64>::from_iter(std::iter::empty::<Option<f64>>());
+        assert_eq!(vec_empty.len(), 0);
+
+        // Test that None values use T::default().
+        let vec_nulls = PVectorMut::<i32>::from_iter([None, None, None]);
+        assert_eq!(vec_nulls.elements[0], 0); // Default value for i32.
+        let frozen = vec_nulls.freeze();
+        assert_eq!(frozen.validity().true_count(), 0);
+    }
+
+    #[test]
+    fn test_from_iter_non_null() {
+        // Test FromIterator<T> for different primitive types.
+        let vec_f64 = PVectorMut::<f64>::from_iter([1.5, 2.5, 3.5, 4.5, 5.5]);
+        assert_eq!(vec_f64.len(), 5);
+        let frozen = vec_f64.freeze();
+        assert_eq!(frozen.validity().true_count(), 5); // All valid.
+
+        let vec_u16 = PVectorMut::<u16>::from_iter([1u16, 2, 3, 4, 5]);
+        assert_eq!(vec_u16.len(), 5);
+        let frozen = vec_u16.freeze();
+        assert_eq!(frozen.validity().true_count(), 5);
+    }
+
+    #[test]
+    fn test_operations_preserve_validity() {
+        // Test split/unsplit/extend with different primitive types.
+        let mut vec = PVectorMut::<i64>::from_iter([Some(100), None, Some(300), None, Some(500)]);
+
+        let second_half = vec.split_off(2);
+        assert_eq!(vec.len(), 2);
+        assert_eq!(second_half.len(), 3);
+
+        let first_frozen = vec.freeze();
+        let second_frozen = second_half.freeze();
+        assert_eq!(first_frozen.validity().true_count(), 1);
+        assert_eq!(second_frozen.validity().true_count(), 2);
+
+        // Test unsplit.
+        let mut vec1 = PVectorMut::<u32>::from_iter([Some(1000), None]);
+        let vec2 = PVectorMut::<u32>::from_iter([None, Some(2000)]);
+        vec1.unsplit(vec2);
+        assert_eq!(vec1.len(), 4);
+        let frozen = vec1.freeze();
+        assert_eq!(frozen.validity().true_count(), 2);
+    }
+}
