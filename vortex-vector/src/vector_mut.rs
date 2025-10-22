@@ -23,11 +23,14 @@ use crate::{BoolVectorMut, NullVectorMut, PrimitiveVectorMut, Vector, VectorMutO
 /// [`VectorOps`](crate::VectorOps) trait.
 #[derive(Debug, Clone)]
 pub enum VectorMut {
-    /// Null
+    /// Null mutable vectors.
     Null(NullVectorMut),
-    /// Bool
+    /// Boolean mutable vectors.
     Bool(BoolVectorMut),
-    /// Primitive
+    /// Primitive mutable vectors.
+    ///
+    /// Note that [`PrimitiveVectorMut`] is an enum over the different possible (generic)
+    /// [`PVectorMut<T>`](crate::PVectorMut)s. See the documentation for more information.
     Primitive(PrimitiveVectorMut),
 }
 

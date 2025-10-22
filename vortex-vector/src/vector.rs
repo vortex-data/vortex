@@ -20,13 +20,14 @@ use crate::{BoolVector, NullVector, PrimitiveVector, VectorMut, VectorOps};
 /// [`VectorMutOps`](crate::VectorMutOps) trait.
 #[derive(Debug, Clone)]
 pub enum Vector {
-    /// Null
+    /// Null vectors.
     Null(NullVector),
-    /// Bool
+    /// Boolean vectors.
     Bool(BoolVector),
-    // TODO(connor): Document that this is an enum, not a struct (to represent all possible
-    // primitive native generics).
-    /// Primitive
+    /// Primitive vectors.
+    ///
+    /// Note that [`PrimitiveVector`] is an enum over the different possible (generic)
+    /// [`PVector<T>`](crate::PVector)s. See the documentation for more information.
     Primitive(PrimitiveVector),
     // Decimal
     // Decimal(DecimalVector),

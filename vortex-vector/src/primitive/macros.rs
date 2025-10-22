@@ -16,8 +16,8 @@
 ///
 /// # Examples
 ///
-/// ```
-/// use vortex_vector::{PrimitiveVector, PVectorMut, VectorOps, VectorMutOps, match_each_pvector};
+/// ```ignore
+/// use vortex_vector::{PrimitiveVector, PVectorMut, VectorOps, VectorMutOps};
 ///
 /// fn get_primitive_len(vector: &PrimitiveVector) -> usize {
 ///     match_each_pvector!(vector, |v| { v.len() })
@@ -102,8 +102,8 @@ pub(crate) use match_each_pvector;
 ///
 /// # Examples
 ///
-/// ```
-/// use vortex_vector::{PrimitiveVectorMut, PVectorMut, VectorMutOps, match_each_pvector_mut};
+/// ```ignore
+/// use vortex_vector::{PrimitiveVectorMut, PVectorMut, VectorMutOps};
 ///
 /// fn reserve_primitive_space(vector: &mut PrimitiveVectorMut, additional: usize) {
 ///     match_each_pvector_mut!(vector, |v| { v.reserve(additional) })
@@ -124,7 +124,6 @@ pub(crate) use match_each_pvector;
 ///
 /// [`PrimitiveVectorMut`]: crate::PrimitiveVectorMut
 /// [`VectorMutOps`]: crate::VectorMutOps
-#[macro_export]
 macro_rules! match_each_pvector_mut {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
