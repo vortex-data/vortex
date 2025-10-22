@@ -85,7 +85,11 @@ impl VTable for FlatVTable {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
-        todo!()
+        Ok(Arc::new(crate::gpu::layouts::flat::GpuFlatReader::new(
+            layout.clone(),
+            name,
+            segment_source,
+        )))
     }
 
     fn build(
@@ -152,8 +156,14 @@ impl FlatLayout {
         }
     }
 
+    #[inline]
     pub fn segment_id(&self) -> SegmentId {
         self.segment_id
+    }
+
+    #[inline]
+    pub fn array_ctx(&self) -> &ArrayContext {
+        &self.ctx
     }
 }
 

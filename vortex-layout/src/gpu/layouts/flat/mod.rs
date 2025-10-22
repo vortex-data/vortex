@@ -2,3 +2,5 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod reader;
+
+pub use reader::*;

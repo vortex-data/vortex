@@ -78,7 +78,13 @@ impl VTable for ChunkedVTable {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
-        todo!()
+        Ok(Arc::new(
+            crate::gpu::layouts::chunked::GpuChunkedLayoutReader::new(
+                layout.clone(),
+                name,
+                segment_source,
+            ),
+        ))
     }
 
     fn build(
