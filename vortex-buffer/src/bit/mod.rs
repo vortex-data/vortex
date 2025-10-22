@@ -29,6 +29,7 @@ pub fn get_bit(buf: &[u8], index: usize) -> bool {
 /// Get the bit value at `index` out of `buf` without bounds checking
 ///
 /// # Safety
+///
 /// `index` must be between 0 and length of `buf`
 #[inline(always)]
 pub unsafe fn get_bit_unchecked(buf: *const u8, index: usize) -> bool {
@@ -36,12 +37,20 @@ pub unsafe fn get_bit_unchecked(buf: *const u8, index: usize) -> bool {
 }
 
 /// Set the bit value at `index` in `buf` without bounds checking
+///
+/// # Safety
+///
+/// `index` must be between 0 and length of `buf`
 #[inline(always)]
 pub unsafe fn set_bit_unchecked(buf: *mut u8, index: usize) {
     unsafe { *buf.add(index / 8) |= 1 << (index % 8) };
 }
 
 /// Unset the bit value at `index` in `buf` without bounds checking
+///
+/// # Safety
+///
+/// `index` must be between 0 and length of `buf`
 #[inline(always)]
 pub unsafe fn unset_bit_unchecked(buf: *mut u8, index: usize) {
     unsafe { *buf.add(index / 8) &= !(1 << (index % 8)) };
