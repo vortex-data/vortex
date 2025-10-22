@@ -95,8 +95,6 @@ mod tests {
                 Some(100i32),
                 None,
                 None,
-                None,
-                None,
                 Some(300i32),
                 Some(300i32)
             ])
@@ -133,7 +131,7 @@ mod tests {
         let vortex_array = RunEndArray::from_arrow(&sliced_array, false);
         assert_arrays_eq!(
             vortex_array,
-            buffer![100, 100, 200, 200, 200, 300, 300, 300, 400, 400].into_array()
+            buffer![100, 200, 200, 200, 300, 300].into_array()
         );
     }
 
@@ -157,18 +155,11 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             PrimitiveArray::from_option_iter([
-                Some(10),
-                Some(10),
-                Some(10),
                 None,
                 None,
-                None,
-                None,
+                Some(30i64),
                 Some(30),
                 Some(30),
-                Some(30),
-                Some(40),
-                Some(40),
                 Some(40),
             ])
         );
