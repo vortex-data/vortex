@@ -26,7 +26,6 @@ impl dyn BindCtx + '_ {
         validity: &Validity,
         array_len: usize,
         selection: Option<&ArrayRef>,
-        ctx: &mut dyn BindCtx,
     ) -> VortexResult<MaskExecution> {
         match selection {
             None => {
@@ -43,7 +42,7 @@ impl dyn BindCtx + '_ {
                 }
             }
             Some(selection) => {
-                let selection_exec = ctx.bind_mask(selection)?;
+                let selection_exec = self.bind_mask(selection)?;
                 match validity {
                     Validity::NonNullable | Validity::AllValid => {
                         return Ok(MaskExecution::Future(async move {
