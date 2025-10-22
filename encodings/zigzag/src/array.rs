@@ -10,7 +10,7 @@ use vortex_array::vtable::{
     ValidityVTableFromChild,
 };
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision,
     ToCanonical, vtable,
 };
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
@@ -99,13 +99,13 @@ impl ArrayVTable<ZigZagVTable> for ZigZagVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ZigZagArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(array: &ZigZagArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        array.encoded.array_hash(state);
+        array.encoded.array_hash(state, precision);
     }
 
-    fn array_eq(array: &ZigZagArray, other: &ZigZagArray) -> bool {
-        array.dtype == other.dtype && array.encoded.array_eq(&other.encoded)
+    fn array_eq(array: &ZigZagArray, other: &ZigZagArray, precision: Precision) -> bool {
+        array.dtype == other.dtype && array.encoded.array_eq(&other.encoded, precision)
     }
 }
 

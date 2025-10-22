@@ -5,6 +5,7 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
+use crate::Precision;
 use crate::arrays::extension::{ExtensionArray, ExtensionVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
@@ -23,12 +24,16 @@ impl ArrayVTable<ExtensionVTable> for ExtensionVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ExtensionArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: &ExtensionArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype.hash(state);
-        array.storage.array_hash(state);
+        array.storage.array_hash(state, precision);
     }
 
-    fn array_eq(array: &ExtensionArray, other: &ExtensionArray) -> bool {
-        array.dtype == other.dtype && array.storage.array_eq(&other.storage)
+    fn array_eq(array: &ExtensionArray, other: &ExtensionArray, precision: Precision) -> bool {
+        array.dtype == other.dtype && array.storage.array_eq(&other.storage, precision)
     }
 }

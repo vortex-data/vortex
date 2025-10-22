@@ -5,6 +5,7 @@ use std::hash::Hasher;
 
 use vortex_dtype::DType;
 
+use crate::Precision;
 use crate::stats::StatsSetRef;
 use crate::vtable::VTable;
 
@@ -15,7 +16,7 @@ pub trait ArrayVTable<V: VTable> {
 
     fn stats(array: &V::Array) -> StatsSetRef<'_>;
 
-    fn array_hash<H: Hasher>(array: &V::Array, state: &mut H);
+    fn array_hash<H: Hasher>(array: &V::Array, state: &mut H, precision: Precision);
 
-    fn array_eq(array: &V::Array, other: &V::Array) -> bool;
+    fn array_eq(array: &V::Array, other: &V::Array, precision: Precision) -> bool;
 }

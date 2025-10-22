@@ -10,7 +10,7 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, Precision, vtable,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
@@ -265,18 +265,18 @@ impl ArrayVTable<ALPVTable> for ALPVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        array.encoded.array_hash(state);
+        array.encoded.array_hash(state, precision);
         array.exponents.hash(state);
-        array.patches.array_hash(state);
+        array.patches.array_hash(state, precision);
     }
 
-    fn array_eq(array: &ALPArray, other: &ALPArray) -> bool {
+    fn array_eq(array: &ALPArray, other: &ALPArray, precision: Precision) -> bool {
         array.dtype == other.dtype
-            && array.encoded.array_eq(&other.encoded)
+            && array.encoded.array_eq(&other.encoded, precision)
             && array.exponents == other.exponents
-            && array.patches.array_eq(&other.patches)
+            && array.patches.array_eq(&other.patches, precision)
     }
 }
 

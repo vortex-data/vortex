@@ -115,7 +115,7 @@ enum-iterator = "2.0.0"
 erased-serde = "0.4"
 fastlanes = "0.5"
 flatbuffers = "25.2.10"
-fsst-rs = "0.5.2"
+fsst-rs = "0.5.5"
 futures = { version = "0.3.31", default-features = false }
 fuzzy-matcher = "0.3"
 glob = "0.3.2"

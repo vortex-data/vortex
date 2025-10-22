@@ -5,6 +5,7 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
+use crate::Precision;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
@@ -23,15 +24,19 @@ impl ArrayVTable<PrimitiveVTable> for PrimitiveVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &PrimitiveArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: &PrimitiveArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype.hash(state);
-        array.buffer.array_hash(state);
-        array.validity.array_hash(state);
+        array.buffer.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &PrimitiveArray, other: &PrimitiveArray) -> bool {
+    fn array_eq(array: &PrimitiveArray, other: &PrimitiveArray, precision: Precision) -> bool {
         array.dtype == other.dtype
-            && array.buffer.array_eq(&other.buffer)
-            && array.validity.array_eq(&other.validity)
+            && array.buffer.array_eq(&other.buffer, precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 }

@@ -5,6 +5,7 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
+use crate::Precision;
 use crate::arrays::{ListArray, ListVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
@@ -23,17 +24,17 @@ impl ArrayVTable<ListVTable> for ListVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ListArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(array: &ListArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        array.elements.array_hash(state);
-        array.offsets.array_hash(state);
-        array.validity.array_hash(state);
+        array.elements.array_hash(state, precision);
+        array.offsets.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &ListArray, other: &ListArray) -> bool {
+    fn array_eq(array: &ListArray, other: &ListArray, precision: Precision) -> bool {
         array.dtype == other.dtype
-            && array.elements.array_eq(&other.elements)
-            && array.offsets.array_eq(&other.offsets)
-            && array.validity.array_eq(&other.validity)
+            && array.elements.array_eq(&other.elements, precision)
+            && array.offsets.array_eq(&other.offsets, precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 }

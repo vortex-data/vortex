@@ -18,7 +18,7 @@ use crate::vtable::{
 };
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, EncodingId,
-    EncodingRef, IntoArray, vtable,
+    EncodingRef, IntoArray, Precision, vtable,
 };
 
 mod compute;
@@ -103,11 +103,11 @@ impl ArrayVTable<NullVTable> for NullVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &NullArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(array: &NullArray, state: &mut H, _precision: Precision) {
         array.len.hash(state);
     }
 
-    fn array_eq(array: &NullArray, other: &NullArray) -> bool {
+    fn array_eq(array: &NullArray, other: &NullArray, _precision: Precision) -> bool {
         array.len == other.len
     }
 }

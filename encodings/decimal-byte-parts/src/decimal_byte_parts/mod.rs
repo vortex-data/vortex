@@ -14,7 +14,7 @@ use vortex_array::vtable::{
     ValidityHelper, ValidityVTableFromChild,
 };
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision,
     ToCanonical, vtable,
 };
 use vortex_dtype::{DType, DecimalDType, match_each_signed_integer_ptype};
@@ -114,13 +114,21 @@ impl ArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &DecimalBytePartsArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: &DecimalBytePartsArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype.hash(state);
-        array.msp.array_hash(state);
+        array.msp.array_hash(state, precision);
     }
 
-    fn array_eq(array: &DecimalBytePartsArray, other: &DecimalBytePartsArray) -> bool {
-        array.dtype == other.dtype && array.msp.array_eq(&other.msp)
+    fn array_eq(
+        array: &DecimalBytePartsArray,
+        other: &DecimalBytePartsArray,
+        precision: Precision,
+    ) -> bool {
+        array.dtype == other.dtype && array.msp.array_eq(&other.msp, precision)
     }
 }
 

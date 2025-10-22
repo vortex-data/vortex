@@ -5,6 +5,7 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
+use crate::Precision;
 use crate::arrays::{ListViewArray, ListViewVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
@@ -24,19 +25,23 @@ impl ArrayVTable<ListViewVTable> for ListViewVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ListViewArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: &ListViewArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype.hash(state);
-        array.elements().array_hash(state);
-        array.offsets().array_hash(state);
-        array.sizes().array_hash(state);
-        array.validity.array_hash(state);
+        array.elements().array_hash(state, precision);
+        array.offsets().array_hash(state, precision);
+        array.sizes().array_hash(state, precision);
+        array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &ListViewArray, other: &ListViewArray) -> bool {
+    fn array_eq(array: &ListViewArray, other: &ListViewArray, precision: Precision) -> bool {
         array.dtype == other.dtype
-            && array.elements().array_eq(other.elements())
-            && array.offsets().array_eq(other.offsets())
-            && array.sizes().array_eq(other.sizes())
-            && array.validity.array_eq(&other.validity)
+            && array.elements().array_eq(other.elements(), precision)
+            && array.offsets().array_eq(other.offsets(), precision)
+            && array.sizes().array_eq(other.sizes(), precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 }

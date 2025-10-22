@@ -11,7 +11,7 @@ use vortex_array::vtable::{
     ValidityVTableFromChildSliceHelper,
 };
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, Precision, vtable,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_ensure};
@@ -244,20 +244,22 @@ impl ArrayVTable<RLEVTable> for RLEVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &RLEArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(array: &RLEArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        array.values.array_hash(state);
-        array.indices.array_hash(state);
-        array.values_idx_offsets.array_hash(state);
+        array.values.array_hash(state, precision);
+        array.indices.array_hash(state, precision);
+        array.values_idx_offsets.array_hash(state, precision);
         array.offset.hash(state);
         array.length.hash(state);
     }
 
-    fn array_eq(array: &RLEArray, other: &RLEArray) -> bool {
+    fn array_eq(array: &RLEArray, other: &RLEArray, precision: Precision) -> bool {
         array.dtype == other.dtype
-            && array.values.array_eq(&other.values)
-            && array.indices.array_eq(&other.indices)
-            && array.values_idx_offsets.array_eq(&other.values_idx_offsets)
+            && array.values.array_eq(&other.values, precision)
+            && array.indices.array_eq(&other.indices, precision)
+            && array
+                .values_idx_offsets
+                .array_eq(&other.values_idx_offsets, precision)
             && array.offset == other.offset
             && array.length == other.length
     }

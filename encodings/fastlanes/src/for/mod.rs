@@ -9,7 +9,7 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, Precision, vtable,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
@@ -111,13 +111,13 @@ impl ArrayVTable<FoRVTable> for FoRVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &FoRArray, state: &mut H) {
-        array.encoded.array_hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &FoRArray, state: &mut H, precision: Precision) {
+        array.encoded.array_hash(state, precision);
         array.reference.hash(state);
     }
 
-    fn array_eq(array: &FoRArray, other: &FoRArray) -> bool {
-        array.encoded.array_eq(&other.encoded) && array.reference == other.reference
+    fn array_eq(array: &FoRArray, other: &FoRArray, precision: Precision) -> bool {
+        array.encoded.array_eq(&other.encoded, precision) && array.reference == other.reference
     }
 }
 

@@ -7,6 +7,7 @@ use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 use vortex_scalar::DecimalValueType;
 
+use crate::Precision;
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
@@ -34,17 +35,17 @@ impl ArrayVTable<DecimalVTable> for DecimalVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &DecimalArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(array: &DecimalArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        array.values.array_hash(state);
+        array.values.array_hash(state, precision);
         std::mem::discriminant(&array.values_type).hash(state);
-        array.validity.array_hash(state);
+        array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &DecimalArray, other: &DecimalArray) -> bool {
+    fn array_eq(array: &DecimalArray, other: &DecimalArray, precision: Precision) -> bool {
         array.dtype == other.dtype
-            && array.values.array_eq(&other.values)
+            && array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
-            && array.validity.array_eq(&other.validity)
+            && array.validity.array_eq(&other.validity, precision)
     }
 }

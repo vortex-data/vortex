@@ -5,6 +5,7 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
+use crate::Precision;
 use crate::arrays::masked::{MaskedArray, MaskedVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
@@ -23,15 +24,15 @@ impl ArrayVTable<MaskedVTable> for MaskedVTable {
         array.stats.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &MaskedArray, state: &mut H) {
-        array.child.array_hash(state);
-        array.validity.array_hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &MaskedArray, state: &mut H, precision: Precision) {
+        array.child.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
         array.dtype.hash(state);
     }
 
-    fn array_eq(array: &MaskedArray, other: &MaskedArray) -> bool {
-        array.child.array_eq(&other.child)
-            && array.validity.array_eq(&other.validity)
+    fn array_eq(array: &MaskedArray, other: &MaskedArray, precision: Precision) -> bool {
+        array.child.array_eq(&other.child, precision)
+            && array.validity.array_eq(&other.validity, precision)
             && array.dtype == other.dtype
     }
 }

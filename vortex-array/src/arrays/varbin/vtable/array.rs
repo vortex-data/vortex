@@ -5,6 +5,7 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
+use crate::Precision;
 use crate::arrays::varbin::{VarBinArray, VarBinVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
@@ -23,17 +24,17 @@ impl ArrayVTable<VarBinVTable> for VarBinVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &VarBinArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(array: &VarBinArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        array.bytes().array_hash(state);
-        array.offsets().array_hash(state);
-        array.validity.array_hash(state);
+        array.bytes().array_hash(state, precision);
+        array.offsets().array_hash(state, precision);
+        array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &VarBinArray, other: &VarBinArray) -> bool {
+    fn array_eq(array: &VarBinArray, other: &VarBinArray, precision: Precision) -> bool {
         array.dtype == other.dtype
-            && array.bytes().array_eq(other.bytes())
-            && array.offsets().array_eq(other.offsets())
-            && array.validity.array_eq(&other.validity)
+            && array.bytes().array_eq(other.bytes(), precision)
+            && array.offsets().array_eq(other.offsets(), precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 }

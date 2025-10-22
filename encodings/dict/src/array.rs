@@ -7,11 +7,11 @@ use std::hash::Hash;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
-    vtable, Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, ToCanonical,
+    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, Precision, ToCanonical, vtable,
 };
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{match_each_integer_ptype, DType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_dtype::{DType, match_each_integer_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 
 vtable!(Dict);
@@ -120,16 +120,16 @@ impl ArrayVTable<DictVTable> for DictVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &DictArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(array: &DictArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        array.codes.array_hash(state);
-        array.values.array_hash(state);
+        array.codes.array_hash(state, precision);
+        array.values.array_hash(state, precision);
     }
 
-    fn array_eq(array: &DictArray, other: &DictArray) -> bool {
+    fn array_eq(array: &DictArray, other: &DictArray, precision: Precision) -> bool {
         array.dtype == other.dtype
-            && array.codes.array_eq(&other.codes)
-            && array.values.array_eq(&other.values)
+            && array.codes.array_eq(&other.codes, precision)
+            && array.values.array_eq(&other.values, precision)
     }
 }
 
@@ -196,10 +196,10 @@ mod test {
     use vortex_array::builders::builder_with_capacity;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-    use vortex_buffer::{buffer, BitBuffer};
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, NativePType, PType, UnsignedPType};
-    use vortex_error::{vortex_panic, VortexExpect, VortexUnwrap};
+    use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
     use vortex_mask::AllOr;
 
     use crate::DictArray;

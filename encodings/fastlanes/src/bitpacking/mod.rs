@@ -15,7 +15,9 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use vortex_array::{Array, ArrayEq, ArrayHash, Canonical, EncodingId, EncodingRef, vtable};
+use vortex_array::{
+    Array, ArrayEq, ArrayHash, Canonical, EncodingId, EncodingRef, Precision, vtable,
+};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
@@ -332,24 +334,28 @@ impl ArrayVTable<BitPackedVTable> for BitPackedVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &BitPackedArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: &BitPackedArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.offset.hash(state);
         array.len.hash(state);
         array.dtype.hash(state);
         array.bit_width.hash(state);
-        array.packed.array_hash(state);
-        array.patches.array_hash(state);
-        array.validity.array_hash(state);
+        array.packed.array_hash(state, precision);
+        array.patches.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &BitPackedArray, other: &BitPackedArray) -> bool {
+    fn array_eq(array: &BitPackedArray, other: &BitPackedArray, precision: Precision) -> bool {
         array.offset == other.offset
             && array.len == other.len
             && array.dtype == other.dtype
             && array.bit_width == other.bit_width
-            && array.packed.array_eq(&other.packed)
-            && array.patches.array_eq(&other.patches)
-            && array.validity.array_eq(&other.validity)
+            && array.packed.array_eq(&other.packed, precision)
+            && array.patches.array_eq(&other.patches, precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 }
 

@@ -13,7 +13,7 @@ use vortex_array::vtable::{
     ValidityVTableFromValidityHelper,
 };
 use vortex_array::{
-    vtable, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray,
+    ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision, vtable,
 };
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::DType;
@@ -113,16 +113,20 @@ impl ArrayVTable<ByteBoolVTable> for ByteBoolVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ByteBoolArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: &ByteBoolArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype.hash(state);
-        array.buffer.array_hash(state);
-        array.validity.array_hash(state);
+        array.buffer.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &ByteBoolArray, other: &ByteBoolArray) -> bool {
+    fn array_eq(array: &ByteBoolArray, other: &ByteBoolArray, precision: Precision) -> bool {
         array.dtype == other.dtype
-            && array.buffer.array_eq(&other.buffer)
-            && array.validity.array_eq(&other.validity)
+            && array.buffer.array_eq(&other.buffer, precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 }
 

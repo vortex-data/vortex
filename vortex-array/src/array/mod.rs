@@ -33,7 +33,7 @@ use crate::vtable::{
 };
 use crate::{
     ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, EncodingId, EncodingRef,
-    SerializeMetadata,
+    SerializeMetadata, hash,
 };
 
 /// The public API trait for all Vortex arrays.
@@ -645,15 +645,15 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 }
 
 impl<V: VTable> ArrayHash for ArrayAdapter<V> {
-    fn array_hash<H: Hasher>(&self, state: &mut H) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
         self.0.encoding_id().hash(state);
-        <V::ArrayVTable as ArrayVTable<V>>::array_hash(&self.0, state);
+        <V::ArrayVTable as ArrayVTable<V>>::array_hash(&self.0, state, precision);
     }
 }
 
 impl<V: VTable> ArrayEq for ArrayAdapter<V> {
-    fn array_eq(&self, other: &Self) -> bool {
-        <V::ArrayVTable as ArrayVTable<V>>::array_eq(&self.0, &other.0)
+    fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
+        <V::ArrayVTable as ArrayVTable<V>>::array_eq(&self.0, &other.0, precision)
     }
 }
 

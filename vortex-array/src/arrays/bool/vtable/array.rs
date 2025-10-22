@@ -5,6 +5,7 @@ use std::hash::Hash;
 
 use vortex_dtype::DType;
 
+use crate::Precision;
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::hash::{ArrayEq, ArrayHash};
 use crate::stats::StatsSetRef;
@@ -23,25 +24,17 @@ impl ArrayVTable<BoolVTable> for BoolVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &BoolArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(array: &BoolArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        // BooleanBuffer is from arrow-buffer, so we manually hash its components
-        array.buffer.offset().hash(state);
-        array.buffer.len().hash(state);
-        array.buffer.inner().as_ptr().hash(state);
-        array.validity.array_hash(state);
+        array.bit_buffer().array_hash(state, precision);
+        array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &BoolArray, other: &BoolArray) -> bool {
+    fn array_eq(array: &BoolArray, other: &BoolArray, precision: Precision) -> bool {
         if array.dtype != other.dtype {
             return false;
         }
-        // BooleanBuffer is from arrow-buffer, so we manually compare its components
-        let buf1 = &array.buffer;
-        let buf2 = &other.buffer;
-        buf1.offset() == buf2.offset()
-            && buf1.len() == buf2.len()
-            && buf1.inner().as_ptr() == buf2.inner().as_ptr()
-            && array.validity.array_eq(&other.validity)
+        array.bit_buffer().array_eq(other.bit_buffer(), precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 }

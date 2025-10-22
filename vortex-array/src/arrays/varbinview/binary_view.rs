@@ -100,6 +100,15 @@ assert_eq_size!(Inlined, [u8; 16]);
 assert_eq_size!(Ref, [u8; 16]);
 assert_eq_align!(BinaryView, u128);
 
+impl PartialEq for BinaryView {
+    fn eq(&self, other: &Self) -> bool {
+        let a = unsafe { std::mem::transmute::<&BinaryView, &[u8; 16]>(self) };
+        let b = unsafe { std::mem::transmute::<&BinaryView, &[u8; 16]>(other) };
+        a == b
+    }
+}
+impl Eq for BinaryView {}
+
 impl Hash for BinaryView {
     fn hash<H: Hasher>(&self, state: &mut H) {
         unsafe { std::mem::transmute::<&BinaryView, &[u8; 16]>(self) }.hash(state);

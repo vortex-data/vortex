@@ -8,7 +8,9 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
-use vortex_array::{Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, vtable};
+use vortex_array::{
+    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, Precision, vtable,
+};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
@@ -130,18 +132,26 @@ impl ArrayVTable<DateTimePartsVTable> for DateTimePartsVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &DateTimePartsArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: &DateTimePartsArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype.hash(state);
-        array.days.array_hash(state);
-        array.seconds.array_hash(state);
-        array.subseconds.array_hash(state);
+        array.days.array_hash(state, precision);
+        array.seconds.array_hash(state, precision);
+        array.subseconds.array_hash(state, precision);
     }
 
-    fn array_eq(array: &DateTimePartsArray, other: &DateTimePartsArray) -> bool {
+    fn array_eq(
+        array: &DateTimePartsArray,
+        other: &DateTimePartsArray,
+        precision: Precision,
+    ) -> bool {
         array.dtype == other.dtype
-            && array.days.array_eq(&other.days)
-            && array.seconds.array_eq(&other.seconds)
-            && array.subseconds.array_eq(&other.subseconds)
+            && array.days.array_eq(&other.days, precision)
+            && array.seconds.array_eq(&other.seconds, precision)
+            && array.subseconds.array_eq(&other.subseconds, precision)
     }
 }
 

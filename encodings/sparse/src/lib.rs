@@ -7,16 +7,17 @@ use std::hash::Hash;
 use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{compare, fill_null, filter, sub_scalar, Operator};
+use vortex_array::compute::{Operator, compare, fill_null, filter, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
-    vtable, Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, IntoArray, ToCanonical,
+    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, IntoArray, Precision,
+    ToCanonical, vtable,
 };
 use vortex_buffer::{BitBufferMut, Buffer};
-use vortex_dtype::{match_each_integer_ptype, DType, IntegerPType, NativePType, Nullability};
-use vortex_error::{vortex_bail, vortex_ensure, VortexExpect as _, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
@@ -257,13 +258,13 @@ impl ArrayVTable<SparseVTable> for SparseVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &SparseArray, state: &mut H) {
-        array.patches.array_hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &SparseArray, state: &mut H, precision: Precision) {
+        array.patches.array_hash(state, precision);
         array.fill_value.hash(state);
     }
 
-    fn array_eq(array: &SparseArray, other: &SparseArray) -> bool {
-        array.patches.array_eq(&other.patches) && array.fill_value == other.fill_value
+    fn array_eq(array: &SparseArray, other: &SparseArray, precision: Precision) -> bool {
+        array.patches.array_eq(&other.patches, precision) && array.fill_value == other.fill_value
     }
 }
 
@@ -356,10 +357,10 @@ fn patch_validity<I: NativePType + AsPrimitive<usize>>(
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::cast;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexUnwrap;

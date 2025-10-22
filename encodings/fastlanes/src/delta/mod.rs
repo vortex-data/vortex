@@ -14,7 +14,8 @@ use vortex_array::vtable::{
     ValidityVTableFromChildSliceHelper,
 };
 use vortex_array::{
-    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision,
+    vtable,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_unsigned_integer_ptype};
@@ -241,20 +242,20 @@ impl ArrayVTable<DeltaVTable> for DeltaVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &DeltaArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(array: &DeltaArray, state: &mut H, precision: Precision) {
         array.offset.hash(state);
         array.len.hash(state);
         array.dtype.hash(state);
-        array.bases.array_hash(state);
-        array.deltas.array_hash(state);
+        array.bases.array_hash(state, precision);
+        array.deltas.array_hash(state, precision);
     }
 
-    fn array_eq(array: &DeltaArray, other: &DeltaArray) -> bool {
+    fn array_eq(array: &DeltaArray, other: &DeltaArray, precision: Precision) -> bool {
         array.offset == other.offset
             && array.len == other.len
             && array.dtype == other.dtype
-            && array.bases.array_eq(&other.bases)
-            && array.deltas.array_eq(&other.deltas)
+            && array.bases.array_eq(&other.bases, precision)
+            && array.deltas.array_eq(&other.deltas, precision)
     }
 }
 

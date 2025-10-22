@@ -12,7 +12,8 @@ use vortex_array::vtable::{
     VisitorVTable,
 };
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, Precision,
+    vtable,
 };
 use vortex_buffer::BufferMut;
 use vortex_dtype::{
@@ -183,14 +184,18 @@ impl ArrayVTable<SequenceVTable> for SequenceVTable {
         array.stats_set.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &SequenceArray, state: &mut H) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: &SequenceArray,
+        state: &mut H,
+        _precision: Precision,
+    ) {
         array.base.hash(state);
         array.multiplier.hash(state);
         array.dtype.hash(state);
         array.length.hash(state);
     }
 
-    fn array_eq(array: &SequenceArray, other: &SequenceArray) -> bool {
+    fn array_eq(array: &SequenceArray, other: &SequenceArray, _precision: Precision) -> bool {
         array.base == other.base
             && array.multiplier == other.multiplier
             && array.dtype == other.dtype
