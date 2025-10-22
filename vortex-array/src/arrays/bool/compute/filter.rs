@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, bit_util};
+use vortex_buffer::{BitBuffer, BitBufferMut, get_bit};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
@@ -23,18 +23,18 @@ impl FilterKernel for BoolVTable {
 
         let buffer = match mask_values.threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD) {
             MaskIter::Indices(indices) => filter_indices(
-                array.boolean_buffer(),
+                array.bit_buffer(),
                 mask.true_count(),
                 indices.iter().copied(),
             ),
             MaskIter::Slices(slices) => filter_slices(
-                array.boolean_buffer(),
+                array.bit_buffer(),
                 mask.true_count(),
                 slices.iter().copied(),
             ),
         };
 
-        Ok(BoolArray::from_bool_buffer(buffer, validity).into_array())
+        Ok(BoolArray::from_bit_buffer(buffer, validity).into_array())
     }
 }
 
@@ -44,34 +44,30 @@ register_kernel!(FilterKernelAdapter(BoolVTable).lift());
 /// NOTE: it was benchmarked to be faster using collect_bool to index into a slice than to
 ///  pass the indices as an iterator of usize. So we keep this alternate implementation.
 pub fn filter_indices(
-    buffer: &BooleanBuffer,
+    bools: &BitBuffer,
     indices_len: usize,
     mut indices: impl Iterator<Item = usize>,
-) -> BooleanBuffer {
-    let src = buffer.values().as_ptr();
-    let offset = buffer.offset();
-
-    BooleanBuffer::collect_bool(indices_len, |_idx| {
+) -> BitBuffer {
+    let buffer = bools.inner().as_ref();
+    BitBuffer::collect_bool(indices_len, |_idx| {
         let idx = indices
             .next()
             .vortex_expect("iterator is guaranteed to be within the length of the array.");
-        unsafe { bit_util::get_bit_raw(src, idx + offset) }
+        get_bit(buffer, bools.offset() + idx)
     })
 }
 
 pub fn filter_slices(
-    buffer: &BooleanBuffer,
+    buffer: &BitBuffer,
     indices_len: usize,
     slices: impl Iterator<Item = (usize, usize)>,
-) -> BooleanBuffer {
-    let src = buffer.values();
-    let offset = buffer.offset();
-
-    let mut builder = BooleanBufferBuilder::new(indices_len);
+) -> BitBuffer {
+    let mut builder = BitBufferMut::with_capacity(indices_len);
     for (start, end) in slices {
-        builder.append_packed_range(start + offset..end + offset, src)
+        // TODO(ngates): we probably want a borrowed slice for things like this.
+        builder.append_buffer(&buffer.slice(start..end));
     }
-    builder.into()
+    builder.freeze()
 }
 
 #[cfg(test)]
@@ -95,7 +91,7 @@ mod test {
 
         assert_eq!(
             vec![true, false],
-            filtered.boolean_buffer().iter().collect_vec()
+            filtered.bit_buffer().iter().collect_vec()
         )
     }
 
@@ -103,7 +99,7 @@ mod test {
     fn filter_bool_by_slice_test() {
         let arr = BoolArray::from_iter([true, true, false]);
 
-        let filtered = filter_slices(arr.boolean_buffer(), 2, [(0, 1), (2, 3)].into_iter());
+        let filtered = filter_slices(arr.bit_buffer(), 2, [(0, 1), (2, 3)].into_iter());
         assert_eq!(2, filtered.len());
 
         assert_eq!(vec![true, false], filtered.iter().collect_vec())
@@ -113,7 +109,7 @@ mod test {
     fn filter_bool_by_index_test() {
         let arr = BoolArray::from_iter([true, true, false]);
 
-        let filtered = filter_indices(arr.boolean_buffer(), 2, [0, 2].into_iter());
+        let filtered = filter_indices(arr.bit_buffer(), 2, [0, 2].into_iter());
         assert_eq!(2, filtered.len());
 
         assert_eq!(vec![true, false], filtered.iter().collect_vec())

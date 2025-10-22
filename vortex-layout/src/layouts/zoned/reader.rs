@@ -5,13 +5,13 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, LazyLock, OnceLock};
 
-use arrow_buffer::BooleanBufferBuilder;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, MaskFuture, ToCanonical};
+use vortex_buffer::BitBufferMut;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
@@ -243,12 +243,12 @@ impl LayoutReader for ZonedReader {
 
             let pruning_mask = pruning_mask_future.await?.mask()?;
 
-            let mut builder = BooleanBufferBuilder::new(mask.len());
-            for (zone_idx, &zone_length) in zone_range.zip_eq(&zone_lengths) {
-                builder.append_n(zone_length, !pruning_mask.value(usize::try_from(zone_idx)?));
+            let mut builder = BitBufferMut::with_capacity(mask.len());
+            for (zone_idx, &zone_length) in zone_range.clone().zip_eq(&zone_lengths) {
+                builder.append_n(!pruning_mask.value(usize::try_from(zone_idx)?), zone_length);
             }
 
-            let stats_mask = Mask::from(builder.finish());
+            let stats_mask = Mask::from(builder.freeze());
             assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
 
             // Intersect the masks.
@@ -437,7 +437,7 @@ mod test {
                 .unwrap()
                 .await
                 .unwrap()
-                .to_boolean_buffer()
+                .to_bit_buffer()
                 .iter()
                 .collect::<Vec<_>>();
 

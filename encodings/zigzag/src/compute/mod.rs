@@ -63,13 +63,13 @@ impl ZigZagEncoded for u64 {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::arrays::{BooleanBuffer, PrimitiveArray};
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::{filter, take};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-    use vortex_buffer::buffer;
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
@@ -113,7 +113,7 @@ mod tests {
             .encode(&buffer![-189, -160, 1].into_array().to_canonical(), None)
             .unwrap()
             .unwrap();
-        let filter_mask = BooleanBuffer::from(vec![true, false, true]).into();
+        let filter_mask = BitBuffer::from(vec![true, false, true]).into();
         let actual = filter(&zigzag, &filter_mask).unwrap().to_primitive();
         let expected = ZigZagEncoding
             .encode(&buffer![-189, 1].into_array().to_canonical(), None)

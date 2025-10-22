@@ -2,22 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::mem;
 
-use arrow_buffer::BooleanBufferBuilder;
+use vortex_buffer::BitBufferMut;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 use vortex_scalar::{BoolScalar, Scalar};
 
 use crate::arrays::BoolArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
 
 pub struct BoolBuilder {
     dtype: DType,
-    inner: BooleanBufferBuilder,
-    nulls: LazyNullBufferBuilder,
+    inner: BitBufferMut,
+    nulls: LazyBitBufferBuilder,
 }
 
 impl BoolBuilder {
@@ -27,8 +28,8 @@ impl BoolBuilder {
 
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
-            inner: BooleanBufferBuilder::new(capacity),
-            nulls: LazyNullBufferBuilder::new(capacity),
+            inner: BitBufferMut::with_capacity(capacity),
+            nulls: LazyBitBufferBuilder::new(capacity),
             dtype: DType::Bool(nullability),
         }
     }
@@ -42,7 +43,7 @@ impl BoolBuilder {
     ///
     /// This method appends the given boolean value `n` times.
     pub fn append_values(&mut self, value: bool, n: usize) {
-        self.inner.append_n(n, value);
+        self.inner.append_n(value, n);
         self.nulls.append_n_non_nulls(n)
     }
 
@@ -54,8 +55,8 @@ impl BoolBuilder {
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
-        BoolArray::from_bool_buffer(
-            self.inner.finish(),
+        BoolArray::from_bit_buffer(
+            mem::take(&mut self.inner).freeze(),
             self.nulls.finish_with_nullability(self.dtype.nullability()),
         )
     }
@@ -83,7 +84,7 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
-        self.inner.append_n(n, false);
+        self.inner.append_n(false, n);
         self.nulls.append_n_nulls(n)
     }
 
@@ -107,7 +108,7 @@ impl ArrayBuilder for BoolBuilder {
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         let bool_array = array.to_bool();
 
-        self.inner.append_buffer(bool_array.boolean_buffer());
+        self.inner.append_buffer(bool_array.bit_buffer());
         self.nulls.append_validity_mask(bool_array.validity_mask());
     }
 
@@ -117,7 +118,7 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls = LazyBitBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }
 
@@ -174,7 +175,7 @@ mod tests {
         let into_canon = chunk.to_bool();
 
         assert_eq!(canon_into.validity(), into_canon.validity());
-        assert_eq!(canon_into.boolean_buffer(), into_canon.boolean_buffer());
+        assert_eq!(canon_into.bit_buffer(), into_canon.bit_buffer());
     }
 
     #[test]
@@ -197,8 +198,8 @@ mod tests {
         assert_eq!(array.len(), 3);
 
         // Check actual values.
-        assert!(array.boolean_buffer().value(0));
-        assert!(!array.boolean_buffer().value(1));
+        assert!(array.bit_buffer().value(0));
+        assert!(!array.bit_buffer().value(1));
         // The third value is null, but the buffer might have any value.
 
         // Check validity - first two should be valid, third should be null.

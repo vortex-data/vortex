@@ -26,7 +26,7 @@ fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask)
         Mask::AllFalse(_) => 0,
         Mask::Values(v) => values
             .iter()
-            .zip(v.boolean_buffer().iter())
+            .zip(v.bit_buffer().iter())
             .filter_map(|(v, m)| m.then_some(v))
             .filter(|v| v.is_nan())
             .count(),

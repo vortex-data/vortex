@@ -159,10 +159,7 @@ mod tests {
 
         let mut executor = Executor::default();
         let result = block_on(executor.execute(compare)).unwrap();
-        assert_eq!(
-            result.into_bool().bool_vec().unwrap(),
-            vec![false, false, true]
-        );
+        assert_eq!(result.into_bool().bool_vec(), vec![false, false, true]);
     }
 
     #[test]
@@ -181,7 +178,7 @@ mod tests {
         let mut executor = Executor::default();
         let result = block_on(executor.execute(compare.clone())).unwrap();
         assert_eq!(
-            result.into_bool().bool_vec().unwrap(),
+            result.into_bool().bool_vec(),
             vec![false, false, false, false]
         );
 

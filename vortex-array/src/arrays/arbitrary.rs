@@ -5,8 +5,7 @@ use std::iter;
 use std::sync::Arc;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
-use arrow_buffer::BooleanBuffer;
-use vortex_buffer::Buffer;
+use vortex_buffer::{BitBuffer, Buffer};
 use vortex_dtype::{DType, IntegerPType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::arbitrary::random_scalar;
@@ -305,7 +304,7 @@ fn random_bool(
 ) -> Result<ArrayRef> {
     let v = arbitrary_vec_of_len(u, len)?;
     let validity = random_validity(u, nullability, v.len())?;
-    Ok(BoolArray::from_bool_buffer(BooleanBuffer::from(v), validity).into_array())
+    Ok(BoolArray::from_bit_buffer(BitBuffer::from(v), validity).into_array())
 }
 
 fn random_validity(u: &mut Unstructured, nullability: Nullability, len: usize) -> Result<Validity> {

@@ -26,10 +26,10 @@ impl FilterKernel for SequenceVTable {
 register_kernel!(FilterKernelAdapter(SequenceVTable).lift());
 
 fn filter_impl<T: NativePType>(mul: T, base: T, mask: &Mask, validity: Validity) -> ArrayRef {
-    match mask.boolean_buffer() {
+    match mask.bit_buffer() {
         AllOr::All | AllOr::None => unreachable!("Handled by entrypoint function"),
         AllOr::Some(mask) => {
-            let mut buffer = BufferMut::<T>::with_capacity(mask.count_set_bits());
+            let mut buffer = BufferMut::<T>::with_capacity(mask.true_count());
             buffer.extend(mask.set_indices().map(|idx| {
                 let i = T::from_usize(idx).vortex_expect("all valid indices fit");
                 base + i * mul

@@ -319,7 +319,6 @@ mod tests {
         "", // Filter for empty string
         vec![false, false, false], // Expected: all false, no dict values match
     )]
-    #[test]
     fn shortpathes_filtering(
         #[case] data: Vec<Option<&str>>,
         #[case] filter_value: &str,
@@ -368,10 +367,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(
-                mask.to_boolean_buffer().iter().collect::<Vec<_>>(),
-                expected
-            );
+            assert_eq!(mask.to_bit_buffer().iter().collect::<Vec<_>>(), expected);
         })
     }
 

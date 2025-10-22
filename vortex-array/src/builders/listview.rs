@@ -15,9 +15,9 @@ use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{ListScalar, Scalar};
 
-use super::lazy_null_builder::LazyNullBufferBuilder;
 use crate::array::{Array, ArrayRef, IntoArray};
 use crate::arrays::ListViewArray;
+use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
 use crate::builders::{
     ArrayBuilder, DEFAULT_BUILDER_CAPACITY, PrimitiveBuilder, builder_with_capacity,
 };
@@ -46,7 +46,7 @@ pub struct ListViewBuilder<O: IntegerPType, S: IntegerPType> {
     sizes_builder: PrimitiveBuilder<S>,
 
     /// The null map builder of the [`ListViewArray`].
-    nulls: LazyNullBufferBuilder,
+    nulls: LazyBitBufferBuilder,
 }
 
 impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
@@ -93,7 +93,7 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         let sizes_builder =
             PrimitiveBuilder::<S>::with_capacity(Nullability::NonNullable, capacity);
 
-        let nulls = LazyNullBufferBuilder::new(capacity);
+        let nulls = LazyBitBufferBuilder::new(capacity);
 
         Self {
             dtype: DType::List(element_dtype, nullability),
@@ -261,7 +261,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls = LazyBitBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }
 

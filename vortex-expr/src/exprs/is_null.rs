@@ -73,7 +73,7 @@ impl VTable for IsNullVTable {
         match array.validity_mask() {
             Mask::AllTrue(len) => Ok(ConstantArray::new(false, len).into_array()),
             Mask::AllFalse(len) => Ok(ConstantArray::new(true, len).into_array()),
-            Mask::Values(mask) => Ok(BoolArray::from(mask.boolean_buffer().not()).into_array()),
+            Mask::Values(mask) => Ok(BoolArray::from(mask.bit_buffer().not()).into_array()),
         }
     }
 

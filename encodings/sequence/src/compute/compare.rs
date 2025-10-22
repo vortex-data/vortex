@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray};
+use vortex_array::arrays::{BoolArray, ConstantArray};
 use vortex_array::compute::{CompareKernel, Operator};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef};
+use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{PValue, Scalar};
@@ -45,9 +46,9 @@ impl CompareKernel for SequenceVTable {
         };
 
         if let Some(set_idx) = set_idx {
-            let buffer = BooleanBuffer::from_iter((0..lhs.len()).map(|idx| idx == set_idx));
+            let buffer = BitBuffer::from_iter((0..lhs.len()).map(|idx| idx == set_idx));
             Ok(Some(
-                BoolArray::from_bool_buffer(buffer, validity).to_array(),
+                BoolArray::from_bit_buffer(buffer, validity).to_array(),
             ))
         } else {
             Ok(Some(
@@ -113,8 +114,8 @@ mod tests {
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().boolean_buffer(),
-            BoolArray::from_iter(vec![false, false, true, false]).boolean_buffer(),
+            result.to_bool().bit_buffer(),
+            BoolArray::from_iter(vec![false, false, true, false]).bit_buffer(),
         )
     }
 
@@ -127,8 +128,8 @@ mod tests {
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().boolean_buffer(),
-            BoolArray::from_iter(vec![false, false, true, false]).boolean_buffer(),
+            result.to_bool().bit_buffer(),
+            BoolArray::from_iter(vec![false, false, true, false]).bit_buffer(),
         )
     }
 
@@ -141,8 +142,8 @@ mod tests {
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().boolean_buffer(),
-            BoolArray::from_iter(vec![false, false, false, false]).boolean_buffer(),
+            result.to_bool().bit_buffer(),
+            BoolArray::from_iter(vec![false, false, false, false]).bit_buffer(),
         )
     }
 }

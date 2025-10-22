@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::mem;
 
-use arrow_buffer::NullBufferBuilder;
 use rustc_hash::FxBuildHasher;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{NativeValue, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::BufferMut;
+use vortex_buffer::{BitBufferMut, BufferMut};
 use vortex_dtype::{NativePType, Nullability, PType, UnsignedPType};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
@@ -64,7 +64,7 @@ where
         Self {
             lookup: HashMap::with_hasher(FxBuildHasher),
             values: BufferMut::<T>::empty(),
-            values_nulls: NullBufferBuilder::new(0),
+            values_nulls: BitBufferMut::empty(),
             nullability,
             max_dict_len,
         }
@@ -85,11 +85,11 @@ where
                 match v {
                     None => {
                         self.values.push(T::default());
-                        self.values_nulls.append_null();
+                        self.values_nulls.append_false();
                     }
                     Some(v) => {
                         self.values.push(v);
-                        self.values_nulls.append_non_null();
+                        self.values_nulls.append_true();
                     }
                 }
                 Some(next_code)
@@ -104,7 +104,7 @@ where
 pub struct PrimitiveDictBuilder<T, Code> {
     lookup: HashMap<Option<NativeValue<T>>, Code, FxBuildHasher>,
     values: BufferMut<T>,
-    values_nulls: NullBufferBuilder,
+    values_nulls: BitBufferMut,
     nullability: Nullability,
     max_dict_len: usize,
 }
@@ -136,7 +136,7 @@ where
     fn values(&mut self) -> VortexResult<ArrayRef> {
         Ok(PrimitiveArray::new(
             self.values.clone(),
-            Validity::from_null_buffer(self.values_nulls.finish_cloned(), self.nullability),
+            Validity::from_bit_buffer(mem::take(&mut self.values_nulls).freeze(), self.nullability),
         )
         .into_array())
     }

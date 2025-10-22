@@ -138,7 +138,7 @@ mod tests {
                 .evaluate(&Scope::new(bools.to_array()))
                 .unwrap()
                 .to_bool()
-                .boolean_buffer()
+                .bit_buffer()
                 .iter()
                 .collect::<Vec<_>>(),
             vec![true, false, true, true, false, false]

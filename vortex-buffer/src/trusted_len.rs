@@ -15,6 +15,82 @@ use itertools::ProcessResults;
 /// `size_hint` method. Failure to do so can trigger undefined behavior in users of the trait.
 pub unsafe trait TrustedLen: Iterator {}
 
+/// An adapter that turns any iterator into a `TrustedLen` iterator.
+///
+/// # Safety
+///
+/// The caller must guarantee that the wrapped iterator does indeed have an exact length.
+pub struct TrustedLenAdapter<I> {
+    inner: I,
+    len: usize,
+    #[cfg(debug_assertions)]
+    count: usize,
+}
+
+impl<I: Iterator> Iterator for TrustedLenAdapter<I> {
+    type Item = I::Item;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.inner.next() {
+            None => {
+                #[cfg(debug_assertions)]
+                {
+                    assert_eq!(
+                        self.len, self.count,
+                        "TrustedLenAdapter: iterator ended early"
+                    );
+                }
+                None
+            }
+            Some(item) => {
+                #[cfg(debug_assertions)]
+                {
+                    self.count += 1;
+                    assert!(
+                        self.count <= self.len,
+                        "TrustedLenAdapter: iterator yielded more items than promised"
+                    );
+                }
+                Some(item)
+            }
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
+}
+
+unsafe impl<I: Iterator> TrustedLen for TrustedLenAdapter<I> {}
+
+pub trait TrustedLenExt: Iterator + Sized {
+    /// Wraps this iterator in a `TrustedLenAdapter`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that the iterator does indeed have an exact length.
+    unsafe fn trusted_len(self) -> TrustedLenAdapter<Self> {
+        let (lower, maybe_upper) = self.size_hint();
+        if let Some(upper) = maybe_upper {
+            assert_eq!(
+                lower, upper,
+                "TrustedLenExt: iterator size hints must match if upper bound is given"
+            );
+        }
+
+        TrustedLenAdapter {
+            inner: self,
+            len: lower,
+            #[cfg(debug_assertions)]
+            count: 0,
+        }
+    }
+}
+
+impl<I: Iterator> TrustedLenExt for I {}
+
 macro_rules! impl_for_range {
     ($($typ:ty),*) => {
         $(

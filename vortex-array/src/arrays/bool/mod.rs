@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::{BoolArray, BooleanBufferExt};
-// Re-export Arrow's `BooleanBuffer` type on our API surface.
-pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+mod patch;
+
+pub use array::*;
 
 pub mod compute;
 

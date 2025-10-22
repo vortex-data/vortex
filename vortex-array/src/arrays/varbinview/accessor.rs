@@ -41,7 +41,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
                 let validity = v.to_bool();
                 let mut iter = views
                     .iter()
-                    .zip(validity.boolean_buffer())
+                    .zip(validity.bit_buffer())
                     .map(|(view, valid)| {
                         if valid {
                             if view.is_inlined() {

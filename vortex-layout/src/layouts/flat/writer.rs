@@ -143,13 +143,12 @@ impl LayoutStrategy for FlatLayoutStrategy {
 mod tests {
     use std::sync::Arc;
 
-    use arrow_buffer::BooleanBufferBuilder;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_array::stats::{Precision, Stat, StatsProviderExt};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, MaskFuture, ToCanonical};
-    use vortex_buffer::buffer;
+    use vortex_buffer::{BitBufferMut, buffer};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
     use vortex_expr::root;
@@ -263,12 +262,12 @@ mod tests {
     #[test]
     fn struct_array_round_trip() {
         block_on(|handle| async {
-            let mut validity_builder = BooleanBufferBuilder::new(2);
+            let mut validity_builder = BitBufferMut::with_capacity(2);
             validity_builder.append(true);
             validity_builder.append(false);
-            let validity_boolean_buffer = validity_builder.finish();
+            let validity_boolean_buffer = validity_builder.freeze();
             let validity = Validity::Array(
-                BoolArray::from_bool_buffer(validity_boolean_buffer.clone(), Validity::NonNullable)
+                BoolArray::from_bit_buffer(validity_boolean_buffer.clone(), Validity::NonNullable)
                     .into_array(),
             );
             let array = StructArray::try_new(
@@ -316,7 +315,7 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                result.validity_mask().boolean_buffer(),
+                result.validity_mask().bit_buffer(),
                 AllOr::Some(&validity_boolean_buffer)
             );
             assert_eq!(

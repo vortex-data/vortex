@@ -126,7 +126,7 @@ impl ValidityVTable<ArrowVTable> for ArrowVTable {
         array
             .inner
             .logical_nulls()
-            .map(|null_buffer| Mask::from_buffer(null_buffer.inner().clone()))
+            .map(|null_buffer| Mask::from_buffer(null_buffer.inner().clone().into()))
             .unwrap_or_else(|| Mask::new_true(array.inner.len()))
     }
 }

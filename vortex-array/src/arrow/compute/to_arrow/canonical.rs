@@ -33,6 +33,7 @@ use crate::arrays::{
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::ToArrowArgs;
+use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{InvocationArgs, Kernel, Output, cast};
 use crate::{Array as _, Canonical, IntoArray, ToCanonical};
@@ -245,13 +246,13 @@ fn to_arrow_null(array: NullArray) -> VortexResult<ArrowArrayRef> {
 
 fn to_arrow_bool(array: BoolArray) -> VortexResult<ArrowArrayRef> {
     Ok(Arc::new(ArrowBoolArray::new(
-        array.boolean_buffer().clone(),
-        array.validity_mask().to_null_buffer(),
+        array.bit_buffer().clone().into(),
+        to_null_buffer(array.validity_mask()),
     )))
 }
 
 fn to_arrow_primitive<T: ArrowPrimitiveType>(array: PrimitiveArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = array.validity_mask().to_null_buffer();
+    let null_buffer = to_null_buffer(array.validity_mask());
     let len = array.len();
     let buffer = array.into_byte_buffer().into_arrow_buffer();
     Ok(Arc::new(ArrowPrimitiveArray::<T>::new(
@@ -261,7 +262,7 @@ fn to_arrow_primitive<T: ArrowPrimitiveType>(array: PrimitiveArray) -> VortexRes
 }
 
 fn to_arrow_decimal32(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = array.validity_mask().to_null_buffer();
+    let null_buffer = to_null_buffer(array.validity_mask());
     let buffer: Buffer<i32> = match array.values_type() {
         DecimalValueType::I8 => {
             Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
@@ -306,7 +307,7 @@ fn to_arrow_decimal32(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
 }
 
 fn to_arrow_decimal64(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = array.validity_mask().to_null_buffer();
+    let null_buffer = to_null_buffer(array.validity_mask());
     let buffer: Buffer<i64> = match array.values_type() {
         DecimalValueType::I8 => {
             Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
@@ -346,7 +347,7 @@ fn to_arrow_decimal64(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
 }
 
 fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = array.validity_mask().to_null_buffer();
+    let null_buffer = to_null_buffer(array.validity_mask());
     let buffer: Buffer<i128> = match array.values_type() {
         DecimalValueType::I8 => {
             Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
@@ -381,7 +382,7 @@ fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
 }
 
 fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = array.validity_mask().to_null_buffer();
+    let null_buffer = to_null_buffer(array.validity_mask());
     let buffer: Buffer<i256> = match array.values_type() {
         DecimalValueType::I8 => {
             Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
@@ -450,7 +451,7 @@ fn to_arrow_struct(
         })
         .collect::<VortexResult<Vec<_>>>()?;
 
-    let nulls = array.validity_mask().to_null_buffer();
+    let nulls = to_null_buffer(array.validity_mask());
 
     if field_arrays.is_empty() {
         return Ok(Arc::new(ArrowStructArray::new_empty_fields(
@@ -534,7 +535,7 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
         .to_primitive()
         .buffer::<O>()
         .into_arrow_offset_buffer();
-    let nulls = list_array.validity_mask().to_null_buffer();
+    let nulls = to_null_buffer(list_array.validity_mask());
 
     Ok(Arc::new(GenericListArray::new(
         element_field,
@@ -561,7 +562,7 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
     // Convert `offsets`, `sizes`, and `validity` to Arrow buffers.
     let arrow_offsets = offsets.buffer::<O>().into_arrow_scalar_buffer();
     let arrow_sizes = sizes.buffer::<O>().into_arrow_scalar_buffer();
-    let nulls = array.validity_mask().to_null_buffer();
+    let nulls = to_null_buffer(array.validity_mask());
 
     // Convert the child `elements` array to Arrow.
     let (elements, element_field) = {
@@ -621,7 +622,7 @@ fn to_arrow_fixed_size_list(
         ));
         (values, element_field)
     };
-    let nulls = array.validity_mask().to_null_buffer();
+    let nulls = to_null_buffer(array.validity_mask());
 
     // TODO(connor): Revert this once the issue below is resolved.
     // Ok(Arc::new(ArrowFixedSizeListArray::new(
@@ -655,7 +656,7 @@ fn to_arrow_varbinview<T: ByteViewType>(array: VarBinViewArray) -> VortexResult<
         .iter()
         .map(|buffer| buffer.clone().into_arrow_buffer())
         .collect();
-    let nulls = array.validity_mask().to_null_buffer();
+    let nulls = to_null_buffer(array.validity_mask());
 
     // SAFETY: our own VarBinView array is considered safe.
     Ok(Arc::new(unsafe {

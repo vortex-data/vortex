@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBufferBuilder;
 use itertools::Itertools;
-use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
+use vortex_buffer::{BitBufferMut, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType, IntegerPType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_scalar::{BigCast, DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
@@ -209,7 +208,7 @@ impl DecimalArray {
     ) -> Self {
         let iter = iter.into_iter();
         let mut values = BufferMut::with_capacity(iter.size_hint().0);
-        let mut validity = BooleanBufferBuilder::new(values.capacity());
+        let mut validity = BitBufferMut::with_capacity(values.capacity());
 
         for i in iter {
             match i {
@@ -226,7 +225,7 @@ impl DecimalArray {
         Self::new(
             values.freeze(),
             decimal_dtype,
-            Validity::from(validity.finish()),
+            Validity::from(validity.freeze()),
         )
     }
 

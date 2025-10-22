@@ -31,6 +31,3 @@ zstd = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
-
-[dev-dependencies.vortex-dict]
-workspace = true

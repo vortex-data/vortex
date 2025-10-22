@@ -328,7 +328,7 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
                     )
                     .into_array()
                 };
-                Mask::from_buffer(ree_validity.to_bool().boolean_buffer().clone())
+                Mask::from_buffer(ree_validity.to_bool().bit_buffer().clone())
             }
         }
     }

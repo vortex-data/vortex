@@ -206,15 +206,14 @@ impl LayoutReader for FlatReader {
 mod test {
     use std::sync::Arc;
 
-    use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, MaskFuture, ToCanonical};
-    use vortex_buffer::buffer;
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;
 
-    use crate::LayoutStrategy as _;
+    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
@@ -290,8 +289,8 @@ mod test {
                 .to_bool();
 
             assert_eq!(
-                &BooleanBuffer::from_iter([false, false, false, true, true]),
-                result.boolean_buffer()
+                &BitBuffer::from_iter([false, false, false, true, true]),
+                result.bit_buffer()
             );
         })
     }

@@ -8,7 +8,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
-use vortex_buffer::BufferMut;
+use vortex_buffer::{BitBufferMut, BufferMut};
 use vortex_dtype::{NativePType, match_each_native_ptype, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexResult, vortex_panic};
 
@@ -129,11 +129,13 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
                 return Validity::Array(validity_array.clone());
             }
 
-            let mut builder = arrow_buffer::BooleanBufferBuilder::new(padded_len);
-            builder.append_buffer(validity_array.to_bool().boolean_buffer());
-            builder.append_n(padded_len - len, false);
+            let mut builder = BitBufferMut::with_capacity(padded_len);
 
-            Validity::from(builder.finish())
+            let bool_array = validity_array.to_bool();
+            builder.append_buffer(bool_array.bit_buffer());
+            builder.append_n(false, padded_len - len);
+
+            Validity::from(builder.freeze())
         }
     }
 }

@@ -33,7 +33,7 @@ impl FillNullKernel for PrimitiveVTable {
             }
             Validity::Array(is_valid) => {
                 // TODO(danking): when we take PrimitiveArray by value, we should mutate in-place
-                let is_invalid = is_valid.to_bool().boolean_buffer().not();
+                let is_invalid = is_valid.to_bool().bit_buffer().not();
                 match_each_native_ptype!(array.ptype(), |T| {
                     let mut buffer = BufferMut::copy_from(array.as_slice::<T>());
                     let fill_value = fill_value
