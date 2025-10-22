@@ -9096,6 +9096,7 @@ dependencies = [
  "prost 0.14.1",
  "rstest",
  "rustc-hash",
+ "termtree",
  "tokio",
  "tracing",
  "uuid",
@@ -9304,6 +9305,7 @@ dependencies = [
  "parquet",
  "ratatui",
  "taffy",
+ "termtree",
  "tokio",
  "vortex",
 ]

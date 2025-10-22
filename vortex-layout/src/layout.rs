@@ -189,6 +189,11 @@ impl dyn Layout + '_ {
             stack: vec![self.to_layout()],
         }
     }
+
+    /// Display the layout as a tree structure.
+    pub fn display_tree(&self) -> crate::display::DisplayLayoutTree {
+        crate::display::DisplayLayoutTree(self.to_layout())
+    }
 }
 
 #[repr(transparent)]
