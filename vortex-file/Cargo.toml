@@ -19,6 +19,7 @@ all-features = true
 [dependencies]
 async-trait = { workspace = true }
 bytes = { workspace = true }
+cudarc = { workspace = true, optional = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
@@ -29,7 +30,8 @@ log = { workspace = true }
 object_store = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
-cudarc = { workspace = true, optional = true }
+# Needed to pickup the "js" feature for wasm targets from the workspace configuration
+uuid = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }

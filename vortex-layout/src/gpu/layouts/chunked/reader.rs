@@ -8,9 +8,9 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
+use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::ExprRef;
@@ -36,12 +36,11 @@ impl GpuChunkedLayoutReader {
     ) -> Self {
         let nchildren = layout.nchildren();
 
-        let mut chunk_offsets = vec![0; nchildren];
+        let mut chunk_offsets = vec![0; nchildren + 1];
         for i in 1..nchildren {
             chunk_offsets[i] = chunk_offsets[i - 1] + layout.children().child_row_count(i - 1);
         }
-        chunk_offsets.push(layout.row_count());
-        debug_assert_eq!(chunk_offsets.len(), nchildren + 1);
+        chunk_offsets[nchildren] = layout.row_count();
 
         let lazy_children = LazyGpuReaderChildren::new(layout.children().clone(), segment_source);
 
