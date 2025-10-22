@@ -3,7 +3,7 @@
 
 use std::ops::Sub;
 
-use vortex_buffer::{BitBuffer, BitBufferMut};
+use vortex_buffer::BitBufferMut;
 
 use crate::Mask;
 
@@ -106,7 +106,7 @@ impl MaskMut {
             Mask::AllTrue(len) => self.append_n(true, *len),
             Mask::AllFalse(len) => self.append_n(false, *len),
             Mask::Values(values) => {
-                let bitbuffer = BitBuffer::from(values.buffer.clone());
+                let bitbuffer = values.buffer.clone();
                 self.materialize().append_buffer(&bitbuffer);
             }
         }
@@ -199,7 +199,7 @@ impl MaskMut {
                     Mask::new_false(len)
                 }
             }
-            Inner::Builder(bits) => Mask::from_buffer(bits.freeze().into()),
+            Inner::Builder(bits) => Mask::from_buffer(bits.freeze()),
         }
     }
 

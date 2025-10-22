@@ -18,9 +18,9 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use itertools::Itertools;
 pub use mask_mut::*;
+use vortex_buffer::{BitBuffer, BitBufferMut};
 use vortex_error::{VortexResult, vortex_panic};
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
@@ -103,14 +103,14 @@ pub enum Mask {
     AllTrue(usize),
     /// No values are included.
     AllFalse(usize),
-    /// Some values are included, represented as a [`BooleanBuffer`].
+    /// Some values are included, represented as a [`BitBuffer`].
     Values(Arc<MaskValues>),
 }
 
 /// Represents the values of a [`Mask`] that contains some true and some false elements.
 #[derive(Debug)]
 pub struct MaskValues {
-    buffer: BooleanBuffer,
+    buffer: BitBuffer,
 
     // We cached the indices and slices representations, since it can be faster than iterating
     // the bit-mask over and over again.
@@ -144,7 +144,7 @@ impl MaskValues {
 
     /// Returns the boolean buffer representation of the mask.
     #[inline]
-    pub fn boolean_buffer(&self) -> &BooleanBuffer {
+    pub fn bit_buffer(&self) -> &BitBuffer {
         &self.buffer
     }
 
@@ -218,10 +218,10 @@ impl Mask {
         Self::AllFalse(length)
     }
 
-    /// Create a new [`Mask`] from a [`BooleanBuffer`].
-    pub fn from_buffer(buffer: BooleanBuffer) -> Self {
+    /// Create a new [`Mask`] from a [`BitBuffer`].
+    pub fn from_buffer(buffer: BitBuffer) -> Self {
         let len = buffer.len();
-        let true_count = buffer.count_set_bits();
+        let true_count = buffer.true_count();
 
         if true_count == 0 {
             return Self::AllFalse(len);
@@ -256,14 +256,13 @@ impl Mask {
             return Self::AllTrue(len);
         }
 
-        let mut buf = BooleanBufferBuilder::new(len);
+        let mut buf = BitBufferMut::new_unset(len);
         // TODO(ngates): for dense indices, we can do better by collecting into u64s.
-        buf.append_n(len, false);
-        indices.iter().for_each(|idx| buf.set_bit(*idx, true));
+        indices.iter().for_each(|&idx| buf.set(idx));
         debug_assert_eq!(buf.len(), len);
 
         Self::Values(Arc::new(MaskValues {
-            buffer: buf.finish(),
+            buffer: buf.freeze(),
             indices: OnceLock::from(indices),
             slices: Default::default(),
             true_count,
@@ -273,12 +272,11 @@ impl Mask {
 
     /// Create a new [`Mask`] from an [`IntoIterator<Item = usize>`] of indices to be excluded.
     pub fn from_excluded_indices(len: usize, indices: impl IntoIterator<Item = usize>) -> Self {
-        let mut buf = BooleanBufferBuilder::new(len);
-        buf.append_n(len, true);
+        let mut buf = BitBufferMut::new_set(len);
 
         let mut false_count: usize = 0;
         indices.into_iter().for_each(|idx| {
-            buf.set_bit(idx, false);
+            buf.unset(idx);
             false_count += 1;
         });
         debug_assert_eq!(buf.len(), len);
@@ -293,7 +291,7 @@ impl Mask {
         }
 
         Self::Values(Arc::new(MaskValues {
-            buffer: buf.finish(),
+            buffer: buf.freeze(),
             indices: Default::default(),
             slices: Default::default(),
             true_count,
@@ -320,18 +318,14 @@ impl Mask {
             return Self::AllTrue(len);
         }
 
-        let mut buf = BooleanBufferBuilder::new(len);
+        let mut buf = BitBufferMut::new_unset(len);
         for (start, end) in slices.iter().copied() {
-            buf.append_n(start - buf.len(), false);
-            buf.append_n(end - start, true);
-        }
-        if let Some((_, end)) = slices.last() {
-            buf.append_n(len - end, false);
+            (start..end).for_each(|idx| buf.set(idx));
         }
         debug_assert_eq!(buf.len(), len);
 
         Self::Values(Arc::new(MaskValues {
-            buffer: buf.finish(),
+            buffer: buf.freeze(),
             indices: Default::default(),
             slices: OnceLock::from(slices),
             true_count,
@@ -486,15 +480,13 @@ impl Mask {
         match &self {
             Self::AllTrue(_) => Self::new_true(range.len()),
             Self::AllFalse(_) => Self::new_false(range.len()),
-            Self::Values(values) => {
-                Self::from_buffer(values.buffer.slice(range.start, range.len()))
-            }
+            Self::Values(values) => Self::from_buffer(values.buffer.slice(range)),
         }
     }
 
     /// Return the boolean buffer representation of the mask.
     #[inline]
-    pub fn boolean_buffer(&self) -> AllOr<&BooleanBuffer> {
+    pub fn bit_buffer(&self) -> AllOr<&BitBuffer> {
         match &self {
             Self::AllTrue(_) => AllOr::All,
             Self::AllFalse(_) => AllOr::None,
@@ -505,21 +497,11 @@ impl Mask {
     /// Return a boolean buffer representation of the mask, allocating new buffers for all-true
     /// and all-false variants.
     #[inline]
-    pub fn to_boolean_buffer(&self) -> BooleanBuffer {
+    pub fn to_bit_buffer(&self) -> BitBuffer {
         match self {
-            Self::AllTrue(l) => BooleanBuffer::new_set(*l),
-            Self::AllFalse(l) => BooleanBuffer::new_unset(*l),
-            Self::Values(values) => values.boolean_buffer().clone(),
-        }
-    }
-
-    /// Returns an Arrow null buffer representation of the mask.
-    #[inline]
-    pub fn to_null_buffer(&self) -> Option<NullBuffer> {
-        match self {
-            Mask::AllTrue(_) => None,
-            Mask::AllFalse(l) => Some(NullBuffer::new_null(*l)),
-            Mask::Values(values) => Some(NullBuffer::from(values.buffer.clone())),
+            Self::AllTrue(l) => BitBuffer::new_set(*l),
+            Self::AllFalse(l) => BitBuffer::new_unset(*l),
+            Self::Values(values) => values.bit_buffer().clone(),
         }
     }
 
@@ -572,7 +554,7 @@ impl Mask {
             Self::AllTrue(_) => indices.to_vec(),
             Self::AllFalse(_) => vec![0; indices.len()],
             Self::Values(values) => {
-                let mut bool_iter = values.boolean_buffer().iter();
+                let mut bool_iter = values.bit_buffer().iter();
                 let mut valid_counts = Vec::with_capacity(indices.len());
                 let mut valid_count = 0;
                 let mut idx = 0;
@@ -611,16 +593,17 @@ impl Mask {
                     return self;
                 }
 
-                let existing_buffer = mask_values.boolean_buffer();
+                let existing_buffer = mask_values.bit_buffer();
 
-                let mut new_buffer_builder = BooleanBufferBuilder::new(mask_values.len());
-                new_buffer_builder.append_n(mask_values.len(), false);
+                let mut new_buffer_builder = BitBufferMut::new_unset(mask_values.len());
 
                 for index in existing_buffer.set_indices().take(limit) {
-                    new_buffer_builder.set_bit(index, true);
+                    unsafe {
+                        new_buffer_builder.set_unchecked(index);
+                    }
                 }
 
-                Self::from(new_buffer_builder.finish())
+                Self::from(new_buffer_builder.freeze())
             }
         }
     }
@@ -638,17 +621,17 @@ impl Mask {
             return Ok(Mask::AllFalse(len));
         }
 
-        let mut builder = BooleanBufferBuilder::new(len);
+        let mut builder = BitBufferMut::with_capacity(len);
 
         for mask in masks {
             match mask {
-                Mask::AllTrue(n) => builder.append_n(*n, true),
-                Mask::AllFalse(n) => builder.append_n(*n, false),
-                Mask::Values(v) => builder.append_buffer(v.boolean_buffer()),
+                Mask::AllTrue(n) => builder.append_n(true, *n),
+                Mask::AllFalse(n) => builder.append_n(false, *n),
+                Mask::Values(v) => builder.append_buffer(v.bit_buffer()),
             }
         }
 
-        Ok(Mask::from_buffer(builder.finish()))
+        Ok(Mask::from_buffer(builder.freeze()))
     }
 }
 
@@ -660,9 +643,8 @@ pub enum MaskIter<'a> {
     Slices(&'a [(usize, usize)]),
 }
 
-impl From<BooleanBuffer> for Mask {
-    #[inline]
-    fn from(value: BooleanBuffer) -> Self {
+impl From<BitBuffer> for Mask {
+    fn from(value: BitBuffer) -> Self {
         Self::from_buffer(value)
     }
 }
@@ -670,7 +652,7 @@ impl From<BooleanBuffer> for Mask {
 impl FromIterator<bool> for Mask {
     #[inline]
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        Self::from_buffer(BooleanBuffer::from_iter(iter))
+        Self::from_buffer(BitBuffer::from_iter(iter))
     }
 }
 
@@ -692,16 +674,16 @@ impl FromIterator<Mask> for Mask {
         }
 
         // Else, construct the boolean buffer
-        let mut buffer = BooleanBufferBuilder::new(total_length);
+        let mut buffer = BitBufferMut::with_capacity(total_length);
         for mask in masks {
             match mask {
-                Mask::AllTrue(count) => buffer.append_n(count, true),
-                Mask::AllFalse(count) => buffer.append_n(count, false),
+                Mask::AllTrue(count) => buffer.append_n(true, count),
+                Mask::AllFalse(count) => buffer.append_n(false, count),
                 Mask::Values(values) => {
-                    buffer.append_buffer(values.boolean_buffer());
+                    buffer.append_buffer(values.bit_buffer());
                 }
             };
         }
-        Self::from_buffer(buffer.finish())
+        Self::from_buffer(buffer.freeze())
     }
 }

@@ -35,7 +35,7 @@ where
             array
                 .buffer::<D>()
                 .iter()
-                .zip(v.boolean_buffer().iter())
+                .zip(v.bit_buffer().iter())
                 .filter_map(|(v, m)| m.then_some(v)),
             array.dtype(),
         ),

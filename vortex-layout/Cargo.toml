@@ -37,6 +37,7 @@ pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
 rustc-hash = { workspace = true }
+termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 tracing = { workspace = true }

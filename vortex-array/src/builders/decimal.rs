@@ -13,7 +13,7 @@ use vortex_scalar::{
 };
 
 use crate::arrays::DecimalArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder};
 use crate::canonical::Canonical;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
@@ -25,7 +25,7 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 pub struct DecimalBuilder {
     dtype: DType,
     values: DecimalBuffer,
-    nulls: LazyNullBufferBuilder,
+    nulls: LazyBitBufferBuilder,
 }
 
 /// Wrapper around the typed builder.
@@ -101,7 +101,7 @@ impl DecimalBuilder {
             values: match_each_decimal_value_type!(T::VALUES_TYPE, |D| {
                 DecimalBuffer::from(BufferMut::<D>::with_capacity(capacity))
             }),
-            nulls: LazyNullBufferBuilder::new(capacity),
+            nulls: LazyBitBufferBuilder::new(capacity),
         }
     }
 
@@ -197,7 +197,7 @@ impl ArrayBuilder for DecimalBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls = LazyBitBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }
 

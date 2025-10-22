@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use browse::exec_tui;
 use clap::{CommandFactory, Parser};
-use tree::exec_tree;
+use tree::{TreeArgs, exec_tree};
 use vortex::error::VortexExpect;
 
 use crate::inspect::InspectArgs;
@@ -24,8 +24,8 @@ struct Cli {
 
 #[derive(Debug, clap::Subcommand)]
 enum Commands {
-    /// Print the encoding tree of a Vortex file.
-    Tree { file: PathBuf },
+    /// Print tree views of a Vortex file (layout tree or array tree)
+    Tree(TreeArgs),
     /// Convert a Parquet file to a Vortex file. Chunking occurs on Parquet RowGroup boundaries.
     Convert(#[command(flatten)] convert::Flags),
     /// Interactively browse the Vortex file.
@@ -37,7 +37,11 @@ enum Commands {
 impl Commands {
     fn file_path(&self) -> &PathBuf {
         match self {
-            Commands::Tree { file } | Commands::Browse { file } => file,
+            Commands::Tree(args) => match &args.mode {
+                tree::TreeMode::Array { file } => file,
+                tree::TreeMode::Layout { file } => file,
+            },
+            Commands::Browse { file } => file,
             Commands::Convert(flags) => &flags.file,
             Commands::Inspect(args) => &args.file,
         }
@@ -64,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     match cli.command {
-        Commands::Tree { file } => exec_tree(file).await?,
+        Commands::Tree(args) => exec_tree(args).await?,
         Commands::Convert(flags) => convert::exec_convert(flags).await?,
         Commands::Browse { file } => exec_tui(file).await?,
         Commands::Inspect(args) => inspect::exec_inspect(args).await?,

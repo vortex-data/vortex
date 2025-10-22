@@ -11,7 +11,10 @@ use vortex_error::VortexResult;
 
 pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Option<ArrayRef>> {
     // TODO(joe): support more casting options
-    if !target.is_int() || !array.dtype().is_int() {
+    let is_int_to_int = target.is_int() && array.dtype().is_int();
+    let is_float_to_float = target.is_float() && array.dtype().is_float();
+
+    if !is_int_to_int && !is_float_to_float {
         return Ok(None);
     }
     // TODO(joe): handle fallible casts.
@@ -19,25 +22,69 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
         return Ok(None);
     }
 
-    Ok(Some(match_each_integer_ptype!(
-        array.dtype().as_ptype(),
-        |In| {
-            match_each_integer_ptype!(target.as_ptype(), |Out| {
-                // Since the cast itself would truncate.
-                #[allow(clippy::cast_possible_truncation)]
+    if is_int_to_int {
+        Ok(Some(match_each_integer_ptype!(
+            array.dtype().as_ptype(),
+            |In| {
+                match_each_integer_ptype!(target.as_ptype(), |Out| {
+                    // Since the cast itself would truncate.
+                    #[allow(clippy::cast_possible_truncation)]
+                    PrimitiveArray::new(
+                        array
+                            .to_primitive()
+                            .as_slice::<In>()
+                            .iter()
+                            .map(|v| *v as Out)
+                            .collect::<Buffer<Out>>(),
+                        Validity::from_mask(array.validity_mask(), target.nullability()),
+                    )
+                    .to_array()
+                })
+            }
+        )))
+    } else {
+        // Float to float casting (F32 <-> F64 only, skip F16 for now)
+        use vortex_dtype::PType;
+        let from_ptype = array.dtype().as_ptype();
+        let to_ptype = target.as_ptype();
+
+        // Skip F16 casts for now as they require special handling
+        if from_ptype == PType::F16 || to_ptype == PType::F16 {
+            return Ok(None);
+        }
+
+        match (from_ptype, to_ptype) {
+            (PType::F32, PType::F64) => Ok(Some(
                 PrimitiveArray::new(
                     array
                         .to_primitive()
-                        .as_slice::<In>()
+                        .as_slice::<f32>()
                         .iter()
-                        .map(|v| *v as Out)
-                        .collect::<Buffer<Out>>(),
+                        .map(|v| *v as f64)
+                        .collect::<Buffer<f64>>(),
                     Validity::from_mask(array.validity_mask(), target.nullability()),
                 )
-                .to_array()
-            })
+                .to_array(),
+            )),
+            (PType::F64, PType::F32) =>
+            {
+                #[allow(clippy::cast_possible_truncation)]
+                Ok(Some(
+                    PrimitiveArray::new(
+                        array
+                            .to_primitive()
+                            .as_slice::<f64>()
+                            .iter()
+                            .map(|v| *v as f32)
+                            .collect::<Buffer<f32>>(),
+                        Validity::from_mask(array.validity_mask(), target.nullability()),
+                    )
+                    .to_array(),
+                ))
+            }
+            _ => Ok(None),
         }
-    )))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -22,7 +22,7 @@ use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use itertools::Itertools;
-use vortex_buffer::{Alignment, Buffer, ByteBuffer};
+use vortex_buffer::{Alignment, BitBuffer, Buffer, ByteBuffer};
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::{DType, DecimalDType, IntegerPType, NativePType, PType};
 use vortex_error::{VortexExpect as _, vortex_panic};
@@ -49,7 +49,7 @@ impl IntoArray for ArrowBuffer {
 
 impl IntoArray for BooleanBuffer {
     fn into_array(self) -> ArrayRef {
-        BoolArray::from_bool_buffer(self, Validity::NonNullable).into_array()
+        BoolArray::from_bit_buffer(self.into(), Validity::NonNullable).into_array()
     }
 }
 
@@ -251,8 +251,11 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
 
 impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
     fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> Self {
-        BoolArray::from_bool_buffer(value.values().clone(), nulls(value.nulls(), nullable))
-            .into_array()
+        BoolArray::from_bit_buffer(
+            value.values().clone().into(),
+            nulls(value.nulls(), nullable),
+        )
+        .into_array()
     }
 }
 
@@ -405,7 +408,7 @@ fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
                 if nulls.null_count() == nulls.len() {
                     Validity::AllInvalid
                 } else {
-                    Validity::from(nulls.inner().clone())
+                    Validity::from(BitBuffer::from(nulls.inner().clone()))
                 }
             })
             .unwrap_or_else(|| Validity::AllValid)

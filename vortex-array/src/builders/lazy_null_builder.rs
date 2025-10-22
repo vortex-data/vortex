@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
+use vortex_buffer::{BitBuffer, BitBufferMut};
 use vortex_dtype::Nullability;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_error::{VortexExpect, vortex_panic};
@@ -11,13 +11,13 @@ use crate::validity::Validity;
 
 /// This is borrowed from arrow's null buffer builder, however we expose a `append_buffer`
 /// method to append a boolean buffer directly.
-pub struct LazyNullBufferBuilder {
-    inner: Option<BooleanBufferBuilder>,
+pub struct LazyBitBufferBuilder {
+    inner: Option<BitBufferMut>,
     len: usize,
     capacity: usize,
 }
 
-impl LazyNullBufferBuilder {
+impl LazyBitBufferBuilder {
     /// Creates a new empty builder.
     /// `capacity` is the number of bits in the null buffer.
     pub fn new(capacity: usize) -> Self {
@@ -32,7 +32,7 @@ impl LazyNullBufferBuilder {
     #[inline]
     pub fn append_n_non_nulls(&mut self, n: usize) {
         if let Some(buf) = self.inner.as_mut() {
-            buf.append_n(n, true)
+            buf.append_n(true, n)
         } else {
             self.len += n;
         }
@@ -55,7 +55,7 @@ impl LazyNullBufferBuilder {
         self.inner
             .as_mut()
             .vortex_expect("cannot append null to non-nullable builder")
-            .append_n(n, false);
+            .append_n(false, n);
     }
 
     /// Appends a single null value to the builder.
@@ -70,7 +70,7 @@ impl LazyNullBufferBuilder {
 
     /// Appends values from a boolean buffer where `true` indicates non-null.
     #[inline]
-    pub fn append_buffer(&mut self, bool_buffer: &BooleanBuffer) {
+    pub fn append_buffer(&mut self, bool_buffer: &BitBuffer) {
         self.materialize_if_needed();
         self.inner
             .as_mut()
@@ -83,7 +83,7 @@ impl LazyNullBufferBuilder {
         match validity_mask {
             Mask::AllTrue(len) => self.append_n_non_nulls(len),
             Mask::AllFalse(len) => self.append_n_nulls(len),
-            Mask::Values(is_valid) => self.append_buffer(is_valid.boolean_buffer()),
+            Mask::Values(is_valid) => self.append_buffer(is_valid.bit_buffer()),
         }
     }
 
@@ -93,7 +93,7 @@ impl LazyNullBufferBuilder {
         self.inner
             .as_mut()
             .vortex_expect("buffer just materialized")
-            .set_bit(index, v);
+            .set_to(index, v);
     }
 
     /// Returns the current length of the builder.
@@ -102,9 +102,9 @@ impl LazyNullBufferBuilder {
         self.inner.as_ref().map(|i| i.len()).unwrap_or(self.len)
     }
 
-    fn finish(&mut self) -> Option<NullBuffer> {
+    fn finish(&mut self) -> Option<BitBuffer> {
         self.len = 0;
-        Some(NullBuffer::new(self.inner.take()?.finish()))
+        self.inner.take().map(|b| b.freeze())
     }
 
     /// Finishes the builder and returns a `Validity` based on the given nullability.
@@ -143,9 +143,9 @@ impl LazyNullBufferBuilder {
     #[inline(never)]
     fn materialize(&mut self) {
         if self.inner.is_none() {
-            let mut b = BooleanBufferBuilder::new(self.len.max(self.capacity));
-            b.append_n(self.len, true);
-            self.inner = Some(b);
+            let mut bit_mut = BitBufferMut::with_capacity(self.len.max(self.capacity));
+            bit_mut.append_n(true, self.len);
+            self.inner = Some(bit_mut);
         }
     }
 }

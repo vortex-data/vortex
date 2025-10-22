@@ -3,7 +3,7 @@
 
 use std::ops::{BitAnd, BitOr, BitXor, Not, Range};
 
-use crate::bit::ops::{bitwise_and, bitwise_not, bitwise_or, bitwise_unary_op, bitwise_xor};
+use crate::bit::ops::{bitwise_binary_op, bitwise_unary_op};
 use crate::bit::{
     BitChunks, BitIndexIterator, BitIterator, BitSliceIterator, UnalignedBitChunk,
     get_bit_unchecked,
@@ -41,6 +41,9 @@ impl BitBuffer {
             "provided ByteBuffer not large enough to back BoolBuffer with len {len}"
         );
 
+        // BitBuffers make no assumptions on byte alignment, so we strip any alignment.
+        let buffer = buffer.aligned(Alignment::none());
+
         Self {
             buffer,
             len,
@@ -58,6 +61,9 @@ impl BitBuffer {
             "provided ByteBuffer (len={}) not large enough to back BoolBuffer with offset {offset} len {len}",
             buffer.len()
         );
+
+        // BitBuffers make no assumptions on byte alignment, so we strip any alignment.
+        let buffer = buffer.aligned(Alignment::none());
 
         Self {
             buffer,
@@ -134,13 +140,7 @@ impl BitBuffer {
 
         buffer.truncate(len.div_ceil(8));
 
-        Self::new(
-            buffer
-                .freeze()
-                .into_byte_buffer()
-                .aligned(Alignment::of::<u8>()),
-            len,
-        )
+        Self::new(buffer.freeze().into_byte_buffer(), len)
     }
 
     /// Get the logical length of this `BoolBuffer`.
@@ -159,13 +159,13 @@ impl BitBuffer {
     }
 
     /// Offset of the start of the buffer in bits.
-    #[inline]
+    #[inline(always)]
     pub fn offset(&self) -> usize {
         self.offset
     }
 
     /// Get a reference to the underlying buffer.
-    #[inline]
+    #[inline(always)]
     pub fn inner(&self) -> &ByteBuffer {
         &self.buffer
     }
@@ -173,6 +173,8 @@ impl BitBuffer {
     /// Retrieve the value at the given index.
     ///
     /// Panics if the index is out of bounds.
+    ///
+    /// Please note for repeatedly calling this function, please prefer [`crate::get_bit`].
     #[inline]
     pub fn value(&self, index: usize) -> bool {
         assert!(index < self.len);
@@ -257,11 +259,7 @@ impl BitBuffer {
                 self.len,
             );
         }
-
-        Self::new(
-            bitwise_unary_op(self.buffer.clone(), self.offset, self.len, |a| a),
-            self.len,
-        )
+        bitwise_unary_op(self, |a| a)
     }
 }
 
@@ -290,11 +288,11 @@ impl BitBuffer {
     /// If the caller doesn't hold only reference to the underlying buffer, a copy is created.
     /// The second value of the tuple is a bit_offset of the first value in the first byte
     pub fn into_mut(self) -> BitBufferMut {
-        let bit_offset = self.offset % 8;
+        let offset = self.offset;
         let len = self.len;
-        // TODO(robert): if we are copying here we can strip offset bits
-        let shrunk = self.into_inner().into_mut();
-        BitBufferMut::from_buffer(shrunk, bit_offset, len)
+        // TODO(robert): if we are copying here we could strip offset bits
+        let inner = self.into_inner().into_mut();
+        BitBufferMut::from_buffer(inner, offset, len)
     }
 }
 
@@ -320,7 +318,7 @@ impl BitOr for &BitBuffer {
     type Output = BitBuffer;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        self.clone() | rhs.clone()
+        bitwise_binary_op(self, rhs, |a, b| a | b)
     }
 }
 
@@ -328,12 +326,7 @@ impl BitOr for BitBuffer {
     type Output = BitBuffer;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        assert_eq!(self.len, rhs.len);
-        BitBuffer::new_with_offset(
-            bitwise_or(self.buffer, self.offset, rhs.buffer, rhs.offset, self.len),
-            self.len,
-            0,
-        )
+        (&self).bitor(&rhs)
     }
 }
 
@@ -341,7 +334,7 @@ impl BitAnd for &BitBuffer {
     type Output = BitBuffer;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        self.clone() & rhs.clone()
+        bitwise_binary_op(self, rhs, |a, b| a & b)
     }
 }
 
@@ -349,12 +342,7 @@ impl BitAnd for BitBuffer {
     type Output = BitBuffer;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        assert_eq!(self.len, rhs.len);
-        BitBuffer::new_with_offset(
-            bitwise_and(self.buffer, self.offset, rhs.buffer, rhs.offset, self.len),
-            self.len,
-            0,
-        )
+        (&self).bitand(&rhs)
     }
 }
 
@@ -362,7 +350,7 @@ impl Not for &BitBuffer {
     type Output = BitBuffer;
 
     fn not(self) -> Self::Output {
-        !self.clone()
+        bitwise_unary_op(self, |a| !a)
     }
 }
 
@@ -370,7 +358,7 @@ impl Not for BitBuffer {
     type Output = BitBuffer;
 
     fn not(self) -> Self::Output {
-        BitBuffer::new_with_offset(bitwise_not(self.buffer, self.offset, self.len), self.len, 0)
+        (&self).not()
     }
 }
 
@@ -378,7 +366,7 @@ impl BitXor for &BitBuffer {
     type Output = BitBuffer;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        self.clone() ^ rhs.clone()
+        bitwise_binary_op(self, rhs, |a, b| a ^ b)
     }
 }
 
@@ -386,12 +374,7 @@ impl BitXor for BitBuffer {
     type Output = BitBuffer;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        assert_eq!(self.len, rhs.len);
-        BitBuffer::new_with_offset(
-            bitwise_xor(self.buffer, self.offset, rhs.buffer, rhs.offset, self.len),
-            self.len,
-            0,
-        )
+        (&self).bitxor(&rhs)
     }
 }
 

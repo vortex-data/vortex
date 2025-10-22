@@ -40,7 +40,7 @@ use crate::canonical::Canonical;
 use crate::{Array, ArrayRef};
 
 mod lazy_null_builder;
-use lazy_null_builder::LazyNullBufferBuilder;
+use lazy_null_builder::LazyBitBufferBuilder;
 
 mod bool;
 mod decimal;

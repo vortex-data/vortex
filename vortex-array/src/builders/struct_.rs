@@ -11,7 +11,7 @@ use vortex_scalar::{Scalar, StructScalar};
 
 use crate::arrays::StructArray;
 use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, builder_with_capacity,
+    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder, builder_with_capacity,
 };
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
@@ -20,7 +20,7 @@ use crate::{Array, ArrayRef, IntoArray};
 pub struct StructBuilder {
     dtype: DType,
     builders: Vec<Box<dyn ArrayBuilder>>,
-    nulls: LazyNullBufferBuilder,
+    nulls: LazyBitBufferBuilder,
 }
 
 impl StructBuilder {
@@ -42,7 +42,7 @@ impl StructBuilder {
 
         Self {
             builders,
-            nulls: LazyNullBufferBuilder::new(capacity),
+            nulls: LazyBitBufferBuilder::new(capacity),
             dtype: DType::Struct(struct_dtype, nullability),
         }
     }
@@ -178,7 +178,7 @@ impl ArrayBuilder for StructBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls = LazyBitBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }
 

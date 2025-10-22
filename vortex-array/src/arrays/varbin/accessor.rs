@@ -39,7 +39,7 @@ impl ArrayAccessor<[u8]> for VarBinArray {
                     let validity = v.to_bool();
                     let mut iter = offsets
                         .windows(2)
-                        .zip(validity.boolean_buffer())
+                        .zip(validity.bit_buffer())
                         .map(|(w, valid)| valid.then(|| &bytes[w[0] as usize..w[1] as usize]));
                     Ok(f(&mut iter))
                 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBuffer;
+use vortex_buffer::BitBuffer;
 use vortex_dtype::{NativePType, Nullability, match_each_native_ptype};
 use vortex_error::VortexResult;
 
@@ -98,8 +98,8 @@ where
     T: NativePType + Copy,
 {
     let slice = arr.as_slice::<T>();
-    BoolArray::from_bool_buffer(
-        BooleanBuffer::collect_bool(slice.len(), |idx| {
+    BoolArray::from_bit_buffer(
+        BitBuffer::collect_bool(slice.len(), |idx| {
             // We only iterate upto arr len and |arr| == |slice|.
             let i = unsafe { *slice.get_unchecked(idx) };
             lower_fn(lower, i) & upper_fn(i, upper)

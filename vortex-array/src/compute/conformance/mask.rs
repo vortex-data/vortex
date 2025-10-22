@@ -184,7 +184,7 @@ fn test_nullable_mask_input(array: &dyn Array) {
 
     let bool_array = BoolArray::from_iter(bool_values.clone());
     let validity = crate::validity::Validity::from_iter(validity_values.clone());
-    let nullable_mask = BoolArray::from_bool_buffer(bool_array.boolean_buffer().clone(), validity);
+    let nullable_mask = BoolArray::from_bit_buffer(bool_array.bit_buffer().clone(), validity);
 
     let mask_array = nullable_mask.to_mask_fill_null_false();
     let masked = mask(array, &mask_array).vortex_unwrap();

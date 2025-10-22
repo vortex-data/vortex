@@ -27,7 +27,7 @@ macro_rules! sum_decimal {
         use itertools::Itertools;
 
         let mut sum: $ty = <$ty>::default();
-        for (v, valid) in $values.iter().zip_eq($validity.iter()) {
+        for (v, valid) in $values.iter().zip_eq($validity) {
             if valid {
                 let v: $ty = (*v).as_();
                 sum += v;
@@ -73,7 +73,7 @@ impl SumKernel for DecimalVTable {
                             DecimalValue::from(sum_decimal!(
                                 O,
                                 array.buffer::<I>(),
-                                mask_values.boolean_buffer()
+                                mask_values.bit_buffer()
                             )),
                             return_dtype,
                             Nullable,

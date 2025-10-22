@@ -3,8 +3,7 @@
 
 use std::sync::Arc;
 
-use arrow_buffer::BooleanBuffer;
-use vortex_buffer::{Buffer, buffer};
+use vortex_buffer::{BitBuffer, Buffer, buffer};
 use vortex_dtype::{DType, Nullability, match_each_native_ptype};
 use vortex_error::VortexExpect;
 use vortex_scalar::{
@@ -38,15 +37,15 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
 
         match array.dtype() {
             DType::Null => Canonical::Null(NullArray::new(array.len())),
-            DType::Bool(..) => Canonical::Bool(BoolArray::from_bool_buffer(
+            DType::Bool(..) => Canonical::Bool(BoolArray::from_bit_buffer(
                 if BoolScalar::try_from(scalar)
                     .vortex_expect("must be bool")
                     .value()
                     .unwrap_or_default()
                 {
-                    BooleanBuffer::new_set(array.len())
+                    BitBuffer::new_set(array.len())
                 } else {
-                    BooleanBuffer::new_unset(array.len())
+                    BitBuffer::new_unset(array.len())
                 },
                 validity,
             )),
