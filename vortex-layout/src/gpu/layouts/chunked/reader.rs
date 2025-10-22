@@ -76,57 +76,38 @@ impl GpuChunkedLayoutReader {
         let start_chunk = self
             .chunk_offsets
             .binary_search(&row_range.start)
-            .unwrap_or_else(|x| x.saturating_sub(1));
+            .unwrap_or_else(|_| vortex_panic!("GpuChunkedLayoutReader can only read full chunks"));
         let end_chunk = self
             .chunk_offsets
             .binary_search(&row_range.end)
-            .unwrap_or_else(|x| x);
+            .unwrap_or_else(|_| vortex_panic!("GpuChunkedLayoutReader can only read full chunks"));
         start_chunk..end_chunk
     }
 
-    fn ranges<'a>(
-        &'a self,
-        row_range: &'a Range<u64>,
-    ) -> impl Iterator<Item = (usize, Range<u64>, Range<usize>)> + 'a {
+    fn ranges(&self, row_range: &Range<u64>) -> impl Iterator<Item = (usize, Range<u64>)> {
         self.chunk_range(row_range).map(move |chunk_idx| {
             // Figure out the chunk row range relative to the mask's row range.
             let chunk_row_range = self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
 
-            // Find the intersection of the mask and the chunk row ranges.
-            let intersecting_row_range =
-                row_range.start.max(chunk_row_range.start)..row_range.end.min(chunk_row_range.end);
-            let intersecting_len = usize::try_from(
-                intersecting_row_range
+            let chunk_len = usize::try_from(
+                chunk_row_range
                     .end
-                    .checked_sub(intersecting_row_range.start)
+                    .checked_sub(chunk_row_range.start)
                     .vortex_expect("Invalid row range"),
             )
             .vortex_expect("Row range length exceeds usize::MAX");
 
-            // Figure out the offset into the mask.
-            let mask_relative_start = usize::try_from(
-                intersecting_row_range
-                    .start
-                    .checked_sub(row_range.start)
-                    .vortex_expect("Invalid row range"),
-            )
-            .vortex_expect("Mask offset exceeds usize::MAX");
-            let mask_relative_end = mask_relative_start
-                .checked_add(intersecting_len)
-                .vortex_expect("Mask range calculation overflow");
-            let mask_range = mask_relative_start..mask_relative_end;
-
             // Figure out the row range within the chunk.
-            let chunk_relative_start = intersecting_row_range
+            let chunk_relative_start = chunk_row_range
                 .start
                 .checked_sub(chunk_row_range.start)
                 .vortex_expect("Chunk range calculation underflow");
             let chunk_relative_end = chunk_relative_start
-                .checked_add(intersecting_len as u64)
+                .checked_add(chunk_len as u64)
                 .vortex_expect("Chunk range calculation overflow");
             let chunk_range = chunk_relative_start..chunk_relative_end;
 
-            (chunk_idx, chunk_range, mask_range)
+            (chunk_idx, chunk_range)
         })
     }
 }
@@ -166,17 +147,17 @@ impl GpuLayoutReader for GpuChunkedLayoutReader {
         expr: &ExprRef,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let dtype = expr.return_dtype(self.dtype())?;
-        let mut chunk_evals = vec![];
+        let mut chunk_evals = FuturesOrdered::new();
 
-        for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
+        for (chunk_idx, chunk_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
             let chunk_eval = chunk_reader.projection_evaluation(&chunk_range, expr)?;
-            chunk_evals.push(chunk_eval);
+            chunk_evals.push_back(chunk_eval);
         }
 
         Ok(async move {
             // Split the mask over each chunk.
-            let chunks: Vec<_> = FuturesOrdered::from_iter(chunk_evals).try_collect().await?;
+            let chunks: Vec<_> = chunk_evals.try_collect().await?;
 
             // If there is only one chunk, we can return it directly.
             if chunks.len() == 1 {
