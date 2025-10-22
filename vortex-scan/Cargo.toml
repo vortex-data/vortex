@@ -47,7 +47,7 @@ default = []
 roaring = ["dep:roaring"]
 tokio = ["dep:tokio"]
 gpu = ["cuda"]
-cuda = ["dep:cudarc"]
+cuda = ["dep:cudarc", "vortex-layout/gpu"]
 
 [lints]
 workspace = true

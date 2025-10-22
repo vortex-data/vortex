@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use futures::Stream;
@@ -13,28 +14,25 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{ExprRef, root};
 use vortex_io::runtime::{BlockingRuntime, Handle};
-use vortex_layout::gpu::GpuLayoutReader;
-use vortex_layout::{LayoutReader, LayoutReaderRef};
+use vortex_layout::LayoutReader;
+use vortex_layout::gpu::{GpuLayoutReader, GpuLayoutReaderRef};
 
-use crate::SplitBy;
 use crate::gpu::GpuScan;
 use crate::scan_builder::filter_and_projection_masks;
 
 pub struct GpuScanBuilder<A> {
     handle: Option<Handle>,
-    layout_reader: LayoutReaderRef,
+    layout_reader: GpuLayoutReaderRef,
     projection: ExprRef,
-    split_by: SplitBy,
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }
 
 impl GpuScanBuilder<ArrayRef> {
-    pub fn new(layout_reader: Arc<dyn GpuLayoutReader>) -> Self {
+    pub fn new(layout_reader: GpuLayoutReaderRef) -> Self {
         Self {
             handle: Handle::find(),
             layout_reader,
             projection: root(),
-            split_by: SplitBy::Layout,
             map_fn: Arc::new(Ok),
         }
     }
@@ -89,7 +87,6 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
             handle: self.handle,
             layout_reader: self.layout_reader,
             projection: self.projection,
-            split_by: self.split_by,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
         }
     }
@@ -114,7 +111,11 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
             filter_and_projection_masks(&projection, None, layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
 
-        let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
+        let mut splits = BTreeSet::<u64>::new();
+        splits.insert(0);
+
+        // Register the splits for all the layouts.
+        layout_reader.register_splits(&field_mask, 0, &mut splits)?;
 
         Ok(GpuScan::new(
             handle,

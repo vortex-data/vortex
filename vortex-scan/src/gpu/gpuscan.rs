@@ -15,13 +15,13 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_io::runtime::{BlockingRuntime, Handle};
-use vortex_layout::LayoutReaderRef;
+use vortex_layout::GpuLayoutReaderRef;
 
 use crate::gpu::gputask::{GpuTaskContext, gpu_split_exec};
 
 pub struct GpuScan<A: 'static + Send> {
     handle: Handle,
-    layout_reader: LayoutReaderRef,
+    layout_reader: GpuLayoutReaderRef,
     projection: ExprRef,
     splits: BTreeSet<u64>,
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
@@ -54,7 +54,7 @@ impl GpuScan<ArrayRef> {
 impl<A: 'static + Send> GpuScan<A> {
     pub(super) fn new(
         handle: Handle,
-        layout_reader: LayoutReaderRef,
+        layout_reader: GpuLayoutReaderRef,
         projection: ExprRef,
         splits: BTreeSet<u64>,
         map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,

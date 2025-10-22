@@ -43,6 +43,5 @@ pub trait GpuLayoutReader: 'static + Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        mask: MaskFuture,
     ) -> VortexResult<ArrayFuture>;
 }
