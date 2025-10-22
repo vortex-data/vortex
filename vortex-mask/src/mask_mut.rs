@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Sub;
+use std::sync::Arc;
 
 use vortex_buffer::BitBufferMut;
 
@@ -225,9 +226,13 @@ impl Mask {
             Mask::AllTrue(len) => Ok(MaskMut::new_true(len)),
             Mask::AllFalse(len) => Ok(MaskMut::new_false(len)),
             Mask::Values(values) => {
-                // FIXME(ngates): we can never convert Arrow BooleanBuffer to ByteBufferMut,
-                //  so we have to wait until we use BitBuffer internally in MaskValues.
-                Err(Mask::Values(values))
+                // We need to check for uniqueness twice, first for the `Arc` with `try_unwrap`,
+                // then for the internal `BitBuffer` with `try_into_mut`.
+                let owned_values = Arc::try_unwrap(values).map_err(Mask::Values)?;
+                let bit_buffer = owned_values.into_buffer();
+                let mut_buffer = bit_buffer.try_into_mut().map_err(Mask::from_buffer)?;
+
+                Ok(MaskMut(Inner::Builder(mut_buffer)))
             }
         }
     }
