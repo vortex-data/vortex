@@ -5,7 +5,7 @@ use std::ops::{BitAnd, BitOr};
 use std::sync::LazyLock;
 
 use async_trait::async_trait;
-use enum_map::{enum_map, Enum, EnumMap};
+use enum_map::{Enum, EnumMap, enum_map};
 use futures::try_join;
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::DType;
@@ -20,8 +20,8 @@ use crate::vtable::{
     ArrayVTable, NotSupported, OperatorVTable, SerdeVTable, VTable, VisitorVTable,
 };
 use crate::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata,
-    EmptyMetadata, EncodingId, EncodingRef,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata, EmptyMetadata,
+    EncodingId, EncodingRef, vtable,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Enum)]
@@ -234,9 +234,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::compute::arrays::logical::{LogicalArray, LogicalOperator};
-    use crate::IntoArray;
     use vortex_buffer::bitbuffer;
+
+    use crate::IntoArray;
+    use crate::compute::arrays::logical::{LogicalArray, LogicalOperator};
 
     #[test]
     fn test_and() {

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::compute::vectors::filter::Filter;
-use vortex_buffer::{get_bit, BitBuffer, BitBufferMut};
+use vortex_buffer::{BitBuffer, BitBufferMut, get_bit};
 use vortex_mask::{Mask, MaskIter};
+
+use crate::compute::vectors::filter::Filter;
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 // TODO(ngates): we need more experimentation to determine the best threshold here.
@@ -48,8 +49,9 @@ fn filter_slices(buffer: &BitBuffer, output_len: usize, slices: &[(usize, usize)
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use vortex_buffer::bitbuffer;
+
+    use super::*;
 
     #[test]
     fn filter_bool_by_slice_test() {

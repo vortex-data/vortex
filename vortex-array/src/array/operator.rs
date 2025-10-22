@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use vortex_error::VortexResult;
+use vortex_vector::{Vector, VectorMut};
+
 use crate::execution::{BatchKernelRef, BindCtx};
 use crate::vtable::{OperatorVTable, VTable};
 use crate::{Array, ArrayAdapter, ArrayRef};
-use async_trait::async_trait;
-use std::sync::Arc;
-use vortex_error::VortexResult;
-use vortex_vector::{Vector, VectorMut};
 
 /// Array functions as provided by the `OperatorVTable`.
 ///

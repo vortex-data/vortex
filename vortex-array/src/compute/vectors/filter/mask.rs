@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::compute::vectors::filter::Filter;
 use vortex_buffer::BitBufferMut;
 use vortex_mask::{Mask, MaskMut};
+
+use crate::compute::vectors::filter::Filter;
 
 impl Filter for Mask {
     type Mutable = MaskMut;

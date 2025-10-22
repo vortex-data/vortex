@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::compute::vectors::filter::Filter;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_mask::{Mask, MaskIter};
+
+use crate::compute::vectors::filter::Filter;
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;

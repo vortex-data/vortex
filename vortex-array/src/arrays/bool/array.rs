@@ -4,7 +4,7 @@
 use arrow_array::BooleanArray;
 use vortex_buffer::{BitBuffer, BitBufferMut, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
 use crate::arrays::bool;
@@ -257,7 +257,7 @@ impl IntoArray for BitBufferMut {
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{buffer, BitBuffer, BitBufferMut};
+    use vortex_buffer::{BitBuffer, BitBufferMut, buffer};
 
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::patches::Patches;

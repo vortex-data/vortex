@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::compute::vectors::filter::Filter;
 use vortex_mask::Mask;
 use vortex_vector::{BoolVector, BoolVectorMut, VectorOps};
+
+use crate::compute::vectors::filter::Filter;
 
 impl Filter for BoolVector {
     type Mutable = BoolVectorMut;
