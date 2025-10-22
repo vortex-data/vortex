@@ -4,8 +4,6 @@
 //! Helper macros for working with the different variants of [`PrimitiveVector`] and
 //! [`PrimitiveVectorMut`].
 //!
-//! All macros are exported at the crate level with `#[macro_export]`.
-//!
 //! [`PrimitiveVector`]: crate::PrimitiveVector
 //! [`PrimitiveVectorMut`]: crate::PrimitiveVectorMut
 
@@ -42,7 +40,6 @@
 ///
 /// [`PrimitiveVector`]: crate::PrimitiveVector
 /// [`VectorOps`]: crate::VectorOps
-#[macro_export]
 macro_rules! match_each_pvector {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
@@ -94,8 +91,8 @@ macro_rules! match_each_pvector {
     }};
 }
 
-// TODO(connor): Make this a proper Rust test after we replace `BooleanBuffer` with `BitBuffer`
-// in `MaskValues`.
+pub(crate) use match_each_pvector;
+
 /// Matches on all primitive type variants of [`PrimitiveVectorMut`] and executes the same code
 /// for each variant branch.
 ///
@@ -178,3 +175,5 @@ macro_rules! match_each_pvector_mut {
         }
     }};
 }
+
+pub(crate) use match_each_pvector_mut;

@@ -9,9 +9,8 @@
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 
-use crate::{
-    BoolVectorMut, NullVectorMut, PrimitiveVectorMut, Vector, VectorMutOps, match_each_vector_mut,
-};
+use crate::macros::match_each_vector_mut;
+use crate::{BoolVectorMut, NullVectorMut, PrimitiveVectorMut, Vector, VectorMutOps};
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
 /// data.

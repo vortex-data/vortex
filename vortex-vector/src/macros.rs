@@ -3,8 +3,6 @@
 
 //! Helper macros for working with the different variants of [`Vector`](crate::Vector) and
 //! [`VectorMut`](crate::VectorMut).
-//!
-//! All macros are exported at the crate level with `#[macro_export]`.
 
 /// Matches on all variants of [`Vector`] and executes the same code for each variant branch.
 ///
@@ -35,7 +33,6 @@
 ///
 /// [`Vector`]: crate::Vector
 /// [`VectorOps`]: crate::VectorOps
-#[macro_export]
 macro_rules! match_each_vector {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
@@ -54,6 +51,8 @@ macro_rules! match_each_vector {
         }
     }};
 }
+
+pub(crate) use match_each_vector;
 
 /// Matches on all variants of [`VectorMut`] and executes the same code for each variant branch.
 ///
@@ -84,7 +83,6 @@ macro_rules! match_each_vector {
 ///
 /// [`VectorMut`]: crate::VectorMut
 /// [`VectorMutOps`]: crate::VectorMutOps
-#[macro_export]
 macro_rules! match_each_vector_mut {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
@@ -103,3 +101,5 @@ macro_rules! match_each_vector_mut {
         }
     }};
 }
+
+pub(crate) use match_each_vector_mut;
