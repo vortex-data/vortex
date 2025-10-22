@@ -64,7 +64,9 @@ use crate::{VectorMutOps, VectorOps};
 /// ```
 #[derive(Debug, Clone)]
 pub struct BoolVectorMut {
+    /// The mutable bits that we use to represent booleans.
     pub(super) bits: BitBufferMut,
+    /// The validity mask (where `true` represents an element is **not** null).
     pub(super) validity: MaskMut,
 }
 

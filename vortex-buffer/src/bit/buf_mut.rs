@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// TODO(connor): The API of `BitBufferMut` should probably share more methods with `BitBuffer`.
-
 use arrow_buffer::bit_chunk_iterator::BitChunks;
 use bitvec::view::BitView;
 

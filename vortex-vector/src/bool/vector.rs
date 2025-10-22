@@ -17,7 +17,9 @@ use crate::VectorOps;
 /// See the documentation for [`BoolVectorMut`] for more information.
 #[derive(Debug, Clone)]
 pub struct BoolVector {
+    /// The bits that we use to represent booleans.
     pub(super) bits: BitBuffer,
+    /// The validity mask (where `true` represents an element is **not** null).
     pub(super) validity: Mask,
 }
 

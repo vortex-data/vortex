@@ -20,7 +20,9 @@ use crate::{PVectorMut, VectorOps};
 /// See the documentation for [`PVectorMut<T>`] for more information.
 #[derive(Debug, Clone)]
 pub struct PVector<T> {
+    /// The buffer representing the vector elements.
     pub(super) elements: Buffer<T>,
+    /// The validity mask (where `true` represents an element is **not** null).
     pub(super) validity: Mask,
 }
 

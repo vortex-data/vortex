@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Definition of the [`Vector`] type, which represent immutable and fully decompressed (canonical)
+//! Definition of the [`Vector`] type, which represents immutable and fully decompressed (canonical)
 //! array data.
+//!
+//! [`Vector`] can be transformed into the [`VectorMut`] type if it is owned.
 
 use crate::{BoolVector, NullVector, PrimitiveVector, VectorMut, VectorOps, match_each_vector};
 

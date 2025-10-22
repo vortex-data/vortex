@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition of the [`VectorMut`] type, which represents mutable and fully decompressed
+//! (canonical) array data.
+//!
+//! [`VectorMut`] can be frozen into the [`Vector`] type.
+
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 
@@ -177,5 +182,28 @@ mod tests {
 
         let frozen = vec.freeze();
         assert_eq!(frozen.validity().true_count(), 1); // Only first element is valid.
+    }
+
+    #[test]
+    fn test_extend_from_vector() {
+        // Test extending a primitive vector with data from another vector.
+        let mut vec: VectorMut = PVectorMut::<i32>::from_iter([1, 2, 3].map(Some)).into();
+        assert_eq!(vec.len(), 3);
+
+        // Create an immutable vector to extend from.
+        let to_append: Vector = PVectorMut::<i32>::from_iter([4, 5, 6].map(Some))
+            .freeze()
+            .into();
+        assert_eq!(to_append.len(), 3);
+
+        // Extend the mutable vector.
+        vec.extend_from_vector(&to_append);
+
+        // Verify the length is the sum of both vectors.
+        assert_eq!(vec.len(), 6);
+
+        // Verify validity is preserved (all elements are valid).
+        let frozen = vec.freeze();
+        assert_eq!(frozen.validity().true_count(), 6);
     }
 }

@@ -15,7 +15,10 @@ use crate::{NullVectorMut, VectorOps};
 /// The mutable equivalent of this type is [`NullVectorMut`].
 #[derive(Debug, Clone)]
 pub struct NullVector {
+    /// The total number of nulls.
     pub(super) len: usize,
+    /// The validity mask. We only store this in order to implement the
+    /// [`validity()`](Self::validity) method.
     pub(super) validity: Mask,
 }
 
