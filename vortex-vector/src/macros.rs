@@ -11,8 +11,8 @@
 ///
 /// # Examples
 ///
-/// ```
-/// use vortex_vector::{Vector, BoolVectorMut, NullVector, VectorOps, VectorMutOps, match_each_vector};
+/// ```ignore
+/// use vortex_vector::{Vector, BoolVectorMut, NullVector, VectorOps, VectorMutOps};
 ///
 /// fn get_vector_length(vector: &Vector) -> usize {
 ///     match_each_vector!(vector, |v| { v.len() })
@@ -61,8 +61,8 @@ pub(crate) use match_each_vector;
 ///
 /// # Examples
 ///
-/// ```
-/// use vortex_vector::{VectorMut, BoolVectorMut, NullVectorMut, VectorMutOps, match_each_vector_mut};
+/// ```ignore
+/// use vortex_vector::{VectorMut, BoolVectorMut, NullVectorMut, VectorMutOps};
 ///
 /// fn reserve_space(vector: &mut VectorMut, additional: usize) {
 ///     match_each_vector_mut!(vector, |v| { v.reserve(additional) })
