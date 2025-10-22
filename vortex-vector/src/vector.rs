@@ -6,7 +6,7 @@
 //!
 //! [`Vector`] can be transformed into the [`VectorMut`] type if it is owned.
 
-use crate::macros::match_each_vector;
+use super::macros::match_each_vector;
 use crate::{BoolVector, NullVector, PrimitiveVector, VectorMut, VectorOps};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)

@@ -6,7 +6,7 @@
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, PTypeUpcast};
 
-use crate::primitive::macros::match_each_pvector_mut;
+use super::macros::match_each_pvector_mut;
 use crate::{PVectorMut, PrimitiveVector, VectorMutOps};
 
 /// A mutable vector of primitive values.
