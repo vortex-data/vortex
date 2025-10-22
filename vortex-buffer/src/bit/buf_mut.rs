@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// TODO(connor): The API of `BitBufferMut` should probably share more methods with `BitBuffer`.
-
 use arrow_buffer::bit_chunk_iterator::BitChunks;
 use bitvec::view::BitView;
 
@@ -150,12 +148,11 @@ impl BitBufferMut {
 
     /// Reserve additional bit capacity for the buffer.
     pub fn reserve(&mut self, additional: usize) {
-        let required_capacity = (self.offset + self.len + additional).div_ceil(8);
-        let buffer_capacity = self.buffer.capacity();
-        if required_capacity > self.buffer.capacity() {
-            let additional = required_capacity - buffer_capacity;
-            self.buffer.reserve(additional);
-        }
+        let required_bits = self.offset + self.len + additional;
+        let required_bytes = required_bits.div_ceil(8); // Rounds up.
+
+        let additional_bytes = required_bytes.saturating_sub(self.buffer.len());
+        self.buffer.reserve(additional_bytes);
     }
 
     /// Set the bit at `index` to the given boolean value.
@@ -541,6 +538,28 @@ mod tests {
         assert_eq!(bools.true_count(), 2);
         assert!(bools.value(0));
         assert!(bools.value(9));
+    }
+
+    #[test]
+    fn test_reserve_ensures_len_plus_additional() {
+        // This test documents the fix for the bug where reserve was incorrectly
+        // calculating additional bytes from capacity instead of len.
+
+        let mut bits = BitBufferMut::with_capacity(10);
+        assert_eq!(bits.len(), 0);
+
+        bits.reserve(100);
+
+        // Should have capacity for at least len + 100 = 0 + 100 = 100 bits.
+        assert!(bits.capacity() >= 100);
+
+        bits.append_n(true, 50);
+        assert_eq!(bits.len(), 50);
+
+        bits.reserve(100);
+
+        // Should have capacity for at least len + 100 = 50 + 100 = 150 bits.
+        assert!(bits.capacity() >= 150);
     }
 
     #[test]

@@ -4,6 +4,7 @@
 mod compute;
 mod serde;
 
+use std::hash::Hash;
 use std::ops::Range;
 
 use vortex_array::arrays::DecimalArray;
@@ -13,7 +14,8 @@ use vortex_array::vtable::{
     ValidityHelper, ValidityVTableFromChild,
 };
 use vortex_array::{
-    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision,
+    ToCanonical, vtable,
 };
 use vortex_dtype::{DType, DecimalDType, match_each_signed_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -110,6 +112,23 @@ impl ArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 
     fn stats(array: &DecimalBytePartsArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &DecimalBytePartsArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.dtype.hash(state);
+        array.msp.array_hash(state, precision);
+    }
+
+    fn array_eq(
+        array: &DecimalBytePartsArray,
+        other: &DecimalBytePartsArray,
+        precision: Precision,
+    ) -> bool {
+        array.dtype == other.dtype && array.msp.array_eq(&other.msp, precision)
     }
 }
 

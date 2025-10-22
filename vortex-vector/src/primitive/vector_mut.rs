@@ -7,17 +7,16 @@ use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
 
-use crate::{
-    PVectorMut, PrimitiveVector, VectorMutOps, match_each_pvector_mut,
-    match_each_pvector_mut_immut_pair, match_each_pvector_mut_pair,
-};
+use crate::{PVectorMut, PrimitiveVector, VectorMutOps, match_each_pvector_mut};
 
 /// A mutable vector of primitive values.
+///
+/// The immutable equivalent of this type is [`PrimitiveVector`].
 ///
 /// `PrimitiveVector` is represented by an enum over all possible [`PVectorMut`] types (which are
 /// templated by the types that implement [`NativePType`]).
 ///
-/// The immutable equivalent of this type is [`PrimitiveVector`].
+/// See the documentation for [`PVectorMut`] for more information.
 #[derive(Debug, Clone)]
 pub enum PrimitiveVectorMut {
     /// U8
@@ -79,9 +78,20 @@ impl VectorMutOps for PrimitiveVectorMut {
     }
 
     fn extend_from_vector(&mut self, other: &Self::Immutable) {
-        match_each_pvector_mut_immut_pair!(self, other, |a, b| {
-            a.extend_from_vector(b);
-        });
+        match (self, other) {
+            (PrimitiveVectorMut::U8(a), PrimitiveVector::U8(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::U16(a), PrimitiveVector::U16(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::U32(a), PrimitiveVector::U32(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::U64(a), PrimitiveVector::U64(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::I8(a), PrimitiveVector::I8(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::I16(a), PrimitiveVector::I16(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::I32(a), PrimitiveVector::I32(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::I64(a), PrimitiveVector::I64(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::F16(a), PrimitiveVector::F16(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::F32(a), PrimitiveVector::F32(b)) => a.extend_from_vector(b),
+            (PrimitiveVectorMut::F64(a), PrimitiveVector::F64(b)) => a.extend_from_vector(b),
+            _ => ::vortex_error::vortex_panic!("Mismatched primitive vector types"),
+        }
     }
 
     fn append_nulls(&mut self, n: usize) {
@@ -97,9 +107,20 @@ impl VectorMutOps for PrimitiveVectorMut {
     }
 
     fn unsplit(&mut self, other: Self) {
-        match_each_pvector_mut_pair!(self, other, |a, b| {
-            a.unsplit(b);
-        });
+        match (self, other) {
+            (PrimitiveVectorMut::U8(a), PrimitiveVectorMut::U8(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::U16(a), PrimitiveVectorMut::U16(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::U32(a), PrimitiveVectorMut::U32(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::U64(a), PrimitiveVectorMut::U64(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::I8(a), PrimitiveVectorMut::I8(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::I16(a), PrimitiveVectorMut::I16(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::I32(a), PrimitiveVectorMut::I32(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::I64(a), PrimitiveVectorMut::I64(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::F16(a), PrimitiveVectorMut::F16(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::F32(a), PrimitiveVectorMut::F32(b)) => a.unsplit(b),
+            (PrimitiveVectorMut::F64(a), PrimitiveVectorMut::F64(b)) => a.unsplit(b),
+            _ => ::vortex_error::vortex_panic!("Mismatched primitive vector types"),
+        }
     }
 }
 
@@ -235,5 +256,71 @@ impl PTypeDowncast for PrimitiveVectorMut {
             return v;
         }
         vortex_panic!("Expected PrimitiveVectorMut::F64, got {self:?}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::VectorOps;
+
+    #[test]
+    fn test_from_iter_with_options() {
+        // Test FromIterator<Option<T>> with different types.
+        let vec_i32: PrimitiveVectorMut =
+            PVectorMut::<i32>::from_iter(vec![Some(1), None, Some(3), None, Some(5)]).into();
+        assert_eq!(vec_i32.len(), 5);
+        let frozen = vec_i32.freeze();
+        assert_eq!(frozen.validity().true_count(), 3);
+
+        // Test empty iterator.
+        let vec_empty: PrimitiveVectorMut =
+            PVectorMut::<f64>::from_iter(std::iter::empty::<Option<f64>>()).into();
+        assert_eq!(vec_empty.len(), 0);
+
+        // Test that None values use T::default().
+        let vec_nulls: PrimitiveVectorMut = PVectorMut::<i32>::from_iter([None, None, None]).into();
+        // Check that validity is all false for nulls.
+        let frozen = vec_nulls.freeze();
+        assert_eq!(frozen.validity().true_count(), 0);
+    }
+
+    #[test]
+    fn test_from_iter_non_null() {
+        // Test FromIterator<T> for different primitive types.
+        let vec_f64: PrimitiveVectorMut =
+            PVectorMut::<f64>::from_iter([1.5, 2.5, 3.5, 4.5, 5.5]).into();
+        assert_eq!(vec_f64.len(), 5);
+        let frozen = vec_f64.freeze();
+        assert_eq!(frozen.validity().true_count(), 5); // All valid.
+
+        let vec_u16: PrimitiveVectorMut = PVectorMut::<u16>::from_iter([1u16, 2, 3, 4, 5]).into();
+        assert_eq!(vec_u16.len(), 5);
+        let frozen = vec_u16.freeze();
+        assert_eq!(frozen.validity().true_count(), 5);
+    }
+
+    #[test]
+    fn test_operations_preserve_validity() {
+        // Test split/unsplit/extend with different primitive types.
+        let mut vec: PrimitiveVectorMut =
+            PVectorMut::<i64>::from_iter([Some(100), None, Some(300), None, Some(500)]).into();
+
+        let second_half = vec.split_off(2);
+        assert_eq!(vec.len(), 2);
+        assert_eq!(second_half.len(), 3);
+
+        let first_frozen = vec.freeze();
+        let second_frozen = second_half.freeze();
+        assert_eq!(first_frozen.validity().true_count(), 1);
+        assert_eq!(second_frozen.validity().true_count(), 2);
+
+        // Test unsplit.
+        let mut vec1: PrimitiveVectorMut = PVectorMut::<u32>::from_iter([Some(1000), None]).into();
+        let vec2: PrimitiveVectorMut = PVectorMut::<u32>::from_iter([None, Some(2000)]).into();
+        vec1.unsplit(vec2);
+        assert_eq!(vec1.len(), 4);
+        let frozen = vec1.freeze();
+        assert_eq!(frozen.validity().true_count(), 2);
     }
 }

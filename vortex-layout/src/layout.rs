@@ -11,6 +11,7 @@ use vortex_array::SerializeMetadata;
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
+use crate::display::DisplayLayoutTree;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, VTable};
 
@@ -188,6 +189,11 @@ impl dyn Layout + '_ {
         ChildrenIterator {
             stack: vec![self.to_layout()],
         }
+    }
+
+    /// Display the layout as a tree structure.
+    pub fn display_tree(&self) -> DisplayLayoutTree {
+        DisplayLayoutTree(self.to_layout())
     }
 }
 

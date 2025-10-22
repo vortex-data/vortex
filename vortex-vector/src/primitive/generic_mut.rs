@@ -14,19 +14,174 @@ use crate::{PVector, VectorMutOps, VectorOps};
 /// `T` is expected to be bound by [`NativePType`], which templates an internal [`BufferMut<T>`]
 /// that stores the elements of the vector.
 ///
-/// The immutable equivalent of this type is [`PVector<T>`].
+/// `PVectorMut<T>` is the primary way to construct primitive vectors. It provides efficient methods
+/// for building vectors incrementally before converting them to an immutable [`PVector<T>`] using
+/// the [`freeze`](crate::VectorMutOps::freeze) method.
+///
+/// # Examples
+///
+/// ## Creating and building a vector
+///
+/// ```
+/// use vortex_vector::{PVectorMut, VectorMutOps};
+///
+/// // Create with initial capacity for i32 values.
+/// let mut vec = PVectorMut::<i32>::with_capacity(10);
+/// assert_eq!(vec.len(), 0);
+/// assert!(vec.capacity() >= 10);
+///
+/// // Create from an iterator of optional values.
+/// let mut vec = PVectorMut::<i32>::from_iter([Some(1), None, Some(3)]);
+/// assert_eq!(vec.len(), 3);
+///
+/// // Works with different primitive types.
+/// let mut f64_vec = PVectorMut::<f64>::from_iter([1.5, 2.5, 3.5].map(Some));
+/// assert_eq!(f64_vec.len(), 3);
+/// ```
+///
+/// ## Extending and appending
+///
+/// ```
+/// use vortex_vector::{PVectorMut, VectorMutOps};
+///
+/// let mut vec1 = PVectorMut::<i32>::from_iter([1, 2].map(Some));
+/// let vec2 = PVectorMut::<i32>::from_iter([3, 4].map(Some)).freeze();
+///
+/// // Extend from another vector.
+/// vec1.extend_from_vector(&vec2);
+/// assert_eq!(vec1.len(), 4);
+///
+/// // Append null values.
+/// vec1.append_nulls(2);
+/// assert_eq!(vec1.len(), 6);
+/// ```
+///
+/// ## Splitting and unsplitting
+///
+/// ```
+/// use vortex_vector::{PVectorMut, VectorMutOps};
+///
+/// let mut vec = PVectorMut::<i64>::from_iter([10, 20, 30, 40, 50].map(Some));
+///
+/// // Split the vector at index 3.
+/// let mut second_half = vec.split_off(3);
+/// assert_eq!(vec.len(), 3);
+/// assert_eq!(second_half.len(), 2);
+///
+/// // Rejoin the vectors.
+/// vec.unsplit(second_half);
+/// assert_eq!(vec.len(), 5);
+/// ```
+///
+/// ## Working with nulls
+///
+/// ```
+/// use vortex_vector::{PVectorMut, VectorMutOps};
+///
+/// // Create a vector with some null values.
+/// let mut vec = PVectorMut::<u32>::from_iter([Some(100), None, Some(200), None]);
+/// assert_eq!(vec.len(), 4);
+///
+/// // Add more nulls.
+/// vec.append_nulls(3);
+/// assert_eq!(vec.len(), 7);
+/// ```
+///
+/// ## Converting to immutable
+///
+/// ```
+/// use vortex_vector::{PVectorMut, VectorMutOps, VectorOps};
+///
+/// let mut vec = PVectorMut::<f32>::from_iter([1.0, 2.0, 3.0].map(Some));
+///
+/// // Freeze into an immutable vector.
+/// let immutable = vec.freeze();
+/// assert_eq!(immutable.len(), 3);
+/// ```
 #[derive(Debug, Clone)]
 pub struct PVectorMut<T> {
+    /// The mutable buffer representing the vector elements.
     pub(super) elements: BufferMut<T>,
+    /// The validity mask (where `true` represents an element is **not** null).
     pub(super) validity: MaskMut,
 }
 
-impl<T: NativePType> PVectorMut<T> {
+impl<T> PVectorMut<T> {
     /// Create a new mutable primitive vector with the given capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             elements: BufferMut::with_capacity(capacity),
             validity: MaskMut::with_capacity(capacity),
+        }
+    }
+}
+
+impl<T: NativePType> FromIterator<Option<T>> for PVectorMut<T> {
+    /// Creates a new [`PVectorMut<T>`] from an iterator of `Option<T>` values.
+    ///
+    /// `None` values will be marked as invalid in the validity mask.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_vector::{PVectorMut, VectorMutOps};
+    ///
+    /// let mut vec = PVectorMut::<i32>::from_iter([Some(1), None, Some(3)]);
+    /// assert_eq!(vec.len(), 3);
+    /// ```
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = Option<T>>,
+    {
+        let iter = iter.into_iter();
+        let (lower_bound, _) = iter.size_hint();
+
+        let mut elements = Vec::with_capacity(lower_bound);
+        let mut validity = MaskMut::with_capacity(lower_bound);
+
+        for opt_val in iter {
+            match opt_val {
+                Some(val) => {
+                    elements.push(val);
+                    validity.append_n(true, 1);
+                }
+                None => {
+                    elements.push(T::default()); // Use default for invalid entries.
+                    validity.append_n(false, 1);
+                }
+            }
+        }
+
+        PVectorMut {
+            elements: BufferMut::from_iter(elements),
+            validity,
+        }
+    }
+}
+
+impl<T: NativePType> FromIterator<T> for PVectorMut<T> {
+    /// Creates a new [`PVectorMut<T>`] from an iterator of `T` values.
+    ///
+    /// All values will be treated as non-null.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_vector::{PVectorMut, VectorMutOps};
+    ///
+    /// let mut vec = PVectorMut::<i32>::from_iter([1, 2, 3, 4]);
+    /// assert_eq!(vec.len(), 4);
+    /// ```
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let buffer = BufferMut::from_iter(iter);
+        let validity = MaskMut::new_true(buffer.len());
+
+        PVectorMut {
+            elements: buffer,
+            validity,
         }
     }
 }

@@ -7,6 +7,7 @@ mod visitor;
 
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -32,11 +33,22 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, OperatorVTable, SerdeVTable,
     VTable, ValidityVTable, VisitorVTable,
 };
-use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
+use crate::{
+    ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, EncodingId, EncodingRef,
+    SerializeMetadata, hash,
+};
 
 /// The public API trait for all Vortex arrays.
 pub trait Array:
-    'static + private::Sealed + Send + Sync + Debug + ArrayVisitor + ArrayOperator
+    'static
+    + private::Sealed
+    + Send
+    + Sync
+    + Debug
+    + DynArrayEq
+    + DynArrayHash
+    + ArrayVisitor
+    + ArrayOperator
 {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
@@ -639,6 +651,19 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 
     fn to_operator(&self) -> VortexResult<Option<OperatorRef>> {
         <V::OperatorVTable as OperatorVTable<V>>::to_operator(&self.0)
+    }
+}
+
+impl<V: VTable> ArrayHash for ArrayAdapter<V> {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
+        self.0.encoding_id().hash(state);
+        <V::ArrayVTable as ArrayVTable<V>>::array_hash(&self.0, state, precision);
+    }
+}
+
+impl<V: VTable> ArrayEq for ArrayAdapter<V> {
+    fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
+        <V::ArrayVTable as ArrayVTable<V>>::array_eq(&self.0, &other.0, precision)
     }
 }
 

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::ops::Range;
 
 use vortex_array::arrays::BoolArray;
@@ -11,7 +12,9 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use vortex_array::{
+    ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision, vtable,
+};
 use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
@@ -108,6 +111,22 @@ impl ArrayVTable<ByteBoolVTable> for ByteBoolVTable {
 
     fn stats(array: &ByteBoolArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &ByteBoolArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.dtype.hash(state);
+        array.buffer.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ByteBoolArray, other: &ByteBoolArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.buffer.array_eq(&other.buffer, precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 }
 

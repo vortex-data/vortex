@@ -14,6 +14,7 @@ use crate::VectorMutOps;
 /// The immutable equivalent of this type is [`NullVector`].
 #[derive(Debug, Clone, Copy)]
 pub struct NullVectorMut {
+    /// The total number of nulls.
     pub(super) len: usize,
 }
 

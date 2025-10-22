@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
@@ -10,7 +11,10 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
-use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
+use vortex_array::{
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, Precision,
+    ToCanonical, vtable,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
@@ -197,6 +201,28 @@ impl ArrayVTable<ALPRDVTable> for ALPRDVTable {
 
     fn stats(array: &ALPRDArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ALPRDArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.left_parts.array_hash(state, precision);
+        array.left_parts_dictionary.array_hash(state, precision);
+        array.right_parts.array_hash(state, precision);
+        array.right_bit_width.hash(state);
+        array.left_parts_patches.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ALPRDArray, other: &ALPRDArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.left_parts.array_eq(&other.left_parts, precision)
+            && array
+                .left_parts_dictionary
+                .array_eq(&other.left_parts_dictionary, precision)
+            && array.right_parts.array_eq(&other.right_parts, precision)
+            && array.right_bit_width == other.right_bit_width
+            && array
+                .left_parts_patches
+                .array_eq(&other.left_parts_patches, precision)
     }
 }
 

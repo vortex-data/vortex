@@ -2,13 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
-    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision,
+    ToCanonical, vtable,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
@@ -295,6 +297,20 @@ impl ArrayVTable<RunEndVTable> for RunEndVTable {
 
     fn stats(array: &RunEndArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &RunEndArray, state: &mut H, precision: Precision) {
+        array.ends.array_hash(state, precision);
+        array.values.array_hash(state, precision);
+        array.offset.hash(state);
+        array.length.hash(state);
+    }
+
+    fn array_eq(array: &RunEndArray, other: &RunEndArray, precision: Precision) -> bool {
+        array.ends.array_eq(&other.ends, precision)
+            && array.values.array_eq(&other.values, precision)
+            && array.offset == other.offset
+            && array.length == other.length
     }
 }
 

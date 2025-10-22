@@ -203,6 +203,11 @@ impl MaskValues {
             MaskIter::Indices(self.indices())
         }
     }
+
+    /// Extracts the internal [`BitBuffer`].
+    pub(crate) fn into_buffer(self) -> BitBuffer {
+        self.buffer
+    }
 }
 
 impl Mask {

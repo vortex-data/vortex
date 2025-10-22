@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::{Hash, Hasher};
 use std::ops::{BitAnd, BitOr};
 use std::sync::LazyLock;
 
@@ -20,8 +21,8 @@ use crate::vtable::{
     ArrayVTable, NotSupported, OperatorVTable, SerdeVTable, VTable, VisitorVTable,
 };
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata, EmptyMetadata,
-    EncodingId, EncodingRef, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
+    DeserializeMetadata, EmptyMetadata, EncodingId, EncodingRef, Precision, vtable,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Enum)]
@@ -124,6 +125,15 @@ impl ArrayVTable<LogicalVTable> for LogicalVTable {
 
     fn stats(array: &LogicalArray) -> StatsSetRef<'_> {
         array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: Hasher>(array: &LogicalArray, state: &mut H, precision: Precision) {
+        array.lhs.array_hash(state, precision);
+        array.rhs.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &LogicalArray, other: &LogicalArray, precision: Precision) -> bool {
+        array.lhs.array_eq(&other.lhs, precision) && array.rhs.array_eq(&other.rhs, precision)
     }
 }
 
