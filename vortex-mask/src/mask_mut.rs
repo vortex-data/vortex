@@ -466,8 +466,6 @@ mod tests {
     }
 
     #[test]
-    // TODO(ngates): when mask uses BitBuffer internally, into_mut should succeed
-    #[should_panic]
     fn test_round_trip_split_unsplit() {
         let mut original = MaskMut::with_capacity(20);
         // Pattern: 10 true, 10 false
@@ -535,5 +533,66 @@ mod tests {
         assert_eq!(mask.len(), 30);
         let frozen = mask.freeze();
         assert_eq!(frozen.true_count(), 30);
+    }
+
+    #[test]
+    fn test_try_into_mut_all_variants() {
+        // Test AllTrue and AllFalse variants.
+        let mask_true = Mask::new_true(100);
+        let mut_mask_true = mask_true.try_into_mut().unwrap();
+        assert_eq!(mut_mask_true.len(), 100);
+        assert_eq!(mut_mask_true.freeze().true_count(), 100);
+
+        let mask_false = Mask::new_false(50);
+        let mut_mask_false = mask_false.try_into_mut().unwrap();
+        assert_eq!(mut_mask_false.len(), 50);
+        assert_eq!(mut_mask_false.freeze().true_count(), 0);
+    }
+
+    #[test]
+    fn test_try_into_mut_with_references() {
+        // Create a MaskValues variant.
+        let mut mask_mut = MaskMut::with_capacity(10);
+        mask_mut.append_n(true, 5);
+        mask_mut.append_n(false, 5);
+        let mask = mask_mut.freeze();
+
+        // Should succeed with unique reference (no clones).
+        let mask2 = {
+            let mut mask_mut2 = MaskMut::with_capacity(10);
+            mask_mut2.append_n(true, 5);
+            mask_mut2.append_n(false, 5);
+            mask_mut2.freeze()
+        };
+        let result = mask2.try_into_mut();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 10);
+
+        // Should fail with shared references.
+        let _cloned = mask.clone();
+        let result = mask.try_into_mut();
+        assert!(result.is_err());
+        if let Err(returned_mask) = result {
+            assert_eq!(returned_mask.len(), 10);
+            assert_eq!(returned_mask.true_count(), 5);
+        }
+    }
+
+    #[test]
+    fn test_try_into_mut_round_trip() {
+        // Test freeze -> try_into_mut -> modify -> freeze cycle.
+        let mut original = MaskMut::with_capacity(20);
+        original.append_n(true, 10);
+        original.append_n(false, 10);
+
+        let frozen = original.freeze();
+        assert_eq!(frozen.true_count(), 10);
+
+        let mut mut_mask = frozen.try_into_mut().unwrap();
+        mut_mask.append_n(true, 5);
+        assert_eq!(mut_mask.len(), 25);
+
+        let frozen_again = mut_mask.freeze();
+        assert_eq!(frozen_again.true_count(), 15);
     }
 }
