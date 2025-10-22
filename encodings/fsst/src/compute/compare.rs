@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray};
+use vortex_array::arrays::{BoolArray, ConstantArray};
 use vortex_array::compute::{
     CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
 };
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
@@ -51,9 +51,9 @@ fn compare_fsst_constant(
     if is_rhs_empty {
         let buffer = match operator {
             // Every possible value is gte ""
-            Operator::Gte => BooleanBuffer::new_set(left.len()),
+            Operator::Gte => BitBuffer::new_set(left.len()),
             // No value is lt ""
-            Operator::Lt => BooleanBuffer::new_unset(left.len()),
+            Operator::Lt => BitBuffer::new_unset(left.len()),
             _ => {
                 let uncompressed_lengths = left.uncompressed_lengths().to_primitive();
                 match_each_integer_ptype!(uncompressed_lengths.ptype(), |P| {
@@ -66,7 +66,7 @@ fn compare_fsst_constant(
         };
 
         return Ok(Some(
-            BoolArray::from_bool_buffer(
+            BoolArray::from_bit_buffer(
                 buffer,
                 Validity::copy_from_array(left.as_ref())
                     .union_nullability(right.dtype().nullability()),
@@ -144,7 +144,7 @@ mod tests {
         assert_eq!(equals.dtype(), &DType::Bool(Nullability::Nullable));
 
         assert_eq!(
-            equals.boolean_buffer().into_iter().collect::<Vec<_>>(),
+            equals.bit_buffer().into_iter().collect::<Vec<_>>(),
             vec![false, false, true, false, false]
         );
 
@@ -155,7 +155,7 @@ mod tests {
 
         assert_eq!(not_equals.dtype(), &DType::Bool(Nullability::Nullable));
         assert_eq!(
-            not_equals.boolean_buffer().into_iter().collect::<Vec<_>>(),
+            not_equals.bit_buffer().into_iter().collect::<Vec<_>>(),
             vec![true, true, false, true, true]
         );
 

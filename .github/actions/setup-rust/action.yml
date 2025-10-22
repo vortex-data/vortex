@@ -4,7 +4,8 @@ description: "Toolchain setup and Initial compilation"
 inputs:
   repo-token:
     description: "GitHub token for accessing the repository (typically secrets.GITHUB_TOKEN)"
-    required: true
+    required: false
+    default: "${{ github.token }}"
   toolchain:
     description: "optional override for the toolchain version (e.g. nightly)"
     required: false

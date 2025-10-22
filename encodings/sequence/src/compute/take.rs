@@ -41,7 +41,7 @@ fn take<T: IntegerPType, S: NativePType>(
     indices_mask: Mask,
     result_nullability: Nullability,
 ) -> ArrayRef {
-    match indices_mask.boolean_buffer() {
+    match indices_mask.bit_buffer() {
         AllOr::All => PrimitiveArray::new(
             Buffer::from_trusted_len_iter(indices.iter().map(|i| {
                 let i = <S as NumCast>::from::<T>(*i).vortex_expect("all indices fit");

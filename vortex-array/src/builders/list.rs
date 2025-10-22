@@ -12,7 +12,7 @@ use vortex_scalar::{ListScalar, Scalar};
 
 use crate::arrays::{ListArray, list_view_from_list};
 use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, PrimitiveBuilder,
+    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder, PrimitiveBuilder,
     builder_with_capacity,
 };
 use crate::canonical::{Canonical, ToCanonical};
@@ -31,7 +31,7 @@ pub struct ListBuilder<O: IntegerPType> {
     offsets_builder: PrimitiveBuilder<O>,
 
     /// The null map builder of the [`ListArray`].
-    nulls: LazyNullBufferBuilder,
+    nulls: LazyBitBufferBuilder,
 }
 
 impl<O: IntegerPType> ListBuilder<O> {
@@ -69,7 +69,7 @@ impl<O: IntegerPType> ListBuilder<O> {
         Self {
             elements_builder,
             offsets_builder,
-            nulls: LazyNullBufferBuilder::new(capacity),
+            nulls: LazyBitBufferBuilder::new(capacity),
             dtype: DType::List(value_dtype, nullability),
         }
     }
@@ -251,7 +251,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls = LazyBitBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }
 

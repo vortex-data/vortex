@@ -2,15 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::min;
+use std::ops::AddAssign;
 
-use arrow_buffer::BooleanBuffer;
+use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
-use vortex_buffer::buffer_mut;
-use vortex_dtype::{IntegerPType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_panic};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical, register_kernel};
+use vortex_buffer::{BitBuffer, buffer_mut};
+use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
 use crate::compute::take::take_indices_unchecked;
@@ -20,39 +21,41 @@ const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
 impl FilterKernel for RunEndVTable {
     fn filter(&self, array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let Mask::Values(mask_values) = mask else {
-            vortex_panic!("FilterKernel invariant was incorrect");
-        };
+        match mask {
+            Mask::AllTrue(_) => Ok(array.to_array()),
+            Mask::AllFalse(_) => Ok(Canonical::empty(array.dtype()).into()),
+            Mask::Values(mask_values) => {
+                let runs_ratio = mask_values.true_count() as f64 / array.ends().len() as f64;
 
-        let runs_ratio = mask_values.true_count() as f64 / array.ends().len() as f64;
+                if runs_ratio < FILTER_TAKE_THRESHOLD || mask_values.true_count() < 25 {
+                    // This strategy is directly proportional to the number of indices.
+                    take_indices_unchecked(array, mask_values.indices(), &Validity::NonNullable)
+                } else {
+                    // This strategy ends up being close to fixed cost based on the number of runs,
+                    // rather than the number of indices.
+                    let primitive_run_ends = array.ends().to_primitive();
+                    let (run_ends, values_mask) =
+                        match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
+                            filter_run_end_primitive(
+                                primitive_run_ends.as_slice::<P>(),
+                                array.offset() as u64,
+                                array.len() as u64,
+                                mask_values.bit_buffer(),
+                            )?
+                        });
+                    let values = filter(array.values(), &values_mask)?;
 
-        if runs_ratio < FILTER_TAKE_THRESHOLD || mask_values.true_count() < 25 {
-            // This strategy is directly proportional to the number of indices.
-            take_indices_unchecked(array, mask_values.indices(), &Validity::NonNullable)
-        } else {
-            // This strategy ends up being close to fixed cost based on the number of runs, rather
-            // than the number of indices.
-            let primitive_run_ends = array.ends().to_primitive();
-            let (run_ends, values_mask) =
-                match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
-                    filter_run_end_primitive(
-                        primitive_run_ends.as_slice::<P>(),
-                        array.offset() as u64,
-                        array.len() as u64,
-                        mask_values.boolean_buffer(),
-                    )?
-                });
-            let values = filter(array.values(), &values_mask)?;
-
-            // SAFETY: guaranteed by implementation of filter_run_end_primitive
-            unsafe {
-                Ok(RunEndArray::new_unchecked(
-                    run_ends.into_array(),
-                    values,
-                    0,
-                    mask_values.true_count(),
-                )
-                .into_array())
+                    // SAFETY: guaranteed by implementation of filter_run_end_primitive
+                    unsafe {
+                        Ok(RunEndArray::new_unchecked(
+                            run_ends.into_array(),
+                            values,
+                            0,
+                            mask_values.true_count(),
+                        )
+                        .into_array())
+                    }
+                }
             }
         }
     }
@@ -71,7 +74,7 @@ pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef
                 array.len() as u64,
                 mask.values()
                     .vortex_expect("AllTrue and AllFalse handled by filter fn")
-                    .boolean_buffer(),
+                    .bit_buffer(),
             )?
         });
     let values = filter(array.values(), &values_mask)?;
@@ -86,11 +89,11 @@ pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef
 }
 
 // Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
-fn filter_run_end_primitive<R: IntegerPType + From<bool>>(
+fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     run_ends: &[R],
     offset: u64,
     length: u64,
-    mask: &BooleanBuffer,
+    mask: &BitBuffer,
 ) -> VortexResult<(PrimitiveArray, Mask)> {
     let mut new_run_ends = buffer_mut![R::zero(); run_ends.len()];
 
@@ -98,9 +101,9 @@ fn filter_run_end_primitive<R: IntegerPType + From<bool>>(
     let mut j = 0;
     let mut count = R::zero();
 
-    let new_mask: Mask = BooleanBuffer::collect_bool(run_ends.len(), |i| {
+    let new_mask: Mask = BitBuffer::collect_bool(run_ends.len(), |i| {
         let mut keep = false;
-        let end = min(run_ends[i].as_() as u64 - offset, length);
+        let end = min(run_ends[i].as_() - offset, length);
 
         // Safety: predicate must be the same length as the array the ends have been taken from
         for pred in
@@ -127,16 +130,18 @@ fn filter_run_end_primitive<R: IntegerPType + From<bool>>(
 
 #[cfg(test)]
 mod tests {
-
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
     use super::filter_run_end;
     use crate::{RunEndArray, RunEndVTable};
 
     fn ree_array() -> RunEndArray {
-        RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array()).unwrap()
+        RunEndArray::encode(
+            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
+        )
+        .unwrap()
     }
 
     #[test]

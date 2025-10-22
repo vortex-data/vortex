@@ -783,3 +783,218 @@ fn test_decimal_i256_overflow_cast() {
     let result = decimal.cast(&DType::Primitive(PType::I64, Nullability::NonNullable));
     assert!(result.is_err());
 }
+
+// Tests for checked_binary_numeric
+#[test]
+fn test_decimal_scalar_checked_add() {
+    use crate::NumericOperator;
+
+    let decimal1 = Scalar::decimal(
+        DecimalValue::I64(100),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+
+    let decimal2 = Scalar::decimal(
+        DecimalValue::I64(200),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+
+    let result = scalar1
+        .checked_binary_numeric(&scalar2, NumericOperator::Add)
+        .unwrap();
+    assert_eq!(
+        result.decimal_value(),
+        Some(DecimalValue::I256(i256::from_i128(300)))
+    );
+}
+
+#[test]
+fn test_decimal_scalar_checked_sub() {
+    use crate::NumericOperator;
+
+    let decimal1 = Scalar::decimal(
+        DecimalValue::I64(500),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+
+    let decimal2 = Scalar::decimal(
+        DecimalValue::I64(200),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+
+    let result = scalar1
+        .checked_binary_numeric(&scalar2, NumericOperator::Sub)
+        .unwrap();
+    assert_eq!(
+        result.decimal_value(),
+        Some(DecimalValue::I256(i256::from_i128(300)))
+    );
+}
+
+#[test]
+fn test_decimal_scalar_checked_mul() {
+    use crate::NumericOperator;
+
+    let decimal1 = Scalar::decimal(
+        DecimalValue::I32(50),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+
+    let decimal2 = Scalar::decimal(
+        DecimalValue::I32(10),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+
+    let result = scalar1
+        .checked_binary_numeric(&scalar2, NumericOperator::Mul)
+        .unwrap();
+    assert_eq!(
+        result.decimal_value(),
+        Some(DecimalValue::I256(i256::from_i128(500)))
+    );
+}
+
+#[test]
+fn test_decimal_scalar_checked_div() {
+    use crate::NumericOperator;
+
+    let decimal1 = Scalar::decimal(
+        DecimalValue::I64(1000),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+
+    let decimal2 = Scalar::decimal(
+        DecimalValue::I64(10),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+
+    let result = scalar1
+        .checked_binary_numeric(&scalar2, NumericOperator::Div)
+        .unwrap();
+    assert_eq!(
+        result.decimal_value(),
+        Some(DecimalValue::I256(i256::from_i128(100)))
+    );
+}
+
+#[test]
+fn test_decimal_scalar_checked_div_by_zero() {
+    use crate::NumericOperator;
+
+    let decimal1 = Scalar::decimal(
+        DecimalValue::I64(1000),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+
+    let decimal2 = Scalar::decimal(
+        DecimalValue::I64(0),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+
+    let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Div);
+    assert_eq!(result, None);
+}
+
+#[test]
+fn test_decimal_scalar_null_handling() {
+    use crate::NumericOperator;
+
+    let decimal1 = Scalar::null(DType::Decimal(
+        DecimalDType::new(10, 2),
+        Nullability::Nullable,
+    ));
+    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+
+    let decimal2 = Scalar::decimal(
+        DecimalValue::I64(200),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+
+    let result = scalar1
+        .checked_binary_numeric(&scalar2, NumericOperator::Add)
+        .unwrap();
+    assert_eq!(result.decimal_value(), None);
+}
+
+#[test]
+fn test_decimal_scalar_precision_overflow() {
+    use crate::NumericOperator;
+
+    // Create decimals with precision 3 (max value 999)
+    let decimal1 = Scalar::decimal(
+        DecimalValue::I16(999),
+        DecimalDType::new(3, 0),
+        Nullability::NonNullable,
+    );
+    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+
+    let decimal2 = Scalar::decimal(
+        DecimalValue::I16(2),
+        DecimalDType::new(3, 0),
+        Nullability::NonNullable,
+    );
+    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+
+    // 999 + 2 = 1001 which exceeds precision 3
+    let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Add);
+    assert_eq!(result, None);
+}
+
+#[test]
+fn test_decimal_scalar_rsub_and_rdiv() {
+    use crate::NumericOperator;
+
+    let decimal1 = Scalar::decimal(
+        DecimalValue::I64(100),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+
+    let decimal2 = Scalar::decimal(
+        DecimalValue::I64(300),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+
+    // RSub: 300 - 100 = 200
+    let result = scalar1
+        .checked_binary_numeric(&scalar2, NumericOperator::RSub)
+        .unwrap();
+    assert_eq!(
+        result.decimal_value(),
+        Some(DecimalValue::I256(i256::from_i128(200)))
+    );
+
+    // RDiv: 300 / 100 = 3
+    let result = scalar1
+        .checked_binary_numeric(&scalar2, NumericOperator::RDiv)
+        .unwrap();
+    assert_eq!(
+        result.decimal_value(),
+        Some(DecimalValue::I256(i256::from_i128(3)))
+    );
+}

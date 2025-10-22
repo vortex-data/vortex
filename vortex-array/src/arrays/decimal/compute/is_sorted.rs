@@ -47,7 +47,7 @@ where
         Mask::Values(mask_values) => {
             let values = array.buffer::<T>();
             let iter = mask_values
-                .boolean_buffer()
+                .bit_buffer()
                 .iter()
                 .zip_eq(values)
                 .map(|(is_valid, v)| is_valid.then_some(v));

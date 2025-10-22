@@ -17,6 +17,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use crate::arrays::{ExtensionVTable, TemporalArray};
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::to_arrow::ToArrowArgs;
+use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
 use crate::compute::{InvocationArgs, Kernel, Output, cast};
 use crate::{Array as _, IntoArray, ToCanonical};
 
@@ -110,7 +111,7 @@ where
         .to_primitive()
         .into_buffer()
         .into_arrow_scalar_buffer();
-    let nulls = array.temporal_values().validity_mask().to_null_buffer();
+    let nulls = to_null_buffer(array.temporal_values().validity_mask());
     Ok(ArrowPrimitiveArray::<T>::new(values, nulls))
 }
 

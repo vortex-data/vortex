@@ -234,7 +234,7 @@ pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef>
     };
 
     let array_ref = array.to_array().into_arrow_preferred()?;
-    let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);
+    let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
     Ok(ArrayRef::from_arrow(

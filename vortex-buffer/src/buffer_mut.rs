@@ -328,6 +328,60 @@ impl<T> BufferMut<T> {
         self.length += slice.len();
     }
 
+    /// Splits the buffer into two at the given index.
+    ///
+    /// Afterward, self contains elements `[0, at)`, and the returned buffer contains elements
+    /// `[at, capacity)`. It’s guaranteed that the memory does not move, that is, the address of
+    /// self does not change, and the address of the returned slice is at bytes after that.
+    ///
+    /// This is an O(1) operation that just increases the reference count and sets a few indices.
+    ///
+    /// Panics if either half would have a length that is not a multiple of the alignment.
+    pub fn split_off(&mut self, at: usize) -> Self {
+        if at > self.len() {
+            vortex_panic!("Cannot split buffer of length {} at {}", self.len(), at);
+        }
+
+        let bytes_at = at * size_of::<T>();
+        if !bytes_at.is_multiple_of(*self.alignment) {
+            vortex_panic!(
+                "Cannot split buffer at {}, resulting alignment is not {}",
+                at,
+                self.alignment
+            );
+        }
+
+        let new_bytes = self.bytes.split_off(bytes_at);
+        let new_length = self.length - at;
+        self.length = at;
+
+        BufferMut {
+            bytes: new_bytes,
+            length: new_length,
+            alignment: self.alignment,
+            _marker: Default::default(),
+        }
+    }
+
+    /// Absorbs a mutable buffer that was previously split off.
+    ///
+    /// If the two buffers were previously contiguous and not mutated in a way that causes
+    /// re-allocation i.e., if other was created by calling split_off on this buffer, then this is
+    /// an O(1) operation that just decreases a reference count and sets a few indices.
+    ///
+    /// Otherwise, this method degenerates to self.extend_from_slice(other.as_ref()).
+    pub fn unsplit(&mut self, other: Self) {
+        if self.alignment != other.alignment {
+            vortex_panic!(
+                "Cannot unsplit buffers with different alignments: {} and {}",
+                self.alignment,
+                other.alignment
+            );
+        }
+        self.bytes.unsplit(other.bytes);
+        self.length += other.length;
+    }
+
     /// Freeze the `BufferMut` into a `Buffer`.
     pub fn freeze(self) -> Buffer<T> {
         Buffer {

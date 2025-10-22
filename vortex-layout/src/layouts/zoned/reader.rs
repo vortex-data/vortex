@@ -3,15 +3,15 @@
 
 use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 
-use arrow_buffer::BooleanBufferBuilder;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, MaskFuture, ToCanonical};
+use vortex_buffer::BitBufferMut;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
@@ -20,10 +20,10 @@ use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::LayoutReader;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::SegmentSource;
+use crate::{LayoutReader, LayoutReaderRef, LazyReaderChildren};
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
@@ -32,21 +32,17 @@ type PredicateCache = Arc<OnceLock<Option<ExprRef>>>;
 pub struct ZonedReader {
     layout: ZonedLayout,
     name: Arc<str>,
-
-    /// Data layout reader
-    data_child: Arc<dyn LayoutReader>,
-    /// Zone map layout reader.
-    zones_child: Arc<dyn LayoutReader>,
+    lazy_children: LazyReaderChildren,
 
     /// A cache of expr -> optional pruning result (applying the pruning expr to the zone map)
-    pruning_result: DashMap<ExprRef, Option<SharedPruningResult>>,
+    pruning_result: LazyLock<DashMap<ExprRef, Option<SharedPruningResult>>>,
 
     /// Shared zone map
     zone_map: OnceLock<SharedZoneMap>,
 
     /// A cache of expr -> optional pruning predicate.
     /// This also uses the present_stats from the `ZonedLayout`
-    pruning_predicates: Arc<DashMap<ExprRef, PredicateCache>>,
+    pruning_predicates: LazyLock<Arc<DashMap<ExprRef, PredicateCache>>>,
 }
 
 impl ZonedReader {
@@ -55,22 +51,22 @@ impl ZonedReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
     ) -> VortexResult<Self> {
-        let data_child = layout
-            .data
-            .new_reader(name.clone(), segment_source.clone())?;
-        let zones_child = layout
-            .zones
-            .new_reader(format!("{name}.zones").into(), segment_source)?;
+        let lazy_children =
+            LazyReaderChildren::new(layout.children.clone(), segment_source.clone());
 
         Ok(Self {
             layout,
             name,
-            data_child,
-            zones_child,
+            lazy_children,
             pruning_result: Default::default(),
             zone_map: Default::default(),
             pruning_predicates: Default::default(),
         })
+    }
+
+    #[inline]
+    fn data_child(&self) -> VortexResult<&LayoutReaderRef> {
+        self.lazy_children.get(0, self.layout.dtype(), &self.name)
     }
 
     /// Get or create the pruning predicate for a given expression.
@@ -101,7 +97,16 @@ impl ZonedReader {
                 let present_stats = self.layout.present_stats.clone();
 
                 let zones_eval = self
-                    .zones_child
+                    .lazy_children
+                    .get(
+                        1,
+                        &ZoneMap::dtype_for_stats_table(
+                            self.layout.dtype(),
+                            self.layout.present_stats(),
+                        ),
+                        &format!("{}.zones", self.name).into(),
+                    )
+                    .vortex_expect("failed to get zone child")
                     .projection_evaluation(
                         &(0..nzones as u64),
                         &root(),
@@ -178,11 +183,11 @@ impl LayoutReader for ZonedReader {
     }
 
     fn dtype(&self) -> &DType {
-        self.data_child.dtype()
+        self.layout.dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {
-        self.data_child.row_count()
+        Precision::exact(self.layout.row_count())
     }
 
     fn register_splits(
@@ -191,7 +196,7 @@ impl LayoutReader for ZonedReader {
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        self.data_child
+        self.data_child()?
             .register_splits(field_mask, row_offset, splits)
     }
 
@@ -203,7 +208,7 @@ impl LayoutReader for ZonedReader {
     ) -> VortexResult<MaskFuture> {
         log::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
         let data_eval = self
-            .data_child
+            .data_child()?
             .pruning_evaluation(row_range, expr, mask.clone())?;
 
         let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
@@ -236,14 +241,14 @@ impl LayoutReader for ZonedReader {
         Ok(MaskFuture::new(mask.len(), async move {
             log::debug!("Invoking stats pruning evaluation {}: {}", name, expr);
 
-            let pruning_mask = pruning_mask_future.clone().await?.mask()?;
+            let pruning_mask = pruning_mask_future.await?.mask()?;
 
-            let mut builder = BooleanBufferBuilder::new(mask.len());
+            let mut builder = BitBufferMut::with_capacity(mask.len());
             for (zone_idx, &zone_length) in zone_range.clone().zip_eq(&zone_lengths) {
-                builder.append_n(zone_length, !pruning_mask.value(usize::try_from(zone_idx)?));
+                builder.append_n(!pruning_mask.value(usize::try_from(zone_idx)?), zone_length);
             }
 
-            let stats_mask = Mask::from(builder.finish());
+            let stats_mask = Mask::from(builder.freeze());
             assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
 
             // Intersect the masks.
@@ -273,7 +278,7 @@ impl LayoutReader for ZonedReader {
         expr: &ExprRef,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
-        self.data_child.filter_evaluation(row_range, expr, mask)
+        self.data_child()?.filter_evaluation(row_range, expr, mask)
     }
 
     fn projection_evaluation(
@@ -284,7 +289,8 @@ impl LayoutReader for ZonedReader {
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
-        self.data_child.projection_evaluation(row_range, expr, mask)
+        self.data_child()?
+            .projection_evaluation(row_range, expr, mask)
     }
 }
 
@@ -431,7 +437,7 @@ mod test {
                 .unwrap()
                 .await
                 .unwrap()
-                .to_boolean_buffer()
+                .to_bit_buffer()
                 .iter()
                 .collect::<Vec<_>>();
 

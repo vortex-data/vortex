@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use itertools::Itertools as _;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{NodeExt, Transformed};
-use crate::{DType, ExprRef, MergeVTable, get_item, pack};
+use crate::{DType, DuplicateHandling, ExprRef, MergeVTable, get_item, pack};
 
 /// Replaces [crate::MergeExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_merge(e: ExprRef, ctx: &DType) -> VortexResult<ExprRef> {
@@ -20,6 +22,7 @@ fn merge_transform(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprR
             let mut names = Vec::with_capacity(merge.children().len() * 2);
             let mut children = Vec::with_capacity(merge.children().len() * 2);
             let mut all_nullable = true;
+            let mut duplicate_names = HashSet::<_>::new();
             for child in merge.children() {
                 let child_dtype = child.return_dtype(ctx)?;
                 if !child_dtype.is_struct() {
@@ -36,11 +39,21 @@ fn merge_transform(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprR
 
                 for name in child_dtype.names().iter() {
                     if let Some(idx) = names.iter().position(|n| n == name) {
+                        duplicate_names.insert(name.clone());
                         children[idx] = child.clone();
                     } else {
                         names.push(name.clone());
                         children.push(child.clone());
                     }
+                }
+
+                if merge.duplicate_handling() == DuplicateHandling::Error
+                    && !duplicate_names.is_empty()
+                {
+                    vortex_bail!(
+                        "merge: duplicate fields in children: {}",
+                        duplicate_names.into_iter().format(", ")
+                    )
                 }
             }
             let expr = pack(
@@ -62,7 +75,7 @@ mod tests {
     use vortex_dtype::PType::{I32, I64, U32, U64};
 
     use crate::transform::remove_merge::remove_merge;
-    use crate::{PackVTable, get_item, merge, root};
+    use crate::{DuplicateHandling, PackVTable, get_item, merge_opts, root};
 
     #[test]
     fn test_remove_merge() {
@@ -74,7 +87,10 @@ mod tests {
             NonNullable,
         );
 
-        let e = merge([get_item("0", root()), get_item("1", root())]);
+        let e = merge_opts(
+            [get_item("0", root()), get_item("1", root())],
+            DuplicateHandling::RightMost,
+        );
         let e = remove_merge(e, &dtype).unwrap();
 
         assert!(e.is::<PackVTable>());

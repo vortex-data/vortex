@@ -3,7 +3,7 @@
 
 use std::ops::{BitAnd, BitOr, BitXor, Not, Range};
 
-use crate::bit::ops::{bitwise_and, bitwise_not, bitwise_or, bitwise_unary_op, bitwise_xor};
+use crate::bit::ops::{bitwise_binary_op, bitwise_unary_op};
 use crate::bit::{
     BitChunks, BitIndexIterator, BitIterator, BitSliceIterator, UnalignedBitChunk,
     get_bit_unchecked,
@@ -11,11 +11,11 @@ use crate::bit::{
 use crate::{Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer, buffer};
 
 /// An immutable bitset stored as a packed byte buffer.
-#[derive(Clone, Debug, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct BitBuffer {
     buffer: ByteBuffer,
-    len: usize,
     offset: usize,
+    len: usize,
 }
 
 impl PartialEq for BitBuffer {
@@ -25,8 +25,8 @@ impl PartialEq for BitBuffer {
         }
 
         self.chunks()
-            .iter()
-            .zip(other.chunks())
+            .iter_padded()
+            .zip(other.chunks().iter_padded())
             .all(|(a, b)| a == b)
     }
 }
@@ -41,6 +41,9 @@ impl BitBuffer {
             "provided ByteBuffer not large enough to back BoolBuffer with len {len}"
         );
 
+        // BitBuffers make no assumptions on byte alignment, so we strip any alignment.
+        let buffer = buffer.aligned(Alignment::none());
+
         Self {
             buffer,
             len,
@@ -48,10 +51,10 @@ impl BitBuffer {
         }
     }
 
-    /// Create a new `BoolBuffer` backed by a [`ByteBuffer`] with `len` bits in view, starting at the
-    /// given `offset` (in bits).
+    /// Create a new `BoolBuffer` backed by a [`ByteBuffer`] with `len` bits in view, starting at
+    /// the given `offset` (in bits).
     ///
-    /// Panics if the buffer is not large enough to hold `len` bits or if the offset is greater than
+    /// Panics if the buffer is not large enough to hold `len` bits after the offset.
     pub fn new_with_offset(buffer: ByteBuffer, len: usize, offset: usize) -> Self {
         assert!(
             len.saturating_add(offset) <= buffer.len().saturating_mul(8),
@@ -59,10 +62,13 @@ impl BitBuffer {
             buffer.len()
         );
 
+        // BitBuffers make no assumptions on byte alignment, so we strip any alignment.
+        let buffer = buffer.aligned(Alignment::none());
+
         Self {
             buffer,
-            len,
             offset,
+            len,
         }
     }
 
@@ -134,13 +140,7 @@ impl BitBuffer {
 
         buffer.truncate(len.div_ceil(8));
 
-        Self::new(
-            buffer
-                .freeze()
-                .into_byte_buffer()
-                .aligned(Alignment::of::<u8>()),
-            len,
-        )
+        Self::new(buffer.freeze().into_byte_buffer(), len)
     }
 
     /// Get the logical length of this `BoolBuffer`.
@@ -159,13 +159,13 @@ impl BitBuffer {
     }
 
     /// Offset of the start of the buffer in bits.
-    #[inline]
+    #[inline(always)]
     pub fn offset(&self) -> usize {
         self.offset
     }
 
     /// Get a reference to the underlying buffer.
-    #[inline]
+    #[inline(always)]
     pub fn inner(&self) -> &ByteBuffer {
         &self.buffer
     }
@@ -173,6 +173,8 @@ impl BitBuffer {
     /// Retrieve the value at the given index.
     ///
     /// Panics if the index is out of bounds.
+    ///
+    /// Please note for repeatedly calling this function, please prefer [`crate::get_bit`].
     #[inline]
     pub fn value(&self, index: usize) -> bool {
         assert!(index < self.len);
@@ -257,11 +259,7 @@ impl BitBuffer {
                 self.len,
             );
         }
-
-        Self::new(
-            bitwise_unary_op(self.buffer.clone(), self.offset, self.len, |a| a),
-            self.len,
-        )
+        bitwise_unary_op(self, |a| a)
     }
 }
 
@@ -277,16 +275,24 @@ impl BitBuffer {
         self.buffer.slice(word_start..word_end)
     }
 
+    /// Attempt to convert this `BitBuffer` into a mutable version.
+    pub fn try_into_mut(self) -> Result<BitBufferMut, Self> {
+        match self.buffer.try_into_mut() {
+            Ok(buffer) => Ok(BitBufferMut::from_buffer(buffer, self.offset, self.len)),
+            Err(buffer) => Err(BitBuffer::new_with_offset(buffer, self.len, self.offset)),
+        }
+    }
+
     /// Get a mutable version of this `BitBuffer` along with bit offset in the first byte.
     ///
     /// If the caller doesn't hold only reference to the underlying buffer, a copy is created.
     /// The second value of the tuple is a bit_offset of the first value in the first byte
     pub fn into_mut(self) -> BitBufferMut {
-        let bit_offset = self.offset % 8;
+        let offset = self.offset;
         let len = self.len;
-        // TODO(robert): if we are copying here we can strip offset bits
-        let shrunk = self.into_inner().into_mut();
-        BitBufferMut::from_buffer(shrunk, bit_offset, len)
+        // TODO(robert): if we are copying here we could strip offset bits
+        let inner = self.into_inner().into_mut();
+        BitBufferMut::from_buffer(inner, offset, len)
     }
 }
 
@@ -312,7 +318,7 @@ impl BitOr for &BitBuffer {
     type Output = BitBuffer;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        self.clone() | rhs.clone()
+        bitwise_binary_op(self, rhs, |a, b| a | b)
     }
 }
 
@@ -320,12 +326,7 @@ impl BitOr for BitBuffer {
     type Output = BitBuffer;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        assert_eq!(self.len, rhs.len);
-        BitBuffer::new_with_offset(
-            bitwise_or(self.buffer, self.offset, rhs.buffer, rhs.offset, self.len),
-            self.len,
-            0,
-        )
+        (&self).bitor(&rhs)
     }
 }
 
@@ -333,7 +334,7 @@ impl BitAnd for &BitBuffer {
     type Output = BitBuffer;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        self.clone() & rhs.clone()
+        bitwise_binary_op(self, rhs, |a, b| a & b)
     }
 }
 
@@ -341,12 +342,7 @@ impl BitAnd for BitBuffer {
     type Output = BitBuffer;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        assert_eq!(self.len, rhs.len);
-        BitBuffer::new_with_offset(
-            bitwise_and(self.buffer, self.offset, rhs.buffer, rhs.offset, self.len),
-            self.len,
-            0,
-        )
+        (&self).bitand(&rhs)
     }
 }
 
@@ -354,7 +350,7 @@ impl Not for &BitBuffer {
     type Output = BitBuffer;
 
     fn not(self) -> Self::Output {
-        !self.clone()
+        bitwise_unary_op(self, |a| !a)
     }
 }
 
@@ -362,7 +358,7 @@ impl Not for BitBuffer {
     type Output = BitBuffer;
 
     fn not(self) -> Self::Output {
-        BitBuffer::new_with_offset(bitwise_not(self.buffer, self.offset, self.len), self.len, 0)
+        (&self).not()
     }
 }
 
@@ -370,7 +366,7 @@ impl BitXor for &BitBuffer {
     type Output = BitBuffer;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        self.clone() ^ rhs.clone()
+        bitwise_binary_op(self, rhs, |a, b| a ^ b)
     }
 }
 
@@ -378,12 +374,7 @@ impl BitXor for BitBuffer {
     type Output = BitBuffer;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        assert_eq!(self.len, rhs.len);
-        BitBuffer::new_with_offset(
-            bitwise_xor(self.buffer, self.offset, rhs.buffer, rhs.offset, self.len),
-            self.len,
-            0,
-        )
+        (&self).bitxor(&rhs)
     }
 }
 
@@ -441,5 +432,30 @@ mod tests {
                 assert!(!sliced.value(bit));
             }
         }
+    }
+
+    #[test]
+    fn test_padded_equaltiy() {
+        let buf1 = BitBuffer::new_set(64); // All bits set.
+        let buf2 = BitBuffer::collect_bool(64, |x| x < 32); // First half set, other half unset.
+
+        for i in 0..32 {
+            assert_eq!(buf1.value(i), buf2.value(i), "Bit {} should be the same", i);
+        }
+
+        for i in 32..64 {
+            assert_ne!(buf1.value(i), buf2.value(i), "Bit {} should differ", i);
+        }
+
+        assert_eq!(
+            buf1.slice(0..32),
+            buf2.slice(0..32),
+            "Buffer slices with same bits should be equal (`PartialEq` needs `iter_padded()`)"
+        );
+        assert_ne!(
+            buf1.slice(32..64),
+            buf2.slice(32..64),
+            "Buffer slices with different bits should not be equal (`PartialEq` needs `iter_padded()`)"
+        );
     }
 }

@@ -2249,7 +2249,6 @@ dependencies = [
 name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
- "arrow-buffer",
  "getrandom 0.3.3",
  "itertools",
  "log",
@@ -2280,6 +2279,7 @@ name = "vortex-buffer"
 version = "0.1.0"
 dependencies = [
  "arrow-buffer",
+ "bitvec",
  "bytes",
  "itertools",
  "num-traits",
@@ -2291,7 +2291,6 @@ dependencies = [
 name = "vortex-bytebool"
 version = "0.1.0"
 dependencies = [
- "arrow-buffer",
  "num-traits",
  "vortex-array",
  "vortex-buffer",
@@ -2578,8 +2577,8 @@ dependencies = [
 name = "vortex-mask"
 version = "0.1.0"
 dependencies = [
- "arrow-buffer",
  "itertools",
+ "vortex-buffer",
  "vortex-error",
 ]
 

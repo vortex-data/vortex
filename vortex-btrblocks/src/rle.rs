@@ -9,11 +9,7 @@ use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_fastlanes::RLEArray;
 #[cfg(feature = "unstable_encodings")]
-use {
-    crate::Compressor,
-    crate::integer::IntCode,
-    vortex_fastlanes::{DeltaArray, delta_compress},
-};
+use {crate::Compressor, crate::integer::IntCode};
 
 use crate::integer::IntCompressor;
 use crate::{CompressorStats, Scheme, estimate_compression_ratio_with_sampling};
@@ -165,6 +161,8 @@ fn try_compress_delta(
     allowed_cascading: usize,
     excludes: &[IntCode],
 ) -> VortexResult<ArrayRef> {
+    use vortex_fastlanes::{DeltaArray, delta_compress};
+
     let (bases, deltas) = delta_compress(primitive_array)?;
     let compressed_bases = IntCompressor::compress(&bases, is_sample, allowed_cascading, excludes)?;
     let compressed_deltas =

@@ -110,7 +110,7 @@ jobs:
           fetch-depth: 0
       - run: |
           apt update
-          apt install -y wget curl build-essential
+          apt install -y wget curl build-essential unzip
       - name: Print GLIBC version
         run: ldd --version
       - name: Verify GLIBC version

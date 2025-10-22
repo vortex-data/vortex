@@ -12,11 +12,8 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 impl MaskKernel for BoolVTable {
     fn mask(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(
-            BoolArray::from_bool_buffer(
-                array.boolean_buffer().clone(),
-                array.validity().mask(mask),
-            )
-            .into_array(),
+            BoolArray::from_bit_buffer(array.bit_buffer().clone(), array.validity().mask(mask))
+                .into_array(),
         )
     }
 }

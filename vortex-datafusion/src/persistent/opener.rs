@@ -4,7 +4,7 @@
 use std::ops::Range;
 use std::sync::{Arc, Weak};
 
-use arrow_schema::{ArrowError, Field, SchemaRef};
+use arrow_schema::{ArrowError, DataType, Field, SchemaRef};
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::{DataFusionError, Result as DFResult};
 use datafusion_datasource::file_meta::FileMeta;
@@ -59,6 +59,87 @@ pub(crate) struct VortexOpener {
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
+}
+
+/// Merges the data types of two fields, preferring the logical type from the
+/// table field.
+fn merge_field_types(physical_field: &Field, table_field: &Field) -> DataType {
+    match (physical_field.data_type(), table_field.data_type()) {
+        (DataType::Struct(phys_fields), DataType::Struct(table_fields)) => {
+            let merged_fields = merge_fields(phys_fields, table_fields);
+            DataType::Struct(merged_fields.into())
+        }
+        (DataType::List(phys_field), DataType::List(table_field)) => {
+            DataType::List(Arc::new(Field::new(
+                phys_field.name(),
+                merge_field_types(phys_field, table_field),
+                phys_field.is_nullable(),
+            )))
+        }
+        (DataType::LargeList(phys_field), DataType::LargeList(table_field)) => {
+            DataType::LargeList(Arc::new(Field::new(
+                phys_field.name(),
+                merge_field_types(phys_field, table_field),
+                phys_field.is_nullable(),
+            )))
+        }
+        _ => table_field.data_type().clone(),
+    }
+}
+
+/// Merges two field collections, using logical types from table_fields where available.
+/// Falls back to physical field types when no matching table field is found.
+fn merge_fields(
+    physical_fields: &arrow_schema::Fields,
+    table_fields: &arrow_schema::Fields,
+) -> Vec<Field> {
+    physical_fields
+        .iter()
+        .map(|phys_field| {
+            table_fields
+                .iter()
+                .find(|f| f.name() == phys_field.name())
+                .map(|table_field| {
+                    Field::new(
+                        phys_field.name(),
+                        merge_field_types(phys_field, table_field),
+                        phys_field.is_nullable(),
+                    )
+                })
+                .unwrap_or_else(|| (**phys_field).clone())
+        })
+        .collect()
+}
+
+/// Computes a logical file schema from the physical file schema and the table
+/// schema.
+///
+/// For each field in the physical file schema, looks up the corresponding field
+/// in the table schema and uses its logical type.
+fn compute_logical_file_schema(
+    physical_file_schema: &SchemaRef,
+    table_schema: &SchemaRef,
+) -> SchemaRef {
+    let logical_fields: Vec<Field> = physical_file_schema
+        .fields()
+        .iter()
+        .map(|physical_field| {
+            table_schema
+                .fields()
+                .find(physical_field.name())
+                .map(|(_, table_field)| {
+                    Field::new(
+                        physical_field.name(),
+                        merge_field_types(physical_field, table_field),
+                        physical_field.is_nullable(),
+                    )
+                    .with_metadata(physical_field.metadata().clone())
+                })
+                .unwrap_or_else(|| (**physical_field).clone())
+        })
+        .collect();
+
+    Arc::new(arrow_schema::Schema::new(logical_fields))
 }
 
 impl FileOpener for VortexOpener {
@@ -143,8 +224,11 @@ impl FileOpener for VortexOpener {
                 // for schema evolution and divergence between the table's schema and individual files.
                 filter = filter
                     .map(|filter| {
+                        let logical_file_schema =
+                            compute_logical_file_schema(&physical_file_schema, &logical_schema);
+
                         let expr = expr_adapter_factory
-                            .create(logical_schema.clone(), physical_file_schema.clone())
+                            .create(logical_file_schema, physical_file_schema.clone())
                             .with_partition_values(partition_values)
                             .rewrite(filter)?;
 
@@ -302,8 +386,9 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
 
 #[cfg(test)]
 mod tests {
+    use arrow_schema::Fields;
     use chrono::Utc;
-    use datafusion::arrow::array::RecordBatch;
+    use datafusion::arrow::array::{RecordBatch, StringArray, StructArray};
     use datafusion::arrow::datatypes::{DataType, Schema};
     use datafusion::arrow::util::display::FormatOptions;
     use datafusion::common::record_batch;
@@ -560,6 +645,92 @@ mod tests {
         | -3    |
         +-------+
         ");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    // This test verifies that expression rewriting doesn't fail when there is
+    // a nested schema mismatch between the physical file schema and logical
+    // table schema.
+    async fn test_adapter_logical_physical_struct_mismatch() -> anyhow::Result<()> {
+        let vx_session = Arc::new(VortexSession::default());
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/file.vortex";
+        let file_struct_fields = Fields::from(vec![
+            Field::new("field1", DataType::Utf8, true),
+            Field::new("field2", DataType::Utf8, true),
+        ]);
+        let struct_array = StructArray::new(
+            file_struct_fields.clone(),
+            vec![
+                Arc::new(StringArray::from(vec!["value1", "value2", "value3"])),
+                Arc::new(StringArray::from(vec!["a", "b", "c"])),
+            ],
+            None,
+        );
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "my_struct",
+                DataType::Struct(file_struct_fields),
+                true,
+            )])),
+            vec![Arc::new(struct_array)],
+        )?;
+        let data_size = write_arrow_to_vortex(object_store.clone(), file_path, batch).await?;
+
+        // Table schema has an extra utf8 field.
+        let table_schema = Arc::new(Schema::new(vec![Field::new(
+            "my_struct",
+            DataType::Struct(Fields::from(vec![
+                Field::new(
+                    "field1",
+                    DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
+                    true,
+                ),
+                Field::new(
+                    "field2",
+                    DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
+                    true,
+                ),
+                Field::new("field3", DataType::Utf8, true),
+            ])),
+            true,
+        )]));
+
+        let opener = VortexOpener {
+            object_store: object_store.clone(),
+            projection: None,
+            filter: Some(logical2physical(
+                &col("my_struct").is_not_null(),
+                &table_schema,
+            )),
+            file_pruning_predicate: None,
+            expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
+            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
+            partition_fields: vec![],
+            file_cache: VortexFileCache::new(1, 1, vx_session),
+            logical_schema: table_schema,
+            batch_size: 100,
+            limit: None,
+            metrics: Default::default(),
+            layout_readers: Default::default(),
+            has_output_ordering: false,
+        };
+
+        // The opener should be able to open the file with a filter on the
+        // struct column.
+        let data = opener
+            .open(
+                make_meta(file_path, data_size),
+                PartitionedFile::new(file_path.to_string(), data_size),
+            )?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0].num_rows(), 3);
 
         Ok(())
     }
