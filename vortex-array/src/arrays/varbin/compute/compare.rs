@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::{BinaryArray, StringArray};
-use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use itertools::Itertools;
+use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
@@ -42,8 +42,8 @@ impl CompareKernel for VarBinVTable {
 
             if rhs_is_empty {
                 let buffer = match operator {
-                    Operator::Gte => BooleanBuffer::new_set(len), // Every possible value is >= ""
-                    Operator::Lt => BooleanBuffer::new_unset(len), // No value is < ""
+                    Operator::Gte => BitBuffer::new_set(len), // Every possible value is >= ""
+                    Operator::Lt => BitBuffer::new_unset(len), // No value is < ""
                     Operator::Eq | Operator::NotEq | Operator::Gt | Operator::Lte => {
                         let lhs_offsets = lhs.offsets().to_primitive();
                         match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
@@ -53,7 +53,7 @@ impl CompareKernel for VarBinVTable {
                 };
 
                 return Ok(Some(
-                    BoolArray::from_bool_buffer(
+                    BoolArray::from_bit_buffer(
                         buffer,
                         lhs.validity()
                             .clone()
@@ -110,7 +110,7 @@ register_kernel!(CompareKernelAdapter(VarBinVTable).lift());
 fn compare_offsets_to_empty<P: IntegerPType>(
     offsets: PrimitiveArray,
     operator: Operator,
-) -> BooleanBuffer {
+) -> BitBuffer {
     let lengths_iter = offsets
         .as_slice::<P>()
         .iter()
@@ -121,8 +121,7 @@ fn compare_offsets_to_empty<P: IntegerPType>(
 
 #[cfg(test)]
 mod test {
-    use arrow_buffer::BooleanBuffer;
-    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::{BitBuffer, ByteBuffer};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
@@ -149,12 +148,12 @@ mod test {
         .to_bool();
 
         assert_eq!(
-            &result.validity_mask().to_boolean_buffer(),
-            &BooleanBuffer::from_iter([true, false, true])
+            &result.validity_mask().to_bit_buffer(),
+            &BitBuffer::from_iter([true, false, true])
         );
         assert_eq!(
-            result.boolean_buffer(),
-            &BooleanBuffer::from_iter([true, false, false])
+            result.bit_buffer(),
+            &BitBuffer::from_iter([true, false, false])
         );
     }
 
@@ -173,12 +172,12 @@ mod test {
             .to_bool();
 
         assert_eq!(
-            &result.validity_mask().to_boolean_buffer(),
-            &BooleanBuffer::from_iter([false, false, true])
+            &result.validity_mask().to_bit_buffer(),
+            &BitBuffer::from_iter([false, false, true])
         );
         assert_eq!(
-            result.boolean_buffer(),
-            &BooleanBuffer::from_iter([false, true, true])
+            result.bit_buffer(),
+            &BitBuffer::from_iter([false, true, true])
         );
     }
 }

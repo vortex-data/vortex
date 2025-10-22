@@ -8560,7 +8560,6 @@ dependencies = [
 name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
- "arrow-buffer",
  "codspeed-divan-compat",
  "env_logger",
  "getrandom 0.3.4",
@@ -8610,7 +8609,6 @@ dependencies = [
 name = "vortex-bytebool"
 version = "0.1.0"
 dependencies = [
- "arrow-buffer",
  "num-traits",
  "rstest",
  "vortex-array",
@@ -9122,7 +9120,6 @@ dependencies = [
 name = "vortex-mask"
 version = "0.1.0"
 dependencies = [
- "arrow-buffer",
  "itertools 0.14.0",
  "rstest",
  "vortex-buffer",
@@ -9350,7 +9347,6 @@ dependencies = [
  "rstest",
  "vortex-array",
  "vortex-buffer",
- "vortex-dict",
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",

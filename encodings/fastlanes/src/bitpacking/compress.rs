@@ -493,7 +493,7 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
         |v: T| (8 * size_of::<T>()) - (PrimInt::leading_zeros(v) as usize);
 
     let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
-    match array.validity_mask().boolean_buffer() {
+    match array.validity_mask().bit_buffer() {
         AllOr::All => {
             // All values are valid.
             for v in array.as_slice::<T>() {
@@ -694,9 +694,7 @@ mod test {
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed
                 .validity_mask()
-                .to_null_buffer()
-                .unwrap()
-                .into_inner()
+                .to_bit_buffer()
                 .set_indices()
                 .collect::<Vec<_>>()
         )

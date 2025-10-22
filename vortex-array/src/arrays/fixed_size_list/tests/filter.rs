@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBuffer;
 use rstest::rstest;
-use vortex_buffer::buffer;
+use vortex_buffer::{BitBuffer, buffer};
 use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
@@ -63,7 +62,7 @@ fn test_filter_degenerate_list_size_zero(
     let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
     let fsl = FixedSizeListArray::new(elements.into_array(), 0, validity, num_lists);
 
-    let mask = Mask::from(BooleanBuffer::from(mask_values));
+    let mask = Mask::from(BitBuffer::from(mask_values));
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
 
     assert_eq!(filtered.len(), expected_len, "Degenerate FSL filter failed");
@@ -92,7 +91,7 @@ fn test_filter_with_nulls() {
     let validity = Validity::from_iter([true, false, true]);
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, validity, 3);
 
-    let mask = Mask::from(BooleanBuffer::from(vec![true, false, true]));
+    let mask = Mask::from(BitBuffer::from(vec![true, false, true]));
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
     let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
 
@@ -121,7 +120,7 @@ fn test_filter_all_null_array() {
     let validity = Validity::AllInvalid;
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, validity, 3);
 
-    let mask = Mask::from(BooleanBuffer::from(vec![true, false, true]));
+    let mask = Mask::from(BitBuffer::from(vec![true, false, true]));
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
 
     // This should return a ConstantArray of nulls.
@@ -171,7 +170,7 @@ fn test_filter_nested_fixed_size_lists() {
     );
 
     // Filter to keep only the second outer list.
-    let mask = Mask::from(BooleanBuffer::from(vec![false, true]));
+    let mask = Mask::from(BitBuffer::from(vec![false, true]));
     let filtered = filter(outer_fsl.as_ref(), &mask).unwrap();
     let filtered_outer = filtered.as_::<FixedSizeListVTable>();
 
@@ -287,7 +286,7 @@ fn test_filter_all_null_various_list_sizes() {
     // Case 1: list_size == 0
     let elements0 = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
     let fsl0 = FixedSizeListArray::new(elements0.into_array(), 0, Validity::AllInvalid, 3);
-    let mask0 = Mask::from(BooleanBuffer::from(vec![true, false, true]));
+    let mask0 = Mask::from(BitBuffer::from(vec![true, false, true]));
     let filtered0 = filter(fsl0.as_ref(), &mask0).unwrap();
     assert_eq!(filtered0.len(), 2);
     // Check that all elements are null (might be ConstantArray or FixedSizeListArray)
@@ -297,7 +296,7 @@ fn test_filter_all_null_various_list_sizes() {
     // Case 2: list_size == 1
     let elements1 = buffer![1i32, 2, 3].into_array();
     let fsl1 = FixedSizeListArray::new(elements1.into_array(), 1, Validity::AllInvalid, 3);
-    let mask1 = Mask::from(BooleanBuffer::from(vec![false, true, true]));
+    let mask1 = Mask::from(BitBuffer::from(vec![false, true, true]));
     let filtered1 = filter(fsl1.as_ref(), &mask1).unwrap();
     assert_eq!(filtered1.len(), 2);
     // Check that all elements are null
@@ -338,7 +337,7 @@ fn test_mask_expansion_threshold_boundary() {
     sparse_mask[5] = true;
     sparse_mask[25] = true;
     sparse_mask[75] = true;
-    let mask = Mask::from(BooleanBuffer::from(sparse_mask));
+    let mask = Mask::from(BitBuffer::from(sparse_mask));
 
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
     let filtered_fsl = filtered.as_::<FixedSizeListVTable>();

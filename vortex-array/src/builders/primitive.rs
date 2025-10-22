@@ -11,7 +11,7 @@ use vortex_mask::Mask;
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
 use crate::arrays::PrimitiveArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -19,7 +19,7 @@ use crate::{Array, ArrayRef, IntoArray};
 pub struct PrimitiveBuilder<T> {
     dtype: DType,
     values: BufferMut<T>,
-    nulls: LazyNullBufferBuilder,
+    nulls: LazyBitBufferBuilder,
 }
 
 impl<T: NativePType> PrimitiveBuilder<T> {
@@ -32,7 +32,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
             values: BufferMut::with_capacity(capacity),
-            nulls: LazyNullBufferBuilder::new(capacity),
+            nulls: LazyBitBufferBuilder::new(capacity),
             dtype: DType::Primitive(T::PTYPE, nullability),
         }
     }
@@ -175,7 +175,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls = LazyBitBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }
 

@@ -11,6 +11,7 @@ use vortex_dtype::{DType, IntegerPType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use crate::arrays::{VarBinArray, VarBinVTable};
+use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
 use crate::arrow::compute::{ToArrowKernel, ToArrowKernelAdapter};
 use crate::compute::cast;
 use crate::{Array, ToCanonical, register_kernel};
@@ -73,7 +74,7 @@ fn to_arrow<O: IntegerPType + OffsetSizeTrait>(array: &VarBinArray) -> VortexRes
     )?
     .to_primitive();
 
-    let nulls = array.validity_mask().to_null_buffer();
+    let nulls = to_null_buffer(array.validity_mask());
     let data = array.bytes().clone();
 
     // Match on the `DType`.

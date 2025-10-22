@@ -7,8 +7,8 @@ use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::arrays::{
-    BoolArray, BooleanBuffer, ConstantArray, FixedSizeListArray, ListViewArray, NullArray,
-    PrimitiveArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
+    BoolArray, ConstantArray, FixedSizeListArray, ListViewArray, NullArray, PrimitiveArray,
+    StructArray, VarBinViewArray, smallest_decimal_value_type,
 };
 use vortex_array::builders::{
     ArrayBuilder, DecimalBuilder, ListViewBuilder, builder_with_capacity,
@@ -17,7 +17,7 @@ use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
 use vortex_array::{Array, Canonical, ToCanonical};
-use vortex_buffer::{Buffer, BufferString, ByteBuffer, buffer, buffer_mut};
+use vortex_buffer::{BitBuffer, Buffer, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
     DType, DecimalDType, IntegerPType, NativePType, Nullability, StructFields,
     match_each_integer_ptype, match_each_native_ptype,
@@ -313,14 +313,8 @@ fn canonicalize_sparse_bools(patches: &Patches, fill_value: &Scalar) -> Canonica
         )
     };
 
-    let bools = BoolArray::from_bool_buffer(
-        if fill_bool {
-            BooleanBuffer::new_set(patches.array_len())
-        } else {
-            BooleanBuffer::new_unset(patches.array_len())
-        },
-        validity,
-    );
+    let bools =
+        BoolArray::from_bit_buffer(BitBuffer::full(fill_bool, patches.array_len()), validity);
 
     Canonical::Bool(bools.patch(patches))
 }
@@ -499,12 +493,13 @@ mod test {
 
     use rstest::rstest;
     use vortex_array::arrays::{
-        BoolArray, BooleanBufferBuilder, DecimalArray, FixedSizeListArray, ListArray,
-        ListViewArray, PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
+        BoolArray, DecimalArray, FixedSizeListArray, ListArray, ListViewArray, PrimitiveArray,
+        StructArray, VarBinArray, VarBinViewArray,
     };
     use vortex_array::arrow::IntoArrowArray as _;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::{DType, DecimalDType, FieldNames, PType, StructFields};
@@ -519,43 +514,25 @@ mod test {
     #[case(None)]
     fn test_sparse_bool(#[case] fill_value: Option<bool>) {
         let indices = buffer![0u64, 1, 7].into_array();
-        let values = bool_array_from_nullable_vec(vec![Some(true), None, Some(false)], fill_value)
-            .into_array();
+        let values = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
         let sparse_bools =
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
-        assert_eq!(sparse_bools.dtype(), &DType::Bool(Nullable));
+        let actual = sparse_bools.to_bool();
 
-        let flat_bools = sparse_bools.to_bool();
-        let expected = bool_array_from_nullable_vec(
-            vec![
-                Some(true),
-                None,
-                fill_value,
-                fill_value,
-                fill_value,
-                fill_value,
-                fill_value,
-                Some(false),
-                fill_value,
-                fill_value,
-            ],
+        let expected = BoolArray::from_iter([
+            Some(true),
+            None,
             fill_value,
-        );
+            fill_value,
+            fill_value,
+            fill_value,
+            fill_value,
+            Some(false),
+            fill_value,
+            fill_value,
+        ]);
 
-        assert_arrays_eq!(&flat_bools, &expected);
-    }
-
-    fn bool_array_from_nullable_vec(
-        bools: Vec<Option<bool>>,
-        fill_value: Option<bool>,
-    ) -> BoolArray {
-        let mut buffer = BooleanBufferBuilder::new(bools.len());
-        let mut validity = BooleanBufferBuilder::new(bools.len());
-        for maybe_bool in bools {
-            buffer.append(maybe_bool.unwrap_or_else(|| fill_value.unwrap_or_default()));
-            validity.append(maybe_bool.is_some());
-        }
-        BoolArray::from_bool_buffer(buffer.finish(), Validity::from(validity.finish()))
+        assert_arrays_eq!(actual, expected);
     }
 
     #[rstest]

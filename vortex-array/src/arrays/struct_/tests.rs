@@ -40,7 +40,7 @@ fn test_project() {
 
     let bools = &struct_b.fields[0];
     assert_eq!(
-        bools.to_bool().boolean_buffer().iter().collect::<Vec<_>>(),
+        bools.to_bool().bit_buffer().iter().collect::<Vec<_>>(),
         vec![true, true, true, false, false]
     );
 

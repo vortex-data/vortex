@@ -3,12 +3,12 @@
 
 use std::hash::Hash;
 
-use arrow_buffer::BooleanBuffer;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::{NativeValue, PrimitiveArray, PrimitiveVTable};
 use vortex_array::stats::Stat;
+use vortex_buffer::BitBuffer;
 use vortex_dtype::{IntegerPType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexUnwrap};
 use vortex_mask::AllOr;
@@ -231,7 +231,7 @@ where
 
     let sliced = buffer.slice(head_idx..array.len());
     let mut chunks = sliced.as_slice().chunks_exact(64);
-    match validity.boolean_buffer() {
+    match validity.bit_buffer() {
         AllOr::All => {
             for chunk in &mut chunks {
                 inner_loop_nonnull(
@@ -244,19 +244,19 @@ where
             inner_loop_naive(
                 remainder,
                 count_distinct_values,
-                &BooleanBuffer::new_set(remainder.len()),
+                &BitBuffer::new_set(remainder.len()),
                 &mut loop_state,
             );
         }
         AllOr::None => unreachable!("All invalid arrays have been handled before"),
         AllOr::Some(v) => {
-            let mask = v.slice(head_idx, array.len() - head_idx);
+            let mask = v.slice(head_idx..array.len());
             let mut offset = 0;
             for chunk in &mut chunks {
-                let validity = mask.slice(offset, 64);
+                let validity = mask.slice(offset..(offset + 64));
                 offset += 64;
 
-                match validity.count_set_bits() {
+                match validity.true_count() {
                     // All nulls -> no stats to update
                     0 => continue,
                     // Inner loop for when validity check can be elided
@@ -279,7 +279,7 @@ where
             inner_loop_naive(
                 remainder,
                 count_distinct_values,
-                &mask.slice(offset, remainder.len()),
+                &mask.slice(offset..(offset + remainder.len())),
                 &mut loop_state,
             );
         }
@@ -368,7 +368,7 @@ fn inner_loop_nonnull<T: IntegerPType>(
 fn inner_loop_nullable<T: IntegerPType>(
     values: &[T; 64],
     count_distinct_values: bool,
-    is_valid: &BooleanBuffer,
+    is_valid: &BitBuffer,
     state: &mut LoopState<T>,
 ) where
     NativeValue<T>: Eq + Hash,
@@ -391,7 +391,7 @@ fn inner_loop_nullable<T: IntegerPType>(
 fn inner_loop_naive<T: IntegerPType>(
     values: &[T],
     count_distinct_values: bool,
-    is_valid: &BooleanBuffer,
+    is_valid: &BitBuffer,
     state: &mut LoopState<T>,
 ) where
     NativeValue<T>: Eq + Hash,
@@ -414,10 +414,9 @@ fn inner_loop_naive<T: IntegerPType>(
 mod tests {
     use std::iter;
 
-    use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_buffer::{Buffer, buffer};
+    use vortex_buffer::{BitBuffer, Buffer, buffer};
 
     use crate::CompressorStats;
     use crate::integer::IntegerStats;
@@ -434,7 +433,7 @@ mod tests {
     fn test_naive_count_distinct_values_nullable() {
         let array = PrimitiveArray::new(
             buffer![217u8, 0],
-            Validity::from(BooleanBuffer::from(vec![true, false])),
+            Validity::from(BitBuffer::from(vec![true, false])),
         );
         let stats = typed_int_stats::<u8>(&array, true);
         assert_eq!(stats.distinct_values_count, 1);
@@ -451,7 +450,7 @@ mod tests {
     fn test_count_distinct_values_nullable() {
         let array = PrimitiveArray::new(
             (0..128u8).collect::<Buffer<u8>>(),
-            Validity::from(BooleanBuffer::from_iter(
+            Validity::from(BitBuffer::from_iter(
                 iter::repeat_n(vec![true, false], 64).flatten(),
             )),
         );

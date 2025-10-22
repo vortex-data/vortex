@@ -109,7 +109,7 @@ fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArr
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
     let mask = vbv.validity_mask();
-    let buffer_and_value_byte_indices = match mask.boolean_buffer() {
+    let buffer_and_value_byte_indices = match mask.bit_buffer() {
         AllOr::None => (Buffer::empty(), Vec::new()),
         _ => {
             let mut buffer = BufferMut::with_capacity(

@@ -15,7 +15,7 @@ use vortex_utils::aliases::hash_map::{Entry, HashMap};
 use crate::arrays::VarBinViewArray;
 use crate::arrays::binary_view::BinaryView;
 use crate::arrays::compact::BufferUtilization;
-use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
+use crate::builders::{ArrayBuilder, LazyBitBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -23,7 +23,7 @@ use crate::{Array, ArrayRef, IntoArray};
 pub struct VarBinViewBuilder {
     dtype: DType,
     views_builder: BufferMut<BinaryView>,
-    nulls: LazyNullBufferBuilder,
+    nulls: LazyBitBufferBuilder,
     completed: CompletedBuffers,
     in_progress: ByteBufferMut,
     growth_strategy: BufferGrowthStrategy,
@@ -68,7 +68,7 @@ impl VarBinViewBuilder {
         );
         Self {
             views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
-            nulls: LazyNullBufferBuilder::new(capacity),
+            nulls: LazyBitBufferBuilder::new(capacity),
             completed,
             in_progress: ByteBufferMut::empty(),
             dtype,
@@ -306,7 +306,7 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls = LazyBitBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }
 

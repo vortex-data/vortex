@@ -315,8 +315,8 @@ impl AnalysisExpr for BinaryExpr {
 /// let result = eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().boolean_buffer(),
-///     BoolArray::from_iter(vec![false, false, true]).boolean_buffer(),
+///     result.to_bool().bit_buffer(),
+///     BoolArray::from_iter(vec![false, false, true]).bit_buffer(),
 /// );
 /// ```
 pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
@@ -337,8 +337,8 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = not_eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().boolean_buffer(),
-///     BoolArray::from_iter(vec![true, true, false]).boolean_buffer(),
+///     result.to_bool().bit_buffer(),
+///     BoolArray::from_iter(vec![true, true, false]).bit_buffer(),
 /// );
 /// ```
 pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
@@ -359,8 +359,8 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = gt_eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().boolean_buffer(),
-///     BoolArray::from_iter(vec![false, false, true]).boolean_buffer(),
+///     result.to_bool().bit_buffer(),
+///     BoolArray::from_iter(vec![false, false, true]).bit_buffer(),
 /// );
 /// ```
 pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
@@ -381,8 +381,8 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = gt(root(), lit(2)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().boolean_buffer(),
-///     BoolArray::from_iter(vec![false, false, true]).boolean_buffer(),
+///     result.to_bool().bit_buffer(),
+///     BoolArray::from_iter(vec![false, false, true]).bit_buffer(),
 /// );
 /// ```
 pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
@@ -403,8 +403,8 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = lt_eq(root(), lit(2)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().boolean_buffer(),
-///     BoolArray::from_iter(vec![true, true, false]).boolean_buffer(),
+///     result.to_bool().bit_buffer(),
+///     BoolArray::from_iter(vec![true, true, false]).bit_buffer(),
 /// );
 /// ```
 pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
@@ -425,8 +425,8 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = lt(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().boolean_buffer(),
-///     BoolArray::from_iter(vec![true, true, false]).boolean_buffer(),
+///     result.to_bool().bit_buffer(),
+///     BoolArray::from_iter(vec![true, true, false]).bit_buffer(),
 /// );
 /// ```
 pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
@@ -445,8 +445,8 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = or(root(), lit(false)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().boolean_buffer(),
-///     BoolArray::from_iter(vec![true, false, true]).boolean_buffer(),
+///     result.to_bool().bit_buffer(),
+///     BoolArray::from_iter(vec![true, false, true]).bit_buffer(),
 /// );
 /// ```
 pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
@@ -477,8 +477,8 @@ where
 /// let result = and(root(), lit(true)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().boolean_buffer(),
-///     BoolArray::from_iter(vec![true, false, true]).boolean_buffer(),
+///     result.to_bool().bit_buffer(),
+///     BoolArray::from_iter(vec![true, false, true]).bit_buffer(),
 /// );
 /// ```
 pub fn and(lhs: ExprRef, rhs: ExprRef) -> ExprRef {

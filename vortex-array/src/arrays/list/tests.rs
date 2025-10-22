@@ -3,8 +3,7 @@
 
 use std::sync::Arc;
 
-use arrow_buffer::BooleanBuffer;
-use vortex_buffer::buffer;
+use vortex_buffer::{BitBuffer, buffer};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexUnwrap;
@@ -86,10 +85,7 @@ fn test_simple_list_filter() {
         .unwrap()
         .into_array();
 
-    let filtered = filter(
-        &list,
-        &Mask::from(BooleanBuffer::from(vec![false, true, true])),
-    );
+    let filtered = filter(&list, &Mask::from(BitBuffer::from(vec![false, true, true])));
 
     assert!(filtered.is_ok())
 }
@@ -106,9 +102,7 @@ fn test_list_filter_dense_mask() {
         .into_array();
 
     // Dense mask: keep most elements (indices 1, 2, 3, 4, 5).
-    let mask = Mask::from(BooleanBuffer::from(vec![
-        false, true, true, true, true, true,
-    ]));
+    let mask = Mask::from(BitBuffer::from(vec![false, true, true, true, true, true]));
 
     let filtered = filter(&list, &mask).unwrap();
     let filtered_list = filtered.as_::<ListVTable>();
@@ -135,7 +129,7 @@ fn test_list_filter_sparse_mask() {
         .into_array();
 
     // Sparse mask: keep only a few elements (indices 0 and 5).
-    let mask = Mask::from(BooleanBuffer::from(vec![
+    let mask = Mask::from(BitBuffer::from(vec![
         true, false, false, false, false, true,
     ]));
 
@@ -169,9 +163,7 @@ fn test_list_filter_empty_lists() {
         .unwrap()
         .into_array();
 
-    let mask = Mask::from(BooleanBuffer::from(vec![
-        true, true, true, false, false, true,
-    ]));
+    let mask = Mask::from(BitBuffer::from(vec![true, true, true, false, false, true]));
 
     let filtered = filter(&list, &mask).unwrap();
     let filtered_list = filtered.as_::<ListVTable>();
@@ -199,7 +191,7 @@ fn test_list_filter_with_nulls() {
     let elements = buffer![0..15].into_array();
     let offsets = buffer![0, 3, 7, 10, 12, 15].into_array();
     let validity = Validity::from_mask(
-        Mask::from(BooleanBuffer::from(vec![true, false, true, false, true])),
+        Mask::from(BitBuffer::from(vec![true, false, true, false, true])),
         Nullability::Nullable,
     );
 
@@ -207,7 +199,7 @@ fn test_list_filter_with_nulls() {
         .unwrap()
         .into_array();
 
-    let mask = Mask::from(BooleanBuffer::from(vec![true, true, false, true, true]));
+    let mask = Mask::from(BitBuffer::from(vec![true, true, false, true, true]));
 
     let filtered = filter(&list, &mask).unwrap();
     let filtered_list = filtered.as_::<ListVTable>();
@@ -279,7 +271,7 @@ fn test_list_filter_single_element() {
         .unwrap()
         .into_array();
 
-    let mask = Mask::from(BooleanBuffer::from(vec![false, false, true, false, false]));
+    let mask = Mask::from(BitBuffer::from(vec![false, false, true, false, false]));
 
     let filtered = filter(&list, &mask).unwrap();
     let filtered_list = filtered.as_::<ListVTable>();
@@ -304,7 +296,7 @@ fn test_list_filter_alternating_pattern() {
         .into_array();
 
     // Keep every other list.
-    let mask = Mask::from(BooleanBuffer::from(vec![
+    let mask = Mask::from(BitBuffer::from(vec![
         true, false, true, false, true, false, true, false, true, false, true, false,
     ]));
 
@@ -332,7 +324,7 @@ fn test_list_filter_variable_sizes() {
         .unwrap()
         .into_array();
 
-    let mask = Mask::from(BooleanBuffer::from(vec![
+    let mask = Mask::from(BitBuffer::from(vec![
         true, false, true, true, false, true, true, true,
     ]));
 
@@ -485,7 +477,7 @@ fn create_list_of_lists_nullable(data: OptVec<OptVec<OptVec<i32>>>) -> ListArray
     // Create inner validity if needed.
     let inner_list_validity = if has_null_inner {
         Validity::from_mask(
-            Mask::from(BooleanBuffer::from(inner_validity)),
+            Mask::from(BitBuffer::from(inner_validity)),
             Nullability::Nullable,
         )
     } else {
@@ -515,7 +507,7 @@ fn create_list_of_lists_nullable(data: OptVec<OptVec<OptVec<i32>>>) -> ListArray
     // Create outer validity if needed.
     let outer_list_validity = if has_null_outer {
         Validity::from_mask(
-            Mask::from(BooleanBuffer::from(outer_validity)),
+            Mask::from(BitBuffer::from(outer_validity)),
             Nullability::Nullable,
         )
     } else {
@@ -813,7 +805,7 @@ fn test_validity_length_mismatch() {
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0u32, 2, 4, 5, 5].into_array();
     let validity = Validity::from_mask(
-        Mask::from(BooleanBuffer::from(vec![true, false])),
+        Mask::from(BitBuffer::from(vec![true, false])),
         Nullability::Nullable,
     );
 

@@ -32,13 +32,18 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
     fn format(&mut self, name: &str, array: ArrayRef) -> fmt::Result {
         let nbytes = array.nbytes();
         let total_size = self.total_size.unwrap_or(nbytes);
+        let percent = if total_size == 0 {
+            0.0
+        } else {
+            100_f64 * nbytes as f64 / total_size as f64
+        };
         writeln!(
             self,
             "{}: {} nbytes={} ({:.2}%)",
             name,
             array.display_as(DisplayOptions::MetadataOnly),
             format_size(nbytes, DECIMAL),
-            100_f64 * nbytes as f64 / total_size as f64
+            percent
         )?;
 
         self.indent(|i| {
@@ -47,12 +52,17 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
             writeln!(i.fmt)?;
 
             for buffer in array.buffers() {
+                let buffer_percent = if nbytes == 0 {
+                    0.0
+                } else {
+                    100_f64 * buffer.len() as f64 / nbytes as f64
+                };
                 writeln!(
                     i,
                     "buffer (align={}): {} ({:.2}%)",
                     buffer.alignment(),
                     format_size(buffer.len(), DECIMAL),
-                    100_f64 * buffer.len() as f64 / nbytes as f64
+                    buffer_percent
                 )?;
             }
 

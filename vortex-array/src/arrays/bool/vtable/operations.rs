@@ -11,18 +11,15 @@ use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<BoolVTable> for BoolVTable {
     fn slice(array: &BoolArray, range: Range<usize>) -> ArrayRef {
-        BoolArray::from_bool_buffer(
-            array.boolean_buffer().slice(range.start, range.len()),
+        BoolArray::from_bit_buffer(
+            array.bit_buffer().slice(range.clone()),
             array.validity().slice(range),
         )
         .into_array()
     }
 
     fn scalar_at(array: &BoolArray, index: usize) -> Scalar {
-        Scalar::bool(
-            array.boolean_buffer().value(index),
-            array.dtype().nullability(),
-        )
+        Scalar::bool(array.bit_buffer().value(index), array.dtype().nullability())
     }
 }
 
@@ -38,8 +35,8 @@ mod tests {
         let arr = BoolArray::from_iter(iter::repeat_n(Some(true), 100));
         let sliced_arr = arr.slice(8..16).to_bool();
         assert_eq!(sliced_arr.len(), 8);
-        assert_eq!(sliced_arr.boolean_buffer().len(), 8);
-        assert_eq!(sliced_arr.boolean_buffer().offset(), 0);
+        assert_eq!(sliced_arr.bit_buffer().len(), 8);
+        assert_eq!(sliced_arr.bit_buffer().offset(), 0);
     }
 
     #[test]

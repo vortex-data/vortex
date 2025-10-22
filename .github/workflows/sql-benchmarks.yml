@@ -116,10 +116,11 @@ jobs:
       - family=${{ inputs.machine_type }}
       - image=ubuntu24-full-x64
       - spot=false
-      - extras=s3-cache
+      - ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 'extras=s3-cache' || '' }}
       - tag=${{ matrix.id }}
     steps:
       - uses: runs-on/action@v2
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         with:
           sccache: s3
       - uses: actions/checkout@v5
@@ -158,13 +159,14 @@ jobs:
             -d gh-json ${{ matrix.scale_factor }}
 
       - name: Setup AWS CLI
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
       - name: Upload data
-        if: matrix.remote_storage != null
+        if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
         shell: bash
         env:
           AWS_REGION: "eu-west-1"
@@ -173,6 +175,7 @@ jobs:
           aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
 
       - name: Setup Polar Signals
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         uses: polarsignals/gh-actions-ps-profiling@v0.6.0
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
@@ -182,13 +185,13 @@ jobs:
           extra_args: "--off-cpu-threshold=0.001"  # Personally tuned by @brancz
 
       - name: Run ${{ matrix.name }} benchmark
-        if: matrix.remote_storage == null
+        if: matrix.remote_storage == null || github.event.pull_request.head.repo.fork == true
         shell: bash
         env:
           OTEL_SERVICE_NAME: "vortex-bench"
           OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
-          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}"
-          OTEL_EXPORTER_OTLP_HEADERS: "${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}"
+          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
+          OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
           target/release_debug/query_bench ${{ matrix.subcommand }} \
@@ -199,14 +202,14 @@ jobs:
             -o results.json
 
       - name: Run ${{ matrix.name }} benchmark (remote)
-        if: matrix.remote_storage != null
+        if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
         shell: bash
         env:
           AWS_REGION: "eu-west-1"
           OTEL_SERVICE_NAME: "vortex-bench"
           OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
-          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}"
-          OTEL_EXPORTER_OTLP_HEADERS: "${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}"
+          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
+          OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
           target/release_debug/query_bench ${{ matrix.subcommand }} \
@@ -237,7 +240,7 @@ jobs:
             | jq -r '.workflow_runs[].head_sha' \
           )
 
-          aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - \
+          aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - --no-sign-request \
             | gzip -d \
             | grep $base_commit_sha \
             > base.json
