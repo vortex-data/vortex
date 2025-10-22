@@ -246,17 +246,18 @@ where
 mod tests {
     use vortex_buffer::bitbuffer;
 
-    use crate::IntoArray;
     use crate::compute::arrays::logical::{LogicalArray, LogicalOperator};
+    use crate::{ArrayRef, IntoArray};
+
+    fn and_(lhs: ArrayRef, rhs: ArrayRef) -> ArrayRef {
+        LogicalArray::new(lhs, rhs, LogicalOperator::And).into_array()
+    }
 
     #[test]
     fn test_and() {
         let lhs = bitbuffer![0 1 0].into_array();
         let rhs = bitbuffer![0 1 1].into_array();
-        let result = LogicalArray::new(lhs, rhs, LogicalOperator::And)
-            .execute_blocking()
-            .unwrap()
-            .into_bool();
+        let result = and_(lhs, rhs).execute_blocking().unwrap().into_bool();
         assert_eq!(result.bits(), &bitbuffer![0 1 0]);
     }
 }
