@@ -97,7 +97,11 @@ impl VTable for ZonedVTable {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
-        todo!()
+        // skip prunning and immediately return data child
+        layout
+            .children
+            .child(0, layout.dtype())?
+            .new_gpu_reader(name, segment_source)
     }
 
     fn build(

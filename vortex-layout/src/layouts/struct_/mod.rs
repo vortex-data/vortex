@@ -9,9 +9,7 @@ use std::sync::Arc;
 use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Field, FieldMask, Nullability, StructFields};
-use vortex_error::{
-    VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err, vortex_panic,
-};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};
@@ -112,7 +110,13 @@ impl VTable for StructVTable {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
-        todo!()
+        Ok(Arc::new(
+            crate::gpu::layouts::struct_::GpuStructReader::try_new(
+                layout.clone(),
+                name,
+                segment_source,
+            )?,
+        ))
     }
 
     fn build(
@@ -164,10 +168,19 @@ impl StructLayout {
     }
 
     pub fn struct_fields(&self) -> &StructFields {
-        let DType::Struct(dtype, _) = self.dtype() else {
-            vortex_panic!("Mismatched dtype {} for struct layout", self.dtype());
-        };
-        dtype
+        self.dtype
+            .as_struct_fields_opt()
+            .vortex_expect("Struct layout dtype must be a struct")
+    }
+
+    #[inline]
+    pub fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
+    #[inline]
+    pub fn children(&self) -> &Arc<dyn LayoutChildren> {
+        &self.children
     }
 
     pub fn matching_fields<F>(&self, field_mask: &[FieldMask], mut per_child: F) -> VortexResult<()>

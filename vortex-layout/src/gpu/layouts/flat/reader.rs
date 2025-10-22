@@ -11,13 +11,13 @@ use vortex_array::ArrayRef;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
+use vortex_error::{VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, is_root};
 
+use crate::GpuLayoutReader;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
-use crate::{GpuLayoutReader, LayoutReader};
 
 pub struct GpuFlatReader {
     layout: FlatLayout,
@@ -93,10 +93,6 @@ impl GpuLayoutReader for GpuFlatReader {
             0..self.layout.row_count(),
             "Row range {row_range:?} must cover whole layout"
         );
-        let row_range = usize::try_from(row_range.start)
-            .vortex_expect("Row range begin must fit within FlatLayout size")
-            ..usize::try_from(row_range.end)
-                .vortex_expect("Row range end must fit within FlatLayout size");
         let name = self.name.clone();
         let array = self.array_future();
         let expr = expr.clone();
