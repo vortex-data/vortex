@@ -3,7 +3,7 @@
 
 use itertools::Itertools as _;
 use num_traits::AsPrimitive;
-use vortex_buffer::BitBuffer;
+use vortex_buffer::{BitBuffer, get_bit};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -56,9 +56,12 @@ fn take_byte_bool<I: AsPrimitive<usize>>(bools: Vec<bool>, indices: &[I]) -> Bit
 }
 
 fn take_bool<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
+    // We dereference to underlying buffer to avoid access cost on every index.
+    let buffer = bools.inner().as_ref();
     BitBuffer::collect_bool(indices.len(), |idx| {
-        // We can always take from the indices unchecked since collect_bool just iterates len.
-        bools.value(unsafe { indices.get_unchecked(idx).as_() })
+        // SAFETY: we can take from the indices unchecked since collect_bool just iterates len.
+        let idx = unsafe { indices.get_unchecked(idx).as_() };
+        get_bit(buffer, bools.offset() + idx)
     })
 }
 

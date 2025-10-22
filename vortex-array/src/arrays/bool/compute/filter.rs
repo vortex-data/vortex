@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{BitBuffer, BitBufferMut};
+use vortex_buffer::{BitBuffer, BitBufferMut, get_bit};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
@@ -44,15 +44,16 @@ register_kernel!(FilterKernelAdapter(BoolVTable).lift());
 /// NOTE: it was benchmarked to be faster using collect_bool to index into a slice than to
 ///  pass the indices as an iterator of usize. So we keep this alternate implementation.
 pub fn filter_indices(
-    buffer: &BitBuffer,
+    bools: &BitBuffer,
     indices_len: usize,
     mut indices: impl Iterator<Item = usize>,
 ) -> BitBuffer {
+    let buffer = bools.inner().as_ref();
     BitBuffer::collect_bool(indices_len, |_idx| {
         let idx = indices
             .next()
             .vortex_expect("iterator is guaranteed to be within the length of the array.");
-        buffer.value(idx)
+        get_bit(buffer, bools.offset() + idx)
     })
 }
 

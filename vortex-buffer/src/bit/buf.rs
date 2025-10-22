@@ -159,13 +159,13 @@ impl BitBuffer {
     }
 
     /// Offset of the start of the buffer in bits.
-    #[inline]
+    #[inline(always)]
     pub fn offset(&self) -> usize {
         self.offset
     }
 
     /// Get a reference to the underlying buffer.
-    #[inline]
+    #[inline(always)]
     pub fn inner(&self) -> &ByteBuffer {
         &self.buffer
     }
@@ -173,6 +173,8 @@ impl BitBuffer {
     /// Retrieve the value at the given index.
     ///
     /// Panics if the index is out of bounds.
+    ///
+    /// Please note for repeatedly calling this function, please prefer [`crate::get_bit`].
     #[inline]
     pub fn value(&self, index: usize) -> bool {
         assert!(index < self.len);
