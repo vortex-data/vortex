@@ -111,11 +111,9 @@ impl ArrayBuilder for BoolBuilder {
         self.nulls.append_validity_mask(bool_array.validity_mask());
     }
 
-    fn ensure_capacity(&mut self, capacity: usize) {
-        if capacity > self.inner.capacity() {
-            self.inner.reserve(capacity - self.inner.capacity());
-            self.nulls.ensure_capacity(capacity);
-        }
+    fn reserve_exact(&mut self, additional: usize) {
+        self.inner.reserve(additional);
+        self.nulls.reserve_exact(additional);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {

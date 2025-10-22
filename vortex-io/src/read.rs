@@ -204,10 +204,10 @@ impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
     ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         let durations = self.durations.clone();
         let sizes = self.sizes.clone();
-        let read = self.read.clone();
+        let read_fut = self.read.read_at(offset, length, alignment);
         async move {
             let _timer = durations.time();
-            let buf = read.read_at(offset, length, alignment).await;
+            let buf = read_fut.await;
             sizes.update(length as i64);
             buf
         }

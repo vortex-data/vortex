@@ -6,29 +6,37 @@
 //! This module provides a wrapper on top of the `Buffer` type to store mutable and immutable
 //! bitsets. The bitsets are stored in little-endian order, meaning that the least significant bit
 //! of the first byte is the first bit in the bitset.
-mod aligned;
 #[cfg(feature = "arrow")]
 mod arrow;
 mod buf;
 mod buf_mut;
+mod macros;
 mod ops;
-mod unaligned;
 
-pub use aligned::BitChunks;
+pub use arrow_buffer::bit_chunk_iterator::{
+    BitChunkIterator, BitChunks, UnalignedBitChunk, UnalignedBitChunkIterator,
+};
+pub use arrow_buffer::bit_iterator::{BitIndexIterator, BitIterator, BitSliceIterator};
 pub use buf::*;
 pub use buf_mut::*;
 
-/// Get bit value at `index` out of `buf`
-#[inline(always)]
-fn get_bit(buf: &[u8], index: usize) -> bool {
-    buf[index / 8] & (1 << (index % 8)) != 0
-}
-
-/// Get bit value at `index` out of `buf` without bounds checking
+/// Get the bit value at `index` out of `buf` without bounds checking
 ///
 /// # Safety
 /// `index` must be between 0 and length of `buf`
 #[inline(always)]
 unsafe fn get_bit_unchecked(buf: *const u8, index: usize) -> bool {
     (unsafe { *buf.add(index / 8) } & (1 << (index % 8))) != 0
+}
+
+/// Set the bit value at `index` in `buf` without bounds checking
+#[inline(always)]
+unsafe fn set_bit_unchecked(buf: *mut u8, index: usize) {
+    unsafe { *buf.add(index / 8) |= 1 << (index % 8) };
+}
+
+/// Unset the bit value at `index` in `buf` without bounds checking
+#[inline(always)]
+unsafe fn unset_bit_unchecked(buf: *mut u8, index: usize) {
+    unsafe { *buf.add(index / 8) &= !(1 << (index % 8)) };
 }

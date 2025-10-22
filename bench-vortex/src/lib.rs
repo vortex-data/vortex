@@ -34,6 +34,7 @@ pub mod metrics;
 pub mod public_bi;
 pub mod query_bench;
 pub mod random_access;
+pub mod realnest;
 pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;

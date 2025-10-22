@@ -749,6 +749,8 @@ impl Scheme for SequenceScheme {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
     use itertools::Itertools;
     use log::LevelFilter;
     use rand::rngs::StdRng;
@@ -882,9 +884,9 @@ mod tests {
     #[test]
     fn test_rle_compression() {
         let mut values = Vec::new();
-        values.extend(std::iter::repeat_n(42i32, 100));
-        values.extend(std::iter::repeat_n(123i32, 200));
-        values.extend(std::iter::repeat_n(987i32, 150));
+        values.extend(iter::repeat_n(42i32, 100));
+        values.extend(iter::repeat_n(123i32, 200));
+        values.extend(iter::repeat_n(987i32, 150));
 
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
         let compressed = RLE_INTEGER_SCHEME

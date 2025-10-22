@@ -15,7 +15,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 ///
 /// This type provides a view into a binary scalar value, which can be either
 /// a valid byte buffer or null.
-#[derive(Debug, Hash)]
+#[derive(Debug, Clone, Hash)]
 pub struct BinaryScalar<'a> {
     dtype: &'a DType,
     value: Option<Arc<ByteBuffer>>,

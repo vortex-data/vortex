@@ -17,7 +17,7 @@
   - Use field init shorthand
   - Group imports at the module level
   - Use 2024 edition style
-- Run `cargo fmt` before submitting code
+- Run `cargo +nightly fmt` before submitting code
 
 ## Documentation
 

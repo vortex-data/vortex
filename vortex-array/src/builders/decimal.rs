@@ -191,11 +191,9 @@ impl ArrayBuilder for DecimalBuilder {
             .append_validity_mask(decimal_array.validity_mask());
     }
 
-    fn ensure_capacity(&mut self, capacity: usize) {
-        if capacity > self.values.capacity() {
-            self.values.reserve(capacity - self.values.len());
-            self.nulls.ensure_capacity(capacity);
-        }
+    fn reserve_exact(&mut self, additional: usize) {
+        self.values.reserve(additional);
+        self.nulls.reserve_exact(additional);
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
@@ -230,10 +228,6 @@ impl DecimalBuffer {
 
     fn reserve(&mut self, additional: usize) {
         delegate_fn!(self, |T, buffer| { buffer.reserve(additional) })
-    }
-
-    fn capacity(&self) -> usize {
-        delegate_fn!(self, |T, buffer| { buffer.capacity() })
     }
 
     fn len(&self) -> usize {

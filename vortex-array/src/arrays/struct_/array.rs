@@ -141,8 +141,8 @@ pub struct StructArray {
 }
 
 impl StructArray {
-    pub fn fields(&self) -> Arc<[ArrayRef]> {
-        self.fields.clone()
+    pub fn fields(&self) -> &Arc<[ArrayRef]> {
+        &self.fields
     }
 
     pub fn field_by_name(&self, name: impl AsRef<str>) -> VortexResult<&ArrayRef> {

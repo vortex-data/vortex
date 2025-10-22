@@ -13,7 +13,7 @@ use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{DECIMAL256_MAX_PRECISION, DType, DecimalDType, PType};
 
 mod array;
 mod bound;
@@ -205,8 +205,17 @@ impl Stat {
                         }
                     },
                     DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
-                    // TODO(aduffy): implement more stats for Decimal
-                    DType::Decimal(..) => return None,
+                    DType::Decimal(decimal_dtype, _) => {
+                        // Both Spark and DataFusion use this heuristic.
+                        // - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
+                        // - https://github.com/apache/datafusion/blob/4153adf2c0f6e317ef476febfdc834208bd46622/datafusion/functions-aggregate/src/sum.rs#L188
+                        let precision =
+                            u8::min(DECIMAL256_MAX_PRECISION, decimal_dtype.precision() + 10);
+                        DType::Decimal(
+                            DecimalDType::new(precision, decimal_dtype.scale()),
+                            Nullable,
+                        )
+                    }
                     // Unsupported types
                     _ => return None,
                 }

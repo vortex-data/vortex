@@ -15,6 +15,10 @@ impl OperationsVTable<ListViewVTable> for ListViewVTable {
         let start = range.start;
         let end = range.end;
 
+        // We implement slice by simply slicing the views. We leave the child `elements` array alone
+        // since slicing could potentially require calculating which elements are referenced by the
+        // new set of views.
+
         // SAFETY: The preconditions of `slice` mean that the bounds have already been checked, and
         // slicing the components of an existing valid array is still valid.
         unsafe {

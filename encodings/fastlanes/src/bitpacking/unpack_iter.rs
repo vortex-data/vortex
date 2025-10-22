@@ -13,9 +13,19 @@ use vortex_array::builders::UninitRange;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::PhysicalPType;
 
-use crate::BitPackedArray;
+use crate::{BitPackedArray, BitPackingStrategy};
 
 const CHUNK_SIZE: usize = 1024;
+
+/// Strategy trait for fastlanes unpacking operations
+pub trait UnpackStrategy<T: PhysicalPType> {
+    /// Unpack a chunk of packed data into the destination buffer
+    ///
+    /// # Safety
+    /// - `chunk` must contain exactly `elems_per_chunk` elements
+    /// - `dst` must have exactly CHUNK_SIZE capacity
+    unsafe fn unpack_chunk(&self, bit_width: usize, chunk: &[T::Physical], dst: &mut [T::Physical]);
+}
 
 /// Accessor to unpacked chunks of bitpacked arrays
 ///
@@ -47,7 +57,8 @@ const CHUNK_SIZE: usize = 1024;
 /// }
 /// ```
 ///
-pub struct BitUnpackedChunks<T: BitPacked> {
+pub struct UnpackedChunks<T: PhysicalPType, S: UnpackStrategy<T>> {
+    strategy: S,
     bit_width: usize,
     offset: usize,
     len: usize,
@@ -58,28 +69,60 @@ pub struct BitUnpackedChunks<T: BitPacked> {
     buffer: [MaybeUninit<T>; CHUNK_SIZE],
 }
 
+pub type BitUnpackedChunks<T> = UnpackedChunks<T, BitPackingStrategy>;
+
 impl<T: BitPacked> BitUnpackedChunks<T> {
     pub fn new(array: &BitPackedArray) -> Self {
-        let offset = array.offset() as usize;
-        let len = array.len();
-        let bit_width = array.bit_width() as usize;
+        Self::new_with_strategy(
+            BitPackingStrategy,
+            array.packed().clone(),
+            array.bit_width() as usize,
+            array.offset() as usize,
+            array.len(),
+        )
+    }
+
+    pub fn full_chunks(&mut self) -> BitUnpackIterator<'_, T> {
+        let elems_per_chunk = self.elems_per_chunk();
+        let last_chunk_is_sliced = self.last_chunk_is_sliced() as usize;
+        let first_chunk_is_sliced = self.first_chunk_is_sliced();
+        BitUnpackIterator::new(
+            buffer_as_slice(&self.packed),
+            &mut self.buffer,
+            self.bit_width,
+            elems_per_chunk,
+            self.num_chunks - last_chunk_is_sliced,
+            first_chunk_is_sliced,
+        )
+    }
+}
+
+impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
+    pub fn new_with_strategy(
+        strategy: S,
+        packed: ByteBuffer,
+        bit_width: usize,
+        offset: usize,
+        len: usize,
+    ) -> Self {
         let elems_per_chunk = 128 * bit_width / size_of::<T>();
         let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
 
         assert_eq!(
-            array.packed().len() / size_of::<T>(),
+            packed.len() / size_of::<T>(),
             num_chunks * elems_per_chunk,
             "Invalid packed length: got {}, expected {}",
-            array.packed().len() / size_of::<T>(),
+            packed.len() / size_of::<T>(),
             num_chunks * elems_per_chunk
         );
 
         let last_chunk_length = (offset + len) % CHUNK_SIZE;
         Self {
+            strategy,
             bit_width,
             offset,
             len,
-            packed: array.packed().clone(),
+            packed,
             buffer: [const { MaybeUninit::<T>::uninit() }; CHUNK_SIZE],
             num_chunks,
             last_chunk_length,
@@ -107,48 +150,52 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
             // 1. chunk is elems_per_chunk.
             // 2. buffer is exactly CHUNK_SIZE.
             unsafe {
-                BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
+                self.strategy.unpack_chunk(self.bit_width, chunk, dst);
                 mem::transmute(&mut self.buffer[self.offset..][..header_end_slice])
             }
         })
     }
 
-    /// Iterator over complete chunks of this array
-    pub fn full_chunks(&mut self) -> BitUnpackIterator<'_, T> {
-        let elems_per_chunk = self.elems_per_chunk();
-        let last_chunk_is_sliced = self.last_chunk_is_sliced() as usize;
-        let first_chunk_is_sliced = self.first_chunk_is_sliced();
-        BitUnpackIterator::new(
-            buffer_as_slice(&self.packed),
-            &mut self.buffer,
-            self.bit_width,
-            elems_per_chunk,
-            self.num_chunks - last_chunk_is_sliced,
-            first_chunk_is_sliced,
-        )
+    /// Decode all chunks (initial, full, and trailer) into the output range.
+    /// This consolidates the logic for handling all three chunk types in one place.
+    pub fn decode_into(&mut self, output: &mut UninitRange<T>) {
+        let mut local_idx = 0;
+
+        // Handle initial partial chunk if present
+        if let Some(initial) = self.initial() {
+            output.copy_from_slice(0, initial);
+            local_idx = initial.len();
+        }
+
+        // Handle full chunks
+        local_idx = self.decode_full_chunks_into_at(output, local_idx);
+
+        // Handle trailing partial chunk if present
+        if let Some(trailer) = self.trailer() {
+            output.copy_from_slice(local_idx, trailer);
+        }
     }
 
-    /// Unpack full chunks into output range and return the next local index to write to.
-    pub fn decode_full_chunks_into(&mut self, output: &mut UninitRange<T>) -> usize {
-        let first_chunk_is_sliced = self.first_chunk_is_sliced();
-        // If there's only one chunk and that chunk is sliced it has been handled already by
-        // `header` method
-        if first_chunk_is_sliced && self.num_chunks == 1 {
-            // Return the length since the header already wrote everything.
-            return CHUNK_SIZE - self.offset;
+    /// Unpack full chunks into output range starting at the given index.
+    /// Returns the next local index to write to.
+    fn decode_full_chunks_into_at(
+        &mut self,
+        output: &mut UninitRange<T>,
+        start_idx: usize,
+    ) -> usize {
+        // If there's only one chunk it has been handled already by `initial` method
+        if self.num_chunks == 1 {
+            // Return the start_idx since initial already wrote everything.
+            return start_idx;
         }
+
+        let first_chunk_is_sliced = self.first_chunk_is_sliced();
 
         let last_chunk_is_sliced = self.last_chunk_is_sliced();
         let full_chunks_range =
             (first_chunk_is_sliced as usize)..(self.num_chunks - last_chunk_is_sliced as usize);
 
-        // Track position relative to the start of the UninitRange.
-        let mut local_idx = if first_chunk_is_sliced {
-            // The header already wrote from 0 to (CHUNK_SIZE - self.offset).
-            CHUNK_SIZE - self.offset
-        } else {
-            0
-        };
+        let mut local_idx = start_idx;
 
         let packed_slice: &[T::Physical] = buffer_as_slice(&self.packed);
         let elems_per_chunk = self.elems_per_chunk();
@@ -160,7 +207,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
                 let uninit_dst = output.slice_uninit_mut(local_idx, CHUNK_SIZE);
                 // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
                 let dst: &mut [T::Physical] = mem::transmute(uninit_dst);
-                BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
+                self.strategy.unpack_chunk(self.bit_width, chunk, dst);
             }
             local_idx += CHUNK_SIZE;
         }
@@ -178,7 +225,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
             // 1. chunk is elems_per_chunk.
             // 2. buffer is exactly CHUNK_SIZE.
             unsafe {
-                BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
+                self.strategy.unpack_chunk(self.bit_width, chunk, dst);
                 mem::transmute(&mut self.buffer[..self.last_chunk_length])
             }
         })

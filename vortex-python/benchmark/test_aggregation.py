@@ -40,7 +40,7 @@ def test_polars_streaming_aggregation(benchmark: BenchmarkFixture, vxf: vx.Vorte
 
 @pytest.mark.benchmark(group="aggregation", disable_gc=True)
 def test_duckdb_aggregation(benchmark: BenchmarkFixture, vxf: vx.VortexFile):
-    conn = duckdb.connect(database=":memory:")  # pyright: ignore[reportUnknownMemberType]
+    conn = duckdb.connect(database=":memory:")
     ds = vxf.to_dataset()
     _ = conn.register("ds", ds)
     aggregations = ",".join(

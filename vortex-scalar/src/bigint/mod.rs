@@ -4,10 +4,12 @@
 mod bigcast;
 
 use std::fmt::Display;
-use std::ops::{Add, BitOr, Div, Mul, Rem, Shl, Shr, Sub};
+use std::ops::{Add, AddAssign, BitOr, Div, Mul, Neg, Rem, Shl, Shr, Sub};
 
 pub use bigcast::*;
-use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, WrappingAdd, WrappingSub, Zero};
+use num_traits::{
+    CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, ConstZero, One, WrappingAdd, WrappingSub, Zero,
+};
 use vortex_error::VortexExpect;
 
 /// Signed 256-bit integer type.
@@ -69,6 +71,11 @@ impl i256 {
         Self(self.0.wrapping_pow(exp))
     }
 
+    /// Raises self to the power of `exp`, wrapping around on overflow.
+    pub fn checked_pow(&self, exp: u32) -> Option<Self> {
+        self.0.checked_pow(exp).map(Self)
+    }
+
     /// Wrapping (modular) addition. Computes `self + other`, wrapping around at the boundary.
     pub fn wrapping_add(&self, other: Self) -> Self {
         Self(self.0.wrapping_add(other.0))
@@ -118,6 +125,14 @@ impl Sub for i256 {
 
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0.sub(rhs.0))
+    }
+}
+
+impl Neg for i256 {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self(self.0.neg())
     }
 }
 
@@ -189,6 +204,18 @@ impl WrappingSub for i256 {
     }
 }
 
+impl CheckedMul for i256 {
+    fn checked_mul(&self, v: &Self) -> Option<Self> {
+        self.0.checked_mul(v.0).map(Self)
+    }
+}
+
+impl CheckedDiv for i256 {
+    fn checked_div(&self, v: &Self) -> Option<Self> {
+        self.0.checked_div(v.0).map(Self)
+    }
+}
+
 impl Shr<Self> for i256 {
     type Output = Self;
 
@@ -225,6 +252,12 @@ impl BitOr<Self> for i256 {
     }
 }
 
+impl AddAssign for i256 {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0;
+    }
+}
+
 impl num_traits::ToPrimitive for i256 {
     fn to_i64(&self) -> Option<i64> {
         self.maybe_i128().and_then(|v| v.to_i64())
@@ -242,6 +275,35 @@ impl num_traits::ToPrimitive for i256 {
         self.maybe_i128().and_then(|v| v.to_u128())
     }
 }
+
+macro_rules! define_as_primitive {
+    ($native_ty:ty) => {
+        impl num_traits::AsPrimitive<i256> for $native_ty {
+            fn as_(self) -> i256 {
+                i256::from_i128(self as i128)
+            }
+        }
+
+        impl num_traits::AsPrimitive<$native_ty> for i256 {
+            #[allow(clippy::cast_possible_truncation)]
+            fn as_(self) -> $native_ty {
+                self.0.as_i128() as $native_ty
+            }
+        }
+    };
+}
+
+impl num_traits::AsPrimitive<i256> for i256 {
+    fn as_(self) -> i256 {
+        self
+    }
+}
+
+define_as_primitive!(i8);
+define_as_primitive!(i16);
+define_as_primitive!(i32);
+define_as_primitive!(i64);
+define_as_primitive!(i128);
 
 #[cfg(test)]
 #[allow(clippy::many_single_char_names)]

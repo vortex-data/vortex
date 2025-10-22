@@ -34,7 +34,7 @@ jobs:
       - family=c6id.8xlarge
       - image=ubuntu24-full-x64
       - spot=false
-      - extras=s3-cache
+      - ${{ github.event.pull_request.head.repo.fork == false && 'extras=s3-cache' || '' }}
       - tag=${{ matrix.benchmark.id }}
     strategy:
       matrix:
@@ -46,6 +46,7 @@ jobs:
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
       - uses: runs-on/action@v2
+        if: github.event.pull_request.head.repo.fork == false
         with:
           sccache: s3
       - uses: actions/checkout@v5
@@ -69,6 +70,7 @@ jobs:
           cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug
 
       - name: Setup Polar Signals
+        if: github.event.pull_request.head.repo.fork == false
         uses: polarsignals/gh-actions-ps-profiling@v0.6.0
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
@@ -85,6 +87,7 @@ jobs:
           target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
+        if: github.event.pull_request.head.repo.fork == false
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
@@ -108,7 +111,7 @@ jobs:
             | jq -r '.workflow_runs[].head_sha' \
           )
 
-          aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - \
+          aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - --no-sign-request \
             | gzip -d \
             | grep $base_commit_sha \
             > base.json

@@ -5,3 +5,4 @@ mod bit_unpack;
 mod indent;
 
 pub use bit_unpack::generate_unpack;
+pub use indent::IndentedWriter;

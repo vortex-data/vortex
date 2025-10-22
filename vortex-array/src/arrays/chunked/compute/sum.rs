@@ -2,9 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::PrimInt;
-use vortex_dtype::{NativePType, PType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_scalar::{FromPrimitiveOrF16, Scalar};
+use vortex_dtype::Nullability::Nullable;
+use vortex_dtype::{DType, DecimalDType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_scalar::{DecimalScalar, DecimalValue, FromPrimitiveOrF16, Scalar, i256};
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::compute::{SumKernel, SumKernelAdapter, sum};
@@ -16,16 +17,23 @@ impl SumKernel for ChunkedVTable {
         let sum_dtype = Stat::Sum
             .dtype(array.dtype())
             .ok_or_else(|| vortex_err!("Sum not supported for dtype {}", array.dtype()))?;
-        let sum_ptype = PType::try_from(&sum_dtype).vortex_expect("sum dtype must be primitive");
 
-        let scalar_value = match_each_native_ptype!(
-            sum_ptype,
-            unsigned: |T| { sum_int::<u64>(array.chunks())?.into() },
-            signed: |T| { sum_int::<i64>(array.chunks())?.into() },
-            floating: |T| { sum_float(array.chunks())?.into() }
-        );
+        match sum_dtype {
+            DType::Decimal(decimal_dtype, _) => sum_decimal(array.chunks(), decimal_dtype),
+            DType::Primitive(sum_ptype, _) => {
+                let scalar_value = match_each_native_ptype!(
+                    sum_ptype,
+                    unsigned: |T| { sum_int::<u64>(array.chunks())?.into() },
+                    signed: |T| { sum_int::<i64>(array.chunks())?.into() },
+                    floating: |T| { sum_float(array.chunks())?.into() }
+                );
 
-        Ok(Scalar::new(sum_dtype, scalar_value))
+                Ok(Scalar::new(sum_dtype, scalar_value))
+            }
+            _ => {
+                vortex_bail!("Sum not supported for dtype {}", sum_dtype);
+            }
+        }
     }
 }
 
@@ -39,7 +47,7 @@ fn sum_int<T: NativePType + PrimInt + FromPrimitiveOrF16>(
         let chunk_sum = sum(chunk)?;
 
         let Some(chunk_sum) = chunk_sum.as_primitive().as_::<T>() else {
-            // Bail out on overflow
+            // Bail out missing statistic
             return Ok(None);
         };
 
@@ -63,14 +71,46 @@ fn sum_float(chunks: &[ArrayRef]) -> VortexResult<f64> {
     Ok(result)
 }
 
+fn sum_decimal(chunks: &[ArrayRef], result_decimal_type: DecimalDType) -> VortexResult<Scalar> {
+    let mut result = DecimalValue::I256(i256::ZERO);
+
+    let null = || Scalar::null(DType::Decimal(result_decimal_type, Nullable));
+
+    for chunk in chunks {
+        let chunk_sum = sum(chunk)?;
+
+        let chunk_decimal = DecimalScalar::try_from(&chunk_sum)?;
+        let Some(chunk_value) = chunk_decimal.decimal_value() else {
+            // skips all null chunks
+            continue;
+        };
+
+        // Perform checked addition with current result
+        let Some(r) = result.checked_add(&chunk_value).filter(|sum_value| {
+            sum_value
+                .fits_in_precision(result_decimal_type)
+                .unwrap_or(false)
+        }) else {
+            // Overflow
+            return Ok(null());
+        };
+
+        result = r;
+    }
+
+    Ok(Scalar::decimal(result, result_decimal_type, Nullable))
+}
+
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
+    use vortex_buffer::buffer;
+    use vortex_dtype::{DType, DecimalDType, Nullability};
+    use vortex_scalar::{DecimalValue, Scalar, i256};
 
     use crate::array::IntoArray;
-    use crate::arrays::{ChunkedArray, ConstantArray, PrimitiveArray};
+    use crate::arrays::{ChunkedArray, ConstantArray, DecimalArray, PrimitiveArray};
     use crate::compute::sum;
+    use crate::validity::Validity;
 
     #[test]
     fn test_sum_chunked_floats_with_nulls() {
@@ -137,5 +177,118 @@ mod tests {
         // Compute sum: 10.5 + 20.3 + 5.2 = 36.0
         let result = sum(chunked.as_ref()).unwrap();
         assert_eq!(result.as_primitive().as_::<f64>(), Some(36.0));
+    }
+
+    #[test]
+    fn test_sum_chunked_decimals() {
+        // Create decimal chunks with precision=10, scale=2
+        let decimal_dtype = DecimalDType::new(10, 2);
+        let chunk1 = DecimalArray::new(
+            buffer![100i32, 100i32, 100i32, 100i32, 100i32],
+            decimal_dtype,
+            Validity::AllValid,
+        );
+        let chunk2 = DecimalArray::new(
+            buffer![200i32, 200i32, 200i32],
+            decimal_dtype,
+            Validity::AllValid,
+        );
+        let chunk3 = DecimalArray::new(buffer![300i32, 300i32], decimal_dtype, Validity::AllValid);
+
+        let dtype = chunk1.dtype().clone();
+        let chunked = ChunkedArray::try_new(
+            vec![
+                chunk1.into_array(),
+                chunk2.into_array(),
+                chunk3.into_array(),
+            ],
+            dtype,
+        )
+        .unwrap();
+
+        // Compute sum: 5*100 + 3*200 + 2*300 = 500 + 600 + 600 = 1700 (represents 17.00)
+        let result = sum(chunked.as_ref()).unwrap();
+        let decimal_result = result.as_decimal();
+        assert_eq!(
+            decimal_result.decimal_value(),
+            Some(DecimalValue::I256(i256::from_i128(1700)))
+        );
+    }
+
+    #[test]
+    fn test_sum_chunked_decimals_with_nulls() {
+        let decimal_dtype = DecimalDType::new(10, 2);
+
+        // Create chunks with some nulls - all must have same nullability
+        let chunk1 = DecimalArray::new(
+            buffer![100i32, 100i32, 100i32],
+            decimal_dtype,
+            Validity::AllValid,
+        );
+        let chunk2 = DecimalArray::new(
+            buffer![0i32, 0i32],
+            decimal_dtype,
+            Validity::from_iter([false, false]),
+        );
+        let chunk3 = DecimalArray::new(buffer![200i32, 200i32], decimal_dtype, Validity::AllValid);
+
+        let dtype = chunk1.dtype().clone();
+        let chunked = ChunkedArray::try_new(
+            vec![
+                chunk1.into_array(),
+                chunk2.into_array(),
+                chunk3.into_array(),
+            ],
+            dtype,
+        )
+        .unwrap();
+
+        // Compute sum: 3*100 + 2*200 = 300 + 400 = 700 (nulls ignored)
+        let result = sum(chunked.as_ref()).unwrap();
+        let decimal_result = result.as_decimal();
+        assert_eq!(
+            decimal_result.decimal_value(),
+            Some(DecimalValue::I256(i256::from_i128(700)))
+        );
+    }
+
+    #[test]
+    fn test_sum_chunked_decimals_large() {
+        // Create decimals with precision 3 (max value 999)
+        // Sum will be 500 + 600 = 1100, which fits in result precision 13 (3+10)
+        let decimal_dtype = DecimalDType::new(3, 0);
+        let chunk1 = ConstantArray::new(
+            Scalar::decimal(
+                DecimalValue::I16(500),
+                decimal_dtype,
+                Nullability::NonNullable,
+            ),
+            1,
+        );
+        let chunk2 = ConstantArray::new(
+            Scalar::decimal(
+                DecimalValue::I16(600),
+                decimal_dtype,
+                Nullability::NonNullable,
+            ),
+            1,
+        );
+
+        let dtype = chunk1.dtype().clone();
+        let chunked =
+            ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype).unwrap();
+
+        // Compute sum: 500 + 600 = 1100
+        // Result should have precision 13 (3+10), scale 0
+        let result = sum(chunked.as_ref()).unwrap();
+        let decimal_result = result.as_decimal();
+        assert_eq!(
+            decimal_result.decimal_value(),
+            Some(DecimalValue::I256(i256::from_i128(1100)))
+        );
+        assert_eq!(
+            result.dtype(),
+            &DType::Decimal(DecimalDType::new(13, 0), Nullability::Nullable)
+        );
     }
 }

@@ -18,17 +18,17 @@ on:
         default: |
           [
             {
+              "id": "clickbench-nvme",
+              "subcommand": "clickbench",
+              "name": "Clickbench on NVME",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+            },
+            {
               "id": "tpch-nvme",
               "subcommand": "tpch",
               "name": "TPC-H SF=1 on NVME",
               "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
               "scale_factor": "--scale-factor 1.0"
-            },
-            {
-              "id": "clickbench-nvme",
-              "subcommand": "clickbench",
-              "name": "Clickbench on NVME",
-              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
             },
             {
               "id": "tpch-s3",
@@ -66,16 +66,39 @@ on:
               "id": "statpopgen",
               "subcommand": "statpopgen",
               "name": "Statistical and Population Genetics",
-              "local_dir": "bench-vortex/data/statpopgen",
               "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "--scale-factor 100"
             },
             {
               "id": "fineweb",
               "subcommand": "fineweb",
-              "name": "FineWeb",
+              "name": "FineWeb NVMe",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+              "scale_factor": "--scale-factor 100"
+            },
+            {
+              "id": "fineweb-s3",
+              "subcommand": "fineweb",
+              "name": "FineWeb S3",
               "local_dir": "bench-vortex/data/fineweb",
-              "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact",
+              "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/fineweb/",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+              "scale_factor": "--scale-factor 100"
+            },
+            {
+              "id": "gharchive-nvme",
+              "subcommand": "gharchive",
+              "name": "GitHub Archive (NVMe)",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
+              "scale_factor": "--scale-factor 100"
+            },
+            {
+              "id": "gharchive-s3",
+              "subcommand": "gharchive",
+              "name": "GitHub Archive (S3)",
+              "local_dir": "bench-vortex/data/gharchive",
+              "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/gharchive/",
+              "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "--scale-factor 100"
             },
           ]
@@ -93,10 +116,11 @@ jobs:
       - family=${{ inputs.machine_type }}
       - image=ubuntu24-full-x64
       - spot=false
-      - extras=s3-cache
+      - ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 'extras=s3-cache' || '' }}
       - tag=${{ matrix.id }}
     steps:
       - uses: runs-on/action@v2
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         with:
           sccache: s3
       - uses: actions/checkout@v5
@@ -135,13 +159,14 @@ jobs:
             -d gh-json ${{ matrix.scale_factor }}
 
       - name: Setup AWS CLI
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
       - name: Upload data
-        if: matrix.remote_storage != null
+        if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
         shell: bash
         env:
           AWS_REGION: "eu-west-1"
@@ -150,6 +175,7 @@ jobs:
           aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
 
       - name: Setup Polar Signals
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         uses: polarsignals/gh-actions-ps-profiling@v0.6.0
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
@@ -159,38 +185,36 @@ jobs:
           extra_args: "--off-cpu-threshold=0.001"  # Personally tuned by @brancz
 
       - name: Run ${{ matrix.name }} benchmark
-        if: matrix.remote_storage == null
+        if: matrix.remote_storage == null || github.event.pull_request.head.repo.fork == true
         shell: bash
         env:
           OTEL_SERVICE_NAME: "vortex-bench"
           OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
-          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}"
-          OTEL_EXPORTER_OTLP_HEADERS: "${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}"
+          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
+          OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
           target/release_debug/query_bench ${{ matrix.subcommand }} \
             -d gh-json \
             --targets ${{ matrix.targets }} \
-            --export-spans \
             ${{ matrix.scale_factor }} \
             --delete-duckdb-database \
             -o results.json
 
       - name: Run ${{ matrix.name }} benchmark (remote)
-        if: matrix.remote_storage != null
+        if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
         shell: bash
         env:
           AWS_REGION: "eu-west-1"
           OTEL_SERVICE_NAME: "vortex-bench"
           OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
-          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}"
-          OTEL_EXPORTER_OTLP_HEADERS: "${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}"
+          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
+          OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
           target/release_debug/query_bench ${{ matrix.subcommand }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
               --targets ${{ matrix.targets }} \
-              --export-spans \
               ${{ matrix.scale_factor }} \
               -d gh-json \
               --delete-duckdb-database \
@@ -216,7 +240,7 @@ jobs:
             | jq -r '.workflow_runs[].head_sha' \
           )
 
-          aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - \
+          aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - --no-sign-request \
             | gzip -d \
             | grep $base_commit_sha \
             > base.json

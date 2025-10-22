@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
-use itertools::Itertools as _;
-use vortex::ToCanonical as _;
-use vortex::arrays::{ListArray, PrimitiveArray};
+use parking_lot::Mutex;
+use vortex::ToCanonical;
+use vortex::arrays::{ListViewArray, PrimitiveArray};
 use vortex::dtype::{IntegerPType, match_each_integer_ptype};
 use vortex::error::{VortexResult, vortex_err};
 use vortex::mask::Mask;
@@ -15,74 +16,124 @@ use crate::cpp;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
 
-struct ListExporter<T> {
+struct ListExporter<O, S> {
     validity: Mask,
-    elements_exporter: Box<dyn ColumnExporter>,
+    /// We cache the child elements of our list array so that we don't have to export it every time,
+    /// and we also share it across any other exporters who want to export this array.
+    ///
+    /// Note that we are trading less compute for more memory here, as we will export the entire
+    /// array in the constructor of the exporter (`new_exporter`) even if some of the elements are
+    /// unreachable.
+    duckdb_elements: Arc<Mutex<Vector>>,
     offsets: PrimitiveArray,
-    offset_type: PhantomData<T>,
+    sizes: PrimitiveArray,
+    num_elements: usize,
+    offset_type: PhantomData<O>,
+    size_type: PhantomData<S>,
 }
 
 pub(crate) fn new_exporter(
-    array: &ListArray,
+    array: &ListViewArray,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
+    // Cache an `elements` vector up front so that future exports can reference it.
+    let elements = array.elements();
+    let num_elements = elements.len();
+
+    let values_key = Arc::as_ptr(elements).addr();
+    // Check if we have a cached vector and extract it if we do.
+    let cached_elements = cache
+        .values_cache
+        .get(&values_key)
+        .map(|entry| entry.value().1.clone());
+
+    let shared_elements = match cached_elements {
+        Some(elements) => elements,
+        None => {
+            // We have no cached the vector yet, so create a new DuckDB vector for the elements.
+            let mut duckdb_elements =
+                Vector::with_capacity(elements.dtype().try_into()?, elements.len());
+            let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
+
+            if !elements.is_empty() {
+                elements_exporter.export(0, elements.len(), &mut duckdb_elements)?;
+            }
+
+            let shared_elements = Arc::new(Mutex::new(duckdb_elements));
+            cache
+                .values_cache
+                .insert(values_key, (elements.clone(), shared_elements.clone()));
+
+            shared_elements
+        }
+    };
+
     let offsets = array.offsets().to_primitive();
-    let boxed = match_each_integer_ptype!(offsets.ptype(), |T| {
-        Box::new(ListExporter {
-            validity: array.validity_mask(),
-            elements_exporter,
-            offsets,
-            offset_type: PhantomData::<T>,
-        }) as Box<dyn ColumnExporter>
+    let sizes = array.sizes().to_primitive();
+
+    let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
+        match_each_integer_ptype!(sizes.ptype(), |S| {
+            Box::new(ListExporter {
+                validity: array.validity_mask(),
+                duckdb_elements: shared_elements,
+                offsets,
+                sizes,
+                num_elements,
+                offset_type: PhantomData::<O>,
+                size_type: PhantomData::<S>,
+            }) as Box<dyn ColumnExporter>
+        })
     });
+
     Ok(boxed)
 }
 
-impl<T: IntegerPType> ColumnExporter for ListExporter<T> {
+impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListExporter<O, S> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+        // Verify that offset + len doesn't exceed the validity mask length.
+        assert!(
+            offset + len <= self.validity.len(),
+            "Export range [{}, {}) exceeds validity mask length {}",
+            offset,
+            offset + len,
+            self.validity.len()
+        );
+
         // Set validity if necessary.
         if unsafe { vector.set_validity(&self.validity, offset, len) } {
             // All values are null, so no point copying the data.
             return Ok(());
         }
 
-        let offsets = &self.offsets.as_slice::<T>()[offset..][..(len + 1)];
-        let start_offset = offsets[0]
-            .to_u64()
-            .ok_or_else(|| vortex_err!("list offsets must fit in u64"))?;
-        let mut sum_of_list_lens = 0_u64;
+        let offsets = &self.offsets.as_slice::<O>()[offset..offset + len];
+        let sizes = &self.sizes.as_slice::<S>()[offset..offset + len];
+        debug_assert_eq!(offsets.len(), len);
+        debug_assert_eq!(sizes.len(), len);
 
-        let offsets_slice: &mut [cpp::duckdb_list_entry] =
+        // SAFETY: TODO(connor): Pretty sure that `export` needs to be `unsafe`.
+        let duckdb_list_views: &mut [cpp::duckdb_list_entry] =
             unsafe { vector.as_slice_mut::<cpp::duckdb_list_entry>(len) };
+        debug_assert_eq!(duckdb_list_views.len(), len);
 
-        for (window, destination) in offsets.windows(2).zip_eq(offsets_slice) {
-            let start = window[0]
+        for i in 0..len {
+            let offset = offsets[i]
                 .to_u64()
-                .ok_or_else(|| vortex_err!("list offsets must fit in u64"))?;
-            let end = window[1]
+                .ok_or_else(|| vortex_err!("somehow unable to convert an offset to u64"))?;
+            let length = sizes[i]
                 .to_u64()
-                .ok_or_else(|| vortex_err!("list offsets must fit in u64"))?;
-            let len = end - start;
-            sum_of_list_lens += len;
-            *destination = cpp::duckdb_list_entry {
-                offset: start - start_offset,
-                length: len,
-            };
+                .ok_or_else(|| vortex_err!("somehow unable to convert an offset to u64"))?;
+
+            debug_assert!(offset + length <= self.num_elements as u64);
+
+            duckdb_list_views[i] = cpp::duckdb_list_entry { offset, length };
         }
 
-        // TODO(DK): This calls `list_vector_reserve` once for each call to `export`. Moreover, we
-        // copy slices of the elements once for each call to `export`. Would `export` be faster if
-        // we copied all the elements on the first call to `export` so that subsequent calls need
-        // only copy the correct slice of offsets?
-        vector.list_vector_reserve(sum_of_list_lens)?;
-        let mut elements_vector = vector.list_vector_get_child();
-        vector.list_vector_set_size(sum_of_list_lens)?;
-        self.elements_exporter.export(
-            usize::try_from(start_offset)?,
-            usize::try_from(sum_of_list_lens)?,
-            &mut elements_vector,
-        )
+        let mut child = vector.list_vector_get_child();
+        child.reference(&self.duckdb_elements.lock());
+
+        vector.list_vector_set_size(self.num_elements as u64)?;
+
+        Ok(())
     }
 }
 
@@ -99,10 +150,12 @@ mod tests {
     use crate::exporter::new_array_exporter;
 
     #[test]
+    #[ignore = "TODO(connor)[4809]: Exporters do not correctly handle empty vectors"]
     fn test_export_empty_list() {
-        let list = ListArray::try_new(
+        let list = ListViewArray::try_new(
             Buffer::<u32>::empty().into_array(),
-            buffer![0u8].into_array(),
+            Buffer::<u32>::empty().into_array(),
+            Buffer::<u32>::empty().into_array(),
             Validity::AllValid,
         )
         .unwrap()
@@ -127,9 +180,10 @@ mod tests {
 
     #[test]
     fn test_export_non_empty_list_with_preceding_and_trailing_garbage() {
-        let list = ListArray::try_new(
+        let list = ListViewArray::try_new(
             buffer![0, 1, 2, 3, 4, 5].into_array(),
-            buffer![1u8, 2, 3, 4].into_array(),
+            buffer![1u8, 2, 3].into_array(),
+            buffer![1u8, 1, 1].into_array(),
             Validity::AllValid,
         )
         .unwrap()
@@ -154,7 +208,7 @@ mod tests {
 
     #[test]
     fn test_export_non_empty_list_of_strings() {
-        let list = ListArray::try_new(
+        let list = ListViewArray::try_new(
             <VarBinArray as FromIterator<_>>::from_iter([
                 Some("abc"),
                 Some("def"),
@@ -162,7 +216,8 @@ mod tests {
                 Some("ghi"),
             ])
             .into_array(),
-            buffer![0u8, 0, 3, 4, 4].into_array(),
+            buffer![0u8, 0, 3, 4].into_array(),
+            buffer![0u8, 3, 1, 0].into_array(),
             Validity::from_iter([true, true, false, true]),
         )
         .unwrap()

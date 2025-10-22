@@ -80,19 +80,25 @@ class VortexDatasource(Datasource):
         return None
 
     @override
-    def get_read_tasks(self, parallelism: int) -> list[ReadTask]:
+    def get_read_tasks(self, parallelism: int, per_task_row_limit: int | None = None) -> list[ReadTask]:
         """Execute the read and return read tasks.
 
         Args:
             parallelism: The requested read parallelism. The number of read
                 tasks should equal to this value if possible.
+            per_task_row_limit: The per-task row limit for the read tasks.
 
         Returns:
             A list of read tasks that can be executed to read blocks from the
             datasource in parallel.
         """
         return [
-            _read_task(paths, self._columns, self._filter, self._batch_size)
+            _read_task(
+                paths,
+                self._columns,
+                self._filter,
+                per_task_row_limit if per_task_row_limit is not None else self._batch_size,
+            )
             for paths in partition(parallelism, self._paths)
             if len(paths) > 0
         ]

@@ -15,6 +15,7 @@ use crate::validity::Validity;
 #[test]
 fn test_nullable_listview_comprehensive() {
     // Comprehensive test for nullable ListView including scalar_at with nulls.
+    // Logical lists: [[1,2], null, [5,6]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let offsets = buffer![0i32, 2, 4].into_array();
     let sizes = buffer![2i32, 2, 2].into_array();
@@ -74,6 +75,7 @@ fn test_nullable_listview_comprehensive() {
 #[case::all_valid(Validity::AllValid, vec![true, true, true])]
 #[case::mixed(Validity::from_iter([false, true, false]), vec![false, true, false])]
 fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity: Vec<bool>) {
+    // Logical lists: [[1,2], [3,4], [5,6]] with varying validity
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let offsets = buffer![0i32, 2, 4].into_array();
     let sizes = buffer![2i32, 2, 2].into_array();
@@ -88,6 +90,7 @@ fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity:
 #[test]
 fn test_nullable_elements() {
     // Test with nullable elements inside the lists.
+    // Logical lists: [[Some(1), None], [Some(3), None], [Some(5), Some(6)]]
     let elements =
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5), Some(6)])
             .into_array();
@@ -125,6 +128,7 @@ fn test_nullable_elements() {
 
 #[test]
 fn test_validity_length_mismatch() {
+    // Logical lists (invalid due to validity length mismatch): [[1,2], [3,4]]
     let elements = buffer![1i32, 2, 3, 4].into_array();
     let offsets = buffer![0i32, 2].into_array();
     let sizes = buffer![2i32, 2].into_array();

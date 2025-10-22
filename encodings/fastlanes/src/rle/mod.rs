@@ -77,7 +77,14 @@ impl RLEArray {
         values: &dyn Array,
         indices: &dyn Array,
         value_idx_offsets: &dyn Array,
+        offset: usize,
     ) -> VortexResult<()> {
+        vortex_ensure!(
+            offset < 1024,
+            "Offset must be smaller than 1024, got {}",
+            offset
+        );
+
         vortex_ensure!(
             values.dtype().is_primitive(),
             "RLE values must be a primitive type, got {}",
@@ -119,16 +126,17 @@ impl RLEArray {
     /// * `values` - Unique values from all chunks
     /// * `indices` - Chunk-local indices from all chunks
     /// * `values_idx_offsets` - Start indices for each value chunk.
-    /// * `validity` - Array validity
+    /// * `offset` - Offset into the first chunk
     /// * `length` - Array length
     pub fn try_new(
         values: ArrayRef,
         indices: ArrayRef,
         values_idx_offsets: ArrayRef,
+        offset: usize,
         length: usize,
     ) -> VortexResult<Self> {
         assert_eq!(indices.len() % FL_CHUNK_SIZE, 0);
-        Self::validate(&values, &indices, &values_idx_offsets)?;
+        Self::validate(&values, &indices, &values_idx_offsets, offset)?;
 
         // Ensure that the DType has the same nullability as the indices array.
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
@@ -139,7 +147,7 @@ impl RLEArray {
             indices,
             values_idx_offsets,
             stats_set: ArrayStats::default(),
-            offset: 0,
+            offset,
             length,
         })
     }
@@ -266,7 +274,7 @@ mod test {
             PrimitiveArray::from_iter([0u16, 0, 1, 1, 2].iter().cycle().take(1024).copied())
                 .into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
-        let rle_array = RLEArray::try_new(values, indices, values_idx_offsets, 5).unwrap();
+        let rle_array = RLEArray::try_new(values, indices, values_idx_offsets, 0, 5).unwrap();
 
         assert_eq!(rle_array.len(), 5);
         assert_eq!(rle_array.values.len(), 3);
@@ -293,9 +301,14 @@ mod test {
         )
         .into_array();
 
-        let rle_array =
-            RLEArray::try_new(values.clone(), indices_with_validity, values_idx_offsets, 3)
-                .unwrap();
+        let rle_array = RLEArray::try_new(
+            values.clone(),
+            indices_with_validity,
+            values_idx_offsets,
+            0,
+            3,
+        )
+        .unwrap();
 
         assert_eq!(rle_array.len(), 3);
         assert_eq!(rle_array.values.len(), 2);
@@ -324,9 +337,14 @@ mod test {
         )
         .into_array();
 
-        let rle_array =
-            RLEArray::try_new(values.clone(), indices_with_validity, values_idx_offsets, 5)
-                .unwrap();
+        let rle_array = RLEArray::try_new(
+            values.clone(),
+            indices_with_validity,
+            values_idx_offsets,
+            0,
+            5,
+        )
+        .unwrap();
 
         let valid_slice = rle_array.slice(0..3);
         assert!(valid_slice.all_valid());
@@ -355,9 +373,14 @@ mod test {
         )
         .into_array();
 
-        let rle_array =
-            RLEArray::try_new(values.clone(), indices_with_validity, values_idx_offsets, 5)
-                .unwrap();
+        let rle_array = RLEArray::try_new(
+            values.clone(),
+            indices_with_validity,
+            values_idx_offsets,
+            0,
+            5,
+        )
+        .unwrap();
 
         let invalid_slice = rle_array.slice(2..5);
         assert!(invalid_slice.all_invalid());
@@ -386,9 +409,14 @@ mod test {
         )
         .into_array();
 
-        let rle_array =
-            RLEArray::try_new(values.clone(), indices_with_validity, values_idx_offsets, 4)
-                .unwrap();
+        let rle_array = RLEArray::try_new(
+            values.clone(),
+            indices_with_validity,
+            values_idx_offsets,
+            0,
+            4,
+        )
+        .unwrap();
 
         let sliced_array = rle_array.slice(1..4);
         let validity_mask = sliced_array.validity_mask();
@@ -403,8 +431,14 @@ mod test {
         let values = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         let indices = PrimitiveArray::from_iter(Vec::<u16>::new()).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter(Vec::<u64>::new()).into_array();
-        let rle_array =
-            RLEArray::try_new(values, indices.clone(), values_idx_offsets, indices.len()).unwrap();
+        let rle_array = RLEArray::try_new(
+            values,
+            indices.clone(),
+            values_idx_offsets,
+            0,
+            indices.len(),
+        )
+        .unwrap();
 
         assert_eq!(rle_array.len(), 0);
         assert_eq!(rle_array.values.len(), 0);
@@ -415,7 +449,7 @@ mod test {
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]).into_array();
         let indices = PrimitiveArray::from_iter([0u16, 1].repeat(1024)).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64, 2]).into_array();
-        let rle_array = RLEArray::try_new(values, indices, values_idx_offsets, 2048).unwrap();
+        let rle_array = RLEArray::try_new(values, indices, values_idx_offsets, 0, 2048).unwrap();
 
         assert_eq!(rle_array.len(), 2048);
         assert_eq!(rle_array.values.len(), 4);
