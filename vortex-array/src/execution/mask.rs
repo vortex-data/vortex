@@ -27,6 +27,23 @@ impl MaskExecution {
 }
 
 impl dyn BindCtx + '_ {
+    /// Bind an optional selection mask into a `MaskExecution`.
+    ///
+    /// The caller must provide a mask length to handle the case where no mask is provided.
+    pub fn bind_selection(
+        &mut self,
+        mask_len: usize,
+        mask: Option<&ArrayRef>,
+    ) -> VortexResult<MaskExecution> {
+        match mask {
+            Some(mask) => {
+                assert_eq!(mask.len(), mask_len);
+                self.bind_mask(mask)
+            }
+            None => Ok(MaskExecution::AllTrue(mask_len)),
+        }
+    }
+
     /// Bind a non-nullable boolean array into a `MaskExecution`.
     ///
     /// This binding will optimize for constant arrays or other array types that can be more

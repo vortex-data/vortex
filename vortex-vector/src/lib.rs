@@ -17,23 +17,18 @@
 
 #![deny(missing_docs)]
 
-mod vector;
-pub use vector::Vector;
-
-mod vector_mut;
-pub use vector_mut::VectorMut;
-
-mod ops;
-pub use ops::{VectorMutOps, VectorOps};
-
 mod bool;
+mod macros;
 mod null;
+mod ops;
 mod primitive;
+mod private;
+mod vector;
+mod vector_mut;
 
 pub use bool::{BoolVector, BoolVectorMut};
 pub use null::{NullVector, NullVectorMut};
+pub use ops::{VectorMutOps, VectorOps};
 pub use primitive::{PVector, PVectorMut, PrimitiveVector, PrimitiveVectorMut};
-
-mod macros;
-
-mod private;
+pub use vector::Vector;
+pub use vector_mut::VectorMut;

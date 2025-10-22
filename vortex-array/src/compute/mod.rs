@@ -9,7 +9,7 @@
 //! Every array encoding has the ability to implement their own efficient implementations of these
 //! operators, else we will decode, and perform the equivalent operator from Arrow.
 
-use std::any::{Any, type_name};
+use std::any::{type_name, Any};
 use std::fmt::{Debug, Formatter};
 
 use arcref::ArcRef;
@@ -33,7 +33,7 @@ use parking_lot::RwLock;
 pub use sum::*;
 pub use take::*;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 pub use zip::*;
@@ -63,6 +63,7 @@ mod nan_count;
 mod numeric;
 mod sum;
 mod take;
+pub mod vectors;
 mod zip;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::BooleanArray;
-use itertools::Itertools;
 use vortex_buffer::{BitBuffer, BitBufferMut, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_ensure, VortexExpect, VortexResult};

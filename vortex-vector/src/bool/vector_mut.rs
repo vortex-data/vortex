@@ -26,6 +26,11 @@ impl BoolVectorMut {
             validity: MaskMut::with_capacity(capacity),
         }
     }
+
+    /// Returns the internal parts of this mutable boolean vector.
+    pub fn into_parts(self) -> (BitBufferMut, MaskMut) {
+        (self.bits, self.validity)
+    }
 }
 
 impl VectorMutOps for BoolVectorMut {
