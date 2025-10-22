@@ -157,6 +157,33 @@ impl<T: NativePType> FromIterator<Option<T>> for PVectorMut<T> {
     }
 }
 
+impl<T: NativePType> FromIterator<T> for PVectorMut<T> {
+    /// Creates a new [`PVectorMut<T>`] from an iterator of `T` values.
+    ///
+    /// All values will be treated as non-null.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_vector::{PVectorMut, VectorMutOps};
+    ///
+    /// let mut vec = PVectorMut::<i32>::from_iter([1, 2, 3, 4]);
+    /// assert_eq!(vec.len(), 4);
+    /// ```
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let buffer = BufferMut::from_iter(iter);
+        let validity = MaskMut::new_true(buffer.len());
+
+        PVectorMut {
+            elements: buffer,
+            validity,
+        }
+    }
+}
+
 impl<T: NativePType> VectorMutOps for PVectorMut<T> {
     type Immutable = PVector<T>;
 

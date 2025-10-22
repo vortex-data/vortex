@@ -121,6 +121,33 @@ impl FromIterator<Option<bool>> for BoolVectorMut {
     }
 }
 
+impl FromIterator<bool> for BoolVectorMut {
+    /// Creates a new [`BoolVectorMut`] from an iterator of `bool` values.
+    ///
+    /// All values will be treated as non-null.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_vector::{BoolVectorMut, VectorMutOps};
+    ///
+    /// let mut vec = BoolVectorMut::from_iter([true, false, false, true]);
+    /// assert_eq!(vec.len(), 4);
+    /// ```
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = bool>,
+    {
+        let buffer = BitBufferMut::from_iter(iter);
+        let validity = MaskMut::new_true(buffer.len());
+
+        BoolVectorMut {
+            bits: buffer,
+            validity,
+        }
+    }
+}
+
 impl VectorMutOps for BoolVectorMut {
     type Immutable = BoolVector;
 
