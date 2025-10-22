@@ -37,7 +37,10 @@ enum Commands {
 impl Commands {
     fn file_path(&self) -> &PathBuf {
         match self {
-            Commands::Tree(args) => &args.file,
+            Commands::Tree(args) => match &args.mode {
+                tree::TreeMode::Array { file } => file,
+                tree::TreeMode::Layout { file } => file,
+            },
             Commands::Browse { file } => file,
             Commands::Convert(flags) => &flags.file,
             Commands::Inspect(args) => &args.file,

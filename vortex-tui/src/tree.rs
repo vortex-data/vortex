@@ -11,26 +11,27 @@ use vortex::stream::ArrayStreamExt;
 pub struct TreeArgs {
     /// What tree to display
     #[clap(subcommand)]
-    pub mode: Option<TreeMode>,
-
-    /// Path to the Vortex file
-    pub file: PathBuf,
+    pub mode: TreeMode,
 }
 
 #[derive(Debug, clap::Subcommand)]
 pub enum TreeMode {
     /// Display the array encoding tree (loads and materializes arrays)
-    Array,
+    Array {
+        /// Path to the Vortex file
+        file: PathBuf,
+    },
     /// Display the layout tree structure (metadata only, no array loading)
-    Layout,
+    Layout {
+        /// Path to the Vortex file
+        file: PathBuf,
+    },
 }
 
 pub async fn exec_tree(args: TreeArgs) -> VortexResult<()> {
-    let mode = args.mode.unwrap_or(TreeMode::Array);
-
-    match mode {
-        TreeMode::Array => exec_array_tree(&args.file).await?,
-        TreeMode::Layout => exec_layout_tree(&args.file).await?,
+    match args.mode {
+        TreeMode::Array { file } => exec_array_tree(&file).await?,
+        TreeMode::Layout { file } => exec_layout_tree(&file).await?,
     }
 
     Ok(())
