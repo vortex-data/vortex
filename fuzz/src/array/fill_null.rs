@@ -11,5 +11,6 @@ pub fn fill_null_canonical_array(
     canonical: Canonical,
     fill_value: &Scalar,
 ) -> VortexResult<ArrayRef> {
+    // TODO(joe): replace with baseline not using canonical
     fill_null(canonical.as_ref(), fill_value)
 }

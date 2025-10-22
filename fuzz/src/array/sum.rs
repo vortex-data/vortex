@@ -8,5 +8,6 @@ use vortex_scalar::Scalar;
 
 /// Compute sum on the canonical form of the array to get a consistent baseline.
 pub fn sum_canonical_array(canonical: Canonical) -> VortexResult<Scalar> {
+    // TODO(joe): replace with baseline not using canonical
     sum(canonical.as_ref())
 }

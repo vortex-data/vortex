@@ -8,5 +8,6 @@ use vortex_mask::Mask;
 
 /// Apply mask on the canonical form of the array to get a consistent baseline.
 pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<ArrayRef> {
+    // TODO(joe): replace with baseline not using canonical
     mask_fn(canonical.as_ref(), mask)
 }

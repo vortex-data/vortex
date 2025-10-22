@@ -7,5 +7,6 @@ use vortex_error::VortexResult;
 
 /// Compute min_max on the canonical form of the array to get a consistent baseline.
 pub fn min_max_canonical_array(canonical: Canonical) -> VortexResult<Option<MinMaxResult>> {
+    // TODO(joe): replace with baseline not using canonical
     min_max(canonical.as_ref())
 }
