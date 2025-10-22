@@ -51,6 +51,10 @@ pub trait TableFunction: Sized + Debug {
     ///   - j does not need to leave the table function at all.
     const FILTER_PRUNE: bool = false;
 
+    /// Maximum number of threads the table function can use.
+    /// If not specified, DuckDB will use its default (GlobalTableFunctionState::MAX_THREADS).
+    const MAX_THREADS: u64 = u64::MAX;
+
     /// Returns the parameters of the table function.
     fn parameters() -> Vec<LogicalType> {
         // By default, we don't have any parameters.
@@ -180,6 +184,7 @@ impl Connection {
             filter_prune: T::FILTER_PRUNE,
             sampling_pushdown: false,
             late_materialization: false,
+            max_threads: T::MAX_THREADS,
         };
 
         duckdb_try!(

@@ -110,6 +110,7 @@ where
         values_buf.into_array(),
         PrimitiveArray::new(indices_buf.freeze(), padded_validity(array)).into_array(),
         values_idx_offsets.into_array(),
+        0,
         array.len(),
     )
 }

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// TODO(connor): The API of `BitBufferMut` should probably share more methods with `BitBuffer`.
+
+use arrow_buffer::bit_chunk_iterator::BitChunks;
 use bitvec::view::BitView;
 
 use crate::bit::{get_bit_unchecked, set_bit_unchecked, unset_bit_unchecked};
@@ -25,10 +28,24 @@ use crate::{BitBuffer, BufferMut, ByteBufferMut, buffer_mut};
 /// ```
 ///
 /// See also: [`BitBuffer`].
+#[derive(Debug, Clone, Eq)]
 pub struct BitBufferMut {
     buffer: ByteBufferMut,
     offset: usize,
     len: usize,
+}
+
+impl PartialEq for BitBufferMut {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+
+        self.chunks()
+            .iter_padded()
+            .zip(other.chunks().iter_padded())
+            .all(|(a, b)| a == b)
+    }
 }
 
 impl BitBufferMut {
@@ -116,6 +133,13 @@ impl BitBufferMut {
     #[inline(always)]
     pub unsafe fn value_unchecked(&self, index: usize) -> bool {
         unsafe { get_bit_unchecked(self.buffer.as_ptr(), self.offset + index) }
+    }
+
+    /// Access chunks of the underlying buffer as 8 byte chunks with a final trailer
+    ///
+    /// If you're performing operations on a single buffer, prefer [BitBuffer::unaligned_chunks]
+    pub fn chunks(&self) -> BitChunks<'_> {
+        BitChunks::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Get the bit capacity of the buffer.
@@ -360,6 +384,63 @@ impl BitBufferMut {
         self_slice[start_bit_pos..end_bit_pos].copy_from_bitslice(&other_slice[source_range]);
 
         self.len += bit_len;
+    }
+
+    /// Splits the bit buffer into two at the given index.
+    ///
+    /// Afterward, self contains elements `[0, at)`, and the returned buffer contains elements
+    /// `[at, capacity)`.
+    ///
+    /// Unlike bytes, if the split position is not on a byte-boundary this operation will copy
+    /// data into the result type, and mutate self.
+    pub fn split_off(&mut self, at: usize) -> Self {
+        assert!(at <= self.len, "index {at} exceeds len {}", self.len);
+
+        let new_offset = self.offset;
+        let new_len = self.len - at;
+
+        // If we are splitting on a byte boundary, we can just slice the buffer
+        if (self.offset + at) % 8 == 0 {
+            let byte_pos = (self.offset + at) / 8;
+            let new_buffer = self.buffer.split_off(byte_pos);
+            self.len = at;
+            return Self {
+                buffer: new_buffer,
+                offset: new_offset,
+                len: new_len,
+            };
+        }
+
+        // Otherwise, we need to copy bits into a new buffer
+        let mut new_buffer = BitBufferMut::with_capacity(new_len);
+        for i in 0..new_len {
+            let value = self.value(at + i);
+            new_buffer.append(value);
+        }
+
+        // Truncate self to the split position
+        self.truncate(at);
+
+        new_buffer
+    }
+
+    /// Absorbs a mutable buffer that was previously split off.
+    ///
+    /// If the two buffers were previously contiguous and not mutated in a way that causes
+    /// re-allocation i.e., if other was created by calling split_off on this buffer, then this is
+    /// an O(1) operation that just decreases a reference count and sets a few indices.
+    ///
+    /// Otherwise, this method degenerates to self.append_buffer(&other).
+    pub fn unsplit(&mut self, other: Self) {
+        if (self.offset + self.len) % 8 == 0 && other.offset == 0 {
+            // We are aligned and can just append the buffers
+            self.buffer.unsplit(other.buffer);
+            self.len += other.len;
+            return;
+        }
+
+        // Otherwise, we need to append the bits one by one
+        self.append_buffer(&other.freeze())
     }
 
     /// Freeze the buffer in its current state into an immutable `BoolBuffer`.

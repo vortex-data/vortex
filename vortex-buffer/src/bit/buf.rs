@@ -11,11 +11,11 @@ use crate::bit::{
 use crate::{Alignment, BitBufferMut, Buffer, BufferMut, ByteBuffer, buffer};
 
 /// An immutable bitset stored as a packed byte buffer.
-#[derive(Clone, Debug, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct BitBuffer {
     buffer: ByteBuffer,
-    len: usize,
     offset: usize,
+    len: usize,
 }
 
 impl PartialEq for BitBuffer {
@@ -25,8 +25,8 @@ impl PartialEq for BitBuffer {
         }
 
         self.chunks()
-            .iter()
-            .zip(other.chunks())
+            .iter_padded()
+            .zip(other.chunks().iter_padded())
             .all(|(a, b)| a == b)
     }
 }
@@ -48,10 +48,10 @@ impl BitBuffer {
         }
     }
 
-    /// Create a new `BoolBuffer` backed by a [`ByteBuffer`] with `len` bits in view, starting at the
-    /// given `offset` (in bits).
+    /// Create a new `BoolBuffer` backed by a [`ByteBuffer`] with `len` bits in view, starting at
+    /// the given `offset` (in bits).
     ///
-    /// Panics if the buffer is not large enough to hold `len` bits or if the offset is greater than
+    /// Panics if the buffer is not large enough to hold `len` bits after the offset.
     pub fn new_with_offset(buffer: ByteBuffer, len: usize, offset: usize) -> Self {
         assert!(
             len.saturating_add(offset) <= buffer.len().saturating_mul(8),
@@ -61,8 +61,8 @@ impl BitBuffer {
 
         Self {
             buffer,
-            len,
             offset,
+            len,
         }
     }
 
@@ -277,6 +277,14 @@ impl BitBuffer {
         self.buffer.slice(word_start..word_end)
     }
 
+    /// Attempt to convert this `BitBuffer` into a mutable version.
+    pub fn try_into_mut(self) -> Result<BitBufferMut, Self> {
+        match self.buffer.try_into_mut() {
+            Ok(buffer) => Ok(BitBufferMut::from_buffer(buffer, self.offset, self.len)),
+            Err(buffer) => Err(BitBuffer::new_with_offset(buffer, self.len, self.offset)),
+        }
+    }
+
     /// Get a mutable version of this `BitBuffer` along with bit offset in the first byte.
     ///
     /// If the caller doesn't hold only reference to the underlying buffer, a copy is created.
@@ -441,5 +449,30 @@ mod tests {
                 assert!(!sliced.value(bit));
             }
         }
+    }
+
+    #[test]
+    fn test_padded_equaltiy() {
+        let buf1 = BitBuffer::new_set(64); // All bits set.
+        let buf2 = BitBuffer::collect_bool(64, |x| x < 32); // First half set, other half unset.
+
+        for i in 0..32 {
+            assert_eq!(buf1.value(i), buf2.value(i), "Bit {} should be the same", i);
+        }
+
+        for i in 32..64 {
+            assert_ne!(buf1.value(i), buf2.value(i), "Bit {} should differ", i);
+        }
+
+        assert_eq!(
+            buf1.slice(0..32),
+            buf2.slice(0..32),
+            "Buffer slices with same bits should be equal (`PartialEq` needs `iter_padded()`)"
+        );
+        assert_ne!(
+            buf1.slice(32..64),
+            buf2.slice(32..64),
+            "Buffer slices with different bits should not be equal (`PartialEq` needs `iter_padded()`)"
+        );
     }
 }

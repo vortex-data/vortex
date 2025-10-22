@@ -47,24 +47,26 @@ namespace vortex {
 // This is a complete hack to access the data buffer and pointer of a vector.
 class DataVector : public Vector {
 public:
-	inline void SetDataBuffer(buffer_ptr<VectorBuffer> new_buffer) {
-		buffer = std::move(new_buffer);
-	};
+    inline void SetDataBuffer(buffer_ptr<VectorBuffer> new_buffer) {
+        buffer = std::move(new_buffer);
+    };
 
-	inline void SetDataPtr(data_ptr_t ptr) {
-		data = ptr;
-	};
+    inline void SetDataPtr(data_ptr_t ptr) {
+        data = ptr;
+    };
 };
 
 } // namespace vortex
 
-extern "C" void duckdb_vx_string_vector_add_vector_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer) {
+extern "C" void duckdb_vx_string_vector_add_vector_data_buffer(duckdb_vector ffi_vector,
+                                                               duckdb_vx_vector_buffer buffer) {
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
     auto data = reinterpret_cast<shared_ptr<vortex::ExternalVectorBuffer> *>(buffer);
     StringVector::AddBuffer(*vector, *data);
 }
 
-extern "C" void duckdb_vx_vector_set_vector_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer) {
+extern "C" void duckdb_vx_vector_set_vector_data_buffer(duckdb_vector ffi_vector,
+                                                        duckdb_vx_vector_buffer buffer) {
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
     auto dvector = reinterpret_cast<vortex::DataVector *>(vector);
     auto data = reinterpret_cast<shared_ptr<vortex::ExternalVectorBuffer> *>(buffer);
