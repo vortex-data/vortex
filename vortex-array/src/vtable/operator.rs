@@ -5,7 +5,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
-use crate::execution::{BatchKernel, BindCtx};
+use crate::execution::{BatchKernel, BatchKernelRef, BindCtx};
 use crate::operator::OperatorRef;
 use crate::vtable::{NotSupported, VTable};
 
@@ -81,7 +81,7 @@ pub trait OperatorVTable<V: VTable> {
         array: &V::Array,
         _selection: Option<&ArrayRef>,
         _ctx: &mut dyn BindCtx,
-    ) -> VortexResult<Box<dyn BatchKernel>> {
+    ) -> VortexResult<BatchKernelRef> {
         vortex_bail!(
             "Bind is not yet implemented for {} arrays",
             array.encoding_id()
