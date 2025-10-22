@@ -86,26 +86,14 @@ impl GpuChunkedLayoutReader {
 
     fn ranges(&self, row_range: &Range<u64>) -> impl Iterator<Item = (usize, Range<u64>)> {
         self.chunk_range(row_range).map(move |chunk_idx| {
-            // Figure out the chunk row range relative to the mask's row range.
             let chunk_row_range = self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
 
-            let chunk_len = usize::try_from(
-                chunk_row_range
-                    .end
-                    .checked_sub(chunk_row_range.start)
-                    .vortex_expect("Invalid row range"),
-            )
-            .vortex_expect("Row range length exceeds usize::MAX");
-
-            // Figure out the row range within the chunk.
-            let chunk_relative_start = chunk_row_range
-                .start
+            let chunk_len = chunk_row_range
+                .end
                 .checked_sub(chunk_row_range.start)
-                .vortex_expect("Chunk range calculation underflow");
-            let chunk_relative_end = chunk_relative_start
-                .checked_add(chunk_len as u64)
-                .vortex_expect("Chunk range calculation overflow");
-            let chunk_range = chunk_relative_start..chunk_relative_end;
+                .vortex_expect("Invalid row range");
+
+            let chunk_range = 0..chunk_len;
 
             (chunk_idx, chunk_range)
         })

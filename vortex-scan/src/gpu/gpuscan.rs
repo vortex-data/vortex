@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::ops::Range;
 use std::sync::Arc;
 
 use futures::Stream;
@@ -32,21 +31,17 @@ pub struct GpuScan<A: 'static + Send> {
 impl GpuScan<ArrayRef> {
     pub fn execute_array_iter<B: BlockingRuntime>(
         &self,
-        row_range: Option<Range<u64>>,
         runtime: &B,
     ) -> VortexResult<impl ArrayIterator + 'static> {
         let dtype = self.dtype.clone();
-        let stream = self.execute_stream(row_range)?;
+        let stream = self.execute_stream()?;
         let iter = runtime.block_on_stream(move |_h| stream);
         Ok(ArrayIteratorAdapter::new(dtype, iter))
     }
 
-    pub fn execute_array_stream(
-        &self,
-        row_range: Option<Range<u64>>,
-    ) -> VortexResult<impl ArrayStream + Send + 'static> {
+    pub fn execute_array_stream(&self) -> VortexResult<impl ArrayStream + Send + 'static> {
         let dtype = self.dtype.clone();
-        let stream = self.execute_stream(row_range)?;
+        let stream = self.execute_stream()?;
         Ok(ArrayStreamAdapter::new(dtype, stream))
     }
 }
@@ -91,7 +86,6 @@ impl<A: 'static + Send> GpuScan<A> {
 
     pub fn execute_stream(
         &self,
-        row_range: Option<Range<u64>>,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         use futures::StreamExt;
         let num_workers = std::thread::available_parallelism()

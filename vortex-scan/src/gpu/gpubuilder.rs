@@ -14,8 +14,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{ExprRef, root};
 use vortex_io::runtime::{BlockingRuntime, Handle};
-use vortex_layout::LayoutReader;
-use vortex_layout::gpu::{GpuLayoutReader, GpuLayoutReaderRef};
+use vortex_layout::gpu::GpuLayoutReaderRef;
 
 use crate::gpu::GpuScan;
 use crate::scan_builder::filter_and_projection_masks;
@@ -101,7 +100,7 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
         };
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let mut layout_reader = self.layout_reader;
+        let layout_reader = self.layout_reader;
 
         // Normalize and simplify the expressions.
         let projection = simplify_typed(self.projection, layout_reader.dtype())?;
@@ -136,7 +135,7 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
     pub fn into_stream(
         self,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
-        self.prepare()?.execute_stream(None)
+        self.prepare()?.execute_stream()
     }
 
     /// Returns an [`Iterator`] using the given blocking runtime.
