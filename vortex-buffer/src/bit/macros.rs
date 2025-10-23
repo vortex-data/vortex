@@ -17,23 +17,21 @@ macro_rules! bitbuffer {
     () => (
         $crate::BitBuffer::empty()
     );
-    // Match space-separated bit literals (0 or 1)
     (0) => {
         $crate::BitBuffer::from_iter([false])
     };
     (1) => {
         $crate::BitBuffer::from_iter([true])
     };
-    ($($bit:tt )+) => {
-        $crate::BitBuffer::from_iter([$( $crate::bitbuffer!(@bit $bit) ),+])
-    };
-
     ($elem:expr; $n:expr) => (
         $crate::BitBuffer::full($elem, $n)
     );
     ($($x:expr),+ $(,)?) => (
         $crate::BitBuffer::from_iter([$($x),+])
     );
+    ($($bit:expr )+) => {
+        $crate::BitBuffer::from_iter([$( $crate::bitbuffer!(@bit $bit) ),+])
+    };
 }
 
 /// A macro for constructing bit-buffers akin to `vec![..]`.
@@ -52,22 +50,19 @@ macro_rules! bitbuffer_mut {
     () => (
         $crate::BitBufferMut::empty()
     );
-    // Match space-separated bit literals (0 or 1)
     (0) => {
         $crate::BitBuffer::from_iter([false])
     };
     (1) => {
         $crate::BitBuffer::from_iter([true])
     };
-    ($($bit:tt )+) => {
-        $crate::BitBufferMut::from_iter([$( $crate::bitbuffer_mut!(@bit $bit) ),+])
-    };
-
     ($elem:expr; $n:expr) => (
         $crate::BitBufferMut::full($elem, $n)
     );
     ($($x:expr),+ $(,)?) => (
         $crate::BitBufferMut::from_iter([$($x),+])
     );
-
+    ($($bit:tt )+) => {
+        $crate::BitBufferMut::from_iter([$( $crate::bitbuffer_mut!(@bit $bit) ),+])
+    };
 }
