@@ -103,6 +103,13 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 current_array = mask(&current_array, &mask_val).vortex_unwrap();
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }
+            Action::ScalarAt(indices) => {
+                let expected_scalars = expected.scalar_vec();
+                for (j, &idx) in indices.iter().enumerate() {
+                    let scalar = current_array.scalar_at(idx);
+                    assert_scalar_eq(&expected_scalars[j], &scalar);
+                }
+            }
         }
     }
     Corpus::Keep

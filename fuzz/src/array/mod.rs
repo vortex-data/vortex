@@ -7,6 +7,7 @@ mod fill_null;
 mod filter;
 mod mask;
 mod min_max;
+mod scalar_at;
 mod search_sorted;
 mod slice;
 mod sort;
@@ -24,6 +25,7 @@ use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Unstructured};
 pub(crate) use mask::*;
 pub(crate) use min_max::*;
+pub(crate) use scalar_at::*;
 pub(crate) use search_sorted::*;
 pub(crate) use slice::*;
 pub use sort::sort_canonical_array;
@@ -80,6 +82,8 @@ pub enum Action {
     MinMax,
     FillNull(Scalar),
     Mask(Mask),
+    // Here we want to try multiple values.
+    ScalarAt(Vec<usize>),
 }
 
 #[derive(Debug)]
@@ -88,6 +92,7 @@ pub enum ExpectedValue {
     Search(SearchResult),
     Scalar(Scalar),
     MinMax(Option<MinMaxResult>),
+    ScalarVec(Vec<Scalar>),
 }
 
 impl ExpectedValue {
@@ -118,6 +123,13 @@ impl ExpectedValue {
             _ => vortex_panic!("expected min_max"),
         }
     }
+
+    pub fn scalar_vec(self) -> Vec<Scalar> {
+        match self {
+            ExpectedValue::ScalarVec(v) => v,
+            _ => vortex_panic!("expected scalar_vec"),
+        }
+    }
 }
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
@@ -131,7 +143,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
         valid_actions.sort_unstable_by_key(|a| *a as usize);
 
         let mut actions = Vec::new();
-        let action_count = u.int_in_range(1..=4)?;
+        let action_count = u.int_in_range(1..=4.min(valid_actions.len()))?;
         for _ in 0..action_count {
             let action_type = random_action_from_list(u, valid_actions.as_slice())?;
 
@@ -313,6 +325,35 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         ExpectedValue::Array(expected_result),
                     )
                 }
+                ActionType::ScalarAt => {
+                    if current_array.is_empty() {
+                        return Err(EmptyChoose);
+                    }
+
+                    let num_indices = u.int_in_range(1..=5.min(current_array.len()))?;
+                    let mut indices = HashSet::with_capacity(num_indices);
+
+                    while indices.len() < num_indices {
+                        let idx = u.choose_index(current_array.len())?;
+                        indices.insert(idx);
+                    }
+
+                    let indices_vec: Vec<usize> = indices.into_iter().collect();
+
+                    // Compute expected scalars using the baseline implementation
+                    let expected_scalars: Vec<Scalar> = indices_vec
+                        .iter()
+                        .map(|&idx| {
+                            scalar_at_canonical_array(current_array.to_canonical(), idx)
+                                .vortex_unwrap()
+                        })
+                        .collect();
+
+                    (
+                        Action::ScalarAt(indices_vec),
+                        ExpectedValue::ScalarVec(expected_scalars),
+                    )
+                }
             })
         }
 
@@ -325,9 +366,9 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
 
     match dtype {
         DType::Struct(sdt, _) => {
-            // Struct supports: Compress, Slice, Take, Filter, MinMax, Mask
+            // Struct supports: Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt
             // Does NOT support: SearchSorted (requires scalar comparison), Compare, Cast, Sum, FillNull
-            let struct_actions = [Compress, Slice, Take, Filter, MinMax, Mask];
+            let struct_actions = [Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt];
             sdt.fields()
                 .map(|child| actions_for_dtype(&child))
                 .fold(struct_actions.into(), |acc, actions| {
@@ -335,13 +376,13 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
                 })
         }
         DType::List(..) | DType::FixedSizeList(..) => {
-            // List supports: Compress, Slice, Take, Filter, MinMax, Mask
+            // List supports: Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt
             // Does NOT support: SearchSorted, Compare, Cast, Sum, FillNull
-            [Compress, Slice, Take, Filter, MinMax, Mask].into()
+            [Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt].into()
         }
         DType::Utf8(_) | DType::Binary(_) => {
             // Utf8/Binary supports everything except Sum
-            // Actions: Compress, Slice, Take, SearchSorted, Filter, Compare, Cast, MinMax, FillNull, Mask
+            // Actions: Compress, Slice, Take, SearchSorted, Filter, Compare, Cast, MinMax, FillNull, Mask, ScalarAt
             [
                 Compress,
                 Slice,
@@ -353,6 +394,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
                 MinMax,
                 FillNull,
                 Mask,
+                ScalarAt,
             ]
             .into()
         }
@@ -372,6 +414,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
                 Cast,
                 FillNull,
                 Mask,
+                ScalarAt,
             ]
             .into()
         }
