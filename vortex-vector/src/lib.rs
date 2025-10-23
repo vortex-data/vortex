@@ -12,17 +12,22 @@
 #![deny(clippy::missing_safety_doc)]
 
 mod bool;
-mod macros;
 mod null;
-mod ops;
 mod primitive;
-mod private;
-mod vector;
-mod vector_mut;
+mod struct_;
 
 pub use bool::{BoolVector, BoolVectorMut};
 pub use null::{NullVector, NullVectorMut};
-pub use ops::{VectorMutOps, VectorOps};
 pub use primitive::{PVector, PVectorMut, PrimitiveVector, PrimitiveVectorMut};
+pub use struct_::{StructVector, StructVectorMut};
+
+mod ops;
+mod vector;
+mod vector_mut;
+
+pub use ops::{VectorMutOps, VectorOps};
 pub use vector::Vector;
 pub use vector_mut::VectorMut;
+
+mod macros;
+mod private;

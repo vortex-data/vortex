@@ -28,3 +28,6 @@ impl Sealed for PrimitiveVector {}
 impl Sealed for PrimitiveVectorMut {}
 impl<T: NativePType> Sealed for PVector<T> {}
 impl<T: NativePType> Sealed for PVectorMut<T> {}
+
+impl Sealed for StructVector {}
+impl Sealed for StructVectorMut {}
