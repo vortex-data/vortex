@@ -166,7 +166,8 @@ pub fn decompress_with_patches(array: &ALPArray, patches: &Patches) -> Primitive
                     };
 
                     for patches_idx in patches_start_idx..patches_end_idx {
-                        let patched_index = patches_indices[patches_idx];
+                        let patched_index =
+                            patches_indices[patches_idx] as usize - patches.offset();
                         let patched_value = patches_values[patches_idx];
                         assert!({ patched_index as usize } < chunk_end);
                         decoded_values[patched_index as usize] = patched_value;
