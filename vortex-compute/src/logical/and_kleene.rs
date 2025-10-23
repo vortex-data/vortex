@@ -93,3 +93,53 @@ impl LogicalAndKleene for &BoolVector {
         }
     }
 }
+
+impl LogicalAndKleene<&BoolVector> for BoolVector {
+    type Output = BoolVector;
+
+    fn and_kleene(self, rhs: &BoolVector) -> Self::Output {
+        (&self).and_kleene(rhs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::bitbuffer;
+    use vortex_mask::Mask;
+    use vortex_vector::BoolVector;
+
+    use super::*;
+
+    #[test]
+    fn test_and_kleene_all_valid() {
+        // When both sides are all valid, behaves like regular AND
+        let left = BoolVector::new(bitbuffer![1 0 1], Mask::new_true(3));
+        let right = BoolVector::new(bitbuffer![1 1 0], Mask::new_true(3));
+
+        let result = left.and_kleene(&right);
+        assert_eq!(result.bits(), &bitbuffer![1 0 0]);
+        assert_eq!(result.validity(), &Mask::new_true(3));
+    }
+
+    #[test]
+    fn test_and_kleene_all_null() {
+        // When both are null, result is all null
+        let left = BoolVector::new(bitbuffer![1 1], Mask::new_false(2));
+        let right = BoolVector::new(bitbuffer![1 1], Mask::new_false(2));
+
+        let result = left.and_kleene(&right);
+        assert_eq!(result.validity(), &Mask::new_false(2));
+    }
+
+    #[test]
+    fn test_and_kleene_false_and_null() {
+        // false AND null = false (Kleene logic)
+        let left = BoolVector::new(bitbuffer![0], Mask::new_true(1));
+        let right = BoolVector::new(bitbuffer![1], Mask::new_false(1));
+
+        let result = left.and_kleene(&right);
+        assert_eq!(result.bits(), &bitbuffer![0]);
+        // Result should be valid because false AND anything is false
+        assert_eq!(result.validity(), &Mask::new_true(1));
+    }
+}

@@ -11,7 +11,7 @@ local_copy=$(mktemp)
 local_concatenated=$(mktemp)
 n_failures=0
 
-while (( n_failures < 2 )); do
+while (( n_failures < 5 )); do
     current_etag=$(aws s3api head-object --bucket "$bucket" --key "$key" --query ETag --output text)
     if [[ "$current_etag" == "null" ]]; then
         echo "Failed to retrieve ETag. Exiting."
@@ -39,6 +39,8 @@ while (( n_failures < 2 )); do
     aws s3api put-object --bucket "$bucket" --key "$key" --body "$local_concatenated" --if-match "$current_etag" || {
         echo "ETag does not match during upload. Trying again."
         n_failures=$(( n_failures + 1 ))
+        # wait for before retrying
+        sleep 0.1
         continue
     }
 

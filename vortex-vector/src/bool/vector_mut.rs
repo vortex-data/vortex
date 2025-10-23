@@ -71,6 +71,18 @@ pub struct BoolVectorMut {
 }
 
 impl BoolVectorMut {
+    /// Create a mutable vector from the given parts, without checking lengths or capacities.
+    ///
+    /// # SAFETY
+    ///
+    /// The caller must ensure both parts have the same length and capacity. Ideally they are
+    /// taken from `into_parts`, mutated in a way that doesn't re-allocate, and then passed back
+    /// to this function.
+    pub unsafe fn new_unchecked(bits: BitBufferMut, validity: MaskMut) -> Self {
+        debug_assert_eq!(bits.len(), validity.len());
+        Self { bits, validity }
+    }
+
     /// Creates a new mutable boolean vector with the given `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -79,7 +91,7 @@ impl BoolVectorMut {
         }
     }
 
-    /// Returns the internal parts of this mutable boolean vector.
+    /// Returns the parts of the mutable vector.
     pub fn into_parts(self) -> (BitBufferMut, MaskMut) {
         (self.bits, self.validity)
     }

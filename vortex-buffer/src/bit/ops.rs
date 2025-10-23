@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::trusted_len::TrustedLenExt;
-use crate::{BitBuffer, Buffer};
+use crate::{BitBuffer, BitBufferMut, Buffer};
 
 pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: &BitBuffer, op: F) -> BitBuffer {
     let iter = buffer.chunks().iter_padded().map(op);
@@ -11,6 +11,38 @@ pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: &BitBuffer, op: F) 
     let result = Buffer::<u64>::from_trusted_len_iter(iter).into_byte_buffer();
 
     BitBuffer::new(result, buffer.len())
+}
+
+pub(super) fn bitwise_unary_op_mut<F: FnMut(u64) -> u64>(buffer: &mut BitBufferMut, mut op: F) {
+    let slice_mut = buffer.as_mut_slice();
+
+    // The number of complete u64 words in the buffer (unaligned)
+    let u64_len = slice_mut.len() / 8;
+    let remainder = slice_mut.len() % 8;
+
+    // Create a pointer to the *unaligned* u64 words
+    let mut ptr = slice_mut.as_mut_ptr() as *mut u64;
+    for _ in 0..u64_len {
+        let value = unsafe { ptr.read_unaligned() };
+        let value = op(value);
+        unsafe { ptr.write_unaligned(value) };
+        ptr = unsafe { ptr.add(1) };
+    }
+
+    // Read remainder into a u64;
+    let mut remainder_u64 = 0u64;
+    let ptr = ptr as *mut u8;
+    for i in 0..remainder {
+        let byte = unsafe { ptr.add(i).read() };
+        remainder_u64 |= (byte as u64) << (i * 8);
+    }
+    let remainder_u64 = op(remainder_u64);
+
+    // Write back remainder
+    for i in 0..remainder {
+        let byte = ((remainder_u64 >> (i * 8)) & 0xFF) as u8;
+        unsafe { ptr.add(i).write(byte) };
+    }
 }
 
 pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(

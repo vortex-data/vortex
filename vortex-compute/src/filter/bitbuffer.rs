@@ -49,19 +49,19 @@ mod test {
 
     #[test]
     fn filter_bool_by_slice_test() {
-        let bits = bitbuffer![true, true, false];
+        let bits = bitbuffer![1 1 0];
 
         let filtered = filter_slices(&bits, 2, &[(0, 1), (2, 3)]);
         assert_eq!(2, filtered.len());
 
-        assert_eq!(filtered, bitbuffer![true, false])
+        assert_eq!(filtered, bitbuffer![1 0])
     }
 
     #[test]
     fn filter_bool_by_index_test() {
-        let buf = bitbuffer![true, true, false];
+        let buf = bitbuffer![1 1 0];
         let filtered = filter_indices(&buf, &[0, 2]);
         assert_eq!(2, filtered.len());
-        assert_eq!(bitbuffer![true, false], filtered)
+        assert_eq!(filtered, bitbuffer![1 0])
     }
 }
