@@ -13,7 +13,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_dtype::ExtDType;
 use vortex_error::{VortexResult, VortexUnwrap};
-use vortex_mask::Mask;
+use vortex_mask::{AllOr, Mask};
 use vortex_scalar::match_each_decimal_value_type;
 
 /// Apply mask on the canonical form of the array to get a consistent baseline.
@@ -26,12 +26,10 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             array.into_array()
         }
         Canonical::Bool(array) => {
-            // Mask by updating validity
             let new_validity = apply_mask_to_validity(array.validity(), mask);
             BoolArray::from_bit_buffer(array.bit_buffer().clone(), new_validity).into_array()
         }
         Canonical::Primitive(array) => {
-            // Mask by updating validity
             let new_validity = apply_mask_to_validity(array.validity(), mask);
             PrimitiveArray::from_byte_buffer(
                 array.byte_buffer().clone(),
@@ -41,7 +39,6 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             .into_array()
         }
         Canonical::Decimal(array) => {
-            // Mask by updating validity
             let new_validity = apply_mask_to_validity(array.validity(), mask);
             match_each_decimal_value_type!(array.values_type(), |D| {
                 DecimalArray::new(array.buffer::<D>(), array.decimal_dtype(), new_validity)
@@ -49,11 +46,9 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             })
         }
         Canonical::VarBinView(array) => {
-            // Mask by updating validity
             let new_validity = apply_mask_to_validity(array.validity(), mask);
-            // SAFETY: masking the validity does not affect the invariants
             unsafe {
-                VarBinViewArray::new_unchecked(
+                VarBinViewArray::new(
                     array.views().clone(),
                     array.buffers().clone(),
                     array.dtype().as_nullable(),
@@ -63,7 +58,6 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             .into_array()
         }
         Canonical::List(array) => {
-            // Mask by updating validity
             let new_validity = apply_mask_to_validity(array.validity(), mask);
             ListViewArray::try_new(
                 array.elements().clone(),
@@ -75,12 +69,9 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             .into_array()
         }
         Canonical::FixedSizeList(array) => {
-            // Mask by updating validity
             let new_validity = apply_mask_to_validity(array.validity(), mask);
-            // SAFETY: The only thing that changes here is the validity mask, which will have the same
-            // length. So as long as the original array is valid, this is also valid.
             unsafe {
-                FixedSizeListArray::new_unchecked(
+                FixedSizeListArray::new(
                     array.elements().clone(),
                     array.list_size(),
                     new_validity,
@@ -90,7 +81,6 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             .into_array()
         }
         Canonical::Struct(array) => {
-            // Mask by updating validity
             let new_validity = apply_mask_to_validity(array.validity(), mask);
             StructArray::try_new_with_dtype(
                 array.fields().clone(),
@@ -123,12 +113,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
     })
 }
 
-/// Helper function to apply a mask to a validity array.
-/// This implements the same logic as Validity::mask() but is reproduced here
-/// to avoid using the method directly for baseline testing.
 fn apply_mask_to_validity(validity: &Validity, mask: &Mask) -> Validity {
-    use vortex_mask::AllOr;
-
     match mask.bit_buffer() {
         AllOr::All => Validity::AllInvalid,
         AllOr::None => validity.clone(),
@@ -182,10 +167,10 @@ mod tests {
 
         assert_eq!(result.len(), 5);
         assert!(!result.is_valid(0));
-        assert_eq!(result.scalar_at(1), Scalar::from(Some(false))); // not masked
-        assert_eq!(result.scalar_at(2), Scalar::from(Some(true))); // not masked
+        assert_eq!(result.scalar_at(1), Scalar::from(Some(false)));
+        assert_eq!(result.scalar_at(2), Scalar::from(Some(true)));
         assert!(!result.is_valid(3));
-        assert_eq!(result.scalar_at(4), Scalar::from(Some(true))); // not masked
+        assert_eq!(result.scalar_at(4), Scalar::from(Some(true)));
     }
 
     #[test]
