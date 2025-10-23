@@ -216,7 +216,7 @@ impl QueryMeasurement {
         } else {
             let mid1 = sorted_runs[len / 2 - 1];
             let mid2 = sorted_runs[len / 2];
-            let avg_nanos = (mid1.as_micros() + mid2.as_nanos()) / 2;
+            let avg_nanos = (mid1.as_nanos() + mid2.as_nanos()) / 2;
             Duration::new(
                 u64::try_from(avg_nanos / 1_000_000_000).vortex_unwrap(),
                 u32::try_from(avg_nanos % 1_000_000_000).vortex_unwrap(),
