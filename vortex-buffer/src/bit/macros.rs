@@ -17,19 +17,23 @@ macro_rules! bitbuffer {
     () => (
         $crate::BitBuffer::empty()
     );
+
+    // We capture single-element 0/1 cases to avoid ambiguity with the
+    // comma-separated expression case.
     (0) => {
         $crate::BitBuffer::from_iter([false])
     };
     (1) => {
         $crate::BitBuffer::from_iter([true])
     };
+
     ($elem:expr; $n:expr) => (
         $crate::BitBuffer::full($elem, $n)
     );
     ($($x:expr),+ $(,)?) => (
         $crate::BitBuffer::from_iter([$($x),+])
     );
-    ($($bit:expr )+) => {
+    ($($bit:tt)+) => {
         $crate::BitBuffer::from_iter([$( $crate::bitbuffer!(@bit $bit) ),+])
     };
 }
@@ -50,19 +54,23 @@ macro_rules! bitbuffer_mut {
     () => (
         $crate::BitBufferMut::empty()
     );
+
+    // We capture single-element 0/1 cases to avoid ambiguity with the
+    // comma-separated expression case.
     (0) => {
         $crate::BitBuffer::from_iter([false])
     };
     (1) => {
         $crate::BitBuffer::from_iter([true])
     };
+
     ($elem:expr; $n:expr) => (
         $crate::BitBufferMut::full($elem, $n)
     );
     ($($x:expr),+ $(,)?) => (
         $crate::BitBufferMut::from_iter([$($x),+])
     );
-    ($($bit:tt )+) => {
+    ($($bit:tt)+) => {
         $crate::BitBufferMut::from_iter([$( $crate::bitbuffer_mut!(@bit $bit) ),+])
     };
 }
