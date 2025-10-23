@@ -177,6 +177,26 @@ mod test {
         do_roundtrip_test::<u8>((0..10_000).map(|i| (i % (u8::MAX as i32)) as u8).collect());
     }
 
+    #[test]
+    fn test_compress_null() {
+        let array = PrimitiveArray::from_option_iter(
+            (0u16..1024).map(|x| (x % 2 != 0 && x % 3 != 0).then_some(x)),
+        );
+        let (bases, deltas) = delta_compress(&array).unwrap();
+        // let deltas = bitpack_to_best_bit_width(&deltas).unwrap().into_array();
+        let deltas = deltas.into_array();
+        let delta = DeltaArray::try_new(bases.into_array(), deltas, 0, array.len()).unwrap();
+        let decompressed = delta_decompress(&delta);
+        let decompressed_slice = decompressed.as_slice::<u16>();
+
+        assert_eq!(delta.len(), array.len());
+        assert_eq!(decompressed_slice.len(), array.len());
+        for (actual, expected) in decompressed_slice.iter().zip(array.as_slice()) {
+            assert_eq!(actual, expected);
+        }
+        assert_eq!(decompressed.validity(), array.validity());
+    }
+
     fn do_roundtrip_test<T: NativePType>(input: PrimitiveArray) {
         let delta = DeltaArray::try_from_primitive_array(&input).unwrap();
         assert_eq!(delta.len(), input.len());
