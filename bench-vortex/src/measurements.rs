@@ -203,19 +203,17 @@ pub struct QueryMeasurement {
 
 impl QueryMeasurement {
     pub fn median_run(&self) -> Duration {
-        let mut sorted_runs = self.runs.clone();
-        sorted_runs.sort();
-
-        let len = sorted_runs.len();
+        let len = self.runs.len();
         if len == 0 {
             vortex_panic!("cannot have no runs");
         }
 
+        let mut sorted_runs = self.runs.clone();
+        sorted_runs.sort();
+
         if len % 2 == 1 {
-            // Odd number of runs: return the middle value
             sorted_runs[len / 2]
         } else {
-            // Even number of runs: return the average of the two middle values
             let mid1 = sorted_runs[len / 2 - 1];
             let mid2 = sorted_runs[len / 2];
             let avg_nanos = (mid1.as_micros() + mid2.as_nanos()) / 2;
