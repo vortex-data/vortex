@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
+use vortex_vector::BoolVectorMut;
 
 use crate::ArrayRef;
 use crate::execution::BindCtx;
@@ -74,10 +76,14 @@ impl dyn BindCtx + '_ {
         //  case we could check for run-end encoding here?
 
         // If none of the above patterns match, we fall back to canonicalizing.
-        let _execution = self.bind(mask, None)?;
-        // Ok(Self::Future {
-        //     fut: async move { Ok(execution.execute().await?.into_bool().to_mask()) }.boxed(),
-        // })
-        todo!("Finish bind_mask implementation")
+        let execution = self.bind(mask, None)?;
+        Ok(MaskExecution::Future(
+            async move {
+                let out = BoolVectorMut::with_capacity(0).into();
+                let mask = execution.execute(out).await?.into_bool();
+                Ok(Mask::from(mask.bits().clone()))
+            }
+            .boxed(),
+        ))
     }
 }

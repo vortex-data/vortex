@@ -245,9 +245,10 @@ where
 #[cfg(test)]
 mod tests {
     use vortex_buffer::bitbuffer;
+    use vortex_io::runtime::single::block_on;
 
     use crate::compute::arrays::logical::{LogicalArray, LogicalOperator};
-    use crate::{ArrayRef, IntoArray};
+    use crate::{ArrayOperator, ArrayRef, IntoArray};
 
     fn and_(lhs: ArrayRef, rhs: ArrayRef) -> ArrayRef {
         LogicalArray::new(lhs, rhs, LogicalOperator::And).into_array()
@@ -259,5 +260,22 @@ mod tests {
         let rhs = bitbuffer![0 1 1].into_array();
         let result = and_(lhs, rhs).execute_blocking().unwrap().into_bool();
         assert_eq!(result.bits(), &bitbuffer![0 1 0]);
+    }
+
+    #[test]
+    fn test_and_selected() {
+        block_on(|_| async {
+            let lhs = bitbuffer![0 1 0].into_array();
+            let rhs = bitbuffer![0 1 1].into_array();
+
+            let selection = bitbuffer![0 1 1].into_array();
+
+            let result = and_(lhs, rhs)
+                .execute_with_selection(Some(&selection))
+                .await
+                .unwrap()
+                .into_bool();
+            assert_eq!(result.bits(), &bitbuffer![1 0]);
+        })
     }
 }
