@@ -241,18 +241,35 @@ impl BitBufferMut {
         }
     }
 
+    /// Append a new boolean into the bit buffer without checking for sufficient capacity.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure there is sufficient capacity in the underlying byte buffer to
+    /// accommodate the new bit. If the bit position requires a new byte to be allocated, the buffer
+    /// must have capacity for at least one more byte.
+    pub unsafe fn append_unchecked(&mut self, value: bool) {
+        if value {
+            // SAFETY: checked by caller.
+            unsafe { self.append_true_unchecked() }
+        } else {
+            // SAFETY: checked by caller.
+            unsafe { self.append_false_unchecked() }
+        }
+    }
+
     /// Append a new true value to the buffer.
     pub fn append_true(&mut self) {
         let bit_pos = self.offset + self.len;
         let byte_pos = bit_pos / 8;
         let bit_in_byte = bit_pos % 8;
 
-        // Ensure buffer has enough bytes
+        // Ensure buffer has enough bytes.
         if byte_pos >= self.buffer.len() {
             self.buffer.push(0u8);
         }
 
-        // Set the bit
+        // Set the bit.
         self.buffer.as_mut_slice()[byte_pos] |= 1 << bit_in_byte;
         self.len += 1;
     }
@@ -263,12 +280,61 @@ impl BitBufferMut {
         let byte_pos = bit_pos / 8;
         let bit_in_byte = bit_pos % 8;
 
-        // Ensure buffer has enough bytes
+        // Ensure buffer has enough bytes.
         if byte_pos >= self.buffer.len() {
             self.buffer.push(0u8);
         }
 
-        // Bit is already 0 if we just pushed a new byte, otherwise ensure it's unset
+        // Bit is already 0 if we just pushed a new byte, otherwise ensure it's unset.
+        if bit_in_byte != 0 {
+            self.buffer.as_mut_slice()[byte_pos] &= !(1 << bit_in_byte);
+        }
+
+        self.len += 1;
+    }
+
+    /// Append a new true value to the buffer without checking for sufficient capacity.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure there is sufficient capacity in the underlying byte buffer to
+    /// accommodate the new bit. If the bit position requires a new byte to be allocated, the buffer
+    /// must have capacity for at least one more byte.
+    pub unsafe fn append_true_unchecked(&mut self) {
+        let bit_pos = self.offset + self.len;
+        let byte_pos = bit_pos / 8;
+        let bit_in_byte = bit_pos % 8;
+
+        // Ensure buffer has enough bytes.
+        if byte_pos >= self.buffer.len() {
+            // SAFETY: caller ensures sufficient capacity.
+            unsafe { self.buffer.push_unchecked(0u8) };
+        }
+
+        // Set the bit.
+        self.buffer.as_mut_slice()[byte_pos] |= 1 << bit_in_byte;
+        self.len += 1;
+    }
+
+    /// Append a new false value to the buffer without checking for sufficient capacity.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure there is sufficient capacity in the underlying byte buffer to
+    /// accommodate the new bit. If the bit position requires a new byte to be allocated, the buffer
+    /// must have capacity for at least one more byte.
+    pub unsafe fn append_false_unchecked(&mut self) {
+        let bit_pos = self.offset + self.len;
+        let byte_pos = bit_pos / 8;
+        let bit_in_byte = bit_pos % 8;
+
+        // Ensure buffer has enough bytes.
+        if byte_pos >= self.buffer.len() {
+            // SAFETY: caller ensures sufficient capacity.
+            unsafe { self.buffer.push_unchecked(0u8) };
+        }
+
+        // Bit is already 0 if we just pushed a new byte, otherwise ensure it's unset.
         if bit_in_byte != 0 {
             self.buffer.as_mut_slice()[byte_pos] &= !(1 << bit_in_byte);
         }
@@ -918,4 +984,65 @@ mod tests {
         assert_eq!(frozen.offset(), 3);
         assert_eq!(frozen.len(), 6);
     }
+
+    #[test]
+    fn test_append_unchecked() {
+        // Test that append_unchecked works correctly when there's sufficient capacity.
+        let mut bit_buf = BitBufferMut::with_capacity(100);
+
+        // Reserve enough space for our operations.
+        bit_buf.reserve(50);
+
+        // Use append_unchecked to add various patterns.
+        unsafe {
+            bit_buf.append_unchecked(true);
+            bit_buf.append_unchecked(false);
+            bit_buf.append_unchecked(true);
+            bit_buf.append_unchecked(true);
+            bit_buf.append_unchecked(false);
+        }
+
+        assert_eq!(bit_buf.len(), 5);
+        assert!(bit_buf.value(0));
+        assert!(!bit_buf.value(1));
+        assert!(bit_buf.value(2));
+        assert!(bit_buf.value(3));
+        assert!(!bit_buf.value(4));
+
+        // Test appending across byte boundaries.
+        unsafe {
+            // Add bits to fill first byte.
+            bit_buf.append_unchecked(false);
+            bit_buf.append_unchecked(true);
+            bit_buf.append_unchecked(false);
+            // Now at 8 bits (full byte).
+
+            // Add more bits into second byte.
+            bit_buf.append_unchecked(true);
+            bit_buf.append_unchecked(true);
+            bit_buf.append_unchecked(false);
+        }
+
+        assert_eq!(bit_buf.len(), 11);
+        assert!(bit_buf.value(8)); // First bit of second byte.
+        assert!(bit_buf.value(9));
+        assert!(!bit_buf.value(10));
+
+        // Test with offset.
+        let buf = BufferMut::zeroed(4);
+        let mut bit_buf_with_offset = BitBufferMut::from_buffer(buf, 3, 0);
+        bit_buf_with_offset.reserve(20);
+
+        unsafe {
+            bit_buf_with_offset.append_unchecked(true);
+            bit_buf_with_offset.append_unchecked(false);
+            bit_buf_with_offset.append_unchecked(true);
+        }
+
+        assert_eq!(bit_buf_with_offset.len(), 3);
+        assert!(bit_buf_with_offset.value(0));
+        assert!(!bit_buf_with_offset.value(1));
+        assert!(bit_buf_with_offset.value(2));
+    }
+
 }
