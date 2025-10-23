@@ -91,9 +91,9 @@ impl Compressor for StringCompressor {
     fn schemes() -> &'static [&'static Self::SchemeType] {
         &[
             &UncompressedScheme,
+            &ConstantScheme,
             &DictScheme,
             &FSSTScheme,
-            &ConstantScheme,
         ]
     }
 
