@@ -47,14 +47,12 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
         }
         Canonical::VarBinView(array) => {
             let new_validity = apply_mask_to_validity(array.validity(), mask);
-            unsafe {
-                VarBinViewArray::new(
-                    array.views().clone(),
-                    array.buffers().clone(),
-                    array.dtype().as_nullable(),
-                    new_validity,
-                )
-            }
+            VarBinViewArray::new(
+                array.views().clone(),
+                array.buffers().clone(),
+                array.dtype().as_nullable(),
+                new_validity,
+            )
             .into_array()
         }
         Canonical::List(array) => {
@@ -70,14 +68,12 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
         }
         Canonical::FixedSizeList(array) => {
             let new_validity = apply_mask_to_validity(array.validity(), mask);
-            unsafe {
-                FixedSizeListArray::new(
-                    array.elements().clone(),
-                    array.list_size(),
-                    new_validity,
-                    array.len(),
-                )
-            }
+            FixedSizeListArray::new(
+                array.elements().clone(),
+                array.list_size(),
+                new_validity,
+                array.len(),
+            )
             .into_array()
         }
         Canonical::Struct(array) => {
