@@ -27,3 +27,24 @@ duckdb_vx_client_context_get_object_cache(duckdb_vx_client_context context) {
         return nullptr;
     }
 }
+
+extern "C" duckdb_value duckdb_vx_client_context_try_get_current_setting(duckdb_vx_client_context context,
+                                                                           const char *key) {
+    if (!context || !key) {
+        return nullptr;
+    }
+
+    try {
+        auto client_context = reinterpret_cast<duckdb::ClientContext *>(context);
+        duckdb::Value result;
+        auto lookup_result = client_context->TryGetCurrentSetting(key, result);
+
+        if (lookup_result) {
+            return reinterpret_cast<duckdb_value>(new duckdb::Value(result));
+        }
+
+        return nullptr;
+    } catch (...) {
+        return nullptr;
+    }
+}

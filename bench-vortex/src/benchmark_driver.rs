@@ -106,6 +106,7 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
             config.disable_datafusion_cache,
             config.emit_plan,
             config.delete_duckdb_database,
+            config.threads,
         )?;
 
         tokio_runtime.block_on(benchmark.register_tables(&engine_ctx, target.format()))?;
@@ -346,6 +347,7 @@ fn run_explain_query<B: Benchmark>(
             config.disable_datafusion_cache,
             config.emit_plan,
             config.delete_duckdb_database,
+            config.threads,
         )?;
 
         tokio_runtime.block_on(benchmark.register_tables(&engine_ctx, target.format()))?;

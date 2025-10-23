@@ -32,11 +32,13 @@ impl EngineCtx {
         dataset: BenchmarkDataset,
         format: Format,
         delete_duckdb_database: bool,
+        threads: Option<usize>,
     ) -> anyhow::Result<Self> {
         Ok(EngineCtx::DuckDB(ddb::DuckDBCtx::new(
             dataset,
             format,
             delete_duckdb_database,
+            threads,
         )?))
     }
 
