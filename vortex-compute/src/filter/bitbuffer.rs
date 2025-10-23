@@ -4,15 +4,13 @@
 use vortex_buffer::{BitBuffer, BitBufferMut, get_bit};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::compute::vectors::filter::Filter;
+use crate::filter::Filter;
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 // TODO(ngates): we need more experimentation to determine the best threshold here.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
 impl Filter for BitBuffer {
-    type Mutable = BitBufferMut;
-
     fn filter(&self, mask: &Mask) -> Self {
         assert_eq!(mask.len(), self.len());
         match mask {
@@ -23,10 +21,6 @@ impl Filter for BitBuffer {
                 MaskIter::Slices(slices) => filter_slices(self, mask.true_count(), slices),
             },
         }
-    }
-
-    fn filter_into(&self, mask: &Mask, _out: Self::Mutable) -> Self {
-        self.filter(mask)
     }
 }
 

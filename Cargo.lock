@@ -8571,6 +8571,7 @@ dependencies = [
  "termtree",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",
@@ -8643,6 +8644,16 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+]
+
+[[package]]
+name = "vortex-compute"
+version = "0.1.0"
+dependencies = [
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-vector",
 ]
 
 [[package]]

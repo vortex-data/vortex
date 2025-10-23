@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use futures::future::FutureExt;
+use vortex_compute::filter::Filter;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::compute::vectors::filter::Filter;
 use crate::execution::{BindCtx, MaskExecution};
 use crate::validity::Validity;
 

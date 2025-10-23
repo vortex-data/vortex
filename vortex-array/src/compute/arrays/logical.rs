@@ -2,17 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::{Hash, Hasher};
-use std::ops::{BitAnd, BitOr};
 use std::sync::LazyLock;
 
 use async_trait::async_trait;
 use enum_map::{Enum, EnumMap, enum_map};
 use futures::try_join;
-use vortex_buffer::{BitBuffer, ByteBuffer};
+use vortex_buffer::ByteBuffer;
+use vortex_compute::logical::{
+    LogicalAnd, LogicalAndKleene, LogicalAndNot, LogicalOr, LogicalOrKleene,
+};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
-use vortex_vector::{BoolVector, BoolVectorMut, Vector, VectorMut, VectorOps};
+use vortex_vector::{BoolVector, BoolVectorMut, Vector, VectorMut};
 
 use crate::execution::{BatchKernel, BatchKernelRef, BindCtx};
 use crate::serde::ArrayChildren;
@@ -191,17 +193,15 @@ impl OperatorVTable<LogicalVTable> for LogicalVTable {
         let rhs = ctx.bind(&array.rhs, selection)?;
 
         match array.operator() {
-            LogicalOperator::And => LogicalKernel::new_kernel(lhs, rhs, |l, r| l.bitand(r)),
+            LogicalOperator::And => LogicalKernel::new_kernel(lhs, rhs, |l, r| l.and(&r)),
             LogicalOperator::AndKleene => {
-                todo!()
+                LogicalKernel::new_kernel(lhs, rhs, |l, r| l.and_kleene(&r))
             }
-            LogicalOperator::Or => LogicalKernel::new_kernel(lhs, rhs, |l, r| l.bitor(r)),
+            LogicalOperator::Or => LogicalKernel::new_kernel(lhs, rhs, |l, r| l.or(&r)),
             LogicalOperator::OrKleene => {
-                todo!()
+                LogicalKernel::new_kernel(lhs, rhs, |l, r| l.or_kleene(&r))
             }
-            LogicalOperator::AndNot => {
-                todo!()
-            }
+            LogicalOperator::AndNot => LogicalKernel::new_kernel(lhs, rhs, |l, r| l.and_not(&r)),
         }
     }
 }
@@ -214,7 +214,7 @@ struct LogicalKernel<O> {
 
 impl<O> LogicalKernel<O>
 where
-    O: Fn(&BitBuffer, &BitBuffer) -> BitBuffer + Send + 'static,
+    O: Fn(BoolVector, BoolVector) -> BoolVector + Send + 'static,
 {
     fn new_kernel(lhs: BatchKernelRef, rhs: BatchKernelRef, op: O) -> VortexResult<BatchKernelRef> {
         Ok(Box::new(Self { lhs, rhs, op }))
@@ -224,21 +224,14 @@ where
 #[async_trait]
 impl<O> BatchKernel for LogicalKernel<O>
 where
-    O: Fn(&BitBuffer, &BitBuffer) -> BitBuffer + Send + 'static,
+    O: Fn(BoolVector, BoolVector) -> BoolVector + Send + 'static,
 {
     async fn execute(self: Box<Self>, out: VectorMut) -> VortexResult<Vector> {
         // We pass the output into the LHS and then attempt to call the mutate-in-place op.
         let rhs_out = BoolVectorMut::with_capacity(0);
         let (lhs, rhs) = try_join!(self.lhs.execute(out), self.rhs.execute(rhs_out.into()))?;
         let (lhs, rhs) = (lhs.into_bool(), rhs.into_bool());
-
-        // First, we compute the union the input validity.
-        let validity = lhs.validity() | rhs.validity();
-
-        // TODO(ngates): we should then find the threshold by which a low enough result validity
-        //   means it's better for us to evaluate over scalars vs over the entire bit-buffer.
-
-        Ok(BoolVector::new((self.op)(lhs.bits(), rhs.bits()), validity).into())
+        Ok((self.op)(lhs, rhs).into())
     }
 }
 

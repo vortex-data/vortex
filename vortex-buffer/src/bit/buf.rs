@@ -322,11 +322,11 @@ impl BitOr for &BitBuffer {
     }
 }
 
-impl BitOr for BitBuffer {
+impl BitOr<&BitBuffer> for BitBuffer {
     type Output = BitBuffer;
 
-    fn bitor(self, rhs: Self) -> Self::Output {
-        (&self).bitor(&rhs)
+    fn bitor(self, rhs: &BitBuffer) -> Self::Output {
+        (&self).bitor(rhs)
     }
 }
 
@@ -338,11 +338,11 @@ impl BitAnd for &BitBuffer {
     }
 }
 
-impl BitAnd for BitBuffer {
+impl BitAnd<&BitBuffer> for BitBuffer {
     type Output = BitBuffer;
 
-    fn bitand(self, rhs: Self) -> Self::Output {
-        (&self).bitand(&rhs)
+    fn bitand(self, rhs: &BitBuffer) -> Self::Output {
+        (&self).bitand(rhs)
     }
 }
 
@@ -370,11 +370,21 @@ impl BitXor for &BitBuffer {
     }
 }
 
-impl BitXor for BitBuffer {
+impl BitXor<&BitBuffer> for BitBuffer {
     type Output = BitBuffer;
 
-    fn bitxor(self, rhs: Self) -> Self::Output {
-        (&self).bitxor(&rhs)
+    fn bitxor(self, rhs: &BitBuffer) -> Self::Output {
+        (&self).bitxor(rhs)
+    }
+}
+
+impl BitBuffer {
+    /// Create a new BitBuffer by performing a bitwise AND NOT operation between two BitBuffers.
+    ///
+    /// This operation is sufficiently common that we provide a dedicated method for it avoid
+    /// making two passes over the data.
+    pub fn bitand_not(&self, rhs: &BitBuffer) -> BitBuffer {
+        bitwise_binary_op(self, rhs, |a, b| a & !b)
     }
 }
 

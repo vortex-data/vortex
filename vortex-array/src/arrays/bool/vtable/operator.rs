@@ -2,12 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use futures::try_join;
+use vortex_compute::filter::Filter;
 use vortex_error::VortexResult;
 use vortex_vector::BoolVector;
 
 use crate::ArrayRef;
 use crate::arrays::{BoolArray, BoolVTable};
-use crate::compute::vectors::filter::Filter;
 use crate::execution::{BatchKernel, BindCtx, kernel};
 use crate::vtable::{OperatorVTable, ValidityHelper};
 
@@ -21,12 +21,11 @@ impl OperatorVTable<BoolVTable> for BoolVTable {
         let mask = ctx.bind_selection(array.len(), selection)?;
         let validity = ctx.bind_validity(array.validity(), array.len(), selection)?;
 
-        Ok(kernel(|out| async move {
+        Ok(kernel(|_out| async move {
             let (mask, validity) = try_join!(mask.execute(), validity.execute())?;
 
             // Note that validity already has the mask applied so we only need to apply it to bits.
-            let (bits_out, _) = out.into_bool().into_parts();
-            let bits = bits.filter_into(&mask, bits_out);
+            let bits = bits.filter(&mask);
 
             Ok(BoolVector::new(bits, validity).into())
         }))

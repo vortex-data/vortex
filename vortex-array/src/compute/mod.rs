@@ -63,7 +63,6 @@ mod nan_count;
 mod numeric;
 mod sum;
 mod take;
-pub mod vectors;
 mod zip;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered
