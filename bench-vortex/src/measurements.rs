@@ -10,7 +10,7 @@ use std::time::Duration;
 use itertools::Itertools;
 use serde::{Serialize, Serializer};
 use target_lexicon::Triple;
-use vortex::error::{VortexExpect, vortex_panic};
+use vortex::error::{VortexUnwrap, vortex_panic};
 
 use crate::engines::df::GIT_COMMIT_ID;
 use crate::{BenchmarkDataset, Engine, Format, Target};
@@ -202,8 +202,28 @@ pub struct QueryMeasurement {
 }
 
 impl QueryMeasurement {
-    pub fn fastest_run(&self) -> Duration {
-        *self.runs.iter().min().vortex_expect("cannot have no runs")
+    pub fn median_run(&self) -> Duration {
+        let mut sorted_runs = self.runs.clone();
+        sorted_runs.sort();
+
+        let len = sorted_runs.len();
+        if len == 0 {
+            vortex_panic!("cannot have no runs");
+        }
+
+        if len % 2 == 1 {
+            // Odd number of runs: return the middle value
+            sorted_runs[len / 2]
+        } else {
+            // Even number of runs: return the average of the two middle values
+            let mid1 = sorted_runs[len / 2 - 1];
+            let mid2 = sorted_runs[len / 2];
+            let avg_nanos = (mid1.as_micros() + mid2.as_nanos()) / 2;
+            Duration::new(
+                u64::try_from(avg_nanos / 1_000_000_000).vortex_unwrap(),
+                u32::try_from(avg_nanos % 1_000_000_000).vortex_unwrap(),
+            )
+        }
     }
 }
 
@@ -244,7 +264,7 @@ impl ToJson for QueryMeasurement {
             storage: self.storage.clone(),
             dataset: self.benchmark_dataset.clone(),
             unit: "ns".to_string(),
-            value: self.fastest_run().as_nanos(),
+            value: self.median_run().as_nanos(),
             all_runtimes: self.runs.iter().map(|r| r.as_nanos()).collect_vec(),
             commit_id: GIT_COMMIT_ID.to_string(),
             target: self.target,
@@ -264,7 +284,7 @@ impl ToTable for QueryMeasurement {
             name: self.query_idx.to_string(),
             target: self.target,
             unit: Cow::from("μs"),
-            value: MeasurementValue::Int(self.fastest_run().as_micros()),
+            value: MeasurementValue::Int(self.median_run().as_micros()),
         }
     }
 }
