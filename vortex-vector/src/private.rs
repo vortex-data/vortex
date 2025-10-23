@@ -8,6 +8,8 @@
 //! usage, which gives us the freedom to add new trait methods in the future without breaking
 //! backward compatibility.
 
+use vortex_dtype::NativePType;
+
 use crate::*;
 
 /// A private trait for sealing implementations of other traits.
@@ -24,5 +26,5 @@ impl Sealed for BoolVectorMut {}
 
 impl Sealed for PrimitiveVector {}
 impl Sealed for PrimitiveVectorMut {}
-impl<T> Sealed for PVector<T> {}
-impl<T> Sealed for PVectorMut<T> {}
+impl<T: NativePType> Sealed for PVector<T> {}
+impl<T: NativePType> Sealed for PVectorMut<T> {}

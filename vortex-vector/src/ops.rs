@@ -75,7 +75,7 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     /// Appends `n` null elements to the vector.
     ///
     /// Implementors should ensure that they correctly append "null" or garbage values to their
-    /// elements in addition to adding nulls to their validity mask.s.
+    /// elements in addition to adding nulls to their validity mask.
     fn append_nulls(&mut self, n: usize);
 
     /// Converts `self` into an immutable vector.

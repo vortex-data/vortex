@@ -92,6 +92,32 @@ impl VectorMutOps for VectorMut {
     }
 }
 
+impl VectorMut {
+    /// Convert into NullVectorMut, panicking if the type does not match.
+    pub fn into_null(self) -> NullVectorMut {
+        if let VectorMut::Null(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected NullVectorMut, got {self:?}");
+    }
+
+    /// Convert into BoolVectorMut, panicking if the type does not match.
+    pub fn into_bool(self) -> BoolVectorMut {
+        if let VectorMut::Bool(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BoolVectorMut, got {self:?}");
+    }
+
+    /// Convert into PrimitiveVectorMut, panicking if the type does not match.
+    pub fn into_primitive(self) -> PrimitiveVectorMut {
+        if let VectorMut::Primitive(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut, got {self:?}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_dtype::{Nullability, PType};

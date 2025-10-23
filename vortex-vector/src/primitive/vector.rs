@@ -4,7 +4,8 @@
 //! Definition and implementation of [`PrimitiveVector`].
 
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PTypeUpcast};
+use vortex_dtype::{NativePType, PTypeDowncast, PTypeUpcast};
+use vortex_error::vortex_panic;
 
 use super::{PVector, PrimitiveVectorMut};
 use crate::{VectorOps, match_each_pvector};
@@ -117,5 +118,86 @@ impl PTypeUpcast for PrimitiveVector {
 
     fn from_f64(input: Self::Input<f64>) -> Self {
         PrimitiveVector::F64(input)
+    }
+}
+
+impl PTypeDowncast for PrimitiveVector {
+    type Output<T: NativePType> = PVector<T>;
+
+    fn into_u8(self) -> Self::Output<u8> {
+        if let PrimitiveVector::U8(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector::U8, got {self:?}");
+    }
+
+    fn into_u16(self) -> Self::Output<u16> {
+        if let PrimitiveVector::U16(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector::U16, got {self:?}");
+    }
+
+    fn into_u32(self) -> Self::Output<u32> {
+        if let PrimitiveVector::U32(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector::U32, got {self:?}");
+    }
+
+    fn into_u64(self) -> Self::Output<u64> {
+        if let PrimitiveVector::U64(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector::U64, got {self:?}");
+    }
+
+    fn into_i8(self) -> Self::Output<i8> {
+        if let PrimitiveVector::I8(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector::I8, got {self:?}");
+    }
+
+    fn into_i16(self) -> Self::Output<i16> {
+        if let PrimitiveVector::I16(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector::I16, got {self:?}");
+    }
+
+    fn into_i32(self) -> Self::Output<i32> {
+        if let PrimitiveVector::I32(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector::I32, got {self:?}");
+    }
+
+    fn into_i64(self) -> Self::Output<i64> {
+        if let PrimitiveVector::I64(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector::I64, got {self:?}");
+    }
+
+    fn into_f16(self) -> Self::Output<f16> {
+        if let PrimitiveVector::F16(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector::F16, got {self:?}");
+    }
+
+    fn into_f32(self) -> Self::Output<f32> {
+        if let PrimitiveVector::F32(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector::F32, got {self:?}");
+    }
+
+    fn into_f64(self) -> Self::Output<f64> {
+        if let PrimitiveVector::F64(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector::F64, got {self:?}");
     }
 }

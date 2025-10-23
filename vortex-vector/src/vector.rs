@@ -6,6 +6,8 @@
 //!
 //! [`Vector`] can be transformed into the [`VectorMut`] type if it is owned.
 
+use vortex_error::vortex_panic;
+
 use crate::{BoolVector, NullVector, PrimitiveVector, VectorMut, VectorOps, match_each_vector};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
@@ -61,5 +63,31 @@ impl VectorOps for Vector {
         match_each_vector!(self, |v| {
             v.try_into_mut().map(VectorMut::from).map_err(Vector::from)
         })
+    }
+}
+
+impl Vector {
+    /// Consumes `self` and returns the inner `NullVector` if `self` is of that variant.
+    pub fn into_null(self) -> NullVector {
+        if let Vector::Null(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected NullVector, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner `BoolVector` if `self` is of that variant.
+    pub fn into_bool(self) -> BoolVector {
+        if let Vector::Bool(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BoolVector, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner `PrimitiveVector` if `self` is of that variant.
+    pub fn into_primitive(self) -> PrimitiveVector {
+        if let Vector::Primitive(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector, got {self:?}");
     }
 }

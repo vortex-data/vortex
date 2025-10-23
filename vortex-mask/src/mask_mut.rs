@@ -28,6 +28,11 @@ enum Inner {
 }
 
 impl MaskMut {
+    /// Creates a new empty mask.
+    pub fn empty() -> Self {
+        Self::with_capacity(0)
+    }
+
     /// Creates a new empty mask with the default capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self(Inner::Empty { capacity })

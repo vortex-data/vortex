@@ -143,10 +143,7 @@ pub trait NativePType:
     fn is_eq(self, other: Self) -> bool;
 
     /// Downcast the provided object to a type-specific instance.
-    fn downcast<V: PTypeDowncast + ?Sized>(visitor: &V) -> V::Output<Self>;
-
-    /// Downcast the provided object to a type-specific instance.
-    fn downcast_mut<V: PTypeDowncastMut + ?Sized>(visitor: &mut V) -> V::Output<Self>;
+    fn downcast<V: PTypeDowncast>(visitor: V) -> V::Output<Self>;
 
     /// Upcast a type-specific instance to a generic instance.
     fn upcast<V: PTypeUpcast>(input: V::Input<Self>) -> V;
@@ -157,65 +154,37 @@ pub trait NativePType:
 pub trait PTypeDowncast {
     type Output<T: NativePType>;
 
-    fn as_u8(&self) -> Self::Output<u8>;
-    fn as_u16(&self) -> Self::Output<u16>;
-    fn as_u32(&self) -> Self::Output<u32>;
-    fn as_u64(&self) -> Self::Output<u64>;
-    fn as_i8(&self) -> Self::Output<i8>;
-    fn as_i16(&self) -> Self::Output<i16>;
-    fn as_i32(&self) -> Self::Output<i32>;
-    fn as_i64(&self) -> Self::Output<i64>;
-    fn as_f16(&self) -> Self::Output<f16>;
-    fn as_f32(&self) -> Self::Output<f32>;
-    fn as_f64(&self) -> Self::Output<f64>;
+    fn into_u8(self) -> Self::Output<u8>;
+    fn into_u16(self) -> Self::Output<u16>;
+    fn into_u32(self) -> Self::Output<u32>;
+    fn into_u64(self) -> Self::Output<u64>;
+    fn into_i8(self) -> Self::Output<i8>;
+    fn into_i16(self) -> Self::Output<i16>;
+    fn into_i32(self) -> Self::Output<i32>;
+    fn into_i64(self) -> Self::Output<i64>;
+    fn into_f16(self) -> Self::Output<f16>;
+    fn into_f32(self) -> Self::Output<f32>;
+    fn into_f64(self) -> Self::Output<f64>;
 }
 
 /// Extension trait to provide generic downcasting for [`PTypeDowncast`].
 pub trait PTypeDowncastExt: PTypeDowncast {
     /// Downcast the object to a specific primitive type.
-    fn as_primitive<T: NativePType>(&self) -> Self::Output<T> {
+    fn into_primitive<T: NativePType>(self) -> Self::Output<T>
+    where
+        Self: Sized,
+    {
         T::downcast(self)
     }
 }
 
-impl<T: PTypeDowncast + ?Sized> PTypeDowncastExt for T {}
-
-/// A visitor trait for converting a `NativePType` to another mutable parameterized type.
-#[allow(missing_docs)] // Kind of obvious..
-pub trait PTypeDowncastMut {
-    type Output<T: NativePType>;
-
-    fn as_u8(&mut self) -> Self::Output<u8>;
-    fn as_u16(&mut self) -> Self::Output<u16>;
-    fn as_u32(&mut self) -> Self::Output<u32>;
-    fn as_u64(&mut self) -> Self::Output<u64>;
-    fn as_i8(&mut self) -> Self::Output<i8>;
-    fn as_i16(&mut self) -> Self::Output<i16>;
-    fn as_i32(&mut self) -> Self::Output<i32>;
-    fn as_i64(&mut self) -> Self::Output<i64>;
-    fn as_f16(&mut self) -> Self::Output<f16>;
-    fn as_f32(&mut self) -> Self::Output<f32>;
-    fn as_f64(&mut self) -> Self::Output<f64>;
-}
-
-/// Extension trait to provide generic downcasting for [`PTypeDowncastMut`].
-pub trait PTypeDowncastMutExt: PTypeDowncastMut {
-    /// Downcast the object to a specific primitive type.
-    fn as_primitive_mut<T: NativePType>(&mut self) -> Self::Output<T> {
-        T::downcast_mut(self)
-    }
-}
+impl<T: PTypeDowncast> PTypeDowncastExt for T {}
 
 macro_rules! impl_ptype_downcast {
     ($T:ty) => {
         #[inline]
-        fn downcast<V: PTypeDowncast + ?Sized>(visitor: &V) -> V::Output<Self> {
-            paste::paste! { visitor.[<as_ $T>]() }
-        }
-
-        #[inline]
-        fn downcast_mut<V: PTypeDowncastMut + ?Sized>(visitor: &mut V) -> V::Output<Self> {
-            paste::paste! { visitor.[<as_ $T>]() }
+        fn downcast<V: PTypeDowncast>(visitor: V) -> V::Output<Self> {
+            paste::paste! { visitor.[<into_ $T>]() }
         }
 
         #[inline]
@@ -278,8 +247,6 @@ macro_rules! native_ptype {
         }
     };
 }
-
-impl<T: PTypeDowncastMut + ?Sized> PTypeDowncastMutExt for T {}
 
 macro_rules! native_float_ptype {
     ($T:ty, $ptype:tt) => {

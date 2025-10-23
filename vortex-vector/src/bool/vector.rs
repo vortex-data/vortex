@@ -23,12 +23,32 @@ pub struct BoolVector {
     pub(super) validity: Mask,
 }
 
+impl BoolVector {
+    /// Creates a new [`BoolVector`] from the given bits and validity mask.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the length of the validity mask does not match the length of the bits.
+    pub fn new(bits: BitBuffer, validity: Mask) -> Self {
+        assert_eq!(
+            validity.len(),
+            bits.len(),
+            "BoolVector validity mask must have the same length as bits"
+        );
+        Self { bits, validity }
+    }
+
+    /// Returns the bits buffer of the boolean vector.
+    pub fn bits(&self) -> &BitBuffer {
+        &self.bits
+    }
+}
+
 impl VectorOps for BoolVector {
     type Mutable = BoolVectorMut;
 
     fn len(&self) -> usize {
         debug_assert!(self.validity.len() == self.bits.len());
-
         self.bits.len()
     }
 
