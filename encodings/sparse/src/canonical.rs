@@ -498,9 +498,8 @@ mod test {
     };
     use vortex_array::arrow::IntoArrowArray as _;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::ValidityHelper;
-    use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{BitBufferMut, ByteBuffer, buffer, buffer_mut};
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::{DType, DecimalDType, FieldNames, PType, StructFields};
     use vortex_mask::Mask;
@@ -514,55 +513,25 @@ mod test {
     #[case(None)]
     fn test_sparse_bool(#[case] fill_value: Option<bool>) {
         let indices = buffer![0u64, 1, 7].into_array();
-        let values = bool_array_from_nullable_vec(vec![Some(true), None, Some(false)], fill_value)
-            .into_array();
+        let values = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
         let sparse_bools =
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
-        assert_eq!(sparse_bools.dtype(), &DType::Bool(Nullable));
+        let actual = sparse_bools.to_bool();
 
-        let flat_bools = sparse_bools.to_bool();
-        let expected = bool_array_from_nullable_vec(
-            vec![
-                Some(true),
-                None,
-                fill_value,
-                fill_value,
-                fill_value,
-                fill_value,
-                fill_value,
-                Some(false),
-                fill_value,
-                fill_value,
-            ],
+        let expected = BoolArray::from_iter([
+            Some(true),
+            None,
             fill_value,
-        );
+            fill_value,
+            fill_value,
+            fill_value,
+            fill_value,
+            Some(false),
+            fill_value,
+            fill_value,
+        ]);
 
-        assert_eq!(flat_bools.bit_buffer(), expected.bit_buffer());
-        assert_eq!(flat_bools.validity(), expected.validity());
-
-        assert!(flat_bools.bit_buffer().value(0));
-        assert!(flat_bools.validity().is_valid(0));
-        assert_eq!(
-            flat_bools.bit_buffer().value(1),
-            fill_value.unwrap_or_default()
-        );
-        assert!(!flat_bools.validity().is_valid(1));
-        assert_eq!(flat_bools.validity().is_valid(2), fill_value.is_some());
-        assert!(!flat_bools.bit_buffer().value(7));
-        assert!(flat_bools.validity().is_valid(7));
-    }
-
-    fn bool_array_from_nullable_vec(
-        bools: Vec<Option<bool>>,
-        fill_value: Option<bool>,
-    ) -> BoolArray {
-        let mut buffer = BitBufferMut::with_capacity(bools.len());
-        let mut validity = BitBufferMut::with_capacity(bools.len());
-        for maybe_bool in bools {
-            buffer.append(maybe_bool.unwrap_or_else(|| fill_value.unwrap_or_default()));
-            validity.append(maybe_bool.is_some());
-        }
-        BoolArray::from_bit_buffer(buffer.freeze(), Validity::from(validity.freeze()))
+        assert_arrays_eq!(actual, expected);
     }
 
     #[rstest]
@@ -590,20 +559,7 @@ mod test {
             fill_value,
         ]);
 
-        assert_eq!(flat_ints.byte_buffer(), expected.byte_buffer());
-        assert_eq!(flat_ints.validity(), expected.validity());
-
-        assert_eq!(flat_ints.as_slice::<i32>()[0], 0);
-        assert!(flat_ints.validity().is_valid(0));
-        assert_eq!(flat_ints.as_slice::<i32>()[1], 0);
-        assert!(!flat_ints.validity().is_valid(1));
-        assert_eq!(
-            flat_ints.as_slice::<i32>()[2],
-            fill_value.unwrap_or_default()
-        );
-        assert_eq!(flat_ints.validity().is_valid(2), fill_value.is_some());
-        assert_eq!(flat_ints.as_slice::<i32>()[7], 1);
-        assert!(flat_ints.validity().is_valid(7));
+        assert_arrays_eq!(&flat_ints, &expected);
     }
 
     #[test]
@@ -670,18 +626,10 @@ mod test {
             Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
         )
         .unwrap()
-        .to_array()
-        .into_arrow_preferred()
-        .unwrap();
+        .to_array();
 
-        let actual = sparse_struct
-            .to_struct()
-            .to_array()
-            .into_arrow_preferred()
-            .unwrap();
-
-        assert_eq!(expected.data_type(), actual.data_type());
-        assert_eq!(&expected, &actual);
+        let actual = sparse_struct.to_struct();
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -745,18 +693,10 @@ mod test {
             Validity::from_mask(Mask::from_indices(10, vec![0, 1, 7]), Nullable),
         )
         .unwrap()
-        .to_array()
-        .into_arrow_preferred()
-        .unwrap();
+        .to_array();
 
-        let actual = sparse_struct
-            .to_struct()
-            .to_array()
-            .into_arrow_preferred()
-            .unwrap();
-
-        assert_eq!(expected.data_type(), actual.data_type());
-        assert_eq!(&expected, &actual);
+        let actual = sparse_struct.to_struct();
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -831,11 +771,7 @@ mod test {
         ])
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -876,11 +812,7 @@ mod test {
         ])
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -898,24 +830,12 @@ mod test {
         .unwrap();
 
         let actual = array.to_varbinview().into_array();
-        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
-            Some("hello"),
-            Some("123"),
-            Some("123"),
-            Some("goodbye"),
-            Some("hello"),
-            Some("bonjour"),
-            Some("123"),
-            Some("123"),
-            Some("你好"),
+        let expected = VarBinViewArray::from_iter_str([
+            "hello", "123", "123", "goodbye", "hello", "bonjour", "123", "123", "你好",
         ])
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -956,11 +876,7 @@ mod test {
         ])
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1001,11 +917,7 @@ mod test {
         ])
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1208,11 +1120,8 @@ mod test {
             None,
         ])
         .into_array();
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
 
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1247,11 +1156,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1282,11 +1187,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1331,11 +1232,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1398,11 +1295,7 @@ mod test {
                 .unwrap()
                 .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1434,11 +1327,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -1470,6 +1359,7 @@ mod test {
             actual.to_listview().offsets().dtype(),
             &DType::Primitive(PType::U16, NonNullable)
         );
+        assert_arrays_eq!(&actual, &expected);
 
         // Note that the preferred arrow list representation is `List` (not `ListView`).
         let arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
@@ -1477,8 +1367,6 @@ mod test {
         let expected = expected.into_arrow(&arrow_dtype).unwrap();
 
         assert_eq!(actual.data_type(), expected.data_type());
-        // TODO(connor): Equality not implemented for Arrow's `ListView` yet.
-        // assert_eq!(&actual, &expected);
     }
 
     #[test]

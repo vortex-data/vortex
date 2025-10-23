@@ -120,6 +120,8 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
 
     #[test]
@@ -154,21 +156,13 @@ mod tests {
         builder.append_scalar(&null_scalar).unwrap();
 
         let array = builder.finish_into_extension();
+        let expected = ExtensionArray::new(
+            ext_dtype.clone(),
+            PrimitiveArray::from_option_iter([Some(42i32), Some(84), None]).into_array(),
+        );
+
+        assert_arrays_eq!(&array, &expected);
         assert_eq!(array.len(), 3);
-
-        // Check actual values using scalar_at.
-
-        let scalar0 = array.scalar_at(0);
-        let ext0 = scalar0.as_extension();
-        assert_eq!(ext0.storage().as_primitive().typed_value::<i32>(), Some(42));
-
-        let scalar1 = array.scalar_at(1);
-        let ext1 = scalar1.as_extension();
-        assert_eq!(ext1.storage().as_primitive().typed_value::<i32>(), Some(84));
-
-        let scalar2 = array.scalar_at(2);
-        let ext2 = scalar2.as_extension();
-        assert_eq!(ext2.storage().as_primitive().typed_value::<i32>(), None); // Storage is null.
 
         // Test wrong dtype error.
         let mut builder = ExtensionBuilder::new(ext_dtype);
