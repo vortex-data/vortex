@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Not;
+
 use arrow_buffer::bit_chunk_iterator::BitChunks;
 use bitvec::view::BitView;
 
-use crate::bit::{get_bit_unchecked, set_bit_unchecked, unset_bit_unchecked};
+use crate::bit::{get_bit_unchecked, ops, set_bit_unchecked, unset_bit_unchecked};
 use crate::{BitBuffer, BufferMut, ByteBufferMut, buffer_mut};
 
 /// A mutable bitset buffer that allows random access to individual bits for set and get.
@@ -473,6 +475,16 @@ impl BitBufferMut {
 impl Default for BitBufferMut {
     fn default() -> Self {
         Self::with_capacity(0)
+    }
+}
+
+// Mutate-in-place implementation of bitwise NOT.
+impl Not for BitBufferMut {
+    type Output = BitBufferMut;
+
+    fn not(mut self) -> Self::Output {
+        ops::bitwise_unary_op_mut(&mut self, |b| !b);
+        self
     }
 }
 
