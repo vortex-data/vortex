@@ -93,3 +93,53 @@ impl LogicalOrKleene for &BoolVector {
         }
     }
 }
+
+impl LogicalOrKleene<&BoolVector> for BoolVector {
+    type Output = BoolVector;
+
+    fn or_kleene(self, rhs: &BoolVector) -> BoolVector {
+        (&self).or_kleene(rhs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::bitbuffer;
+    use vortex_mask::Mask;
+    use vortex_vector::BoolVector;
+
+    use super::*;
+
+    #[test]
+    fn test_or_kleene_all_valid() {
+        // When both sides are all valid, behaves like regular OR
+        let left = BoolVector::new(bitbuffer![1 0 0], Mask::new_true(3));
+        let right = BoolVector::new(bitbuffer![0 1 0], Mask::new_true(3));
+
+        let result = left.or_kleene(&right);
+        assert_eq!(result.bits(), &bitbuffer![1 1 0]);
+        assert_eq!(result.validity(), &Mask::new_true(3));
+    }
+
+    #[test]
+    fn test_or_kleene_all_null() {
+        // When both are null, result is all null
+        let left = BoolVector::new(bitbuffer![0 0], Mask::new_false(2));
+        let right = BoolVector::new(bitbuffer![0 0], Mask::new_false(2));
+
+        let result = left.or_kleene(&right);
+        assert_eq!(result.validity(), &Mask::new_false(2));
+    }
+
+    #[test]
+    fn test_or_kleene_true_and_null() {
+        // true OR null = true (Kleene logic)
+        let left = BoolVector::new(bitbuffer![1], Mask::new_true(1));
+        let right = BoolVector::new(bitbuffer![0], Mask::new_false(1));
+
+        let result = left.or_kleene(&right);
+        assert_eq!(result.bits(), &bitbuffer![1]);
+        // Result should be valid because true OR anything is true
+        assert_eq!(result.validity(), &Mask::new_true(1));
+    }
+}

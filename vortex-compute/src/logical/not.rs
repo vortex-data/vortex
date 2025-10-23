@@ -38,3 +38,29 @@ impl LogicalNot for BoolVectorMut {
         unsafe { BoolVectorMut::new_unchecked(bits.not(), validity) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::bitbuffer;
+    use vortex_mask::Mask;
+    use vortex_vector::BoolVector;
+
+    use super::*;
+
+    #[test]
+    fn test_not_basic() {
+        let vec = BoolVector::new(bitbuffer![1 0 1 0], Mask::new_true(4));
+
+        let result = vec.not();
+        assert_eq!(result.bits(), &bitbuffer![0 1 0 1]);
+        assert_eq!(result.validity(), &Mask::new_true(4));
+    }
+
+    #[test]
+    fn test_not_owned() {
+        let vec = BoolVector::new(bitbuffer![1 1], Mask::new_true(2));
+
+        let result = vec.not();
+        assert_eq!(result.bits(), &bitbuffer![0 0]);
+    }
+}
