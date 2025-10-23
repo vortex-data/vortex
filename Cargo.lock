@@ -8735,6 +8735,7 @@ dependencies = [
  "arrow-schema",
  "flatbuffers",
  "half",
+ "insta",
  "itertools 0.14.0",
  "jiff",
  "num-traits",

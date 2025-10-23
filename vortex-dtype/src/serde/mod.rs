@@ -59,4 +59,66 @@ mod test {
     fn test_serde_nullability() {
         assert_tokens(&Nullability::NonNullable, &[Token::Bool(false)]);
     }
+
+    #[test]
+    fn test_serde_struct_dtype_json() {
+        use crate::StructFields;
+
+        // Create a struct dtype with various field types
+        let fields = StructFields::from_iter([
+            ("name", DType::Utf8(Nullability::NonNullable)),
+            ("age", DType::Primitive(PType::I32, Nullability::Nullable)),
+            ("active", DType::Bool(Nullability::NonNullable)),
+        ]);
+        let struct_dtype = DType::Struct(fields, Nullability::Nullable);
+
+        // Serialize to JSON
+        let json = serde_json::to_string_pretty(&struct_dtype).unwrap();
+
+        // Assert the JSON representation hasn't changed
+        insta::assert_snapshot!(json, @r#"
+        {
+          "Struct": [
+            {
+              "names": [
+                "name",
+                "age",
+                "active"
+              ],
+              "dtypes": [
+                {
+                  "inner": {
+                    "Owned": {
+                      "Utf8": false
+                    }
+                  }
+                },
+                {
+                  "inner": {
+                    "Owned": {
+                      "Primitive": [
+                        "i32",
+                        true
+                      ]
+                    }
+                  }
+                },
+                {
+                  "inner": {
+                    "Owned": {
+                      "Bool": false
+                    }
+                  }
+                }
+              ]
+            },
+            true
+          ]
+        }
+        "#);
+
+        // Deserialize back and verify round-trip
+        let deserialized: DType = serde_json::from_str(&json).unwrap();
+        assert_eq!(struct_dtype, deserialized);
+    }
 }
