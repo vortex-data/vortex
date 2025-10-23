@@ -64,6 +64,7 @@ futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
+vortex-array = { path = "../vortex-array", features = ["test-harness"] }
 
 [features]
 test-harness = []
