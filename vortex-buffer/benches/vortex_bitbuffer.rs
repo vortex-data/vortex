@@ -230,6 +230,15 @@ fn bitwise_not_vortex_buffer(bencher: Bencher, length: usize) {
 }
 
 #[divan::bench(args = INPUT_SIZE)]
+fn bitwise_not_vortex_buffer_mut(bencher: Bencher, length: usize) {
+    bencher
+        .with_inputs(|| BitBufferMut::from_iter((0..length).map(|i| i % 2 == 0)))
+        .bench_values(|buffer| {
+            divan::black_box(!buffer);
+        });
+}
+
+#[divan::bench(args = INPUT_SIZE)]
 fn bitwise_not_arrow_buffer(bencher: Bencher, length: usize) {
     bencher
         .with_inputs(|| Arrow(BooleanBuffer::from_iter((0..length).map(|i| i % 2 == 0))))

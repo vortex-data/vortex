@@ -3,9 +3,10 @@
 
 use arrow_buffer::bit_chunk_iterator::BitChunks;
 use bitvec::view::BitView;
+use std::ops::Not;
 
-use crate::bit::{get_bit_unchecked, set_bit_unchecked, unset_bit_unchecked};
-use crate::{BitBuffer, BufferMut, ByteBufferMut, buffer_mut};
+use crate::bit::{get_bit_unchecked, ops, set_bit_unchecked, unset_bit_unchecked};
+use crate::{buffer_mut, BitBuffer, BufferMut, ByteBufferMut};
 
 /// A mutable bitset buffer that allows random access to individual bits for set and get.
 ///
@@ -462,6 +463,16 @@ impl Default for BitBufferMut {
     }
 }
 
+// Mutate-in-place implementation of bitwise NOT.
+impl Not for BitBufferMut {
+    type Output = BitBufferMut;
+
+    fn not(mut self) -> Self::Output {
+        ops::bitwise_unary_op_mut(&mut self, |b| !b);
+        self
+    }
+}
+
 impl From<&[bool]> for BitBufferMut {
     fn from(value: &[bool]) -> Self {
         let mut buf = BitBufferMut::new_unset(value.len());
@@ -507,7 +518,7 @@ impl FromIterator<bool> for BitBufferMut {
 #[cfg(test)]
 mod tests {
     use crate::bit::buf_mut::BitBufferMut;
-    use crate::{BufferMut, bitbuffer, bitbuffer_mut, buffer_mut};
+    use crate::{bitbuffer, bitbuffer_mut, buffer_mut, BufferMut};
 
     #[test]
     fn test_bits_mut() {
