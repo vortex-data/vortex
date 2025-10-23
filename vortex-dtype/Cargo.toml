@@ -36,6 +36,7 @@ vortex-proto = { workspace = true, features = ["dtype"] }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
+insta = { workspace = true }
 rstest = { workspace = true }
 serde_json = { workspace = true }
 serde_test = { workspace = true }
