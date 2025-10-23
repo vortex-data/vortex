@@ -28,19 +28,17 @@ impl dyn BindCtx + '_ {
                 let selection = self.bind_mask(selection)?;
                 match validity {
                     Validity::NonNullable | Validity::AllValid => Ok(MaskExecution::Future(
-                        async move { Ok(Mask::AllTrue(selection.execute().await?.true_count())) }
-                            .boxed(),
+                        async move { Ok(Mask::AllTrue(selection.await?.true_count())) }.boxed(),
                     )),
                     Validity::AllInvalid => Ok(MaskExecution::Future(
-                        async move { Ok(Mask::AllFalse(selection.execute().await?.true_count())) }
-                            .boxed(),
+                        async move { Ok(Mask::AllFalse(selection.await?.true_count())) }.boxed(),
                     )),
                     Validity::Array(validity) => {
                         let validity = self.bind_mask(validity)?;
                         Ok(MaskExecution::Future(
                             async move {
-                                let validity = validity.execute().await?;
-                                let selection = selection.execute().await?;
+                                let validity = validity.await?;
+                                let selection = selection.await?;
                                 // We perform a take on the validity mask using the selection mask.
                                 Ok(validity.filter(&selection))
                             }

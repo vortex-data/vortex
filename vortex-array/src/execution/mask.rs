@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_vector::BoolVectorMut;
 
 use crate::ArrayRef;
 use crate::execution::BindCtx;
@@ -18,12 +20,20 @@ pub enum MaskExecution {
     Future(BoxFuture<'static, VortexResult<Mask>>),
 }
 
-impl MaskExecution {
-    pub async fn execute(self) -> VortexResult<Mask> {
-        match self {
-            MaskExecution::AllTrue(len) => Ok(Mask::new_true(len)),
-            MaskExecution::AllFalse(len) => Ok(Mask::new_false(len)),
-            MaskExecution::Future(fut) => fut.await,
+impl Future for MaskExecution {
+    type Output = VortexResult<Mask>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.get_mut() {
+            MaskExecution::AllTrue(len) => {
+                let mask = Mask::new_true(*len);
+                Poll::Ready(Ok(mask))
+            }
+            MaskExecution::AllFalse(len) => {
+                let mask = Mask::new_false(*len);
+                Poll::Ready(Ok(mask))
+            }
+            MaskExecution::Future(fut) => fut.poll_unpin(cx),
         }
     }
 }
@@ -79,8 +89,7 @@ impl dyn BindCtx + '_ {
         let execution = self.bind(mask, None)?;
         Ok(MaskExecution::Future(
             async move {
-                let out = BoolVectorMut::with_capacity(0).into();
-                let mask = execution.execute(out).await?.into_bool();
+                let mask = execution.await?.into_bool();
                 Ok(Mask::from(mask.bits().clone()))
             }
             .boxed(),

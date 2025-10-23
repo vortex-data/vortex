@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use vortex_error::VortexResult;
-use vortex_vector::{Vector, VectorMut};
+use vortex_vector::Vector;
 
-use crate::execution::{BatchKernelRef, BindCtx};
+use crate::execution::{BatchKernel, BindCtx};
 use crate::vtable::{OperatorVTable, VTable};
 use crate::{Array, ArrayAdapter, ArrayRef};
 
@@ -36,7 +36,7 @@ pub trait ArrayOperator: 'static + Send + Sync {
         &self,
         selection: Option<&ArrayRef>,
         ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernelRef>;
+    ) -> VortexResult<BatchKernel>;
 }
 
 #[async_trait]
@@ -49,7 +49,7 @@ impl ArrayOperator for Arc<dyn Array> {
         &self,
         selection: Option<&ArrayRef>,
         ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernelRef> {
+    ) -> VortexResult<BatchKernel> {
         self.as_ref().bind(selection, ctx)
     }
 }
@@ -57,17 +57,14 @@ impl ArrayOperator for Arc<dyn Array> {
 #[async_trait]
 impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
     async fn execute_with_selection(&self, selection: Option<&ArrayRef>) -> VortexResult<Vector> {
-        let kernel = self.bind(selection, &mut ())?;
-        kernel
-            .execute(VectorMut::with_capacity(0, self.dtype()))
-            .await
+        self.bind(selection, &mut ())?.await
     }
 
     fn bind(
         &self,
         selection: Option<&ArrayRef>,
         ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernelRef> {
+    ) -> VortexResult<BatchKernel> {
         <V::OperatorVTable as OperatorVTable<V>>::bind(&self.0, selection, ctx)
     }
 }
@@ -78,7 +75,7 @@ impl BindCtx for () {
         &mut self,
         array: &ArrayRef,
         selection: Option<&ArrayRef>,
-    ) -> VortexResult<BatchKernelRef> {
+    ) -> VortexResult<BatchKernel> {
         array.bind(selection, self)
     }
 }

@@ -4,9 +4,8 @@
 use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
 
-use async_trait::async_trait;
 use enum_map::{Enum, EnumMap, enum_map};
-use futures::try_join;
+use futures::{FutureExt, try_join};
 use vortex_buffer::ByteBuffer;
 use vortex_compute::logical::{
     LogicalAnd, LogicalAndKleene, LogicalAndNot, LogicalOr, LogicalOrKleene,
@@ -14,9 +13,9 @@ use vortex_compute::logical::{
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
-use vortex_vector::{BoolVector, BoolVectorMut, Vector, VectorMut};
+use vortex_vector::BoolVector;
 
-use crate::execution::{BatchKernel, BatchKernelRef, BindCtx};
+use crate::execution::{BatchKernel, BindCtx};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
@@ -188,51 +187,31 @@ impl OperatorVTable<LogicalVTable> for LogicalVTable {
         array: &LogicalArray,
         selection: Option<&ArrayRef>,
         ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernelRef> {
+    ) -> VortexResult<BatchKernel> {
         let lhs = ctx.bind(&array.lhs, selection)?;
         let rhs = ctx.bind(&array.rhs, selection)?;
 
-        match array.operator() {
-            LogicalOperator::And => LogicalKernel::new_kernel(lhs, rhs, |l, r| l.and(&r)),
-            LogicalOperator::AndKleene => {
-                LogicalKernel::new_kernel(lhs, rhs, |l, r| l.and_kleene(&r))
-            }
-            LogicalOperator::Or => LogicalKernel::new_kernel(lhs, rhs, |l, r| l.or(&r)),
-            LogicalOperator::OrKleene => {
-                LogicalKernel::new_kernel(lhs, rhs, |l, r| l.or_kleene(&r))
-            }
-            LogicalOperator::AndNot => LogicalKernel::new_kernel(lhs, rhs, |l, r| l.and_not(&r)),
-        }
+        Ok(match array.operator() {
+            LogicalOperator::And => kernel(lhs, rhs, |l, r| l.and(&r)),
+            LogicalOperator::AndKleene => kernel(lhs, rhs, |l, r| l.and_kleene(&r)),
+            LogicalOperator::Or => kernel(lhs, rhs, |l, r| l.or(&r)),
+            LogicalOperator::OrKleene => kernel(lhs, rhs, |l, r| l.or_kleene(&r)),
+            LogicalOperator::AndNot => kernel(lhs, rhs, |l, r| l.and_not(&r)),
+        })
     }
 }
 
-struct LogicalKernel<O> {
-    lhs: BatchKernelRef,
-    rhs: BatchKernelRef,
-    op: O,
-}
-
-impl<O> LogicalKernel<O>
+/// Batch execution kernel for logical operations.
+fn kernel<O>(lhs: BatchKernel, rhs: BatchKernel, op: O) -> BatchKernel
 where
     O: Fn(BoolVector, BoolVector) -> BoolVector + Send + 'static,
 {
-    fn new_kernel(lhs: BatchKernelRef, rhs: BatchKernelRef, op: O) -> VortexResult<BatchKernelRef> {
-        Ok(Box::new(Self { lhs, rhs, op }))
-    }
-}
-
-#[async_trait]
-impl<O> BatchKernel for LogicalKernel<O>
-where
-    O: Fn(BoolVector, BoolVector) -> BoolVector + Send + 'static,
-{
-    async fn execute(self: Box<Self>, out: VectorMut) -> VortexResult<Vector> {
-        // We pass the output into the LHS and then attempt to call the mutate-in-place op.
-        let rhs_out = BoolVectorMut::with_capacity(0);
-        let (lhs, rhs) = try_join!(self.lhs.execute(out), self.rhs.execute(rhs_out.into()))?;
+    async move {
+        let (lhs, rhs) = try_join!(lhs, rhs)?;
         let (lhs, rhs) = (lhs.into_bool(), rhs.into_bool());
-        Ok((self.op)(lhs, rhs).into())
+        Ok(op(lhs, rhs).into())
     }
+    .boxed()
 }
 
 #[cfg(test)]
