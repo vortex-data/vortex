@@ -60,7 +60,7 @@ tabled = { workspace = true, optional = true, default-features = false, features
 ] }
 termtree = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
-vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
+vortex-dtype = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true, features = ["prost"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-mask = { workspace = true }
