@@ -78,9 +78,8 @@ impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_dtype::Nullability;
+    use vortex_array::assert_arrays_eq;
     use vortex_scalar::Scalar;
 
     use crate::{ALPRDFloat, RDEncoder};
@@ -93,10 +92,7 @@ mod test {
         let encoded = RDEncoder::new(&[a, b]).encode(&array);
 
         assert!(encoded.left_parts_patches().is_some());
-
-        let decoded = encoded.slice(1..3).to_primitive();
-
-        assert_eq!(decoded.as_slice::<T>(), &[b, outlier]);
+        assert_arrays_eq!(encoded, array);
     }
 
     #[rstest]
@@ -109,16 +105,8 @@ mod test {
     ) {
         let array = PrimitiveArray::from_iter([a, b, outlier]);
         let encoded = RDEncoder::new(&[a, b]).encode(&array);
-
-        // Make sure that we're testing the exception pathway.
         assert!(encoded.left_parts_patches().is_some());
-
-        // The first two values need no patching
-        assert_eq!(encoded.scalar_at(0), a.into());
-        assert_eq!(encoded.scalar_at(1), b.into());
-
-        // The right value hits the left_part_exceptions
-        assert_eq!(encoded.scalar_at(2), outlier.into());
+        assert_arrays_eq!(encoded, array);
     }
 
     #[test]
@@ -128,24 +116,10 @@ mod test {
         let outlier = 3e100f64;
         let array = PrimitiveArray::from_option_iter([Some(a), Some(b), Some(outlier)]);
         let encoded = RDEncoder::new(&[a, b]).encode(&array);
-
-        // Make sure that we're testing the exception pathway.
         assert!(encoded.left_parts_patches().is_some());
-
-        // The first two values need no patching
-        assert_eq!(
-            encoded.scalar_at(0),
-            Scalar::primitive(a, Nullability::Nullable)
-        );
-        assert_eq!(
-            encoded.scalar_at(1),
-            Scalar::primitive(b, Nullability::Nullable)
-        );
-
-        // The right value hits the left_part_exceptions
-        assert_eq!(
-            encoded.scalar_at(2),
-            Scalar::primitive(outlier, Nullability::Nullable)
+        assert_arrays_eq!(
+            encoded,
+            PrimitiveArray::from_option_iter([Some(a), Some(b), Some(outlier)])
         );
     }
 }

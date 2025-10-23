@@ -143,7 +143,7 @@ mod tests {
     use crate::builders::{ArrayBuilder, BoolBuilder, builder_with_capacity};
     use crate::canonical::ToCanonical;
     use crate::vtable::ValidityHelper;
-    use crate::{ArrayRef, IntoArray};
+    use crate::{ArrayRef, IntoArray, assert_arrays_eq};
 
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(0);
@@ -195,17 +195,8 @@ mod tests {
         builder.append_scalar(&null_scalar).unwrap();
 
         let array = builder.finish_into_bool();
-        assert_eq!(array.len(), 3);
-
-        // Check actual values.
-        assert!(array.bit_buffer().value(0));
-        assert!(!array.bit_buffer().value(1));
-        // The third value is null, but the buffer might have any value.
-
-        // Check validity - first two should be valid, third should be null.
-        assert!(array.validity().is_valid(0));
-        assert!(array.validity().is_valid(1));
-        assert!(!array.validity().is_valid(2));
+        let expected = BoolArray::from_iter([Some(true), Some(false), None]);
+        assert_arrays_eq!(&array, &expected);
 
         // Test wrong dtype error.
         let mut builder = BoolBuilder::with_capacity(Nullability::NonNullable, 10);

@@ -3,16 +3,39 @@
 
 #[macro_export]
 macro_rules! assert_arrays_eq {
-    ($expected:expr, $actual:expr) => {
-        let expected: $crate::ArrayRef = $expected.into_array();
-        let actual: $crate::ArrayRef = $actual.into_array();
-        assert_eq!(expected.dtype(), actual.dtype());
+    ($left:expr, $right:expr) => {{
+        let left = $left;
+        let right = $right;
+        if left.dtype() != right.dtype() {
+            panic!(
+                "assertion left == right failed: arrays differ in type: {} != {}.\n  left: {}\n right: {}",
+                left.dtype(),
+                right.dtype(),
+                left.display_values(),
+                right.display_values()
+            )
+        }
 
-        let expected_contents: Vec<_> = (0..expected.len())
-            .map(|idx| expected.scalar_at(idx))
-            .collect();
-        let actual_contents: Vec<_> = (0..actual.len()).map(|idx| actual.scalar_at(idx)).collect();
-
-        assert_eq!(expected_contents, actual_contents);
-    };
+        if left.len() != right.len() {
+            panic!(
+                "assertion left == right failed: arrays differ in length: {} != {}.\n  left: {}\n right: {}",
+                left.len(),
+                right.len(),
+                left.display_values(),
+                right.display_values()
+            )
+        }
+        let n = left.len();
+        let mismatched_indices = (0..n)
+            .filter(|i| left.scalar_at(*i) != right.scalar_at(*i))
+            .collect::<Vec<_>>();
+        if mismatched_indices.len() != 0 {
+            panic!(
+                "assertion left == right failed: arrays do not match at indices: {}.\n  left: {}\n right: {}",
+                itertools::Itertools::format(mismatched_indices.into_iter(), ", "),
+                left.display_values(),
+                right.display_values()
+            )
+        }
+    }};
 }
