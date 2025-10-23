@@ -497,9 +497,8 @@ mod test {
         StructArray, VarBinArray, VarBinViewArray,
     };
     use vortex_array::arrow::IntoArrowArray as _;
-    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq, assert_arrays_eq};
     use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::{DType, DecimalDType, FieldNames, PType, StructFields};
