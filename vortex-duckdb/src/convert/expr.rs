@@ -30,7 +30,8 @@ fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
 #[allow(clippy::cognitive_complexity)]
 pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<ExprRef>> {
     let Some(value) = value.as_class() else {
-        vortex_bail!("no expression class id {:?}", value.as_class_id())
+        log::debug!("no expression class id {:?}", value.as_class_id());
+        return Ok(None);
     };
     Ok(Some(match value {
         ExpressionClass::BoundColumnRef(col_ref) => col(col_ref
