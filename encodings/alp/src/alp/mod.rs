@@ -192,6 +192,16 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
         values
     }
 
+    fn decode_into_buffer(
+        encoded: &[Self::ALPInt],
+        exponents: Exponents,
+        output: &mut BufferMut<Self>,
+    ) {
+        for encoded in encoded {
+            output.push(Self::decode_single(*encoded, exponents));
+        }
+    }
+
     fn decode_buffer(encoded: BufferMut<Self::ALPInt>, exponents: Exponents) -> BufferMut<Self> {
         encoded.map_each(move |encoded| Self::decode_single(encoded, exponents))
     }

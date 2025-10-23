@@ -8,7 +8,9 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::PType;
+use vortex_dtype::{
+    IntegerPType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
+};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
@@ -110,6 +112,10 @@ where
 }
 
 pub fn decompress(array: &ALPArray) -> PrimitiveArray {
+    if let Some(patches) = array.patches() {
+        return decompress_with_patches(array, patches);
+    }
+
     let encoded = array.encoded().to_primitive();
     let validity = encoded.validity().clone();
     let ptype = array.dtype().as_ptype();
@@ -126,6 +132,51 @@ pub fn decompress(array: &ALPArray) -> PrimitiveArray {
     } else {
         decoded
     }
+}
+
+pub fn decompress_with_patches(array: &ALPArray, patches: &Patches) -> PrimitiveArray {
+    let alp_encoded = array.encoded().to_primitive();
+    let validity = alp_encoded.validity().clone();
+    let ptype = array.dtype().as_ptype();
+    let patches_chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+    let patches_indices = patches.indices().as_ref().to_primitive();
+    let patches_values = patches.values().as_ref().to_primitive();
+
+    match_each_alp_float_ptype!(ptype, |T| {
+        match_each_unsigned_integer_ptype!(patches_chunk_offsets.ptype(), |C| {
+            match_each_unsigned_integer_ptype!(patches_indices.ptype(), |I| {
+                let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
+                let patches_indices = patches_indices.as_slice::<I>();
+                let patches_values = patches_values.as_slice::<T>();
+
+                let alp_buffer = alp_encoded.into_buffer();
+                let len = array.len();
+                let mut decoded_values = BufferMut::<T>::with_capacity(len);
+
+                for (chunk_idx, chunk_start) in (0..len).step_by(1024).enumerate() {
+                    let chunk_end = (chunk_start + 1024).min(len);
+                    let chunk_slice = &alp_buffer.as_slice()[chunk_start..chunk_end];
+                    <T>::decode_into_buffer(chunk_slice, array.exponents(), &mut decoded_values);
+
+                    let patches_start_idx = patches_chunk_offsets[chunk_idx] as usize;
+                    let patches_end_idx = if chunk_idx + 1 < patches_chunk_offsets.len() {
+                        patches_chunk_offsets[chunk_idx + 1] as usize
+                    } else {
+                        patches_indices.len()
+                    };
+
+                    for patches_idx in patches_start_idx..patches_end_idx {
+                        let patched_index = patches_indices[patches_idx];
+                        let patched_value = patches_values[patches_idx];
+                        assert!({ patched_index as usize } < chunk_end);
+                        decoded_values[patched_index as usize] = patched_value;
+                    }
+                }
+
+                PrimitiveArray::new::<T>(decoded_values, validity)
+            })
+        })
+    })
 }
 
 #[cfg(test)]
