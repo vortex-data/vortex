@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Not;
+
 use vortex_vector::{BoolVector, BoolVectorMut, VectorOps};
 
 use crate::logical::LogicalNot;
