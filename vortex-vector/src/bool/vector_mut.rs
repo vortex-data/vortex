@@ -121,7 +121,7 @@ impl BoolVectorMut {
         }
     }
 
-    /// Returns the parts of the mutable vector.
+    /// Decomposes the boolean vector into its constituent parts (bit buffer and validity).
     pub fn into_parts(self) -> (BitBufferMut, MaskMut) {
         (self.bits, self.validity)
     }
@@ -151,7 +151,7 @@ impl VectorMutOps for BoolVectorMut {
     }
 
     fn append_nulls(&mut self, n: usize) {
-        self.bits.append_n(false, n);
+        self.bits.append_n(false, n); // Note that the value we push doesn't actually matter.
         self.validity.append_n(false, n);
     }
 

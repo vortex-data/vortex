@@ -69,7 +69,7 @@ impl<T: NativePType> PVector<T> {
         Self { elements, validity }
     }
 
-    /// Decomposes the primitive vector into its constituent parts.
+    /// Decomposes the primitive vector into its constituent parts (buffer and validity).
     pub fn into_parts(self) -> (Buffer<T>, Mask) {
         (self.elements, self.validity)
     }

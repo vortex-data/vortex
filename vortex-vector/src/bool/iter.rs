@@ -85,6 +85,7 @@ impl FromIterator<bool> for BoolVectorMut {
 ///
 /// It consumes the mutable vector and iterates over the elements, yielding `None` for null values
 /// and `Some(value)` for valid values.
+#[derive(Debug)]
 pub struct BoolVectorMutIterator {
     /// The vector being iterated over.
     vector: BoolVectorMut,

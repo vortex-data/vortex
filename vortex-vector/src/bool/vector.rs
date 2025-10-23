@@ -63,7 +63,7 @@ impl BoolVector {
         Self { bits, validity }
     }
 
-    /// Decomposes the boolean vector into its constituent parts.
+    /// Decomposes the boolean vector into its constituent parts (bit buffer and validity).
     pub fn into_parts(self) -> (BitBuffer, Mask) {
         (self.bits, self.validity)
     }

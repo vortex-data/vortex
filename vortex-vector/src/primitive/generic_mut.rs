@@ -160,7 +160,7 @@ impl<T> PVectorMut<T> {
         }
     }
 
-    /// Decomposes the primitive vector into its constituent parts.
+    /// Decomposes the primitive vector into its constituent parts (buffer and validity).
     pub fn into_parts(self) -> (BufferMut<T>, MaskMut) {
         (self.elements, self.validity)
     }
@@ -189,7 +189,7 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
     }
 
     fn append_nulls(&mut self, n: usize) {
-        self.elements.push_n(T::zero(), n);
+        self.elements.push_n(T::zero(), n); // Note that the value we push doesn't actually matter.
         self.validity.append_n(false, n);
     }
 
