@@ -8,7 +8,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::PType;
+use vortex_dtype::{PType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
@@ -118,12 +118,91 @@ where
     Ok((exponents, encoded_array, patches))
 }
 
+/// Decompresses an ALP-encoded array.
+///
+/// # Arguments
+///
+/// * `array` - The ALP-encoded array to decompress
+///
+/// # Returns
+///
+/// A `PrimitiveArray` containing the decompressed floating-point values with all patches applied.
 pub fn decompress(array: &ALPArray) -> PrimitiveArray {
+    if let Some(patches) = array.patches()
+        && let Some(chunk_offsets) = patches.chunk_offsets()
+    {
+        return decompress_chunked(array, patches, &chunk_offsets.as_ref().to_primitive());
+    }
+
+    decompress_unchunked(array)
+}
+
+/// Decompresses an ALP-encoded array in 1024-element chunks.
+///
+/// Decoding and applying patches is done in chunks of 1024 elements for better L1 cache locality.
+///
+/// # Arguments
+///
+/// * `array` - The ALP-encoded array to decompress
+/// * `patches` - The patches containing exceptional values and their positions
+/// * `patches_chunk_offsets` - Offsets into the patches array for each chunk
+///
+/// # Returns
+///
+/// A `PrimitiveArray` containing the decompressed values with all patches applied.
+#[allow(clippy::cognitive_complexity)]
+pub fn decompress_chunked(
+    array: &ALPArray,
+    patches: &Patches,
+    patches_chunk_offsets: &PrimitiveArray,
+) -> PrimitiveArray {
+    let alp_encoded = array.encoded().to_primitive();
+    let validity = alp_encoded.validity().clone();
+
+    let patches_indices = patches.indices().as_ref().to_primitive();
+    let patches_values = patches.values().as_ref().to_primitive();
+
+    match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
+        match_each_unsigned_integer_ptype!(patches_chunk_offsets.ptype(), |C| {
+            match_each_unsigned_integer_ptype!(patches_indices.ptype(), |I| {
+                let patches_indices = patches_indices.as_slice::<I>();
+                let patches_values = patches_values.as_slice::<T>();
+                let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
+
+                let alp_buffer = alp_encoded.into_buffer();
+                let array_len = array.len();
+                let mut decoded_values = BufferMut::<T>::with_capacity(array_len);
+                let patches_offset = patches.offset();
+
+                for (chunk_idx, chunk_start) in (0..array_len).step_by(1024).enumerate() {
+                    let chunk_end = (chunk_start + 1024).min(array_len);
+                    let chunk_slice = &alp_buffer.as_slice()[chunk_start..chunk_end];
+                    <T>::decode_into_buffer(chunk_slice, array.exponents(), &mut decoded_values);
+
+                    PrimitiveArray::patch_chunk(
+                        &mut decoded_values,
+                        patches_indices,
+                        patches_values,
+                        patches_offset,
+                        patches_chunk_offsets,
+                        chunk_idx,
+                    );
+                }
+
+                PrimitiveArray::new::<T>(decoded_values, validity)
+            })
+        })
+    })
+}
+
+/// Decompresses an ALP-encoded array without chunk offsets.
+///
+/// This function decodes the complete array at once and then applies any patches after.
+fn decompress_unchunked(array: &ALPArray) -> PrimitiveArray {
     let encoded = array.encoded().to_primitive();
     let validity = encoded.validity().clone();
-    let ptype = array.dtype().as_ptype();
 
-    let decoded = match_each_alp_float_ptype!(ptype, |T| {
+    let decoded = match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
         PrimitiveArray::new::<T>(
             <T>::decode_buffer(encoded.into_buffer_mut(), array.exponents()),
             validity,
@@ -361,5 +440,174 @@ mod tests {
         let patch_values = patches.values().to_primitive();
         let expected_values = PrimitiveArray::from_iter(vec![PI, E]);
         assert_arrays_eq!(patch_values, expected_values);
+    }
+
+    #[test]
+    fn test_slice_half_chunk_f32_roundtrip() {
+        // Create 1024 elements, encode, slice to first 512, then decode
+        let values = vec![1.234f32; 1024];
+        let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
+        let encoded = alp_encode(&original, None).unwrap();
+
+        let sliced_alp = encoded.slice(512..1024);
+        let decoded = sliced_alp.to_primitive();
+
+        let expected_slice = original.slice(512..1024).to_primitive();
+        assert_eq!(expected_slice.as_slice::<f32>(), decoded.as_slice::<f32>());
+    }
+
+    #[test]
+    fn test_slice_half_chunk_f64_roundtrip() {
+        let values = vec![5.678f64; 1024];
+        let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
+        let encoded = alp_encode(&original, None).unwrap();
+
+        let sliced_alp = encoded.slice(512..1024);
+        let decoded = sliced_alp.to_primitive();
+
+        let expected_slice = original.slice(512..1024).to_primitive();
+        assert_eq!(expected_slice.as_slice::<f64>(), decoded.as_slice::<f64>());
+    }
+
+    #[test]
+    fn test_slice_half_chunk_with_patches_roundtrip() {
+        let mut values = vec![1.0f64; 1024];
+        values[100] = PI;
+        values[200] = E;
+        values[600] = 42.42;
+
+        let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
+        let encoded = alp_encode(&original, None).unwrap();
+
+        let sliced_alp = encoded.slice(512..1024);
+        let decoded = sliced_alp.to_primitive();
+
+        let expected_slice = original.slice(512..1024).to_primitive();
+        assert_eq!(expected_slice.as_slice::<f64>(), decoded.as_slice::<f64>());
+        assert!(encoded.patches().is_some());
+    }
+
+    #[test]
+    fn test_slice_half_chunk_nullable_roundtrip() {
+        let values = (0..1024)
+            .map(|i| if i % 3 == 0 { None } else { Some(2.5f32) })
+            .collect::<Vec<_>>();
+
+        let original = PrimitiveArray::from_option_iter(values);
+        let encoded = alp_encode(&original, None).unwrap();
+
+        let sliced_alp = encoded.slice(512..1024);
+        let decoded = sliced_alp.to_primitive();
+
+        let expected_slice = original.slice(512..1024);
+        assert_arrays_eq!(decoded, expected_slice);
+    }
+
+    #[test]
+    fn test_large_f32_array_uniform_values() {
+        let size = 10_000;
+        let array = PrimitiveArray::new(buffer![42.125f32; size], Validity::NonNullable);
+        let encoded = alp_encode(&array, None).unwrap();
+
+        assert!(encoded.patches().is_none());
+        let decoded = decompress(&encoded);
+        assert_eq!(array.as_slice::<f32>(), decoded.as_slice::<f32>());
+    }
+
+    #[test]
+    fn test_large_f64_array_uniform_values() {
+        let size = 50_000;
+        let array = PrimitiveArray::new(buffer![123.456789f64; size], Validity::NonNullable);
+        let encoded = alp_encode(&array, None).unwrap();
+
+        assert!(encoded.patches().is_none());
+        let decoded = decompress(&encoded);
+        assert_eq!(array.as_slice::<f64>(), decoded.as_slice::<f64>());
+    }
+
+    #[test]
+    fn test_large_f32_array_with_patches() {
+        let size = 5_000;
+        let mut values = vec![1.5f32; size];
+        values[100] = std::f32::consts::PI;
+        values[1500] = std::f32::consts::E;
+        values[3000] = f32::NEG_INFINITY;
+        values[4500] = f32::INFINITY;
+
+        let array = PrimitiveArray::new(Buffer::from(values.clone()), Validity::NonNullable);
+        let encoded = alp_encode(&array, None).unwrap();
+
+        assert!(encoded.patches().is_some());
+        let decoded = decompress(&encoded);
+        assert_eq!(values.as_slice(), decoded.as_slice::<f32>());
+    }
+
+    #[test]
+    fn test_large_f64_array_with_patches() {
+        let size = 8_000;
+        let mut values = vec![2.2184f64; size];
+        values[0] = PI;
+        values[1000] = E;
+        values[2000] = f64::NAN;
+        values[3000] = f64::INFINITY;
+        values[4000] = f64::NEG_INFINITY;
+        values[5000] = 0.0;
+        values[6000] = -0.0;
+        values[7000] = 999.999999999;
+
+        let array = PrimitiveArray::new(Buffer::from(values.clone()), Validity::NonNullable);
+        let encoded = alp_encode(&array, None).unwrap();
+
+        assert!(encoded.patches().is_some());
+        let decoded = decompress(&encoded);
+
+        for idx in 0..size {
+            let decoded_val = decoded.as_slice::<f64>()[idx];
+            let original_val = values[idx];
+            assert!(
+                decoded_val.is_eq(original_val),
+                "At index {idx}: Expected {original_val} but got {decoded_val}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_large_nullable_array() {
+        let size = 12_000;
+        let values: Vec<Option<f32>> = (0..size)
+            .map(|i| {
+                if i % 7 == 0 {
+                    None
+                } else {
+                    Some((i as f32) * 0.1)
+                }
+            })
+            .collect();
+
+        let array = PrimitiveArray::from_option_iter(values);
+        let encoded = alp_encode(&array, None).unwrap();
+        let decoded = decompress(&encoded);
+
+        assert_arrays_eq!(decoded, array);
+    }
+
+    #[test]
+    fn test_large_mixed_validity_with_patches() {
+        let size = 6_000;
+        let mut values = vec![10.125f64; size];
+
+        values[500] = PI;
+        values[1500] = E;
+        values[2500] = f64::INFINITY;
+        values[3500] = f64::NEG_INFINITY;
+        values[4500] = f64::NAN;
+
+        let validity = Validity::from_iter((0..size).map(|i| !matches!(i, 500 | 2500)));
+
+        let array = PrimitiveArray::new(Buffer::from(values), validity);
+        let encoded = alp_encode(&array, None).unwrap();
+        let decoded = decompress(&encoded);
+
+        assert_arrays_eq!(decoded, array);
     }
 }

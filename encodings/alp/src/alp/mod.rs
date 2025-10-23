@@ -192,6 +192,33 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
         values
     }
 
+    /// Decodes a slice of encoded ALP values into the output buffer.
+    ///
+    /// ## Preconditions
+    ///
+    /// The `output` buffer must have sufficient spare capacity for `encoded.len()` elements
+    fn decode_into_buffer(
+        encoded: &[Self::ALPInt],
+        exponents: Exponents,
+        output: &mut BufferMut<Self>,
+    ) {
+        let input_len = encoded.len();
+        let current_len = output.len();
+        let buffer_uninit = output.spare_capacity_mut();
+
+        // SAFETY: `MaybeUninit<Self>` and `Self` have the same layout.
+        let buffer_values: &mut [Self] =
+            unsafe { std::mem::transmute(&mut buffer_uninit[..input_len]) };
+
+        for (idx, &encoded_val) in encoded.iter().enumerate() {
+            buffer_values[idx] = Self::decode_single(encoded_val, exponents);
+        }
+
+        unsafe {
+            output.set_len(current_len + input_len);
+        }
+    }
+
     fn decode_buffer(encoded: BufferMut<Self::ALPInt>, exponents: Exponents) -> BufferMut<Self> {
         encoded.map_each_in_place(move |encoded| Self::decode_single(encoded, exponents))
     }
