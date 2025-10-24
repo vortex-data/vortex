@@ -4,6 +4,7 @@
 //! Definition and implementation of [`BoolVectorMut`].
 
 use vortex_buffer::BitBufferMut;
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
 use super::BoolVector;
@@ -71,15 +72,45 @@ pub struct BoolVectorMut {
 }
 
 impl BoolVectorMut {
-    /// Create a mutable vector from the given parts, without checking lengths or capacities.
+    /// Creates a new [`BoolVectorMut`] from the given bits and validity mask.
     ///
-    /// # SAFETY
+    /// # Panics
     ///
-    /// The caller must ensure both parts have the same length and capacity. Ideally they are
-    /// taken from `into_parts`, mutated in a way that doesn't re-allocate, and then passed back
-    /// to this function.
+    /// Panics if the length of the validity mask does not match the length of the bits.
+    pub fn new(bits: BitBufferMut, validity: MaskMut) -> Self {
+        Self::try_new(bits, validity)
+            .vortex_expect("`BoolVector` validity mask must have the same length as bits")
+    }
+
+    /// Tries to create a new [`BoolVectorMut`] from the given bits and validity mask.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the length of the validity mask does not match the length of the bits.
+    pub fn try_new(bits: BitBufferMut, validity: MaskMut) -> VortexResult<Self> {
+        vortex_ensure!(
+            validity.len() == bits.len(),
+            "`BoolVector` validity mask must have the same length as bits"
+        );
+
+        Ok(Self { bits, validity })
+    }
+
+    /// Creates a new [`BoolVectorMut`] from the given bits and validity mask without validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the validity mask has the same length as the bits.
+    ///
+    /// Ideally, they are taken from `into_parts`, mutated in a way that doesn't re-allocate, and
+    /// then passed back to this function.
     pub unsafe fn new_unchecked(bits: BitBufferMut, validity: MaskMut) -> Self {
-        debug_assert_eq!(bits.len(), validity.len());
+        debug_assert_eq!(
+            bits.len(),
+            validity.len(),
+            "`BoolVector` validity mask must have the same length as bits"
+        );
+
         Self { bits, validity }
     }
 

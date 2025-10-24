@@ -4,6 +4,7 @@
 //! Definition and implementation of [`BoolVector`].
 
 use vortex_buffer::BitBuffer;
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
 use super::BoolVectorMut;
@@ -30,11 +31,36 @@ impl BoolVector {
     ///
     /// Panics if the length of the validity mask does not match the length of the bits.
     pub fn new(bits: BitBuffer, validity: Mask) -> Self {
-        assert_eq!(
+        Self::try_new(bits, validity)
+            .vortex_expect("`BoolVector` validity mask must have the same length as bits")
+    }
+
+    /// Tries to create a new [`BoolVector`] from the given bits and validity mask.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the length of the validity mask does not match the length of the bits.
+    pub fn try_new(bits: BitBuffer, validity: Mask) -> VortexResult<Self> {
+        vortex_ensure!(
+            validity.len() == bits.len(),
+            "`BoolVector` validity mask must have the same length as bits"
+        );
+
+        Ok(Self { bits, validity })
+    }
+
+    /// Creates a new [`BoolVector`] from the given bits and validity mask without validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the validity mask has the same length as the bits.
+    pub fn new_unchecked(bits: BitBuffer, validity: Mask) -> Self {
+        debug_assert_eq!(
             validity.len(),
             bits.len(),
-            "BoolVector validity mask must have the same length as bits"
+            "`BoolVector` validity mask must have the same length as bits"
         );
+
         Self { bits, validity }
     }
 

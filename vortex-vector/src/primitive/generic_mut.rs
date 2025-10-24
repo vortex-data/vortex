@@ -5,6 +5,7 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
 use crate::{PVector, VectorMutOps, VectorOps};
@@ -107,6 +108,50 @@ pub struct PVectorMut<T> {
 }
 
 impl<T> PVectorMut<T> {
+    /// Creates a new [`PVectorMut<T>`] from the given elements buffer and validity mask.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the length of the validity mask does not match the length of the elements buffer.
+    pub fn new(elements: BufferMut<T>, validity: MaskMut) -> Self {
+        Self::try_new(elements, validity)
+            .vortex_expect("`PVectorMut` validity mask must have the same length as elements")
+    }
+
+    /// Tries to create a new [`PVectorMut<T>`] from the given elements buffer and validity mask.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the length of the validity mask does not match the length of the
+    /// elements buffer.
+    pub fn try_new(elements: BufferMut<T>, validity: MaskMut) -> VortexResult<Self> {
+        vortex_ensure!(
+            validity.len() == elements.len(),
+            "`PVectorMut` validity mask must have the same length as elements"
+        );
+
+        Ok(Self { elements, validity })
+    }
+
+    /// Creates a new [`PVectorMut<T>`] from the given elements buffer and validity mask without
+    /// validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the validity mask has the same length as the elements buffer.
+    ///
+    /// Ideally, they are taken from `into_parts`, mutated in a way that doesn't re-allocate, and
+    /// then passed back to this function.
+    pub unsafe fn new_unchecked(elements: BufferMut<T>, validity: MaskMut) -> Self {
+        debug_assert_eq!(
+            elements.len(),
+            validity.len(),
+            "`PVectorMut` validity mask must have the same length as elements"
+        );
+
+        Self { elements, validity }
+    }
+
     /// Create a new mutable primitive vector with the given capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
