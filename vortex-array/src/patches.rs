@@ -251,6 +251,11 @@ impl Patches {
     }
 
     #[inline]
+    pub fn offset_within_chunk(&self) -> Option<usize> {
+        self.offset_within_chunk
+    }
+
+    #[inline]
     pub fn chunk_offset_at(&self, idx: usize) -> usize {
         let Some(chunk_offsets) = &self.chunk_offsets else {
             vortex_panic!("chunk_offsets must be set to retrieve offset at index")
