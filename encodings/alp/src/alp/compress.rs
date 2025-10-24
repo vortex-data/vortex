@@ -145,32 +145,28 @@ pub fn decompress_with_patches(array: &ALPArray, patches: &Patches) -> Primitive
     match_each_alp_float_ptype!(ptype, |T| {
         match_each_unsigned_integer_ptype!(patches_chunk_offsets.ptype(), |C| {
             match_each_unsigned_integer_ptype!(patches_indices.ptype(), |I| {
-                let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
                 let patches_indices = patches_indices.as_slice::<I>();
                 let patches_values = patches_values.as_slice::<T>();
 
                 let alp_buffer = alp_encoded.into_buffer();
                 let len = array.len();
                 let mut decoded_values = BufferMut::<T>::with_capacity(len);
+                let mut patches_idx = 0usize;
 
-                for (chunk_idx, chunk_start) in (0..len).step_by(1024).enumerate() {
+                for chunk_start in (0..len).step_by(1024) {
                     let chunk_end = (chunk_start + 1024).min(len);
                     let chunk_slice = &alp_buffer.as_slice()[chunk_start..chunk_end];
                     <T>::decode_into_buffer(chunk_slice, array.exponents(), &mut decoded_values);
 
-                    let patches_start_idx = patches_chunk_offsets[chunk_idx] as usize;
-                    let patches_end_idx = if chunk_idx + 1 < patches_chunk_offsets.len() {
-                        patches_chunk_offsets[chunk_idx + 1] as usize
-                    } else {
-                        patches_indices.len()
-                    };
-
-                    for patches_idx in patches_start_idx..patches_end_idx {
+                    while patches_idx < patches_indices.len() && {
+                        patches_indices[patches_idx] as usize - patches.offset()
+                    } < chunk_end
+                    {
                         let patched_index =
                             patches_indices[patches_idx] as usize - patches.offset();
                         let patched_value = patches_values[patches_idx];
-                        assert!({ patched_index as usize } < chunk_end);
                         decoded_values[patched_index as usize] = patched_value;
+                        patches_idx += 1;
                     }
                 }
 
@@ -398,5 +394,66 @@ mod tests {
 
         let patch_values = patches.values().to_primitive();
         assert_eq!(patch_values.as_slice::<f64>(), &[PI, E]);
+    }
+
+    #[test]
+    fn test_slice_half_chunk_f32_roundtrip() {
+        // Create 1024 elements, encode, slice to first 512, then decode
+        let values = vec![1.234f32; 1024];
+        let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
+        let encoded = alp_encode(&original, None).unwrap();
+
+        let sliced_alp = encoded.slice(512..1024);
+        let decoded = sliced_alp.to_primitive();
+
+        let expected_slice = original.slice(512..1024).to_primitive();
+        assert_eq!(expected_slice.as_slice::<f32>(), decoded.as_slice::<f32>());
+    }
+
+    #[test]
+    fn test_slice_half_chunk_f64_roundtrip() {
+        let values = vec![5.678f64; 1024];
+        let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
+        let encoded = alp_encode(&original, None).unwrap();
+
+        let sliced_alp = encoded.slice(512..1024);
+        let decoded = sliced_alp.to_primitive();
+
+        let expected_slice = original.slice(512..1024).to_primitive();
+        assert_eq!(expected_slice.as_slice::<f64>(), decoded.as_slice::<f64>());
+    }
+
+    #[test]
+    fn test_slice_half_chunk_with_patches_roundtrip() {
+        let mut values = vec![1.0f64; 1024];
+        values[100] = PI;
+        values[200] = E;
+        values[600] = 42.42;
+
+        let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
+        let encoded = alp_encode(&original, None).unwrap();
+
+        let sliced_alp = encoded.slice(512..1024);
+        let decoded = sliced_alp.to_primitive();
+
+        let expected_slice = original.slice(512..1024).to_primitive();
+        assert_eq!(expected_slice.as_slice::<f64>(), decoded.as_slice::<f64>());
+        assert!(encoded.patches().is_some());
+    }
+
+    #[test]
+    fn test_slice_half_chunk_nullable_roundtrip() {
+        let values = (0..1024)
+            .map(|i| if i % 3 == 0 { None } else { Some(2.5f32) })
+            .collect::<Vec<_>>();
+
+        let original = PrimitiveArray::from_option_iter(values);
+        let encoded = alp_encode(&original, None).unwrap();
+
+        let sliced_alp = encoded.slice(512..1024);
+        let decoded = sliced_alp.to_primitive();
+
+        let expected_slice = original.slice(512..1024);
+        assert_arrays_eq!(decoded, expected_slice);
     }
 }
