@@ -33,6 +33,7 @@ pub struct DuckDBCtx {
     pub db: Database,
     pub connection: Connection,
     pub db_path: Option<PathBuf>,
+    pub threads: Option<usize>,
 }
 
 impl DuckDBCtx {
@@ -71,6 +72,7 @@ impl DuckDBCtx {
             db,
             connection,
             db_path: Some(db_path),
+            threads,
         })
     }
 
@@ -122,7 +124,8 @@ impl DuckDBCtx {
         drop(connection);
         drop(db);
 
-        let (mut db, mut connection) = Self::open_and_setup_database(self.db_path.clone(), None)?;
+        let (mut db, mut connection) =
+            Self::open_and_setup_database(self.db_path.clone(), self.threads)?;
 
         std::mem::swap(&mut self.connection, &mut connection);
         std::mem::swap(&mut self.db, &mut db);
@@ -136,6 +139,7 @@ impl DuckDBCtx {
             db,
             connection,
             db_path: None,
+            threads: None,
         })
     }
 
