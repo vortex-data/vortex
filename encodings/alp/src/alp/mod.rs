@@ -196,12 +196,12 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
     #[inline(always)]
     fn decode_slice_inplace(encoded: &mut [Self::ALPInt], exponents: Exponents) {
         let decoded: &mut [Self] = unsafe { mem::transmute(encoded) };
-        for v in decoded {
+        decoded.iter_mut().for_each(|v| {
             *v = Self::decode_single(
                 unsafe { mem::transmute_copy::<Self, Self::ALPInt>(v) },
                 exponents,
             )
-        }
+        })
     }
 
     fn decode_buffer(encoded: BufferMut<Self::ALPInt>, exponents: Exponents) -> BufferMut<Self> {
