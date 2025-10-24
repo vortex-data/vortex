@@ -9,6 +9,7 @@ use log::trace;
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::{Config, Connection, Database};
+use vortex_duckdb::register_extension_options;
 
 use crate::statpopgen::StatPopGenBenchmark;
 use crate::{BenchmarkDataset, Format, IdempotentPath};
@@ -83,7 +84,7 @@ impl DuckDBCtx {
         let config = Config::new().vortex_expect("failed to create duckdb config");
 
         // Register Vortex extension options before creating connection
-        vortex_duckdb::register_extension_options(&config);
+        register_extension_options(&config);
 
         let db = match path {
             Some(path) => Database::open_with_config(path, config),

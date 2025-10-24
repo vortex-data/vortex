@@ -29,12 +29,10 @@ mod copy;
 mod e2e_test;
 
 /// Register Vortex extension configuration options with DuckDB.
-/// This should be called before `register_table_functions` if possible.
-pub fn register_extension_options(db: &Config) {
-    // Create UBIGINT logical type for vortex_max_threads
+/// This must be called before `register_table_functions` to take effect.
+pub fn register_extension_options(config: &Config) {
     let logical_type = LogicalType::uint64();
 
-    // Create default value (number of available CPUs)
     let default_threads = std::thread::available_parallelism()
         .map(|n| n.get() as u64)
         .unwrap_or(1);
@@ -45,7 +43,7 @@ pub fn register_extension_options(db: &Config) {
     // The C++ code will copy the LogicalType and Value, so we can safely drop them after this call
     let result = unsafe {
         cpp::duckdb_vx_add_extension_option(
-            db.as_ptr(),
+            config.as_ptr(),
             c"vortex_max_threads".as_ptr(),
             c"Maximum number of threads for Vortex table scans".as_ptr(),
             logical_type.as_ptr(),
@@ -124,16 +122,19 @@ mod tests {
 
         // Try to set the option to verify it was registered successfully
         // If the option wasn't registered, this would fail with "unrecognized configuration parameter"
-        // let result1 = conn
-        //     .query("SET vortex_max_threads = 4")
-        //     .expect("Failed to set vortex_max_threads - option may not be registered");
-        // // Consume the result
-        // drop(result1);
+        let result1 = conn
+            .query("SET vortex_max_threads = 4")
+            .expect("Failed to set vortex_max_threads - option may not be registered");
+        // Consume the result
+        drop(result1);
+
+        // TODO(joe): verify the option was set.
 
         // // Also verify we can set it to a different value
-        // let result2 = conn.query("SET vortex_max_threads = 8")
-        //     .expect("Failed to set vortex_max_threads to 8");
-        // // Consume the result
-        // drop(result2);
+        let result2 = conn
+            .query("SET vortex_max_threads = 8")
+            .expect("Failed to set vortex_max_threads to 8");
+        // Consume the result
+        drop(result2);
     }
 }
