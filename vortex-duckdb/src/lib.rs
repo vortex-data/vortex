@@ -125,8 +125,6 @@ mod tests {
         let result1 = conn
             .query("SET vortex_max_threads = 4")
             .expect("Failed to set vortex_max_threads - option may not be registered");
-        // Consume the result
-        drop(result1);
 
         // TODO(joe): verify the option was set.
 
@@ -134,7 +132,5 @@ mod tests {
         let result2 = conn
             .query("SET vortex_max_threads = 8")
             .expect("Failed to set vortex_max_threads to 8");
-        // Consume the result
-        drop(result2);
     }
 }
