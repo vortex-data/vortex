@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use reader::DictReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
@@ -95,10 +95,11 @@ impl VTable for DictVTable {
         let values = children.child(0, dtype)?;
         let codes_nullable = metadata
             .is_nullable_codes
+            .map(Nullability::from)
             // The old behaviour (without `is_nullable_codes` metadata) used the nullability
             // of the values (and whole array).
-            .unwrap_or_else(|| dtype.is_nullable())
-            .into();
+            // see [`SerdeVTable<DictVTable>::build`].
+            .unwrap_or_else(|| dtype.nullability());
         let codes = children.child(1, &DType::Primitive(metadata.codes_ptype(), codes_nullable))?;
         Ok(DictLayout { values, codes })
     }
