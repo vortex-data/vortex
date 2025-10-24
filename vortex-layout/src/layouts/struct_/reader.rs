@@ -223,8 +223,6 @@ impl LayoutReader for StructReader {
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        // TODO(aduffy): handle validity expressions such as "IS NULL" that can be executed directly against
-        // the validity
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
                 .field_reader(name)?
@@ -281,18 +279,15 @@ impl LayoutReader for StructReader {
                 partition.is::<PackVTable>() || partition.is::<MergeVTable>(),
             ),
 
-            Partitioned::Multi(partitioned) => {
-                // Apply the validity to each internal field instead.
-                (
-                    partitioned
-                        .clone()
-                        .into_array_future(mask_fut, |name, expr, mask| {
-                            self.field_reader(name)?
-                                .projection_evaluation(row_range, expr, mask)
-                        })?,
-                    partitioned.root.is::<PackVTable>() || partitioned.root.is::<MergeVTable>(),
-                )
-            }
+            Partitioned::Multi(partitioned) => (
+                partitioned
+                    .clone()
+                    .into_array_future(mask_fut, |name, expr, mask| {
+                        self.field_reader(name)?
+                            .projection_evaluation(row_range, expr, mask)
+                    })?,
+                partitioned.root.is::<PackVTable>() || partitioned.root.is::<MergeVTable>(),
+            ),
         };
 
         Ok(Box::pin(async move {
