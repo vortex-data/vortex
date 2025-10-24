@@ -42,8 +42,8 @@ impl OperationsVTable<DictVTable> for DictVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::{assert_arrays_eq, IntoArray};
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::{IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
