@@ -410,6 +410,25 @@ impl<T> BufferMut<T> {
         buf
     }
 
+    /// Map each element of the buffer with a closure.
+    pub fn map_chunks<R, F>(self, chunk_size: usize, mut f: F) -> BufferMut<R>
+    where
+        T: Copy,
+        F: FnMut(usize, &mut [T]),
+    {
+        assert_eq!(
+            size_of::<T>(),
+            size_of::<R>(),
+            "Size of T and R do not match"
+        );
+        // SAFETY: we have checked that `size_of::<T>` == `size_of::<R>`.
+        let mut buf: BufferMut<R> = unsafe { std::mem::transmute(self) };
+        buf.as_mut_slice().chunks_mut(chunk_size).enumerate().for_each(|(chunk_idx, chunk)| {
+            f(chunk_idx, unsafe { std::mem::transmute(chunk) });
+        });
+        buf
+    }
+
     /// Return a `BufferMut<T>` with the given alignment. Where possible, this will be zero-copy.
     pub fn aligned(self, alignment: Alignment) -> Self {
         if self.as_ptr().align_offset(*alignment) == 0 {

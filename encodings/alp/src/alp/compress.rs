@@ -152,18 +152,14 @@ pub fn decompress_with_patches(array: &ALPArray, patches: &Patches) -> Primitive
     let patches_values = patches.values().as_ref().to_primitive();
 
     match_each_alp_float_ptype!(ptype, |T| {
+        let alp_buffer = alp_encoded.into_buffer_mut();
+        let patches_values = patches_values.as_slice::<T>();
         match_each_unsigned_integer_ptype!(patches_chunk_offsets.ptype(), |C| {
+            let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
             match_each_unsigned_integer_ptype!(patches_indices.ptype(), |I| {
                 let patches_indices = patches_indices.as_slice::<I>();
-                let patches_values = patches_values.as_slice::<T>();
-                let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
 
-                let mut alp_buffer = alp_encoded.into_buffer_mut();
-                let len = array.len();
-
-                for (chunk_idx, chunk_start) in (0..len).step_by(1024).enumerate() {
-                    let chunk_end = (chunk_start + 1024).min(len);
-                    let chunk_slice = &mut alp_buffer.as_mut_slice()[chunk_start..chunk_end];
+                let decoded_buffer = alp_buffer.map_chunks(1024, |chunk_idx, chunk_slice| {
                     <T>::decode_slice_inplace(chunk_slice, array.exponents());
 
                     let patches_start_idx = patches_chunk_offsets[chunk_idx] as usize;
@@ -176,14 +172,13 @@ pub fn decompress_with_patches(array: &ALPArray, patches: &Patches) -> Primitive
                     let decoded_chunk_slice: &mut [T] = unsafe { mem::transmute(chunk_slice) };
                     for patches_idx in patches_start_idx..patches_end_idx {
                         let patched_index =
-                            patches_indices[patches_idx] as usize - patches.offset() - chunk_start;
+                            patches_indices[patches_idx] as usize - patches.offset() - (chunk_idx * 1024);
 
                         let patched_value = patches_values[patches_idx];
                         decoded_chunk_slice[patched_index] = patched_value;
                     }
-                }
+                });
 
-                let decoded_buffer: BufferMut<T> = unsafe { mem::transmute(alp_buffer) };
                 PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
             })
         })
