@@ -269,7 +269,7 @@ mod test {
 
     use futures::stream;
     use rstest::{fixture, rstest};
-    use vortex_array::{ArrayContext, IntoArray, MaskFuture, ToCanonical};
+    use vortex_array::{ArrayContext, IntoArray, MaskFuture, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
@@ -326,11 +326,11 @@ mod test {
                 )
                 .unwrap()
                 .await
-                .unwrap()
-                .to_primitive();
+                .unwrap();
 
             assert_eq!(result.len(), 9);
-            assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+            let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
+            assert_arrays_eq!(result.as_ref(), expected.as_ref());
         })
     }
 }

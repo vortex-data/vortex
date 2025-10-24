@@ -194,7 +194,7 @@ impl Default for CompactCompressor {
 mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::FieldName;
 
@@ -238,16 +238,10 @@ mod tests {
         // Verify each field can be accessed and has correct data
         for (i, name) in decompressed_struct.names().iter().enumerate() {
             assert_eq!(name, field_names[i]);
-            let decompressed_array = decompressed_struct
-                .field_by_name(name)
-                .unwrap()
-                .to_primitive();
-            // is there no direct way to assert_eq on (primitive) arrays?
+            let decompressed_array = decompressed_struct.field_by_name(name).unwrap().clone();
             assert_eq!(decompressed_array.len(), n_rows);
 
-            for j in 0..n_rows {
-                assert_eq!(decompressed_array.scalar_at(j), columns[i].scalar_at(j),);
-            }
+            assert_arrays_eq!(decompressed_array.as_ref(), columns[i].as_ref());
         }
     }
 }

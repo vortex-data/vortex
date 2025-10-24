@@ -563,8 +563,8 @@ pub mod test_harness {
 mod test {
     use rand::SeedableRng as _;
     use rand::rngs::StdRng;
-    use vortex_array::ToCanonical as _;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::{ToCanonical as _, assert_arrays_eq};
     use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::Nullability;
     use vortex_error::VortexError;
@@ -717,7 +717,7 @@ mod test {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
         let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
         let decompressed = compressed.to_primitive();
-        assert_eq!(decompressed.as_slice::<u16>(), values.as_slice::<u16>());
+        assert_arrays_eq!(decompressed.as_ref(), values.as_ref());
 
         values
             .as_slice::<u16>()

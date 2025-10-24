@@ -157,9 +157,10 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
-    use vortex_array::ToCanonical;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stats::StatsProvider;
     use vortex_array::validity::Validity;
+    use vortex_array::{ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::PType;
     use vortex_scalar::Scalar;
@@ -173,7 +174,7 @@ mod test {
         assert_eq!(i32::try_from(compressed.reference_scalar()).unwrap(), 1);
 
         let decompressed = compressed.to_primitive();
-        assert_eq!(decompressed.as_slice::<i32>(), array.as_slice::<i32>());
+        assert_arrays_eq!(decompressed.as_ref(), array.as_ref());
     }
 
     #[test]
@@ -211,7 +212,7 @@ mod test {
         let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
         let compressed = FoRArray::encode(array.clone()).unwrap();
         let decompressed = compressed.to_primitive();
-        assert_eq!(decompressed.as_slice::<u32>(), array.as_slice::<u32>());
+        assert_arrays_eq!(decompressed.as_ref(), array.as_ref());
     }
 
     #[test]
@@ -222,7 +223,7 @@ mod test {
         let bp = BitPackedArray::encode(array.as_ref(), 3).unwrap();
         let compressed = FoRArray::try_new(bp.into_array(), 10u32.into()).unwrap();
         let decompressed = compressed.to_primitive();
-        assert_eq!(decompressed.as_slice::<u32>(), expect.as_slice::<u32>());
+        assert_arrays_eq!(decompressed.as_ref(), expect.as_ref());
     }
 
     #[test]
@@ -233,7 +234,7 @@ mod test {
         let bp = BitPackedArray::encode(array.as_ref(), 2).unwrap();
         let compressed = FoRArray::try_new(bp.clone().into_array(), 10u32.into()).unwrap();
         let decompressed = fused_decompress::<u32>(&compressed, &bp);
-        assert_eq!(decompressed.as_slice::<u32>(), expect.as_slice::<u32>());
+        assert_arrays_eq!(decompressed.as_ref(), expect.as_ref());
     }
 
     #[test]
@@ -258,7 +259,7 @@ mod test {
         assert_eq!(encoded_bytes, unsigned.as_slice());
 
         let decompressed = compressed.to_primitive();
-        assert_eq!(decompressed.as_slice::<i8>(), array.as_slice::<i8>());
+        assert_arrays_eq!(decompressed.as_ref(), array.as_ref());
         array
             .as_slice::<i8>()
             .iter()

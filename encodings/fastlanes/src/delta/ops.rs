@@ -46,9 +46,10 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
 
     use super::*;
 
@@ -165,7 +166,9 @@ mod test {
         let sliced = delta.slice(10..1013);
         let sliced_again = sliced.slice(0..2);
 
-        assert_eq!(sliced_again.to_primitive().as_slice::<u32>(), vec![10, 11]);
+        let decoded = sliced_again.to_primitive();
+        let expected = PrimitiveArray::from_iter([10u32, 11]);
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 
     #[test]
@@ -175,7 +178,9 @@ mod test {
         let sliced = delta.slice(10..1013);
         let sliced_again = sliced.slice(0..2);
 
-        assert_eq!(sliced_again.to_primitive().as_slice::<u32>(), vec![10, 11]);
+        let decoded = sliced_again.to_primitive();
+        let expected = PrimitiveArray::from_iter([10u32, 11]);
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 
     #[test]
@@ -185,10 +190,9 @@ mod test {
         let sliced = delta.slice(1034..1050);
         let sliced_again = sliced.slice(0..2);
 
-        assert_eq!(
-            sliced_again.to_primitive().as_slice::<u32>(),
-            vec![1034, 1035]
-        );
+        let decoded = sliced_again.to_primitive();
+        let expected = PrimitiveArray::from_iter([1034u32, 1035]);
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 
     #[test]
@@ -198,10 +202,9 @@ mod test {
         let sliced = delta.slice(1034..1050);
         let sliced_again = sliced.slice(0..2);
 
-        assert_eq!(
-            sliced_again.to_primitive().as_slice::<u32>(),
-            vec![1034, 1035]
-        );
+        let decoded = sliced_again.to_primitive();
+        let expected = PrimitiveArray::from_iter([1034u32, 1035]);
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 
     #[test]
@@ -211,10 +214,9 @@ mod test {
         let sliced = delta.slice(1010..1050);
         let sliced_again = sliced.slice(5..20);
 
-        assert_eq!(
-            sliced_again.to_primitive().as_slice::<u32>(),
-            (1015..1030).collect::<Vec<_>>(),
-        );
+        let decoded = sliced_again.to_primitive();
+        let expected = PrimitiveArray::from_iter(1015u32..1030);
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 
     #[test]
@@ -224,10 +226,9 @@ mod test {
         let sliced = delta.slice(1010..1050);
         let sliced_again = sliced.slice(5..20);
 
-        assert_eq!(
-            sliced_again.to_primitive().as_slice::<u32>(),
-            (1015..1030).collect::<Vec<_>>(),
-        );
+        let decoded = sliced_again.to_primitive();
+        let expected = PrimitiveArray::from_iter(1015u32..1030);
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 
     #[test]

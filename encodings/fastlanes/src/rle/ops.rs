@@ -72,7 +72,7 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::Buffer;
 
     use super::*;
@@ -311,11 +311,13 @@ mod tests {
         // Slice across first and second chunk.
         let slice = encoded.slice(500..1500);
         let decoded_slice = slice.to_primitive();
-        assert_eq!(decoded_slice.as_slice::<u32>(), &expected[500..1500]);
+        let expected_slice = PrimitiveArray::from_iter(expected[500..1500].iter().copied());
+        assert_arrays_eq!(decoded_slice.as_ref(), expected_slice.as_ref());
 
         // Slice across second and third chunk.
         let slice = encoded.slice(1000..2000);
         let decoded_slice = slice.to_primitive();
-        assert_eq!(decoded_slice.as_slice::<u32>(), &expected[1000..2000]);
+        let expected_slice = PrimitiveArray::from_iter(expected[1000..2000].iter().copied());
+        assert_arrays_eq!(decoded_slice.as_ref(), expected_slice.as_ref());
     }
 }

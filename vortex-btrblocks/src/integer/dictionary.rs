@@ -111,7 +111,7 @@ impl_encode!(i64);
 mod tests {
     use vortex_array::arrays::{BoolArray, PrimitiveArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
 
     use crate::CompressorStats;
@@ -131,10 +131,15 @@ mod tests {
         assert_eq!(dict_array.values().len(), 2);
         assert_eq!(dict_array.codes().len(), 5);
 
-        let undict = dict_array.to_primitive();
+        let undict = dict_array;
 
         // We just use code zero, but it doesn't really matter.
         // We can just shove a whole validity buffer in there instead.
-        assert_eq!(undict.as_slice::<i32>(), &[100i32, 200, 100, 100, 100]);
+        let expected = PrimitiveArray::new(
+            buffer![100i32, 200, 100, 100, 100],
+            Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array()),
+        )
+        .into_array();
+        assert_arrays_eq!(undict.as_ref(), expected.as_ref());
     }
 }
