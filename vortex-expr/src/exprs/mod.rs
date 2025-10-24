@@ -11,7 +11,6 @@ pub(crate) mod is_null;
 pub(crate) mod like;
 pub(crate) mod list_contains;
 pub(crate) mod literal;
-mod mask;
 pub(crate) mod merge;
 pub(crate) mod not;
 pub(crate) mod operators;
