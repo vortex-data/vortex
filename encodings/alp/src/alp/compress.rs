@@ -176,10 +176,9 @@ pub fn decompress_with_patches(array: &ALPArray, patches: &Patches) -> Primitive
                     let decoded_chunk_slice: &mut [T] = unsafe { mem::transmute(chunk_slice) };
                     for patches_idx in patches_start_idx..patches_end_idx {
                         let patched_index =
-                            patches_indices[patches_idx] as usize - patches.offset();
+                            patches_indices[patches_idx] as usize - patches.offset() - chunk_start;
 
                         let patched_value = patches_values[patches_idx];
-                        println!("Patched index {patched_index}");
                         decoded_chunk_slice[patched_index] = patched_value;
                     }
                 }
