@@ -199,11 +199,19 @@ fn fill_varbinview_array(
                     }
                 }
                 DType::Binary(_) => {
-                    let fill_bytes = fill_value.as_binary().value().unwrap();
+                    let fill_bytes = fill_value
+                        .as_binary()
+                        .value()
+                        .vortex_expect("cannot have null fill value");
                     let binaries: Vec<Vec<u8>> = (0..array.len())
                         .map(|i| {
                             if validity_bits.value(i) {
-                                array.scalar_at(i).as_binary().value().unwrap().to_vec()
+                                array
+                                    .scalar_at(i)
+                                    .as_binary()
+                                    .value()
+                                    .vortex_expect("cannot have null valid value")
+                                    .to_vec()
                             } else {
                                 fill_bytes.to_vec()
                             }
@@ -211,7 +219,6 @@ fn fill_varbinview_array(
                         .collect();
                     let binary_refs: Vec<&[u8]> = binaries.iter().map(|b| b.as_slice()).collect();
                     let result = VarBinViewArray::from_iter_bin(binary_refs).into_array();
-                    // If result_nullability is nullable, cast it
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new(
                             result.to_varbinview().views().clone(),
@@ -232,14 +239,16 @@ fn fill_varbinview_array(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, VarBinViewArray};
+    use vortex_array::compute::cast;
     use vortex_array::validity::Validity;
+    use vortex_array::{Array, IntoArray};
     use vortex_buffer::BitBuffer;
     use vortex_dtype::{DType, DecimalDType, Nullability, PType};
     use vortex_scalar::{DecimalValue, Scalar};
 
     use super::fill_null_canonical_array;
+    use crate::assert_arrays_eq;
 
     #[test]
     fn test_fill_null_primitive() {
@@ -248,17 +257,12 @@ mod tests {
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
 
-        assert_eq!(result.len(), 5);
-        assert_eq!(result.scalar_at(0), Scalar::from(1));
-        assert_eq!(result.scalar_at(1), Scalar::from(42));
-        assert_eq!(result.scalar_at(2), Scalar::from(3));
-        assert_eq!(result.scalar_at(3), Scalar::from(42));
-        assert_eq!(result.scalar_at(4), Scalar::from(5));
+        let expected = PrimitiveArray::from_iter([1i32, 42, 3, 42, 5]);
+        assert_arrays_eq!(expected, result);
     }
 
     #[test]
     fn test_fill_null_bool() {
-        // Create a bool array with some nulls manually
         let data_buffer = BitBuffer::from(vec![true, false, false, false]);
         let validity_buffer = BitBuffer::from(vec![true, false, true, false]);
         let array = BoolArray::from_bit_buffer(data_buffer, Validity::from(validity_buffer));
@@ -266,11 +270,8 @@ mod tests {
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
 
-        assert_eq!(result.len(), 4);
-        assert_eq!(result.scalar_at(0), true.into());
-        assert_eq!(result.scalar_at(1), true.into());
-        assert_eq!(result.scalar_at(2), false.into());
-        assert_eq!(result.scalar_at(3), true.into());
+        let expected = BoolArray::from(BitBuffer::from(vec![true, true, false, true]));
+        assert_arrays_eq!(expected, result);
     }
 
     #[test]
@@ -283,19 +284,8 @@ mod tests {
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
 
-        assert_eq!(result.len(), 3);
-        assert_eq!(
-            result.scalar_at(0),
-            Scalar::utf8("hello", Nullability::NonNullable)
-        );
-        assert_eq!(
-            result.scalar_at(1),
-            Scalar::utf8("default", Nullability::NonNullable)
-        );
-        assert_eq!(
-            result.scalar_at(2),
-            Scalar::utf8("world", Nullability::NonNullable)
-        );
+        let expected = VarBinViewArray::from_iter_str(["hello", "default", "world"]);
+        assert_arrays_eq!(expected, result);
     }
 
     #[test]
@@ -305,10 +295,8 @@ mod tests {
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
 
-        assert_eq!(result.len(), 3);
-        assert_eq!(result.scalar_at(0), Scalar::from(100));
-        assert_eq!(result.scalar_at(1), Scalar::from(100));
-        assert_eq!(result.scalar_at(2), Scalar::from(100));
+        let expected = PrimitiveArray::from_iter([100i32, 100, 100]);
+        assert_arrays_eq!(expected, result);
     }
 
     #[test]
@@ -318,10 +306,8 @@ mod tests {
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
 
-        assert_eq!(result.len(), 3);
-        assert_eq!(result.scalar_at(0), Scalar::from(1));
-        assert_eq!(result.scalar_at(1), Scalar::from(2));
-        assert_eq!(result.scalar_at(2), Scalar::from(3));
+        let expected = PrimitiveArray::from_iter([1i32, 2, 3]);
+        assert_arrays_eq!(expected, result);
     }
 
     #[test]
@@ -355,21 +341,17 @@ mod tests {
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
 
-        assert_eq!(result.len(), 5);
-        // Check that the values are filled correctly
-        let result_decimal = result.to_decimal();
-        assert!(result.is_valid(0));
-        assert!(result.is_valid(1)); // was null, now filled
-        assert!(result.is_valid(2));
-        assert!(result.is_valid(3)); // was null, now filled
-        assert!(result.is_valid(4));
-
-        // Verify specific values
-        assert_eq!(result_decimal.buffer::<i32>()[0], 100i32);
-        assert_eq!(result_decimal.buffer::<i32>()[1], 999i32);
-        assert_eq!(result_decimal.buffer::<i32>()[2], 300i32);
-        assert_eq!(result_decimal.buffer::<i32>()[3], 999i32);
-        assert_eq!(result_decimal.buffer::<i32>()[4], 500i32);
+        let expected = DecimalArray::from_option_iter(
+            [
+                Some(100i32),
+                Some(999i32),
+                Some(300i32),
+                Some(999i32),
+                Some(500i32),
+            ],
+            DecimalDType::new(10, 2),
+        );
+        assert_arrays_eq!(expected, result);
     }
 
     #[test]
@@ -386,15 +368,11 @@ mod tests {
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
 
-        assert_eq!(result.len(), 3);
-        let result_decimal = result.to_decimal();
-        assert!(result.is_valid(0));
-        assert!(result.is_valid(1));
-        assert!(result.is_valid(2));
-
-        assert_eq!(result_decimal.buffer::<i64>()[0], 1000i64);
-        assert_eq!(result_decimal.buffer::<i64>()[1], 9999i64);
-        assert_eq!(result_decimal.buffer::<i64>()[2], 3000i64);
+        let expected = DecimalArray::from_option_iter(
+            [Some(1000i64), Some(9999i64), Some(3000i64)],
+            DecimalDType::new(15, 3),
+        );
+        assert_arrays_eq!(expected, result);
     }
 
     #[test]
@@ -411,17 +389,16 @@ mod tests {
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
 
-        assert_eq!(result.len(), 4);
-        let result_decimal = result.to_decimal();
-        assert!(result.is_valid(0));
-        assert!(result.is_valid(1));
-        assert!(result.is_valid(2));
-        assert!(result.is_valid(3));
-
-        assert_eq!(result_decimal.buffer::<i128>()[0], 10000i128);
-        assert_eq!(result_decimal.buffer::<i128>()[1], 99999i128);
-        assert_eq!(result_decimal.buffer::<i128>()[2], 30000i128);
-        assert_eq!(result_decimal.buffer::<i128>()[3], 99999i128);
+        let expected = DecimalArray::from_option_iter(
+            [
+                Some(10000i128),
+                Some(99999i128),
+                Some(30000i128),
+                Some(99999i128),
+            ],
+            DecimalDType::new(20, 4),
+        );
+        assert_arrays_eq!(expected, result);
     }
 
     #[test]
@@ -436,11 +413,16 @@ mod tests {
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
 
-        assert_eq!(result.len(), 3);
-        // All values should be valid now with the fill value
-        assert!(result.is_valid(0));
-        assert!(result.is_valid(1));
-        assert!(result.is_valid(2));
+        let expected = cast(
+            &DecimalArray::from_option_iter(
+                [Some(777i64), Some(777i64), Some(777i64)],
+                DecimalDType::new(10, 2),
+            )
+            .into_array(),
+            result.dtype(),
+        )
+        .unwrap();
+        assert_arrays_eq!(expected, result);
     }
 
     #[test]
@@ -457,11 +439,15 @@ mod tests {
 
         let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
 
-        assert_eq!(result.len(), 3);
-        let result_decimal = result.to_decimal();
-        // All should remain as original values
-        assert_eq!(result_decimal.buffer::<i32>()[0], 100i32);
-        assert_eq!(result_decimal.buffer::<i32>()[1], 200i32);
-        assert_eq!(result_decimal.buffer::<i32>()[2], 300i32);
+        let expected = cast(
+            &DecimalArray::from_option_iter(
+                [Some(100i32), Some(200i32), Some(300i32)],
+                DecimalDType::new(10, 2),
+            )
+            .into_array(),
+            result.dtype(),
+        )
+        .unwrap();
+        assert_arrays_eq!(expected, result);
     }
 }
