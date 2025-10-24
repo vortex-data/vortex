@@ -94,7 +94,7 @@ fn setup_alp_for_bp_f64() -> ArrayRef {
     .into_array()
 }
 
-/// Create Dict <- VarBinView encoding tree for strings
+/// Create Dict <- VarBinView encoding tree for strings with BitPacked codes
 #[allow(clippy::cast_possible_truncation)]
 fn setup_dict_varbinview_string() -> ArrayRef {
     let mut rng = rand::rngs::StdRng::seed_from_u64(42);
@@ -113,12 +113,17 @@ fn setup_dict_varbinview_string() -> ArrayRef {
     let codes: Vec<u32> = (0..NUM_VALUES)
         .map(|_| rng.random_range(0..num_unique as u32))
         .collect();
-    let codes_array = PrimitiveArray::from_iter(codes).into_array();
+    let codes_prim = PrimitiveArray::from_iter(codes);
+
+    // Compress codes with BitPacked (6 bits should be enough for ~50 unique values)
+    let codes_bp = BitPackedArray::encode(codes_prim.as_ref(), 6)
+        .unwrap()
+        .into_array();
 
     // Create values array
     let values_array = VarBinViewArray::from_iter_str(unique_strings).into_array();
 
-    DictArray::try_new(codes_array, values_array)
+    DictArray::try_new(codes_bp, values_array)
         .unwrap()
         .into_array()
 }
@@ -181,38 +186,6 @@ fn setup_dict_fsst_varbin_string() -> ArrayRef {
         .collect();
 
     // Train and compress unique values with FSST
-    let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings).into_array();
-    let fsst_compressor = fsst_train_compressor(&unique_varbinview).unwrap();
-    let fsst_values = fsst_compress(&unique_varbinview, &fsst_compressor).unwrap();
-
-    // Create codes array (random indices into unique values)
-    let codes: Vec<u32> = (0..NUM_VALUES)
-        .map(|_| rng.random_range(0..num_unique as u32))
-        .collect();
-    let codes_array = PrimitiveArray::from_iter(codes).into_array();
-
-    DictArray::try_new(codes_array, fsst_values.into_array())
-        .unwrap()
-        .into_array()
-}
-
-/// Create Dict <- FSST <- VarBin <- Sequence encoding tree for strings
-/// FSST codes are stored as VarBin with Sequence offsets by default
-#[allow(clippy::cast_possible_truncation)]
-fn setup_dict_fsst_varbin_seq_string() -> ArrayRef {
-    let mut rng = rand::rngs::StdRng::seed_from_u64(44);
-
-    // Create unique values (1% uniqueness = 10,000 unique strings)
-    let num_unique = ((NUM_VALUES as f64) * 0.01) as usize;
-    let unique_strings: Vec<String> = (0..num_unique)
-        .map(|_| {
-            (0..8)
-                .map(|_| (rng.random_range(b'a'..=b'z')) as char)
-                .collect()
-        })
-        .collect();
-
-    // Train and compress unique values with FSST (creates VarBin with Sequence offsets)
     let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings).into_array();
     let fsst_compressor = fsst_train_compressor(&unique_varbinview).unwrap();
     let fsst_values = fsst_compress(&unique_varbinview, &fsst_compressor).unwrap();
@@ -355,7 +328,6 @@ fn setup_datetime_for_bp() -> ArrayRef {
         ("dict_varbinview_string", setup_dict_varbinview_string as fn() -> ArrayRef),
         ("runend_for_bp_u32", setup_runend_for_bp_u32 as fn() -> ArrayRef),
         ("dict_fsst_varbin_string", setup_dict_fsst_varbin_string as fn() -> ArrayRef),
-        ("dict_fsst_varbin_seq_string", setup_dict_fsst_varbin_seq_string as fn() -> ArrayRef),
         ("dict_fsst_varbin_bp_string", setup_dict_fsst_varbin_bp_string as fn() -> ArrayRef),
         ("datetime_for_bp", setup_datetime_for_bp as fn() -> ArrayRef),
     ]
