@@ -17,12 +17,6 @@ use crate::{Array, ArrayAdapter, ArrayRef};
 /// operators is stabilized. The other functions should remain on a `pub(crate)` trait.
 #[async_trait]
 pub trait ArrayOperator: 'static + Send + Sync {
-    /// Execute the array producing a canonical vector using a [`SingleThreadRuntime`].
-    #[cfg(test)]
-    fn execute_blocking(&self) -> VortexResult<Vector> {
-        vortex_io::runtime::single::block_on(|_h| self.execute())
-    }
-
     /// Execute the array producing a canonical vector.
     async fn execute(&self) -> VortexResult<Vector> {
         self.execute_with_selection(None).await

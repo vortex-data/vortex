@@ -12,7 +12,6 @@ use vortex_compute::logical::{
 };
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 use vortex_vector::BoolVector;
 
 use crate::execution::{BatchKernel, BindCtx};
@@ -26,12 +25,18 @@ use crate::{
     DeserializeMetadata, EmptyMetadata, EncodingId, EncodingRef, Precision, vtable,
 };
 
+/// The set of operators supported by a logical array.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Enum)]
 pub enum LogicalOperator {
+    /// Logical AND
     And,
+    /// Logical AND with Kleene logic
     AndKleene,
+    /// Logical OR
     Or,
+    /// Logical OR with Kleene logic
     OrKleene,
+    /// Logical AND NOT
     AndNot,
 }
 
@@ -174,15 +179,6 @@ impl SerdeVTable<LogicalVTable> for LogicalVTable {
 }
 
 impl OperatorVTable<LogicalVTable> for LogicalVTable {
-    fn compute_constant(
-        _array: &LogicalArray,
-        children: &[&Scalar],
-    ) -> VortexResult<Option<ArrayRef>> {
-        let _lhs = children[0].as_bool();
-        let _rhs = children[1].as_bool();
-        todo!()
-    }
-
     fn bind(
         array: &LogicalArray,
         selection: Option<&ArrayRef>,
@@ -228,10 +224,12 @@ mod tests {
 
     #[test]
     fn test_and() {
-        let lhs = bitbuffer![0 1 0].into_array();
-        let rhs = bitbuffer![0 1 1].into_array();
-        let result = and_(lhs, rhs).execute_blocking().unwrap().into_bool();
-        assert_eq!(result.bits(), &bitbuffer![0 1 0]);
+        block_on(|_| async {
+            let lhs = bitbuffer![0 1 0].into_array();
+            let rhs = bitbuffer![0 1 1].into_array();
+            let result = and_(lhs, rhs).execute().await.unwrap().into_bool();
+            assert_eq!(result.bits(), &bitbuffer![0 1 0]);
+        })
     }
 
     #[test]

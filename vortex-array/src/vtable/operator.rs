@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::execution::{BatchKernel, BindCtx};
@@ -50,17 +49,6 @@ pub trait OperatorVTable<V: VTable> {
         _array: &V::Array,
         _parent: ArrayRef,
         _child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        Ok(None)
-    }
-
-    /// Compute the array over all-constant inputs.
-    ///
-    /// Instead of every array implementing constant folding as part of `reduce_children`, the
-    /// optimizer will call into this function when all inputs are constant.
-    fn compute_constant(
-        _array: &V::Array,
-        _children: &[&Scalar],
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(None)
     }
