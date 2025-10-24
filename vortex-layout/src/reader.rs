@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use futures::try_join;
 use once_cell::sync::OnceCell;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
@@ -83,6 +84,20 @@ pub trait LayoutReader: 'static + Send + Sync {
 }
 
 pub type ArrayFuture = BoxFuture<'static, VortexResult<ArrayRef>>;
+
+pub trait ArrayFutureExt {
+    fn masked(self, mask: MaskFuture) -> Self;
+}
+
+impl ArrayFutureExt for ArrayFuture {
+    /// Returns a new `ArrayFuture` that masks the output with a mask
+    fn masked(self, mask: MaskFuture) -> Self {
+        Box::pin(async move {
+            let (array, mask) = try_join!(self, mask)?;
+            vortex_array::compute::mask(array.as_ref(), &mask)
+        })
+    }
+}
 
 pub struct LazyReaderChildren {
     children: Arc<dyn LayoutChildren>,

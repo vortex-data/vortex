@@ -2,20 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::ops::Range;
+use std::ops::{Not, Range};
 use std::sync::Arc;
 
 use futures::try_join;
 use itertools::Itertools;
+use vortex_array::arrays::StructArray;
 use vortex_array::stats::Precision;
-use vortex_array::{MaskFuture, ToCanonical};
+use vortex_array::vtable::ValidityHelper;
+use vortex_array::{ArrayRef, IntoArray, MaskFuture, ToCanonical};
 use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
     PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
 };
-use vortex_expr::{ExactExpr, ExprRef, col, root};
+use vortex_expr::{ExactExpr, ExprRef, MergeVTable, PackVTable, col, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -264,45 +266,63 @@ impl LayoutReader for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        mask: MaskFuture,
+        mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let validity_fut = self
             .validity()?
-            .map(|reader| reader.projection_evaluation(row_range, &root(), mask.clone()))
+            .map(|reader| reader.projection_evaluation(row_range, &root(), mask_fut.clone()))
             .transpose()?;
 
-        println!(
-            "StructReader::projection_eval on layout\n\t\tvalidity: {}\n\t\tdtype: {}\n\t\texpr: {expr}",
-            validity_fut.is_some(),
-            self.dtype(),
-        );
-
         // Partition the expression into expressions that can be evaluated over individual fields
-        let array_future = match &self.partition_expr(expr.clone()) {
-            Partitioned::Single(name, partition) => self
-                .field_reader(name)?
-                .projection_evaluation(row_range, partition, mask)?,
+        let (projected, is_pack_merge) = match &self.partition_expr(expr.clone()) {
+            Partitioned::Single(name, partition) => (
+                self.field_reader(name)?
+                    .projection_evaluation(row_range, partition, mask_fut)?,
+                partition.is::<PackVTable>() || partition.is::<MergeVTable>(),
+            ),
 
             Partitioned::Multi(partitioned) => {
                 // Apply the validity to each internal field instead.
-                partitioned
-                    .clone()
-                    .into_array_future(mask, |name, expr, mask| {
-                        self.field_reader(name)?
-                            .projection_evaluation(row_range, expr, mask)
-                    })?
+                (
+                    partitioned
+                        .clone()
+                        .into_array_future(mask_fut, |name, expr, mask| {
+                            self.field_reader(name)?
+                                .projection_evaluation(row_range, expr, mask)
+                        })?,
+                    partitioned.root.is::<PackVTable>() || partitioned.root.is::<MergeVTable>(),
+                )
             }
         };
 
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
-                let (validity, array) = try_join!(validity_fut, array_future)?;
-                vortex_array::compute::mask(
-                    array.as_ref(),
-                    &Mask::from_buffer(!validity.to_bool().boolean_buffer()),
-                )
+                let (array, validity) = try_join!(projected, validity_fut)?;
+                let mask = Mask::from_buffer(validity.to_bool().bit_buffer().not());
+
+                // If root expression was a pack, then we apply the validity to each child field
+                if is_pack_merge {
+                    let struct_array = array.to_struct();
+                    let masked_fields: Vec<ArrayRef> = struct_array
+                        .fields()
+                        .iter()
+                        .map(|a| vortex_array::compute::mask(a.as_ref(), &mask))
+                        .try_collect()?;
+
+                    Ok(StructArray::try_new(
+                        struct_array.names().clone(),
+                        masked_fields,
+                        struct_array.len(),
+                        struct_array.validity().clone(),
+                    )?
+                    .into_array())
+                } else {
+                    // If the root expression was not a pack or merge, e.g. if it's something like
+                    // a get_item, then we apply the validity directly to the result
+                    vortex_array::compute::mask(array.as_ref(), &mask)
+                }
             } else {
-                array_future.await
+                projected.await
             }
         }))
     }
@@ -604,7 +624,14 @@ mod tests {
             result.scalar_at(0).as_struct().field_by_idx(0).unwrap(),
             Scalar::primitive(4, Nullability::Nullable)
         );
-        assert_eq!(result.scalar_at(1), Scalar::null(result.dtype().clone()));
+        assert!(
+            result
+                .scalar_at(1)
+                .as_struct()
+                .field_by_idx(0)
+                .unwrap()
+                .is_null(),
+        );
         assert_eq!(
             result.scalar_at(2).as_struct().field_by_idx(0).unwrap(),
             Scalar::primitive(6, Nullability::Nullable)
