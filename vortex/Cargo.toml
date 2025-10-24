@@ -87,3 +87,8 @@ unstable_encodings = ["vortex-btrblocks/unstable_encodings"]
 name = "single_encoding_throughput"
 harness = false
 test = false
+
+[[bench]]
+name = "common_encoding_tree_throughput"
+harness = false
+test = false
