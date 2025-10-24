@@ -9,9 +9,8 @@
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 
-use crate::{
-    BoolVectorMut, NullVectorMut, PrimitiveVectorMut, Vector, VectorMutOps, match_each_vector_mut,
-};
+use super::macros::match_each_vector_mut;
+use crate::{BoolVectorMut, NullVectorMut, PrimitiveVectorMut, Vector, VectorMutOps};
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
 /// data.
@@ -24,11 +23,14 @@ use crate::{
 /// [`VectorOps`](crate::VectorOps) trait.
 #[derive(Debug, Clone)]
 pub enum VectorMut {
-    /// Null
+    /// Null mutable vectors.
     Null(NullVectorMut),
-    /// Bool
+    /// Boolean mutable vectors.
     Bool(BoolVectorMut),
-    /// Primitive
+    /// Primitive mutable vectors.
+    ///
+    /// Note that [`PrimitiveVectorMut`] is an enum over the different possible (generic)
+    /// [`PVectorMut<T>`](crate::PVectorMut)s. See the documentation for more information.
     Primitive(PrimitiveVectorMut),
 }
 

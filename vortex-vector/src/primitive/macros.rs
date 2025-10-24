@@ -4,8 +4,6 @@
 //! Helper macros for working with the different variants of [`PrimitiveVector`] and
 //! [`PrimitiveVectorMut`].
 //!
-//! All macros are exported at the crate level with `#[macro_export]`.
-//!
 //! [`PrimitiveVector`]: crate::PrimitiveVector
 //! [`PrimitiveVectorMut`]: crate::PrimitiveVectorMut
 
@@ -18,8 +16,8 @@
 ///
 /// # Examples
 ///
-/// ```
-/// use vortex_vector::{PrimitiveVector, PVectorMut, VectorOps, VectorMutOps, match_each_pvector};
+/// ```ignore
+/// use vortex_vector::{PrimitiveVector, PVectorMut, VectorOps, VectorMutOps};
 ///
 /// fn get_primitive_len(vector: &PrimitiveVector) -> usize {
 ///     match_each_pvector!(vector, |v| { v.len() })
@@ -42,7 +40,6 @@
 ///
 /// [`PrimitiveVector`]: crate::PrimitiveVector
 /// [`VectorOps`]: crate::VectorOps
-#[macro_export]
 macro_rules! match_each_pvector {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
@@ -94,8 +91,8 @@ macro_rules! match_each_pvector {
     }};
 }
 
-// TODO(connor): Make this a proper Rust test after we replace `BooleanBuffer` with `BitBuffer`
-// in `MaskValues`.
+pub(crate) use match_each_pvector;
+
 /// Matches on all primitive type variants of [`PrimitiveVectorMut`] and executes the same code
 /// for each variant branch.
 ///
@@ -105,8 +102,8 @@ macro_rules! match_each_pvector {
 ///
 /// # Examples
 ///
-/// ```
-/// use vortex_vector::{PrimitiveVectorMut, PVectorMut, VectorMutOps, match_each_pvector_mut};
+/// ```ignore
+/// use vortex_vector::{PrimitiveVectorMut, PVectorMut, VectorMutOps};
 ///
 /// fn reserve_primitive_space(vector: &mut PrimitiveVectorMut, additional: usize) {
 ///     match_each_pvector_mut!(vector, |v| { v.reserve(additional) })
@@ -127,7 +124,6 @@ macro_rules! match_each_pvector {
 ///
 /// [`PrimitiveVectorMut`]: crate::PrimitiveVectorMut
 /// [`VectorMutOps`]: crate::VectorMutOps
-#[macro_export]
 macro_rules! match_each_pvector_mut {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
@@ -178,3 +174,5 @@ macro_rules! match_each_pvector_mut {
         }
     }};
 }
+
+pub(crate) use match_each_pvector_mut;

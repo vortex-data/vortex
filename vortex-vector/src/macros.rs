@@ -3,8 +3,6 @@
 
 //! Helper macros for working with the different variants of [`Vector`](crate::Vector) and
 //! [`VectorMut`](crate::VectorMut).
-//!
-//! All macros are exported at the crate level with `#[macro_export]`.
 
 /// Matches on all variants of [`Vector`] and executes the same code for each variant branch.
 ///
@@ -13,8 +11,8 @@
 ///
 /// # Examples
 ///
-/// ```
-/// use vortex_vector::{Vector, BoolVectorMut, NullVector, VectorOps, VectorMutOps, match_each_vector};
+/// ```ignore
+/// use vortex_vector::{Vector, BoolVectorMut, NullVector, VectorOps, VectorMutOps};
 ///
 /// fn get_vector_length(vector: &Vector) -> usize {
 ///     match_each_vector!(vector, |v| { v.len() })
@@ -35,7 +33,6 @@
 ///
 /// [`Vector`]: crate::Vector
 /// [`VectorOps`]: crate::VectorOps
-#[macro_export]
 macro_rules! match_each_vector {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
@@ -55,6 +52,8 @@ macro_rules! match_each_vector {
     }};
 }
 
+pub(crate) use match_each_vector;
+
 /// Matches on all variants of [`VectorMut`] and executes the same code for each variant branch.
 ///
 /// This macro eliminates repetitive match statements when implementing operations that need to work
@@ -62,8 +61,8 @@ macro_rules! match_each_vector {
 ///
 /// # Examples
 ///
-/// ```
-/// use vortex_vector::{VectorMut, BoolVectorMut, NullVectorMut, VectorMutOps, match_each_vector_mut};
+/// ```ignore
+/// use vortex_vector::{VectorMut, BoolVectorMut, NullVectorMut, VectorMutOps};
 ///
 /// fn reserve_space(vector: &mut VectorMut, additional: usize) {
 ///     match_each_vector_mut!(vector, |v| { v.reserve(additional) })
@@ -84,7 +83,6 @@ macro_rules! match_each_vector {
 ///
 /// [`VectorMut`]: crate::VectorMut
 /// [`VectorMutOps`]: crate::VectorMutOps
-#[macro_export]
 macro_rules! match_each_vector_mut {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
@@ -103,3 +101,5 @@ macro_rules! match_each_vector_mut {
         }
     }};
 }
+
+pub(crate) use match_each_vector_mut;

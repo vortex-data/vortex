@@ -131,3 +131,19 @@ fn push_n_vortex_buffer<T: PrimInt>(bencher: Bencher, length: usize) {
             }
         });
 }
+
+#[divan::bench(args = INPUT_SIZE)]
+fn map_new_output(bencher: Bencher, n: i32) {
+    bencher
+        .with_inputs(|| {
+            (
+                Buffer::from_iter((0..n).map(|i| i % i32::MAX)),
+                BufferMut::with_capacity(n as usize),
+            )
+        })
+        .bench_values(|(buffer, mut out)| {
+            buffer
+                .iter()
+                .for_each(|&i| unsafe { out.push_unchecked((i as u32) + 1) })
+        });
+}

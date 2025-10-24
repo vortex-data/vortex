@@ -9,6 +9,8 @@ pub use vector::BoolVector;
 mod vector_mut;
 pub use vector_mut::BoolVectorMut;
 
+mod from_iter;
+
 use crate::{Vector, VectorMut};
 
 impl From<BoolVector> for Vector {

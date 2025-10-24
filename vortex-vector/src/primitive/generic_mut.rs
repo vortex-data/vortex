@@ -5,6 +5,7 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
 use crate::{PVector, VectorMutOps, VectorOps};
@@ -107,81 +108,55 @@ pub struct PVectorMut<T> {
 }
 
 impl<T> PVectorMut<T> {
+    /// Creates a new [`PVectorMut<T>`] from the given elements buffer and validity mask.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the length of the validity mask does not match the length of the elements buffer.
+    pub fn new(elements: BufferMut<T>, validity: MaskMut) -> Self {
+        Self::try_new(elements, validity)
+            .vortex_expect("`PVectorMut` validity mask must have the same length as elements")
+    }
+
+    /// Tries to create a new [`PVectorMut<T>`] from the given elements buffer and validity mask.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the length of the validity mask does not match the length of the
+    /// elements buffer.
+    pub fn try_new(elements: BufferMut<T>, validity: MaskMut) -> VortexResult<Self> {
+        vortex_ensure!(
+            validity.len() == elements.len(),
+            "`PVectorMut` validity mask must have the same length as elements"
+        );
+
+        Ok(Self { elements, validity })
+    }
+
+    /// Creates a new [`PVectorMut<T>`] from the given elements buffer and validity mask without
+    /// validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the validity mask has the same length as the elements buffer.
+    ///
+    /// Ideally, they are taken from `into_parts`, mutated in a way that doesn't re-allocate, and
+    /// then passed back to this function.
+    pub unsafe fn new_unchecked(elements: BufferMut<T>, validity: MaskMut) -> Self {
+        debug_assert_eq!(
+            elements.len(),
+            validity.len(),
+            "`PVectorMut` validity mask must have the same length as elements"
+        );
+
+        Self { elements, validity }
+    }
+
     /// Create a new mutable primitive vector with the given capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             elements: BufferMut::with_capacity(capacity),
             validity: MaskMut::with_capacity(capacity),
-        }
-    }
-}
-
-impl<T: NativePType> FromIterator<Option<T>> for PVectorMut<T> {
-    /// Creates a new [`PVectorMut<T>`] from an iterator of `Option<T>` values.
-    ///
-    /// `None` values will be marked as invalid in the validity mask.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vortex_vector::{PVectorMut, VectorMutOps};
-    ///
-    /// let mut vec = PVectorMut::<i32>::from_iter([Some(1), None, Some(3)]);
-    /// assert_eq!(vec.len(), 3);
-    /// ```
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = Option<T>>,
-    {
-        let iter = iter.into_iter();
-        let (lower_bound, _) = iter.size_hint();
-
-        let mut elements = Vec::with_capacity(lower_bound);
-        let mut validity = MaskMut::with_capacity(lower_bound);
-
-        for opt_val in iter {
-            match opt_val {
-                Some(val) => {
-                    elements.push(val);
-                    validity.append_n(true, 1);
-                }
-                None => {
-                    elements.push(T::default()); // Use default for invalid entries.
-                    validity.append_n(false, 1);
-                }
-            }
-        }
-
-        PVectorMut {
-            elements: BufferMut::from_iter(elements),
-            validity,
-        }
-    }
-}
-
-impl<T: NativePType> FromIterator<T> for PVectorMut<T> {
-    /// Creates a new [`PVectorMut<T>`] from an iterator of `T` values.
-    ///
-    /// All values will be treated as non-null.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vortex_vector::{PVectorMut, VectorMutOps};
-    ///
-    /// let mut vec = PVectorMut::<i32>::from_iter([1, 2, 3, 4]);
-    /// assert_eq!(vec.len(), 4);
-    /// ```
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = T>,
-    {
-        let buffer = BufferMut::from_iter(iter);
-        let validity = MaskMut::new_true(buffer.len());
-
-        PVectorMut {
-            elements: buffer,
-            validity,
         }
     }
 }

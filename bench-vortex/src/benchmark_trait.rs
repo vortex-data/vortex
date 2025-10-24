@@ -20,6 +20,7 @@ pub trait Benchmark {
         disable_datafusion_cache: bool,
         emit_plan: bool,
         delete_duckdb_database: bool,
+        threads: Option<usize>,
     ) -> Result<EngineCtx> {
         let engine = target.engine();
         let format = target.format();
@@ -37,6 +38,7 @@ pub trait Benchmark {
                     self.dataset(),
                     format,
                     delete_duckdb_database,
+                    threads,
                 )?)
             }
             _ => unreachable!("engine not supported"),

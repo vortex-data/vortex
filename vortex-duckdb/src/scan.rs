@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::max;
+use std::ffi::CString;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
@@ -26,8 +27,8 @@ use vortex::{ArrayRef, ToCanonical};
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
-    BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
-    TableFunction, TableInitInput, VirtualColumnsResult,
+    BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, ExtractedValue,
+    LogicalType, TableFunction, TableInitInput, VirtualColumnsResult,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
@@ -175,7 +176,7 @@ fn extract_table_filter_expr(
 /// Helper function to open a Vortex file from either a local or S3 URL
 async fn open_file(url: Url, options: VortexOpenOptions) -> VortexResult<VortexFile> {
     if url.scheme() == "s3" {
-        assert!(url.scheme() == "s3");
+        assert_eq!(url.scheme(), "s3");
         let bucket = url
             .host_str()
             .ok_or_else(|| vortex_err!("Failed to extract bucket name from URL: {url}"))?;
@@ -229,6 +230,24 @@ impl TableFunction for VortexTableFunction {
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
+        // Read the vortex_max_threads setting from DuckDB configuration
+        let max_threads_cstr = CString::new("vortex_max_threads")
+            .map_err(|e| vortex_err!("Invalid setting name: {}", e))?;
+        let max_threads = ctx
+            .try_get_current_setting(&max_threads_cstr)
+            .and_then(|v| match v.as_ref().extract() {
+                ExtractedValue::UBigInt(val) => usize::try_from(val).ok(),
+                ExtractedValue::BigInt(val) if val > 0 => usize::try_from(val as u64).ok(),
+                _ => None,
+            })
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(1)
+            });
+
+        log::trace!("running scan with max_threads {max_threads}");
+
         let (file_urls, _metadata) = runtime
             .block_on(|_h| Compat::new(expand_glob(file_glob_string.as_ref().as_string())))?;
 
@@ -260,7 +279,7 @@ impl TableFunction for VortexTableFunction {
             column_names,
             column_types,
             runtime,
-            max_threads: u64::MAX,
+            max_threads: max_threads as u64,
         })
     }
 
@@ -321,11 +340,9 @@ impl TableFunction for VortexTableFunction {
                 .map_or("true".to_string(), |f| f.to_string())
         );
 
-        // Estimate the number of workers.
-        // TODO(ngates): support an AtomicUsize once we plumb it through buffered streams.
-        let num_workers = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
+        // Use the max_threads from bind_data (read from vortex_max_threads setting)
+        #[allow(clippy::cast_possible_truncation)]
+        let num_workers = bind_data.max_threads as usize;
 
         let client_context = init_input.client_context()?;
         let object_cache = client_context.object_cache();

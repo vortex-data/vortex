@@ -8,7 +8,8 @@ use std::ffi::{CStr, c_char};
 use vortex::error::{VortexExpect, VortexResult};
 
 use crate::copy::VortexCopyFunction;
-pub use crate::duckdb::{Connection, Database};
+use crate::duckdb::Config;
+pub use crate::duckdb::{Connection, Database, LogicalType, Value};
 use crate::scan::VortexTableFunction;
 
 mod convert;
@@ -27,7 +28,39 @@ mod copy;
 #[cfg(test)]
 mod e2e_test;
 
+/// Register Vortex extension configuration options with DuckDB.
+/// This must be called before `register_table_functions` to take effect.
+pub fn register_extension_options(config: &Config) {
+    let logical_type = LogicalType::uint64();
+
+    let default_threads = std::thread::available_parallelism()
+        .map(|n| n.get() as u64)
+        .unwrap_or(1);
+    let default_value = Value::from(default_threads);
+
+    // Register the vortex_max_threads extension option
+    // SAFETY: We're passing valid pointers for database, logical_type, and default_value
+    // The C++ code will copy the LogicalType and Value, so we can safely drop them after this call
+    let result = unsafe {
+        cpp::duckdb_vx_add_extension_option(
+            config.as_ptr(),
+            c"vortex_max_threads".as_ptr(),
+            c"Maximum number of threads for Vortex table scans".as_ptr(),
+            logical_type.as_ptr(),
+            default_value.as_ptr(),
+        )
+    };
+
+    assert_eq!(
+        result,
+        cpp::duckdb_state::DuckDBSuccess,
+        "Failed to register vortex_max_threads extension option"
+    );
+}
+
 /// Initialize the Vortex extension by registering the extension functions.
+/// Note: This also registers extension options. If you want to register options
+/// separately (e.g., before creating connections), call `register_extension_options` first.
 pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
     conn.register_table_function::<VortexTableFunction>(c"vortex_scan")?;
     conn.register_table_function::<VortexTableFunction>(c"read_vortex")?;
@@ -45,7 +78,9 @@ pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
 /// The DuckDB extension ABI initialization function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
-    let conn = unsafe { Database::borrow(db) }
+    let database = unsafe { Database::borrow(db) };
+
+    let conn = database
         .connect()
         .vortex_expect("Failed to connect to DuckDB database");
     register_table_functions(&conn).vortex_expect("Failed to initialize Vortex extension");
@@ -67,4 +102,45 @@ pub extern "C" fn vortex_extension_version_rust() -> *const c_char {
         CStr::from_bytes_with_nul_unchecked(concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes())
     }
     .as_ptr()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::CString;
+
+    use super::*;
+    use crate::duckdb::{Config, Database};
+
+    #[test]
+    fn test_vortex_max_threads_option_registration() {
+        let config = Config::new().expect("Failed to create config");
+        register_extension_options(&config);
+        let db = Database::open_in_memory_with_config(config).expect("Failed to open database");
+
+        let conn = db.connect().expect("Failed to connect");
+
+        let _result1 = conn
+            .query("SET vortex_max_threads = 4")
+            .expect("Failed to set vortex_max_threads - option may not be registered");
+
+        let max_threads_cstr = CString::new("vortex_max_threads").unwrap();
+        let ctx = conn.client_context().vortex_expect("ctx exists");
+        assert_eq!(
+            ctx.try_get_current_setting(&max_threads_cstr)
+                .unwrap()
+                .to_string(),
+            "4"
+        );
+
+        let _result2 = conn
+            .query("SET vortex_max_threads = 8")
+            .expect("Failed to set vortex_max_threads to 8");
+
+        assert_eq!(
+            ctx.try_get_current_setting(&max_threads_cstr)
+                .unwrap()
+                .to_string(),
+            "8"
+        );
+    }
 }

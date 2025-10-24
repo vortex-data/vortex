@@ -33,6 +33,21 @@ int duckdb_vx_config_has_key(duckdb_config config, const char* key);
 /// @return A newly allocated string containing the value's string representation, or NULL on error
 char* duckdb_vx_value_to_string(duckdb_value value);
 
+/// Add an extension-specific configuration option to DuckDB.
+/// This allows extensions to register custom SET variables.
+///
+/// @param config The DuckDB config instance
+/// @param name The name of the configuration option
+/// @param description A description of what the option does
+/// @param logical_type The DuckDB logical type for the option
+/// @param default_value The default value for the option
+/// @return DuckDBSuccess on success, DuckDBError on error
+duckdb_state duckdb_vx_add_extension_option(duckdb_config config,
+                                             const char *name,
+                                             const char *description,
+                                             duckdb_logical_type logical_type,
+                                             duckdb_value default_value);
+
 #ifdef __cplusplus
 }
 #endif

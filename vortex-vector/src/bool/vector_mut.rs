@@ -4,10 +4,10 @@
 //! Definition and implementation of [`BoolVectorMut`].
 
 use vortex_buffer::BitBufferMut;
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
-use super::BoolVector;
-use crate::{VectorMutOps, VectorOps};
+use crate::{BoolVector, VectorMutOps, VectorOps};
 
 /// A mutable vector of boolean values.
 ///
@@ -71,15 +71,45 @@ pub struct BoolVectorMut {
 }
 
 impl BoolVectorMut {
-    /// Create a mutable vector from the given parts, without checking lengths or capacities.
+    /// Creates a new [`BoolVectorMut`] from the given bits and validity mask.
     ///
-    /// # SAFETY
+    /// # Panics
     ///
-    /// The caller must ensure both parts have the same length and capacity. Ideally they are
-    /// taken from `into_parts`, mutated in a way that doesn't re-allocate, and then passed back
-    /// to this function.
+    /// Panics if the length of the validity mask does not match the length of the bits.
+    pub fn new(bits: BitBufferMut, validity: MaskMut) -> Self {
+        Self::try_new(bits, validity)
+            .vortex_expect("`BoolVector` validity mask must have the same length as bits")
+    }
+
+    /// Tries to create a new [`BoolVectorMut`] from the given bits and validity mask.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the length of the validity mask does not match the length of the bits.
+    pub fn try_new(bits: BitBufferMut, validity: MaskMut) -> VortexResult<Self> {
+        vortex_ensure!(
+            validity.len() == bits.len(),
+            "`BoolVector` validity mask must have the same length as bits"
+        );
+
+        Ok(Self { bits, validity })
+    }
+
+    /// Creates a new [`BoolVectorMut`] from the given bits and validity mask without validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the validity mask has the same length as the bits.
+    ///
+    /// Ideally, they are taken from `into_parts`, mutated in a way that doesn't re-allocate, and
+    /// then passed back to this function.
     pub unsafe fn new_unchecked(bits: BitBufferMut, validity: MaskMut) -> Self {
-        debug_assert_eq!(bits.len(), validity.len());
+        debug_assert_eq!(
+            bits.len(),
+            validity.len(),
+            "`BoolVector` validity mask must have the same length as bits"
+        );
+
         Self { bits, validity }
     }
 
@@ -94,76 +124,6 @@ impl BoolVectorMut {
     /// Returns the parts of the mutable vector.
     pub fn into_parts(self) -> (BitBufferMut, MaskMut) {
         (self.bits, self.validity)
-    }
-}
-
-impl FromIterator<Option<bool>> for BoolVectorMut {
-    /// Creates a new [`BoolVectorMut`] from an iterator of `Option<bool>` values.
-    ///
-    /// `None` values will be marked as invalid in the validity mask.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vortex_vector::{BoolVectorMut, VectorMutOps};
-    ///
-    /// let mut vec = BoolVectorMut::from_iter([Some(true), None, Some(false)]);
-    /// assert_eq!(vec.len(), 3);
-    /// ```
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = Option<bool>>,
-    {
-        let iter = iter.into_iter();
-        let (lower_bound, _) = iter.size_hint();
-
-        let mut bits = Vec::with_capacity(lower_bound);
-        let mut validity = MaskMut::with_capacity(lower_bound);
-
-        for opt_val in iter {
-            match opt_val {
-                Some(val) => {
-                    bits.push(val);
-                    validity.append_n(true, 1);
-                }
-                None => {
-                    bits.push(false); // Value doesn't matter for invalid entries.
-                    validity.append_n(false, 1);
-                }
-            }
-        }
-
-        BoolVectorMut {
-            bits: BitBufferMut::from_iter(bits),
-            validity,
-        }
-    }
-}
-
-impl FromIterator<bool> for BoolVectorMut {
-    /// Creates a new [`BoolVectorMut`] from an iterator of `bool` values.
-    ///
-    /// All values will be treated as non-null.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vortex_vector::{BoolVectorMut, VectorMutOps};
-    ///
-    /// let mut vec = BoolVectorMut::from_iter([true, false, false, true]);
-    /// assert_eq!(vec.len(), 4);
-    /// ```
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = bool>,
-    {
-        let buffer = BitBufferMut::from_iter(iter);
-        let validity = MaskMut::new_true(buffer.len());
-
-        BoolVectorMut {
-            bits: buffer,
-            validity,
-        }
     }
 }
 

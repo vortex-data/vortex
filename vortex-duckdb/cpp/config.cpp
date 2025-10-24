@@ -3,10 +3,12 @@
 
 #include "include/duckdb_vx/config.h"
 #include "duckdb.hpp"
+#include "duckdb/main/config.hpp"
 #include <string>
 #include <memory>
 #include <cstdlib>
 #include <cstring>
+#include <thread>
 
 using namespace duckdb;
 
@@ -108,6 +110,37 @@ char *duckdb_vx_value_to_string(duckdb_value value) {
 
     } catch (...) {
         return nullptr;
+    }
+}
+
+duckdb_state duckdb_vx_add_extension_option(duckdb_config config,
+                                             const char *name,
+                                             const char *description,
+                                             duckdb_logical_type logical_type,
+                                             duckdb_value default_value) {
+    if (!name || !description || !logical_type || !default_value) {
+        return DuckDBError;
+    }
+
+    try {
+        auto *db_config = reinterpret_cast<DBConfig *>(config);
+        if (!db_config) {
+            return DuckDBError;
+        }
+
+        auto *type = reinterpret_cast<LogicalType *>(logical_type);
+        auto *value = reinterpret_cast<Value *>(default_value);
+
+        db_config->AddExtensionOption(
+            string(name),
+            string(description),
+            *type,
+            *value
+        );
+
+        return DuckDBSuccess;
+    } catch (...) {
+        return DuckDBError;
     }
 }
 
