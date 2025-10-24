@@ -68,7 +68,7 @@ mod tests {
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::{filter, take};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
@@ -104,7 +104,7 @@ mod tests {
             .unwrap()
             .unwrap()
             .to_primitive();
-        assert_eq!(actual.as_slice::<i32>(), expected.as_slice::<i32>());
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -120,7 +120,7 @@ mod tests {
             .unwrap()
             .unwrap()
             .to_primitive();
-        assert_eq!(actual.as_slice::<i32>(), expected.as_slice::<i32>());
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]

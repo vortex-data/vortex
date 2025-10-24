@@ -9349,6 +9349,7 @@ dependencies = [
 name = "vortex-zigzag"
 version = "0.1.0"
 dependencies = [
+ "itertools 0.14.0",
  "rstest",
  "vortex-array",
  "vortex-buffer",

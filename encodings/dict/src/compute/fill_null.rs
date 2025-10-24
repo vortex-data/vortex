@@ -53,7 +53,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::fill_null;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::Nullability;
     use vortex_error::VortexUnwrap;
@@ -79,7 +79,7 @@ mod tests {
         )
         .vortex_unwrap();
         let filled_primitive = filled.to_primitive();
-        assert_eq!(filled_primitive.as_slice::<i32>(), [10, 20, 20]);
+        assert_arrays_eq!(filled_primitive, PrimitiveArray::from_iter([10, 20, 20]));
         assert!(filled_primitive.all_valid());
     }
 }

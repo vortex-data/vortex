@@ -48,10 +48,10 @@ register_kernel!(TakeKernelAdapter(ALPRDVTable).lift());
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::take;
+    use vortex_array::{ToCanonical, assert_arrays_eq};
 
     use crate::{ALPRDFloat, RDEncoder};
 
@@ -78,7 +78,7 @@ mod test {
             .unwrap()
             .to_primitive();
 
-        assert_eq!(taken.as_slice::<T>(), &[a, outlier]);
+        assert_arrays_eq!(taken, PrimitiveArray::from_iter([a, outlier]));
     }
 
     #[rstest]
@@ -104,9 +104,10 @@ mod test {
         .unwrap()
         .to_primitive();
 
-        assert_eq!(taken.as_slice::<T>()[0], a);
-        assert_eq!(taken.as_slice::<T>()[1], outlier);
-        assert!(!taken.validity_mask().value(2));
+        assert_arrays_eq!(
+            taken,
+            PrimitiveArray::from_option_iter([Some(a), Some(outlier), None])
+        );
     }
 
     #[rstest]

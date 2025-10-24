@@ -563,8 +563,8 @@ pub mod test_harness {
 mod test {
     use rand::SeedableRng as _;
     use rand::rngs::StdRng;
-    use vortex_array::ToCanonical as _;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::{ToCanonical as _, assert_arrays_eq};
     use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::Nullability;
     use vortex_error::VortexError;
@@ -578,8 +578,7 @@ mod test {
         let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive();
         let bitpacked = bitpack_encode(&zeros, 0, None).unwrap();
         let actual = unpack(&bitpacked);
-        let actual = actual.as_slice::<u16>();
-        assert_eq!(actual, &[0u16, 0, 0, 0]);
+        assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 0, 0, 0]));
     }
 
     #[test]
@@ -587,8 +586,7 @@ mod test {
         let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive();
         let bitpacked = bitpack_encode(&zeros, 0, None).unwrap();
         let actual = unpack(&bitpacked);
-        let actual = actual.as_slice::<u16>();
-        assert_eq!(actual, &[0u16, 1, 0, 1]);
+        assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 1, 0, 1]));
     }
 
     #[test]
@@ -596,8 +594,7 @@ mod test {
         let zeros = BufferMut::from_iter(0u16..1024).into_array().to_primitive();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         let actual = unpack(&bitpacked);
-        let actual = actual.as_slice::<u16>();
-        assert_eq!(actual, &(0u16..1024).collect::<Vec<_>>());
+        assert_arrays_eq!(actual, PrimitiveArray::from_iter(0u16..1024));
     }
 
     #[test]
@@ -608,13 +605,9 @@ mod test {
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert!(bitpacked.patches().is_some());
         let actual = unpack(&bitpacked);
-        let actual = actual.as_slice::<u16>();
-        assert_eq!(
+        assert_arrays_eq!(
             actual,
-            &(5u16..1029)
-                .chain(5u16..1029)
-                .chain(5u16..1029)
-                .collect::<Vec<_>>()
+            PrimitiveArray::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
         );
     }
 
@@ -624,8 +617,7 @@ mod test {
         let bitpacked = bitpack_encode(&zeros, 11, None).unwrap();
         assert!(bitpacked.patches().is_none());
         let actual = unpack(&bitpacked);
-        let actual = actual.as_slice::<u16>();
-        assert_eq!(actual, &(0u16..1025).collect::<Vec<_>>());
+        assert_arrays_eq!(actual, PrimitiveArray::from_iter(0u16..1025));
     }
 
     #[test]
@@ -637,8 +629,7 @@ mod test {
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
         let actual = unpack(&bitpacked);
-        let actual = actual.as_slice::<u16>();
-        assert_eq!(actual, &(512u16..1537).collect::<Vec<_>>());
+        assert_arrays_eq!(actual, PrimitiveArray::from_iter(512u16..1537));
     }
 
     #[test]
@@ -651,8 +642,7 @@ mod test {
         assert!(bitpacked.patches().is_some());
         let bitpacked = bitpacked.slice(1023..1025);
         let actual = unpack(bitpacked.as_::<BitPackedVTable>());
-        let actual = actual.as_slice::<u16>();
-        assert_eq!(actual, &[1535, 1536]);
+        assert_arrays_eq!(actual, PrimitiveArray::from_iter([1535u16, 1536]));
     }
 
     #[test]
@@ -665,8 +655,10 @@ mod test {
         assert!(bitpacked.patches().is_some());
         let bitpacked = bitpacked.slice(1023..2049);
         let actual = unpack(bitpacked.as_::<BitPackedVTable>());
-        let actual = actual.as_slice::<u16>();
-        assert_eq!(actual, &(1023..2049).map(|x| x + 512).collect::<Vec<_>>());
+        assert_arrays_eq!(
+            actual,
+            PrimitiveArray::from_iter((1023u16..2049).map(|x| x + 512))
+        );
     }
 
     #[test]
@@ -717,7 +709,7 @@ mod test {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
         let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
         let decompressed = compressed.to_primitive();
-        assert_eq!(decompressed.as_slice::<u16>(), values.as_slice::<u16>());
+        assert_arrays_eq!(decompressed, values);
 
         values
             .as_slice::<u16>()
@@ -754,20 +746,14 @@ mod test {
         chunked.clone().append_to_builder(&mut primitive_builder);
         let ca_into = primitive_builder.finish();
 
-        assert_eq!(
-            into_ca.as_slice::<i32>(),
-            ca_into.to_primitive().as_slice::<i32>()
-        );
+        assert_arrays_eq!(into_ca, ca_into.to_primitive());
 
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
         primitive_builder.extend_from_array(&chunked);
         let ca_into = primitive_builder.finish();
 
-        assert_eq!(
-            into_ca.as_slice::<i32>(),
-            ca_into.to_primitive().as_slice::<i32>()
-        );
+        assert_arrays_eq!(into_ca, ca_into.to_primitive());
     }
 
     #[test]
@@ -835,7 +821,7 @@ mod test {
         let result = builder.finish_into_primitive();
 
         // Verify all values were correctly unpacked including patches.
-        assert_eq!(result.as_slice::<u32>(), &values);
+        assert_arrays_eq!(result, PrimitiveArray::from_iter(values));
     }
 
     #[test]
@@ -858,7 +844,7 @@ mod test {
         // chunk 1 (1024-2047): no patches -> points to patch index 2
         // chunk 2 (2048-3071): patch at 3000 -> starts at patch index 2
         // chunk 3 (3072-4095): patch at 3100 -> starts at patch index 3
-        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0, 2, 2, 3]);
+        assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 2, 3]));
     }
 
     #[test]
@@ -877,7 +863,7 @@ mod test {
         let patches = bitpacked.patches().unwrap();
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
-        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0, 2, 2]);
+        assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 2]));
     }
 
     #[test]
@@ -901,7 +887,7 @@ mod test {
         // chunk 2 (2048-3071): no patches -> points to patch index 3
         // chunk 3 (3072-4095): no patches -> points to patch index 3 (remaining chunks filled)
         // chunk 4 (4096-5119): no patches -> points to patch index 3 (remaining chunks filled)
-        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0, 2, 3, 3, 3]);
+        assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 3, 3, 3]));
     }
 
     #[test]
@@ -921,6 +907,6 @@ mod test {
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // Single chunk starting at patch index 0.
-        assert_eq!(chunk_offsets.as_slice::<u64>(), &[0]);
+        assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64]));
     }
 }

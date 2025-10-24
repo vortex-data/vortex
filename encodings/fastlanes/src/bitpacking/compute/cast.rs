@@ -55,7 +55,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -78,7 +78,10 @@ mod tests {
         );
 
         let decoded = casted.to_primitive();
-        assert_eq!(decoded.as_slice::<u32>(), &[10u32, 20, 30, 40, 50, 60]);
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_iter([10u32, 20, 30, 40, 50, 60])
+        );
     }
 
     #[test]

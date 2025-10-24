@@ -265,8 +265,8 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::{ToCanonical, assert_arrays_eq};
 
     use crate::{ALPRDFloat, alp_rd};
 
@@ -294,7 +294,6 @@ mod test {
 
         let decoded = rd_array.to_primitive();
 
-        let maybe_null_reals: Vec<T> = reals.into_iter().map(|v| v.unwrap_or_default()).collect();
-        assert_eq!(decoded.as_slice::<T>(), &maybe_null_reals);
+        assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));
     }
 }

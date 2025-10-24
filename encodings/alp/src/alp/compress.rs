@@ -158,12 +158,12 @@ mod tests {
         let array = PrimitiveArray::from_option_iter([None, Some(1.234f32), None]);
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
-        let expected_encoded = PrimitiveArray::from_iter(vec![0i32, 1234, 0]);
+        let expected_encoded = PrimitiveArray::from_option_iter([None, Some(1234i32), None]);
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
         let decoded = decompress(&encoded);
-        let expected = PrimitiveArray::from_iter(vec![0f32, 1.234f32, 0f32]);
+        let expected = PrimitiveArray::from_option_iter(vec![None, Some(1.234f32), None]);
         assert_arrays_eq!(decoded, expected);
     }
 
@@ -190,7 +190,8 @@ mod tests {
         let array = PrimitiveArray::new(values, Validity::from_iter([true, true, false, true]));
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
-        let expected_encoded = PrimitiveArray::from_iter(vec![1234i64, 2718, 1234, 4000]);
+        let expected_encoded =
+            PrimitiveArray::from_option_iter(buffer![Some(1234i64), Some(2718), None, Some(4000)]);
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 

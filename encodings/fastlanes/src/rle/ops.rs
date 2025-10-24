@@ -300,12 +300,16 @@ mod tests {
 
         // Slice across first and second chunk.
         let slice = encoded.slice(500..1500);
-        let decoded_slice = slice.to_primitive();
-        assert_eq!(decoded_slice.as_slice::<u32>(), &expected[500..1500]);
+        assert_arrays_eq!(
+            slice,
+            PrimitiveArray::from_iter(expected[500..1500].iter().copied())
+        );
 
         // Slice across second and third chunk.
         let slice = encoded.slice(1000..2000);
-        let decoded_slice = slice.to_primitive();
-        assert_eq!(decoded_slice.as_slice::<u32>(), &expected[1000..2000]);
+        assert_arrays_eq!(
+            slice,
+            PrimitiveArray::from_iter(expected[1000..2000].iter().copied())
+        );
     }
 }

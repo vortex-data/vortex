@@ -148,7 +148,7 @@ mod tests {
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
-        let expected = BoolArray::from_iter([false, false, true]).into_array();
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(true)]).into_array();
         assert_arrays_eq!(res, expected);
     }
 
@@ -202,15 +202,15 @@ mod tests {
         );
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
-        let expected = BoolArray::from_iter([false, false, false]).into_array();
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
-        let expected = BoolArray::from_iter([true, true, true]).into_array();
+        let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
-        let expected = BoolArray::from_iter([false, false, false]).into_array();
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected);
 
         // This cannot be converted to a i32.
@@ -220,15 +220,15 @@ mod tests {
         );
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
-        let expected = BoolArray::from_iter([false, false, false]).into_array();
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
-        let expected = BoolArray::from_iter([false, false, false]).into_array();
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
-        let expected = BoolArray::from_iter([true, true, true]).into_array();
+        let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected);
     }
 }
