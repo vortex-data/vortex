@@ -26,28 +26,31 @@ impl FromIterator<Option<bool>> for BoolVectorMut {
         I: IntoIterator<Item = Option<bool>>,
     {
         let iter = iter.into_iter();
-        let (lower_bound, _) = iter.size_hint();
+        // Since we do not know the length of the iterator, we can only guess how much memory we
+        // need to reserve. Note that these hints may be inaccurate.
+        let (lower_bound, upper_bound_opt) = iter.size_hint();
 
-        let mut bits = Vec::with_capacity(lower_bound);
-        let mut validity = MaskMut::with_capacity(lower_bound);
+        // In the case that the upper bound is adversarial, we put a hard limit on the amount of
+        // memory we reserve (and the OS should handle the rest with zero pages).
+        let reserve_amount = upper_bound_opt.unwrap_or(lower_bound);
+
+        let mut bits = BitBufferMut::with_capacity(reserve_amount);
+        let mut validity = MaskMut::with_capacity(reserve_amount);
 
         for opt_val in iter {
             match opt_val {
                 Some(val) => {
-                    bits.push(val);
+                    bits.append(val);
                     validity.append_n(true, 1);
                 }
                 None => {
-                    bits.push(false); // Value doesn't matter for invalid entries.
+                    bits.append(false); // Value doesn't matter for invalid entries.
                     validity.append_n(false, 1);
                 }
             }
         }
 
-        BoolVectorMut {
-            bits: BitBufferMut::from_iter(bits),
-            validity,
-        }
+        BoolVectorMut { bits, validity }
     }
 }
 

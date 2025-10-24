@@ -27,10 +27,18 @@ impl<T: NativePType> FromIterator<Option<T>> for PVectorMut<T> {
         I: IntoIterator<Item = Option<T>>,
     {
         let iter = iter.into_iter();
-        let (lower_bound, _) = iter.size_hint();
+        // Since we do not know the length of the iterator, we can only guess how much memory we
+        // need to reserve. Note that these hints may be inaccurate.
+        let (lower_bound, upper_bound_opt) = iter.size_hint();
 
-        let mut elements = Vec::with_capacity(lower_bound);
-        let mut validity = MaskMut::with_capacity(lower_bound);
+        // In the case that the upper bound is adversarial, we put a hard limit on the amount of
+        // memory we reserve (and the OS should handle the rest with zero pages).
+        let reserve_amount = upper_bound_opt
+            .unwrap_or(lower_bound)
+            .min(i32::MAX as usize);
+
+        let mut elements = BufferMut::with_capacity(reserve_amount);
+        let mut validity = MaskMut::with_capacity(reserve_amount);
 
         for opt_val in iter {
             match opt_val {
@@ -45,10 +53,7 @@ impl<T: NativePType> FromIterator<Option<T>> for PVectorMut<T> {
             }
         }
 
-        PVectorMut {
-            elements: BufferMut::from_iter(elements),
-            validity,
-        }
+        PVectorMut { elements, validity }
     }
 }
 
