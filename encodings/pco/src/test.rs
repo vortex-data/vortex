@@ -13,7 +13,6 @@ use vortex_array::{
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::{PcoArray, PcoEncoding};
 
@@ -53,7 +52,7 @@ fn test_compress_decompress_small() {
     let array = PrimitiveArray::from_option_iter([None, Some(1)]);
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
 
-    let expected = array.clone().into_array();
+    let expected = array.into_array();
     assert_arrays_eq!(compressed, expected);
 
     let decompressed = compressed.decompress();

@@ -126,7 +126,7 @@ mod tests {
     use vortex_array::arrays::{BoolArray, ConstantArray, PrimitiveArray};
     use vortex_array::compute::{Operator, compare};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_array::{Array, IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, DecimalDType, Nullability};
     use vortex_error::VortexResult;
