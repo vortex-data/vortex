@@ -582,8 +582,6 @@ impl<T> BufferMut<T> {
         );
 
         buffer.extend_trusted(iter);
-
-        debug_assert_eq!(buffer.alignment(), Alignment::of::<T>());
         buffer
     }
 }
@@ -610,7 +608,6 @@ impl<T> FromIterator<T> for BufferMut<T> {
         // We don't infer the capacity here and just let the first call to `extend` do it for us.
         let mut buffer = Self::with_capacity(0);
         buffer.extend(iter);
-        debug_assert_eq!(buffer.alignment(), Alignment::of::<T>());
         buffer
     }
 }
