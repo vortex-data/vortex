@@ -10,6 +10,7 @@ on:
 
 permissions:
   actions: write  # for removing labels
+  checks: write  # for posting to checks tab
   contents: read
   pull-requests: write  # for commenting on PRs
   id-token: write  # enables AWS-GitHub OIDC
@@ -125,6 +126,29 @@ jobs:
         with:
           file-path: comment.md
           comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
+
+      - name: Prepare Check Output
+        shell: bash
+        run: |
+          # Create properly escaped JSON output for check run
+          python3 -c '
+          import json
+          import sys
+          with open("comment.md", "r") as f:
+              content = f.read()
+          output = {"summary": content}
+          with open("check-output.json", "w") as f:
+              json.dump(output, f)
+          '
+
+      - name: Post to Checks Tab
+        if: always()
+        uses: LouisBrunner/checks-action@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: Benchmark Results - ${{ matrix.benchmark.name }}
+          conclusion: success
+          output_file: check-output.json
 
   sql:
     needs: label_trigger

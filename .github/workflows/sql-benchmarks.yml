@@ -260,6 +260,30 @@ jobs:
           # unique benchmark configuration must have a unique comment-tag.
           comment-tag: bench-pr-comment-${{ matrix.id }}
 
+      - name: Prepare Check Output
+        if: inputs.mode == 'pr'
+        shell: bash
+        run: |
+          # Create properly escaped JSON output for check run
+          python3 -c '
+          import json
+          import sys
+          with open("comment.md", "r") as f:
+              content = f.read()
+          output = {"summary": content}
+          with open("check-output.json", "w") as f:
+              json.dump(output, f)
+          '
+
+      - name: Post to Checks Tab
+        if: inputs.mode == 'pr'
+        uses: LouisBrunner/checks-action@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: Benchmark Results - ${{ matrix.name }}
+          conclusion: success
+          output_file: check-output.json
+
       - name: Upload Benchmark Results
         if: inputs.mode == 'develop'
         shell: bash
