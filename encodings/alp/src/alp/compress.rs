@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem;
+
 use itertools::Itertools;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
@@ -156,14 +158,13 @@ pub fn decompress_with_patches(array: &ALPArray, patches: &Patches) -> Primitive
                 let patches_values = patches_values.as_slice::<T>();
                 let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
 
-                let alp_buffer = alp_encoded.into_buffer();
+                let mut alp_buffer = alp_encoded.into_buffer_mut();
                 let len = array.len();
-                let mut decoded_values = BufferMut::<T>::with_capacity(len);
 
                 for (chunk_idx, chunk_start) in (0..len).step_by(1024).enumerate() {
                     let chunk_end = (chunk_start + 1024).min(len);
-                    let chunk_slice = &alp_buffer.as_slice()[chunk_start..chunk_end];
-                    <T>::decode_into_buffer(chunk_slice, array.exponents(), &mut decoded_values);
+                    let chunk_slice = &mut alp_buffer.as_mut_slice()[chunk_start..chunk_end];
+                    <T>::decode_slice_inplace(chunk_slice, array.exponents());
 
                     let patches_start_idx = patches_chunk_offsets[chunk_idx] as usize;
                     let patches_end_idx = if chunk_idx + 1 < patches_chunk_offsets.len() {
@@ -172,16 +173,19 @@ pub fn decompress_with_patches(array: &ALPArray, patches: &Patches) -> Primitive
                         patches_indices.len()
                     };
 
+                    let decoded_chunk_slice: &mut [T] = unsafe { mem::transmute(chunk_slice) };
                     for patches_idx in patches_start_idx..patches_end_idx {
                         let patched_index =
                             patches_indices[patches_idx] as usize - patches.offset();
 
                         let patched_value = patches_values[patches_idx];
-                        decoded_values[patched_index as usize] = patched_value;
+                        println!("Patched index {patched_index}");
+                        decoded_chunk_slice[patched_index] = patched_value;
                     }
                 }
 
-                PrimitiveArray::new::<T>(decoded_values, validity)
+                let decoded_buffer: BufferMut<T> = unsafe { mem::transmute(alp_buffer) };
+                PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
             })
         })
     })

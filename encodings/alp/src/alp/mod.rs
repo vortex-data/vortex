@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::{Display, Formatter};
+use std::mem;
 use std::mem::size_of;
 
 use itertools::Itertools;
@@ -192,14 +193,11 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
         values
     }
 
-    fn decode_into_buffer(
-        encoded: &[Self::ALPInt],
-        exponents: Exponents,
-        output: &mut BufferMut<Self>,
-    ) {
-        for encoded in encoded {
-            output.push(Self::decode_single(*encoded, exponents));
-        }
+    fn decode_slice_inplace(encoded: &mut [Self::ALPInt], exponents: Exponents) {
+        let decoded: &mut [Self] = unsafe { mem::transmute(encoded) };
+        decoded
+            .iter_mut()
+            .for_each(|v| *v = Self::decode_single(unsafe { mem::transmute_copy::<Self, Self::ALPInt>(v) }, exponents))
     }
 
     fn decode_buffer(encoded: BufferMut<Self::ALPInt>, exponents: Exponents) -> BufferMut<Self> {
