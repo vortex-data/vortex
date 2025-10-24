@@ -159,25 +159,11 @@ pub fn decompress_with_patches(array: &ALPArray, patches: &Patches) -> Primitive
                 let alp_buffer = alp_encoded.into_buffer();
                 let len = array.len();
                 let mut decoded_values = BufferMut::<T>::with_capacity(len);
-                // let mut patches_idx = 0usize;
 
                 for (chunk_idx, chunk_start) in (0..len).step_by(1024).enumerate() {
                     let chunk_end = (chunk_start + 1024).min(len);
                     let chunk_slice = &alp_buffer.as_slice()[chunk_start..chunk_end];
                     <T>::decode_into_buffer(chunk_slice, array.exponents(), &mut decoded_values);
-
-                    // tests succeed but benchmark decompress_alp succeeds
-
-                    // while patches_idx < patches_indices.len() && {
-                    //     patches_indices[patches_idx] as usize - patches.offset()
-                    // } < chunk_end
-                    // {
-                    //     let patched_index =
-                    //         patches_indices[patches_idx] as usize - patches.offset();
-                    //     let patched_value = patches_values[patches_idx];
-                    //     decoded_values[patched_index as usize] = patched_value;
-                    //     patches_idx += 1;
-                    // }
 
                     let patches_start_idx = patches_chunk_offsets[chunk_idx] as usize;
                     let patches_end_idx = if chunk_idx + 1 < patches_chunk_offsets.len() {
@@ -186,18 +172,9 @@ pub fn decompress_with_patches(array: &ALPArray, patches: &Patches) -> Primitive
                         patches_indices.len()
                     };
 
-                    // let offset_withing_chunk = patches.offset_within_chunk().unwrap_or(0);
-                    // println!("offset within chunk {offset_withing_chunk}");
-                    // let patches_start_idx = patches_start_idx.saturating_sub(offset_withing_chunk);
-                    // let patches_end_idx = patches_end_idx.saturating_sub(offset_withing_chunk);
-
-                    // tests succeed but benchmark decompress_alp fails
-
                     for patches_idx in patches_start_idx..patches_end_idx {
                         let patched_index =
                             patches_indices[patches_idx] as usize - patches.offset();
-
-                        assert!(patched_index < chunk_end);
 
                         let patched_value = patches_values[patches_idx];
                         decoded_values[patched_index as usize] = patched_value;
