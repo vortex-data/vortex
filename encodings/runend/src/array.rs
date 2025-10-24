@@ -379,7 +379,7 @@ impl CanonicalVTable<RunEndVTable> for RunEndVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::IntoArray;
+    use vortex_array::{IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -400,9 +400,7 @@ mod tests {
         // 0, 1 => 1
         // 2, 3, 4 => 2
         // 5, 6, 7, 8, 9 => 3
-        assert_eq!(arr.scalar_at(0), 1.into());
-        assert_eq!(arr.scalar_at(2), 2.into());
-        assert_eq!(arr.scalar_at(5), 3.into());
-        assert_eq!(arr.scalar_at(9), 3.into());
+        let expected = buffer![1, 1, 2, 2, 2, 3, 3, 3, 3, 3].into_array();
+        assert_arrays_eq!(arr.to_array(), expected);
     }
 }

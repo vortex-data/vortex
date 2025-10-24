@@ -7,7 +7,9 @@ use vortex_array::arrow::compute::to_arrow_preferred;
 use vortex_array::serde::{ArrayParts, SerializeOptions};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayContext, ArrayRegistry, EncodingRef, ToCanonical};
+use vortex_array::{
+    ArrayContext, ArrayRegistry, EncodingRef, IntoArray, ToCanonical, assert_arrays_eq,
+};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_mask::Mask;
@@ -50,11 +52,12 @@ fn test_compress_decompress() {
 fn test_compress_decompress_small() {
     let array = PrimitiveArray::from_option_iter([None, Some(1)]);
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
-    assert_eq!(compressed.scalar_at(0), Scalar::null_typed::<i32>());
-    assert_eq!(compressed.scalar_at(1), Scalar::from(Some(1)));
+
+    let expected = array.clone().into_array();
+    assert_arrays_eq!(compressed, expected);
+
     let decompressed = compressed.decompress();
-    assert_eq!(decompressed.scalar_at(0), Scalar::null_typed::<i32>());
-    assert_eq!(decompressed.scalar_at(1), Scalar::from(Some(1)));
+    assert_arrays_eq!(decompressed, expected);
 }
 
 #[test]

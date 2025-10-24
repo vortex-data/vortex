@@ -41,17 +41,18 @@ register_kernel!(FilterKernelAdapter(DictVTable).lift());
 
 #[cfg(test)]
 mod test {
+    #[allow(unused_imports)]
+    use itertools::Itertools;
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::{Operator, compare, take};
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
-    use vortex_scalar::Scalar;
 
     use crate::builders::dict_encode;
 
@@ -69,44 +70,31 @@ mod test {
         let dict = dict_encode(PrimitiveArray::from_option_iter(values.clone()).as_ref()).unwrap();
         let actual = dict.to_primitive();
 
-        let expected: Vec<i32> = (0..65)
-            .map(|i| match i % 3 {
-                // Compressor puts 0 as a code for invalid values
-                0 => 42,
-                1 => -9,
-                2 => 0,
-                _ => unreachable!(),
-            })
-            .collect();
+        let expected = PrimitiveArray::from_option_iter(values);
 
-        assert_eq!(actual.as_slice::<i32>(), expected.as_slice());
-
-        let expected_valid_count = values.iter().filter(|x| x.is_some()).count();
-        assert_eq!(actual.validity_mask().true_count(), expected_valid_count);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
     fn canonicalise_non_nullable_primitive_32_unique_values() {
         let unique_values: Vec<i32> = (0..32).collect();
-        let expected: Vec<i32> = (0..1000).map(|i| unique_values[i % 32]).collect();
+        let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 32]));
 
-        let dict =
-            dict_encode(PrimitiveArray::from_iter(expected.iter().copied()).as_ref()).unwrap();
+        let dict = dict_encode(expected.as_ref()).unwrap();
         let actual = dict.to_primitive();
 
-        assert_eq!(actual.as_slice::<i32>(), expected.as_slice());
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
     fn canonicalise_non_nullable_primitive_100_unique_values() {
         let unique_values: Vec<i32> = (0..100).collect();
-        let expected: Vec<i32> = (0..1000).map(|i| unique_values[i % 100]).collect();
+        let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 100]));
 
-        let dict =
-            dict_encode(PrimitiveArray::from_iter(expected.iter().copied()).as_ref()).unwrap();
+        let dict = dict_encode(expected.as_ref()).unwrap();
         let actual = dict.to_primitive();
 
-        assert_eq!(actual.as_slice::<i32>(), expected.as_slice());
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -147,21 +135,12 @@ mod test {
 
     #[test]
     fn compare_sliced_dict() {
+        use vortex_array::arrays::BoolArray;
         let sliced = sliced_dict_array();
         let compared = compare(&sliced, ConstantArray::new(42, 3).as_ref(), Operator::Eq).unwrap();
 
-        assert_eq!(
-            compared.scalar_at(0),
-            Scalar::bool(false, Nullability::Nullable)
-        );
-        assert_eq!(
-            compared.scalar_at(1),
-            Scalar::null(DType::Bool(Nullability::Nullable))
-        );
-        assert_eq!(
-            compared.scalar_at(2),
-            Scalar::bool(true, Nullability::Nullable)
-        );
+        let expected = BoolArray::from_iter([Some(false), None, Some(true)]);
+        assert_arrays_eq!(compared, expected.to_array());
     }
 
     #[test]

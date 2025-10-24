@@ -26,6 +26,7 @@ vortex-proto = { workspace = true }
 vortex-scalar = { workspace = true }
 
 [dev-dependencies]
+itertools = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { path = "../../vortex-array", features = ["test-harness"] }

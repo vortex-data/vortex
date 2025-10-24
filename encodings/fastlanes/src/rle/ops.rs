@@ -72,8 +72,8 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical};
-    use vortex_buffer::Buffer;
+    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_buffer::{Buffer, buffer};
 
     use super::*;
 
@@ -140,64 +140,52 @@ mod tests {
 
     #[test]
     fn test_scalar_at() {
+        use vortex_array::assert_arrays_eq;
+
         let array = fixture::rle_array();
-
-        assert_eq!(array.scalar_at(0), 10u32.into());
-        assert_eq!(array.scalar_at(1), 10u32.into());
-        assert_eq!(array.scalar_at(2), 20u32.into());
-        assert_eq!(array.scalar_at(3), 20u32.into());
-        assert_eq!(array.scalar_at(4), 20u32.into());
-        assert_eq!(array.scalar_at(5), 30u32.into());
-        assert_eq!(array.scalar_at(6), 10u32.into());
-
-        assert!(!array.scalar_at(1).is_null());
-        assert!(!array.scalar_at(4).is_null());
+        let expected = PrimitiveArray::from_iter([10u32, 10, 20, 20, 20, 30, 10]);
+        assert_arrays_eq!(array.slice(0..7), expected);
     }
 
     #[test]
     fn test_scalar_at_with_nulls() {
+        use vortex_array::assert_arrays_eq;
+
         let array = fixture::rle_array_with_nulls();
-
-        assert_eq!(array.scalar_at(0), 10u32.into());
-        assert_eq!(array.scalar_at(2), 20u32.into());
-        assert_eq!(array.scalar_at(3), 20u32.into());
-        assert_eq!(array.scalar_at(5), 30u32.into());
-        assert_eq!(array.scalar_at(6), 10u32.into());
-
-        assert!(array.scalar_at(1).is_null());
-        assert!(array.scalar_at(4).is_null());
+        let expected = PrimitiveArray::from_option_iter([
+            Some(10u32),
+            None,
+            Some(20),
+            Some(20),
+            None,
+            Some(30),
+            Some(10),
+        ]);
+        assert_arrays_eq!(array.slice(0..7), expected);
     }
 
     #[test]
     fn test_scalar_at_slice() {
+        use vortex_array::assert_arrays_eq;
+
         let array = fixture::rle_array();
         let sliced = array.slice(2..6); // [20, 20, 20, 30]
 
         assert_eq!(sliced.len(), 4);
-        assert_eq!(sliced.scalar_at(0), 20u32.into());
-        assert_eq!(sliced.scalar_at(1), 20u32.into());
-        assert_eq!(sliced.scalar_at(2), 20u32.into());
-        assert_eq!(sliced.scalar_at(3), 30u32.into());
-
-        assert!(!sliced.scalar_at(0).is_null());
-        assert!(!sliced.scalar_at(3).is_null());
+        let expected = PrimitiveArray::from_iter([20u32, 20, 20, 30]);
+        assert_arrays_eq!(sliced, expected);
     }
 
     #[test]
     fn test_scalar_at_slice_with_nulls() {
+        use vortex_array::assert_arrays_eq;
+
         let array = fixture::rle_array_with_nulls();
-        let sliced = array.slice(2..6); // [20, 20, 20, 30]
+        let sliced = array.slice(2..6); // [20, 20, null, 30]
 
         assert_eq!(sliced.len(), 4);
-        assert_eq!(sliced.scalar_at(0), 20u32.into());
-        assert_eq!(sliced.scalar_at(1), 20u32.into());
-        assert_eq!(sliced.scalar_at(2), Scalar::null_typed::<u32>());
-        assert_eq!(sliced.scalar_at(3), 30u32.into());
-
-        assert!(!sliced.scalar_at(0).is_null());
-        assert!(!sliced.scalar_at(1).is_null());
-        assert!(sliced.scalar_at(2).is_null());
-        assert!(!sliced.scalar_at(3).is_null());
+        let expected = PrimitiveArray::from_option_iter([Some(20u32), Some(20), None, Some(30)]);
+        assert_arrays_eq!(sliced, expected);
     }
 
     #[test]
@@ -238,9 +226,16 @@ mod tests {
         let array = fixture::rle_array_with_nulls();
         let sliced = array.slice(0..7);
 
-        assert_eq!(sliced.len(), 7);
-        assert_eq!(sliced.scalar_at(0), 10u32.into());
-        assert_eq!(sliced.scalar_at(5), 30u32.into());
+        let expected = PrimitiveArray::from_option_iter([
+            Some(10u32),
+            None,
+            Some(20),
+            Some(20),
+            None,
+            Some(30),
+            Some(10),
+        ]);
+        assert_arrays_eq!(sliced.to_array(), expected.to_array());
     }
 
     #[test]
@@ -248,9 +243,8 @@ mod tests {
         let array = fixture::rle_array();
         let sliced = array.slice(4..6); // [20, 30]
 
-        assert_eq!(sliced.len(), 2);
-        assert_eq!(sliced.scalar_at(0), 20u32.into());
-        assert_eq!(sliced.scalar_at(1), 30u32.into());
+        let expected = buffer![20u32, 30].into_array();
+        assert_arrays_eq!(sliced.to_array(), expected);
     }
 
     #[test]
@@ -258,8 +252,8 @@ mod tests {
         let array = fixture::rle_array();
         let sliced = array.slice(5..6); // [30]
 
-        assert_eq!(sliced.len(), 1);
-        assert_eq!(sliced.scalar_at(0), 30u32.into());
+        let expected = buffer![30u32].into_array();
+        assert_arrays_eq!(sliced.to_array(), expected);
     }
 
     #[test]
@@ -275,10 +269,8 @@ mod tests {
         let array = fixture::rle_array_with_nulls();
         let sliced = array.slice(1..4); // [null, 20, 20]
 
-        assert_eq!(sliced.len(), 3);
-        assert!(sliced.scalar_at(0).is_null());
-        assert_eq!(sliced.scalar_at(1), 20u32.into());
-        assert_eq!(sliced.scalar_at(2), 20u32.into());
+        let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
+        assert_arrays_eq!(sliced.to_array(), expected.to_array());
     }
 
     #[test]
@@ -286,10 +278,8 @@ mod tests {
         let array = fixture::rle_array_with_nulls();
         let sliced = array.slice(1..4).to_array().to_primitive(); // [null, 20, 20]
 
-        assert_eq!(sliced.len(), 3);
-        assert!(sliced.scalar_at(0).is_null());
-        assert_eq!(sliced.scalar_at(1), 20u32.into());
-        assert_eq!(sliced.scalar_at(2), 20u32.into());
+        let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
+        assert_arrays_eq!(sliced.to_array(), expected.to_array());
     }
 
     #[test]

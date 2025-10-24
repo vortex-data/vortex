@@ -54,7 +54,7 @@ mod test {
     use vortex_array::compute::take;
     use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{Array, IntoArray, assert_arrays_eq};
     use vortex_buffer::{Alignment, Buffer, ByteBuffer, buffer};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
@@ -215,8 +215,7 @@ mod test {
         let patches = packed.patches().unwrap().indices().clone();
         assert_eq!(usize::try_from(&patches.scalar_at(0)).unwrap(), 256);
 
-        values.iter().enumerate().for_each(|(i, v)| {
-            assert_eq!(u32::try_from(packed.scalar_at(i).as_ref()).unwrap(), *v);
-        });
+        let expected = PrimitiveArray::from_iter(values.iter().copied());
+        assert_arrays_eq!(packed, expected);
     }
 }

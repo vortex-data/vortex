@@ -189,13 +189,15 @@ impl ValidityVTable<DictVTable> for DictVTable {
 
 #[cfg(test)]
 mod test {
+    #[allow(unused_imports)]
+    use itertools::Itertools;
     use rand::distr::{Distribution, StandardUniform};
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
     use vortex_array::arrays::{ChunkedArray, PrimitiveArray};
     use vortex_array::builders::builder_with_capacity;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, NativePType, PType, UnsignedPType};
@@ -324,10 +326,6 @@ mod test {
         let into_prim = array.to_primitive();
         let prim_into = builder.finish_into_canonical().into_primitive();
 
-        assert_eq!(into_prim.as_slice::<u64>(), prim_into.as_slice::<u64>());
-        assert_eq!(
-            into_prim.validity_mask().bit_buffer(),
-            prim_into.validity_mask().bit_buffer()
-        )
+        assert_arrays_eq!(into_prim, prim_into);
     }
 }
