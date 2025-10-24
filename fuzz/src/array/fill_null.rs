@@ -109,7 +109,7 @@ fn fill_primitive_array(
     })
 }
 
-#[allow(clippy::cognitive_complexity, clippy::unwrap_used)]
+#[allow(clippy::cognitive_complexity)]
 fn fill_decimal_array(
     array: &DecimalArray,
     fill_value: &Scalar,
