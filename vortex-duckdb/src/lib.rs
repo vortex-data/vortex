@@ -106,31 +106,41 @@ pub extern "C" fn vortex_extension_version_rust() -> *const c_char {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CString;
+
     use super::*;
     use crate::duckdb::{Config, Database};
 
     #[test]
     fn test_vortex_max_threads_option_registration() {
-        // Create an in-memory database
         let config = Config::new().expect("Failed to create config");
-        // Register extension options
         register_extension_options(&config);
         let db = Database::open_in_memory_with_config(config).expect("Failed to open database");
 
-        // Create a connection and try to set the vortex_max_threads option
         let conn = db.connect().expect("Failed to connect");
 
-        // Try to set the option to verify it was registered successfully
-        // If the option wasn't registered, this would fail with "unrecognized configuration parameter"
-        let result1 = conn
+        let _result1 = conn
             .query("SET vortex_max_threads = 4")
             .expect("Failed to set vortex_max_threads - option may not be registered");
 
-        // TODO(joe): verify the option was set.
+        let max_threads_cstr = CString::new("vortex_max_threads").unwrap();
+        let ctx = conn.client_context().vortex_expect("ctx exists");
+        assert_eq!(
+            ctx.try_get_current_setting(&max_threads_cstr)
+                .unwrap()
+                .to_string(),
+            "4"
+        );
 
-        // // Also verify we can set it to a different value
-        let result2 = conn
+        let _result2 = conn
             .query("SET vortex_max_threads = 8")
             .expect("Failed to set vortex_max_threads to 8");
+
+        assert_eq!(
+            ctx.try_get_current_setting(&max_threads_cstr)
+                .unwrap()
+                .to_string(),
+            "8"
+        );
     }
 }
