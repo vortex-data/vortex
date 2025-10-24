@@ -246,7 +246,7 @@ impl TableFunction for VortexTableFunction {
                     .unwrap_or(1)
             });
 
-        log::trace!("runninng scan with max_threads {max_threads}");
+        log::trace!("running scan with max_threads {max_threads}");
 
         let (file_urls, _metadata) = runtime
             .block_on(|_h| Compat::new(expand_glob(file_glob_string.as_ref().as_string())))?;
