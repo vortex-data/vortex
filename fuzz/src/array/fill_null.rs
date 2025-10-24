@@ -242,7 +242,7 @@ mod tests {
     use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, VarBinViewArray};
     use vortex_array::compute::cast;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{Array, IntoArray, assert_arrays_eq};
     use vortex_buffer::BitBuffer;
     use vortex_dtype::{DType, DecimalDType, Nullability, PType};
     use vortex_scalar::{DecimalValue, Scalar};
