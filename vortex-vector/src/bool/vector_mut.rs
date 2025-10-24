@@ -103,7 +103,7 @@ impl VectorMutOps for BoolVectorMut {
     }
 
     fn append_nulls(&mut self, n: usize) {
-        self.bits.append_n(false, n);
+        self.bits.append_n(false, n); // Note that the value we push doesn't actually matter.
         self.validity.append_n(false, n);
     }
 

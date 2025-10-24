@@ -20,12 +20,15 @@ pub struct StructVector {
 
     /// The length of the vector (which is the same as all field vectors).
     ///
-    /// This is stored here as a convenience.
+    /// This is stored here as a convenience, and also helps in the case that the `StructVector` has
+    /// no fields.
     pub(super) len: usize,
 
-    /// The capacity of the vector (which is the same as all field vectors).
+    /// The capacity of the vector (which is the less than or equal to the capacity of all field
+    /// vectors).
     ///
-    /// This is stored here as a convenience for converting to/from a [`StructVectorMut`].
+    /// This is stored here as a convenience for converting to/from a [`StructVectorMut`], and also
+    /// helps in the case that the `StructVector` has no fields.
     pub(super) capacity: usize,
 
     /// The validity mask (where `true` represents an element is **not** null).
