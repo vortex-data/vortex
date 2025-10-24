@@ -523,7 +523,7 @@ jobs:
             --profile bench
 
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@v4
+        uses: CodSpeedHQ/action@c6574d0c2a990bca2842ce9af71549c5bfd7fbe0
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
