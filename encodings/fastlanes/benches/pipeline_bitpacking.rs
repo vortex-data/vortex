@@ -4,14 +4,13 @@
 #![allow(clippy::unwrap_used)]
 #![allow(unexpected_cfgs)]
 
-use arrow_buffer::BooleanBuffer;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::compute::{filter, warm_up_vtables};
 use vortex_array::{IntoArray, ToCanonical};
-use vortex_buffer::BufferMut;
+use vortex_buffer::{BitBuffer, BufferMut};
 use vortex_dtype::NativePType;
 use vortex_fastlanes::bitpack_to_best_bit_width;
 use vortex_mask::Mask;
@@ -39,7 +38,7 @@ pub fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, frac
 
     let mask = (0..LENGTH)
         .map(|_| rng.random_bool(fraction_kept))
-        .collect::<BooleanBuffer>();
+        .collect::<BitBuffer>();
 
     bencher
         // Be sure to reconstruct the mask to avoid cached set_indices
@@ -60,7 +59,7 @@ pub fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fract
 
     let mask = (0..LENGTH)
         .map(|_| rng.random_bool(fraction_kept))
-        .collect::<BooleanBuffer>();
+        .collect::<BitBuffer>();
 
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))

@@ -8,12 +8,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_fastlanes::RLEArray;
-#[cfg(feature = "unstable_encodings")]
-use {
-    crate::Compressor,
-    crate::integer::IntCode,
-    vortex_fastlanes::{DeltaArray, delta_compress},
-};
 
 use crate::integer::IntCompressor;
 use crate::{CompressorStats, Scheme, estimate_compression_ratio_with_sampling};
@@ -118,17 +112,19 @@ where
             &new_excludes,
         )?;
 
+        // NOTE(aduffy): this encoding appears to be faulty, and was causing Undefined Behavior
+        //  checks to trigger in the gharchive benchmark dataset decompression.
         // Delta in an unstable encoding, once we deem it stable we can switch over to this always.
-        #[cfg(feature = "unstable_encodings")]
-        // For indices and offsets, we always use integer compression without dictionary encoding.
-        let compressed_indices = try_compress_delta(
-            &rle_array.indices().to_primitive().narrow()?,
-            is_sample,
-            allowed_cascading - 1,
-            &[],
-        )?;
+        // #[cfg(feature = "unstable_encodings")]
+        // // For indices and offsets, we always use integer compression without dictionary encoding.
+        // let compressed_indices = try_compress_delta(
+        //     &rle_array.indices().to_primitive().narrow()?,
+        //     is_sample,
+        //     allowed_cascading - 1,
+        //     &[],
+        // )?;
 
-        #[cfg(not(feature = "unstable_encodings"))]
+        // #[cfg(not(feature = "unstable_encodings"))]
         let compressed_indices = IntCompressor::compress_no_dict(
             &rle_array.indices().to_primitive().narrow()?,
             is_sample,
@@ -158,18 +154,20 @@ where
     }
 }
 
-#[cfg(feature = "unstable_encodings")]
-fn try_compress_delta(
-    primitive_array: &PrimitiveArray,
-    is_sample: bool,
-    allowed_cascading: usize,
-    excludes: &[IntCode],
-) -> VortexResult<ArrayRef> {
-    let (bases, deltas) = delta_compress(primitive_array)?;
-    let compressed_bases = IntCompressor::compress(&bases, is_sample, allowed_cascading, excludes)?;
-    let compressed_deltas =
-        IntCompressor::compress_no_dict(&deltas, is_sample, allowed_cascading, excludes)?;
-
-    DeltaArray::try_from_delta_compress_parts(compressed_bases, compressed_deltas)
-        .map(DeltaArray::into_array)
-}
+// #[cfg(feature = "unstable_encodings")]
+// fn try_compress_delta(
+//     primitive_array: &PrimitiveArray,
+//     is_sample: bool,
+//     allowed_cascading: usize,
+//     excludes: &[IntCode],
+// ) -> VortexResult<ArrayRef> {
+//     use vortex_fastlanes::{DeltaArray, delta_compress};
+//
+//     let (bases, deltas) = delta_compress(primitive_array)?;
+//     let compressed_bases = IntCompressor::compress(&bases, is_sample, allowed_cascading, excludes)?;
+//     let compressed_deltas =
+//         IntCompressor::compress_no_dict(&deltas, is_sample, allowed_cascading, excludes)?;
+//
+//     DeltaArray::try_from_delta_compress_parts(compressed_bases, compressed_deltas)
+//         .map(DeltaArray::into_array)
+// }

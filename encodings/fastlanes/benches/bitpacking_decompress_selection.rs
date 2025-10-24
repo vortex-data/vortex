@@ -11,7 +11,6 @@
 use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng as _, SeedableRng as _};
-use vortex_array::arrays::BooleanBuffer;
 use vortex_array::compute::{filter, warm_up_vtables};
 use vortex_array::{Array, IntoArray as _, ToCanonical};
 use vortex_buffer::BufferMut;
@@ -38,7 +37,7 @@ fn decompress_bitpacking_early_filter<T: IntegerPType>(bencher: Bencher, fractio
 
     let mask = (0..100_000)
         .map(|_| rng.random_bool(fraction_kept))
-        .collect::<BooleanBuffer>();
+        .collect();
     let mask = &Mask::from_buffer(mask);
 
     bencher.bench(|| filter(array.as_ref(), mask).unwrap().to_canonical());
@@ -58,7 +57,7 @@ fn decompress_bitpacking_late_filter<T: IntegerPType>(bencher: Bencher, fraction
 
     let mask = (0..100_000)
         .map(|_| rng.random_bool(fraction_kept))
-        .collect::<BooleanBuffer>();
+        .collect();
     let mask = &Mask::from_buffer(mask);
 
     bencher

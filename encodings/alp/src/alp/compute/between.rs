@@ -104,7 +104,7 @@ mod tests {
         let res = between_impl(arr, lower, upper, Nullability::Nullable, options)
             .unwrap()
             .to_bool()
-            .boolean_buffer()
+            .bit_buffer()
             .iter()
             .collect_vec();
         assert_eq!(res.len(), 1);

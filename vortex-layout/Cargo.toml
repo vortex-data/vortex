@@ -37,6 +37,7 @@ pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
 rustc-hash = { workspace = true }
+termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 tracing = { workspace = true }
@@ -63,6 +64,7 @@ vortex-zstd = { workspace = true, optional = true }
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
+vortex-array = { path = "../vortex-array", features = ["test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
 
 [features]

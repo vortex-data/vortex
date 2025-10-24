@@ -3,8 +3,7 @@
 
 //! Conversion methods and trait implementations of [`From`] and [`Into`] for [`PrimitiveArray`].
 
-use arrow_buffer::BooleanBufferBuilder;
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::{BitBufferMut, Buffer, BufferMut};
 use vortex_dtype::NativePType;
 use vortex_error::vortex_panic;
 
@@ -19,7 +18,7 @@ impl PrimitiveArray {
     pub fn from_option_iter<T: NativePType, I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
         let iter = iter.into_iter();
         let mut values = BufferMut::with_capacity(iter.size_hint().0);
-        let mut validity = BooleanBufferBuilder::new(values.capacity());
+        let mut validity = BitBufferMut::with_capacity(values.capacity());
 
         for i in iter {
             match i {
@@ -33,7 +32,7 @@ impl PrimitiveArray {
                 }
             }
         }
-        Self::new(values.freeze(), Validity::from(validity.finish()))
+        Self::new(values.freeze(), Validity::from(validity.freeze()))
     }
 
     pub fn buffer<T: NativePType>(&self) -> Buffer<T> {

@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 use std::fmt::Debug;
+use std::hash::Hash;
 
 pub use compress::*;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
-use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
+use vortex_array::{
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, Precision, vtable,
+};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
@@ -106,6 +109,15 @@ impl ArrayVTable<FoRVTable> for FoRVTable {
 
     fn stats(array: &FoRArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &FoRArray, state: &mut H, precision: Precision) {
+        array.encoded.array_hash(state, precision);
+        array.reference.hash(state);
+    }
+
+    fn array_eq(array: &FoRArray, other: &FoRArray, precision: Precision) -> bool {
+        array.encoded.array_eq(&other.encoded, precision) && array.reference == other.reference
     }
 }
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBufferBuilder;
+use vortex_buffer::BitBufferMut;
 use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
@@ -131,7 +131,7 @@ fn take_nullable_fsl<I: IntegerPType>(
     // propagating nullability to the element array's take operation.
     let mut elements_indices =
         PrimitiveBuilder::<I>::with_capacity(Nullability::NonNullable, new_len * list_size);
-    let mut new_validity_builder = BooleanBufferBuilder::new(new_len);
+    let mut new_validity_builder = BitBufferMut::with_capacity(new_len);
 
     // Build the element indices while tracking which lists are null.
     for (i, data_idx) in indices.iter().enumerate() {
@@ -168,7 +168,7 @@ fn take_nullable_fsl<I: IntegerPType>(
     debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // At least one input was nullable, so the result is nullable.
-    let new_validity = Validity::from(new_validity_builder.finish());
+    let new_validity = Validity::from(new_validity_builder.freeze());
     debug_assert!(new_validity.maybe_len().is_none_or(|vl| vl == new_len));
 
     Ok(unsafe {

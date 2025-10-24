@@ -217,10 +217,12 @@ impl Display for StructFields {
 }
 
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct StructFieldsInner {
     names: FieldNames,
     dtypes: Arc<[FieldDType]>,
     // Derived from names, maps from field name to first index.
+    #[cfg_attr(feature = "serde", serde(skip))]
     indices: OnceLock<HashMap<FieldName, usize>>,
 }
 
@@ -256,38 +258,6 @@ impl Hash for StructFieldsInner {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.names.hash(state);
         self.dtypes.hash(state);
-    }
-}
-
-#[cfg(feature = "serde")]
-impl serde::Serialize for StructFieldsInner {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-
-        let mut state = serializer.serialize_struct("StructFieldsInner", 2)?;
-        state.serialize_field("names", &self.names)?;
-        state.serialize_field("dtypes", &self.dtypes)?;
-        state.end()
-    }
-}
-
-#[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for StructFieldsInner {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(serde::Deserialize)]
-        struct StructFieldsInnerHelper {
-            names: FieldNames,
-            dtypes: Arc<[FieldDType]>,
-        }
-
-        let helper = StructFieldsInnerHelper::deserialize(deserializer)?;
-        Ok(StructFieldsInner::from_fields(helper.names, helper.dtypes))
     }
 }
 

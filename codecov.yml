@@ -18,3 +18,7 @@ comment:
   require_head: true
   hide_project_coverage: false
   after_n_builds: 3
+
+# ignore example binaries
+ignore:
+  - "**/examples/*.rs"

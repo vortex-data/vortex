@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
 use std::ops::Range;
 
 use pyo3::prelude::*;
@@ -20,7 +21,7 @@ use vortex::vtable::{
 };
 use vortex::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
-    EncodingRef, RawMetadata, vtable,
+    EncodingRef, Precision, RawMetadata, vtable,
 };
 
 use crate::arrays::py::{PythonArray, PythonEncoding};
@@ -61,6 +62,20 @@ impl ArrayVTable<PythonVTable> for PythonVTable {
 
     fn stats(array: &PythonArray) -> StatsSetRef<'_> {
         array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
+        std::sync::Arc::as_ptr(&array.object).hash(state);
+        array.encoding.id().hash(state);
+        array.len.hash(state);
+        array.dtype.hash(state);
+    }
+
+    fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
+        std::sync::Arc::ptr_eq(&array.object, &other.object)
+            && array.encoding == other.encoding
+            && array.len == other.len
+            && array.dtype == other.dtype
     }
 }
 

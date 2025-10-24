@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Not;
+
+use arrow_buffer::bit_chunk_iterator::BitChunks;
 use bitvec::view::BitView;
 
-use crate::bit::{get_bit_unchecked, set_bit_unchecked, unset_bit_unchecked};
+use crate::bit::{get_bit_unchecked, ops, set_bit_unchecked, unset_bit_unchecked};
 use crate::{BitBuffer, BufferMut, ByteBufferMut, buffer_mut};
 
 /// A mutable bitset buffer that allows random access to individual bits for set and get.
@@ -25,10 +28,24 @@ use crate::{BitBuffer, BufferMut, ByteBufferMut, buffer_mut};
 /// ```
 ///
 /// See also: [`BitBuffer`].
+#[derive(Debug, Clone, Eq)]
 pub struct BitBufferMut {
     buffer: ByteBufferMut,
     offset: usize,
     len: usize,
+}
+
+impl PartialEq for BitBufferMut {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+
+        self.chunks()
+            .iter_padded()
+            .zip(other.chunks().iter_padded())
+            .all(|(a, b)| a == b)
+    }
 }
 
 impl BitBufferMut {
@@ -118,6 +135,13 @@ impl BitBufferMut {
         unsafe { get_bit_unchecked(self.buffer.as_ptr(), self.offset + index) }
     }
 
+    /// Access chunks of the underlying buffer as 8 byte chunks with a final trailer
+    ///
+    /// If you're performing operations on a single buffer, prefer [BitBuffer::unaligned_chunks]
+    pub fn chunks(&self) -> BitChunks<'_> {
+        BitChunks::new(self.buffer.as_slice(), self.offset, self.len)
+    }
+
     /// Get the bit capacity of the buffer.
     #[inline(always)]
     pub fn capacity(&self) -> usize {
@@ -126,12 +150,11 @@ impl BitBufferMut {
 
     /// Reserve additional bit capacity for the buffer.
     pub fn reserve(&mut self, additional: usize) {
-        let required_capacity = (self.offset + self.len + additional).div_ceil(8);
-        let buffer_capacity = self.buffer.capacity();
-        if required_capacity > self.buffer.capacity() {
-            let additional = required_capacity - buffer_capacity;
-            self.buffer.reserve(additional);
-        }
+        let required_bits = self.offset + self.len + additional;
+        let required_bytes = required_bits.div_ceil(8); // Rounds up.
+
+        let additional_bytes = required_bytes.saturating_sub(self.buffer.len());
+        self.buffer.reserve(additional_bytes);
     }
 
     /// Set the bit at `index` to the given boolean value.
@@ -198,6 +221,20 @@ impl BitBufferMut {
     pub unsafe fn unset_unchecked(&mut self, index: usize) {
         // SAFETY: checked by caller
         unsafe { unset_bit_unchecked(self.buffer.as_mut_ptr(), self.offset + index) }
+    }
+
+    /// Foces the length of the `BitBufferMut` to `new_len`.
+    ///
+    /// # Safety
+    ///
+    /// - `new_len` must be less than or equal to [`capacity()`](Self::capacity)
+    /// - The elements at `old_len..new_len` must be initialized
+    pub unsafe fn set_len(&mut self, new_len: usize) {
+        debug_assert!(
+            new_len <= self.capacity(),
+            "`set_len` requires that new_len <= capacity()"
+        );
+        self.len = new_len;
     }
 
     /// Truncate the buffer to the given length.
@@ -362,6 +399,63 @@ impl BitBufferMut {
         self.len += bit_len;
     }
 
+    /// Splits the bit buffer into two at the given index.
+    ///
+    /// Afterward, self contains elements `[0, at)`, and the returned buffer contains elements
+    /// `[at, capacity)`.
+    ///
+    /// Unlike bytes, if the split position is not on a byte-boundary this operation will copy
+    /// data into the result type, and mutate self.
+    pub fn split_off(&mut self, at: usize) -> Self {
+        assert!(at <= self.len, "index {at} exceeds len {}", self.len);
+
+        let new_offset = self.offset;
+        let new_len = self.len - at;
+
+        // If we are splitting on a byte boundary, we can just slice the buffer
+        if (self.offset + at) % 8 == 0 {
+            let byte_pos = (self.offset + at) / 8;
+            let new_buffer = self.buffer.split_off(byte_pos);
+            self.len = at;
+            return Self {
+                buffer: new_buffer,
+                offset: new_offset,
+                len: new_len,
+            };
+        }
+
+        // Otherwise, we need to copy bits into a new buffer
+        let mut new_buffer = BitBufferMut::with_capacity(new_len);
+        for i in 0..new_len {
+            let value = self.value(at + i);
+            new_buffer.append(value);
+        }
+
+        // Truncate self to the split position
+        self.truncate(at);
+
+        new_buffer
+    }
+
+    /// Absorbs a mutable buffer that was previously split off.
+    ///
+    /// If the two buffers were previously contiguous and not mutated in a way that causes
+    /// re-allocation i.e., if other was created by calling split_off on this buffer, then this is
+    /// an O(1) operation that just decreases a reference count and sets a few indices.
+    ///
+    /// Otherwise, this method degenerates to self.append_buffer(&other).
+    pub fn unsplit(&mut self, other: Self) {
+        if (self.offset + self.len) % 8 == 0 && other.offset == 0 {
+            // We are aligned and can just append the buffers
+            self.buffer.unsplit(other.buffer);
+            self.len += other.len;
+            return;
+        }
+
+        // Otherwise, we need to append the bits one by one
+        self.append_buffer(&other.freeze())
+    }
+
     /// Freeze the buffer in its current state into an immutable `BoolBuffer`.
     pub fn freeze(self) -> BitBuffer {
         BitBuffer::new_with_offset(self.buffer.freeze(), self.len, self.offset)
@@ -381,6 +475,16 @@ impl BitBufferMut {
 impl Default for BitBufferMut {
     fn default() -> Self {
         Self::with_capacity(0)
+    }
+}
+
+// Mutate-in-place implementation of bitwise NOT.
+impl Not for BitBufferMut {
+    type Output = BitBufferMut;
+
+    fn not(mut self) -> Self::Output {
+        ops::bitwise_unary_op_mut(&mut self, |b| !b);
+        self
     }
 }
 
@@ -405,24 +509,35 @@ impl From<Vec<bool>> for BitBufferMut {
 
 impl FromIterator<bool> for BitBufferMut {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        let iter = iter.into_iter();
-        let (low, high) = iter.size_hint();
-        if let Some(len) = high {
-            let mut buf = BitBufferMut::new_unset(len);
-            for (i, v) in iter.enumerate() {
-                if v {
-                    // SAFETY: i is in bounds
-                    unsafe { buf.set_unchecked(i) }
-                }
+        let mut iter = iter.into_iter();
+
+        // Note that these hints might be incorrect.
+        let (lower_bound, upper_bound_opt) = iter.size_hint();
+        let capacity = upper_bound_opt.unwrap_or(lower_bound);
+
+        let mut buf = BitBufferMut::new_unset(capacity);
+
+        // Directly write within our known capacity.
+        for i in 0..capacity {
+            let Some(v) = iter.next() else {
+                // SAFETY: We are definitely under the capacity and all values are already
+                // initialized from `new_unset`.
+                unsafe { buf.set_len(i) };
+                return buf;
+            };
+
+            if v {
+                // SAFETY: We have ensured that we are within the capacity.
+                unsafe { buf.set_unchecked(i) }
             }
-            buf
-        } else {
-            let mut buf = BitBufferMut::with_capacity(low);
-            for v in iter {
-                buf.append(v);
-            }
-            buf
         }
+
+        // Append the remaining items (as we do not know how many more there are).
+        for v in iter {
+            buf.append(v);
+        }
+
+        buf
     }
 }
 
@@ -460,6 +575,28 @@ mod tests {
         assert_eq!(bools.true_count(), 2);
         assert!(bools.value(0));
         assert!(bools.value(9));
+    }
+
+    #[test]
+    fn test_reserve_ensures_len_plus_additional() {
+        // This test documents the fix for the bug where reserve was incorrectly
+        // calculating additional bytes from capacity instead of len.
+
+        let mut bits = BitBufferMut::with_capacity(10);
+        assert_eq!(bits.len(), 0);
+
+        bits.reserve(100);
+
+        // Should have capacity for at least len + 100 = 0 + 100 = 100 bits.
+        assert!(bits.capacity() >= 100);
+
+        bits.append_n(true, 50);
+        assert_eq!(bits.len(), 50);
+
+        bits.reserve(100);
+
+        // Should have capacity for at least len + 100 = 50 + 100 = 150 bits.
+        assert!(bits.capacity() >= 150);
     }
 
     #[test]
@@ -817,5 +954,58 @@ mod tests {
         let frozen = bit_buf.freeze();
         assert_eq!(frozen.offset(), 3);
         assert_eq!(frozen.len(), 6);
+    }
+
+    #[test]
+    fn test_from_iterator_with_incorrect_size_hint() {
+        // This test catches a bug where FromIterator assumed the upper bound
+        // from size_hint was accurate. The iterator contract allows the actual
+        // count to exceed the upper bound, which could cause UB if we used
+        // append_unchecked beyond the allocated capacity.
+
+        // Custom iterator that lies about its size hint.
+        struct LyingIterator {
+            values: Vec<bool>,
+            index: usize,
+        }
+
+        impl Iterator for LyingIterator {
+            type Item = bool;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                (self.index < self.values.len()).then(|| {
+                    let val = self.values[self.index];
+                    self.index += 1;
+                    val
+                })
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                // Deliberately return an incorrect upper bound that's smaller
+                // than the actual number of elements we'll yield.
+                let remaining = self.values.len() - self.index;
+                let lower = remaining.min(5); // Correct lower bound (but capped).
+                let upper = Some(5); // Incorrect upper bound - we actually have more!
+                (lower, upper)
+            }
+        }
+
+        // Create an iterator that claims to have at most 5 elements but actually has 10.
+        let lying_iter = LyingIterator {
+            values: vec![
+                true, false, true, false, true, false, true, false, true, false,
+            ],
+            index: 0,
+        };
+
+        // Collect the iterator. This would cause UB in the old implementation
+        // if it trusted the upper bound and used append_unchecked beyond capacity.
+        let bit_buf: BitBufferMut = lying_iter.collect();
+
+        // Verify all 10 elements were collected correctly.
+        assert_eq!(bit_buf.len(), 10);
+        for i in 0..10 {
+            assert_eq!(bit_buf.value(i), i % 2 == 0);
+        }
     }
 }

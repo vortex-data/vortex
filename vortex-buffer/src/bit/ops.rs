@@ -1,104 +1,105 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::bit_chunk_iterator::BitChunks;
+use crate::trusted_len::TrustedLenExt;
+use crate::{BitBuffer, BitBufferMut, Buffer};
 
-use crate::{Alignment, BufferMut, ByteBuffer};
+pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: &BitBuffer, op: F) -> BitBuffer {
+    let iter = buffer.chunks().iter_padded().map(op);
+    let iter = unsafe { iter.trusted_len() };
 
-impl ByteBuffer {
-    /// Returns an accessor which can be used to perform bitwise operations in u64 sized chunks
-    pub(super) fn bit_chunks(&self, bit_offset: usize, bit_length: usize) -> BitChunks<'_> {
-        BitChunks::new(self.bytes.as_ref(), bit_offset, bit_length)
+    let result = Buffer::<u64>::from_trusted_len_iter(iter).into_byte_buffer();
+
+    BitBuffer::new(result, buffer.len())
+}
+
+pub(super) fn bitwise_unary_op_mut<F: FnMut(u64) -> u64>(buffer: &mut BitBufferMut, mut op: F) {
+    let slice_mut = buffer.as_mut_slice();
+
+    // The number of complete u64 words in the buffer (unaligned)
+    let u64_len = slice_mut.len() / 8;
+    let remainder = slice_mut.len() % 8;
+
+    // Create a pointer to the *unaligned* u64 words
+    let mut ptr = slice_mut.as_mut_ptr() as *mut u64;
+    for _ in 0..u64_len {
+        let value = unsafe { ptr.read_unaligned() };
+        let value = op(value);
+        unsafe { ptr.write_unaligned(value) };
+        ptr = unsafe { ptr.add(1) };
+    }
+
+    // Read remainder into a u64;
+    let mut remainder_u64 = 0u64;
+    let ptr = ptr as *mut u8;
+    for i in 0..remainder {
+        let byte = unsafe { ptr.add(i).read() };
+        remainder_u64 |= (byte as u64) << (i * 8);
+    }
+    let remainder_u64 = op(remainder_u64);
+
+    // Write back remainder
+    for i in 0..remainder {
+        let byte = ((remainder_u64 >> (i * 8)) & 0xFF) as u8;
+        unsafe { ptr.add(i).write(byte) };
     }
 }
 
-pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(
-    buffer: ByteBuffer,
-    offset: usize,
-    len: usize,
-    op: F,
-) -> ByteBuffer {
-    let mut result = BufferMut::<u64>::empty();
-    result.extend_trusted(buffer.bit_chunks(offset, len).iter().map(op));
-    result
-        .freeze()
-        .into_byte_buffer()
-        .aligned(Alignment::of::<u8>())
-}
-
 pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
-    left_buffer: ByteBuffer,
-    left_offset: usize,
-    right_buffer: ByteBuffer,
-    right_offset: usize,
-    len: usize,
+    left: &BitBuffer,
+    right: &BitBuffer,
     mut op: F,
-) -> ByteBuffer {
-    let mut result = BufferMut::<u64>::empty();
-    result.extend_trusted(
-        left_buffer
-            .bit_chunks(left_offset, len)
-            .iter()
-            .zip(right_buffer.bit_chunks(right_offset, len))
-            .map(|(l, r)| op(l, r)),
-    );
-    result
-        .freeze()
-        .into_byte_buffer()
-        .aligned(Alignment::of::<u8>())
+) -> BitBuffer {
+    assert_eq!(left.len(), right.len());
+
+    let iter = left
+        .chunks()
+        .iter_padded()
+        .zip(right.chunks().iter_padded())
+        .map(|(l, r)| op(l, r));
+    let iter = unsafe { iter.trusted_len() };
+
+    let result = Buffer::<u64>::from_trusted_len_iter(iter).into_byte_buffer();
+
+    BitBuffer::new(result, left.len())
 }
 
-pub(super) fn bitwise_and(
-    left_buffer: ByteBuffer,
-    left_offset: usize,
-    right_buffer: ByteBuffer,
-    right_offset: usize,
-    len: usize,
-) -> ByteBuffer {
-    bitwise_binary_op(
-        left_buffer,
-        left_offset,
-        right_buffer,
-        right_offset,
-        len,
-        |l, r| l & r,
-    )
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{bitbuffer, buffer};
 
-pub(super) fn bitwise_or(
-    left_buffer: ByteBuffer,
-    left_offset: usize,
-    right_buffer: ByteBuffer,
-    right_offset: usize,
-    len: usize,
-) -> ByteBuffer {
-    bitwise_binary_op(
-        left_buffer,
-        left_offset,
-        right_buffer,
-        right_offset,
-        len,
-        |l, r| l | r,
-    )
-}
+    #[test]
+    fn test_bitwise_unary_not() {
+        let buffer = BitBuffer::new(buffer![0b10101010u8], 4);
+        let result = bitwise_unary_op(&buffer, |x| !x);
+        assert_eq!(result, bitbuffer![true, false, true, false]);
+    }
 
-pub(super) fn bitwise_xor(
-    left_buffer: ByteBuffer,
-    left_offset: usize,
-    right_buffer: ByteBuffer,
-    right_offset: usize,
-    len: usize,
-) -> ByteBuffer {
-    bitwise_binary_op(
-        left_buffer,
-        left_offset,
-        right_buffer,
-        right_offset,
-        len,
-        |l, r| l ^ r,
-    )
-}
+    #[test]
+    fn test_bitwise_binary_and() {
+        // 0b1111 (15) & 0b1010 (10) = 0b1010 (10)
+        let left = BitBuffer::new(buffer![15u8], 4);
+        let right = BitBuffer::new(buffer![10u8], 4);
+        let result = bitwise_binary_op(&left, &right, |l, r| l & r);
+        assert_eq!(result, bitbuffer![false, true, false, true]);
+    }
 
-pub(super) fn bitwise_not(buffer: ByteBuffer, offset: usize, len: usize) -> ByteBuffer {
-    bitwise_unary_op(buffer, offset, len, |l| !l)
+    #[test]
+    fn test_bitwise_binary_or() {
+        // 0b1010 (10) | 0b0101 (5) = 0b1111 (15)
+        let left = BitBuffer::new(buffer![10u8], 4);
+        let right = BitBuffer::new(buffer![5u8], 4);
+        let result = bitwise_binary_op(&left, &right, |l, r| l | r);
+        assert_eq!(result, bitbuffer![true; 4]);
+    }
+
+    #[test]
+    fn test_bitwise_binary_xor() {
+        // 0b1100 (12) ^ 0b1010 (10) = 0b0110 (6)
+        let left = BitBuffer::new(buffer![12u8], 4);
+        let right = BitBuffer::new(buffer![10u8], 4);
+        let result = bitwise_binary_op(&left, &right, |l, r| l ^ r);
+        assert_eq!(result, bitbuffer![false, true, true, false]);
+    }
 }

@@ -53,10 +53,9 @@ impl ColumnExporter for StructExporter {
 mod tests {
     use std::ffi::CString;
 
-    use arrow_buffer::BooleanBuffer;
     use vortex::IntoArray;
     use vortex::arrays::{ConstantArray, PrimitiveArray, VarBinViewArray};
-    use vortex::buffer::buffer;
+    use vortex::buffer::{BitBuffer, buffer};
     use vortex::encodings::dict::DictArray;
     use vortex::error::{VortexExpect, VortexUnwrap};
     use vortex::validity::Validity;
@@ -128,7 +127,7 @@ mod tests {
             ["col1", "col2"].into(),
             vec![prim, strings],
             10,
-            Validity::from(BooleanBuffer::from_iter([
+            Validity::from(BitBuffer::from_iter([
                 true, true, true, false, false, false, true, true, true, true,
             ])),
         )
@@ -169,7 +168,7 @@ mod tests {
             ["col1", "col2"].into(),
             vec![prim, strings],
             10,
-            Validity::from(BooleanBuffer::from_iter([
+            Validity::from(BitBuffer::from_iter([
                 true, true, true, false, false, false, true, true, true, true,
             ])),
         )

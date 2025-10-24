@@ -81,8 +81,7 @@ mod tests {
             let res = list_contains(elements.as_ref(), array.as_ref())
                 .unwrap()
                 .to_bool()
-                .bool_vec()
-                .unwrap();
+                .bool_vec();
 
             assert_eq!(res, vec![true, false, true]);
         }
@@ -96,8 +95,7 @@ mod tests {
             let res = list_contains(elements.as_ref(), array.as_ref())
                 .unwrap()
                 .to_bool()
-                .bool_vec()
-                .unwrap();
+                .bool_vec();
 
             assert_eq!(res, vec![true, true, false]);
         }

@@ -30,7 +30,7 @@ where
 
 /// Outputs the indices of the true values in a BoolArray
 pub fn to_int_indices(indices_bits: BoolArray) -> VortexResult<Vec<u64>> {
-    let buffer = indices_bits.boolean_buffer();
+    let buffer = indices_bits.bit_buffer();
     let mask = indices_bits.validity_mask();
     Ok(buffer
         .iter()

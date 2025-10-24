@@ -9,9 +9,9 @@
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_iterator::BitIndexIterator;
 use num_traits::Zero;
+use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{ListScalar, Scalar};
@@ -56,7 +56,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// # use vortex_array::arrays::{ConstantArray, ListViewArray, VarBinArray};
 /// # use vortex_array::compute;
 /// # use vortex_array::validity::Validity;
-/// # use vortex_buffer::buffer;
+/// # use vortex_buffer::{buffer, bitbuffer};
 /// # use vortex_dtype::DType;
 /// # use vortex_scalar::Scalar;
 /// #
@@ -73,8 +73,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///     list_array.len()).as_ref()
 /// ).unwrap();
 ///
-/// let to_vec: Vec<bool> = matches.to_bool().boolean_buffer().iter().collect();
-/// assert_eq!(to_vec, vec![false, true, false]);
+/// assert_eq!(matches.to_bool().bit_buffer(), &bitbuffer![false, true, false]);
 /// ```
 pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<ArrayRef> {
     LIST_CONTAINS_FN
@@ -287,7 +286,7 @@ fn list_contains_scalar(
         })
     });
 
-    Ok(BoolArray::from_bool_buffer(
+    Ok(BoolArray::from_bit_buffer(
         list_matches,
         list_array.validity().clone().union_nullability(nullability),
     )
@@ -301,7 +300,7 @@ fn process_matches<O, S>(
     list_array_len: usize,
     offsets: PrimitiveArray,
     sizes: PrimitiveArray,
-) -> BooleanBuffer
+) -> BitBuffer
 where
     O: IntegerPType,
     S: IntegerPType,
@@ -317,10 +316,10 @@ where
             // BitIndexIterator yields indices of true bits only. If `.next()` returns
             // `Some(_)`, at least one element in this list's range matches.
             let mut set_bits =
-                BitIndexIterator::new(matches.boolean_buffer().values(), offset, size);
+                BitIndexIterator::new(matches.bit_buffer().inner().as_ref(), offset, size);
             set_bits.next().is_some()
         })
-        .collect::<BooleanBuffer>()
+        .collect::<BitBuffer>()
 }
 
 /// Returns a `Bool` array with `false` for lists that are valid,
@@ -351,9 +350,9 @@ fn list_false_or_null(
         }
         Validity::Array(validity_array) => {
             // Create a new bool array with false, and the provided nulls
-            let buffer = BooleanBuffer::new_unset(list_array.len());
+            let buffer = BitBuffer::new_unset(list_array.len());
             Ok(
-                BoolArray::from_bool_buffer(buffer, Validity::Array(validity_array.clone()))
+                BoolArray::from_bit_buffer(buffer, Validity::Array(validity_array.clone()))
                     .into_array(),
             )
         }
@@ -377,11 +376,11 @@ fn list_is_not_empty(
 
     let sizes = list_array.sizes().to_primitive();
     let buffer = match_each_integer_ptype!(sizes.ptype(), |S| {
-        BooleanBuffer::from_iter(sizes.as_slice::<S>().iter().map(|&size| size != S::zero()))
+        BitBuffer::from_iter(sizes.as_slice::<S>().iter().map(|&size| size != S::zero()))
     });
 
     // Copy over the validity mask from the input.
-    Ok(BoolArray::from_bool_buffer(
+    Ok(BoolArray::from_bit_buffer(
         buffer,
         list_array.validity().clone().union_nullability(nullability),
     )
@@ -394,7 +393,7 @@ mod tests {
 
     use itertools::Itertools;
     use rstest::rstest;
-    use vortex_buffer::Buffer;
+    use vortex_buffer::{Buffer, bitbuffer};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
@@ -442,7 +441,7 @@ mod tests {
     }
 
     fn bool_array(values: Vec<bool>, validity: Validity) -> BoolArray {
-        BoolArray::from_bool_buffer(values.into_iter().collect(), validity)
+        BoolArray::from_bit_buffer(values.into_iter().collect(), validity)
     }
 
     #[rstest]
@@ -510,10 +509,7 @@ mod tests {
         let elem = ConstantArray::new(scalar, list_array.len());
         let result = list_contains(&list_array, elem.as_ref()).expect("list_contains failed");
         let bool_result = result.to_bool();
-        assert_eq!(
-            bool_result.opt_bool_vec().unwrap(),
-            expected.opt_bool_vec().unwrap()
-        );
+        assert_eq!(bool_result.opt_bool_vec(), expected.opt_bool_vec());
         assert_eq!(bool_result.validity(), expected.validity());
     }
 
@@ -535,10 +531,7 @@ mod tests {
         )
         .unwrap();
         assert!(contains.is::<ConstantVTable>(), "Expected constant result");
-        assert_eq!(
-            contains.to_bool().boolean_buffer().iter().collect_vec(),
-            vec![true, true]
-        );
+        assert_eq!(contains.to_bool().bit_buffer(), &bitbuffer![true, true],);
     }
 
     #[test]
@@ -579,7 +572,7 @@ mod tests {
 
         assert_eq!(contains.len(), 7);
         assert_eq!(
-            contains.to_bool().opt_bool_vec().unwrap(),
+            contains.to_bool().opt_bool_vec(),
             vec![
                 Some(false),
                 Some(true),
@@ -614,7 +607,7 @@ mod tests {
         // All lists are empty, so all should return false
         assert_eq!(result.len(), 4);
         assert_eq!(
-            result.to_bool().bool_vec().unwrap(),
+            result.to_bool().bool_vec(),
             vec![false, false, false, false]
         );
     }
@@ -647,10 +640,7 @@ mod tests {
 
         // All comparisons result in null, but search is not null, so should return false
         assert_eq!(result2.len(), 3);
-        assert_eq!(
-            result2.to_bool().bool_vec().unwrap(),
-            vec![false, false, false]
-        );
+        assert_eq!(result2.to_bool().bool_vec(), vec![false, false, false]);
     }
 
     #[test]
@@ -677,7 +667,7 @@ mod tests {
 
         assert_eq!(result.len(), 4);
         assert_eq!(
-            result.to_bool().bool_vec().unwrap(),
+            result.to_bool().bool_vec(),
             vec![false, true, false, false] // Value 2 is only in list 1
         );
 
@@ -686,7 +676,7 @@ mod tests {
         let result5 = list_contains(list_array.as_ref(), search5.as_ref()).unwrap();
 
         assert_eq!(
-            result5.to_bool().bool_vec().unwrap(),
+            result5.to_bool().bool_vec(),
             vec![false, false, true, false] // Value 5 is only in list 2
         );
     }
@@ -710,17 +700,14 @@ mod tests {
         let result = list_contains(list_array.as_ref(), search.as_ref()).unwrap();
 
         assert_eq!(result.len(), 4);
-        assert_eq!(
-            result.to_bool().bool_vec().unwrap(),
-            vec![false, false, false, true]
-        );
+        assert_eq!(result.to_bool().bool_vec(), vec![false, false, false, true]);
 
         // Search for value 0 which should only be in the first list
         let search_zero = ConstantArray::new(Scalar::from(0i32), list_array.len());
         let result_zero = list_contains(list_array.as_ref(), search_zero.as_ref()).unwrap();
 
         assert_eq!(
-            result_zero.to_bool().bool_vec().unwrap(),
+            result_zero.to_bool().bool_vec(),
             vec![true, false, false, false]
         );
     }

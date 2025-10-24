@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBufferBuilder;
-use vortex_buffer::BufferMut;
+use vortex_buffer::{BitBufferMut, BufferMut};
 use vortex_dtype::{IntegerPType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
@@ -70,7 +69,7 @@ fn compute_filtered_elements_and_offsets<O: IntegerPType>(
     let true_count = selection_mask.true_count();
 
     let mut new_offsets = BufferMut::<O>::with_capacity(true_count + 1);
-    let mut new_mask_builder = BooleanBufferBuilder::new(elements.len());
+    let mut new_mask_builder = BitBufferMut::with_capacity(elements.len());
     let mut next_offset: O = O::zero(); // Offsets always start at zero.
 
     new_offsets.push(next_offset);
@@ -114,12 +113,12 @@ fn compute_filtered_elements_and_offsets<O: IntegerPType>(
 
     // Fill any trailing elements.
     if new_mask_builder.len() < elements.len() {
-        new_mask_builder.append_n(elements.len() - new_mask_builder.len(), false);
+        new_mask_builder.append_n(false, elements.len() - new_mask_builder.len());
     }
 
     // Allow the child array to filter themselves.
     // The `Mask` can determine the best representation based on the buffer's density in the future.
-    let new_elements = filter(elements, &Mask::from_buffer(new_mask_builder.finish()))?;
+    let new_elements = filter(elements, &Mask::from_buffer(new_mask_builder.freeze()))?;
 
     let new_offsets = PrimitiveArray::new(new_offsets, Validity::NonNullable);
 
@@ -130,7 +129,7 @@ fn compute_filtered_elements_and_offsets<O: IntegerPType>(
 fn process_element_range(
     elems_start: usize,
     elems_end: usize,
-    new_mask_builder: &mut BooleanBufferBuilder,
+    new_mask_builder: &mut BitBufferMut,
 ) {
     let elems_len = elems_end - elems_start;
 
@@ -138,9 +137,9 @@ fn process_element_range(
     if elems_len > 0 {
         // Fill any gaps before this range.
         if elems_start > new_mask_builder.len() {
-            new_mask_builder.append_n(elems_start - new_mask_builder.len(), false);
+            new_mask_builder.append_n(false, elems_start - new_mask_builder.len());
         }
         // Keep all elements in this range.
-        new_mask_builder.append_n(elems_len, true);
+        new_mask_builder.append_n(true, elems_len);
     }
 }

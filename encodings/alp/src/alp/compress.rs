@@ -133,10 +133,10 @@ mod tests {
     use core::f64;
 
     use f64::consts::{E, PI};
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::NativePType;
-    use vortex_scalar::Scalar;
 
     use super::*;
 
@@ -202,10 +202,7 @@ mod tests {
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
         let decoded = decompress(&encoded);
-        assert_eq!(decoded.scalar_at(0), array.scalar_at(0));
-        assert_eq!(decoded.scalar_at(1), array.scalar_at(1));
-        assert!(!decoded.is_valid(2));
-        assert_eq!(decoded.scalar_at(3), array.scalar_at(3));
+        assert_arrays_eq!(decoded, array);
     }
 
     #[test]
@@ -223,14 +220,7 @@ mod tests {
 
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        for idx in 0..3 {
-            let s = encoded.scalar_at(idx);
-            assert!(s.is_valid());
-        }
-
-        assert!(!encoded.is_valid(4));
-        let s = encoded.scalar_at(4);
-        assert!(s.is_null());
+        assert_arrays_eq!(&encoded, array);
 
         let _decoded = decompress(&encoded);
     }
@@ -245,21 +235,18 @@ mod tests {
 
     #[test]
     fn roundtrips_all_null() {
-        let original = PrimitiveArray::new(
-            Buffer::from_iter([195.26274f64, PI, -48.815685]),
-            Validity::AllInvalid,
-        );
+        let original =
+            PrimitiveArray::new(buffer![195.26274f64, PI, -48.815685], Validity::AllInvalid);
         let alp_arr = alp_encode(&original, None).unwrap();
         let decompressed = alp_arr.to_primitive();
+
         assert_eq!(
             // The second and third values become exceptions and are replaced
             [195.26274, 195.26274, 195.26274],
             decompressed.as_slice::<f64>()
         );
-        assert_eq!(original.validity(), decompressed.validity());
-        assert_eq!(original.scalar_at(0), Scalar::null_typed::<f64>());
-        assert_eq!(original.scalar_at(1), Scalar::null_typed::<f64>());
-        assert_eq!(original.scalar_at(2), Scalar::null_typed::<f64>());
+
+        assert_arrays_eq!(decompressed, original);
     }
 
     #[test]

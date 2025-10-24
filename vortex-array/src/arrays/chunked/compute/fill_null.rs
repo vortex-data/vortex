@@ -29,7 +29,7 @@ register_kernel!(FillNullKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::BooleanBuffer;
+    use vortex_buffer::BitBuffer;
     use vortex_dtype::{DType, Nullability};
 
     use crate::array::Array;
@@ -41,10 +41,8 @@ mod tests {
     fn fill_null_chunks() {
         let chunked = ChunkedArray::try_new(
             vec![
-                BoolArray::from_bool_buffer(BooleanBuffer::new_set(5), Validity::AllInvalid)
-                    .to_array(),
-                BoolArray::from_bool_buffer(BooleanBuffer::new_set(5), Validity::AllValid)
-                    .to_array(),
+                BoolArray::from_bit_buffer(BitBuffer::new_set(5), Validity::AllInvalid).to_array(),
+                BoolArray::from_bit_buffer(BitBuffer::new_set(5), Validity::AllValid).to_array(),
             ],
             DType::Bool(Nullability::Nullable),
         )

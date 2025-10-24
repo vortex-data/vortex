@@ -6,7 +6,7 @@
 use std::fmt::Debug;
 use std::ops::{BitAnd, Not, Range};
 
-use arrow_buffer::{BooleanBuffer, NullBuffer};
+use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_err, vortex_panic};
 use vortex_mask::{AllOr, Mask, MaskValues};
@@ -133,7 +133,7 @@ impl Validity {
 
     pub fn take(&self, indices: &dyn Array) -> VortexResult<Self> {
         match self {
-            Self::NonNullable => match indices.validity_mask().boolean_buffer() {
+            Self::NonNullable => match indices.validity_mask().bit_buffer() {
                 AllOr::All => {
                     if indices.dtype().is_nullable() {
                         Ok(Self::AllValid)
@@ -144,7 +144,7 @@ impl Validity {
                 AllOr::None => Ok(Self::AllInvalid),
                 AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
             },
-            Self::AllValid => match indices.validity_mask().boolean_buffer() {
+            Self::AllValid => match indices.validity_mask().bit_buffer() {
                 AllOr::All => Ok(Self::AllValid),
                 AllOr::None => Ok(Self::AllInvalid),
                 AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
@@ -178,7 +178,7 @@ impl Validity {
     /// The result is always nullable. The result has the same length as self.
     #[inline]
     pub fn mask(&self, mask: &Mask) -> Self {
-        match mask.boolean_buffer() {
+        match mask.bit_buffer() {
             AllOr::All => Validity::AllInvalid,
             AllOr::None => self.clone(),
             AllOr::Some(make_invalid) => match self {
@@ -189,7 +189,7 @@ impl Validity {
                 Validity::Array(is_valid) => {
                     let is_valid = is_valid.to_bool();
                     let keep_valid = make_invalid.not();
-                    Validity::from(is_valid.boolean_buffer().bitand(&keep_valid))
+                    Validity::from(is_valid.bit_buffer() & &keep_valid)
                 }
             },
         }
@@ -235,8 +235,8 @@ impl Validity {
                 let lhs = lhs.to_bool();
                 let rhs = rhs.to_bool();
 
-                let lhs = lhs.boolean_buffer();
-                let rhs = rhs.boolean_buffer();
+                let lhs = lhs.bit_buffer();
+                let rhs = rhs.bit_buffer();
 
                 Validity::from(lhs.bitand(rhs))
             }
@@ -270,16 +270,16 @@ impl Validity {
         };
 
         let source = match self {
-            Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(len)),
-            Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(len)),
-            Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(len)),
+            Validity::NonNullable => BoolArray::from(BitBuffer::new_set(len)),
+            Validity::AllValid => BoolArray::from(BitBuffer::new_set(len)),
+            Validity::AllInvalid => BoolArray::from(BitBuffer::new_unset(len)),
             Validity::Array(a) => a.to_bool(),
         };
 
         let patch_values = match patches {
-            Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(indices.len())),
-            Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(indices.len())),
-            Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(indices.len())),
+            Validity::NonNullable => BoolArray::from(BitBuffer::new_set(indices.len())),
+            Validity::AllValid => BoolArray::from(BitBuffer::new_set(indices.len())),
+            Validity::AllInvalid => BoolArray::from(BitBuffer::new_unset(indices.len())),
             Validity::Array(a) => a.to_bool(),
         };
 
@@ -345,7 +345,7 @@ impl Validity {
     /// Create Validity from boolean array with given nullability of the array.
     ///
     /// Note: You want to pass the nullability of parent array and not the nullability of the validity array itself
-    ///     as that is always non-nullable
+    ///     as that is always nonnullable
     #[inline]
     fn from_array(value: ArrayRef, nullability: Nullability) -> Self {
         if !matches!(value.dtype(), DType::Bool(Nullability::NonNullable)) {
@@ -386,30 +386,24 @@ impl PartialEq for Validity {
             (Self::Array(a), Self::Array(b)) => {
                 let a = a.to_bool();
                 let b = b.to_bool();
-                a.boolean_buffer() == b.boolean_buffer()
+                a.bit_buffer() == b.bit_buffer()
             }
             _ => false,
         }
     }
 }
 
-impl From<BooleanBuffer> for Validity {
+impl From<BitBuffer> for Validity {
     #[inline]
-    fn from(value: BooleanBuffer) -> Self {
-        if value.count_set_bits() == value.len() {
+    fn from(value: BitBuffer) -> Self {
+        let true_count = value.true_count();
+        if true_count == value.len() {
             Self::AllValid
-        } else if value.count_set_bits() == 0 {
+        } else if true_count == 0 {
             Self::AllInvalid
         } else {
             Self::Array(BoolArray::from(value).into_array())
         }
-    }
-}
-
-impl From<NullBuffer> for Validity {
-    #[inline]
-    fn from(value: NullBuffer) -> Self {
-        value.into_inner().into()
     }
 }
 
@@ -423,7 +417,7 @@ impl FromIterator<Mask> for Validity {
 impl FromIterator<bool> for Validity {
     #[inline]
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        Validity::from(BooleanBuffer::from_iter(iter))
+        Validity::from(BitBuffer::from_iter(iter))
     }
 }
 
@@ -438,17 +432,13 @@ impl From<Nullability> for Validity {
 }
 
 impl Validity {
-    pub fn from_null_buffer(buffer: Option<NullBuffer>, nullability: Nullability) -> Self {
-        match buffer {
-            // If there are no nulls, then we infer from nullability
-            None => nullability.into(),
-            Some(nulls) => {
-                if nulls.null_count() == nulls.len() {
-                    Validity::AllInvalid
-                } else {
-                    Validity::Array(BoolArray::from(nulls.into_inner()).into_array())
-                }
-            }
+    pub fn from_bit_buffer(buffer: BitBuffer, nullability: Nullability) -> Self {
+        if buffer.true_count() == buffer.len() {
+            nullability.into()
+        } else if buffer.true_count() == 0 {
+            Validity::AllInvalid
+        } else {
+            Validity::Array(BoolArray::from_bit_buffer(buffer, Validity::NonNullable).into_array())
         }
     }
 
@@ -482,8 +472,7 @@ impl IntoArray for Mask {
 impl IntoArray for &MaskValues {
     #[inline]
     fn into_array(self) -> ArrayRef {
-        BoolArray::from_bool_buffer(self.boolean_buffer().clone(), Validity::NonNullable)
-            .into_array()
+        BoolArray::from_bit_buffer(self.bit_buffer().clone(), Validity::NonNullable).into_array()
     }
 }
 
@@ -546,12 +535,16 @@ mod tests {
     }
 
     #[rstest]
-    #[case(Validity::AllValid, PrimitiveArray::new(buffer![0, 1], Validity::from_iter(vec![true, false])).into_array(), Validity::from_iter(vec![true, false]))]
+    #[case(Validity::AllValid, PrimitiveArray::new(buffer![0, 1], Validity::from_iter(vec![true, false])).into_array(), Validity::from_iter(vec![true, false])
+    )]
     #[case(Validity::AllValid, buffer![0, 1].into_array(), Validity::AllValid)]
-    #[case(Validity::AllValid, PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(), Validity::AllInvalid)]
-    #[case(Validity::NonNullable, PrimitiveArray::new(buffer![0, 1], Validity::from_iter(vec![true, false])).into_array(), Validity::from_iter(vec![true, false]))]
+    #[case(Validity::AllValid, PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(), Validity::AllInvalid
+    )]
+    #[case(Validity::NonNullable, PrimitiveArray::new(buffer![0, 1], Validity::from_iter(vec![true, false])).into_array(), Validity::from_iter(vec![true, false])
+    )]
     #[case(Validity::NonNullable, buffer![0, 1].into_array(), Validity::NonNullable)]
-    #[case(Validity::NonNullable, PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(), Validity::AllInvalid)]
+    #[case(Validity::NonNullable, PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(), Validity::AllInvalid
+    )]
     fn validity_take(
         #[case] validity: Validity,
         #[case] indices: ArrayRef,

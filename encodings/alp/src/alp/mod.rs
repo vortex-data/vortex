@@ -21,7 +21,7 @@ use vortex_scalar::PValue;
 
 const SAMPLE_SIZE: usize = 32;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Exponents {
     pub e: u8,
     pub f: u8,

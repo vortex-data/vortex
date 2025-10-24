@@ -3,6 +3,7 @@
 
 use std::cmp;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::ops::Range;
 
 use pco::data_types::{Number, NumberType};
@@ -17,7 +18,10 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
 };
-use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
+use vortex_array::{
+    ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision,
+    ToCanonical, vtable,
+};
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, PType, half};
 use vortex_error::{VortexError, VortexResult, VortexUnwrap, vortex_err};
@@ -364,6 +368,47 @@ impl ArrayVTable<PcoVTable> for PcoVTable {
 
     fn stats(array: &PcoArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &PcoArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.unsliced_validity.array_hash(state, precision);
+        array.unsliced_n_rows.hash(state);
+        array.slice_start.hash(state);
+        array.slice_stop.hash(state);
+        // Hash chunk_metas and pages using pointer-based hashing
+        for chunk_meta in &array.chunk_metas {
+            chunk_meta.array_hash(state, precision);
+        }
+        for page in &array.pages {
+            page.array_hash(state, precision);
+        }
+    }
+
+    fn array_eq(array: &PcoArray, other: &PcoArray, precision: Precision) -> bool {
+        if array.dtype != other.dtype
+            || !array
+                .unsliced_validity
+                .array_eq(&other.unsliced_validity, precision)
+            || array.unsliced_n_rows != other.unsliced_n_rows
+            || array.slice_start != other.slice_start
+            || array.slice_stop != other.slice_stop
+            || array.chunk_metas.len() != other.chunk_metas.len()
+            || array.pages.len() != other.pages.len()
+        {
+            return false;
+        }
+        for (a, b) in array.chunk_metas.iter().zip(&other.chunk_metas) {
+            if !a.array_eq(b, precision) {
+                return false;
+            }
+        }
+        for (a, b) in array.pages.iter().zip(&other.pages) {
+            if !a.array_eq(b, precision) {
+                return false;
+            }
+        }
+        true
     }
 }
 

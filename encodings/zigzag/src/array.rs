@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
 use std::ops::Range;
 
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -9,7 +10,8 @@ use vortex_array::vtable::{
     ValidityVTableFromChild,
 };
 use vortex_array::{
-    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
+    Array, ArrayEq, ArrayHash, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, Precision,
+    ToCanonical, vtable,
 };
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -95,6 +97,15 @@ impl ArrayVTable<ZigZagVTable> for ZigZagVTable {
 
     fn stats(array: &ZigZagArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ZigZagArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.encoded.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ZigZagArray, other: &ZigZagArray, precision: Precision) -> bool {
+        array.dtype == other.dtype && array.encoded.array_eq(&other.encoded, precision)
     }
 }
 

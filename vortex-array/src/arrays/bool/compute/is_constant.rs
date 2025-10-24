@@ -14,20 +14,8 @@ impl IsConstantKernel for BoolVTable {
             return Ok(None);
         }
 
-        let buffer = array.boolean_buffer();
-
-        // Safety:
-        // We must have at least one value at this point
-        let first_value = unsafe { buffer.value_unchecked(0) };
-        let value_block = if first_value { u64::MAX } else { 0_u64 };
-
-        let bit_chunks = buffer.bit_chunks();
-        let packed = bit_chunks.iter().all(|chunk| chunk == value_block);
-        let reminder = bit_chunks.remainder_bits().count_ones() as usize
-            == bit_chunks.remainder_len() * (first_value as usize);
-
-        // We iterate on blocks of u64
-        Ok(Some(packed & reminder))
+        let true_count = array.bit_buffer().true_count();
+        Ok(Some(true_count == array.len() || true_count == 0))
     }
 }
 

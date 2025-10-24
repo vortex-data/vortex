@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::NullBufferBuilder;
 use num_traits::AsPrimitive;
-use vortex_buffer::BufferMut;
+use vortex_buffer::{BitBufferMut, BufferMut};
 use vortex_dtype::{DType, IntegerPType};
 use vortex_error::vortex_panic;
 
@@ -15,7 +14,7 @@ use crate::validity::Validity;
 pub struct VarBinBuilder<O: IntegerPType> {
     offsets: BufferMut<O>,
     data: BufferMut<u8>,
-    validity: NullBufferBuilder,
+    validity: BitBufferMut,
 }
 
 impl<O: IntegerPType> Default for VarBinBuilder<O> {
@@ -35,7 +34,7 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         Self {
             offsets,
             data: BufferMut::empty(),
-            validity: NullBufferBuilder::new(len),
+            validity: BitBufferMut::with_capacity(len),
         }
     }
 
@@ -60,19 +59,19 @@ impl<O: IntegerPType> VarBinBuilder<O> {
                 )
             }));
         self.data.extend_from_slice(slice);
-        self.validity.append_non_null();
+        self.validity.append_true();
     }
 
     #[inline]
     pub fn append_null(&mut self) {
         self.offsets.push(self.offsets[self.offsets.len() - 1]);
-        self.validity.append_null();
+        self.validity.append_false();
     }
 
     #[inline]
     pub fn append_n_nulls(&mut self, n: usize) {
         self.offsets.push_n(self.offsets[self.offsets.len() - 1], n);
-        self.validity.append_n_nulls(n);
+        self.validity.append_n(false, n);
     }
 
     #[inline]
@@ -84,19 +83,14 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         self.offsets
             .extend(end_offsets.map(|offset| offset + self.data.len().as_()));
         self.data.extend_from_slice(values);
-        self.validity.append_n_non_nulls(num);
+        self.validity.append_n(true, num);
     }
 
-    pub fn finish(mut self, dtype: DType) -> VarBinArray {
+    pub fn finish(self, dtype: DType) -> VarBinArray {
         let offsets = PrimitiveArray::new(self.offsets.freeze(), Validity::NonNullable);
-        let nulls = self.validity.finish();
+        let nulls = self.validity.freeze();
 
-        let validity = if dtype.is_nullable() {
-            nulls.map(Validity::from).unwrap_or(Validity::AllValid)
-        } else {
-            assert!(nulls.is_none(), "dtype and validity mismatch");
-            Validity::NonNullable
-        };
+        let validity = Validity::from_bit_buffer(nulls, dtype.nullability());
 
         // SAFETY: The builder maintains all invariants:
         // - Offsets are monotonically increasing starting from 0 (guaranteed by builder logic).

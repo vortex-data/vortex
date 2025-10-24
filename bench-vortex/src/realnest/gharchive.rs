@@ -34,7 +34,7 @@ fn raw_json_url(hour: usize) -> String {
 }
 
 const QUERIES: &[&str] = &[
-    "select * from events where payload.ref = 'refs/heads/main'",
+    "select count(*) from events where payload.ref = 'refs/heads/main'",
     "select distinct repo.name from events where repo.name like 'spiraldb/%'",
     "select distinct org.id as org_id from events order by org_id limit 100",
     "select actor.login, count() as freq from events group by actor.login order by freq desc limit 10",
@@ -253,5 +253,6 @@ pub async fn register_table(
         .await?;
     let listing_table = Arc::new(ListingTable::try_new(config)?);
     session.register_table("events", listing_table)?;
+    info!("finished registering table for GHARCHIVE: {base_url}");
     Ok(())
 }

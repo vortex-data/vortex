@@ -154,7 +154,7 @@ where
     let mut prev = buff[head_idx];
 
     let first_valid_buff = buff.slice(head_idx..array.len());
-    match validity.boolean_buffer() {
+    match validity.bit_buffer() {
         AllOr::All => {
             for value in first_valid_buff {
                 if count_distinct_values {
@@ -171,7 +171,7 @@ where
         AllOr::Some(v) => {
             for (&value, valid) in first_valid_buff
                 .iter()
-                .zip_eq(v.slice(head_idx, array.len() - head_idx).iter())
+                .zip_eq(v.slice(head_idx..array.len()).iter())
             {
                 if valid {
                     if count_distinct_values {

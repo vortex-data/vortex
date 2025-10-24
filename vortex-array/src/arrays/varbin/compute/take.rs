@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBufferBuilder;
-use vortex_buffer::{BufferMut, ByteBufferMut};
+use vortex_buffer::{BitBufferMut, BufferMut, ByteBufferMut};
 use vortex_dtype::{DType, IntegerPType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::Mask;
@@ -117,7 +116,7 @@ fn take_nullable<I: IntegerPType, O: IntegerPType>(
     new_offsets.push(O::zero());
     let mut current_offset = O::zero();
 
-    let mut validity_buffer = BooleanBufferBuilder::new(indices.len());
+    let mut validity_buffer = BitBufferMut::with_capacity(indices.len());
 
     // Convert indices once and store valid ones with their positions
     let mut valid_indices = Vec::with_capacity(indices.len());
@@ -162,7 +161,7 @@ fn take_nullable<I: IntegerPType, O: IntegerPType>(
         new_data.extend_from_slice(&data[start..stop]);
     }
 
-    let array_validity = Validity::from(validity_buffer.finish());
+    let array_validity = Validity::from(validity_buffer.freeze());
 
     // Safety:
     // All variants of VarBinArray are satisfied here.

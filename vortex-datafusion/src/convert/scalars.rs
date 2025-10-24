@@ -236,6 +236,7 @@ impl FromDataFusion<ScalarValue> for Scalar {
                     Scalar::null(DType::Decimal(decimal_dtype, nullable))
                 }
             }
+            ScalarValue::Dictionary(_, v) => Scalar::from_df(v.as_ref()),
             _ => unimplemented!("Can't convert {value:?} value to a Vortex scalar"),
         }
     }

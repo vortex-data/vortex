@@ -15,7 +15,7 @@ use vortex_utils::aliases::hash_map::{Entry, HashMap};
 use crate::arrays::VarBinViewArray;
 use crate::arrays::binary_view::BinaryView;
 use crate::arrays::compact::BufferUtilization;
-use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
+use crate::builders::{ArrayBuilder, LazyBitBufferBuilder};
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -23,7 +23,7 @@ use crate::{Array, ArrayRef, IntoArray};
 pub struct VarBinViewBuilder {
     dtype: DType,
     views_builder: BufferMut<BinaryView>,
-    nulls: LazyNullBufferBuilder,
+    nulls: LazyBitBufferBuilder,
     completed: CompletedBuffers,
     in_progress: ByteBufferMut,
     growth_strategy: BufferGrowthStrategy,
@@ -68,7 +68,7 @@ impl VarBinViewBuilder {
         );
         Self {
             views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
-            nulls: LazyNullBufferBuilder::new(capacity),
+            nulls: LazyBitBufferBuilder::new(capacity),
             completed,
             in_progress: ByteBufferMut::empty(),
             dtype,
@@ -306,7 +306,7 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls = LazyBitBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }
 
@@ -744,13 +744,10 @@ impl RewritingViewAdjustment {
 
 #[cfg(test)]
 mod tests {
-    use std::str::from_utf8;
-
-    use itertools::Itertools;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::accessor::ArrayAccessor;
-    use crate::arrays::VarBinViewVTable;
+    use crate::arrays::VarBinViewArray;
+    use crate::assert_arrays_eq;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 
     #[test]
@@ -766,29 +763,18 @@ mod tests {
         builder.append_zeros(2);
         builder.append_value("test");
 
-        let arr = builder.finish();
-
-        let arr = arr
-            .as_::<VarBinViewVTable>()
-            .with_iterator(|iter| {
-                iter.map(|x| x.map(|x| from_utf8(x).unwrap().to_string()))
-                    .collect_vec()
-            })
-            .unwrap();
-        assert_eq!(arr.len(), 8);
-        assert_eq!(
-            arr,
-            vec![
-                Some("Hello".to_string()),
-                None,
-                Some("World".to_string()),
-                None,
-                None,
-                Some("".to_string()),
-                Some("".to_string()),
-                Some("test".to_string()),
-            ]
-        );
+        let actual = builder.finish();
+        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
+            Some("Hello"),
+            None,
+            Some("World"),
+            None,
+            None,
+            Some(""),
+            Some(""),
+            Some("test"),
+        ]);
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -807,26 +793,16 @@ mod tests {
         builder.append_nulls(2);
         builder.append_value("Hello3");
 
-        let arr = builder.finish_into_canonical().into_varbinview();
-
-        let arr = arr
-            .with_iterator(|iter| {
-                iter.map(|x| x.map(|x| from_utf8(x).unwrap().to_string()))
-                    .collect_vec()
-            })
-            .unwrap();
-        assert_eq!(arr.len(), 6);
-        assert_eq!(
-            arr,
-            vec![
-                Some("Hello1".to_string()),
-                None,
-                Some("Hello2".to_string()),
-                None,
-                None,
-                Some("Hello3".to_string()),
-            ]
-        );
+        let actual = builder.finish_into_canonical();
+        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
+            Some("Hello1"),
+            None,
+            Some("Hello2"),
+            None,
+            None,
+            Some("Hello3"),
+        ]);
+        assert_arrays_eq!(actual.as_ref(), expected.as_ref());
     }
 
     #[test]
@@ -886,18 +862,9 @@ mod tests {
         utf8_builder.append_scalar(&null_scalar).unwrap();
 
         let array = utf8_builder.finish();
-        assert_eq!(array.len(), 3);
-
-        // Check actual values using scalar_at.
-        use crate::array::Array;
-        let scalar0 = array.scalar_at(0).as_utf8().value();
-        assert_eq!(scalar0.as_ref().map(|s| s.as_str()), Some("hello"));
-
-        let scalar1 = array.scalar_at(1).as_utf8().value();
-        assert_eq!(scalar1.as_ref().map(|s| s.as_str()), Some("world"));
-
-        let scalar2 = array.scalar_at(2).as_utf8().value();
-        assert_eq!(scalar2, None); // This should be null.
+        let expected =
+            <VarBinViewArray as FromIterator<_>>::from_iter([Some("hello"), Some("world"), None]);
+        assert_arrays_eq!(&array, &expected);
 
         // Test with Binary builder.
         let mut binary_builder =
@@ -910,17 +877,9 @@ mod tests {
         binary_builder.append_scalar(&binary_null).unwrap();
 
         let binary_array = binary_builder.finish();
-        assert_eq!(binary_array.len(), 2);
-
-        // Check actual binary values.
-        let binary0 = binary_array.scalar_at(0).as_binary().value();
-        assert_eq!(
-            binary0.as_ref().map(|b| b.as_slice()),
-            Some(&[1u8, 2, 3][..])
-        );
-
-        let binary1 = binary_array.scalar_at(1).as_binary().value();
-        assert_eq!(binary1, None); // This should be null.
+        let expected =
+            <VarBinViewArray as FromIterator<_>>::from_iter([Some(vec![1u8, 2, 3]), None]);
+        assert_arrays_eq!(&binary_array, &expected);
 
         // Test wrong dtype error.
         let mut builder =

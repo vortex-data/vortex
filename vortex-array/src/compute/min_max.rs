@@ -215,8 +215,7 @@ impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::BooleanBuffer;
-    use vortex_buffer::buffer;
+    use vortex_buffer::{BitBuffer, buffer};
 
     use crate::arrays::{BoolArray, NullArray, PrimitiveArray};
     use crate::compute::{MinMaxResult, min_max};
@@ -236,8 +235,8 @@ mod tests {
 
     #[test]
     fn test_bool_max() {
-        let p = BoolArray::from_bool_buffer(
-            BooleanBuffer::from([true, true, true].as_slice()),
+        let p = BoolArray::from_bit_buffer(
+            BitBuffer::from([true, true, true].as_slice()),
             Validity::NonNullable,
         );
         assert_eq!(
@@ -248,8 +247,8 @@ mod tests {
             })
         );
 
-        let p = BoolArray::from_bool_buffer(
-            BooleanBuffer::from([false, false, false].as_slice()),
+        let p = BoolArray::from_bit_buffer(
+            BitBuffer::from([false, false, false].as_slice()),
             Validity::NonNullable,
         );
         assert_eq!(
@@ -260,8 +259,8 @@ mod tests {
             })
         );
 
-        let p = BoolArray::from_bool_buffer(
-            BooleanBuffer::from([false, true, false].as_slice()),
+        let p = BoolArray::from_bit_buffer(
+            BitBuffer::from([false, true, false].as_slice()),
             Validity::NonNullable,
         );
         assert_eq!(

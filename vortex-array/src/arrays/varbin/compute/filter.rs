@@ -67,7 +67,7 @@ where
     usize: AsPrimitive<O>,
 {
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
-    match logical_validity.boolean_buffer() {
+    match logical_validity.bit_buffer() {
         AllOr::All => {
             mask_slices.iter().for_each(|(start, end)| {
                 update_non_nullable_slice(data, offsets, &mut builder, *start, *end)
@@ -78,8 +78,8 @@ where
         }
         AllOr::Some(validity) => {
             for (start, end) in mask_slices.iter().copied() {
-                let null_sl = validity.slice(start, end - start);
-                if null_sl.count_set_bits() == null_sl.len() {
+                let null_sl = validity.slice(start..end);
+                if null_sl.true_count() == null_sl.len() {
                     update_non_nullable_slice(data, offsets, &mut builder, start, end)
                 } else {
                     for (idx, valid) in null_sl.iter().enumerate() {
@@ -185,9 +185,7 @@ mod test {
     use vortex_buffer::{ByteBuffer, buffer};
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
-    use vortex_scalar::Scalar;
 
-    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::arrays::varbin::compute::filter::{
@@ -195,10 +193,7 @@ mod test {
     };
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::validity::Validity;
-
-    fn nullable_scalar_str(s: &str) -> Scalar {
-        Scalar::utf8(s.to_owned(), Nullable)
-    }
+    use crate::{IntoArray, assert_arrays_eq};
 
     #[test]
     fn filter_var_bin_test() {
@@ -212,9 +207,7 @@ mod test {
         );
         let buf = filter_select_var_bin_by_index(&arr, &[0, 2], 2).unwrap();
 
-        assert_eq!(buf.len(), 2);
-        assert_eq!(buf.scalar_at(0), "hello".into());
-        assert_eq!(buf.scalar_at(1), "filter".into());
+        assert_arrays_eq!(buf, VarBinArray::from(vec!["hello", "filter"]));
     }
 
     #[test]
@@ -232,10 +225,7 @@ mod test {
 
         let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3), (4, 5)], 3).unwrap();
 
-        assert_eq!(buf.len(), 3);
-        assert_eq!(buf.scalar_at(0), "hello".into());
-        assert_eq!(buf.scalar_at(1), "filter".into());
-        assert_eq!(buf.scalar_at(2), "filter3".into());
+        assert_arrays_eq!(buf, VarBinArray::from(vec!["hello", "filter", "filter3"]));
     }
 
     #[test]
@@ -260,14 +250,16 @@ mod test {
 
         let buf = filter_select_var_bin_by_slice(&arr, &[(0, 3), (4, 6)], 5).unwrap();
 
-        let null = Scalar::null(DType::Utf8(Nullable));
-        assert_eq!(buf.len(), 5);
-
-        assert_eq!(buf.scalar_at(0), nullable_scalar_str("one"));
-        assert_eq!(buf.scalar_at(1), null);
-        assert_eq!(buf.scalar_at(2), nullable_scalar_str("three"));
-        assert_eq!(buf.scalar_at(3), nullable_scalar_str("five"));
-        assert_eq!(buf.scalar_at(4), nullable_scalar_str("six"));
+        assert_arrays_eq!(
+            buf,
+            VarBinArray::from(vec![
+                Some("one"),
+                None,
+                Some("three"),
+                Some("five"),
+                Some("six")
+            ])
+        );
     }
 
     #[test]
@@ -283,11 +275,7 @@ mod test {
 
         let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3)], 2).unwrap();
 
-        let null = Scalar::null(DType::Utf8(Nullable));
-        assert_eq!(buf.len(), 2);
-
-        assert_eq!(buf.scalar_at(0), null);
-        assert_eq!(buf.scalar_at(1), nullable_scalar_str("two"));
+        assert_arrays_eq!(buf, VarBinArray::from(vec![None, Some("two")]));
     }
 
     #[test]
@@ -304,11 +292,7 @@ mod test {
 
         let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3)], 2).unwrap();
 
-        let null = Scalar::null(DType::Utf8(Nullable));
-        assert_eq!(buf.len(), 2);
-
-        assert_eq!(buf.scalar_at(0), null);
-        assert_eq!(buf.scalar_at(1), null);
+        assert_arrays_eq!(buf, VarBinArray::from(vec![None::<&str>, None]));
     }
 
     #[test]

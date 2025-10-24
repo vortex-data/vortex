@@ -6,10 +6,9 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
 
-use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use num_traits::NumCast;
-use vortex_buffer::BufferMut;
+use vortex_buffer::{BitBuffer, BufferMut};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
     DType, IntegerPType, NativePType, PType, UnsignedPType, match_each_integer_ptype,
@@ -559,14 +558,14 @@ impl Patches {
             );
         }
 
-        let filter_mask = match mask.boolean_buffer() {
+        let filter_mask = match mask.bit_buffer() {
             AllOr::All => return Ok(None),
             AllOr::None => return Ok(Some(self.clone())),
             AllOr::Some(masked) => {
                 let patch_indices = self.indices().to_primitive();
                 match_each_unsigned_integer_ptype!(patch_indices.ptype(), |P| {
                     let patch_indices = patch_indices.as_slice::<P>();
-                    Mask::from_buffer(BooleanBuffer::collect_bool(patch_indices.len(), |i| {
+                    Mask::from_buffer(BitBuffer::collect_bool(patch_indices.len(), |i| {
                         #[allow(clippy::cast_possible_truncation)]
                         let idx = (patch_indices[i] as usize) - self.offset;
                         !masked.value(idx)

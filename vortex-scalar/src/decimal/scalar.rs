@@ -6,9 +6,11 @@ use std::fmt;
 
 use num_traits::ToPrimitive as NumToPrimitive;
 use vortex_dtype::{DType, DecimalDType, PType};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
-use crate::{DecimalValue, InnerScalarValue, Scalar, ScalarValue, match_each_decimal_value};
+use crate::{
+    DecimalValue, InnerScalarValue, NumericOperator, Scalar, ScalarValue, match_each_decimal_value,
+};
 
 /// A scalar value representing a decimal number with fixed precision and scale.
 #[derive(Debug, Clone, Copy, Hash)]
@@ -163,6 +165,68 @@ impl<'a> DecimalScalar<'a> {
                 "Cannot cast decimal to {dtype}: decimal scalars can only be cast to decimal or primitive numeric types"
             ),
         }
+    }
+
+    /// Apply the (checked) operator to self and other using SQL-style null semantics.
+    ///
+    /// If the operation overflows, None is returned.
+    ///
+    /// If the types are incompatible (ignoring nullability and precision/scale), an error is returned.
+    ///
+    /// If either value is null, the result is null.
+    ///
+    /// The result will have the same decimal type (precision/scale) as `self`, and the result
+    /// is checked to ensure it fits within the precision constraints.
+    pub fn checked_binary_numeric(
+        &self,
+        other: &DecimalScalar<'a>,
+        op: NumericOperator,
+    ) -> Option<DecimalScalar<'a>> {
+        // We could have ops between different types but need to add rules for type inference.
+        if self.decimal_type != other.decimal_type {
+            vortex_panic!(
+                "decimal types must match: {} vs {}",
+                self.decimal_type,
+                other.decimal_type
+            );
+        }
+
+        // Use the more nullable dtype as the result type
+        let result_dtype = if self.dtype.is_nullable() {
+            self.dtype
+        } else {
+            other.dtype
+        };
+
+        // Handle null cases using SQL semantics
+        let result_value = match (self.value, other.value) {
+            (None, _) | (_, None) => None,
+            (Some(lhs), Some(rhs)) => {
+                // Perform the operation
+                let operation_result = match op {
+                    NumericOperator::Add => lhs.checked_add(&rhs),
+                    NumericOperator::Sub => lhs.checked_sub(&rhs),
+                    NumericOperator::RSub => rhs.checked_sub(&lhs),
+                    NumericOperator::Mul => lhs.checked_mul(&rhs),
+                    NumericOperator::Div => lhs.checked_div(&rhs),
+                    NumericOperator::RDiv => rhs.checked_div(&lhs),
+                }?;
+
+                // Check if the result fits within the precision constraints
+                if operation_result.fits_in_precision(self.decimal_type)? {
+                    Some(operation_result)
+                } else {
+                    // Result exceeds precision, return None (overflow)
+                    return None;
+                }
+            }
+        };
+
+        Some(DecimalScalar {
+            dtype: result_dtype,
+            decimal_type: self.decimal_type,
+            value: result_value,
+        })
     }
 }
 

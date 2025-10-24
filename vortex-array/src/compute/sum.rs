@@ -125,11 +125,7 @@ pub fn sum_impl(
     kernels: &[ArcRef<dyn Kernel>],
 ) -> VortexResult<Scalar> {
     if array.is_empty() {
-        return if sum_dtype.is_float() {
-            Ok(Scalar::new(sum_dtype, 0.0.into()))
-        } else {
-            Ok(Scalar::new(sum_dtype, 0.into()))
-        };
+        return Ok(Scalar::default_value(sum_dtype));
     }
 
     // Sum of all null is null.

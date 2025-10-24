@@ -261,10 +261,9 @@ fn row_idx_array_future(
 mod tests {
     use std::sync::Arc;
 
-    use arrow_buffer::BooleanBuffer;
     use itertools::Itertools;
     use vortex_array::{ArrayContext, IntoArray as _, MaskFuture, ToCanonical};
-    use vortex_buffer::buffer;
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_expr::{eq, gt, lit, or, root};
     use vortex_io::runtime::single::block_on;
 
@@ -306,8 +305,8 @@ mod tests {
                     .to_bool();
 
             assert_eq!(
-                &BooleanBuffer::from_iter([false, false, true, false, false]),
-                result.boolean_buffer()
+                &BitBuffer::from_iter([false, false, true, false, false]),
+                result.bit_buffer()
             );
         })
     }
@@ -344,8 +343,8 @@ mod tests {
                     .to_bool();
 
             assert_eq!(
-                &BooleanBuffer::from_iter([false, false, false, false, true]),
-                result.boolean_buffer()
+                &BitBuffer::from_iter([false, false, false, false, true]),
+                result.bit_buffer()
             );
         })
     }
@@ -387,7 +386,7 @@ mod tests {
 
             assert_eq!(
                 vec![true, false, true, false, true],
-                result.boolean_buffer().iter().collect_vec()
+                result.bit_buffer().iter().collect_vec()
             );
         })
     }

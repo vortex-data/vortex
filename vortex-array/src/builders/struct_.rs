@@ -11,7 +11,7 @@ use vortex_scalar::{Scalar, StructScalar};
 
 use crate::arrays::StructArray;
 use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, builder_with_capacity,
+    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder, builder_with_capacity,
 };
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
@@ -20,7 +20,7 @@ use crate::{Array, ArrayRef, IntoArray};
 pub struct StructBuilder {
     dtype: DType,
     builders: Vec<Box<dyn ArrayBuilder>>,
-    nulls: LazyNullBufferBuilder,
+    nulls: LazyBitBufferBuilder,
 }
 
 impl StructBuilder {
@@ -42,7 +42,7 @@ impl StructBuilder {
 
         Self {
             builders,
-            nulls: LazyNullBufferBuilder::new(capacity),
+            nulls: LazyBitBufferBuilder::new(capacity),
             dtype: DType::Struct(struct_dtype, nullability),
         }
     }
@@ -178,7 +178,7 @@ impl ArrayBuilder for StructBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls = LazyBitBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }
 
@@ -193,13 +193,15 @@ impl ArrayBuilder for StructBuilder {
 
 #[cfg(test)]
 mod tests {
-
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability, StructFields};
     use vortex_scalar::Scalar;
 
+    use crate::arrays::{PrimitiveArray, StructArray, VarBinArray};
     use crate::builders::ArrayBuilder;
     use crate::builders::struct_::StructBuilder;
+    use crate::validity::Validity;
+    use crate::{IntoArray, assert_arrays_eq};
 
     #[test]
     fn test_struct_builder() {
@@ -274,35 +276,28 @@ mod tests {
         builder.append_scalar(&null_scalar).unwrap();
 
         let array = builder.finish_into_struct();
-        assert_eq!(array.len(), 3);
 
-        // Check actual values using scalar_at.
-
-        let scalar0 = array.scalar_at(0);
-        let struct0 = scalar0.as_struct();
-        if let Some(fields0) = struct0.fields() {
-            let fields0 = fields0.collect::<Vec<_>>();
-            assert_eq!(fields0[0].as_primitive().typed_value::<i32>(), Some(42));
-            assert_eq!(fields0[1].as_utf8().value().as_deref(), Some("hello"));
-        }
-
-        let scalar1 = array.scalar_at(1);
-        let struct1 = scalar1.as_struct();
-        if let Some(fields1) = struct1.fields() {
-            let fields1 = fields1.collect::<Vec<_>>();
-            assert_eq!(fields1[0].as_primitive().typed_value::<i32>(), Some(84));
-            assert_eq!(fields1[1].as_utf8().value().as_deref(), Some("world"));
-        }
-
-        let scalar2 = array.scalar_at(2);
-        let struct2 = scalar2.as_struct();
-        assert!(struct2.fields().is_none()); // Null struct has no fields.
-
-        // Check validity - first two should be valid, third should be null.
-        use crate::vtable::ValidityHelper;
-        assert!(array.validity().is_valid(0));
-        assert!(array.validity().is_valid(1));
-        assert!(!array.validity().is_valid(2));
+        let expected = StructArray::try_from_iter_with_validity(
+            [
+                (
+                    "a",
+                    PrimitiveArray::from_option_iter([Some(42i32), Some(84), Some(123)])
+                        .into_array(),
+                ),
+                (
+                    "b",
+                    <VarBinArray as FromIterator<_>>::from_iter([
+                        Some("hello"),
+                        Some("world"),
+                        Some("x"),
+                    ])
+                    .into_array(),
+                ),
+            ],
+            Validity::from_iter([true, true, false]),
+        )
+        .unwrap();
+        assert_arrays_eq!(&array, &expected);
 
         // Test wrong dtype error.
         let struct_fields = match &dtype {

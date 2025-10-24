@@ -133,7 +133,7 @@ impl ComputeFnVTable for MaskFn {
         log::debug!("No mask implementation found for {}", array.encoding_id());
 
         let array_ref = array.to_array().into_arrow_preferred()?;
-        let mask = BooleanArray::new(mask.to_boolean_buffer(), None);
+        let mask = BooleanArray::new(mask.to_bit_buffer().into(), None);
 
         let masked = arrow_select::nullif::nullif(array_ref.as_ref(), &mask)?;
 
