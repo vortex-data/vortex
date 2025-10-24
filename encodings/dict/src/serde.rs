@@ -56,7 +56,7 @@ impl SerdeVTable<DictVTable> for DictVTable {
         }
         let codes_nullable = metadata
             .is_nullable_codes
-            .map(|nullable| nullable.into())
+            .map(Nullability::from)
             // If no `is_nullable_codes` metadata use the nullability of the values
             // (and whole array) as before.
             .unwrap_or_else(|| dtype.nullability())
