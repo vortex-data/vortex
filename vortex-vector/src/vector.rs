@@ -29,7 +29,7 @@ pub enum Vector {
     /// Primitive vectors.
     ///
     /// Note that [`PrimitiveVector`] is an enum over the different possible (generic)
-    /// [`PVector<T>`](crate::PVector)s. See the documentation for more information.
+    /// [`PVec<T>`](crate::PVec)s. See the documentation for more information.
     Primitive(PrimitiveVector),
     // Decimal
     // Decimal(DecimalVector),

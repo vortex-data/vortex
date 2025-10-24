@@ -30,7 +30,7 @@ pub enum VectorMut {
     /// Primitive mutable vectors.
     ///
     /// Note that [`PrimitiveVectorMut`] is an enum over the different possible (generic)
-    /// [`PVectorMut<T>`](crate::PVectorMut)s. See the documentation for more information.
+    /// [`PVecMut<T>`](crate::PVecMut)s. See the documentation for more information.
     Primitive(PrimitiveVectorMut),
 }
 
@@ -125,7 +125,7 @@ mod tests {
     use vortex_dtype::{Nullability, PType};
 
     use super::*;
-    use crate::{PVectorMut, VectorOps};
+    use crate::{PVecMut, VectorOps};
 
     #[test]
     fn test_with_capacity() {
@@ -188,7 +188,7 @@ mod tests {
         assert!(bool_vec.capacity() >= 100); // Since len is 0.
 
         // Test with primitive vector too.
-        let mut prim_vec: VectorMut = PVectorMut::<i32>::with_capacity(10).into();
+        let mut prim_vec: VectorMut = PVecMut::<i32>::with_capacity(10).into();
         prim_vec.reserve(100);
         assert!(prim_vec.capacity() >= prim_vec.len() + 100);
 
@@ -215,11 +215,11 @@ mod tests {
     #[test]
     fn test_extend_from_vector() {
         // Test extending a primitive vector with data from another vector.
-        let mut vec: VectorMut = PVectorMut::<i32>::from_iter([1, 2, 3].map(Some)).into();
+        let mut vec: VectorMut = PVecMut::<i32>::from_iter([1, 2, 3].map(Some)).into();
         assert_eq!(vec.len(), 3);
 
         // Create an immutable vector to extend from.
-        let to_append: Vector = PVectorMut::<i32>::from_iter([4, 5, 6].map(Some))
+        let to_append: Vector = PVecMut::<i32>::from_iter([4, 5, 6].map(Some))
             .freeze()
             .into();
         assert_eq!(to_append.len(), 3);

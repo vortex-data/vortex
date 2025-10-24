@@ -7,58 +7,58 @@ use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
 
-use super::macros::match_each_pvector_mut;
-use crate::{PVectorMut, PrimitiveVector, VectorMutOps};
+use super::macros::match_each_pvec_mut;
+use crate::{PVecMut, PrimitiveVector, VectorMutOps};
 
 /// A mutable vector of primitive values.
 ///
 /// The immutable equivalent of this type is [`PrimitiveVector`].
 ///
-/// `PrimitiveVector` is represented by an enum over all possible [`PVectorMut`] types (which are
+/// `PrimitiveVector` is represented by an enum over all possible [`PVecMut`] types (which are
 /// templated by the types that implement [`NativePType`]).
 ///
-/// See the documentation for [`PVectorMut`] for more information.
+/// See the documentation for [`PVecMut`] for more information.
 #[derive(Debug, Clone)]
 pub enum PrimitiveVectorMut {
     /// U8
-    U8(PVectorMut<u8>),
+    U8(PVecMut<u8>),
     /// U16
-    U16(PVectorMut<u16>),
+    U16(PVecMut<u16>),
     /// U32
-    U32(PVectorMut<u32>),
+    U32(PVecMut<u32>),
     /// U64
-    U64(PVectorMut<u64>),
+    U64(PVecMut<u64>),
     /// I8
-    I8(PVectorMut<i8>),
+    I8(PVecMut<i8>),
     /// I16
-    I16(PVectorMut<i16>),
+    I16(PVecMut<i16>),
     /// I32
-    I32(PVectorMut<i32>),
+    I32(PVecMut<i32>),
     /// I64
-    I64(PVectorMut<i64>),
+    I64(PVecMut<i64>),
     /// F16
-    F16(PVectorMut<f16>),
+    F16(PVecMut<f16>),
     /// F32
-    F32(PVectorMut<f32>),
+    F32(PVecMut<f32>),
     /// F64
-    F64(PVectorMut<f64>),
+    F64(PVecMut<f64>),
 }
 
 impl PrimitiveVectorMut {
     /// Create a new mutable primitive vector with the given primitive type and capacity.
     pub fn with_capacity(ptype: PType, capacity: usize) -> Self {
         match ptype {
-            PType::U8 => PVectorMut::<u8>::with_capacity(capacity).into(),
-            PType::U16 => PVectorMut::<u16>::with_capacity(capacity).into(),
-            PType::U32 => PVectorMut::<u32>::with_capacity(capacity).into(),
-            PType::U64 => PVectorMut::<u64>::with_capacity(capacity).into(),
-            PType::I8 => PVectorMut::<i8>::with_capacity(capacity).into(),
-            PType::I16 => PVectorMut::<i16>::with_capacity(capacity).into(),
-            PType::I32 => PVectorMut::<i32>::with_capacity(capacity).into(),
-            PType::I64 => PVectorMut::<i64>::with_capacity(capacity).into(),
-            PType::F16 => PVectorMut::<f16>::with_capacity(capacity).into(),
-            PType::F32 => PVectorMut::<f32>::with_capacity(capacity).into(),
-            PType::F64 => PVectorMut::<f64>::with_capacity(capacity).into(),
+            PType::U8 => PVecMut::<u8>::with_capacity(capacity).into(),
+            PType::U16 => PVecMut::<u16>::with_capacity(capacity).into(),
+            PType::U32 => PVecMut::<u32>::with_capacity(capacity).into(),
+            PType::U64 => PVecMut::<u64>::with_capacity(capacity).into(),
+            PType::I8 => PVecMut::<i8>::with_capacity(capacity).into(),
+            PType::I16 => PVecMut::<i16>::with_capacity(capacity).into(),
+            PType::I32 => PVecMut::<i32>::with_capacity(capacity).into(),
+            PType::I64 => PVecMut::<i64>::with_capacity(capacity).into(),
+            PType::F16 => PVecMut::<f16>::with_capacity(capacity).into(),
+            PType::F32 => PVecMut::<f32>::with_capacity(capacity).into(),
+            PType::F64 => PVecMut::<f64>::with_capacity(capacity).into(),
         }
     }
 }
@@ -67,15 +67,15 @@ impl VectorMutOps for PrimitiveVectorMut {
     type Immutable = PrimitiveVector;
 
     fn len(&self) -> usize {
-        match_each_pvector_mut!(self, |v| { v.len() })
+        match_each_pvec_mut!(self, |v| { v.len() })
     }
 
     fn capacity(&self) -> usize {
-        match_each_pvector_mut!(self, |v| { v.capacity() })
+        match_each_pvec_mut!(self, |v| { v.capacity() })
     }
 
     fn reserve(&mut self, additional: usize) {
-        match_each_pvector_mut!(self, |v| { v.reserve(additional) })
+        match_each_pvec_mut!(self, |v| { v.reserve(additional) })
     }
 
     fn extend_from_vector(&mut self, other: &Self::Immutable) {
@@ -96,15 +96,15 @@ impl VectorMutOps for PrimitiveVectorMut {
     }
 
     fn append_nulls(&mut self, n: usize) {
-        match_each_pvector_mut!(self, |v| { v.append_nulls(n) })
+        match_each_pvec_mut!(self, |v| { v.append_nulls(n) })
     }
 
     fn freeze(self) -> Self::Immutable {
-        match_each_pvector_mut!(self, |v| { v.freeze().into() })
+        match_each_pvec_mut!(self, |v| { v.freeze().into() })
     }
 
     fn split_off(&mut self, at: usize) -> Self {
-        match_each_pvector_mut!(self, |v| { v.split_off(at).into() })
+        match_each_pvec_mut!(self, |v| { v.split_off(at).into() })
     }
 
     fn unsplit(&mut self, other: Self) {
@@ -125,14 +125,14 @@ impl VectorMutOps for PrimitiveVectorMut {
     }
 }
 
-impl<T: NativePType> From<PVectorMut<T>> for PrimitiveVectorMut {
-    fn from(v: PVectorMut<T>) -> Self {
+impl<T: NativePType> From<PVecMut<T>> for PrimitiveVectorMut {
+    fn from(v: PVecMut<T>) -> Self {
         T::upcast(v)
     }
 }
 
 impl PTypeUpcast for PrimitiveVectorMut {
-    type Input<T: NativePType> = PVectorMut<T>;
+    type Input<T: NativePType> = PVecMut<T>;
 
     fn from_u8(input: Self::Input<u8>) -> Self {
         PrimitiveVectorMut::U8(input)
@@ -180,7 +180,7 @@ impl PTypeUpcast for PrimitiveVectorMut {
 }
 
 impl PTypeDowncast for PrimitiveVectorMut {
-    type Output<T: NativePType> = PVectorMut<T>;
+    type Output<T: NativePType> = PVecMut<T>;
 
     fn into_u8(self) -> Self::Output<u8> {
         if let PrimitiveVectorMut::U8(v) = self {
@@ -269,18 +269,18 @@ mod tests {
     fn test_from_iter_with_options() {
         // Test FromIterator<Option<T>> with different types.
         let vec_i32: PrimitiveVectorMut =
-            PVectorMut::<i32>::from_iter(vec![Some(1), None, Some(3), None, Some(5)]).into();
+            PVecMut::<i32>::from_iter(vec![Some(1), None, Some(3), None, Some(5)]).into();
         assert_eq!(vec_i32.len(), 5);
         let frozen = vec_i32.freeze();
         assert_eq!(frozen.validity().true_count(), 3);
 
         // Test empty iterator.
         let vec_empty: PrimitiveVectorMut =
-            PVectorMut::<f64>::from_iter(std::iter::empty::<Option<f64>>()).into();
+            PVecMut::<f64>::from_iter(std::iter::empty::<Option<f64>>()).into();
         assert_eq!(vec_empty.len(), 0);
 
         // Test that None values use T::default().
-        let vec_nulls: PrimitiveVectorMut = PVectorMut::<i32>::from_iter([None, None, None]).into();
+        let vec_nulls: PrimitiveVectorMut = PVecMut::<i32>::from_iter([None, None, None]).into();
         // Check that validity is all false for nulls.
         let frozen = vec_nulls.freeze();
         assert_eq!(frozen.validity().true_count(), 0);
@@ -290,12 +290,12 @@ mod tests {
     fn test_from_iter_non_null() {
         // Test FromIterator<T> for different primitive types.
         let vec_f64: PrimitiveVectorMut =
-            PVectorMut::<f64>::from_iter([1.5, 2.5, 3.5, 4.5, 5.5]).into();
+            PVecMut::<f64>::from_iter([1.5, 2.5, 3.5, 4.5, 5.5]).into();
         assert_eq!(vec_f64.len(), 5);
         let frozen = vec_f64.freeze();
         assert_eq!(frozen.validity().true_count(), 5); // All valid.
 
-        let vec_u16: PrimitiveVectorMut = PVectorMut::<u16>::from_iter([1u16, 2, 3, 4, 5]).into();
+        let vec_u16: PrimitiveVectorMut = PVecMut::<u16>::from_iter([1u16, 2, 3, 4, 5]).into();
         assert_eq!(vec_u16.len(), 5);
         let frozen = vec_u16.freeze();
         assert_eq!(frozen.validity().true_count(), 5);
@@ -305,7 +305,7 @@ mod tests {
     fn test_operations_preserve_validity() {
         // Test split/unsplit/extend with different primitive types.
         let mut vec: PrimitiveVectorMut =
-            PVectorMut::<i64>::from_iter([Some(100), None, Some(300), None, Some(500)]).into();
+            PVecMut::<i64>::from_iter([Some(100), None, Some(300), None, Some(500)]).into();
 
         let second_half = vec.split_off(2);
         assert_eq!(vec.len(), 2);
@@ -317,8 +317,8 @@ mod tests {
         assert_eq!(second_frozen.validity().true_count(), 2);
 
         // Test unsplit.
-        let mut vec1: PrimitiveVectorMut = PVectorMut::<u32>::from_iter([Some(1000), None]).into();
-        let vec2: PrimitiveVectorMut = PVectorMut::<u32>::from_iter([None, Some(2000)]).into();
+        let mut vec1: PrimitiveVectorMut = PVecMut::<u32>::from_iter([Some(1000), None]).into();
+        let vec2: PrimitiveVectorMut = PVecMut::<u32>::from_iter([None, Some(2000)]).into();
         vec1.unsplit(vec2);
         assert_eq!(vec1.len(), 4);
         let frozen = vec1.freeze();

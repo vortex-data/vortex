@@ -3,22 +3,22 @@
 
 //! Definitions and implementations of native primitive vector types.
 //!
-//! The types that hold data are [`PVector`] and [`PVectorMut`], which are generic over types `T`
-//! that implement [`NativePType`] (which are just the integer and floating-point types that are
-//! native to Rust plus [`f16`]).
+//! The types that hold data are [`PVec`] and [`PVecMut`], which are generic over types `T` that
+//! implement [`NativePType`] (which are just the integer and floating-point types that are native
+//! to Rust plus [`f16`]).
 //!
 //! [`PrimitiveVector`] and [`PrimitiveVectorMut`] are enums that wrap all of the different possible
-//! [`PVector`]s. There are several macros defined in this crate to make working with these
-//! primitive vector types easier.
+//! [`PVec`]s. There are several macros defined in this crate to make working with these primitive
+//! vector types easier.
 //!
 //! [`NativePType`]: vortex_dtype::NativePType
 //! [`f16`]: vortex_dtype::half::f16
 
 mod generic;
-pub use generic::PVector;
+pub use generic::PVec;
 
 mod generic_mut;
-pub use generic_mut::PVectorMut;
+pub use generic_mut::PVecMut;
 
 mod vector;
 pub use vector::PrimitiveVector;
@@ -40,8 +40,8 @@ impl From<PrimitiveVector> for Vector {
     }
 }
 
-impl<T: NativePType> From<PVector<T>> for Vector {
-    fn from(v: PVector<T>) -> Self {
+impl<T: NativePType> From<PVec<T>> for Vector {
+    fn from(v: PVec<T>) -> Self {
         Self::Primitive(PrimitiveVector::from(v))
     }
 }
@@ -52,8 +52,8 @@ impl From<PrimitiveVectorMut> for VectorMut {
     }
 }
 
-impl<T: NativePType> From<PVectorMut<T>> for VectorMut {
-    fn from(val: PVectorMut<T>) -> Self {
+impl<T: NativePType> From<PVecMut<T>> for VectorMut {
+    fn from(val: PVecMut<T>) -> Self {
         Self::Primitive(PrimitiveVectorMut::from(val))
     }
 }

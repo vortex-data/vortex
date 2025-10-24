@@ -7,59 +7,59 @@ use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
 
-use super::macros::match_each_pvector;
-use crate::{PVector, PrimitiveVectorMut, VectorOps};
+use super::macros::match_each_pvec;
+use crate::{PVec, PrimitiveVectorMut, VectorOps};
 
 /// An immutable vector of primitive values.
 ///
 /// The mutable equivalent of this type is [`PrimitiveVectorMut`].
 ///
-/// `PrimitiveVector` is represented by an enum over all possible [`PVector`] types (which are
+/// `PrimitiveVector` is represented by an enum over all possible [`PVec`] types (which are
 /// templated by the types that implement [`NativePType`]).
 ///
-/// See the documentation for [`PVector`] for more information.
+/// See the documentation for [`PVec`] for more information.
 #[derive(Debug, Clone)]
 pub enum PrimitiveVector {
     /// U8
-    U8(PVector<u8>),
+    U8(PVec<u8>),
     /// U16
-    U16(PVector<u16>),
+    U16(PVec<u16>),
     /// U32
-    U32(PVector<u32>),
+    U32(PVec<u32>),
     /// U64
-    U64(PVector<u64>),
+    U64(PVec<u64>),
     /// I8
-    I8(PVector<i8>),
+    I8(PVec<i8>),
     /// I16
-    I16(PVector<i16>),
+    I16(PVec<i16>),
     /// I32
-    I32(PVector<i32>),
+    I32(PVec<i32>),
     /// I64
-    I64(PVector<i64>),
+    I64(PVec<i64>),
     /// F16
-    F16(PVector<f16>),
+    F16(PVec<f16>),
     /// F32
-    F32(PVector<f32>),
+    F32(PVec<f32>),
     /// F64
-    F64(PVector<f64>),
+    F64(PVec<f64>),
 }
 
 impl VectorOps for PrimitiveVector {
     type Mutable = PrimitiveVectorMut;
 
     fn len(&self) -> usize {
-        match_each_pvector!(self, |v| { v.len() })
+        match_each_pvec!(self, |v| { v.len() })
     }
 
     fn validity(&self) -> &vortex_mask::Mask {
-        match_each_pvector!(self, |v| { v.validity() })
+        match_each_pvec!(self, |v| { v.validity() })
     }
 
     fn try_into_mut(self) -> Result<Self::Mutable, Self>
     where
         Self: Sized,
     {
-        match_each_pvector!(self, |v| {
+        match_each_pvec!(self, |v| {
             v.try_into_mut()
                 .map(PrimitiveVectorMut::from)
                 .map_err(PrimitiveVector::from)
@@ -67,14 +67,14 @@ impl VectorOps for PrimitiveVector {
     }
 }
 
-impl<T: NativePType> From<PVector<T>> for PrimitiveVector {
-    fn from(v: PVector<T>) -> Self {
+impl<T: NativePType> From<PVec<T>> for PrimitiveVector {
+    fn from(v: PVec<T>) -> Self {
         T::upcast(v)
     }
 }
 
 impl PTypeUpcast for PrimitiveVector {
-    type Input<T: NativePType> = PVector<T>;
+    type Input<T: NativePType> = PVec<T>;
 
     fn from_u8(input: Self::Input<u8>) -> Self {
         PrimitiveVector::U8(input)
@@ -122,7 +122,7 @@ impl PTypeUpcast for PrimitiveVector {
 }
 
 impl PTypeDowncast for PrimitiveVector {
-    type Output<T: NativePType> = PVector<T>;
+    type Output<T: NativePType> = PVec<T>;
 
     fn into_u8(self) -> Self::Output<u8> {
         if let PrimitiveVector::U8(v) = self {

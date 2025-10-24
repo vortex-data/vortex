@@ -23,6 +23,6 @@ mod vector_mut;
 pub use bool::{BoolVector, BoolVectorMut};
 pub use null::{NullVector, NullVectorMut};
 pub use ops::{VectorMutOps, VectorOps};
-pub use primitive::{PVector, PVectorMut, PrimitiveVector, PrimitiveVectorMut};
+pub use primitive::{PVec, PVecMut, PrimitiveVector, PrimitiveVectorMut};
 pub use vector::Vector;
 pub use vector_mut::VectorMut;

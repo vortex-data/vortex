@@ -17,20 +17,20 @@
 /// # Examples
 ///
 /// ```ignore
-/// use vortex_vector::{PrimitiveVector, PVectorMut, VectorOps, VectorMutOps};
+/// use vortex_vector::{PrimitiveVector, PVecMut, VectorOps, VectorMutOps};
 ///
 /// fn get_primitive_len(vector: &PrimitiveVector) -> usize {
 ///     match_each_pvector!(vector, |v| { v.len() })
 /// }
 ///
 /// // Works with `I32` primitive vectors.
-/// let i32_vec: PrimitiveVector = PVectorMut::<i32>::from_iter([1, 2, 3].map(Some))
+/// let i32_vec: PrimitiveVector = PVecMut::<i32>::from_iter([1, 2, 3].map(Some))
 ///     .freeze()
 ///     .into();
 /// assert_eq!(get_primitive_len(&i32_vec), 3);
 ///
 /// // Works with `F64` primitive vectors.
-/// let f64_vec: PrimitiveVector = PVectorMut::<f64>::from_iter([1.0, 2.5].map(Some))
+/// let f64_vec: PrimitiveVector = PVecMut::<f64>::from_iter([1.0, 2.5].map(Some))
 ///     .freeze()
 ///     .into();
 /// assert_eq!(get_primitive_len(&f64_vec), 2);
@@ -40,7 +40,7 @@
 ///
 /// [`PrimitiveVector`]: crate::PrimitiveVector
 /// [`VectorOps`]: crate::VectorOps
-macro_rules! match_each_pvector {
+macro_rules! match_each_pvec {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
             $crate::PrimitiveVector::U8(v) => {
@@ -91,7 +91,7 @@ macro_rules! match_each_pvector {
     }};
 }
 
-pub(crate) use match_each_pvector;
+pub(crate) use match_each_pvec;
 
 /// Matches on all primitive type variants of [`PrimitiveVectorMut`] and executes the same code
 /// for each variant branch.
@@ -103,19 +103,19 @@ pub(crate) use match_each_pvector;
 /// # Examples
 ///
 /// ```ignore
-/// use vortex_vector::{PrimitiveVectorMut, PVectorMut, VectorMutOps};
+/// use vortex_vector::{PrimitiveVectorMut, PVecMut, VectorMutOps};
 ///
 /// fn reserve_primitive_space(vector: &mut PrimitiveVectorMut, additional: usize) {
 ///     match_each_pvector_mut!(vector, |v| { v.reserve(additional) })
 /// }
 ///
 /// // Works with `U8` mutable primitive vectors.
-/// let mut u8_vec: PrimitiveVectorMut = PVectorMut::<u8>::from_iter([1, 2].map(Some)).into();
+/// let mut u8_vec: PrimitiveVectorMut = PVecMut::<u8>::from_iter([1, 2].map(Some)).into();
 /// reserve_primitive_space(&mut u8_vec, 10);
 /// assert!(u8_vec.capacity() >= 12);
 ///
 /// // Works with `I64` mutable primitive vectors.
-/// let mut i64_vec: PrimitiveVectorMut = PVectorMut::<i64>::from_iter([100].map(Some)).into();
+/// let mut i64_vec: PrimitiveVectorMut = PVecMut::<i64>::from_iter([100].map(Some)).into();
 /// reserve_primitive_space(&mut i64_vec, 5);
 /// assert!(i64_vec.capacity() >= 6);
 /// ```
@@ -124,7 +124,7 @@ pub(crate) use match_each_pvector;
 ///
 /// [`PrimitiveVectorMut`]: crate::PrimitiveVectorMut
 /// [`VectorMutOps`]: crate::VectorMutOps
-macro_rules! match_each_pvector_mut {
+macro_rules! match_each_pvec_mut {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
             $crate::PrimitiveVectorMut::U8(v) => {
@@ -175,4 +175,4 @@ macro_rules! match_each_pvector_mut {
     }};
 }
 
-pub(crate) use match_each_pvector_mut;
+pub(crate) use match_each_pvec_mut;

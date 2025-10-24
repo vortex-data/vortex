@@ -26,5 +26,5 @@ impl Sealed for BoolVectorMut {}
 
 impl Sealed for PrimitiveVector {}
 impl Sealed for PrimitiveVectorMut {}
-impl<T: NativePType> Sealed for PVector<T> {}
-impl<T: NativePType> Sealed for PVectorMut<T> {}
+impl<T: NativePType> Sealed for PVec<T> {}
+impl<T: NativePType> Sealed for PVecMut<T> {}
