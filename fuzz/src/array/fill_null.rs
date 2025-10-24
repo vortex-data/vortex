@@ -248,7 +248,6 @@ mod tests {
     use vortex_scalar::{DecimalValue, Scalar};
 
     use super::fill_null_canonical_array;
-    use crate::assert_arrays_eq;
 
     #[test]
     fn test_fill_null_primitive() {
