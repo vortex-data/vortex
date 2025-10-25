@@ -22,4 +22,6 @@ mod scan_builder;
 pub use scan_builder::ScanBuilder;
 
 mod repeated_scan;
+pub mod v2;
+
 pub use repeated_scan::RepeatedScan;

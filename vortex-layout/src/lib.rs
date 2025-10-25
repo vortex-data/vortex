@@ -22,4 +22,5 @@ mod reader;
 pub mod segments;
 pub mod sequence;
 mod strategy;
+mod test;
 pub mod vtable;
