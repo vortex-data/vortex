@@ -127,7 +127,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
         Buffer<Self::ALPInt>,
         Buffer<u64>,
         Buffer<Self>,
-        Buffer<u64>,
+        BufferMut<u64>,
     ) {
         let exp = exponents.unwrap_or_else(|| Self::find_best_exponents(values));
 
@@ -158,7 +158,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
             encoded_output.freeze(),
             patch_indices.freeze(),
             patch_values.freeze(),
-            chunk_offsets.freeze(),
+            chunk_offsets,
         )
     }
 

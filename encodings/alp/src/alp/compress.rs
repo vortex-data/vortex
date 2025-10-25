@@ -63,7 +63,7 @@ where
 {
     let values_slice = values.as_slice::<T>();
 
-    let (exponents, encoded, exceptional_positions, exceptional_values, chunk_offsets) =
+    let (exponents, encoded, exceptional_positions, exceptional_values, mut chunk_offsets) =
         T::encode(values_slice, exponents);
 
     let encoded_array = PrimitiveArray::new(encoded, values.validity().clone()).into_array();
@@ -82,7 +82,16 @@ where
                 let (pos, vals): (BufferMut<u64>, BufferMut<T>) = exceptional_positions
                     .into_iter()
                     .zip_eq(exceptional_values)
-                    .filter(|(index, _)| is_valid.value(*index as usize))
+                    .filter(|(index, _)| {
+                        let is_valid = is_valid.value(*index as usize);
+                        if !is_valid {
+                            let patch_chunk = *index as usize / 1024;
+                            for chunk_idx in (patch_chunk + 1)..chunk_offsets.len() {
+                                chunk_offsets[chunk_idx] -= 1;
+                            }
+                        }
+                        is_valid
+                    })
                     .unzip();
                 (pos.freeze(), vals.freeze())
             }
