@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod bit_unpack;
+pub mod buffer;
 pub mod for_;
 mod for_bp;
+pub mod gpu_array;
 mod indent;
 mod jit;
 mod rle_decompress;

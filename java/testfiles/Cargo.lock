@@ -465,18 +465,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "console"
-version = "0.15.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
-dependencies = [
- "encode_unicode",
- "libc",
- "once_cell",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "const-random"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -580,12 +568,6 @@ name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
-
-[[package]]
-name = "encode_unicode"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
 name = "enum-iterator"
@@ -735,9 +717,9 @@ dependencies = [
 
 [[package]]
 name = "fsst-rs"
-version = "0.5.4"
+version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab195789b87bb56fce91b3617e44d36dbba68a4c8d736ef48767187932a5161b"
+checksum = "738dac3bb05f3cbad316400cbf148107fe0183ef42f971d8636f4014e3c8f013"
 
 [[package]]
 name = "funty"
@@ -1057,17 +1039,6 @@ checksum = "3acae9609540aa318d1bc588455225fb2085b9ed0c4f6bd0d9d5bcd86f1a0344"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
-]
-
-[[package]]
-name = "insta"
-version = "1.43.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46fdb647ebde000f43b5b53f773c30cf9b0cb4300453208713fa38b2c70935a0"
-dependencies = [
- "console",
- "once_cell",
- "similar",
 ]
 
 [[package]]
@@ -1882,12 +1853,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
-name = "similar"
-version = "2.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
-
-[[package]]
 name = "sketches-ddsketch"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2180,7 +2145,6 @@ dependencies = [
  "futures",
  "getrandom 0.3.3",
  "humansize",
- "insta",
  "inventory",
  "itertools",
  "log",
@@ -2512,6 +2476,7 @@ dependencies = [
  "pin-project-lite",
  "prost",
  "rustc-hash",
+ "termtree",
  "uuid",
  "vortex-array",
  "vortex-btrblocks",

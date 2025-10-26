@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod chunked;
-pub mod flat;
-mod gpu_segments;
-pub mod struct_;
+mod gpu_buf;
+
+pub use gpu_buf::*;
