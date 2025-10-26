@@ -68,7 +68,7 @@ impl CurrentThreadRuntime {
         let stream = f(self.handle());
 
         // We create an MPMC result channel and spawn a task to drive the stream and send results.
-        // This allows multiple worker threads to drive the executor while all waiting for results
+        // This allows multiple worker threads to drive the execution while all waiting for results
         // on the channel.
         let (result_tx, result_rx) = kanal::bounded_async(1);
         self.executor
@@ -91,7 +91,7 @@ impl CurrentThreadRuntime {
     }
 }
 
-/// An iterator that wraps up a stream to drive it using the current thread executor.
+/// An iterator that wraps up a stream to drive it using the current thread execution.
 pub struct CurrentThreadIterator<'a, T> {
     executor: Arc<smol::Executor<'static>>,
     stream: BoxStream<'a, T>,

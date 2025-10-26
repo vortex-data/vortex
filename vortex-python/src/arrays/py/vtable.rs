@@ -40,7 +40,7 @@ impl VTable for PythonVTable {
     type ComputeVTable = Self;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
+    type OperatorVTable = NotSupported;
 
     fn id(encoding: &Self::Encoding) -> EncodingId {
         encoding.id.clone()

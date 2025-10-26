@@ -18,9 +18,9 @@ use crate::operator::{
     BatchBindCtx, BatchExecutionRef, BatchOperator, DisplayFormat, LengthBounds, Operator,
     OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
-use crate::vtable::PipelineVTable;
+use crate::vtable::OperatorVTable;
 
-impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
+impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
     fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<OperatorRef>> {
         Ok(Some(Arc::new(array.clone())))
     }

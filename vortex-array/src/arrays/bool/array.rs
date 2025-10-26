@@ -10,6 +10,7 @@ use vortex_mask::Mask;
 use crate::arrays::bool;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::{ArrayRef, IntoArray};
 
 /// A boolean array that stores true/false values in a compact bit-packed format.
 ///
@@ -236,6 +237,21 @@ impl FromIterator<Option<bool>> for BoolArray {
                 .map(|n| Validity::from(BitBuffer::from(n.into_inner())))
                 .unwrap_or(Validity::AllValid),
         )
+    }
+}
+
+impl IntoArray for BitBuffer {
+    fn into_array(self) -> ArrayRef {
+        let len = self.len();
+        BoolArray::try_new(self.into_inner(), 0, len, Validity::NonNullable)
+            .vortex_expect("known correct")
+            .into_array()
+    }
+}
+
+impl IntoArray for BitBufferMut {
+    fn into_array(self) -> ArrayRef {
+        self.freeze().into_array()
     }
 }
 

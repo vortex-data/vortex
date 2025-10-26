@@ -35,7 +35,7 @@ impl VTable for ArrowVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type PipelineVTable = NotSupported;
+    type OperatorVTable = NotSupported;
     type SerdeVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

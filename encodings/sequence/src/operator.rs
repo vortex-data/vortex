@@ -17,13 +17,13 @@ use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{
     BindContext, Element, Kernel, KernelContext, N, PipelinedOperator, RowSelection,
 };
-use vortex_array::vtable::PipelineVTable;
+use vortex_array::vtable::OperatorVTable;
 use vortex_dtype::{DType, IntegerPType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::{SequenceArray, SequenceVTable};
 
-impl PipelineVTable<SequenceVTable> for SequenceVTable {
+impl OperatorVTable<SequenceVTable> for SequenceVTable {
     fn to_operator(array: &SequenceArray) -> VortexResult<Option<OperatorRef>> {
         Ok(Some(Arc::new(array.clone())))
     }

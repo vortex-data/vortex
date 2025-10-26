@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod display;
+mod operator;
 mod visitor;
 
 use std::any::Any;
@@ -10,6 +11,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::sync::Arc;
 
+pub use operator::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
@@ -28,7 +30,7 @@ use crate::operator::OperatorRef;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, PipelineVTable, SerdeVTable,
+    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, OperatorVTable, SerdeVTable,
     VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
@@ -38,7 +40,15 @@ use crate::{
 
 /// The public API trait for all Vortex arrays.
 pub trait Array:
-    'static + private::Sealed + Send + Sync + Debug + DynArrayEq + DynArrayHash + ArrayVisitor
+    'static
+    + private::Sealed
+    + Send
+    + Sync
+    + Debug
+    + DynArrayEq
+    + DynArrayHash
+    + ArrayVisitor
+    + ArrayOperator
 {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
@@ -159,7 +169,7 @@ pub trait Array:
     fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
     -> VortexResult<Option<Output>>;
 
-    /// Convert the array to a operator operator if supported by the encoding.
+    /// Convert the array to an operator if supported by the encoding.
     ///
     /// Returns `None` if the encoding does not support operator operations.
     fn to_operator(&self) -> VortexResult<Option<OperatorRef>>;
@@ -640,7 +650,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn to_operator(&self) -> VortexResult<Option<OperatorRef>> {
-        <V::PipelineVTable as PipelineVTable<V>>::to_operator(&self.0)
+        <V::OperatorVTable as OperatorVTable<V>>::to_operator(&self.0)
     }
 }
 

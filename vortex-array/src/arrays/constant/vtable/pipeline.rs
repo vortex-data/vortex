@@ -16,9 +16,9 @@ use crate::pipeline::view::ViewMut;
 use crate::pipeline::{
     BindContext, Element, Kernel, KernelContext, N, PipelinedOperator, RowSelection,
 };
-use crate::vtable::PipelineVTable;
+use crate::vtable::OperatorVTable;
 
-impl PipelineVTable<ConstantVTable> for ConstantVTable {
+impl OperatorVTable<ConstantVTable> for ConstantVTable {
     fn to_operator(array: &ConstantArray) -> VortexResult<Option<OperatorRef>> {
         Ok(Some(Arc::new(array.clone())))
     }

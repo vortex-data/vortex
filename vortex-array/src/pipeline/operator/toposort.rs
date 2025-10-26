@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(dead_code)]
+
 use std::collections::VecDeque;
 
 use vortex_error::{VortexResult, vortex_bail};

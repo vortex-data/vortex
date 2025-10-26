@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::validity::Validity;
-use crate::vtable::VTable;
+use crate::vtable::{NotSupported, VTable};
 use crate::{Array, ArrayRef};
 
 pub trait ValidityVTable<V: VTable> {
@@ -31,6 +32,36 @@ pub trait ValidityVTable<V: VTable> {
     }
 
     fn validity_mask(array: &V::Array) -> Mask;
+}
+
+impl<V: VTable> ValidityVTable<V> for NotSupported {
+    fn is_valid(array: &V::Array, _index: usize) -> bool {
+        vortex_panic!(
+            "Legacy is_valid is not supported for {} arrays",
+            array.encoding_id()
+        )
+    }
+
+    fn all_valid(array: &V::Array) -> bool {
+        vortex_panic!(
+            "Legacy all_valid is not supported for {} arrays",
+            array.encoding_id()
+        )
+    }
+
+    fn all_invalid(array: &V::Array) -> bool {
+        vortex_panic!(
+            "Legacy all_invalid is not supported for {} arrays",
+            array.encoding_id()
+        )
+    }
+
+    fn validity_mask(array: &V::Array) -> Mask {
+        vortex_panic!(
+            "Legacy validity_mask is not supported for {} arrays",
+            array.encoding_id()
+        )
+    }
 }
 
 /// An implementation of the [`ValidityVTable`] for arrays that hold validity as a child array.
