@@ -23,6 +23,7 @@ pub use generic_mut::PVectorMut;
 mod vector;
 pub use vector::PrimitiveVector;
 
+mod iter;
 mod pvector_impl;
 mod vector_mut;
 pub use vector_mut::PrimitiveVectorMut;

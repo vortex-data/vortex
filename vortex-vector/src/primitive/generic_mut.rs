@@ -159,6 +159,11 @@ impl<T> PVectorMut<T> {
             validity: MaskMut::with_capacity(capacity),
         }
     }
+
+    /// Decomposes the primitive vector into its constituent parts.
+    pub fn into_parts(self) -> (BufferMut<T>, MaskMut) {
+        (self.elements, self.validity)
+    }
 }
 
 impl<T: NativePType> VectorMutOps for PVectorMut<T> {

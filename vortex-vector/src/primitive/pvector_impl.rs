@@ -151,109 +151,6 @@ impl<T: NativePType> PVectorMut<T> {
     }
 }
 
-impl<T: NativePType> Extend<Option<T>> for PVectorMut<T> {
-    /// Extends the vector from an iterator of optional values.
-    ///
-    /// `None` values will be marked as null in the validity mask.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vortex_vector::{PVectorMut, VectorMutOps, VectorOps};
-    ///
-    /// let mut vec = PVectorMut::from_iter([Some(1i32), None]);
-    /// vec.extend([Some(3), None, Some(5)]);
-    /// assert_eq!(vec.len(), 5);
-    ///
-    /// let frozen = vec.freeze();
-    /// assert_eq!(frozen.validity().true_count(), 3); // Only 3 non-null values.
-    /// ```
-    fn extend<I: IntoIterator<Item = Option<T>>>(&mut self, iter: I) {
-        let iter = iter.into_iter();
-        // Since we do not know the length of the iterator, we can only guess how much memory we
-        // need to reserve. Note that these hints may be inaccurate.
-        let (lower_bound, _) = iter.size_hint();
-
-        // We choose not to use the optional upper bound size hint to match the standard library.
-
-        self.reserve(lower_bound);
-
-        // We have to update validity per-element since it depends on Option variant.
-        for opt_val in iter {
-            match opt_val {
-                Some(val) => {
-                    self.elements.push(val);
-                    self.validity.append_n(true, 1);
-                }
-                None => {
-                    self.elements.push(T::default());
-                    self.validity.append_n(false, 1);
-                }
-            }
-        }
-    }
-}
-
-impl<T: NativePType> FromIterator<Option<T>> for PVectorMut<T> {
-    /// Creates a new [`PVectorMut<T>`] from an iterator of `Option<T>` values.
-    ///
-    /// `None` values will be marked as invalid in the validity mask.
-    ///
-    /// Internally, this uses the [`Extend<Option<T>>`] trait implementation.
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = Option<T>>,
-    {
-        let iter = iter.into_iter();
-
-        let mut vec = Self::with_capacity(iter.size_hint().0);
-        vec.extend(iter);
-
-        vec
-    }
-}
-
-impl<T: NativePType> Extend<T> for PVectorMut<T> {
-    /// Extends the vector from an iterator of values.
-    ///
-    /// All values from the iterator will be marked as non-null in the validity mask.
-    ///
-    /// Internally, this uses the [`Extend<T>`] trait implementation.
-    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        let start_len = self.len();
-
-        // Allow the `BufferMut` implementation to handle extending efficiently.
-        self.elements.extend(iter);
-        self.validity.append_n(true, self.len() - start_len);
-    }
-}
-
-impl<T: NativePType> FromIterator<T> for PVectorMut<T> {
-    /// Creates a new [`PVectorMut<T>`] from an iterator of `T` values.
-    ///
-    /// All values will be treated as non-null.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vortex_vector::{PVectorMut, VectorMutOps};
-    ///
-    /// let mut vec = PVectorMut::from_iter([1i32, 2, 3, 4]);
-    /// assert_eq!(vec.len(), 4);
-    /// ```
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = T>,
-    {
-        let iter = iter.into_iter();
-
-        let mut vec = Self::with_capacity(iter.size_hint().0);
-        vec.extend(iter);
-
-        vec
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,5 +331,42 @@ mod tests {
         assert_eq!(frozen.get(2), None);
         assert_eq!(frozen.get(3), Some(99));
         assert_eq!(frozen.get(5), None);
+    }
+
+    #[test]
+    fn test_into_iter_roundtrip() {
+        // Test that from_iter followed by into_iter preserves the data.
+        let original_data = vec![
+            Some(1i32),
+            None,
+            Some(3),
+            Some(4),
+            None,
+            Some(6),
+            None,
+            Some(8),
+        ];
+
+        // Create vector from iterator.
+        let vec = PVectorMut::<i32>::from_iter(original_data.clone());
+
+        // Convert back to iterator and collect.
+        let roundtrip: Vec<_> = vec.into_iter().collect();
+
+        // Should be identical.
+        assert_eq!(roundtrip, original_data);
+
+        // Also test with all valid values.
+        let all_valid = vec![1, 2, 3, 4, 5];
+        let vec = PVectorMut::<i32>::from_iter(all_valid.clone());
+        let roundtrip: Vec<_> = vec.into_iter().collect();
+        let expected: Vec<_> = all_valid.into_iter().map(Some).collect();
+        assert_eq!(roundtrip, expected);
+
+        // Test with empty.
+        let empty: Vec<Option<i32>> = vec![];
+        let vec = PVectorMut::<i32>::from_iter(empty.clone());
+        let roundtrip: Vec<_> = vec.into_iter().collect();
+        assert_eq!(roundtrip, empty);
     }
 }

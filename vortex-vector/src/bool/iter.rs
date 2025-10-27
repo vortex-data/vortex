@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! [`FromIterator`] and related implementations for [`BoolVectorMut`].
+//! Iterator implementations for [`BoolVectorMut`].
 
 use vortex_buffer::BitBufferMut;
 use vortex_mask::MaskMut;
 
-use crate::BoolVectorMut;
+use crate::{BoolVectorMut, VectorMutOps};
 
 impl FromIterator<Option<bool>> for BoolVectorMut {
     /// Creates a new [`BoolVectorMut`] from an iterator of `Option<bool>` values.
@@ -75,6 +75,66 @@ impl FromIterator<bool> for BoolVectorMut {
         BoolVectorMut {
             bits: buffer,
             validity,
+        }
+    }
+}
+
+/// Iterator over a [`BoolVectorMut`] that yields [`Option<bool>`] values.
+///
+/// This iterator is created by calling [`IntoIterator::into_iter`] on a [`BoolVectorMut`].
+///
+/// It consumes the mutable vector and iterates over the elements, yielding `None` for null values
+/// and `Some(value)` for valid values.
+pub struct BoolVectorMutIterator {
+    /// The vector being iterated over.
+    vector: BoolVectorMut,
+    /// The current index into the vector.
+    index: usize,
+}
+
+impl Iterator for BoolVectorMutIterator {
+    type Item = Option<bool>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        (self.index < self.vector.len()).then(|| {
+            let value = self
+                .vector
+                .validity
+                .value(self.index)
+                .then(|| self.vector.bits.value(self.index));
+            self.index += 1;
+            value
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.vector.len() - self.index;
+        (remaining, Some(remaining))
+    }
+}
+
+impl IntoIterator for BoolVectorMut {
+    type Item = Option<bool>;
+    type IntoIter = BoolVectorMutIterator;
+
+    /// Converts the mutable vector into an iterator over `Option<bool>` values.
+    ///
+    /// This method consumes the `BoolVectorMut` and returns an iterator that yields `None` for
+    /// null values and `Some(value)` for valid values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_vector::BoolVectorMut;
+    ///
+    /// let vec = BoolVectorMut::from_iter([Some(true), None, Some(false), Some(true)]);
+    /// let collected: Vec<_> = vec.into_iter().collect();
+    /// assert_eq!(collected, vec![Some(true), None, Some(false), Some(true)]);
+    /// ```
+    fn into_iter(self) -> Self::IntoIter {
+        BoolVectorMutIterator {
+            vector: self,
+            index: 0,
         }
     }
 }
