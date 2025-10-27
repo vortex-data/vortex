@@ -9,6 +9,8 @@ use vortex_mask::MaskMut;
 
 use crate::{BoolVector, VectorMutOps, VectorOps};
 
+// TODO(connor): Implement proper `IntoIterator` trait instead of relying on `to_vec`.
+
 /// A mutable vector of boolean values.
 ///
 /// `BoolVectorMut` is the primary way to construct boolean vectors. It provides efficient methods
@@ -125,6 +127,53 @@ impl BoolVectorMut {
     pub fn into_parts(self) -> (BitBufferMut, MaskMut) {
         (self.bits, self.validity)
     }
+
+    /// Converts the vector to a `Vec<Option<bool>>`.
+    ///
+    /// This method borrows the vector and creates a new `Vec` with `Some(value)` for non-null
+    /// elements and `None` for null elements.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_vector::BoolVectorMut;
+    ///
+    /// let vec = BoolVectorMut::from_iter([Some(true), None, Some(false)]);
+    /// let values = vec.to_vec();
+    /// assert_eq!(values, vec![Some(true), None, Some(false)]);
+    /// ```
+    pub fn to_vec(&self) -> Vec<Option<bool>> {
+        (0..self.len())
+            .map(|i| self.validity.value(i).then(|| self.bits.value(i)))
+            .collect()
+    }
+
+    /// Attempts to convert the vector to a `Vec<bool>` containing only non-null values.
+    ///
+    /// Returns `None` if the vector contains any null values. Otherwise, returns `Some(Vec<bool>)`
+    /// with all the non-null values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_vector::BoolVectorMut;
+    ///
+    /// // All non-null values.
+    /// let vec = BoolVectorMut::from_iter([true, false, true]);
+    /// let values = vec.to_nonnull_vec();
+    /// assert_eq!(values, Some(vec![true, false, true]));
+    ///
+    /// // Contains null values.
+    /// let vec = BoolVectorMut::from_iter([Some(true), None, Some(false)]);
+    /// let values = vec.to_nonnull_vec();
+    /// assert_eq!(values, None);
+    /// ```
+    pub fn to_nonnull_vec(&self) -> Option<Vec<bool>> {
+        let validity_frozen = self.validity.clone().freeze();
+        validity_frozen
+            .all_true()
+            .then(|| (0..self.len()).map(|i| self.bits.value(i)).collect())
+    }
 }
 
 impl VectorMutOps for BoolVectorMut {
@@ -223,5 +272,54 @@ mod tests {
         assert_eq!(vec1.len(), 4);
         let frozen = vec1.freeze();
         assert_eq!(frozen.validity().true_count(), 3);
+    }
+
+    #[test]
+    fn test_to_vec_variants() {
+        // Test to_vec with mixed null/non-null values.
+        let mixed = BoolVectorMut::from_iter([Some(true), None, Some(false), None, Some(true)]);
+        assert_eq!(
+            mixed.to_vec(),
+            vec![Some(true), None, Some(false), None, Some(true)]
+        );
+        assert_eq!(mixed.len(), 5); // Vector still usable after to_vec.
+
+        // Test to_vec with all non-null.
+        let all_valid = BoolVectorMut::from_iter([true, false, true]);
+        assert_eq!(
+            all_valid.to_vec(),
+            vec![Some(true), Some(false), Some(true)]
+        );
+
+        // Test to_vec with all null.
+        let all_null = BoolVectorMut::from_iter([None, None, None]);
+        assert_eq!(all_null.to_vec(), vec![None, None, None]);
+
+        // Test to_vec with empty vector.
+        let empty = BoolVectorMut::with_capacity(0);
+        assert_eq!(empty.to_vec(), Vec::<Option<bool>>::new());
+    }
+
+    #[test]
+    fn test_to_nonnull_vec_variants() {
+        // Test with all non-null values - should return Some(vec).
+        let all_valid = BoolVectorMut::from_iter([true, false, true, false, true]);
+        assert_eq!(
+            all_valid.to_nonnull_vec(),
+            Some(vec![true, false, true, false, true])
+        );
+        assert_eq!(all_valid.len(), 5); // Vector still usable.
+
+        // Test with mixed values - should return None.
+        let mixed = BoolVectorMut::from_iter([Some(true), None, Some(false)]);
+        assert_eq!(mixed.to_nonnull_vec(), None);
+
+        // Test with all nulls - should return None.
+        let all_null = BoolVectorMut::from_iter([None, None, None]);
+        assert_eq!(all_null.to_nonnull_vec(), None);
+
+        // Test empty vector - should return Some(empty vec).
+        let empty = BoolVectorMut::with_capacity(0);
+        assert_eq!(empty.to_nonnull_vec(), Some(Vec::<bool>::new()));
     }
 }

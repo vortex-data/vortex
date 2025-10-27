@@ -8,6 +8,58 @@ use vortex_error::VortexExpect;
 
 use crate::{PVectorMut, VectorMutOps};
 
+// TODO(connor): Implement proper `IntoIterator` trait instead of relying on `to_vec`.
+
+/// Conversion methods from [`PVectorMut`] to [`std::vec::Vec`].
+impl<T: NativePType> PVectorMut<T> {
+    /// Converts the vector to a `Vec<Option<T>>`.
+    ///
+    /// This method borrows the [`PVectorMut`] and creates a new `Vec` with `Some(value)` for
+    /// non-null elements and `None` for null elements.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_vector::PVectorMut;
+    ///
+    /// let vec = PVectorMut::from_iter([Some(1i32), None, Some(3)]);
+    /// let values = vec.to_vec();
+    /// assert_eq!(values, vec![Some(1), None, Some(3)]);
+    /// ```
+    pub fn to_vec(&self) -> Vec<Option<T>> {
+        (0..self.len())
+            .map(|i| self.validity.value(i).then(|| self.elements[i]))
+            .collect()
+    }
+
+    /// Attempts to convert the vector to a `Vec<T>` containing only non-null values.
+    ///
+    /// Returns `None` if the [`PVectorMut`] contains any null values. Otherwise, returns
+    /// `Some(Vec<T>)` with all the non-null values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_vector::PVectorMut;
+    ///
+    /// // All non-null values.
+    /// let vec = PVectorMut::from_iter([1i32, 2, 3]);
+    /// let values = vec.to_nonnull_vec();
+    /// assert_eq!(values, Some(vec![1, 2, 3]));
+    ///
+    /// // Contains null values.
+    /// let vec = PVectorMut::from_iter([Some(1i32), None, Some(3)]);
+    /// let values = vec.to_nonnull_vec();
+    /// assert_eq!(values, None);
+    /// ```
+    pub fn to_nonnull_vec(&self) -> Option<Vec<T>> {
+        let validity_frozen = self.validity.clone().freeze();
+        validity_frozen
+            .all_true()
+            .then(|| self.elements.as_slice().to_vec())
+    }
+}
+
 /// Point operations for [`PVectorMut`].
 impl<T: NativePType> PVectorMut<T> {
     /// Returns the first element of the vector, or `None` if it is empty.
@@ -140,7 +192,7 @@ impl<T: NativePType> PVectorMut<T> {
     ///
     /// The caller should check the frozen [`validity()`] before performing any operations.
     ///
-    /// [`validity()`]: crate::PVector::validity
+    /// [`validity()`]: crate::VectorOps::validity
     pub fn as_slice(&self) -> &[T] {
         self.elements.as_slice()
     }
@@ -152,7 +204,7 @@ impl<T: NativePType> PVectorMut<T> {
     ///
     /// The caller should check the frozen [`validity()`] before performing any operations.
     ///
-    /// [`validity()`]: crate::PVector::validity
+    /// [`validity()`]: crate::VectorOps::validity
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         self.elements.as_mut_slice()
     }
@@ -505,5 +557,48 @@ mod tests {
         assert_eq!(frozen.get(2), None);
         assert_eq!(frozen.get(3), Some(99));
         assert_eq!(frozen.get(5), None);
+    }
+
+    #[test]
+    fn test_to_vec_variants() {
+        // Test to_vec with mixed null/non-null values.
+        let mixed = PVectorMut::from_iter([Some(1i32), None, Some(3), None, Some(5)]);
+        assert_eq!(mixed.to_vec(), vec![Some(1), None, Some(3), None, Some(5)]);
+        assert_eq!(mixed.len(), 5); // Vector still usable after to_vec.
+
+        // Test to_vec with all non-null.
+        let all_valid = PVectorMut::from_iter([1i32, 2, 3]);
+        assert_eq!(all_valid.to_vec(), vec![Some(1), Some(2), Some(3)]);
+
+        // Test to_vec with all null.
+        let mut all_null = PVectorMut::<i32>::with_capacity(2);
+        all_null.push_opt(None);
+        all_null.push_opt(None);
+        assert_eq!(all_null.to_vec(), vec![None, None]);
+
+        // Test to_vec with empty vector.
+        let empty = PVectorMut::<i32>::with_capacity(0);
+        assert_eq!(empty.to_vec(), Vec::<Option<i32>>::new());
+    }
+
+    #[test]
+    fn test_to_nonnull_vec_variants() {
+        // Test with all non-null values - should return Some(vec).
+        let all_valid = PVectorMut::from_iter([1i32, 2, 3, 4, 5]);
+        assert_eq!(all_valid.to_nonnull_vec(), Some(vec![1, 2, 3, 4, 5]));
+        assert_eq!(all_valid.len(), 5); // Vector still usable.
+
+        // Test with mixed values - should return None.
+        let mixed = PVectorMut::from_iter([Some(1i32), None, Some(3)]);
+        assert_eq!(mixed.to_nonnull_vec(), None);
+
+        // Test with all nulls - should return None.
+        let mut all_null = PVectorMut::<i32>::with_capacity(3);
+        all_null.extend([None, None, None]);
+        assert_eq!(all_null.to_nonnull_vec(), None);
+
+        // Test empty vector - should return Some(empty vec).
+        let empty = PVectorMut::<i32>::with_capacity(0);
+        assert_eq!(empty.to_nonnull_vec(), Some(Vec::<i32>::new()));
     }
 }
