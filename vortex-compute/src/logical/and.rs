@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::BitAnd;
-
+use vortex_mask::Mask;
 use vortex_vector::{BoolVector, VectorOps};
 
 use crate::logical::LogicalAnd;
@@ -24,6 +24,22 @@ impl LogicalAnd<&BoolVector> for BoolVector {
 
     fn and(self, other: &BoolVector) -> BoolVector {
         (&self).and(other)
+    }
+}
+
+impl LogicalAnd for &Mask {
+    type Output = Mask;
+
+    fn and(self, other: Self) -> Self::Output {
+        self.bitand(other)
+    }
+}
+
+impl LogicalAnd<&Mask> for Mask {
+    type Output = Mask;
+
+    fn and(self, other: &Mask) -> Self::Output {
+        self.bitand(other)
     }
 }
 

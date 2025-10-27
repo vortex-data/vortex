@@ -5,7 +5,7 @@
 
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::{PVectorMut, VectorOps};
@@ -67,6 +67,18 @@ impl<T: NativePType> PVector<T> {
         );
 
         Self { elements, validity }
+    }
+}
+
+impl<T: NativePType> PVector<T> {
+    /// Returns a reference to the internal elements buffer.
+    pub fn elements(&self) -> &Buffer<T> {
+        &self.elements
+    }
+
+    /// Returns a reference to the internal validity mask.
+    pub fn validity(&self) -> &Mask {
+        &self.validity
     }
 }
 

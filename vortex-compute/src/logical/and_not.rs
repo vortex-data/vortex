@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::BitAnd;
-
 use vortex_vector::{BoolVector, VectorOps};
 
 use crate::logical::LogicalAndNot;

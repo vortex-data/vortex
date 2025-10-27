@@ -4,62 +4,59 @@
 use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
 
-use enum_map::{Enum, EnumMap, enum_map};
+use enum_map::{enum_map, Enum, EnumMap};
 use vortex_buffer::ByteBuffer;
-use vortex_compute::logical::{
-    LogicalAnd, LogicalAndKleene, LogicalAndNot, LogicalOr, LogicalOrKleene,
-};
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
-use vortex_vector::BoolVector;
+use vortex_compute::arithmetic::{Add, Checked, CheckedOperator, Div, Mul, Sub};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, PTypeDowncastExt};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_scalar::{PValue, Scalar};
 
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
+use crate::arrays::ConstantArray;
+use crate::execution::{kernel, BatchKernelRef, BindCtx};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
     ArrayVTable, NotSupported, OperatorVTable, SerdeVTable, VTable, VisitorVTable,
 };
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
-    DeserializeMetadata, EmptyMetadata, EncodingId, EncodingRef, Precision, vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash,
+    ArrayRef, DeserializeMetadata, EmptyMetadata, EncodingId, EncodingRef, IntoArray, Precision,
 };
 
-/// The set of operators supported by a logical array.
+/// The set of operators supported by an arithmetic array.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Enum)]
-pub enum LogicalOperator {
-    /// Logical AND
-    And,
-    /// Logical AND with Kleene logic
-    AndKleene,
-    /// Logical OR
-    Or,
-    /// Logical OR with Kleene logic
-    OrKleene,
-    /// Logical AND NOT
-    AndNot,
+pub enum ArithmeticOperator {
+    /// Addition
+    Add,
+    /// Subtraction
+    Sub,
+    /// Multiplication
+    Mul,
+    /// Division
+    Div,
 }
 
-vtable!(Logical);
+vtable!(Arithmetic);
 
 #[derive(Debug, Clone)]
-pub struct LogicalArray {
+pub struct ArithmeticArray {
     encoding: EncodingRef,
     lhs: ArrayRef,
     rhs: ArrayRef,
     stats: ArrayStats,
 }
 
-impl LogicalArray {
+impl ArithmeticArray {
     /// Create a new logical array.
-    pub fn new(lhs: ArrayRef, rhs: ArrayRef, operator: LogicalOperator) -> Self {
+    pub fn new(lhs: ArrayRef, rhs: ArrayRef, operator: ArithmeticOperator) -> Self {
         assert_eq!(
             lhs.len(),
             rhs.len(),
-            "Logical arrays require lhs and rhs to have the same length"
+            "Arithmetic arrays require lhs and rhs to have the same length"
         );
 
         // TODO(ngates): should we automatically cast non-null to nullable if required?
-        assert!(matches!(lhs.dtype(), DType::Bool(_)));
+        assert!(matches!(lhs.dtype(), DType::Primitive(..)));
         assert_eq!(lhs.dtype(), rhs.dtype());
 
         Self {
@@ -71,29 +68,29 @@ impl LogicalArray {
     }
 
     /// Returns the operator of this logical array.
-    pub fn operator(&self) -> LogicalOperator {
-        self.encoding.as_::<LogicalVTable>().operator
+    pub fn operator(&self) -> ArithmeticOperator {
+        self.encoding.as_::<ArithmeticVTable>().operator
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct LogicalEncoding {
+pub struct ArithmeticEncoding {
     // We include the operator in the encoding so each operator is a different encoding ID.
     // This makes it easier for plugins to construct expressions and perform pushdown
     // optimizations.
-    operator: LogicalOperator,
+    operator: ArithmeticOperator,
 }
 
 #[allow(clippy::mem_forget)]
-static ENCODINGS: LazyLock<EnumMap<LogicalOperator, EncodingRef>> = LazyLock::new(|| {
+static ENCODINGS: LazyLock<EnumMap<ArithmeticOperator, EncodingRef>> = LazyLock::new(|| {
     enum_map! {
-        operator => LogicalEncoding { operator }.to_encoding(),
+        operator => ArithmeticEncoding { operator }.to_encoding(),
     }
 });
 
-impl VTable for LogicalVTable {
-    type Array = LogicalArray;
-    type Encoding = LogicalEncoding;
+impl VTable for ArithmeticVTable {
+    type Array = ArithmeticArray;
+    type Encoding = ArithmeticEncoding;
     type ArrayVTable = Self;
     type CanonicalVTable = NotSupported;
     type OperationsVTable = NotSupported;
@@ -106,11 +103,10 @@ impl VTable for LogicalVTable {
 
     fn id(encoding: &Self::Encoding) -> EncodingId {
         match encoding.operator {
-            LogicalOperator::And => EncodingId::from("vortex.and"),
-            LogicalOperator::AndKleene => EncodingId::from("vortex.and_kleene"),
-            LogicalOperator::Or => EncodingId::from("vortex.or"),
-            LogicalOperator::OrKleene => EncodingId::from("vortex.or_kleene"),
-            LogicalOperator::AndNot => EncodingId::from("vortex.and_not"),
+            ArithmeticOperator::Add => EncodingId::from("vortex.add"),
+            ArithmeticOperator::Sub => EncodingId::from("vortex.sub"),
+            ArithmeticOperator::Mul => EncodingId::from("vortex.mul"),
+            ArithmeticOperator::Div => EncodingId::from("vortex.div"),
         }
     }
 
@@ -119,57 +115,58 @@ impl VTable for LogicalVTable {
     }
 }
 
-impl ArrayVTable<LogicalVTable> for LogicalVTable {
-    fn len(array: &LogicalArray) -> usize {
+impl ArrayVTable<ArithmeticVTable> for ArithmeticVTable {
+    fn len(array: &ArithmeticArray) -> usize {
         array.lhs.len()
     }
 
-    fn dtype(array: &LogicalArray) -> &DType {
+    fn dtype(array: &ArithmeticArray) -> &DType {
         array.lhs.dtype()
     }
 
-    fn stats(array: &LogicalArray) -> StatsSetRef<'_> {
+    fn stats(array: &ArithmeticArray) -> StatsSetRef<'_> {
         array.stats.to_ref(array.as_ref())
     }
 
-    fn array_hash<H: Hasher>(array: &LogicalArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: &ArithmeticArray, state: &mut H, precision: Precision) {
         array.lhs.array_hash(state, precision);
         array.rhs.array_hash(state, precision);
     }
 
-    fn array_eq(array: &LogicalArray, other: &LogicalArray, precision: Precision) -> bool {
+    fn array_eq(array: &ArithmeticArray, other: &ArithmeticArray, precision: Precision) -> bool {
         array.lhs.array_eq(&other.lhs, precision) && array.rhs.array_eq(&other.rhs, precision)
     }
 }
 
-impl VisitorVTable<LogicalVTable> for LogicalVTable {
-    fn visit_buffers(_array: &LogicalArray, _visitor: &mut dyn ArrayBufferVisitor) {
+impl VisitorVTable<ArithmeticVTable> for ArithmeticVTable {
+    fn visit_buffers(_array: &ArithmeticArray, _visitor: &mut dyn ArrayBufferVisitor) {
         // No buffers
     }
 
-    fn visit_children(array: &LogicalArray, visitor: &mut dyn ArrayChildVisitor) {
+    fn visit_children(array: &ArithmeticArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("lhs", array.lhs.as_ref());
         visitor.visit_child("rhs", array.rhs.as_ref());
     }
 }
 
-impl SerdeVTable<LogicalVTable> for LogicalVTable {
+impl SerdeVTable<ArithmeticVTable> for ArithmeticVTable {
     type Metadata = EmptyMetadata;
 
-    fn metadata(_array: &LogicalArray) -> VortexResult<Option<Self::Metadata>> {
+    fn metadata(_array: &ArithmeticArray) -> VortexResult<Option<Self::Metadata>> {
         Ok(Some(EmptyMetadata))
     }
 
     fn build(
-        encoding: &LogicalEncoding,
+        encoding: &ArithmeticEncoding,
         dtype: &DType,
         len: usize,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<LogicalArray> {
+    ) -> VortexResult<ArithmeticArray> {
         assert!(buffers.is_empty());
-        Ok(LogicalArray::new(
+
+        Ok(ArithmeticArray::new(
             children.get(0, dtype, len)?,
             children.get(1, dtype, len)?,
             encoding.operator,
@@ -177,34 +174,116 @@ impl SerdeVTable<LogicalVTable> for LogicalVTable {
     }
 }
 
-impl OperatorVTable<LogicalVTable> for LogicalVTable {
+impl OperatorVTable<ArithmeticVTable> for ArithmeticVTable {
+    fn reduce_children(array: &ArithmeticArray) -> VortexResult<Option<ArrayRef>> {
+        match (array.lhs.as_constant(), array.rhs.as_constant()) {
+            // If both sides are constant, we compute the value now.
+            (Some(lhs), Some(rhs)) => {
+                let op: vortex_scalar::NumericOperator = match array.operator() {
+                    ArithmeticOperator::Add => vortex_scalar::NumericOperator::Add,
+                    ArithmeticOperator::Sub => vortex_scalar::NumericOperator::Sub,
+                    ArithmeticOperator::Mul => vortex_scalar::NumericOperator::Mul,
+                    ArithmeticOperator::Div => vortex_scalar::NumericOperator::Div,
+                };
+                let result = lhs
+                    .as_primitive()
+                    .checked_binary_numeric(&rhs.as_primitive(), op)
+                    .ok_or_else(|| {
+                        vortex_err!("Constant arithmetic operation resulted in overflow")
+                    })?;
+                return Ok(Some(
+                    ConstantArray::new(Scalar::from(result), array.len()).into_array(),
+                ));
+            }
+            // If either side is constant null, the result is constant null.
+            (Some(lhs), _) if lhs.is_null() => {
+                return Ok(Some(
+                    ConstantArray::new(Scalar::null(array.dtype().clone()), array.len())
+                        .into_array(),
+                ));
+            }
+            (_, Some(rhs)) if rhs.is_null() => {
+                return Ok(Some(
+                    ConstantArray::new(Scalar::null(array.dtype().clone()), array.len())
+                        .into_array(),
+                ));
+            }
+            _ => {}
+        }
+
+        Ok(None)
+    }
+
     fn bind(
-        array: &LogicalArray,
+        array: &ArithmeticArray,
         selection: Option<&ArrayRef>,
         ctx: &mut dyn BindCtx,
     ) -> VortexResult<BatchKernelRef> {
+        // Optimize for constant RHS
+        if let Some(rhs) = array.rhs.as_constant() {
+            if rhs.is_null() {
+                // If the RHS is null, the result is always null.
+                return Ok(
+                    ConstantArray::new(Scalar::null(array.dtype().clone()), array.len())
+                        .into_array()
+                        .bind(selection, ctx)?,
+                );
+            }
+
+            let lhs = ctx.bind(&array.lhs, selection)?;
+            return match_each_native_ptype!(array.dtype().as_ptype(), |T| {
+                let rhs_value: T = rhs
+                    .as_primitive()
+                    .typed_value::<T>()
+                    .vortex_expect("Already checked for null above");
+                Ok(match array.operator() {
+                    ArithmeticOperator::Add => arithmetic_scalar_kernel::<Add, _>(lhs, rhs_value),
+                    ArithmeticOperator::Sub => arithmetic_scalar_kernel::<Sub, _>(lhs, rhs_value),
+                    ArithmeticOperator::Mul => arithmetic_scalar_kernel::<Mul, _>(lhs, rhs_value),
+                    ArithmeticOperator::Div => arithmetic_scalar_kernel::<Div, _>(lhs, rhs_value),
+                })
+            });
+        }
+
         let lhs = ctx.bind(&array.lhs, selection)?;
         let rhs = ctx.bind(&array.rhs, selection)?;
 
-        Ok(match array.operator() {
-            LogicalOperator::And => logical_kernel(lhs, rhs, |l, r| l.and(&r)),
-            LogicalOperator::AndKleene => logical_kernel(lhs, rhs, |l, r| l.and_kleene(&r)),
-            LogicalOperator::Or => logical_kernel(lhs, rhs, |l, r| l.or(&r)),
-            LogicalOperator::OrKleene => logical_kernel(lhs, rhs, |l, r| l.or_kleene(&r)),
-            LogicalOperator::AndNot => logical_kernel(lhs, rhs, |l, r| l.and_not(&r)),
+        match_each_native_ptype!(array.dtype().as_ptype(), |T| {
+            Ok(match array.operator() {
+                ArithmeticOperator::Add => arithmetic_kernel::<Add, T>(lhs, rhs),
+                ArithmeticOperator::Sub => arithmetic_kernel::<Sub, T>(lhs, rhs),
+                ArithmeticOperator::Mul => arithmetic_kernel::<Mul, T>(lhs, rhs),
+                ArithmeticOperator::Div => arithmetic_kernel::<Div, T>(lhs, rhs),
+            })
         })
     }
 }
 
 /// Batch execution kernel for logical operations.
-fn logical_kernel<O>(lhs: BatchKernelRef, rhs: BatchKernelRef, op: O) -> BatchKernelRef
+fn arithmetic_kernel<Op, T>(lhs: BatchKernelRef, rhs: BatchKernelRef) -> BatchKernelRef
 where
-    O: Fn(BoolVector, BoolVector) -> BoolVector + Send + 'static,
+    T: NativePType,
+    Op: CheckedOperator<T>,
 {
     kernel(move || {
-        let lhs = lhs.execute()?.into_bool();
-        let rhs = rhs.execute()?.into_bool();
-        Ok(op(lhs, rhs).into())
+        let lhs = lhs.execute()?.into_primitive().downcast::<T>();
+        let rhs = rhs.execute()?.into_primitive().downcast::<T>();
+        let result = Checked::<Op, _>::checked_op(lhs, &rhs)
+            .ok_or_else(|| vortex_err!("Arithmetic operation resulted in overflow"))?;
+        Ok(result.into())
+    })
+}
+
+fn arithmetic_scalar_kernel<Op, T>(lhs: BatchKernelRef, rhs: T) -> BatchKernelRef
+where
+    T: NativePType + TryFrom<PValue>,
+    Op: CheckedOperator<T>,
+{
+    kernel(move || {
+        let lhs = lhs.execute()?.into_primitive().downcast::<T>();
+        let result = Checked::<Op, _>::checked_op(lhs, &rhs)
+            .ok_or_else(|| vortex_err!("Arithmetic operation resulted in overflow"))?;
+        Ok(result.into())
     })
 }
 
@@ -212,11 +291,11 @@ where
 mod tests {
     use vortex_buffer::bitbuffer;
 
-    use crate::compute::arrays::logical::{LogicalArray, LogicalOperator};
+    use crate::compute::arrays::logical::ArithmeticOperator;
     use crate::{ArrayOperator, ArrayRef, IntoArray};
 
     fn and_(lhs: ArrayRef, rhs: ArrayRef) -> ArrayRef {
-        LogicalArray::new(lhs, rhs, LogicalOperator::And).into_array()
+        ArithmeticArray::new(lhs, rhs, ArithmeticOperator::And).into_array()
     }
 
     #[test]

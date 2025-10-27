@@ -1,154 +1,131 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arithmetic::buffer::{
-    buffer_op, buffer_op_mut, buffer_op_mut_scalar, buffer_op_scalar,
-};
-use crate::arithmetic::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
+use crate::arithmetic::{Checked, CheckedOperator};
 use std::ops::BitAnd;
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::NativePType;
 use vortex_vector::{PVector, PVectorMut, VectorMutOps, VectorOps};
 
-macro_rules! checked_op {
-    ($Trait:ident, $op:tt) => {
-        impl<T: NativePType + num_traits::$Trait> $Trait<&PVector<T>> for &PVector<T> {
-            type Output = PVector<T>;
-
-            fn $op(self, other: &PVector<T>) -> Option<Self::Output> {
-                pvector_op(self, other, num_traits::$Trait::$op)
-            }
-        }
-
-        impl<T: NativePType + num_traits::$Trait> $Trait<&T> for &PVector<T> {
-            type Output = PVector<T>;
-
-            fn $op(self, other: &T) -> Option<Self::Output> {
-                pvector_op_scalar(self, other, num_traits::$Trait::$op)
-            }
-        }
-
-        impl<T: NativePType + num_traits::$Trait> $Trait<&PVector<T>> for PVector<T> {
-            type Output = PVector<T>;
-
-            fn $op(self, other: &PVector<T>) -> Option<Self::Output> {
-                pvector_op_inplace(self, other, num_traits::$Trait::$op)
-            }
-        }
-
-        impl<T: NativePType + num_traits::$Trait> $Trait<&T> for PVector<T> {
-            type Output = PVector<T>;
-
-            fn $op(self, other: &T) -> Option<Self::Output> {
-                pvector_op_inplace_scalar(self, other, num_traits::$Trait::$op)
-            }
-        }
-
-        impl<T: NativePType + num_traits::$Trait> $Trait<&PVector<T>> for PVectorMut<T> {
-            type Output = PVector<T>;
-
-            fn $op(self, other: &PVector<T>) -> Option<Self::Output> {
-                pvector_op_mut(self, other, num_traits::$Trait::$op)
-            }
-        }
-
-        impl<T: NativePType + num_traits::$Trait> $Trait<&T> for PVectorMut<T> {
-            type Output = PVector<T>;
-
-            fn $op(self, other: &T) -> Option<Self::Output> {
-                pvector_op_mut_scalar(self, other, num_traits::$Trait::$op)
-            }
-        }
-    };
-}
-
-checked_op!(CheckedAdd, checked_add);
-checked_op!(CheckedSub, checked_sub);
-checked_op!(CheckedMul, checked_mul);
-checked_op!(CheckedDiv, checked_div);
-
-fn pvector_op_inplace<O, T>(lhs: PVector<T>, rhs: &PVector<T>, op: O) -> Option<PVector<T>>
+/// Implementation that attempts to downcast to a mutable vector and operates in-place.
+impl<Op, T> Checked<Op, &PVector<T>> for PVector<T>
 where
-    O: Fn(&T, &T) -> Option<T>,
     T: NativePType,
+    Op: CheckedOperator<T>,
 {
-    match lhs.try_into_mut() {
-        Ok(lhs) => pvector_op_mut(lhs, rhs, op),
-        Err(lhs) => pvector_op(&lhs, rhs, op),
+    type Output = PVector<T>;
+
+    fn checked_op(self, rhs: &PVector<T>) -> Option<Self::Output> {
+        match self.try_into_mut() {
+            Ok(lhs) => Checked::<Op, _>::checked_op(lhs, rhs),
+            Err(lhs) => Checked::<Op, _>::checked_op(&lhs, rhs),
+        }
     }
 }
 
-fn pvector_op_mut<O, T>(lhs: PVectorMut<T>, rhs: &PVector<T>, op: O) -> Option<PVector<T>>
+/// Implementation that operates in-place over a mutable vector.
+impl<Op, T> Checked<Op, &PVector<T>> for PVectorMut<T>
 where
-    O: Fn(&T, &T) -> Option<T>,
     T: NativePType,
+    Op: CheckedOperator<T>,
+    BufferMut<T>: for<'a> Checked<Op, &'a Buffer<T>, Output = Buffer<T>>,
 {
-    assert_eq!(lhs.len(), rhs.len());
+    type Output = PVector<T>;
 
-    let (lhs_buffer, lhs_validity) = lhs.into_parts();
+    fn checked_op(self, other: &PVector<T>) -> Option<Self::Output> {
+        assert_eq!(self.len(), other.len());
 
-    // TODO(ngates): based on the true count of the validity, we may wish to short-circuit here
-    //  or choose a different implementation.
-    let validity = lhs_validity.freeze().bitand(rhs.validity());
-    let elements = buffer_op_mut(lhs_buffer, rhs.elements(), op)?;
+        let (lhs_buffer, lhs_validity) = self.into_parts();
 
-    Some(PVector::new(elements, validity))
-}
+        // TODO(ngates): based on the true count of the validity, we may wish to short-circuit here
+        //  or choose a different implementation.
+        let validity = lhs_validity.freeze().bitand(other.validity());
+        let elements = Checked::<Op, _>::checked_op(lhs_buffer, other.elements())?;
 
-fn pvector_op<O, T>(lhs: &PVector<T>, rhs: &PVector<T>, op: O) -> Option<PVector<T>>
-where
-    O: Fn(&T, &T) -> Option<T>,
-    T: NativePType,
-{
-    assert_eq!(lhs.len(), rhs.len());
-
-    // TODO(ngates): based on the true count of the validity, we may wish to short-circuit here
-    //  or choose a different implementation.
-    let validity = lhs.validity().bitand(rhs.validity());
-
-    let elements = buffer_op(lhs.elements(), rhs.elements(), op)?;
-    Some(PVector::new(elements, validity))
-}
-
-fn pvector_op_inplace_scalar<O, T>(lhs: PVector<T>, rhs: &T, op: O) -> Option<PVector<T>>
-where
-    O: Fn(&T, &T) -> Option<T>,
-    T: NativePType,
-{
-    match lhs.try_into_mut() {
-        Ok(lhs) => pvector_op_mut_scalar(lhs, rhs, op),
-        Err(lhs) => pvector_op_scalar(&lhs, rhs, op),
+        Some(PVector::new(elements, validity))
     }
 }
 
-fn pvector_op_mut_scalar<O, T>(lhs: PVectorMut<T>, rhs: &T, op: O) -> Option<PVector<T>>
+/// Implementation that allocates a new output vector.
+impl<Op, T> Checked<Op, &PVector<T>> for &PVector<T>
 where
-    O: Fn(&T, &T) -> Option<T>,
     T: NativePType,
+    Op: CheckedOperator<T>,
+    for<'a> &'a Buffer<T>: Checked<Op, &'a Buffer<T>, Output = Buffer<T>>,
 {
-    let (lhs_buffer, lhs_validity) = lhs.into_parts();
-    let validity = lhs_validity.freeze();
+    type Output = PVector<T>;
 
-    let elements = buffer_op_mut_scalar(lhs_buffer, rhs, op)?;
+    fn checked_op(self, rhs: &PVector<T>) -> Option<Self::Output> {
+        assert_eq!(self.len(), rhs.len());
 
-    Some(PVector::new(elements, validity))
+        // TODO(ngates): based on the true count of the validity, we may wish to short-circuit here
+        //  or choose a different implementation.
+        let validity = self.validity().bitand(rhs.validity());
+
+        let elements = Checked::<Op, _>::checked_op(self.elements(), rhs.elements())?;
+        Some(PVector::new(elements, validity))
+    }
 }
 
-fn pvector_op_scalar<O, T>(lhs: &PVector<T>, rhs: &T, op: O) -> Option<PVector<T>>
+/// Implementation that attempts to downcast to a mutable vector and operates in-place against
+/// a scalar RHS value.
+impl<Op, T> Checked<Op, &T> for PVector<T>
 where
-    O: Fn(&T, &T) -> Option<T>,
     T: NativePType,
+    Op: CheckedOperator<T>,
+    PVectorMut<T>: for<'a> Checked<Op, &'a T, Output = PVector<T>>,
 {
-    let buffer = buffer_op_scalar(lhs.elements(), rhs, op)?;
-    Some(PVector::new(buffer, lhs.validity().clone()))
+    type Output = PVector<T>;
+
+    fn checked_op(self, rhs: &T) -> Option<Self::Output> {
+        match self.try_into_mut() {
+            Ok(lhs) => Checked::<Op, _>::checked_op(lhs, rhs),
+            Err(lhs) => Checked::<Op, _>::checked_op(&lhs, rhs),
+        }
+    }
+}
+
+/// Implementation that operates in-place over a mutable vector against a scalar RHS value.
+impl<Op, T> Checked<Op, &T> for PVectorMut<T>
+where
+    T: NativePType,
+    Op: CheckedOperator<T>,
+    BufferMut<T>: for<'a> Checked<Op, &'a T, Output = Buffer<T>>,
+{
+    type Output = PVector<T>;
+
+    fn checked_op(self, rhs: &T) -> Option<Self::Output> {
+        let (lhs_buffer, lhs_validity) = self.into_parts();
+        let validity = lhs_validity.freeze();
+
+        let elements = Checked::<Op, _>::checked_op(lhs_buffer, rhs)?;
+
+        Some(PVector::new(elements, validity))
+    }
+}
+
+/// Implementation that allocates a new output vector against a scalar RHS value.
+impl<Op, T> Checked<Op, &T> for &PVector<T>
+where
+    T: NativePType,
+    Op: CheckedOperator<T>,
+    for<'a> &'a Buffer<T>: Checked<Op, &'a T, Output = Buffer<T>>,
+{
+    type Output = PVector<T>;
+
+    fn checked_op(self, rhs: &T) -> Option<Self::Output> {
+        let buffer = Checked::<Op, _>::checked_op(self.elements(), rhs)?;
+        Some(PVector::new(buffer, self.validity().clone()))
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::arithmetic::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
     use vortex_vector::PVector;
-
-    use super::*;
 
     #[test]
     fn test_add_pvectors() {

@@ -2,233 +2,151 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::half::f16;
 
-use crate::arithmetic::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
+use crate::arithmetic::{Checked, CheckedOperator};
 
-macro_rules! checked_op {
-    ($Trait:ident, $name:ident, $T:ty, $op:expr) => {
-        impl $Trait<&Buffer<$T>> for &Buffer<$T> {
-            type Output = Buffer<$T>;
-
-            fn $name(self, other: &Buffer<$T>) -> Option<Self::Output> {
-                buffer_op(self, other, $op)
-            }
-        }
-
-        impl $Trait<&$T> for &Buffer<$T> {
-            type Output = Buffer<$T>;
-
-            fn $name(self, other: &$T) -> Option<Self::Output> {
-                buffer_op_scalar(self, other, $op)
-            }
-        }
-
-        impl $Trait<&Buffer<$T>> for Buffer<$T> {
-            type Output = Buffer<$T>;
-
-            fn $name(self, other: &Buffer<$T>) -> Option<Self::Output> {
-                buffer_op_inplace(self, other, $op)
-            }
-        }
-
-        impl $Trait<&$T> for Buffer<$T> {
-            type Output = Buffer<$T>;
-
-            fn $name(self, other: &$T) -> Option<Self::Output> {
-                buffer_op_inplace_scalar(self, other, $op)
-            }
-        }
-
-        impl $Trait<&Buffer<$T>> for BufferMut<$T> {
-            type Output = Buffer<$T>;
-
-            fn $name(self, other: &Buffer<$T>) -> Option<Self::Output> {
-                buffer_op_mut(self, other, $op)
-            }
-        }
-
-        impl $Trait<&$T> for BufferMut<$T> {
-            type Output = Buffer<$T>;
-
-            fn $name(self, other: &$T) -> Option<Self::Output> {
-                buffer_op_mut_scalar(self, other, $op)
-            }
-        }
-    };
-}
-
-/// For integers, we can delegate to the num_traits wrapping operations.
-macro_rules! integer_ops {
-    ($T:ty) => {
-        checked_op!(
-            CheckedAdd,
-            checked_add,
-            $T,
-            num_traits::CheckedAdd::checked_add
-        );
-        checked_op!(
-            CheckedSub,
-            checked_sub,
-            $T,
-            num_traits::CheckedSub::checked_sub
-        );
-        checked_op!(
-            CheckedMul,
-            checked_mul,
-            $T,
-            num_traits::CheckedMul::checked_mul
-        );
-        checked_op!(
-            CheckedDiv,
-            checked_div,
-            $T,
-            num_traits::CheckedDiv::checked_div
-        );
-    };
-}
-
-/// For floats, there are no checked operations. So we use regular operations that never fail.
-macro_rules! float_ops {
-    ($T:ty) => {
-        checked_op!(CheckedAdd, checked_add, $T, |a, b| Some(
-            std::ops::Add::add(a, b)
-        ));
-        checked_op!(CheckedSub, checked_sub, $T, |a, b| Some(
-            std::ops::Sub::sub(a, b)
-        ));
-        checked_op!(CheckedMul, checked_mul, $T, |a, b| Some(
-            std::ops::Mul::mul(a, b)
-        ));
-        checked_op!(CheckedDiv, checked_div, $T, |a, b| Some(
-            std::ops::Div::div(a, b)
-        ));
-    };
-}
-
-integer_ops!(u8);
-integer_ops!(u16);
-integer_ops!(u32);
-integer_ops!(u64);
-integer_ops!(u128);
-integer_ops!(i8);
-integer_ops!(i16);
-integer_ops!(i32);
-integer_ops!(i64);
-integer_ops!(i128);
-
-float_ops!(f16);
-float_ops!(f32);
-float_ops!(f64);
-
-pub(super) fn buffer_op_inplace<O, T>(lhs: Buffer<T>, rhs: &Buffer<T>, op: O) -> Option<Buffer<T>>
+/// Implementation that attempts to downcast to a mutable buffer and operates in-place.
+impl<Op, T> Checked<Op, &Buffer<T>> for Buffer<T>
 where
-    O: Fn(&T, &T) -> Option<T>,
     T: Copy + num_traits::Zero,
+    BufferMut<T>: for<'a> Checked<Op, &'a Buffer<T>, Output = Buffer<T>>,
+    for<'a> &'a Buffer<T>: Checked<Op, &'a Buffer<T>, Output = Buffer<T>>,
 {
-    match lhs.try_into_mut() {
-        Ok(lhs) => buffer_op_mut(lhs, rhs, op),
-        Err(lhs) => buffer_op(&lhs, rhs, op),
+    type Output = Buffer<T>;
+
+    fn checked_op(self, rhs: &Buffer<T>) -> Option<Self::Output> {
+        match self.try_into_mut() {
+            Ok(lhs) => lhs.checked_op(rhs),
+            Err(lhs) => (&lhs).checked_op(rhs),
+        }
     }
 }
 
-pub(super) fn buffer_op_mut<O, T>(lhs: BufferMut<T>, rhs: &Buffer<T>, op: O) -> Option<Buffer<T>>
+/// Implementation that operates in-place over a mutable buffer.
+impl<Op, T> Checked<Op, &Buffer<T>> for BufferMut<T>
 where
-    O: Fn(&T, &T) -> Option<T>,
     T: Copy + num_traits::Zero,
+    Op: CheckedOperator<T>,
 {
-    assert_eq!(lhs.len(), rhs.len());
+    type Output = Buffer<T>;
 
-    let mut i = 0;
-    let mut overflow = false;
-    let buffer = lhs
-        .map_each(|a| {
-            // SAFETY: lengths are equal, so index is in bounds
-            let b = unsafe { *rhs.get_unchecked(i) };
-            i += 1;
+    fn checked_op(self, rhs: &Buffer<T>) -> Option<Self::Output> {
+        assert_eq!(self.len(), rhs.len());
 
-            // On overflow, set flag and write zero
-            // We don't abort early because this code vectorizes better without the
-            // branch, and we expect overflow to be an exception rather than the norm.
-            op(&a, &b).unwrap_or_else(|| {
-                overflow = true;
-                T::zero()
+        let mut i = 0;
+        let mut overflow = false;
+        let buffer = self
+            .map_each(|a| {
+                // SAFETY: lengths are equal, so index is in bounds
+                let b = unsafe { *rhs.get_unchecked(i) };
+                i += 1;
+
+                // On overflow, set flag and write zero
+                // We don't abort early because this code vectorizes better without the
+                // branch, and we expect overflow to be an exception rather than the norm.
+                Op::apply(&a, &b).unwrap_or_else(|| {
+                    overflow = true;
+                    T::zero()
+                })
             })
-        })
-        .freeze();
+            .freeze();
 
-    (!overflow).then_some(buffer)
-}
-
-pub(super) fn buffer_op<O, T>(lhs: &Buffer<T>, rhs: &Buffer<T>, op: O) -> Option<Buffer<T>>
-where
-    O: Fn(&T, &T) -> Option<T>,
-    T: Copy + num_traits::Zero,
-{
-    assert_eq!(lhs.len(), rhs.len());
-
-    let mut overflow = false;
-    let buffer = Buffer::<T>::from_trusted_len_iter(lhs.iter().zip(rhs.iter()).map(|(a, b)| {
-        // On overflow, set flag and write zero
-        // We don't abort early because this code vectorizes better without the
-        // branch, and we expect overflow to be an exception rather than the norm.
-        op(a, b).unwrap_or_else(|| {
-            overflow = true;
-            T::zero()
-        })
-    }));
-    (!overflow).then_some(buffer)
-}
-
-pub(super) fn buffer_op_inplace_scalar<O, T>(lhs: Buffer<T>, rhs: &T, op: O) -> Option<Buffer<T>>
-where
-    O: Fn(&T, &T) -> Option<T>,
-    T: Copy + num_traits::Zero,
-{
-    match lhs.try_into_mut() {
-        Ok(lhs) => buffer_op_mut_scalar(lhs, rhs, op),
-        Err(lhs) => buffer_op_scalar(&lhs, rhs, op),
+        (!overflow).then_some(buffer)
     }
 }
 
-pub(super) fn buffer_op_mut_scalar<O, T>(lhs: BufferMut<T>, rhs: &T, op: O) -> Option<Buffer<T>>
+/// Implementation that allocates a new output buffer.
+impl<Op, T> Checked<Op, &Buffer<T>> for &Buffer<T>
 where
-    O: Fn(&T, &T) -> Option<T>,
     T: Copy + num_traits::Zero,
+    Op: CheckedOperator<T>,
 {
-    let mut overflow = false;
-    let buffer = lhs
-        .map_each(|a| {
-            op(&a, rhs).unwrap_or_else(|| {
+    type Output = Buffer<T>;
+
+    fn checked_op(self, rhs: &Buffer<T>) -> Option<Self::Output> {
+        assert_eq!(self.len(), rhs.len());
+
+        let mut overflow = false;
+        let buffer =
+            Buffer::<T>::from_trusted_len_iter(self.iter().zip(rhs.iter()).map(|(a, b)| {
+                // On overflow, set flag and write zero
+                // We don't abort early because this code vectorizes better without the
+                // branch, and we expect overflow to be an exception rather than the norm.
+                Op::apply(a, b).unwrap_or_else(|| {
+                    overflow = true;
+                    T::zero()
+                })
+            }));
+        (!overflow).then_some(buffer)
+    }
+}
+
+/// Implementation that attempts to downcast to a mutable buffer and operates in-place against
+/// a scalar RHS value.
+impl<Op, T> Checked<Op, &T> for Buffer<T>
+where
+    T: Copy + num_traits::Zero,
+    BufferMut<T>: for<'a> Checked<Op, &'a T, Output = Buffer<T>>,
+    for<'a> &'a Buffer<T>: Checked<Op, &'a T, Output = Buffer<T>>,
+{
+    type Output = Buffer<T>;
+
+    fn checked_op(self, rhs: &T) -> Option<Self::Output> {
+        match self.try_into_mut() {
+            Ok(lhs) => lhs.checked_op(rhs),
+            Err(lhs) => (&lhs).checked_op(rhs),
+        }
+    }
+}
+
+/// Implementation that operates in-place over a mutable buffer against a scalar RHS value.
+impl<Op, T> Checked<Op, &T> for BufferMut<T>
+where
+    T: Copy + num_traits::Zero,
+    Op: CheckedOperator<T>,
+{
+    type Output = Buffer<T>;
+
+    fn checked_op(self, rhs: &T) -> Option<Self::Output> {
+        let mut overflow = false;
+        let buffer = self
+            .map_each(|a| {
+                Op::apply(&a, rhs).unwrap_or_else(|| {
+                    overflow = true;
+                    T::zero()
+                })
+            })
+            .freeze();
+
+        (!overflow).then_some(buffer)
+    }
+}
+
+/// Implementation that allocates a new output buffer operating against a scalar RHS value.
+impl<Op, T> Checked<Op, &T> for &Buffer<T>
+where
+    T: Copy + num_traits::Zero,
+    Op: CheckedOperator<T>,
+{
+    type Output = Buffer<T>;
+
+    fn checked_op(self, rhs: &T) -> Option<Self::Output> {
+        let mut overflow = false;
+        let buffer = Buffer::<T>::from_trusted_len_iter(self.iter().map(|a| {
+            Op::apply(a, rhs).unwrap_or_else(|| {
                 overflow = true;
                 T::zero()
             })
-        })
-        .freeze();
+        }));
 
-    (!overflow).then_some(buffer)
-}
-
-pub(super) fn buffer_op_scalar<O, T>(lhs: &Buffer<T>, rhs: &T, op: O) -> Option<Buffer<T>>
-where
-    O: Fn(&T, &T) -> Option<T>,
-    T: Copy + num_traits::Zero,
-{
-    let mut overflow = false;
-    let buffer = Buffer::<T>::from_trusted_len_iter(lhs.iter().map(|a| {
-        op(a, rhs).unwrap_or_else(|| {
-            overflow = true;
-            T::zero()
-        })
-    }));
-    (!overflow).then_some(buffer)
+        (!overflow).then_some(buffer)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::arithmetic::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
     use vortex_buffer::buffer;
-
-    use super::*;
 
     #[test]
     fn test_add_buffers() {

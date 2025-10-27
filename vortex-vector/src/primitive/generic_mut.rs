@@ -5,10 +5,10 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 use vortex_mask::MaskMut;
 
-use crate::{PVector, VectorMutOps, VectorOps};
+use crate::{PVector, VectorMutOps};
 
 /// A mutable vector of generic primitive values.
 ///
@@ -158,6 +158,14 @@ impl<T> PVectorMut<T> {
             elements: BufferMut::with_capacity(capacity),
             validity: MaskMut::with_capacity(capacity),
         }
+    }
+}
+
+impl<T: NativePType> PVectorMut<T> {
+    /// Decomposes the mutable vector into its constituent parts: the elements buffer and the
+    /// validity mask.
+    pub fn into_parts(self) -> (BufferMut<T>, MaskMut) {
+        (self.elements, self.validity)
     }
 }
 
