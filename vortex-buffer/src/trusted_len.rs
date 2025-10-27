@@ -72,17 +72,17 @@ pub trait TrustedLenExt: Iterator + Sized {
     ///
     /// The caller must guarantee that the iterator does indeed have an exact length.
     unsafe fn trusted_len(self) -> TrustedLenAdapter<Self> {
-        let (lower, maybe_upper) = self.size_hint();
-        if let Some(upper) = maybe_upper {
+        let (lower_bound, upper_bound_opt) = self.size_hint();
+        if let Some(upper_bound) = upper_bound_opt {
             assert_eq!(
-                lower, upper,
+                lower_bound, upper_bound,
                 "TrustedLenExt: iterator size hints must match if upper bound is given"
             );
         }
 
         TrustedLenAdapter {
             inner: self,
-            len: lower,
+            len: lower_bound,
             #[cfg(debug_assertions)]
             count: 0,
         }

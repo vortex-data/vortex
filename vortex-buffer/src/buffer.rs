@@ -193,9 +193,10 @@ impl<T> Buffer<T> {
     /// Create a buffer with values from the TrustedLen iterator.
     /// Should be preferred over `from_iter` when the iterator is known to be `TrustedLen`.
     pub fn from_trusted_len_iter<I: TrustedLen<Item = T>>(iter: I) -> Self {
-        let (_, high) = iter.size_hint();
-        let mut buffer =
-            BufferMut::with_capacity(high.vortex_expect("TrustedLen iterator has no upper bound"));
+        let (_, upper_bound) = iter.size_hint();
+        let mut buffer = BufferMut::with_capacity(
+            upper_bound.vortex_expect("TrustedLen iterator has no upper bound"),
+        );
         buffer.extend_trusted(iter);
         buffer.freeze()
     }
