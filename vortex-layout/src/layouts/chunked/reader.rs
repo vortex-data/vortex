@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
-use futures::{FutureExt, StreamExt, TryStreamExt};
+use futures::{FutureExt, TryStreamExt};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
@@ -149,16 +149,23 @@ impl LayoutReader for ChunkedReader {
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_offset: u64,
+        row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        let mut offset = row_offset;
+        let mut offset = row_range.start;
         for i in 0..self.layout.nchildren() {
+            // Bail early if the row range only overlaps with a subset of the chunks
+            if offset >= row_range.end {
+                break;
+            }
+
             let child = self.chunk_reader(i)?;
-            child.register_splits(field_mask, offset, splits)?;
-            offset += self.layout.child(i)?.row_count();
+            let child_range = offset..offset + child.row_count();
+            child.register_splits(field_mask, &child_range, splits)?;
+            offset = child_range.end;
             splits.insert(offset);
         }
+
         Ok(())
     }
 

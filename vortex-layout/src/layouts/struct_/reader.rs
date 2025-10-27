@@ -8,7 +8,6 @@ use std::sync::Arc;
 use futures::try_join;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
-use vortex_array::stats::Precision;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, MaskFuture, ToCanonical};
 use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
@@ -116,11 +115,6 @@ impl StructReader {
             idx
         };
 
-        let field_dtype = self
-            .struct_fields()
-            .field_by_index(idx)
-            .ok_or_else(|| vortex_err!("Missing field {idx}"))?;
-        let name = &self.struct_fields().names()[idx];
         self.lazy_children.get(child_index)
     }
 
@@ -210,15 +204,15 @@ impl LayoutReader for StructReader {
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_offset: u64,
+        row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
         // In the case of an empty struct, we need to register the end split.
-        splits.insert(row_offset + self.layout.row_count);
+        splits.insert(row_range.end);
 
         self.layout.matching_fields(field_mask, |mask, idx| {
             self.field_reader_by_index(idx)?
-                .register_splits(&[mask], row_offset, splits)
+                .register_splits(&[mask], row_range, splits)
         })
     }
 

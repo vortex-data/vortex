@@ -36,7 +36,7 @@ pub trait LayoutReader: 'static + Send + Sync {
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_offset: u64,
+        row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()>;
 
@@ -104,7 +104,6 @@ pub struct LazyReaderChildren {
     dtypes: Vec<DType>,
     names: Vec<Arc<str>>,
     segment_source: Arc<dyn SegmentSource>,
-
     // TODO(ngates): we may want a hash map of some sort here?
     cache: Vec<OnceCell<LayoutReaderRef>>,
 }

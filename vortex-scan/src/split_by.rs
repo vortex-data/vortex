@@ -3,6 +3,7 @@
 
 use std::collections::BTreeSet;
 use std::iter::once;
+use std::ops::Range;
 
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
@@ -27,21 +28,24 @@ impl SplitBy {
     pub fn splits(
         &self,
         layout_reader: &dyn LayoutReader,
+        row_range: &Range<u64>,
         field_mask: &[FieldMask],
     ) -> VortexResult<BTreeSet<u64>> {
         Ok(match *self {
             SplitBy::Layout => {
                 let mut row_splits = BTreeSet::<u64>::new();
-                row_splits.insert(0);
+                row_splits.insert(row_range.start);
 
-                // Register the splits for all the layouts.
-                layout_reader.register_splits(field_mask, 0, &mut row_splits)?;
+                // Register all splits in the row range for all layouts that are needed
+                // to read the field mask.
+                layout_reader.register_splits(field_mask, row_range, &mut row_splits)?;
                 row_splits
             }
-            SplitBy::RowCount(n) => {
-                let row_count = layout_reader.row_count();
-                (0..row_count).step_by(n).chain(once(row_count)).collect()
-            }
+            SplitBy::RowCount(n) => row_range
+                .clone()
+                .step_by(n)
+                .chain(once(row_range.end))
+                .collect(),
         })
     }
 }
@@ -85,7 +89,11 @@ mod test {
         let reader = layout.new_reader("".into(), segments).unwrap();
 
         let splits = SplitBy::Layout
-            .splits(reader.as_ref(), &[FieldMask::Exact(FieldPath::root())])
+            .splits(
+                reader.as_ref(),
+                &(0..10),
+                &[FieldMask::Exact(FieldPath::root())],
+            )
             .unwrap();
         assert_eq!(splits, [0, 10].into_iter().collect());
     }
@@ -114,7 +122,11 @@ mod test {
         let reader = layout.new_reader("".into(), segments).unwrap();
 
         let splits = SplitBy::RowCount(3)
-            .splits(reader.as_ref(), &[FieldMask::Exact(FieldPath::root())])
+            .splits(
+                reader.as_ref(),
+                &(0..10),
+                &[FieldMask::Exact(FieldPath::root())],
+            )
             .unwrap();
         assert_eq!(splits, [0, 3, 6, 9, 10].into_iter().collect());
     }

@@ -194,11 +194,11 @@ impl LayoutReader for ZonedReader {
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_offset: u64,
+        row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
         self.data_child()?
-            .register_splits(field_mask, row_offset, splits)
+            .register_splits(field_mask, row_range, splits)
     }
 
     fn pruning_evaluation(
