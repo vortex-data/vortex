@@ -31,6 +31,9 @@ use crate::{BitBuffer, BufferMut, ByteBufferMut, buffer_mut};
 #[derive(Debug, Clone, Eq)]
 pub struct BitBufferMut {
     buffer: ByteBufferMut,
+    /// Represents the offset of the bit buffer into the first byte.
+    ///
+    /// This is always less than 8 (for when the bit buffer is not aligned to a byte).
     offset: usize,
     len: usize,
 }
@@ -160,6 +163,13 @@ impl BitBufferMut {
 
         let additional_bytes = required_bytes.saturating_sub(self.buffer.len());
         self.buffer.reserve(additional_bytes);
+    }
+
+    /// Clears the bit buffer (but keeps any allocated memory).
+    pub fn clear(&mut self) {
+        // Since there are no items we need to drop, we simply set the length to 0.
+        self.len = 0;
+        self.offset = 0;
     }
 
     /// Set the bit at `index` to the given boolean value.
