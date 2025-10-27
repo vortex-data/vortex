@@ -9,7 +9,7 @@ pub use vector::BoolVector;
 mod vector_mut;
 pub use vector_mut::BoolVectorMut;
 
-mod from_iter;
+mod iter;
 
 use crate::{Vector, VectorMut};
 

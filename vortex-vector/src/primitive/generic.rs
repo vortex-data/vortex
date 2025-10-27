@@ -69,6 +69,11 @@ impl<T: NativePType> PVector<T> {
         Self { elements, validity }
     }
 
+    /// Decomposes the primitive vector into its constituent parts.
+    pub fn into_parts(self) -> (Buffer<T>, Mask) {
+        (self.elements, self.validity)
+    }
+
     /// Gets a nullable element at the given index.
     ///
     /// If the element at the given index is null, returns `None`. Otherwise, returns `Some(x)`,
