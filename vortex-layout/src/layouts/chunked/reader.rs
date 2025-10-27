@@ -8,6 +8,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
+use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
@@ -152,18 +153,30 @@ impl LayoutReader for ChunkedReader {
         row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        let mut offset = row_range.start;
-        for i in 0..self.layout.nchildren() {
-            // Bail early if the row range only overlaps with a subset of the chunks
-            if offset >= row_range.end {
+        for (index, (&start, &end)) in self
+            .chunk_offsets
+            .iter()
+            .tuple_windows::<(_, _)>()
+            .enumerate()
+        {
+            if end < row_range.start {
+                continue;
+            }
+
+            if start >= row_range.end {
                 break;
             }
 
-            let child = self.chunk_reader(i)?;
-            let child_range = offset..offset + child.row_count();
+            // Child overlaps in whole or in part with split
+            let child = self.chunk_reader(index)?;
+            let child_range =
+                std::cmp::max(row_range.start, start)..std::cmp::min(row_range.end, end);
+
+            // Register any splits from the child
             child.register_splits(field_mask, &child_range, splits)?;
-            offset = child_range.end;
-            splits.insert(offset);
+
+            // Register the split indicating the end of this chunk
+            splits.insert(child_range.end);
         }
 
         Ok(())
