@@ -188,7 +188,12 @@ impl dyn Layout + '_ {
 
     /// Display the layout as a tree structure.
     pub fn display_tree(&self) -> DisplayLayoutTree {
-        DisplayLayoutTree(self.to_layout())
+        DisplayLayoutTree::new(self.to_layout(), false)
+    }
+
+    /// Display the layout as a tree structure with optional verbose metadata.
+    pub fn display_tree_verbose(&self, verbose: bool) -> DisplayLayoutTree {
+        DisplayLayoutTree::new(self.to_layout(), verbose)
     }
 }
 

@@ -25,13 +25,16 @@ pub enum TreeMode {
     Layout {
         /// Path to the Vortex file
         file: PathBuf,
+        /// Show additional metadata information
+        #[arg(short, long)]
+        verbose: bool,
     },
 }
 
 pub async fn exec_tree(args: TreeArgs) -> VortexResult<()> {
     match args.mode {
         TreeMode::Array { file } => exec_array_tree(&file).await?,
-        TreeMode::Layout { file } => exec_layout_tree(&file).await?,
+        TreeMode::Layout { file, verbose } => exec_layout_tree(&file, verbose).await?,
     }
 
     Ok(())
@@ -51,11 +54,11 @@ async fn exec_array_tree(file: &Path) -> VortexResult<()> {
     Ok(())
 }
 
-async fn exec_layout_tree(file: &Path) -> VortexResult<()> {
+async fn exec_layout_tree(file: &Path, verbose: bool) -> VortexResult<()> {
     let vxf = VortexOpenOptions::new().open(file).await?;
     let footer = vxf.footer();
 
-    println!("{}", footer.layout().display_tree());
+    println!("{}", footer.layout().display_tree_verbose(verbose));
 
     Ok(())
 }
