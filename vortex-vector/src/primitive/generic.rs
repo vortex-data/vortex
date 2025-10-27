@@ -68,6 +68,42 @@ impl<T: NativePType> PVector<T> {
 
         Self { elements, validity }
     }
+
+    /// Gets a nullable element at the given index.
+    ///
+    /// If the element at the given index is null, returns `None`. Otherwise, returns `Some(x)`,
+    /// where `x: T`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn get(&self, index: usize) -> Option<T> {
+        self.validity.value(index).then(|| self.elements[index])
+    }
+
+    /// Returns the internal [`Buffer`] of the [`PVector`].
+    ///
+    /// Note that the internal buffer may hold garbage data in place of nulls. That information is
+    /// tracked by the [`validity()`](Self::validity).
+    #[inline]
+    pub fn elements(&self) -> &Buffer<T> {
+        &self.elements
+    }
+}
+
+impl<T: NativePType> AsRef<[T]> for PVector<T> {
+    /// Returns an immutable slice over the internal buffer with elements of type `T`.
+    ///
+    /// Note that this slice may contain garbage data where the [`validity()`] mask states that an
+    /// element is invalid.
+    ///
+    /// The caller should check the [`validity()`] before performing any operations.
+    ///
+    /// [`validity()`]: crate::VectorOps::validity
+    #[inline]
+    fn as_ref(&self) -> &[T] {
+        self.elements.as_slice()
+    }
 }
 
 impl<T: NativePType> VectorOps for PVector<T> {
