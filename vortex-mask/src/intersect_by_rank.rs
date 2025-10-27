@@ -149,7 +149,7 @@ mod test {
     fn test_intersect_by_rank_wrong_length() {
         let m1 = Mask::from_indices(10, vec![2, 5, 7]); // 3 true values
         let m2 = Mask::new_true(5); // 5 true values - doesn't match
-        let _ = m1.intersect_by_rank(&m2);
+        let _unused = m1.intersect_by_rank(&m2);
     }
 
     #[rstest]
