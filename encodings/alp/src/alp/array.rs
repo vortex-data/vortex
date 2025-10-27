@@ -282,6 +282,6 @@ impl ArrayVTable<ALPVTable> for ALPVTable {
 
 impl CanonicalVTable<ALPVTable> for ALPVTable {
     fn canonicalize(array: &ALPArray) -> Canonical {
-        Canonical::Primitive(decompress(array))
+        Canonical::Primitive(decompress(array.clone()))
     }
 }
