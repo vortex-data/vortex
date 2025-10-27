@@ -44,7 +44,7 @@ fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> 
     let archive_path = duckdb_dir.join(&archive_name);
 
     // Recreate the duckdb directory
-    let _ = fs::remove_dir_all(&duckdb_dir);
+    drop(fs::remove_dir_all(&duckdb_dir));
     fs::create_dir_all(&duckdb_dir)?;
 
     if !archive_path.exists() {
@@ -192,7 +192,7 @@ fn build_duckdb(duckdb_source_root: &Path) -> Result<PathBuf, Box<dyn std::error
     let target_dir = manifest_dir.parent().unwrap().join("target");
     let duckdb_library_dir = target_dir.join("duckdb-lib");
 
-    let _ = fs::remove_dir_all(&duckdb_library_dir);
+    drop(fs::remove_dir_all(&duckdb_library_dir));
     fs::create_dir_all(&duckdb_library_dir)?;
 
     // Copy .dylib and .so files (macOS and Linux).
@@ -223,7 +223,7 @@ fn main() {
     // Download, extract and symlink DuckDB source code.
     let zip_source_path = download_duckdb_source_archive().unwrap();
     let extracted_source_path = extract_duckdb_source(zip_source_path).unwrap();
-    let _ = fs::remove_dir_all(&duckdb_repo);
+    drop(fs::remove_dir_all(&duckdb_repo));
     std::os::unix::fs::symlink(&extracted_source_path, &duckdb_repo).unwrap();
 
     let library_path =

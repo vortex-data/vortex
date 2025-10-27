@@ -32,6 +32,7 @@ pub(crate) static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
 
 #[cxx::bridge(namespace = "vortex::ffi")]
+#[allow(let_underscore_drop)]
 mod ffi {
     extern "Rust" {
         type DType;

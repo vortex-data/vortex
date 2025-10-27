@@ -67,7 +67,7 @@ impl Handle {
         let abort_handle = self.runtime().spawn(
             async move {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
-                let _ = send.send(f.await);
+                drop(send.send(f.await));
             }
             .boxed(),
         );
@@ -106,7 +106,7 @@ impl Handle {
             // Optimistically avoid the work if the result won't be used.
             if !send.is_closed() {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
-                let _ = send.send(f());
+                drop(send.send(f()));
             }
         }));
         Task {
@@ -126,7 +126,7 @@ impl Handle {
             // Optimistically avoid the work if the result won't be used.
             if !send.is_closed() {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
-                let _ = send.send(f());
+                drop(send.send(f()));
             }
         }));
         Task {
