@@ -484,14 +484,11 @@ impl<T> BufferMut<T> {
     fn extend_iter(&mut self, mut iter: impl Iterator<Item = T>) {
         // Since we do not know the length of the iterator, we can only guess how much memory we
         // need to reserve. Note that these hints may be inaccurate.
-        let (lower_bound, upper_bound_opt) = iter.size_hint();
+        let (lower_bound, _) = iter.size_hint();
 
-        // In the case that the upper bound is adversarial, we put a hard limit on the amount of
-        // memory we reserve (and the OS should handle the rest with zero pages).
-        let reserve_amount = upper_bound_opt
-            .unwrap_or(lower_bound)
-            .min(i32::MAX as usize);
-        self.reserve(reserve_amount);
+        // We choose not to use the optional upper bound size hint to match the standard library.
+
+        self.reserve(lower_bound);
 
         let unwritten = self.capacity() - self.len();
 

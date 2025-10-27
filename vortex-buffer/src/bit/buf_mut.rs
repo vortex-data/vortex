@@ -72,6 +72,11 @@ impl BitBufferMut {
         }
     }
 
+    /// Consumes the buffer and return the underlying byte buffer.
+    pub fn into_inner(self) -> ByteBufferMut {
+        self.buffer
+    }
+
     /// Create a new mutable buffer with requested `len` and all bits set to `true`.
     pub fn new_set(len: usize) -> Self {
         Self {
@@ -205,20 +210,24 @@ impl BitBufferMut {
 
     /// Set the bit at `index` to `true` without checking bounds.
     ///
+    /// Note: Do not call this in a tight loop. Prefer to use [`set_bit_unchecked`].
+    ///
     /// # Safety
     ///
     /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
-    pub unsafe fn set_unchecked(&mut self, index: usize) {
+    unsafe fn set_unchecked(&mut self, index: usize) {
         // SAFETY: checked by caller
         unsafe { set_bit_unchecked(self.buffer.as_mut_ptr(), self.offset + index) }
     }
 
     /// Unset the bit at `index` without checking bounds.
     ///
+    /// Note: Do not call this in a tight loop. Prefer to use [`unset_bit_unchecked`].
+    ///
     /// # Safety
     ///
     /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
-    pub unsafe fn unset_unchecked(&mut self, index: usize) {
+    unsafe fn unset_unchecked(&mut self, index: usize) {
         // SAFETY: checked by caller
         unsafe { unset_bit_unchecked(self.buffer.as_mut_ptr(), self.offset + index) }
     }
@@ -229,6 +238,7 @@ impl BitBufferMut {
     ///
     /// - `new_len` must be less than or equal to [`capacity()`](Self::capacity)
     /// - The elements at `old_len..new_len` must be initialized
+    #[inline(always)]
     pub unsafe fn set_len(&mut self, new_len: usize) {
         debug_assert!(
             new_len <= self.capacity(),
@@ -470,6 +480,11 @@ impl BitBufferMut {
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         self.buffer.as_mut_slice()
     }
+
+    /// Returns a raw mutable pointer to the internal buffer.
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.buffer.as_mut_ptr()
+    }
 }
 
 impl Default for BitBufferMut {
@@ -511,14 +526,20 @@ impl FromIterator<bool> for BitBufferMut {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
         let mut iter = iter.into_iter();
 
-        // Note that these hints might be incorrect.
-        let (lower_bound, upper_bound_opt) = iter.size_hint();
-        let capacity = upper_bound_opt.unwrap_or(lower_bound);
+        // Since we do not know the length of the iterator, we can only guess how much memory we
+        // need to reserve. Note that these hints may be inaccurate.
+        let (lower_bound, _) = iter.size_hint();
 
-        let mut buf = BitBufferMut::new_unset(capacity);
+        // We choose not to use the optional upper bound size hint to match the standard library.
+
+        // Initialize all bits to 0 with the given length. By doing this, we only need to set bits
+        // that are true (and this is faster from benchmarks).
+        let mut buf = BitBufferMut::new_unset(lower_bound);
+        assert_eq!(buf.offset, 0);
 
         // Directly write within our known capacity.
-        for i in 0..capacity {
+        let ptr = buf.buffer.as_mut_ptr();
+        for i in 0..lower_bound {
             let Some(v) = iter.next() else {
                 // SAFETY: We are definitely under the capacity and all values are already
                 // initialized from `new_unset`.
@@ -528,7 +549,7 @@ impl FromIterator<bool> for BitBufferMut {
 
             if v {
                 // SAFETY: We have ensured that we are within the capacity.
-                unsafe { buf.set_unchecked(i) }
+                unsafe { set_bit_unchecked(ptr, i) }
             }
         }
 
