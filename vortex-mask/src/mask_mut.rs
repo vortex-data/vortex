@@ -5,6 +5,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 
 use vortex_buffer::BitBufferMut;
+use vortex_error::vortex_panic;
 
 use crate::Mask;
 
@@ -56,6 +57,29 @@ impl MaskMut {
         })
     }
 
+    /// Returns the boolean value at a given index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn value(&self, index: usize) -> bool {
+        match &self.0 {
+            Inner::Empty { .. } => {
+                vortex_panic!("index out of bounds: the length is 0 but the index is {index}")
+            }
+            Inner::Constant { value, len, .. } => {
+                assert!(
+                    index < *len,
+                    "index out of bounds: the length is {} but the index is {index}",
+                    *len
+                );
+
+                *value
+            }
+            Inner::Builder(bit_buffer) => bit_buffer.value(index),
+        }
+    }
+
     /// Reserve capacity for at least `additional` more values to be appended.
     pub fn reserve(&mut self, additional: usize) {
         match &mut self.0 {
@@ -69,6 +93,39 @@ impl MaskMut {
                 bits.reserve(additional);
             }
         }
+    }
+
+    /// Clears the mask.
+    ///
+    /// Note that this method has no effect on the allocated capacity of the mask.
+    pub fn clear(&mut self) {
+        match &mut self.0 {
+            Inner::Empty { .. } => {}
+            Inner::Constant { capacity, .. } => {
+                self.0 = Inner::Empty {
+                    capacity: *capacity,
+                }
+            }
+            Inner::Builder(bit_buffer) => bit_buffer.clear(),
+        };
+    }
+
+    /// Shortens the mask, keeping the first `len` bits.
+    ///
+    /// If `len` is greater or equal to the vector’s current length, this has no effect.
+    ///
+    /// Note that this method has no effect on the allocated capacity of the mask.
+    pub fn truncate(&mut self, len: usize) {
+        let truncated_len = len;
+        if truncated_len > self.len() {
+            return;
+        }
+
+        match &mut self.0 {
+            Inner::Empty { .. } => {}
+            Inner::Constant { len, .. } => *len = truncated_len.min(*len),
+            Inner::Builder(bit_buffer) => bit_buffer.truncate(truncated_len),
+        };
     }
 
     /// Append n values to the mask.
