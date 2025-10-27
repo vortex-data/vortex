@@ -289,34 +289,89 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::bitbuffer;
+    use vortex_buffer::buffer;
+    use vortex_dtype::PTypeDowncastExt;
 
-    use crate::compute::arrays::logical::ArithmeticOperator;
+    use crate::arrays::PrimitiveArray;
+    use crate::compute::arrays::arithmetic::{ArithmeticArray, ArithmeticOperator};
     use crate::{ArrayOperator, ArrayRef, IntoArray};
 
-    fn and_(lhs: ArrayRef, rhs: ArrayRef) -> ArrayRef {
-        ArithmeticArray::new(lhs, rhs, ArithmeticOperator::And).into_array()
+    fn add(lhs: ArrayRef, rhs: ArrayRef) -> ArrayRef {
+        ArithmeticArray::new(lhs, rhs, ArithmeticOperator::Add).into_array()
+    }
+
+    fn sub(lhs: ArrayRef, rhs: ArrayRef) -> ArrayRef {
+        ArithmeticArray::new(lhs, rhs, ArithmeticOperator::Sub).into_array()
+    }
+
+    fn mul(lhs: ArrayRef, rhs: ArrayRef) -> ArrayRef {
+        ArithmeticArray::new(lhs, rhs, ArithmeticOperator::Mul).into_array()
+    }
+
+    fn div(lhs: ArrayRef, rhs: ArrayRef) -> ArrayRef {
+        ArithmeticArray::new(lhs, rhs, ArithmeticOperator::Div).into_array()
     }
 
     #[test]
-    fn test_and() {
-        let lhs = bitbuffer![0 1 0].into_array();
-        let rhs = bitbuffer![0 1 1].into_array();
-        let result = and_(lhs, rhs).execute().unwrap().into_bool();
-        assert_eq!(result.bits(), &bitbuffer![0 1 0]);
+    fn test_add() {
+        let lhs = PrimitiveArray::from_iter([1u32, 2, 3]).into_array();
+        let rhs = PrimitiveArray::from_iter([10u32, 20, 30]).into_array();
+        let result = add(lhs, rhs)
+            .execute()
+            .unwrap()
+            .into_primitive()
+            .downcast::<u32>();
+        assert_eq!(result.elements(), &buffer![11u32, 22, 33]);
     }
 
     #[test]
-    fn test_and_selected() {
-        let lhs = bitbuffer![0 1 0].into_array();
-        let rhs = bitbuffer![0 1 1].into_array();
+    fn test_sub() {
+        let lhs = PrimitiveArray::from_iter([10u32, 20, 30]).into_array();
+        let rhs = PrimitiveArray::from_iter([1u32, 2, 3]).into_array();
+        let result = sub(lhs, rhs)
+            .execute()
+            .unwrap()
+            .into_primitive()
+            .downcast::<u32>();
+        assert_eq!(result.elements(), &buffer![9u32, 18, 27]);
+    }
 
-        let selection = bitbuffer![0 1 1].into_array();
+    #[test]
+    fn test_mul() {
+        let lhs = PrimitiveArray::from_iter([2u32, 3, 4]).into_array();
+        let rhs = PrimitiveArray::from_iter([10u32, 20, 30]).into_array();
+        let result = mul(lhs, rhs)
+            .execute()
+            .unwrap()
+            .into_primitive()
+            .downcast::<u32>();
+        assert_eq!(result.elements(), &buffer![20u32, 60, 120]);
+    }
 
-        let result = and_(lhs, rhs)
+    #[test]
+    fn test_div() {
+        let lhs = PrimitiveArray::from_iter([100u32, 200, 300]).into_array();
+        let rhs = PrimitiveArray::from_iter([10u32, 20, 30]).into_array();
+        let result = div(lhs, rhs)
+            .execute()
+            .unwrap()
+            .into_primitive()
+            .downcast::<u32>();
+        assert_eq!(result.elements(), &buffer![10u32, 10, 10]);
+    }
+
+    #[test]
+    fn test_add_with_selection() {
+        let lhs = PrimitiveArray::from_iter([1u32, 2, 3]).into_array();
+        let rhs = PrimitiveArray::from_iter([10u32, 20, 30]).into_array();
+
+        let selection = PrimitiveArray::from_iter([0u64, 2]).into_array();
+
+        let result = add(lhs, rhs)
             .execute_with_selection(Some(&selection))
             .unwrap()
-            .into_bool();
-        assert_eq!(result.bits(), &bitbuffer![1 0]);
+            .into_primitive()
+            .downcast::<u32>();
+        assert_eq!(result.elements(), &buffer![11u32, 33]);
     }
 }
