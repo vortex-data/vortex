@@ -4,9 +4,8 @@
 use std::collections::BTreeSet;
 use std::iter::once;
 
-use vortex_array::stats::StatBound;
 use vortex_dtype::FieldMask;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 
 /// Defines how the Vortex file is split into batches for reading.
@@ -40,9 +39,7 @@ impl SplitBy {
                 row_splits
             }
             SplitBy::RowCount(n) => {
-                let row_count = *layout_reader.row_count().to_exact().ok_or_else(|| {
-                    vortex_err!("Cannot split layout by row count, row count is not exact")
-                })?;
+                let row_count = layout_reader.row_count();
                 (0..row_count).step_by(n).chain(once(row_count)).collect()
             }
         })

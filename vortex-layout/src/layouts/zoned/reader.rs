@@ -9,7 +9,6 @@ use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
-use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, MaskFuture, ToCanonical};
 use vortex_buffer::BitBufferMut;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
@@ -186,8 +185,8 @@ impl LayoutReader for ZonedReader {
         self.layout.dtype()
     }
 
-    fn row_count(&self) -> Precision<u64> {
-        Precision::exact(self.layout.row_count())
+    fn row_count(&self) -> u64 {
+        self.layout.row_count()
     }
 
     fn register_splits(

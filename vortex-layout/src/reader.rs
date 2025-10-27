@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use once_cell::sync::OnceCell;
-use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexResult, vortex_bail};
@@ -28,9 +27,8 @@ pub trait LayoutReader: 'static + Send + Sync {
     /// Returns the un-projected dtype of the layout reader.
     fn dtype(&self) -> &DType;
 
-    /// Returns the number of rows in the layout reader.
-    /// An inexact count may be larger or smaller than the actual row count.
-    fn row_count(&self) -> Precision<u64>;
+    /// Returns the number of rows in the layout.
+    fn row_count(&self) -> u64;
 
     /// Register the splits of this layout reader.
     // TODO(ngates): this is a temporary API until we make layout readers stream based.

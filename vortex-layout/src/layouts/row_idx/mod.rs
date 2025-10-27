@@ -13,7 +13,6 @@ pub use expr::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::compute::filter;
-use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray, MaskFuture};
 use vortex_dtype::{DType, FieldMask, FieldName, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
@@ -130,7 +129,7 @@ impl LayoutReader for RowIdxLayoutReader {
         self.child.dtype()
     }
 
-    fn row_count(&self) -> Precision<u64> {
+    fn row_count(&self) -> u64 {
         self.child.row_count()
     }
 

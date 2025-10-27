@@ -9,7 +9,6 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayParts;
-use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
@@ -78,8 +77,8 @@ impl LayoutReader for FlatReader {
         self.layout.dtype()
     }
 
-    fn row_count(&self) -> Precision<u64> {
-        Precision::Exact(self.layout.row_count())
+    fn row_count(&self) -> u64 {
+        self.layout.row_count()
     }
 
     fn register_splits(
