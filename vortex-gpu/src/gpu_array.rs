@@ -3,12 +3,54 @@
 
 use std::sync::Arc;
 
+use cudarc::driver::CudaSlice;
+use vortex_dtype::NativePType;
+
 use crate::buffer::ErasedCudaSlice;
 
-pub type GpuArrayRef = Arc<dyn GpuArray>;
+pub enum GpuArray {
+    Primitive(GpuPrimitiveArray),
+    Bool(GpuBoolArray),
+    Struct(GpuStructArray),
+    Chunked(GpuChunkedArray),
+}
 
-pub trait GpuArray {
-    fn child(&self, idx: usize) -> GpuArrayRef;
+pub struct GpuPrimitiveArray {
+    values: ErasedCudaSlice,
+}
 
-    fn buffer(&self, idx: usize) -> ErasedCudaSlice;
+impl GpuPrimitiveArray {
+    fn as_slice<T: NativePType>(&self) -> CudaSlice<T> {
+        self.values.as_slice()
+    }
+}
+
+pub struct GpuBoolArray {
+    values: CudaSlice<bool>,
+}
+
+impl GpuBoolArray {
+    fn values(&self) -> CudaSlice<bool> {
+        self.values.clone()
+    }
+}
+
+pub struct GpuChunkedArray {
+    gpu_arrays: Arc<[GpuArray]>,
+}
+
+impl GpuChunkedArray {
+    fn child(&self, idx: usize) -> &GpuArray {
+        &self.gpu_arrays[idx]
+    }
+}
+
+pub struct GpuStructArray {
+    gpu_arrays: Arc<[GpuArray]>,
+}
+
+impl GpuStructArray {
+    fn child(&self, idx: usize) -> &GpuArray {
+        &self.gpu_arrays[idx]
+    }
 }

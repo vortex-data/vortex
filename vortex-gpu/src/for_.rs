@@ -6,19 +6,16 @@ use std::time::Duration;
 
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::driver::{
-    CudaContext, CudaFunction, CudaStream, CudaViewMut, DeviceRepr, LaunchConfig, PushKernelArg,
+    CudaContext, CudaFunction, CudaStream, DeviceRepr, LaunchConfig, PushKernelArg,
 };
 use cudarc::nvrtc::Ptx;
-use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::validity::Validity;
-use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::{BitPackedVTable, FoRArray};
 
-use crate::bit_unpack;
 use crate::task::GPUTask;
+use crate::{ErasedCudaSlice, GpuArray, GpuPrimitiveArray, bit_unpack};
 
 struct ForTask<P> {
     stream: Arc<CudaStream>,
@@ -71,15 +68,9 @@ fn cuda_for_kernel(ptype: PType, ctx: &Arc<CudaContext>) -> VortexResult<CudaFun
 
 impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {
     fn launch_task(&mut self) -> VortexResult<()> {
-        let len = self.len();
         self.bp_task.launch_task()?;
         let mut launch = self.stream.launch_builder(&self.func);
-        let mut view = unsafe {
-            self.bp_task
-                .output()
-                .transmute_mut::<P>(len)
-                .vortex_expect("")
-        };
+        let mut view = self.bp_task.output().as_slice::<P>();
         launch.arg(&mut view);
         launch.arg(&self.reference);
         unsafe { launch.launch(self.launch_config) }
@@ -87,27 +78,13 @@ impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {
             .map(|_| ())
     }
 
-    fn export_result(&mut self) -> VortexResult<Canonical> {
-        let len = self.len();
-        let mut buffer = BufferMut::<P>::with_capacity(len);
-
-        unsafe { buffer.set_len(len) }
-        self.stream
-            .memcpy_dtoh(
-                &unsafe { self.bp_task.output().transmute::<P>(len).vortex_expect("") },
-                &mut buffer,
-            )
-            .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
-        self.stream
-            .synchronize()
-            .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
-        Ok(Canonical::Primitive(PrimitiveArray::new(
-            buffer,
-            Validity::NonNullable,
-        )))
+    fn export_result(&mut self) -> VortexResult<GpuArray> {
+        Ok(GpuArray::Primitive(GpuPrimitiveArray {
+            values: self.bp_task.output(),
+        }))
     }
 
-    fn output(&mut self) -> CudaViewMut<'_, u8> {
+    fn output(&mut self) -> ErasedCudaSlice {
         self.bp_task.output()
     }
 

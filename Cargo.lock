@@ -9158,6 +9158,7 @@ dependencies = [
  "vortex-error",
  "vortex-expr",
  "vortex-flatbuffers",
+ "vortex-gpu",
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",

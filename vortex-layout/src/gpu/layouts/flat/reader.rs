@@ -14,10 +14,10 @@ use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, is_root};
 
-use crate::GpuLayoutReader;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
+use crate::{GpuArrayFuture, GpuLayoutReader, ShareGpuArrayFuture};
 
 pub struct GpuFlatReader {
     layout: FlatLayout,
@@ -39,7 +39,7 @@ impl GpuFlatReader {
     }
 
     /// Register the segment request and return a future that would resolve into the deserialised array.
-    fn array_future(&self) -> SharedArrayFuture {
+    fn array_future(&self) -> ShareGpuArrayFuture {
         let row_count = usize::try_from(self.layout.row_count()).vortex_unwrap();
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
@@ -51,9 +51,7 @@ impl GpuFlatReader {
         let dtype = self.layout.dtype().clone();
         async move {
             let segment = segment_fut.await?;
-            ArrayParts::try_from(segment)?
-                .decode(&ctx, &dtype, row_count)
-                .map_err(Arc::new)
+            ArrayParts::try_from(segment)?.decode(&ctx, &dtype, row_count)?
         }
         .boxed()
         .shared()
@@ -87,7 +85,7 @@ impl GpuLayoutReader for GpuFlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+    ) -> VortexResult<GpuArrayFuture> {
         assert_eq!(
             row_range.clone(),
             0..self.layout.row_count(),
@@ -100,14 +98,7 @@ impl GpuLayoutReader for GpuFlatReader {
         Ok(async move {
             log::debug!("Flat array evaluation {} - {}", name, expr);
 
-            let mut array = array.clone().await?;
-
-            // Evaluate the projection expression.
-            if !is_root(&expr) {
-                array = expr.evaluate(&Scope::new(array))?;
-            }
-
-            Ok(array)
+            array.clone().await
         }
         .boxed())
     }

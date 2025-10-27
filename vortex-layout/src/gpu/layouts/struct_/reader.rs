@@ -22,7 +22,7 @@ use crate::gpu::children::LazyGpuReaderChildren;
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
-use crate::{ArrayFuture, GpuLayoutReader, GpuLayoutReaderRef};
+use crate::{ArrayFuture, GpuArrayFuture, GpuLayoutReader, GpuLayoutReaderRef};
 
 pub struct GpuStructReader {
     layout: StructLayout,
@@ -192,7 +192,7 @@ impl GpuLayoutReader for GpuStructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<ArrayFuture> {
+    ) -> VortexResult<GpuArrayFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let len = usize::try_from(row_range.end - row_range.start)
             .vortex_expect("read range len must fit into usize");

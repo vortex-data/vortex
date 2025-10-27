@@ -9,8 +9,7 @@ use std::time::Duration;
 
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::driver::{
-    CudaContext, CudaFunction, CudaSlice, CudaStream, CudaViewMut, DeviceRepr, LaunchConfig,
-    PushKernelArg,
+    CudaContext, CudaFunction, CudaSlice, CudaStream, DeviceRepr, LaunchConfig, PushKernelArg,
 };
 use cudarc::nvrtc::Ptx;
 use vortex_array::Canonical;
@@ -22,6 +21,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::BitPackedArray;
 
 use crate::task::GPUTask;
+use crate::{ErasedCudaSlice, GpuArray};
 
 #[derive(Hash, PartialEq, Eq, Debug)]
 struct UnpackKernelId {
@@ -189,7 +189,7 @@ impl<P: NativePType + DeviceRepr> GPUTask for BitPackingTask<P> {
             .map(|_| ())
     }
 
-    fn export_result(&mut self) -> VortexResult<Canonical> {
+    fn export_result(&mut self) -> VortexResult<GpuArray> {
         let mut buffer = BufferMut::<P>::with_capacity(self.len());
 
         unsafe { buffer.set_len(self.len()) }
@@ -204,12 +204,8 @@ impl<P: NativePType + DeviceRepr> GPUTask for BitPackingTask<P> {
         ))
     }
 
-    fn output(&mut self) -> CudaViewMut<'_, u8> {
-        unsafe {
-            self.unpacked
-                .transmute_mut(self.len() * size_of::<P>())
-                .vortex_expect("Failed to transmute")
-        }
+    fn output(&mut self) -> ErasedCudaSlice {
+        ErasedCudaSlice::new(self.unpacked)
     }
 
     fn len(&self) -> usize {

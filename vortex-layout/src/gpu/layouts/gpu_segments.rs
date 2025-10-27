@@ -5,11 +5,12 @@ use cudarc::driver::CudaSlice;
 use futures::future::BoxFuture;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_gpu::ErasedCudaSlice;
 
 use crate::segments::SegmentId;
 
 /// Static future resolving to a segment byte buffer.
-pub type GpuSegmentFuture = BoxFuture<'static, VortexResult<CudaSlice>>;
+pub type GpuSegmentFuture = BoxFuture<'static, VortexResult<ErasedCudaSlice>>;
 
 /// A trait for providing segment data to a [`crate::LayoutReader`].
 pub trait GpuSegmentSource: 'static + Send + Sync {

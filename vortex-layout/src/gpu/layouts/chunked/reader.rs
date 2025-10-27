@@ -18,7 +18,7 @@ use vortex_expr::ExprRef;
 use crate::gpu::children::LazyGpuReaderChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SegmentSource;
-use crate::{GpuLayoutReader, GpuLayoutReaderRef};
+use crate::{GpuArrayFuture, GpuLayoutReader, GpuLayoutReaderRef};
 
 pub struct GpuChunkedLayoutReader {
     layout: ChunkedLayout,
@@ -133,7 +133,7 @@ impl GpuLayoutReader for GpuChunkedLayoutReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+    ) -> VortexResult<GpuArrayFuture> {
         let dtype = expr.return_dtype(self.dtype())?;
         let mut chunk_evals = FuturesOrdered::new();
 

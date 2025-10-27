@@ -10,6 +10,7 @@ use vortex_error::vortex_panic;
 
 pub struct ErasedCudaSlice {
     ptr: CUdeviceptr,
+    stream: Arc<CudaStream>,
     len: usize,
     ptype: PType,
 }
@@ -18,8 +19,10 @@ impl ErasedCudaSlice {
     pub fn new<T: NativePType>(slice: impl Into<CudaSlice<T>>) -> Self {
         let slice = slice.into();
         let len = slice.len();
+        let stream = slice.stream().clone();
         Self {
             ptr: slice.leak(),
+            stream,
             len,
             ptype: T::PTYPE,
         }
@@ -33,7 +36,7 @@ impl ErasedCudaSlice {
         self.len
     }
 
-    pub fn as_slice<T: NativePType>(&self, stream: &Arc<CudaStream>) -> CudaSlice<T> {
+    pub fn as_slice<T: NativePType>(&self) -> CudaSlice<T> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
                 "Attempted to get slice of type {} from array of type {}",
@@ -42,6 +45,6 @@ impl ErasedCudaSlice {
             )
         }
 
-        unsafe { stream.upgrade_device_ptr::<T>(self.ptr, self.len) }
+        unsafe { self.stream.upgrade_device_ptr::<T>(self.ptr, self.len) }
     }
 }
