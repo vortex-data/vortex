@@ -2,74 +2,126 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::{Buffer, BufferMut};
+use vortex_dtype::half::f16;
 
 use crate::arithmetic::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
 
-impl<T: Copy + num_traits::CheckedAdd + num_traits::Zero> CheckedAdd<&Buffer<T>> for Buffer<T> {
-    type Output = Self;
+macro_rules! checked_op {
+    ($Trait:ident, $name:ident, $T:ty, $op:expr) => {
+        impl $Trait<&Buffer<$T>> for &Buffer<$T> {
+            type Output = Buffer<$T>;
 
-    fn checked_add(self, other: &Buffer<T>) -> Option<Self::Output> {
-        buffer_op_inplace(self, other, |a, b| a.checked_add(b))
-    }
+            fn $name(self, other: &Buffer<$T>) -> Option<Self::Output> {
+                buffer_op(self, other, $op)
+            }
+        }
+
+        impl $Trait<&$T> for &Buffer<$T> {
+            type Output = Buffer<$T>;
+
+            fn $name(self, other: &$T) -> Option<Self::Output> {
+                buffer_op_scalar(self, other, $op)
+            }
+        }
+
+        impl $Trait<&Buffer<$T>> for Buffer<$T> {
+            type Output = Buffer<$T>;
+
+            fn $name(self, other: &Buffer<$T>) -> Option<Self::Output> {
+                buffer_op_inplace(self, other, $op)
+            }
+        }
+
+        impl $Trait<&$T> for Buffer<$T> {
+            type Output = Buffer<$T>;
+
+            fn $name(self, other: &$T) -> Option<Self::Output> {
+                buffer_op_inplace_scalar(self, other, $op)
+            }
+        }
+
+        impl $Trait<&Buffer<$T>> for BufferMut<$T> {
+            type Output = Buffer<$T>;
+
+            fn $name(self, other: &Buffer<$T>) -> Option<Self::Output> {
+                buffer_op_mut(self, other, $op)
+            }
+        }
+
+        impl $Trait<&$T> for BufferMut<$T> {
+            type Output = Buffer<$T>;
+
+            fn $name(self, other: &$T) -> Option<Self::Output> {
+                buffer_op_mut_scalar(self, other, $op)
+            }
+        }
+    };
 }
 
-impl<T: Copy + num_traits::CheckedAdd + num_traits::Zero> CheckedAdd<&T> for Buffer<T> {
-    type Output = Self;
-
-    fn checked_add(self, other: &T) -> Option<Self::Output> {
-        buffer_op_inplace_scalar(self, other, |a, b| a.checked_add(b))
-    }
+/// For integers, we can delegate to the num_traits wrapping operations.
+macro_rules! integer_ops {
+    ($T:ty) => {
+        checked_op!(
+            CheckedAdd,
+            checked_add,
+            $T,
+            num_traits::CheckedAdd::checked_add
+        );
+        checked_op!(
+            CheckedSub,
+            checked_sub,
+            $T,
+            num_traits::CheckedSub::checked_sub
+        );
+        checked_op!(
+            CheckedMul,
+            checked_mul,
+            $T,
+            num_traits::CheckedMul::checked_mul
+        );
+        checked_op!(
+            CheckedDiv,
+            checked_div,
+            $T,
+            num_traits::CheckedDiv::checked_div
+        );
+    };
 }
 
-impl<T: Copy + num_traits::CheckedSub + num_traits::Zero> CheckedSub<&Buffer<T>> for Buffer<T> {
-    type Output = Self;
-
-    fn checked_sub(self, other: &Buffer<T>) -> Option<Self::Output> {
-        buffer_op_inplace(self, other, |a, b| a.checked_sub(b))
-    }
+/// For floats, there are no checked operations. So we use regular operations that never fail.
+macro_rules! float_ops {
+    ($T:ty) => {
+        checked_op!(CheckedAdd, checked_add, $T, |a, b| Some(
+            std::ops::Add::add(a, b)
+        ));
+        checked_op!(CheckedSub, checked_sub, $T, |a, b| Some(
+            std::ops::Sub::sub(a, b)
+        ));
+        checked_op!(CheckedMul, checked_mul, $T, |a, b| Some(
+            std::ops::Mul::mul(a, b)
+        ));
+        checked_op!(CheckedDiv, checked_div, $T, |a, b| Some(
+            std::ops::Div::div(a, b)
+        ));
+    };
 }
 
-impl<T: Copy + num_traits::CheckedSub + num_traits::Zero> CheckedSub<&T> for Buffer<T> {
-    type Output = Self;
+integer_ops!(u8);
+integer_ops!(u16);
+integer_ops!(u32);
+integer_ops!(u64);
+integer_ops!(u128);
+integer_ops!(i8);
+integer_ops!(i16);
+integer_ops!(i32);
+integer_ops!(i64);
+integer_ops!(i128);
 
-    fn checked_sub(self, other: &T) -> Option<Self::Output> {
-        buffer_op_inplace_scalar(self, other, |a, b| a.checked_sub(b))
-    }
-}
+float_ops!(f16);
+float_ops!(f32);
+float_ops!(f64);
 
-impl<T: Copy + num_traits::CheckedMul + num_traits::Zero> CheckedMul<&Buffer<T>> for Buffer<T> {
-    type Output = Self;
-
-    fn checked_mul(self, other: &Buffer<T>) -> Option<Self::Output> {
-        buffer_op_inplace(self, other, |a, b| a.checked_mul(b))
-    }
-}
-
-impl<T: Copy + num_traits::CheckedMul + num_traits::Zero> CheckedMul<&T> for Buffer<T> {
-    type Output = Self;
-
-    fn checked_mul(self, other: &T) -> Option<Self::Output> {
-        buffer_op_inplace_scalar(self, other, |a, b| a.checked_mul(b))
-    }
-}
-
-impl<T: Copy + num_traits::CheckedDiv + num_traits::Zero> CheckedDiv<&Buffer<T>> for Buffer<T> {
-    type Output = Self;
-
-    fn checked_div(self, other: &Buffer<T>) -> Option<Self::Output> {
-        buffer_op_inplace(self, other, |a, b| a.checked_div(b))
-    }
-}
-
-impl<T: Copy + num_traits::CheckedDiv + num_traits::Zero> CheckedDiv<&T> for Buffer<T> {
-    type Output = Self;
-
-    fn checked_div(self, other: &T) -> Option<Self::Output> {
-        buffer_op_inplace_scalar(self, other, |a, b| a.checked_div(b))
-    }
-}
-
-fn buffer_op_inplace<O, T>(lhs: Buffer<T>, rhs: &Buffer<T>, op: O) -> Option<Buffer<T>>
+pub(super) fn buffer_op_inplace<O, T>(lhs: Buffer<T>, rhs: &Buffer<T>, op: O) -> Option<Buffer<T>>
 where
     O: Fn(&T, &T) -> Option<T>,
     T: Copy + num_traits::Zero,
@@ -80,7 +132,7 @@ where
     }
 }
 
-fn buffer_op_mut<O, T>(lhs: BufferMut<T>, rhs: &Buffer<T>, op: O) -> Option<Buffer<T>>
+pub(super) fn buffer_op_mut<O, T>(lhs: BufferMut<T>, rhs: &Buffer<T>, op: O) -> Option<Buffer<T>>
 where
     O: Fn(&T, &T) -> Option<T>,
     T: Copy + num_traits::Zero,
@@ -108,7 +160,7 @@ where
     (!overflow).then_some(buffer)
 }
 
-fn buffer_op<O, T>(lhs: &Buffer<T>, rhs: &Buffer<T>, op: O) -> Option<Buffer<T>>
+pub(super) fn buffer_op<O, T>(lhs: &Buffer<T>, rhs: &Buffer<T>, op: O) -> Option<Buffer<T>>
 where
     O: Fn(&T, &T) -> Option<T>,
     T: Copy + num_traits::Zero,
@@ -128,7 +180,7 @@ where
     (!overflow).then_some(buffer)
 }
 
-fn buffer_op_inplace_scalar<O, T>(lhs: Buffer<T>, rhs: &T, op: O) -> Option<Buffer<T>>
+pub(super) fn buffer_op_inplace_scalar<O, T>(lhs: Buffer<T>, rhs: &T, op: O) -> Option<Buffer<T>>
 where
     O: Fn(&T, &T) -> Option<T>,
     T: Copy + num_traits::Zero,
@@ -139,7 +191,7 @@ where
     }
 }
 
-fn buffer_op_mut_scalar<O, T>(lhs: BufferMut<T>, rhs: &T, op: O) -> Option<Buffer<T>>
+pub(super) fn buffer_op_mut_scalar<O, T>(lhs: BufferMut<T>, rhs: &T, op: O) -> Option<Buffer<T>>
 where
     O: Fn(&T, &T) -> Option<T>,
     T: Copy + num_traits::Zero,
@@ -157,7 +209,7 @@ where
     (!overflow).then_some(buffer)
 }
 
-fn buffer_op_scalar<O, T>(lhs: &Buffer<T>, rhs: &T, op: O) -> Option<Buffer<T>>
+pub(super) fn buffer_op_scalar<O, T>(lhs: &Buffer<T>, rhs: &T, op: O) -> Option<Buffer<T>>
 where
     O: Fn(&T, &T) -> Option<T>,
     T: Copy + num_traits::Zero,
