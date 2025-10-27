@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
-use futures::FutureExt;
-use futures::future::BoxFuture;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -17,23 +12,19 @@ use crate::execution::BindCtx;
 pub enum MaskExecution {
     AllTrue(usize),
     AllFalse(usize),
-    Future(BoxFuture<'static, VortexResult<Mask>>),
+    Lazy(Box<dyn FnOnce() -> VortexResult<Mask> + Send + 'static>),
 }
 
-impl Future for MaskExecution {
-    type Output = VortexResult<Mask>;
+impl MaskExecution {
+    pub fn lazy<F: FnOnce() -> VortexResult<Mask> + Send + 'static>(f: F) -> MaskExecution {
+        MaskExecution::Lazy(Box::new(f))
+    }
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.get_mut() {
-            MaskExecution::AllTrue(len) => {
-                let mask = Mask::new_true(*len);
-                Poll::Ready(Ok(mask))
-            }
-            MaskExecution::AllFalse(len) => {
-                let mask = Mask::new_false(*len);
-                Poll::Ready(Ok(mask))
-            }
-            MaskExecution::Future(fut) => fut.poll_unpin(cx),
+    pub fn execute(self) -> VortexResult<Mask> {
+        match self {
+            MaskExecution::AllTrue(len) => Ok(Mask::new_true(len)),
+            MaskExecution::AllFalse(len) => Ok(Mask::new_false(len)),
+            MaskExecution::Lazy(f) => f(),
         }
     }
 }
@@ -87,12 +78,9 @@ impl dyn BindCtx + '_ {
 
         // If none of the above patterns match, we fall back to canonicalizing.
         let execution = self.bind(mask, None)?;
-        Ok(MaskExecution::Future(
-            async move {
-                let mask = execution.await?.into_bool();
-                Ok(Mask::from(mask.bits().clone()))
-            }
-            .boxed(),
-        ))
+        Ok(MaskExecution::lazy(move || {
+            let mask = execution.execute()?.into_bool();
+            Ok(Mask::from(mask.bits().clone()))
+        }))
     }
 }
