@@ -162,6 +162,12 @@ impl BitBufferMut {
         self.buffer.reserve(additional_bytes);
     }
 
+    /// Clears the bit buffer (but keeps any allocated memory).
+    pub fn clear(&mut self) {
+        // Since there are no items we need to drop, we simply set the length to 0.
+        self.len = 0;
+    }
+
     /// Set the bit at `index` to the given boolean value.
     ///
     /// This operation is checked so if `index` exceeds the buffer length, this will panic.

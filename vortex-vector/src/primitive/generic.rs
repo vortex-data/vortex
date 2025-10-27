@@ -68,6 +68,76 @@ impl<T: NativePType> PVector<T> {
 
         Self { elements, validity }
     }
+
+    /// Gets a nullable element at the given index, with bounds checking.
+    ///
+    /// If the index is out of bounds, returns `None`. If the element at the given index is null,
+    /// returns `Some(None)`. Otherwise, returns `Some(Some(x))`, where `x: T`.
+    pub fn get_checked(&self, index: usize) -> Option<Option<T>> {
+        (index < self.len()).then(|| {
+            self.validity.value(index).then(|| {
+                self.elements
+                    .get(index)
+                    .copied()
+                    .vortex_expect("length of elements was somehow incorrect")
+            })
+        })
+    }
+
+    /// Gets a nullable element at the given index.
+    ///
+    /// If the element at the given index is null, returns `None`. Otherwise, returns `Some(x)`,
+    /// where `x: T`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn get(&self, index: usize) -> Option<T> {
+        assert!(
+            index < self.len(),
+            "index out of bounds: the length is {} but the index is {index}",
+            self.len()
+        );
+
+        self.validity.value(index).then(|| {
+            self.elements
+                .get(index)
+                .copied()
+                .vortex_expect("length of elements was somehow incorrect")
+        })
+    }
+
+    /// Gets a nullable element at the given index, without checking bounds and without checking
+    /// nullability.
+    ///
+    /// The caller should ensure that the element at the given index is not null (though doing so
+    /// will not cause undefined behavior).
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the index is within bounds.
+    pub unsafe fn get_unchecked(&self, index: usize) -> T {
+        debug_assert!(
+            index < self.len(),
+            "index out of bounds: the length is {} but the index is {index}",
+            self.len()
+        );
+
+        // SAFETY: The caller ensures that the index is in bounds.
+        unsafe { *self.elements.get_unchecked(index) }
+    }
+
+    /// Returns a slice over the internal buffer with elements of type `T`.
+    ///
+    /// Note that this slice may contain garbage data where the [`validity()`] mask states that an
+    /// element is invalid.
+    ///
+    /// The caller should check the [`validity()`] before performing any operations.
+    ///
+    /// [`validity()`]: Self::validity
+    pub fn as_slice(&self) -> &[T] {
+        self.elements.as_slice()
+    }
 }
 
 impl<T: NativePType> VectorOps for PVector<T> {
