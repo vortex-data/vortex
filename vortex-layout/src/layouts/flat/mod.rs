@@ -20,7 +20,7 @@ use crate::{
 };
 
 static FLAT_LAYOUT_INLINE_ARRAY_NODE: LazyLock<bool> =
-    LazyLock::new(|| env::var("FEATURE_NEW_UI").is_ok());
+    LazyLock::new(|| env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok());
 
 vtable!(Flat);
 
