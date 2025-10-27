@@ -87,7 +87,7 @@ impl LayoutReader for FlatReader {
         row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        splits.insert(row_range.end);
+        splits.insert(row_range.start + self.layout.row_count);
         Ok(())
     }
 

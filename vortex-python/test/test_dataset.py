@@ -175,25 +175,19 @@ def test_fragment_to_batch_size(ds: vx.dataset.VortexDataset, batch_size: int):
 
     remainder = 0
     for f in fragments:
+        # The fragments have ranges based on the natural splits.
+        # We read batches in units of `batch_size` though.
         batch_sizes = [len(batch) for batch in f.to_batches(batch_size=batch_size)]
-        if remainder != 0:
-            assert batch_sizes[0] == remainder
-            batch_sizes = batch_sizes[1:]
-            n_rows = f.count_rows() - remainder
-        else:
-            n_rows = f.count_rows()
+        n_rows = f.count_rows() - remainder
 
         if n_rows < batch_size:
             assert batch_sizes == [n_rows]
-            remainder = 0
         elif n_rows % batch_size == 0:
             assert batch_sizes == [batch_size for _ in batch_sizes]
-            remainder = 0
         else:
             last_batch_size = n_rows % batch_size
             assert batch_sizes[:-1] == [batch_size for _ in batch_sizes[:-1]]
             assert batch_sizes[-1] == last_batch_size
-            remainder = batch_size - last_batch_size
 
 
 def test_fragment_to_table(ds: vx.dataset.VortexDataset):
