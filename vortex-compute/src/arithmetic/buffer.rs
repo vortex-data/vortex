@@ -145,8 +145,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::arithmetic::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
     use vortex_buffer::buffer;
+
+    use crate::arithmetic::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
 
     #[test]
     fn test_add_buffers() {

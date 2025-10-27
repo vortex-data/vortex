@@ -4,23 +4,23 @@
 use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
 
-use enum_map::{enum_map, Enum, EnumMap};
+use enum_map::{Enum, EnumMap, enum_map};
 use vortex_buffer::ByteBuffer;
 use vortex_compute::arithmetic::{Add, Checked, CheckedOperator, Div, Mul, Sub};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, PTypeDowncastExt};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType, PTypeDowncastExt, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{PValue, Scalar};
 
 use crate::arrays::ConstantArray;
-use crate::execution::{kernel, BatchKernelRef, BindCtx};
+use crate::execution::{BatchKernelRef, BindCtx, kernel};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
     ArrayVTable, NotSupported, OperatorVTable, SerdeVTable, VTable, VisitorVTable,
 };
 use crate::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash,
-    ArrayRef, DeserializeMetadata, EmptyMetadata, EncodingId, EncodingRef, IntoArray, Precision,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayEq, ArrayHash, ArrayRef,
+    DeserializeMetadata, EmptyMetadata, EncodingId, EncodingRef, IntoArray, Precision, vtable,
 };
 
 /// The set of operators supported by an arithmetic array.
@@ -223,11 +223,9 @@ impl OperatorVTable<ArithmeticVTable> for ArithmeticVTable {
         if let Some(rhs) = array.rhs.as_constant() {
             if rhs.is_null() {
                 // If the RHS is null, the result is always null.
-                return Ok(
-                    ConstantArray::new(Scalar::null(array.dtype().clone()), array.len())
-                        .into_array()
-                        .bind(selection, ctx)?,
-                );
+                return ConstantArray::new(Scalar::null(array.dtype().clone()), array.len())
+                    .into_array()
+                    .bind(selection, ctx);
             }
 
             let lhs = ctx.bind(&array.lhs, selection)?;
@@ -289,7 +287,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::buffer;
+    use vortex_buffer::{bitbuffer, buffer};
     use vortex_dtype::PTypeDowncastExt;
 
     use crate::arrays::PrimitiveArray;
@@ -365,7 +363,7 @@ mod tests {
         let lhs = PrimitiveArray::from_iter([1u32, 2, 3]).into_array();
         let rhs = PrimitiveArray::from_iter([10u32, 20, 30]).into_array();
 
-        let selection = PrimitiveArray::from_iter([0u64, 2]).into_array();
+        let selection = bitbuffer![1 0 1].into_array();
 
         let result = add(lhs, rhs)
             .execute_with_selection(Some(&selection))

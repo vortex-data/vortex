@@ -13,11 +13,11 @@ use num_traits::bounds::UpperBounded;
 use num_traits::{
     AsPrimitive, Bounded, FromPrimitive, Num, NumCast, PrimInt, ToPrimitive, Unsigned,
 };
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 
+use crate::DType;
 use crate::half::f16;
 use crate::nullability::Nullability::NonNullable;
-use crate::DType;
 
 /// Physical type enum, represents the in-memory physical layout but might represent a different logical type.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash, prost::Enumeration)]

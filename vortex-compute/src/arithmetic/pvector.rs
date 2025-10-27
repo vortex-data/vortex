@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arithmetic::{Checked, CheckedOperator};
 use std::ops::BitAnd;
+
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::NativePType;
 use vortex_vector::{PVector, PVectorMut, VectorMutOps, VectorOps};
+
+use crate::arithmetic::{Checked, CheckedOperator};
 
 /// Implementation that attempts to downcast to a mutable vector and operates in-place.
 impl<Op, T> Checked<Op, &PVector<T>> for PVector<T>
@@ -121,11 +123,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::arithmetic::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
-    use vortex_vector::PVector;
+    use vortex_vector::{PVector, VectorOps};
+
+    use crate::arithmetic::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
 
     #[test]
     fn test_add_pvectors() {

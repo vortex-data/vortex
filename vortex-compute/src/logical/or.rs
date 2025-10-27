@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::{BitAnd, BitOr};
+
 use vortex_mask::Mask;
 use vortex_vector::{BoolVector, VectorOps};
 
