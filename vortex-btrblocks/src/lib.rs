@@ -34,7 +34,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::arrays::{
-    ExtensionArray, FixedSizeListArray, ListViewArray, StructArray, TemporalArray,
+    ExtensionArray, FixedSizeListArray, ListArray, StructArray, TemporalArray, list_from_list_view,
 };
 use vortex_array::vtable::{VTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
@@ -398,14 +398,16 @@ impl BtrBlocksCompressor {
                 )?
                 .into_array())
             }
-            Canonical::List(list_array) => {
-                // Compress the inner elements.
+            Canonical::List(list_view_array) => {
+                // TODO(joe): We might want to write list views in the future and chose between
+                // list and list view.
+                let list_array = list_from_list_view(list_view_array);
+
                 let compressed_elems = self.compress(list_array.elements())?;
 
-                // Note that since the type of our offsets and sizes is not encoded in our `DType`,
-                // we can narrow the widths.
+                // Note that since the type of our offsets are not encoded in our `DType`,
+                // we may narrow the widths.
 
-                // Compress the offsets.
                 let compressed_offsets = IntCompressor::compress_no_dict(
                     &list_array.offsets().to_primitive().narrow()?,
                     false,
@@ -413,18 +415,9 @@ impl BtrBlocksCompressor {
                     &[],
                 )?;
 
-                // Compress the sizes.
-                let compressed_sizes = IntCompressor::compress_no_dict(
-                    &list_array.sizes().to_primitive().narrow()?,
-                    false,
-                    MAX_CASCADE,
-                    &[],
-                )?;
-
-                Ok(ListViewArray::try_new(
+                Ok(ListArray::try_new(
                     compressed_elems,
                     compressed_offsets,
-                    compressed_sizes,
                     list_array.validity().clone(),
                 )?
                 .into_array())
