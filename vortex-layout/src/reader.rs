@@ -101,6 +101,8 @@ impl ArrayFutureExt for ArrayFuture {
 
 pub struct LazyReaderChildren {
     children: Arc<dyn LayoutChildren>,
+    dtypes: Vec<DType>,
+    names: Vec<Arc<str>>,
     segment_source: Arc<dyn SegmentSource>,
 
     // TODO(ngates): we may want a hash map of some sort here?
@@ -108,29 +110,32 @@ pub struct LazyReaderChildren {
 }
 
 impl LazyReaderChildren {
-    pub fn new(children: Arc<dyn LayoutChildren>, segment_source: Arc<dyn SegmentSource>) -> Self {
+    pub fn new(
+        children: Arc<dyn LayoutChildren>,
+        dtypes: Vec<DType>,
+        names: Vec<Arc<str>>,
+        segment_source: Arc<dyn SegmentSource>,
+    ) -> Self {
         let nchildren = children.nchildren();
         let cache = (0..nchildren).map(|_| OnceCell::new()).collect();
         Self {
             children,
+            dtypes,
+            names,
             segment_source,
             cache,
         }
     }
 
-    pub fn get(
-        &self,
-        idx: usize,
-        dtype: &DType,
-        name: &Arc<str>,
-    ) -> VortexResult<&LayoutReaderRef> {
+    pub fn get(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
         if idx >= self.cache.len() {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());
         }
 
         self.cache[idx].get_or_try_init(|| {
+            let dtype = &self.dtypes[idx];
             let child = self.children.child(idx, dtype)?;
-            child.new_reader(name.clone(), self.segment_source.clone())
+            child.new_reader(Arc::clone(&self.names[idx]), self.segment_source.clone())
         })
     }
 }

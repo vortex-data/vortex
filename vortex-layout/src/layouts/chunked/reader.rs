@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
-use futures::{FutureExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryStreamExt};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
@@ -43,7 +43,12 @@ impl ChunkedReader {
         }
         chunk_offsets[nchildren] = layout.row_count();
 
-        let lazy_children = LazyReaderChildren::new(layout.children.clone(), segment_source);
+        let dtypes = vec![layout.dtype.clone(); nchildren];
+        let names = (0..nchildren)
+            .map(|idx| Arc::from(format!("{name}.[{idx}]")))
+            .collect();
+        let lazy_children =
+            LazyReaderChildren::new(layout.children.clone(), dtypes, names, segment_source);
 
         Self {
             layout,
@@ -55,11 +60,7 @@ impl ChunkedReader {
 
     /// Return the [`LayoutReader`] for the given chunk.
     fn chunk_reader(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
-        self.lazy_children.get(
-            idx,
-            self.layout.dtype(),
-            &format!("{}.[{}]", self.name, idx).into(),
-        )
+        self.lazy_children.get(idx)
     }
 
     fn chunk_offset(&self, idx: usize) -> u64 {

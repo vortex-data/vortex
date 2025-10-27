@@ -58,8 +58,24 @@ impl StructReader {
                 .collect()
         });
 
-        let lazy_children =
-            LazyReaderChildren::new(layout.children.clone(), segment_source.clone());
+        let mut dtypes: Vec<DType> = struct_dt.fields().collect();
+        let mut names: Vec<Arc<str>> = struct_dt
+            .names()
+            .iter()
+            .map(|x| x.inner().clone())
+            .collect();
+
+        if layout.dtype.is_nullable() {
+            dtypes.insert(0, DType::Bool(Nullability::NonNullable));
+            names.insert(0, Arc::from("validity"));
+        }
+
+        let lazy_children = LazyReaderChildren::new(
+            layout.children.clone(),
+            dtypes,
+            names,
+            segment_source.clone(),
+        );
 
         // Create an expanded root expression that contains all fields of the struct.
         let expanded_root_expr = replace_root_fields(root(), struct_dt);
@@ -105,24 +121,14 @@ impl StructReader {
             .field_by_index(idx)
             .ok_or_else(|| vortex_err!("Missing field {idx}"))?;
         let name = &self.struct_fields().names()[idx];
-        self.lazy_children.get(
-            child_index,
-            &field_dtype,
-            &format!("{}.{}", self.name, name).into(),
-        )
+        self.lazy_children.get(child_index)
     }
 
     /// Return the reader for the struct validity, if present
     fn validity(&self) -> VortexResult<Option<&LayoutReaderRef>> {
         self.dtype()
             .is_nullable()
-            .then(|| {
-                self.lazy_children.get(
-                    0,
-                    &DType::Bool(Nullability::NonNullable),
-                    &"validity".into(),
-                )
-            })
+            .then(|| self.lazy_children.get(0))
             .transpose()
     }
 

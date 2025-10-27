@@ -50,8 +50,17 @@ impl ZonedReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
     ) -> VortexResult<Self> {
-        let lazy_children =
-            LazyReaderChildren::new(layout.children.clone(), segment_source.clone());
+        let dtypes = vec![
+            layout.dtype.clone(),
+            ZoneMap::dtype_for_stats_table(layout.dtype(), layout.present_stats()),
+        ];
+        let names = vec![name.clone(), format!("{}.zones", name).into()];
+        let lazy_children = LazyReaderChildren::new(
+            layout.children.clone(),
+            dtypes,
+            names,
+            segment_source.clone(),
+        );
 
         Ok(Self {
             layout,
@@ -65,7 +74,7 @@ impl ZonedReader {
 
     #[inline]
     fn data_child(&self) -> VortexResult<&LayoutReaderRef> {
-        self.lazy_children.get(0, self.layout.dtype(), &self.name)
+        self.lazy_children.get(0)
     }
 
     /// Get or create the pruning predicate for a given expression.
@@ -97,14 +106,7 @@ impl ZonedReader {
 
                 let zones_eval = self
                     .lazy_children
-                    .get(
-                        1,
-                        &ZoneMap::dtype_for_stats_table(
-                            self.layout.dtype(),
-                            self.layout.present_stats(),
-                        ),
-                        &format!("{}.zones", self.name).into(),
-                    )
+                    .get(1)
                     .vortex_expect("failed to get zone child")
                     .projection_evaluation(
                         &(0..nzones as u64),
