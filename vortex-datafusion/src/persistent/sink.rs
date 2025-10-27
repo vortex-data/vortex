@@ -392,7 +392,7 @@ mod tests {
         register_vortex_format_factory(factory, &mut session_state_builder);
         let session = SessionContext::new_with_state(session_state_builder.build());
 
-        let _ = session
+        let _unused = session
             .sql(&format!(
                 "CREATE EXTERNAL TABLE my_tbl \
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \

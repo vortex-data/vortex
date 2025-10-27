@@ -1675,7 +1675,7 @@ mod test {
 
         // Mask with wrong length
         let mask = Mask::from_iter([false, false, true, false, false]);
-        let _ = patches.mask(&mask).unwrap();
+        patches.mask(&mask).unwrap();
     }
 
     #[test]

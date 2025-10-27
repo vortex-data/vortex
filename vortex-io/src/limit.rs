@@ -259,7 +259,7 @@ mod tests {
         assert!(result.is_err());
 
         // After consuming, should be able to push again
-        let _unused = stream.next().await;
+        assert!(stream.next().await.is_some());
         assert_eq!(stream.bytes_available(), 10);
 
         let result = stream.try_push(Box::pin(async { vec![1u8; 5] }), 5);

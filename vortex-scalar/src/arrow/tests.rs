@@ -228,7 +228,7 @@ fn test_struct_scalar_to_arrow_todo() {
         struct_dtype,
         vec![Scalar::primitive(42i32, Nullability::NonNullable)],
     );
-    let _ = Arc::<dyn Datum>::try_from(&struct_scalar);
+    Arc::<dyn Datum>::try_from(&struct_scalar).unwrap();
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn test_list_scalar_to_arrow_todo() {
         Nullability::NonNullable,
     );
 
-    let _ = Arc::<dyn Datum>::try_from(&list_scalar);
+    Arc::<dyn Datum>::try_from(&list_scalar).unwrap();
 }
 
 #[test]
@@ -263,7 +263,7 @@ fn test_non_temporal_extension_to_arrow_todo() {
         Scalar::primitive(42i32, Nullability::NonNullable),
     );
 
-    let _ = Arc::<dyn Datum>::try_from(&scalar);
+    Arc::<dyn Datum>::try_from(&scalar).unwrap();
 }
 
 #[rstest]

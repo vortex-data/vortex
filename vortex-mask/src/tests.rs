@@ -141,7 +141,7 @@ fn test_mask_slice() {
 #[should_panic]
 fn test_mask_slice_out_of_bounds() {
     let mask = Mask::new_true(5);
-    let _unused = mask.slice(3..8); // offset + length > len
+    mask.slice(3..8); // offset + length > len
 }
 
 // Limit operations
@@ -374,7 +374,7 @@ fn test_mask_valid_counts_for_indices() {
 fn test_mask_valid_counts_for_indices_error() {
     let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true]));
     let indices = vec![0, 2, 5]; // 5 is out of bounds
-    let _unused = mask.valid_counts_for_indices(&indices);
+    mask.valid_counts_for_indices(&indices);
 }
 
 // FromIterator tests
@@ -441,37 +441,37 @@ fn test_mask_from_iter_with_empty_masks() {
 #[test]
 #[should_panic]
 fn test_mask_from_indices_unsorted() {
-    let _unused = Mask::from_indices(5, vec![2, 0, 3]); // Not sorted
+    Mask::from_indices(5, vec![2, 0, 3]); // Not sorted
 }
 
 #[test]
 #[should_panic]
 fn test_mask_from_indices_out_of_bounds() {
-    let _unused = Mask::from_indices(5, vec![0, 2, 5]); // 5 is out of bounds
+    Mask::from_indices(5, vec![0, 2, 5]); // 5 is out of bounds
 }
 
 #[test]
 #[should_panic]
 fn test_mask_from_slices_invalid_range() {
-    let _unused = Mask::from_slices(5, vec![(2, 2)]); // Invalid range where start == end
+    Mask::from_slices(5, vec![(2, 2)]); // Invalid range where start == end
 }
 
 #[test]
 #[should_panic]
 fn test_mask_from_slices_out_of_bounds() {
-    let _unused = Mask::from_slices(5, vec![(0, 6)]); // end > len
+    Mask::from_slices(5, vec![(0, 6)]); // end > len
 }
 
 #[test]
 #[should_panic]
 fn test_mask_from_slices_unsorted() {
-    let _unused = Mask::from_slices(5, vec![(2, 3), (0, 1)]); // Not sorted
+    Mask::from_slices(5, vec![(2, 3), (0, 1)]); // Not sorted
 }
 
 #[test]
 #[should_panic]
 fn test_mask_from_slices_overlapping() {
-    let _unused = Mask::from_slices(5, vec![(0, 3), (2, 4)]); // Overlapping ranges
+    Mask::from_slices(5, vec![(0, 3), (2, 4)]); // Overlapping ranges
 }
 
 // Threshold iterator tests

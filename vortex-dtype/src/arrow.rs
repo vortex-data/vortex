@@ -337,7 +337,7 @@ mod test {
     #[test]
     #[should_panic]
     fn test_dtype_conversion_panics() {
-        let _unused = DType::Extension(Arc::new(ExtDType::new(
+        DType::Extension(Arc::new(ExtDType::new(
             ExtID::from("my-fake-ext-dtype"),
             Arc::new(DType::Utf8(Nullability::NonNullable)),
             None,
@@ -380,6 +380,6 @@ mod test {
     #[should_panic]
     fn test_schema_conversion_panics(the_struct: StructFields) {
         let schema_null = DType::Struct(the_struct, Nullability::Nullable);
-        let _unused = schema_null.to_arrow_schema().unwrap();
+        schema_null.to_arrow_schema().unwrap();
     }
 }

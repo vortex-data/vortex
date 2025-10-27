@@ -99,6 +99,7 @@ mod tests {
     use vortex_array::stats::Stat;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability};
+    use vortex_error::VortexUnwrap as _;
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
 
@@ -122,7 +123,7 @@ mod tests {
     #[test]
     fn replace_children() {
         let expr = is_null(root());
-        let _ = expr.with_children([root()]);
+        expr.with_children([root()]).vortex_unwrap();
     }
 
     #[test]
