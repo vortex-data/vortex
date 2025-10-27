@@ -8,7 +8,7 @@ use crate::{EncodingId, EncodingRef, vtable};
 mod array;
 mod canonical;
 mod operations;
-mod pipeline;
+mod operator;
 mod serde;
 mod validity;
 mod visitor;
@@ -26,8 +26,8 @@ impl VTable for PrimitiveVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = Self;
     type SerdeVTable = Self;
+    type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.primitive")
