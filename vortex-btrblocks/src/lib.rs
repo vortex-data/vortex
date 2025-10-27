@@ -34,8 +34,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::arrays::{
-    ExtensionArray, FixedSizeListArray, ListArray, ListViewArray, StructArray, TemporalArray,
-    list_from_list_view,
+    ExtensionArray, FixedSizeListArray, ListArray, StructArray, TemporalArray, list_from_list_view,
 };
 use vortex_array::vtable::{VTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
@@ -419,7 +418,7 @@ impl BtrBlocksCompressor {
                 Ok(ListArray::try_new(
                     compressed_elems,
                     compressed_offsets,
-                    list_view_array.validity().clone(),
+                    list_array.validity().clone(),
                 )?
                 .into_array())
             }
