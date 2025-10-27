@@ -16,14 +16,14 @@ use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{
     BindContext, Element, Kernel, KernelContext, PipelinedOperator, RowSelection, VectorId,
 };
-use vortex_array::vtable::PipelineVTable;
+use vortex_array::vtable::OperatorVTable;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::{FoRArray, FoRVTable};
 
-impl PipelineVTable<FoRVTable> for FoRVTable {
+impl OperatorVTable<FoRVTable> for FoRVTable {
     fn to_operator(array: &FoRArray) -> VortexResult<Option<OperatorRef>> {
         let Some(op) = array.encoded.to_operator()? else {
             return Ok(None);

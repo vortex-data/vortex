@@ -36,7 +36,7 @@ mod tests {
     use vortex_array::arrays::{BoolArray, PrimitiveArray};
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -64,10 +64,30 @@ mod tests {
         let decoded = casted.to_primitive();
         // RunEnd encoding should expand to [100, 100, 100, 200, 200, 100, 100, 100, 300, 300]
         assert_eq!(decoded.len(), 10);
-        assert_eq!(decoded.as_slice::<i64>()[0], 100);
-        assert_eq!(decoded.as_slice::<i64>()[3], 200);
-        assert_eq!(decoded.as_slice::<i64>()[5], 100);
-        assert_eq!(decoded.as_slice::<i64>()[8], 300);
+        assert_eq!(
+            TryInto::<i64>::try_into(decoded.scalar_at(0).as_ref())
+                .ok()
+                .unwrap(),
+            100i64
+        );
+        assert_eq!(
+            TryInto::<i64>::try_into(decoded.scalar_at(3).as_ref())
+                .ok()
+                .unwrap(),
+            200i64
+        );
+        assert_eq!(
+            TryInto::<i64>::try_into(decoded.scalar_at(5).as_ref())
+                .ok()
+                .unwrap(),
+            100i64
+        );
+        assert_eq!(
+            TryInto::<i64>::try_into(decoded.scalar_at(8).as_ref())
+                .ok()
+                .unwrap(),
+            300i64
+        );
     }
 
     #[test]
@@ -104,7 +124,10 @@ mod tests {
         // Verify the slice is correct before casting
         let sliced_decoded = sliced.to_primitive();
         assert_eq!(sliced_decoded.len(), 5);
-        assert_eq!(sliced_decoded.as_slice::<i32>(), &[200, 200, 300, 300, 300]);
+        assert_arrays_eq!(
+            sliced_decoded,
+            PrimitiveArray::from_iter([200, 200, 300, 300, 300])
+        );
 
         // Cast the sliced array
         let casted = cast(
@@ -116,10 +139,9 @@ mod tests {
         // Verify the cast preserved the offset
         let casted_decoded = casted.to_primitive();
         assert_eq!(casted_decoded.len(), 5);
-        assert_eq!(
-            casted_decoded.as_slice::<i64>(),
-            &[200i64, 200, 300, 300, 300],
-            "Cast failed to preserve offset - got wrong values after cast"
+        assert_arrays_eq!(
+            casted_decoded,
+            PrimitiveArray::from_iter([200i64, 200, 300, 300, 300])
         );
     }
 

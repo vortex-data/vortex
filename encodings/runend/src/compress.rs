@@ -278,9 +278,9 @@ pub fn runend_decode_typed_bool(
 
 #[cfg(test)]
 mod test {
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
+    use vortex_array::{ToCanonical, assert_arrays_eq};
     use vortex_buffer::{BitBuffer, buffer};
 
     use crate::compress::{runend_decode_primitive, runend_encode};
@@ -291,8 +291,10 @@ mod test {
         let (ends, values) = runend_encode(&arr);
         let values = values.to_primitive();
 
-        assert_eq!(ends.as_slice::<u8>(), vec![2, 5, 10]);
-        assert_eq!(values.as_slice::<i32>(), vec![1, 2, 3]);
+        let expected_ends = PrimitiveArray::from_iter(vec![2u8, 5, 10]);
+        assert_arrays_eq!(ends, expected_ends);
+        let expected_values = PrimitiveArray::from_iter(vec![1i32, 2, 3]);
+        assert_arrays_eq!(values, expected_values);
     }
 
     #[test]
@@ -306,8 +308,11 @@ mod test {
         let (ends, values) = runend_encode(&arr);
         let values = values.to_primitive();
 
-        assert_eq!(ends.as_slice::<u8>(), vec![2, 4, 5, 8, 10]);
-        assert_eq!(values.as_slice::<i32>(), vec![1, 0, 2, 3, 0]);
+        let expected_ends = PrimitiveArray::from_iter(vec![2u8, 4, 5, 8, 10]);
+        assert_arrays_eq!(ends, expected_ends);
+        let expected_values =
+            PrimitiveArray::from_option_iter(vec![Some(1i32), None, Some(2), Some(3), None]);
+        assert_arrays_eq!(values, expected_values);
     }
 
     #[test]
@@ -319,8 +324,10 @@ mod test {
         let (ends, values) = runend_encode(&arr);
         let values = values.to_primitive();
 
-        assert_eq!(ends.as_slice::<u64>(), vec![5]);
-        assert_eq!(values.as_slice::<i32>(), vec![0]);
+        let expected_ends = PrimitiveArray::from_iter(vec![5u64]);
+        assert_arrays_eq!(ends, expected_ends);
+        let expected_values = PrimitiveArray::from_option_iter(vec![Option::<i32>::None]);
+        assert_arrays_eq!(values, expected_values);
     }
 
     #[test]
@@ -329,9 +336,7 @@ mod test {
         let values = PrimitiveArray::from_iter([1i32, 2, 3]);
         let decoded = runend_decode_primitive(ends, values, 0, 10);
 
-        assert_eq!(
-            decoded.as_slice::<i32>(),
-            vec![1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]
-        );
+        let expected = PrimitiveArray::from_iter(vec![1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
+        assert_arrays_eq!(decoded, expected);
     }
 }

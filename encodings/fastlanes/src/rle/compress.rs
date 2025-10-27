@@ -217,24 +217,24 @@ mod test {
         let array_u8 = values_u8.clone().into_array();
         let encoded_u8 = RLEArray::encode(&array_u8.to_primitive()).unwrap();
         let decoded_u8 = encoded_u8.to_primitive();
-        let expected_u8 = values_u8.into_array();
-        assert_arrays_eq!(decoded_u8.as_ref(), expected_u8.as_ref());
+        let expected_u8 = PrimitiveArray::from_iter(vec![1u8, 1, 2, 2, 3, 3]);
+        assert_arrays_eq!(decoded_u8, expected_u8);
 
         // u16
         let values_u16: Buffer<u16> = [100, 100, 200, 200].iter().copied().collect();
         let array_u16 = values_u16.clone().into_array();
         let encoded_u16 = RLEArray::encode(&array_u16.to_primitive()).unwrap();
         let decoded_u16 = encoded_u16.to_primitive();
-        let expected_u16 = values_u16.into_array();
-        assert_arrays_eq!(decoded_u16.as_ref(), expected_u16.as_ref());
+        let expected_u16 = PrimitiveArray::from_iter(vec![100u16, 100, 200, 200]);
+        assert_arrays_eq!(decoded_u16, expected_u16);
 
         // u64
         let values_u64: Buffer<u64> = [1000, 1000, 2000].iter().copied().collect();
         let array_u64 = values_u64.clone().into_array();
         let encoded_u64 = RLEArray::encode(&array_u64.to_primitive()).unwrap();
         let decoded_u64 = encoded_u64.to_primitive();
-        let expected_u64 = values_u64.into_array();
-        assert_arrays_eq!(decoded_u64.as_ref(), expected_u64.as_ref());
+        let expected_u64 = PrimitiveArray::from_iter(vec![1000u64, 1000, 2000]);
+        assert_arrays_eq!(decoded_u64, expected_u64);
     }
 
     #[test]
@@ -264,8 +264,8 @@ mod test {
         assert_eq!(encoded.values.len(), 2); // 2 chunks, each storing value 42
 
         let decoded = encoded.to_primitive(); // Verify round-trip
-        let expected = values.into_array();
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        let expected = PrimitiveArray::from_iter(vec![42u16; 2000]);
+        assert_arrays_eq!(decoded, expected);
     }
 
     #[test]
@@ -277,8 +277,8 @@ mod test {
         assert_eq!(encoded.values.len(), 256);
 
         let decoded = encoded.to_primitive(); // Verify round-trip
-        let expected = values.into_array();
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        let expected = PrimitiveArray::from_iter((0u8..=255).collect::<Vec<_>>());
+        assert_arrays_eq!(decoded, expected);
     }
 
     #[test]
@@ -291,8 +291,8 @@ mod test {
         let decoded = encoded.to_primitive();
 
         assert_eq!(encoded.len(), 1500);
-        let expected = values.into_array();
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        let expected_array = PrimitiveArray::from_iter(expected);
+        assert_arrays_eq!(decoded, expected_array);
         // 2 chunks: 1024 + 476 elements
         assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
@@ -307,8 +307,8 @@ mod test {
         let decoded = encoded.to_primitive();
 
         assert_eq!(encoded.len(), 2048);
-        let expected = values.into_array();
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        let expected_array = PrimitiveArray::from_iter(expected);
+        assert_arrays_eq!(decoded, expected_array);
         assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
 
@@ -328,7 +328,7 @@ mod test {
         let primitive = values.clone().into_array().to_primitive();
         let result = RLEArray::encode(&primitive).unwrap();
         let decoded = result.to_primitive();
-        let expected = values.into_array();
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        let expected = PrimitiveArray::new(values, primitive.validity().clone());
+        assert_arrays_eq!(decoded, expected);
     }
 }

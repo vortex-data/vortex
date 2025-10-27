@@ -42,10 +42,9 @@ impl OperationsVTable<DictVTable> for DictVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::{IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use crate::DictArray;
@@ -77,10 +76,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(dict.scalar_at(0), Scalar::null(dict.dtype().clone()));
-        assert_eq!(
-            dict.scalar_at(1),
-            Scalar::primitive(1, Nullability::Nullable)
-        );
+        let expected = PrimitiveArray::from_option_iter(vec![None, Some(1i32), None]).into_array();
+        assert_arrays_eq!(dict, expected);
     }
 }

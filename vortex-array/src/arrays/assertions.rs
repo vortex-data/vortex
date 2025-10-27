@@ -4,9 +4,9 @@
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($left:expr, $right:expr) => {{
-        let left = $left;
-        let right = $right;
-        if left.dtype() != right.dtype() {
+       let left = $left.clone();
+       let right = $right.clone();
+       if left.dtype() != right.dtype() {
             panic!(
                 "assertion left == right failed: arrays differ in type: {} != {}.\n  left: {}\n right: {}",
                 left.dtype(),

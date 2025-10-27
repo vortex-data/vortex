@@ -20,7 +20,7 @@ use std::sync::{Arc, OnceLock};
 
 use itertools::Itertools;
 pub use mask_mut::*;
-use vortex_buffer::{BitBuffer, BitBufferMut};
+use vortex_buffer::{BitBuffer, BitBufferMut, set_bit_unchecked};
 use vortex_error::{VortexResult, vortex_panic};
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
@@ -601,11 +601,13 @@ impl Mask {
                 let existing_buffer = mask_values.bit_buffer();
 
                 let mut new_buffer_builder = BitBufferMut::new_unset(mask_values.len());
+                debug_assert!(limit < mask_values.len());
 
+                let ptr = new_buffer_builder.as_mut_ptr();
                 for index in existing_buffer.set_indices().take(limit) {
-                    unsafe {
-                        new_buffer_builder.set_unchecked(index);
-                    }
+                    // SAFETY: We checked that `limit` was less than the mask values length,
+                    // therefore `index` must be within the bounds of the bit buffer.
+                    unsafe { set_bit_unchecked(ptr, index) }
                 }
 
                 Self::from(new_buffer_builder.freeze())

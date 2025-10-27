@@ -74,6 +74,7 @@ register_kernel!(TakeKernelAdapter(ByteBoolVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
@@ -87,18 +88,9 @@ mod tests {
         let vortex_arr = ByteBoolArray::from(original);
 
         let sliced_arr = vortex_arr.slice(1..4);
-        let sliced_arr = sliced_arr.as_::<ByteBoolVTable>();
 
-        let s = sliced_arr.scalar_at(0);
-        assert_eq!(s.as_bool().value(), Some(true));
-
-        let s = sliced_arr.scalar_at(1);
-        assert!(!sliced_arr.is_valid(1));
-        assert!(s.is_null());
-        assert_eq!(s.as_bool().value(), None);
-
-        let s = sliced_arr.scalar_at(2);
-        assert_eq!(s.as_bool().value(), Some(false));
+        let expected = ByteBoolArray::from(vec![Some(true), None, Some(false)]);
+        assert_arrays_eq!(sliced_arr, expected.to_array());
     }
 
     #[test]
@@ -108,11 +100,8 @@ mod tests {
 
         let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
-        for i in 0..arr.len() {
-            let s = arr.scalar_at(i);
-            assert!(s.is_valid());
-            assert_eq!(s.as_bool().value(), Some(true));
-        }
+        let expected = ByteBoolArray::from(vec![true; 5]);
+        assert_arrays_eq!(arr, expected.to_array());
     }
 
     #[test]
@@ -122,11 +111,8 @@ mod tests {
 
         let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
-        for i in 0..arr.len() {
-            let s = arr.scalar_at(i);
-            assert!(s.is_valid());
-            assert_eq!(s.as_bool().value(), Some(false));
-        }
+        let expected = ByteBoolArray::from(vec![false; 5]);
+        assert_arrays_eq!(arr, expected.to_array());
     }
 
     #[test]
@@ -136,18 +122,9 @@ mod tests {
 
         let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
-        for i in 0..3 {
-            let s = arr.scalar_at(i);
-            assert!(s.is_valid());
-            assert_eq!(s.as_bool().value(), Some(true));
-        }
-
-        let s = arr.scalar_at(3);
-        assert!(s.is_valid());
-        assert_eq!(s.as_bool().value(), Some(false));
-
-        let s = arr.scalar_at(4);
-        assert!(s.is_null());
+        let expected =
+            ByteBoolArray::from(vec![Some(true), Some(true), Some(true), Some(false), None]);
+        assert_arrays_eq!(arr, expected.to_array());
     }
 
     #[test]

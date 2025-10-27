@@ -126,7 +126,7 @@ mod tests {
     use vortex_array::arrays::{BoolArray, ConstantArray, PrimitiveArray};
     use vortex_array::compute::{Operator, compare};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, DecimalDType, Nullability};
     use vortex_error::VortexResult;
@@ -148,10 +148,8 @@ mod tests {
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
-        assert_eq!(
-            res.to_bool().bit_buffer().iter().collect::<Vec<_>>(),
-            vec![false, false, true]
-        );
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(true)]).into_array();
+        assert_arrays_eq!(res, expected);
     }
 
     #[test]
@@ -177,10 +175,9 @@ mod tests {
         .into_array();
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lte)?;
-        assert_eq!(res.scalar_at(0).as_bool().value(), None);
-        assert_eq!(res.scalar_at(1).as_bool().value(), Some(true));
-        assert_eq!(res.scalar_at(2).as_bool().value(), Some(true));
-        assert_eq!(res.scalar_at(3).as_bool().value(), Some(true));
+        let expected =
+            BoolArray::from_iter([None, Some(true), Some(true), Some(true)]).into_array();
+        assert_arrays_eq!(res, expected);
 
         Ok(())
     }
@@ -205,14 +202,16 @@ mod tests {
         );
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
-
-        assert_eq!(res.to_bool().bool_vec(), vec![false, false, false]);
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
+        assert_arrays_eq!(res, expected);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
-        assert_eq!(res.to_bool().bool_vec(), vec![true, true, true]);
+        let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
+        assert_arrays_eq!(res, expected);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
-        assert_eq!(res.to_bool().bool_vec(), vec![false, false, false]);
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
+        assert_arrays_eq!(res, expected);
 
         // This cannot be converted to a i32.
         let rhs = ConstantArray::new(
@@ -221,13 +220,15 @@ mod tests {
         );
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
-
-        assert_eq!(res.to_bool().bool_vec(), vec![false, false, false]);
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
+        assert_arrays_eq!(res, expected);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
-        assert_eq!(res.to_bool().bool_vec(), vec![false, false, false]);
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
+        assert_arrays_eq!(res, expected);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
-        assert_eq!(res.to_bool().bool_vec(), vec![true, true, true]);
+        let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
+        assert_arrays_eq!(res, expected);
     }
 }

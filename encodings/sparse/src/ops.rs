@@ -38,7 +38,8 @@ impl OperationsVTable<SparseVTable> for SparseVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
 
     use super::*;
@@ -54,6 +55,6 @@ mod tests {
         expected[0] = 0;
 
         let values = sliced.to_primitive();
-        assert_eq!(values.as_slice::<u64>(), expected);
+        assert_arrays_eq!(values, PrimitiveArray::from_iter(expected));
     }
 }

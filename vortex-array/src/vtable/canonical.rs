@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::vortex_panic;
+
 use crate::Canonical;
 use crate::builders::ArrayBuilder;
-use crate::vtable::VTable;
+use crate::vtable::{NotSupported, VTable};
 
-// TODO(ngates): rename to `DecodeVTable`.
 pub trait CanonicalVTable<V: VTable> {
     /// Returns the canonical representation of the array.
     ///
@@ -22,5 +23,14 @@ pub trait CanonicalVTable<V: VTable> {
     fn append_to_builder(array: &V::Array, builder: &mut dyn ArrayBuilder) {
         let canonical = Self::canonicalize(array);
         builder.extend_from_array(canonical.as_ref())
+    }
+}
+
+impl<V: VTable> CanonicalVTable<V> for NotSupported {
+    fn canonicalize(array: &V::Array) -> Canonical {
+        vortex_panic!(
+            "Legacy canonicalize is not supported for {} arrays",
+            array.encoding_id()
+        )
     }
 }

@@ -3,6 +3,8 @@
 
 //! Vector allocation strategy for pipelines
 
+#![allow(dead_code)]
+
 use std::cell::RefCell;
 
 use vortex_error::{VortexExpect, VortexResult};

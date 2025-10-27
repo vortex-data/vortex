@@ -74,8 +74,10 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ToCanonical;
+    #[allow(unused_imports)]
+    use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::{ToCanonical, assert_arrays_eq};
 
     use crate::sequence_encode;
 
@@ -85,7 +87,7 @@ mod tests {
         let encoded = sequence_encode(&primitive_array).unwrap();
         assert!(encoded.is_some());
         let decoded = encoded.unwrap().to_primitive();
-        assert_eq!(decoded.as_slice::<i32>(), primitive_array.as_slice::<i32>());
+        assert_arrays_eq!(decoded, primitive_array);
     }
 
     #[test]
@@ -94,7 +96,7 @@ mod tests {
         let encoded = sequence_encode(&primitive_array).unwrap();
         assert!(encoded.is_some());
         let decoded = encoded.unwrap().to_primitive();
-        assert_eq!(decoded.as_slice::<i32>(), primitive_array.as_slice::<i32>());
+        assert_arrays_eq!(decoded, primitive_array);
     }
 
     #[test]

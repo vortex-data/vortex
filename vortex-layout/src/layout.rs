@@ -77,11 +77,6 @@ pub enum LayoutChildType {
     /// A layout child that represents a single field of data.
     /// Contains the field name of the child.
     Field(FieldName),
-    // A layout child that contains a subset of the fields of the parent layout.
-    // Contains a mask over the fields of the parent layout.
-    // TODO(ngates): FieldMask API needs fixing before we enable this. We also don't yet have a
-    //  use-case for this.
-    // Mask(Vec<FieldMask>),
 }
 
 impl LayoutChildType {
@@ -193,7 +188,12 @@ impl dyn Layout + '_ {
 
     /// Display the layout as a tree structure.
     pub fn display_tree(&self) -> DisplayLayoutTree {
-        DisplayLayoutTree(self.to_layout())
+        DisplayLayoutTree::new(self.to_layout(), false)
+    }
+
+    /// Display the layout as a tree structure with optional verbose metadata.
+    pub fn display_tree_verbose(&self, verbose: bool) -> DisplayLayoutTree {
+        DisplayLayoutTree::new(self.to_layout(), verbose)
     }
 }
 

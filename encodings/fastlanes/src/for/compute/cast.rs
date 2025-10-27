@@ -60,8 +60,10 @@ mod tests {
 
         // Verify the values after decoding
         let decoded = casted.to_primitive();
-        let expected = PrimitiveArray::from_iter([100i64, 110, 120, 130, 140]);
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_iter([100i64, 110, 120, 130, 140])
+        );
     }
 
     #[test]

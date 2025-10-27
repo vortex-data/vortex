@@ -64,7 +64,8 @@ pub(crate) fn find_slice_end_index(array: &dyn Array, index: usize) -> usize {
 #[cfg(test)]
 mod tests {
 
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::{Array, IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -84,7 +85,8 @@ mod tests {
         );
         assert_eq!(arr.len(), 5);
 
-        assert_eq!(arr.to_primitive().as_slice::<i32>(), vec![2, 2, 3, 3, 3]);
+        let expected = PrimitiveArray::from_iter(vec![2i32, 2, 3, 3, 3]).into_array();
+        assert_arrays_eq!(arr, expected);
     }
 
     #[test]
@@ -99,10 +101,8 @@ mod tests {
 
         let doubly_sliced = arr.slice(0..3);
 
-        assert_eq!(
-            doubly_sliced.to_primitive().as_slice::<i32>(),
-            vec![2, 2, 3]
-        );
+        let expected = PrimitiveArray::from_iter(vec![2i32, 2, 3]).into_array();
+        assert_arrays_eq!(doubly_sliced, expected);
     }
 
     #[test]
@@ -119,7 +119,8 @@ mod tests {
         );
         assert_eq!(arr.len(), 6);
 
-        assert_eq!(arr.to_primitive().as_slice::<i32>(), vec![2, 3, 3, 3, 3, 3]);
+        let expected = PrimitiveArray::from_iter(vec![2i32, 3, 3, 3, 3, 3]).into_array();
+        assert_arrays_eq!(arr, expected);
     }
 
     #[test]
@@ -160,6 +161,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn slice_along_run_boundaries() {
         // Create a runend array with runs: [1, 1, 1] [4, 4, 4] [2, 2] [5, 5, 5, 5]
         // Run ends at indices: 3, 6, 8, 12
@@ -172,36 +174,43 @@ mod tests {
         // Slice from start of first run to end of first run (indices 0..3)
         let slice1 = arr.slice(0..3);
         assert_eq!(slice1.len(), 3);
-        assert_eq!(slice1.to_primitive().as_slice::<i32>(), vec![1, 1, 1]);
+        let expected = PrimitiveArray::from_iter(vec![1i32, 1, 1]).into_array();
+        assert_arrays_eq!(slice1, expected);
 
         // Slice from start of second run to end of second run (indices 3..6)
         let slice2 = arr.slice(3..6);
         assert_eq!(slice2.len(), 3);
-        assert_eq!(slice2.to_primitive().as_slice::<i32>(), vec![4, 4, 4]);
+        let expected = PrimitiveArray::from_iter(vec![4i32, 4, 4]).into_array();
+        assert_arrays_eq!(slice2, expected);
 
         // Slice from start of third run to end of third run (indices 6..8)
         let slice3 = arr.slice(6..8);
         assert_eq!(slice3.len(), 2);
-        assert_eq!(slice3.to_primitive().as_slice::<i32>(), vec![2, 2]);
+        let expected = PrimitiveArray::from_iter(vec![2i32, 2]).into_array();
+        assert_arrays_eq!(slice3, expected);
 
         // Slice from start of last run to end of last run (indices 8..12)
         let slice4 = arr.slice(8..12);
         assert_eq!(slice4.len(), 4);
-        assert_eq!(slice4.to_primitive().as_slice::<i32>(), vec![5, 5, 5, 5]);
+        let expected = PrimitiveArray::from_iter(vec![5i32, 5, 5, 5]).into_array();
+        assert_arrays_eq!(slice4, expected);
 
         // Slice spanning exactly two runs (indices 3..8)
         let slice5 = arr.slice(3..8);
         assert_eq!(slice5.len(), 5);
-        assert_eq!(slice5.to_primitive().as_slice::<i32>(), vec![4, 4, 4, 2, 2]);
+        let expected = PrimitiveArray::from_iter(vec![4i32, 4, 4, 2, 2]).into_array();
+        assert_arrays_eq!(slice5, expected);
 
         // Slice from middle of first run to end of second run (indices 1..6)
         let slice6 = arr.slice(1..6);
         assert_eq!(slice6.len(), 5);
-        assert_eq!(slice6.to_primitive().as_slice::<i32>(), vec![1, 1, 4, 4, 4]);
+        let expected = PrimitiveArray::from_iter(vec![1i32, 1, 4, 4, 4]).into_array();
+        assert_arrays_eq!(slice6, expected);
 
         // Slice from start of second run to middle of third run (indices 3..7)
         let slice7 = arr.slice(3..7);
         assert_eq!(slice7.len(), 4);
-        assert_eq!(slice7.to_primitive().as_slice::<i32>(), vec![4, 4, 4, 2]);
+        let expected = PrimitiveArray::from_iter(vec![4i32, 4, 4, 2]).into_array();
+        assert_arrays_eq!(slice7, expected);
     }
 }

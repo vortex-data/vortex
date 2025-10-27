@@ -45,10 +45,10 @@ register_kernel!(CastKernelAdapter(ALPVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::{IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -98,7 +98,7 @@ mod tests {
         );
 
         let decoded = casted.to_canonical().into_primitive();
-        assert_eq!(decoded.as_slice::<i32>(), &[1i32, 2, 3, 4]);
+        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i32, 2, 3, 4]));
     }
 
     #[rstest]

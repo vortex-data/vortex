@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use reader::DictReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
@@ -41,9 +41,10 @@ impl VTable for DictVTable {
     }
 
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
-        ProstMetadata(DictLayoutMetadata::new(
-            PType::try_from(layout.codes.dtype()).vortex_expect("ptype"),
-        ))
+        let mut metadata =
+            DictLayoutMetadata::new(PType::try_from(layout.codes.dtype()).vortex_expect("ptype"));
+        metadata.is_nullable_codes = Some(layout.codes.dtype().is_nullable());
+        ProstMetadata(metadata)
     }
 
     fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
@@ -92,10 +93,14 @@ impl VTable for DictVTable {
         _ctx: ArrayContext,
     ) -> VortexResult<Self::Layout> {
         let values = children.child(0, dtype)?;
-        let codes = children.child(
-            1,
-            &DType::Primitive(metadata.codes_ptype(), dtype.nullability()),
-        )?;
+        let codes_nullable = metadata
+            .is_nullable_codes
+            .map(Nullability::from)
+            // The old behaviour (without `is_nullable_codes` metadata) used the nullability
+            // of the values (and whole array).
+            // see [`SerdeVTable<DictVTable>::build`].
+            .unwrap_or_else(|| dtype.nullability());
+        let codes = children.child(1, &DType::Primitive(metadata.codes_ptype(), codes_nullable))?;
         Ok(DictLayout { values, codes })
     }
 }
@@ -120,6 +125,9 @@ pub struct DictLayoutMetadata {
     #[prost(enumeration = "PType", tag = "1")]
     // i32 is required for proto, use the generated getter to read this field.
     codes_ptype: i32,
+    // nullable codes are optional since they were added after stabilisation
+    #[prost(optional, bool, tag = "2")]
+    is_nullable_codes: Option<bool>,
 }
 
 impl DictLayoutMetadata {

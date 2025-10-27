@@ -4,8 +4,8 @@
 //! This module contains the VTable definitions for a Vortex encoding.
 
 mod array;
+mod canonical;
 mod compute;
-mod decode;
 mod encode;
 mod operations;
 mod operator;
@@ -17,8 +17,8 @@ use std::fmt::Debug;
 use std::ops::Deref;
 
 pub use array::*;
+pub use canonical::*;
 pub use compute::*;
-pub use decode::*;
 pub use encode::*;
 pub use operations::*;
 pub use operator::*;
@@ -63,9 +63,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Optionally enable serde for this encoding by implementing the [`SerdeVTable`] trait.
     /// Can be disabled by assigning to the [`NotSupported`] type.
     type SerdeVTable: SerdeVTable<Self>;
-    /// Optionally enable the [`PipelineVTable`] for this encoding. This allows it to partake in
+    /// Optionally enable the [`OperatorVTable`] for this encoding. This allows it to partake in
     /// operator operations.
-    type PipelineVTable: PipelineVTable<Self>;
+    type OperatorVTable: OperatorVTable<Self>;
 
     /// Returns the ID of the encoding.
     fn id(encoding: &Self::Encoding) -> EncodingId;

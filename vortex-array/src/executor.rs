@@ -16,9 +16,9 @@ use crate::Canonical;
 use crate::operator::{BatchBindCtx, BatchExecution, BatchExecutionRef, OperatorKey, OperatorRef};
 use crate::pipeline::operator::PipelineOperator;
 
-/// An executor that runs an operator tree.
+/// An execution that runs an operator tree.
 ///
-/// The executor performs common subtree elimination by creating BatchExecution nodes that hold
+/// The execution performs common subtree elimination by creating BatchExecution nodes that hold
 /// shared futures to the underlying execution.
 ///
 /// It also finds sub-graphs of operator operators and executes them as a operator.
@@ -71,7 +71,7 @@ impl Executor {
         log::info!("Executing operator: {}", operator.display_tree());
         println!("Executing operator: {}", operator.display_tree());
 
-        // For each child, create a batch execution that uses the executor to compute it.
+        // For each child, create a batch execution that uses the execution to compute it.
         let mut children: Vec<_> = operator
             .children()
             .iter()

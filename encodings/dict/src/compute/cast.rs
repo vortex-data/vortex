@@ -38,7 +38,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -61,7 +61,7 @@ mod tests {
         );
 
         let decoded = casted.to_primitive();
-        assert_eq!(decoded.as_slice::<i64>(), &[1i64, 2, 3, 2, 1]);
+        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i64, 2, 3, 2, 1]));
     }
 
     #[test]
@@ -163,10 +163,7 @@ mod tests {
         // Verify values are unchanged
         let original_values = dict.to_primitive();
         let final_values = back_dict.to_primitive();
-        assert_eq!(
-            original_values.as_slice::<i32>(),
-            final_values.as_slice::<i32>()
-        );
+        assert_arrays_eq!(original_values, final_values);
     }
 
     #[rstest]

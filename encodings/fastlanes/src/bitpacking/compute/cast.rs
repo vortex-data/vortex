@@ -78,8 +78,10 @@ mod tests {
         );
 
         let decoded = casted.to_primitive();
-        let expected = PrimitiveArray::from_iter([10u32, 20, 30, 40, 50, 60]);
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        assert_arrays_eq!(
+            decoded.as_ref(),
+            PrimitiveArray::from_iter([10u32, 20, 30, 40, 50, 60])
+        );
     }
 
     #[test]

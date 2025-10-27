@@ -64,6 +64,10 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
             "FlatBuffer Size: {}",
             size_formatter(cursor.flatbuffer_size())
         )));
+
+        // Display metadata info about the flat layout
+        let metadata_info = cursor.flat_layout_metadata_info();
+        rows.push(Text::from(metadata_info));
     }
 
     if let Some(layout) = cursor.layout().as_opt::<ZonedVTable>() {

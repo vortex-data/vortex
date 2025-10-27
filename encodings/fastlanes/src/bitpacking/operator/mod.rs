@@ -13,7 +13,7 @@ use vortex_array::operator::{
     LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
 use vortex_array::pipeline::{BindContext, Kernel, PipelinedOperator, RowSelection};
-use vortex_array::vtable::PipelineVTable;
+use vortex_array::vtable::OperatorVTable;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
@@ -21,7 +21,7 @@ use vortex_error::VortexResult;
 use crate::operator::aligned_kernel::BitPackedKernel;
 use crate::{BitPackedArray, BitPackedVTable};
 
-impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
+impl OperatorVTable<BitPackedVTable> for BitPackedVTable {
     fn to_operator(array: &BitPackedArray) -> VortexResult<Option<OperatorRef>> {
         if array.dtype.is_nullable() {
             log::trace!("BitPackedVTable does not support nullable arrays");

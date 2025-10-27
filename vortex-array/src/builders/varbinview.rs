@@ -747,8 +747,8 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
 
     use crate::arrays::VarBinViewArray;
-    use crate::assert_arrays_eq;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+    use crate::{IntoArray, assert_arrays_eq};
 
     #[test]
     fn test_utf8_builder() {
@@ -802,7 +802,7 @@ mod tests {
             None,
             Some("Hello3"),
         ]);
-        assert_arrays_eq!(actual.as_ref(), expected.as_ref());
+        assert_arrays_eq!(actual.into_array(), expected.into_array());
     }
 
     #[test]

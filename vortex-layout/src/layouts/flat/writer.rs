@@ -10,7 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_io::runtime::Handle;
 
-use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::{FLAT_LAYOUT_INLINE_ARRAY_NODE, FlatLayout};
 use crate::layouts::zoned::{lower_bound, upper_bound};
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{SendableSequentialStream, SequencePointer};
@@ -122,15 +122,23 @@ impl LayoutStrategy for FlatLayoutStrategy {
                 include_padding: options.include_padding,
             },
         )?;
+        // there is at least the flatbuffer and the length
+        assert!(buffers.len() >= 2);
+        let array_node =
+            (*FLAT_LAYOUT_INLINE_ARRAY_NODE).then(|| buffers[buffers.len() - 2].clone());
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
         let None = stream.next().await else {
             vortex_bail!("flat layout received stream with more than a single chunk");
         };
-        Ok(
-            FlatLayout::new(row_count, stream.dtype().clone(), segment_id, ctx.clone())
-                .into_layout(),
+        Ok(FlatLayout::new_with_metadata(
+            row_count,
+            stream.dtype().clone(),
+            segment_id,
+            ctx.clone(),
+            array_node,
         )
+        .into_layout())
     }
 
     fn buffered_bytes(&self) -> u64 {
