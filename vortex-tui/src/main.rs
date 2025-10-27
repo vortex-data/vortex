@@ -39,7 +39,7 @@ impl Commands {
         match self {
             Commands::Tree(args) => match &args.mode {
                 tree::TreeMode::Array { file } => file,
-                tree::TreeMode::Layout { file } => file,
+                tree::TreeMode::Layout { file, .. } => file,
             },
             Commands::Browse { file } => file,
             Commands::Convert(flags) => &flags.file,
