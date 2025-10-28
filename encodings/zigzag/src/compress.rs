@@ -33,7 +33,10 @@ fn zigzag_encode_primitive<T: ExternalZigZag + NativePType>(
 where
     <T as ExternalZigZag>::UInt: NativePType,
 {
-    PrimitiveArray::new(values.map_each(|v| T::encode(v)).freeze(), validity)
+    PrimitiveArray::new(
+        values.map_each_in_place(|v| T::encode(v)).freeze(),
+        validity,
+    )
 }
 
 pub fn zigzag_decode(parray: PrimitiveArray) -> PrimitiveArray {
@@ -57,7 +60,10 @@ fn zigzag_decode_primitive<T: ExternalZigZag + NativePType>(
 where
     <T as ExternalZigZag>::UInt: NativePType,
 {
-    PrimitiveArray::new(values.map_each(|v| T::decode(v)).freeze(), validity)
+    PrimitiveArray::new(
+        values.map_each_in_place(|v| T::decode(v)).freeze(),
+        validity,
+    )
 }
 
 #[cfg(test)]

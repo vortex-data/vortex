@@ -285,15 +285,13 @@ mod test {
     fn test_partial_last_chunk() {
         // Test array with partial last chunk (not divisible by 1024)
         let values: Buffer<u32> = (0..1500).map(|i| (i / 100) as u32).collect();
-        let expected: Vec<u32> = (0..1500).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
 
         let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
         let decoded = encoded.to_primitive();
 
         assert_eq!(encoded.len(), 1500);
-        let expected_array = PrimitiveArray::from_iter(expected);
-        assert_arrays_eq!(decoded, expected_array);
+        assert_arrays_eq!(decoded, array);
         // 2 chunks: 1024 + 476 elements
         assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
@@ -302,15 +300,13 @@ mod test {
     fn test_two_full_chunks() {
         // Array that spans exactly 2 chunks (2048 elements)
         let values: Buffer<u32> = (0..2048).map(|i| (i / 100) as u32).collect();
-        let expected: Vec<u32> = (0..2048).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
 
         let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
         let decoded = encoded.to_primitive();
 
         assert_eq!(encoded.len(), 2048);
-        let expected_array = PrimitiveArray::from_iter(expected);
-        assert_arrays_eq!(decoded, expected_array);
+        assert_arrays_eq!(decoded, array);
         assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
 

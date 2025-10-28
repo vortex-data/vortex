@@ -6,10 +6,13 @@ use std::sync::LazyLock;
 
 use enum_map::{Enum, EnumMap, enum_map};
 use vortex_buffer::ByteBuffer;
-use vortex_compute::arithmetic::{Add, Checked, CheckedOperator, Div, Mul, Sub};
+use vortex_compute::arithmetic::{
+    Add, Arithmetic, CheckedArithmetic, CheckedOperator, Div, Mul, Operator, Sub,
+};
 use vortex_dtype::{DType, NativePType, PTypeDowncastExt, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{PValue, Scalar};
+use vortex_vector::PVector;
 
 use crate::arrays::ConstantArray;
 use crate::execution::{BatchKernelRef, BindCtx, kernel};
@@ -26,13 +29,13 @@ use crate::{
 /// The set of operators supported by an arithmetic array.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Enum)]
 pub enum ArithmeticOperator {
-    /// Addition
+    /// Addition - errors on overflow for integers.
     Add,
-    /// Subtraction
+    /// Subtraction - errors on overflow for integers.
     Sub,
-    /// Multiplication
+    /// Multiplication - errors on overflow for integers.
     Mul,
-    /// Division
+    /// Division - errors on division by zero for integers.
     Div,
 }
 
@@ -47,7 +50,7 @@ pub struct ArithmeticArray {
 }
 
 impl ArithmeticArray {
-    /// Create a new logical array.
+    /// Create a new arithmetic array.
     pub fn new(lhs: ArrayRef, rhs: ArrayRef, operator: ArithmeticOperator) -> Self {
         assert_eq!(
             lhs.len(),
@@ -220,8 +223,8 @@ impl OperatorVTable<ArithmeticVTable> for ArithmeticVTable {
         ctx: &mut dyn BindCtx,
     ) -> VortexResult<BatchKernelRef> {
         // Optimize for constant RHS
-        if let Some(rhs) = array.rhs.as_constant() {
-            if rhs.is_null() {
+        if let Some(rhs_scalar) = array.rhs.as_constant() {
+            if rhs_scalar.is_null() {
                 // If the RHS is null, the result is always null.
                 return ConstantArray::new(Scalar::null(array.dtype().clone()), array.len())
                     .into_array()
@@ -229,45 +232,69 @@ impl OperatorVTable<ArithmeticVTable> for ArithmeticVTable {
             }
 
             let lhs = ctx.bind(&array.lhs, selection)?;
-            return match_each_native_ptype!(array.dtype().as_ptype(), |T| {
-                let rhs_value: T = rhs
-                    .as_primitive()
-                    .typed_value::<T>()
-                    .vortex_expect("Already checked for null above");
-                Ok(match array.operator() {
-                    ArithmeticOperator::Add => arithmetic_scalar_kernel::<Add, _>(lhs, rhs_value),
-                    ArithmeticOperator::Sub => arithmetic_scalar_kernel::<Sub, _>(lhs, rhs_value),
-                    ArithmeticOperator::Mul => arithmetic_scalar_kernel::<Mul, _>(lhs, rhs_value),
-                    ArithmeticOperator::Div => arithmetic_scalar_kernel::<Div, _>(lhs, rhs_value),
-                })
-            });
+            return match_each_native_ptype!(
+                    array.dtype().as_ptype(),
+                    integral: |T| {
+                        let rhs: T = rhs_scalar
+                            .as_primitive()
+                            .typed_value::<T>()
+                            .vortex_expect("Already checked for null above");
+                        Ok(match array.operator() {
+                            ArithmeticOperator::Add => checked_arithmetic_scalar_kernel::<Add, T>(lhs, rhs),
+                            ArithmeticOperator::Sub => checked_arithmetic_scalar_kernel::<Sub, T>(lhs, rhs),
+                            ArithmeticOperator::Mul => checked_arithmetic_scalar_kernel::<Mul, T>(lhs, rhs),
+                            ArithmeticOperator::Div => checked_arithmetic_scalar_kernel::<Div, T>(lhs, rhs),
+                        })
+                    },
+                    floating: |T| {
+                        let rhs: T = rhs_scalar
+                            .as_primitive()
+                            .typed_value::<T>()
+                            .vortex_expect("Already checked for null above");
+                        Ok(match array.operator() {
+                            ArithmeticOperator::Add => arithmetic_scalar_kernel::<Add, T>(lhs, rhs),
+                            ArithmeticOperator::Sub => arithmetic_scalar_kernel::<Sub, T>(lhs, rhs),
+                            ArithmeticOperator::Mul => arithmetic_scalar_kernel::<Mul, T>(lhs, rhs),
+                            ArithmeticOperator::Div => arithmetic_scalar_kernel::<Div, T>(lhs, rhs),
+                        })
+                    }
+            );
         }
 
         let lhs = ctx.bind(&array.lhs, selection)?;
         let rhs = ctx.bind(&array.rhs, selection)?;
 
-        match_each_native_ptype!(array.dtype().as_ptype(), |T| {
-            Ok(match array.operator() {
-                ArithmeticOperator::Add => arithmetic_kernel::<Add, T>(lhs, rhs),
-                ArithmeticOperator::Sub => arithmetic_kernel::<Sub, T>(lhs, rhs),
-                ArithmeticOperator::Mul => arithmetic_kernel::<Mul, T>(lhs, rhs),
-                ArithmeticOperator::Div => arithmetic_kernel::<Div, T>(lhs, rhs),
-            })
-        })
+        match_each_native_ptype!(
+            array.dtype().as_ptype(),
+            integral: |T| {
+                Ok(match array.operator() {
+                    ArithmeticOperator::Add => checked_arithmetic_kernel::<Add, T>(lhs, rhs),
+                    ArithmeticOperator::Sub => checked_arithmetic_kernel::<Sub, T>(lhs, rhs),
+                    ArithmeticOperator::Mul => checked_arithmetic_kernel::<Mul, T>(lhs, rhs),
+                    ArithmeticOperator::Div => checked_arithmetic_kernel::<Div, T>(lhs, rhs),
+                })
+            },
+            floating: |T| {
+                Ok(match array.operator() {
+                    ArithmeticOperator::Add => arithmetic_kernel::<Add, T>(lhs, rhs),
+                    ArithmeticOperator::Sub => arithmetic_kernel::<Sub, T>(lhs, rhs),
+                    ArithmeticOperator::Mul => arithmetic_kernel::<Mul, T>(lhs, rhs),
+                    ArithmeticOperator::Div => arithmetic_kernel::<Div, T>(lhs, rhs),
+                })
+            }
+        )
     }
 }
 
-/// Batch execution kernel for logical operations.
 fn arithmetic_kernel<Op, T>(lhs: BatchKernelRef, rhs: BatchKernelRef) -> BatchKernelRef
 where
     T: NativePType,
-    Op: CheckedOperator<T>,
+    Op: Operator<T>,
 {
     kernel(move || {
         let lhs = lhs.execute()?.into_primitive().downcast::<T>();
         let rhs = rhs.execute()?.into_primitive().downcast::<T>();
-        let result = Checked::<Op, _>::checked_op(lhs, &rhs)
-            .ok_or_else(|| vortex_err!("Arithmetic operation resulted in overflow"))?;
+        let result = Arithmetic::<Op, _>::eval(lhs, &rhs);
         Ok(result.into())
     })
 }
@@ -275,11 +302,39 @@ where
 fn arithmetic_scalar_kernel<Op, T>(lhs: BatchKernelRef, rhs: T) -> BatchKernelRef
 where
     T: NativePType + TryFrom<PValue>,
-    Op: CheckedOperator<T>,
+    Op: Operator<T>,
 {
     kernel(move || {
         let lhs = lhs.execute()?.into_primitive().downcast::<T>();
-        let result = Checked::<Op, _>::checked_op(lhs, &rhs)
+        let result = Arithmetic::<Op, _>::eval(lhs, &rhs);
+        Ok(result.into())
+    })
+}
+
+fn checked_arithmetic_kernel<Op, T>(lhs: BatchKernelRef, rhs: BatchKernelRef) -> BatchKernelRef
+where
+    T: NativePType,
+    Op: CheckedOperator<T>,
+    PVector<T>: for<'a> CheckedArithmetic<Op, &'a PVector<T>, Output = PVector<T>>,
+{
+    kernel(move || {
+        let lhs = lhs.execute()?.into_primitive().downcast::<T>();
+        let rhs = rhs.execute()?.into_primitive().downcast::<T>();
+        let result = CheckedArithmetic::<Op, _>::checked_eval(lhs, &rhs)
+            .ok_or_else(|| vortex_err!("Arithmetic operation resulted in overflow"))?;
+        Ok(result.into())
+    })
+}
+
+fn checked_arithmetic_scalar_kernel<Op, T>(lhs: BatchKernelRef, rhs: T) -> BatchKernelRef
+where
+    T: NativePType + TryFrom<PValue>,
+    Op: CheckedOperator<T>,
+    PVector<T>: for<'a> CheckedArithmetic<Op, &'a T, Output = PVector<T>>,
+{
+    kernel(move || {
+        let lhs = lhs.execute()?.into_primitive().downcast::<T>();
+        let result = CheckedArithmetic::<Op, _>::checked_eval(lhs, &rhs)
             .ok_or_else(|| vortex_err!("Arithmetic operation resulted in overflow"))?;
         Ok(result.into())
     })

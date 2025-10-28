@@ -79,7 +79,7 @@ mod tests {
 
         let decoded = casted.to_primitive();
         assert_arrays_eq!(
-            decoded,
+            decoded.as_ref(),
             PrimitiveArray::from_iter([10u32, 20, 30, 40, 50, 60])
         );
     }

@@ -27,7 +27,7 @@ impl OperatorVTable<BoolVTable> for BoolVTable {
             // Note that validity already has the mask applied so we only need to apply it to bits.
             let bits = bits.filter(&mask);
 
-            Ok(BoolVector::new(bits, validity).into())
+            Ok(BoolVector::try_new(bits, validity)?.into())
         }))
     }
 }

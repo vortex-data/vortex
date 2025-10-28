@@ -70,6 +70,11 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     fn reserve(&mut self, additional: usize);
 
     /// Extends the vector by appending elements from another vector.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `other` vector has the wrong type (for example, a
+    /// [`StructVector`](crate::StructVector) might have incorrect fields).
     fn extend_from_vector(&mut self, other: &Self::Immutable);
 
     /// Appends `n` null elements to the vector.

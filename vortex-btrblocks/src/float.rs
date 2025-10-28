@@ -379,7 +379,7 @@ mod tests {
 
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{Buffer, buffer_mut};
 
     use crate::float::{FloatCompressor, RLE_FLOAT_SCHEME};
@@ -426,7 +426,8 @@ mod tests {
         let stats = crate::float::FloatStats::generate(&array);
         let compressed = RLE_FLOAT_SCHEME.compress(&stats, false, 3, &[]).unwrap();
 
-        let decoded = compressed.to_primitive();
-        assert_eq!(decoded.as_slice::<f32>(), values.as_slice());
+        let decoded = compressed;
+        let expected = Buffer::copy_from(&values).into_array();
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 }

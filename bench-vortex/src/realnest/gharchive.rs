@@ -230,6 +230,10 @@ impl Benchmark for GithubArchive {
     fn data_url(&self) -> &Url {
         &self.data_url
     }
+
+    fn expected_row_counts(&self) -> Option<&[usize]> {
+        Some(&[1, 2, 100, 10, 82468])
+    }
 }
 
 pub async fn register_table(

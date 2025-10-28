@@ -9,7 +9,7 @@
 use vortex_error::vortex_panic;
 
 use crate::macros::match_each_vector;
-use crate::{BoolVector, NullVector, PrimitiveVector, VectorMut, VectorOps};
+use crate::{BoolVector, NullVector, PrimitiveVector, StructVector, VectorMut, VectorOps};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.
@@ -41,8 +41,8 @@ pub enum Vector {
     // List(ListVector),
     // FixedList
     // FixedList(FixedListVector),
-    // Struct
-    // Struct(StructVector),
+    /// Vectors of Struct elements.
+    Struct(StructVector),
     // Extension
     // Extension(ExtensionVector),
 }
@@ -69,7 +69,39 @@ impl VectorOps for Vector {
 }
 
 impl Vector {
-    /// Consumes `self` and returns the inner `NullVector` if `self` is of that variant.
+    /// Returns a reference to the inner [`NullVector`] if `self` is of that variant.
+    pub fn as_null(&self) -> &NullVector {
+        if let Vector::Null(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected NullVector, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`BoolVector`] if `self` is of that variant.
+    pub fn as_bool(&self) -> &BoolVector {
+        if let Vector::Bool(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BoolVector, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`PrimitiveVector`] if `self` is of that variant.
+    pub fn as_primitive(&self) -> &PrimitiveVector {
+        if let Vector::Primitive(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVector, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`StructVector`] if `self` is of that variant.
+    pub fn as_struct(&self) -> &StructVector {
+        if let Vector::Struct(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StructVector, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`NullVector`] if `self` is of that variant.
     pub fn into_null(self) -> NullVector {
         if let Vector::Null(v) = self {
             return v;
@@ -77,7 +109,7 @@ impl Vector {
         vortex_panic!("Expected NullVector, got {self:?}");
     }
 
-    /// Consumes `self` and returns the inner `BoolVector` if `self` is of that variant.
+    /// Consumes `self` and returns the inner [`BoolVector`] if `self` is of that variant.
     pub fn into_bool(self) -> BoolVector {
         if let Vector::Bool(v) = self {
             return v;
@@ -85,11 +117,19 @@ impl Vector {
         vortex_panic!("Expected BoolVector, got {self:?}");
     }
 
-    /// Consumes `self` and returns the inner `PrimitiveVector` if `self` is of that variant.
+    /// Consumes `self` and returns the inner [`PrimitiveVector`] if `self` is of that variant.
     pub fn into_primitive(self) -> PrimitiveVector {
         if let Vector::Primitive(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`StructVector`] if `self` is of that variant.
+    pub fn into_struct(self) -> StructVector {
+        if let Vector::Struct(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StructVector, got {self:?}");
     }
 }

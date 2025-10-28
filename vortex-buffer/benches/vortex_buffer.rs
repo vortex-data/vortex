@@ -76,7 +76,7 @@ impl<T: Copy, R> MapEach<T, R> for BufferMut<T> {
     where
         F: FnMut(T) -> R,
     {
-        BufferMut::<T>::map_each(self, f)
+        BufferMut::<T>::map_each_in_place(self, f)
     }
 }
 

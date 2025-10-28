@@ -30,8 +30,7 @@ impl BoolVector {
     ///
     /// Panics if the length of the validity mask does not match the length of the bits.
     pub fn new(bits: BitBuffer, validity: Mask) -> Self {
-        Self::try_new(bits, validity)
-            .vortex_expect("`BoolVector` validity mask must have the same length as bits")
+        Self::try_new(bits, validity).vortex_expect("Failed to create `BoolVector`")
     }
 
     /// Tries to create a new [`BoolVector`] from the given bits and validity mask.
@@ -53,17 +52,15 @@ impl BoolVector {
     /// # Safety
     ///
     /// The caller must ensure that the validity mask has the same length as the bits.
-    pub fn new_unchecked(bits: BitBuffer, validity: Mask) -> Self {
-        debug_assert_eq!(
-            validity.len(),
-            bits.len(),
-            "`BoolVector` validity mask must have the same length as bits"
-        );
-
-        Self { bits, validity }
+    pub unsafe fn new_unchecked(bits: BitBuffer, validity: Mask) -> Self {
+        if cfg!(debug_assertions) {
+            Self::new(bits, validity)
+        } else {
+            Self { bits, validity }
+        }
     }
 
-    /// Decomposes the boolean vector into its constituent parts.
+    /// Decomposes the boolean vector into its constituent parts (bit buffer and validity).
     pub fn into_parts(self) -> (BitBuffer, Mask) {
         (self.bits, self.validity)
     }

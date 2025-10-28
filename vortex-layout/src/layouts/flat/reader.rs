@@ -84,10 +84,10 @@ impl LayoutReader for FlatReader {
     fn register_splits(
         &self,
         _field_mask: &[FieldMask],
-        row_offset: u64,
+        row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        splits.insert(row_offset + self.layout.row_count());
+        splits.insert(row_range.start + self.layout.row_count);
         Ok(())
     }
 
@@ -207,7 +207,7 @@ mod test {
 
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayContext, MaskFuture, ToCanonical};
+    use vortex_array::{ArrayContext, IntoArray, MaskFuture, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{BitBuffer, buffer};
     use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;
@@ -318,10 +318,10 @@ mod test {
                 .projection_evaluation(&(2..4), &root(), MaskFuture::new_true(2))
                 .unwrap()
                 .await
-                .unwrap()
-                .to_primitive();
+                .unwrap();
 
-            assert_eq!(result.as_slice::<i32>(), &[3, 4],);
+            let expected = PrimitiveArray::new(buffer![3i32, 4], Validity::AllValid).into_array();
+            assert_arrays_eq!(result.as_ref(), expected.as_ref());
         })
     }
 }

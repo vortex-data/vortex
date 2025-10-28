@@ -50,8 +50,17 @@ impl ZonedReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
     ) -> VortexResult<Self> {
-        let lazy_children =
-            LazyReaderChildren::new(layout.children.clone(), segment_source.clone());
+        let dtypes = vec![
+            layout.dtype.clone(),
+            ZoneMap::dtype_for_stats_table(layout.dtype(), layout.present_stats()),
+        ];
+        let names = vec![name.clone(), format!("{}.zones", name).into()];
+        let lazy_children = LazyReaderChildren::new(
+            layout.children.clone(),
+            dtypes,
+            names,
+            segment_source.clone(),
+        );
 
         Ok(Self {
             layout,
@@ -65,7 +74,7 @@ impl ZonedReader {
 
     #[inline]
     fn data_child(&self) -> VortexResult<&LayoutReaderRef> {
-        self.lazy_children.get(0, self.layout.dtype(), &self.name)
+        self.lazy_children.get(0)
     }
 
     /// Get or create the pruning predicate for a given expression.
@@ -97,14 +106,7 @@ impl ZonedReader {
 
                 let zones_eval = self
                     .lazy_children
-                    .get(
-                        1,
-                        &ZoneMap::dtype_for_stats_table(
-                            self.layout.dtype(),
-                            self.layout.present_stats(),
-                        ),
-                        &format!("{}.zones", self.name).into(),
-                    )
+                    .get(1)
                     .vortex_expect("failed to get zone child")
                     .projection_evaluation(
                         &(0..nzones as u64),
@@ -192,11 +194,11 @@ impl LayoutReader for ZonedReader {
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_offset: u64,
+        row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
         self.data_child()?
-            .register_splits(field_mask, row_offset, splits)
+            .register_splits(field_mask, row_range, splits)
     }
 
     fn pruning_evaluation(
@@ -351,7 +353,7 @@ mod test {
 
     use rstest::{fixture, rstest};
     use vortex_array::arrays::ChunkedArray;
-    use vortex_array::{ArrayContext, IntoArray, MaskFuture, ToCanonical};
+    use vortex_array::{ArrayContext, IntoArray, MaskFuture, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;
@@ -408,11 +410,11 @@ mod test {
                 )
                 .unwrap()
                 .await
-                .unwrap()
-                .to_primitive();
+                .unwrap();
 
             assert_eq!(result.len(), 9);
-            assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+            let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
+            assert_arrays_eq!(result.as_ref(), expected.as_ref());
         })
     }
 

@@ -45,7 +45,7 @@ pub enum PrimitiveVector {
 }
 
 impl PrimitiveVector {
-    /// Get the [`PType`] of this [`PrimitiveVector`].
+    /// Returns the [`PType`] of this [`PrimitiveVector`].
     pub fn ptype(&self) -> PType {
         match self {
             PrimitiveVector::U8(_) => PType::U8,

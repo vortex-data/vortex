@@ -8,9 +8,12 @@
 
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
+use vortex_mask::MaskMut;
 
 use super::macros::match_each_vector_mut;
-use crate::{BoolVectorMut, NullVectorMut, PrimitiveVectorMut, Vector, VectorMutOps};
+use crate::{
+    BoolVectorMut, NullVectorMut, PrimitiveVectorMut, StructVectorMut, Vector, VectorMutOps,
+};
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
 /// data.
@@ -23,15 +26,17 @@ use crate::{BoolVectorMut, NullVectorMut, PrimitiveVectorMut, Vector, VectorMutO
 /// [`VectorOps`](crate::VectorOps) trait.
 #[derive(Debug, Clone)]
 pub enum VectorMut {
-    /// Null mutable vectors.
+    /// Mutable Null vectors.
     Null(NullVectorMut),
-    /// Boolean mutable vectors.
+    /// Mutable Boolean vectors.
     Bool(BoolVectorMut),
-    /// Primitive mutable vectors.
+    /// Mutable Primitive vectors.
     ///
     /// Note that [`PrimitiveVectorMut`] is an enum over the different possible (generic)
     /// [`PVectorMut<T>`](crate::PVectorMut)s. See the documentation for more information.
     Primitive(PrimitiveVectorMut),
+    /// Mutable vectors of Struct elements.
+    Struct(StructVectorMut),
 }
 
 impl VectorMut {
@@ -42,6 +47,26 @@ impl VectorMut {
             DType::Bool(_) => BoolVectorMut::with_capacity(capacity).into(),
             DType::Primitive(ptype, _) => {
                 PrimitiveVectorMut::with_capacity(*ptype, capacity).into()
+            }
+            DType::Struct(struct_fields, _) => {
+                let fields: Vec<VectorMut> = struct_fields
+                    .fields()
+                    .map(|dtype| Self::with_capacity(capacity, &dtype))
+                    .collect();
+                let validity = MaskMut::with_capacity(capacity);
+
+                #[cfg(debug_assertions)]
+                {
+                    for field in &fields {
+                        debug_assert_eq!(field.len(), 0);
+                    }
+                    debug_assert_eq!(validity.len(), 0);
+                }
+
+                // SAFETY: All fields and validity have length 0, so they all have the same length.
+                Self::Struct(unsafe {
+                    StructVectorMut::new_unchecked(fields.into_boxed_slice(), validity)
+                })
             }
             _ => vortex_panic!("Unsupported dtype for VectorMut"),
         }
@@ -68,6 +93,7 @@ impl VectorMutOps for VectorMut {
             (VectorMut::Null(a), Vector::Null(b)) => a.extend_from_vector(b),
             (VectorMut::Bool(a), Vector::Bool(b)) => a.extend_from_vector(b),
             (VectorMut::Primitive(a), Vector::Primitive(b)) => a.extend_from_vector(b),
+            (VectorMut::Struct(a), Vector::Struct(b)) => a.extend_from_vector(b),
             _ => vortex_panic!("Mismatched vector types"),
         }
     }
@@ -89,13 +115,46 @@ impl VectorMutOps for VectorMut {
             (VectorMut::Null(a), VectorMut::Null(b)) => a.unsplit(b),
             (VectorMut::Bool(a), VectorMut::Bool(b)) => a.unsplit(b),
             (VectorMut::Primitive(a), VectorMut::Primitive(b)) => a.unsplit(b),
+            (VectorMut::Struct(a), VectorMut::Struct(b)) => a.unsplit(b),
             _ => vortex_panic!("Mismatched vector types"),
         }
     }
 }
 
 impl VectorMut {
-    /// Convert into NullVectorMut, panicking if the type does not match.
+    /// Returns a reference to the inner [`NullVectorMut`] if `self` is of that variant.
+    pub fn as_null(&self) -> &NullVectorMut {
+        if let VectorMut::Null(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected NullVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`BoolVectorMut`] if `self` is of that variant.
+    pub fn as_bool(&self) -> &BoolVectorMut {
+        if let VectorMut::Bool(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BoolVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`PrimitiveVectorMut`] if `self` is of that variant.
+    pub fn as_primitive(&self) -> &PrimitiveVectorMut {
+        if let VectorMut::Primitive(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected PrimitiveVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`StructVectorMut`] if `self` is of that variant.
+    pub fn as_struct(&self) -> &StructVectorMut {
+        if let VectorMut::Struct(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StructVectorMut, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`NullVectorMut`] if `self` is of that variant.
     pub fn into_null(self) -> NullVectorMut {
         if let VectorMut::Null(v) = self {
             return v;
@@ -103,7 +162,7 @@ impl VectorMut {
         vortex_panic!("Expected NullVectorMut, got {self:?}");
     }
 
-    /// Convert into BoolVectorMut, panicking if the type does not match.
+    /// Consumes `self` and returns the inner [`BoolVectorMut`] if `self` is of that variant.
     pub fn into_bool(self) -> BoolVectorMut {
         if let VectorMut::Bool(v) = self {
             return v;
@@ -111,12 +170,20 @@ impl VectorMut {
         vortex_panic!("Expected BoolVectorMut, got {self:?}");
     }
 
-    /// Convert into PrimitiveVectorMut, panicking if the type does not match.
+    /// Consumes `self` and returns the inner [`PrimitiveVectorMut`] if `self` is of that variant.
     pub fn into_primitive(self) -> PrimitiveVectorMut {
         if let VectorMut::Primitive(v) = self {
             return v;
         }
         vortex_panic!("Expected PrimitiveVectorMut, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`StructVectorMut`] if `self` is of that variant.
+    pub fn into_struct(self) -> StructVectorMut {
+        if let VectorMut::Struct(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StructVectorMut, got {self:?}");
     }
 }
 

@@ -77,8 +77,7 @@ impl BoolVectorMut {
     ///
     /// Panics if the length of the validity mask does not match the length of the bits.
     pub fn new(bits: BitBufferMut, validity: MaskMut) -> Self {
-        Self::try_new(bits, validity)
-            .vortex_expect("`BoolVector` validity mask must have the same length as bits")
+        Self::try_new(bits, validity).vortex_expect("Failed to create `BoolVectorMut`")
     }
 
     /// Tries to create a new [`BoolVectorMut`] from the given bits and validity mask.
@@ -104,13 +103,11 @@ impl BoolVectorMut {
     /// Ideally, they are taken from `into_parts`, mutated in a way that doesn't re-allocate, and
     /// then passed back to this function.
     pub unsafe fn new_unchecked(bits: BitBufferMut, validity: MaskMut) -> Self {
-        debug_assert_eq!(
-            bits.len(),
-            validity.len(),
-            "`BoolVector` validity mask must have the same length as bits"
-        );
-
-        Self { bits, validity }
+        if cfg!(debug_assertions) {
+            Self::new(bits, validity)
+        } else {
+            Self { bits, validity }
+        }
     }
 
     /// Creates a new mutable boolean vector with the given `capacity`.
@@ -121,7 +118,7 @@ impl BoolVectorMut {
         }
     }
 
-    /// Returns the parts of the mutable vector.
+    /// Decomposes the boolean vector into its constituent parts (bit buffer and validity).
     pub fn into_parts(self) -> (BitBufferMut, MaskMut) {
         (self.bits, self.validity)
     }
@@ -151,7 +148,7 @@ impl VectorMutOps for BoolVectorMut {
     }
 
     fn append_nulls(&mut self, n: usize) {
-        self.bits.append_n(false, n);
+        self.bits.append_n(false, n); // Note that the value we push doesn't actually matter.
         self.validity.append_n(false, n);
     }
 

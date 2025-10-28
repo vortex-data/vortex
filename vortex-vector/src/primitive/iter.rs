@@ -116,6 +116,7 @@ impl<T: NativePType> FromIterator<T> for PVectorMut<T> {
 ///
 /// It consumes the mutable vector and iterates over the elements, yielding `None` for null values
 /// and `Some(value)` for valid values.
+#[derive(Debug)]
 pub struct PVectorMutIterator<T: NativePType> {
     /// The vector being iterated over.
     vector: PVectorMut<T>,
