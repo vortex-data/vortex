@@ -393,7 +393,7 @@ impl<T> BufferMut<T> {
     }
 
     /// Map each element of the buffer with a closure.
-    pub fn map_each<R, F>(self, mut f: F) -> BufferMut<R>
+    pub fn map_each_in_place<R, F>(self, mut f: F) -> BufferMut<R>
     where
         T: Copy,
         F: FnMut(T) -> R,
@@ -785,7 +785,7 @@ mod test {
     fn map_each() {
         let buf = buffer_mut![0i32, 1, 2];
         // Add one, and cast to an unsigned u32 in the same closure
-        let buf = buf.map_each(|i| (i + 1) as u32);
+        let buf = buf.map_each_in_place(|i| (i + 1) as u32);
         assert_eq!(buf.as_slice(), &[1u32, 2, 3]);
     }
 

@@ -4,7 +4,7 @@
 //! Definition and implementation of [`PrimitiveVector`].
 
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PTypeDowncast, PTypeUpcast};
+use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
 
 use super::macros::match_each_pvector;
@@ -42,6 +42,25 @@ pub enum PrimitiveVector {
     F32(PVector<f32>),
     /// F64
     F64(PVector<f64>),
+}
+
+impl PrimitiveVector {
+    /// Returns the [`PType`] of this [`PrimitiveVector`].
+    pub fn ptype(&self) -> PType {
+        match self {
+            PrimitiveVector::U8(_) => PType::U8,
+            PrimitiveVector::U16(_) => PType::U16,
+            PrimitiveVector::U32(_) => PType::U32,
+            PrimitiveVector::U64(_) => PType::U64,
+            PrimitiveVector::I8(_) => PType::I8,
+            PrimitiveVector::I16(_) => PType::I16,
+            PrimitiveVector::I32(_) => PType::I32,
+            PrimitiveVector::I64(_) => PType::I64,
+            PrimitiveVector::F16(_) => PType::F16,
+            PrimitiveVector::F32(_) => PType::F32,
+            PrimitiveVector::F64(_) => PType::F64,
+        }
+    }
 }
 
 impl VectorOps for PrimitiveVector {

@@ -53,7 +53,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> TemporalArray {
     // are constant.
     let mut values: BufferMut<i64> = days_buf
         .into_buffer_mut::<i64>()
-        .map_each(|d| d * 86_400 * divisor);
+        .map_each_in_place(|d| d * 86_400 * divisor);
 
     if let Some(seconds) = array.seconds().as_constant() {
         let seconds = seconds

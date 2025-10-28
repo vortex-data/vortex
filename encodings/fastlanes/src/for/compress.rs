@@ -151,7 +151,9 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
     values: BufferMut<T>,
     min: T,
 ) -> Buffer<T> {
-    values.map_each(move |v| v.wrapping_add(&min)).freeze()
+    values
+        .map_each_in_place(move |v| v.wrapping_add(&min))
+        .freeze()
 }
 
 #[cfg(test)]

@@ -311,7 +311,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     // Shift the left-parts and add in the right-parts.
     let mut index = 0;
     right_parts
-        .map_each(|right| {
+        .map_each_in_place(|right| {
             let left = values[index];
             index += 1;
             let left = <T as ALPRDFloat>::from_u16(left);
