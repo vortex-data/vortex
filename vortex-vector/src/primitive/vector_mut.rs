@@ -45,6 +45,25 @@ pub enum PrimitiveVectorMut {
 }
 
 impl PrimitiveVectorMut {
+    /// Returns the [`PType`] of this [`PrimitiveVectorMut`].
+    pub fn ptype(&self) -> PType {
+        match self {
+            PrimitiveVectorMut::U8(_) => PType::U8,
+            PrimitiveVectorMut::U16(_) => PType::U16,
+            PrimitiveVectorMut::U32(_) => PType::U32,
+            PrimitiveVectorMut::U64(_) => PType::U64,
+            PrimitiveVectorMut::I8(_) => PType::I8,
+            PrimitiveVectorMut::I16(_) => PType::I16,
+            PrimitiveVectorMut::I32(_) => PType::I32,
+            PrimitiveVectorMut::I64(_) => PType::I64,
+            PrimitiveVectorMut::F16(_) => PType::F16,
+            PrimitiveVectorMut::F32(_) => PType::F32,
+            PrimitiveVectorMut::F64(_) => PType::F64,
+        }
+    }
+}
+
+impl PrimitiveVectorMut {
     /// Create a new mutable primitive vector with the given primitive type and capacity.
     pub fn with_capacity(ptype: PType, capacity: usize) -> Self {
         match ptype {

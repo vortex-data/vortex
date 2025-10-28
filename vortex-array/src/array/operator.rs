@@ -3,7 +3,8 @@
 
 use std::sync::Arc;
 
-use vortex_error::VortexResult;
+use vortex_dtype::DType;
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::Vector;
 
 use crate::execution::{BatchKernelRef, BindCtx};
@@ -33,6 +34,21 @@ pub trait ArrayOperator: 'static + Send + Sync {
 
 impl ArrayOperator for Arc<dyn Array> {
     fn execute_with_selection(&self, selection: Option<&ArrayRef>) -> VortexResult<Vector> {
+        if let Some(selection) = selection.as_ref() {
+            if !matches!(selection.dtype(), DType::Bool(_)) {
+                vortex_bail!(
+                    "Selection array must be of boolean type, got {}",
+                    selection.dtype()
+                );
+            }
+            if selection.len() != self.len() {
+                vortex_bail!(
+                    "Selection array length {} does not match array length {}",
+                    selection.len(),
+                    self.len()
+                );
+            }
+        }
         self.as_ref().execute_with_selection(selection)
     }
 

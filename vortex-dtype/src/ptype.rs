@@ -99,6 +99,7 @@ pub trait NativePType:
     + FromPrimitive
     + ToBytes
     + TryFromBytes
+    + private::Sealed
     + 'static
 {
     /// The PType that corresponds to this native type
@@ -149,6 +150,25 @@ pub trait NativePType:
     fn upcast<V: PTypeUpcast>(input: V::Input<Self>) -> V;
 }
 
+mod private {
+    use half::f16;
+
+    /// A private trait to prevent external implementations of `NativePType`.
+    pub trait Sealed {}
+
+    impl Sealed for u8 {}
+    impl Sealed for u16 {}
+    impl Sealed for u32 {}
+    impl Sealed for u64 {}
+    impl Sealed for i8 {}
+    impl Sealed for i16 {}
+    impl Sealed for i32 {}
+    impl Sealed for i64 {}
+    impl Sealed for f16 {}
+    impl Sealed for f32 {}
+    impl Sealed for f64 {}
+}
+
 /// A visitor trait for converting a `NativePType` to another parameterized type.
 #[allow(missing_docs)] // Kind of obvious.
 pub trait PTypeDowncast {
@@ -170,7 +190,7 @@ pub trait PTypeDowncast {
 /// Extension trait to provide generic downcasting for [`PTypeDowncast`].
 pub trait PTypeDowncastExt: PTypeDowncast {
     /// Downcast the object to a specific primitive type.
-    fn into_primitive<T: NativePType>(self) -> Self::Output<T>
+    fn downcast<T: NativePType>(self) -> Self::Output<T>
     where
         Self: Sized,
     {

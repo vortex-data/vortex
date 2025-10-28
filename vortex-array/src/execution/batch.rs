@@ -23,6 +23,7 @@ impl<F: FnOnce() -> VortexResult<Vector> + Send + 'static> BatchKernel for Batch
 }
 
 /// Create a batch execution kernel from the given closure.
+#[inline(always)]
 pub fn kernel<F: FnOnce() -> VortexResult<Vector> + Send + 'static>(f: F) -> BatchKernelRef {
     Box::new(BatchKernelAdapter(f))
 }

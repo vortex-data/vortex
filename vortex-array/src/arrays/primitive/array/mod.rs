@@ -192,7 +192,7 @@ impl PrimitiveArray {
     {
         let validity = self.validity().clone();
         let buffer = match self.try_into_buffer_mut() {
-            Ok(buffer_mut) => buffer_mut.map_each(f),
+            Ok(buffer_mut) => buffer_mut.map_each_in_place(f),
             Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().copied().map(f)),
         };
         PrimitiveArray::new(buffer.freeze(), validity)
