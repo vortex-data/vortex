@@ -210,6 +210,11 @@ impl LayoutReader for StructReader {
         // In the case of an empty struct, we need to register the end split.
         splits.insert(row_range.end);
 
+        // Register splits for the validity child, if there is one
+        if let Some(validity_ref) = self.validity()? {
+            validity_ref.register_splits(field_mask, row_range, splits)?;
+        }
+
         self.layout.matching_fields(field_mask, |mask, idx| {
             self.field_reader_by_index(idx)?
                 .register_splits(&[mask], row_range, splits)
