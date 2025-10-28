@@ -22,6 +22,7 @@ where
         let lhs = self.bits().chunks();
         let rhs = rhs.bits().chunks();
 
+        // Reserve one extra chunk to account for partial padding chunk at the end.
         let mut buffer = BufferMut::<u64>::with_capacity(lhs.chunk_len() + 1);
         buffer.extend(
             lhs.iter_padded()
