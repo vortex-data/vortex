@@ -15,9 +15,9 @@ use crate::{PVector, VectorMutOps, VectorOps};
 /// `T` is expected to be bound by [`NativePType`], which templates an internal [`BufferMut<T>`]
 /// that stores the elements of the vector.
 ///
-/// `PVectorMut<T>` is the primary way to construct primitive vectors. It provides efficient methods
-/// for building vectors incrementally before converting them to an immutable [`PVector<T>`] using
-/// the [`freeze`](crate::VectorMutOps::freeze) method.
+/// [`PVectorMut<T>`] is the primary way to construct primitive vectors. It provides efficient
+/// methods for building vectors incrementally before converting them to an immutable [`PVector<T>`]
+/// using the [`freeze`](crate::VectorMutOps::freeze) method.
 ///
 /// # Examples
 ///
@@ -158,6 +158,11 @@ impl<T> PVectorMut<T> {
             elements: BufferMut::with_capacity(capacity),
             validity: MaskMut::with_capacity(capacity),
         }
+    }
+
+    /// Decomposes the primitive vector into its constituent parts.
+    pub fn into_parts(self) -> (BufferMut<T>, MaskMut) {
+        (self.elements, self.validity)
     }
 }
 

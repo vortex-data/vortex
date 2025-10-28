@@ -4,7 +4,7 @@
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::ArrayRef;
-use crate::execution::{BatchKernel, BindCtx};
+use crate::execution::{BatchKernelRef, BindCtx};
 use crate::operator::OperatorRef;
 use crate::vtable::{NotSupported, VTable};
 
@@ -55,7 +55,7 @@ pub trait OperatorVTable<V: VTable> {
 
     /// Bind the array for execution in batch mode.
     ///
-    /// This function should return a [`BatchKernel`] that can be used to execute the array in
+    /// This function should return a [`BatchKernelRef`] that can be used to execute the array in
     /// batch mode.
     ///
     /// The selection parameter is a non-nullable boolean array that indicates which rows to
@@ -69,7 +69,7 @@ pub trait OperatorVTable<V: VTable> {
         array: &V::Array,
         _selection: Option<&ArrayRef>,
         _ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernel> {
+    ) -> VortexResult<BatchKernelRef> {
         vortex_bail!(
             "Bind is not yet implemented for {} arrays",
             array.encoding_id()
@@ -86,7 +86,7 @@ impl<V: VTable> OperatorVTable<V> for NotSupported {
         array: &V::Array,
         _selection: Option<&ArrayRef>,
         _ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernel> {
+    ) -> VortexResult<BatchKernelRef> {
         vortex_bail!(
             "Pipeline execution not supported for this encoding: {:?}",
             array.encoding_id(),

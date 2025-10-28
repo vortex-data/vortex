@@ -224,4 +224,41 @@ mod tests {
         let frozen = vec1.freeze();
         assert_eq!(frozen.validity().true_count(), 3);
     }
+
+    #[test]
+    fn test_into_iter_roundtrip() {
+        // Test that from_iter followed by into_iter preserves the data.
+        let original_data = vec![
+            Some(true),
+            None,
+            Some(false),
+            Some(true),
+            None,
+            Some(false),
+            None,
+            Some(true),
+        ];
+
+        // Create vector from iterator.
+        let vec = BoolVectorMut::from_iter(original_data.clone());
+
+        // Convert back to iterator and collect.
+        let roundtrip: Vec<_> = vec.into_iter().collect();
+
+        // Should be identical.
+        assert_eq!(roundtrip, original_data);
+
+        // Also test with all valid values.
+        let all_valid = vec![true, false, true, false, true];
+        let vec = BoolVectorMut::from_iter(all_valid.clone());
+        let roundtrip: Vec<_> = vec.into_iter().collect();
+        let expected: Vec<_> = all_valid.into_iter().map(Some).collect();
+        assert_eq!(roundtrip, expected);
+
+        // Test with empty.
+        let empty: Vec<Option<bool>> = vec![];
+        let vec = BoolVectorMut::from_iter(empty.clone());
+        let roundtrip: Vec<_> = vec.into_iter().collect();
+        assert_eq!(roundtrip, empty);
+    }
 }

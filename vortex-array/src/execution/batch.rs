@@ -1,14 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use futures::future::BoxFuture;
 use vortex_error::VortexResult;
 use vortex_vector::Vector;
 
 use crate::ArrayRef;
 
 /// Type-alias for heap-allocated batch execution kernels.
-pub type BatchKernel = BoxFuture<'static, VortexResult<Vector>>;
+pub type BatchKernelRef = Box<dyn BatchKernel>;
+
+/// Trait for batch execution kernels that produce a vector result.
+pub trait BatchKernel: 'static + Send {
+    fn execute(self: Box<Self>) -> VortexResult<Vector>;
+}
+
+/// Adapter to create a batch kernel from a closure.
+pub struct BatchKernelAdapter<F>(F);
+impl<F: FnOnce() -> VortexResult<Vector> + Send + 'static> BatchKernel for BatchKernelAdapter<F> {
+    fn execute(self: Box<Self>) -> VortexResult<Vector> {
+        self.0()
+    }
+}
+
+/// Create a batch execution kernel from the given closure.
+pub fn kernel<F: FnOnce() -> VortexResult<Vector> + Send + 'static>(f: F) -> BatchKernelRef {
+    Box::new(BatchKernelAdapter(f))
+}
 
 /// Context for binding batch execution kernels.
 ///
@@ -17,6 +34,9 @@ pub type BatchKernel = BoxFuture<'static, VortexResult<Vector>>;
 pub trait BindCtx {
     /// Bind the given array and optional selection to produce a batch kernel, possibly reusing
     /// previously bound results from this context.
-    fn bind(&mut self, array: &ArrayRef, selection: Option<&ArrayRef>)
-    -> VortexResult<BatchKernel>;
+    fn bind(
+        &mut self,
+        array: &ArrayRef,
+        selection: Option<&ArrayRef>,
+    ) -> VortexResult<BatchKernelRef>;
 }

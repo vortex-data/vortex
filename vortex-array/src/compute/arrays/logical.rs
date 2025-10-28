@@ -5,7 +5,6 @@ use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
 
 use enum_map::{Enum, EnumMap, enum_map};
-use futures::{FutureExt, try_join};
 use vortex_buffer::ByteBuffer;
 use vortex_compute::logical::{
     LogicalAnd, LogicalAndKleene, LogicalAndNot, LogicalOr, LogicalOrKleene,
@@ -14,7 +13,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_vector::BoolVector;
 
-use crate::execution::{BatchKernel, BindCtx};
+use crate::execution::{BatchKernelRef, BindCtx, kernel};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
@@ -183,37 +182,35 @@ impl OperatorVTable<LogicalVTable> for LogicalVTable {
         array: &LogicalArray,
         selection: Option<&ArrayRef>,
         ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernel> {
+    ) -> VortexResult<BatchKernelRef> {
         let lhs = ctx.bind(&array.lhs, selection)?;
         let rhs = ctx.bind(&array.rhs, selection)?;
 
         Ok(match array.operator() {
-            LogicalOperator::And => kernel(lhs, rhs, |l, r| l.and(&r)),
-            LogicalOperator::AndKleene => kernel(lhs, rhs, |l, r| l.and_kleene(&r)),
-            LogicalOperator::Or => kernel(lhs, rhs, |l, r| l.or(&r)),
-            LogicalOperator::OrKleene => kernel(lhs, rhs, |l, r| l.or_kleene(&r)),
-            LogicalOperator::AndNot => kernel(lhs, rhs, |l, r| l.and_not(&r)),
+            LogicalOperator::And => logical_kernel(lhs, rhs, |l, r| l.and(&r)),
+            LogicalOperator::AndKleene => logical_kernel(lhs, rhs, |l, r| l.and_kleene(&r)),
+            LogicalOperator::Or => logical_kernel(lhs, rhs, |l, r| l.or(&r)),
+            LogicalOperator::OrKleene => logical_kernel(lhs, rhs, |l, r| l.or_kleene(&r)),
+            LogicalOperator::AndNot => logical_kernel(lhs, rhs, |l, r| l.and_not(&r)),
         })
     }
 }
 
 /// Batch execution kernel for logical operations.
-fn kernel<O>(lhs: BatchKernel, rhs: BatchKernel, op: O) -> BatchKernel
+fn logical_kernel<O>(lhs: BatchKernelRef, rhs: BatchKernelRef, op: O) -> BatchKernelRef
 where
     O: Fn(BoolVector, BoolVector) -> BoolVector + Send + 'static,
 {
-    async move {
-        let (lhs, rhs) = try_join!(lhs, rhs)?;
-        let (lhs, rhs) = (lhs.into_bool(), rhs.into_bool());
+    kernel(move || {
+        let lhs = lhs.execute()?.into_bool();
+        let rhs = rhs.execute()?.into_bool();
         Ok(op(lhs, rhs).into())
-    }
-    .boxed()
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_buffer::bitbuffer;
-    use vortex_io::runtime::single::block_on;
 
     use crate::compute::arrays::logical::{LogicalArray, LogicalOperator};
     use crate::{ArrayOperator, ArrayRef, IntoArray};
@@ -224,28 +221,23 @@ mod tests {
 
     #[test]
     fn test_and() {
-        block_on(|_| async {
-            let lhs = bitbuffer![0 1 0].into_array();
-            let rhs = bitbuffer![0 1 1].into_array();
-            let result = and_(lhs, rhs).execute().await.unwrap().into_bool();
-            assert_eq!(result.bits(), &bitbuffer![0 1 0]);
-        })
+        let lhs = bitbuffer![0 1 0].into_array();
+        let rhs = bitbuffer![0 1 1].into_array();
+        let result = and_(lhs, rhs).execute().unwrap().into_bool();
+        assert_eq!(result.bits(), &bitbuffer![0 1 0]);
     }
 
     #[test]
     fn test_and_selected() {
-        block_on(|_| async {
-            let lhs = bitbuffer![0 1 0].into_array();
-            let rhs = bitbuffer![0 1 1].into_array();
+        let lhs = bitbuffer![0 1 0].into_array();
+        let rhs = bitbuffer![0 1 1].into_array();
 
-            let selection = bitbuffer![0 1 1].into_array();
+        let selection = bitbuffer![0 1 1].into_array();
 
-            let result = and_(lhs, rhs)
-                .execute_with_selection(Some(&selection))
-                .await
-                .unwrap()
-                .into_bool();
-            assert_eq!(result.bits(), &bitbuffer![1 0]);
-        })
+        let result = and_(lhs, rhs)
+            .execute_with_selection(Some(&selection))
+            .unwrap()
+            .into_bool();
+        assert_eq!(result.bits(), &bitbuffer![1 0]);
     }
 }

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use futures::future::FutureExt;
 use vortex_compute::filter::Filter;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -27,23 +26,22 @@ impl dyn BindCtx + '_ {
             Some(selection) => {
                 let selection = self.bind_mask(selection)?;
                 match validity {
-                    Validity::NonNullable | Validity::AllValid => Ok(MaskExecution::Future(
-                        async move { Ok(Mask::AllTrue(selection.await?.true_count())) }.boxed(),
-                    )),
-                    Validity::AllInvalid => Ok(MaskExecution::Future(
-                        async move { Ok(Mask::AllFalse(selection.await?.true_count())) }.boxed(),
-                    )),
+                    Validity::NonNullable | Validity::AllValid => {
+                        Ok(MaskExecution::lazy(move || {
+                            Ok(Mask::AllTrue(selection.execute()?.true_count()))
+                        }))
+                    }
+                    Validity::AllInvalid => Ok(MaskExecution::lazy(move || {
+                        Ok(Mask::AllFalse(selection.execute()?.true_count()))
+                    })),
                     Validity::Array(validity) => {
                         let validity = self.bind_mask(validity)?;
-                        Ok(MaskExecution::Future(
-                            async move {
-                                let validity = validity.await?;
-                                let selection = selection.await?;
-                                // We perform a take on the validity mask using the selection mask.
-                                Ok(validity.filter(&selection))
-                            }
-                            .boxed(),
-                        ))
+                        Ok(MaskExecution::lazy(move || {
+                            let validity = validity.execute()?;
+                            let selection = selection.execute()?;
+                            // We perform a take on the validity mask using the selection mask.
+                            Ok(validity.filter(&selection))
+                        }))
                     }
                 }
             }
