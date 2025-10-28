@@ -15,7 +15,7 @@ impl OperatorVTable<MaskedVTable> for MaskedVTable {
         selection: Option<&ArrayRef>,
         ctx: &mut dyn BindCtx,
     ) -> VortexResult<BatchKernelRef> {
-        // A masked array performs the intersection if the mask validity with the child validity.
+        // A masked array performs the intersection of the mask validity with the child validity.
         let mask = ctx.bind_validity(&array.validity, array.len(), selection)?;
         let child = ctx.bind(&array.child, selection)?;
 
