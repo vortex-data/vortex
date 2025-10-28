@@ -31,7 +31,7 @@ pub trait CheckedArithmetic<Op, Rhs = Self> {
     type Output;
 
     /// Perform the operation, returning None on overflow/underflow or division by zero.
-    /// See the [`Op`] marker detailed semantics on the checked behavior.
+    /// See the `Op` marker detailed semantics on the checked behavior.
     fn checked_eval(self, rhs: Rhs) -> Option<Self::Output>;
 }
 
