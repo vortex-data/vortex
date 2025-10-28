@@ -33,6 +33,7 @@
 ///
 /// [`Vector`]: crate::Vector
 /// [`VectorOps`]: crate::VectorOps
+#[macro_export]
 macro_rules! match_each_vector {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
@@ -87,6 +88,7 @@ pub(crate) use match_each_vector;
 ///
 /// [`VectorMut`]: crate::VectorMut
 /// [`VectorMutOps`]: crate::VectorMutOps
+#[macro_export]
 macro_rules! match_each_vector_mut {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {

@@ -15,3 +15,5 @@ pub mod comparison;
 pub mod filter;
 #[cfg(feature = "logical")]
 pub mod logical;
+#[cfg(feature = "mask")]
+pub mod mask;
