@@ -45,6 +45,8 @@ pub(super) fn split_exec<A: 'static + Send>(
         return Ok(ok(None).boxed());
     }
 
+    // println!("row_range: {}", row_range.end - row_range.start);
+
     let filter_mask = match ctx.filter.as_ref() {
         // No filter == immediate mask
         None => {

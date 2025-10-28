@@ -39,6 +39,10 @@ impl SplitBy {
                 // Register all splits in the row range for all layouts that are needed
                 // to read the field mask.
                 layout_reader.register_splits(field_mask, row_range, &mut row_splits)?;
+                // Iterate the splits, show how large they are on average
+                //for (&start, &end) in row_splits.iter().tuples() {
+                //    println!("split size: {}", end - start);
+                //}
                 row_splits
             }
             SplitBy::RowCount(n) => row_range

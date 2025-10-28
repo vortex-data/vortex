@@ -8,7 +8,7 @@ use std::sync::{Arc, OnceLock};
 use futures::future::BoxFuture;
 use futures::{FutureExt, TryFutureExt, try_join};
 use vortex_array::compute::{MinMaxResult, min_max, take};
-use vortex_array::{ArrayRef, MaskFuture};
+use vortex_array::{Array, ArrayRef, IntoArray, MaskFuture};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
@@ -76,6 +76,7 @@ impl DictReader {
                     )
                     .vortex_expect("must construct dict values array evaluation")
                     .map_err(Arc::new)
+                    .map_ok(|arr| arr.to_canonical().into_array())
                     .boxed()
                     .shared()
             })

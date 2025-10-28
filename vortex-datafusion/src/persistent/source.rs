@@ -133,6 +133,7 @@ impl FileSource for VortexSource {
         };
 
         let projection = base_config.file_column_projection_indices().map(Arc::from);
+        // println!("CREATE FILE OPENER: projection {projection:?}");
 
         let opener = VortexOpener {
             object_store,
