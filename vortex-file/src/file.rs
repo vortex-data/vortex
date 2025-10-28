@@ -91,13 +91,15 @@ impl VortexFile {
     }
 
     #[cfg(feature = "gpu")]
-    pub fn gpu_scan(&self) -> VortexResult<vortex_scan::gpu::GpuScanBuilder<ArrayRef>> {
+    pub fn gpu_scan(
+        &self,
+        ctx: Arc<cudarc::driver::CudaContext>,
+    ) -> VortexResult<vortex_scan::gpu::GpuScanBuilder<vortex_gpu::GpuArray>> {
         let segment_source = self.segment_source();
         let gpu_reader = self
             .footer
             .layout()
-            // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_gpu_reader("".into(), segment_source)?;
+            .new_gpu_reader("".into(), segment_source, ctx)?;
 
         Ok(vortex_scan::gpu::GpuScanBuilder::new(gpu_reader))
     }

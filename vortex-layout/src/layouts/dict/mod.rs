@@ -88,6 +88,7 @@ impl VTable for DictVTable {
         _layout: &Self::Layout,
         _name: Arc<str>,
         _segment_source: Arc<dyn SegmentSource>,
+        _ctx: Arc<cudarc::driver::CudaContext>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
         todo!()
     }

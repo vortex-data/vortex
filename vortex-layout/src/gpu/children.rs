@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use cudarc::driver::CudaContext;
 use once_cell::sync::OnceCell;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -32,6 +33,7 @@ impl LazyGpuReaderChildren {
         idx: usize,
         dtype: &DType,
         name: &Arc<str>,
+        ctx: &Arc<CudaContext>,
     ) -> VortexResult<&GpuLayoutReaderRef> {
         if idx >= self.cache.len() {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());
@@ -39,7 +41,7 @@ impl LazyGpuReaderChildren {
 
         self.cache[idx].get_or_try_init(|| {
             let child = self.children.child(idx, dtype)?;
-            child.new_gpu_reader(name.clone(), self.segment_source.clone())
+            child.new_gpu_reader(name.clone(), self.segment_source.clone(), ctx.clone())
         })
     }
 }

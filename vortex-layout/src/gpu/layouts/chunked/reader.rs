@@ -5,11 +5,9 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
+use cudarc::driver::CudaContext;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
-use vortex_array::ArrayRef;
-use vortex_array::arrays::ChunkedArray;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
@@ -23,6 +21,7 @@ use crate::{GpuArrayFuture, GpuLayoutReader, GpuLayoutReaderRef};
 pub struct GpuChunkedLayoutReader {
     layout: ChunkedLayout,
     name: Arc<str>,
+    ctx: Arc<CudaContext>,
     lazy_children: LazyGpuReaderChildren,
     /// Row offset for each chunk
     chunk_offsets: Vec<u64>,
@@ -33,6 +32,7 @@ impl GpuChunkedLayoutReader {
         layout: ChunkedLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        ctx: Arc<CudaContext>,
     ) -> Self {
         let nchildren = layout.nchildren();
 
@@ -47,6 +47,7 @@ impl GpuChunkedLayoutReader {
         Self {
             layout,
             name,
+            ctx,
             lazy_children,
             chunk_offsets,
         }
@@ -58,6 +59,7 @@ impl GpuChunkedLayoutReader {
             idx,
             self.layout.dtype(),
             &format!("{}.[{}]", self.name, idx).into(),
+            &self.ctx,
         )
     }
 
@@ -134,7 +136,6 @@ impl GpuLayoutReader for GpuChunkedLayoutReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<GpuArrayFuture> {
-        let dtype = expr.return_dtype(self.dtype())?;
         let mut chunk_evals = FuturesOrdered::new();
 
         for (chunk_idx, chunk_range) in self.ranges(row_range) {
@@ -144,16 +145,8 @@ impl GpuLayoutReader for GpuChunkedLayoutReader {
         }
 
         Ok(async move {
-            // Split the mask over each chunk.
             let chunks: Vec<_> = chunk_evals.try_collect().await?;
-
-            // If there is only one chunk, we can return it directly.
-            if chunks.len() == 1 {
-                return Ok(chunks.into_iter().next().vortex_expect("one chunk"));
-            }
-
-            // Combine the arrays.
-            Ok(ChunkedArray::try_new(chunks, dtype)?.to_array())
+            Ok(chunks.into_iter().flatten().collect())
         }
         .boxed())
     }

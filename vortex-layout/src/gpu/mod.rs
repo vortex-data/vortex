@@ -18,9 +18,9 @@ use vortex_gpu::GpuArray;
 
 pub type GpuLayoutReaderRef = Arc<dyn GpuLayoutReader>;
 
-pub type GpuArrayFuture = BoxFuture<'static, VortexResult<GpuArray>>;
+pub type GpuArrayFuture = BoxFuture<'static, VortexResult<Vec<GpuArray>>>;
 
-pub type ShareGpuArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<GpuArray>>>;
+pub type ShareGpuArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
 
 /// A [`crate::gpu::GpuLayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
 /// evaluation operations.

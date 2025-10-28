@@ -5,8 +5,9 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
+use cudarc::driver::CudaContext;
+use futures::future::try_join_all;
 use itertools::Itertools;
-use vortex_array::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -15,19 +16,20 @@ use vortex_expr::transform::{
     PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
 };
 use vortex_expr::{ExactExpr, ExprRef, col, root};
+use vortex_gpu::{GpuArray, GpuStructArray};
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::gpu::children::LazyGpuReaderChildren;
-use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
-use crate::{ArrayFuture, GpuArrayFuture, GpuLayoutReader, GpuLayoutReaderRef};
+use crate::{GpuArrayFuture, GpuLayoutReader, GpuLayoutReaderRef};
 
 pub struct GpuStructReader {
     layout: StructLayout,
     name: Arc<str>,
     lazy_children: LazyGpuReaderChildren,
+    ctx: Arc<CudaContext>,
 
     /// A `pack` expression that holds each individual field of the root DType. This expansion
     /// ensures we can correctly partition expressions over the fields of the struct.
@@ -42,6 +44,7 @@ impl GpuStructReader {
         layout: StructLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        ctx: Arc<CudaContext>,
     ) -> VortexResult<Self> {
         let struct_dt = layout.struct_fields();
 
@@ -68,6 +71,7 @@ impl GpuStructReader {
             name,
             expanded_root_expr,
             lazy_children,
+            ctx,
             field_lookup,
             partitioned_expr_cache: Default::default(),
         })
@@ -96,8 +100,12 @@ impl GpuStructReader {
             .field_by_index(idx)
             .ok_or_else(|| vortex_err!("Missing field {idx}"))?;
         let name = &self.struct_fields().names()[idx];
-        self.lazy_children
-            .get(idx, &field_dtype, &format!("{}.{}", self.name, name).into())
+        self.lazy_children.get(
+            idx,
+            &field_dtype,
+            &format!("{}.{}", self.name, name).into(),
+            &self.ctx,
+        )
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
@@ -200,11 +208,30 @@ impl GpuLayoutReader for GpuStructReader {
             Partitioned::Single(name, partition) => self
                 .child(name)?
                 .projection_evaluation(row_range, partition),
-            Partitioned::Multi(partitioned) => partitioned
-                .clone()
-                .into_array_future(MaskFuture::new_true(len), |name, expr, _mask| {
-                    self.child(name)?.projection_evaluation(row_range, expr)
-                }),
+            Partitioned::Multi(partitioned) => {
+                let partitioned = partitioned.clone();
+                // Construct evaluations for each child.
+                let field_evals: Vec<_> = partitioned
+                    .partition_annotations
+                    .iter()
+                    .zip_eq(partitioned.partitions.iter())
+                    .map(|(annotation, expr)| {
+                        self.child(annotation)?
+                            .projection_evaluation(row_range, expr)
+                    })
+                    .try_collect()?;
+
+                Ok(Box::pin(async move {
+                    // TODO(ngates): ideally we'd spawn these so the CPU can be utilized more effectively.
+                    let field_arrays = try_join_all(field_evals).await?;
+
+                    Ok(vec![GpuArray::Struct(GpuStructArray::new(
+                        partitioned.partition_names.clone(),
+                        field_arrays.into(),
+                        len,
+                    ))])
+                }))
+            }
         }
     }
 }

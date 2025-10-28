@@ -6,19 +6,17 @@ use std::time::Duration;
 
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::driver::{
-    CudaContext, CudaFunction, CudaSlice, CudaStream, CudaViewMut, DeviceRepr, LaunchConfig,
-    PushKernelArg,
+    CudaContext, CudaFunction, CudaSlice, CudaStream, DeviceRepr, LaunchConfig, PushKernelArg,
 };
 use cudarc::nvrtc::Ptx;
-use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::validity::Validity;
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::{BitPackedVTable, FoRArray};
 
 use crate::task::GPUTask;
+use crate::{GpuArray, GpuPrimitiveArray};
 
 struct FoRBPTask<P> {
     stream: Arc<CudaStream>,
@@ -81,10 +79,9 @@ fn cuda_for_bp_kernel(_ptype: PType, ctx: &Arc<CudaContext>) -> VortexResult<Cud
         .load_module(Ptx::from_file("kernels/fused_bitpack_for.ptx"))
         .map_err(|e| vortex_err!("Failed to load kernel module: {e}"))?;
 
-    let kernel_func = module
+    module
         .load_function("fused_bitpack6_for_u32")
-        .map_err(|e| vortex_err!("Failed to load function: {e}"))?;
-    Ok(kernel_func)
+        .map_err(|e| vortex_err!("Failed to load function: {e}"))
 }
 
 impl<P: NativePType + DeviceRepr> GPUTask for FoRBPTask<P> {
@@ -99,29 +96,11 @@ impl<P: NativePType + DeviceRepr> GPUTask for FoRBPTask<P> {
         Ok(())
     }
 
-    fn export_result(&mut self) -> VortexResult<Canonical> {
-        let len = self.len();
-        let mut buffer = BufferMut::<P>::with_capacity(len);
-
-        unsafe { buffer.set_len(len) }
-        self.stream
-            .memcpy_dtoh(&self.unpacked, &mut buffer)
-            .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
-        self.stream
-            .synchronize()
-            .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
-        Ok(Canonical::Primitive(PrimitiveArray::new(
-            buffer,
-            Validity::NonNullable,
+    fn result(&mut self) -> VortexResult<GpuArray> {
+        Ok(GpuArray::Primitive(GpuPrimitiveArray::from_slice_with_len(
+            self.unpacked.clone(),
+            self.len,
         )))
-    }
-
-    fn output(&mut self) -> CudaViewMut<'_, u8> {
-        todo!()
-    }
-
-    fn len(&self) -> usize {
-        self.len
     }
 }
 
@@ -149,8 +128,8 @@ pub fn cuda_for_bp_unpack_timed(
             .vortex_expect("Failed to get elapsed time")
             / 1000.0,
     );
-    task.export_result()
-        .map(|c| c.into_primitive())
+    task.result()
+        .and_then(|c| c.into_primitive().into_host_array())
         .map(|x| (x, time))
 }
 
@@ -158,7 +137,8 @@ pub fn cuda_for_bp_unpack(array: &FoRArray, ctx: Arc<CudaContext>) -> VortexResu
     let stream = ctx.default_stream();
     let mut task = new_task(array, ctx, stream)?;
     task.launch_task()?;
-    task.export_result().map(|c| c.into_primitive())
+    task.result()
+        .and_then(|c| c.into_primitive().into_host_array())
 }
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]

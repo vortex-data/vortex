@@ -84,11 +84,13 @@ impl VTable for FlatVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        ctx: Arc<cudarc::driver::CudaContext>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
         Ok(Arc::new(crate::gpu::layouts::flat::GpuFlatReader::new(
             layout.clone(),
             name,
             segment_source,
+            ctx,
         )))
     }
 

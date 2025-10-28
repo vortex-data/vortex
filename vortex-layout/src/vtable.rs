@@ -61,6 +61,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        ctx: Arc<cudarc::driver::CudaContext>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef>;
 
     /// Construct a new [`Layout`] from the provided parts.

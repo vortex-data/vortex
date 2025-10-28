@@ -12,16 +12,14 @@ use cudarc::driver::{
     CudaContext, CudaFunction, CudaSlice, CudaStream, DeviceRepr, LaunchConfig, PushKernelArg,
 };
 use cudarc::nvrtc::Ptx;
-use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::validity::Validity;
-use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{NativePType, PType, match_each_unsigned_integer_ptype};
+use vortex_buffer::Buffer;
+use vortex_dtype::{PType, UnsignedPType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::BitPackedArray;
 
 use crate::task::GPUTask;
-use crate::{ErasedCudaSlice, GpuArray};
+use crate::{GpuArray, GpuPrimitiveArray};
 
 #[derive(Hash, PartialEq, Eq, Debug)]
 struct UnpackKernelId {
@@ -73,7 +71,8 @@ pub fn cuda_bit_unpack(
     let stream = ctx.default_stream();
     let mut task = new_task(array, ctx, stream)?;
     task.launch_task()?;
-    task.export_result().map(|c| c.into_primitive())
+    task.result()
+        .and_then(|c| c.into_primitive().into_host_array())
 }
 
 /// Returns the time (in nanoseconds) to execute just the GPU kernel, excluding memory transfers.
@@ -115,12 +114,32 @@ pub fn cuda_bit_unpack_timed(
 
 struct BitPackingTask<P> {
     packed: CudaSlice<P>,
-    unpacked: CudaSlice<P>,
+    unpacked: Option<CudaSlice<P>>,
     func: CudaFunction,
     launch_config: LaunchConfig,
     stream: Arc<CudaStream>,
     len: usize,
     ptype: PType,
+}
+
+impl<P: UnsignedPType + DeviceRepr> BitPackingTask<P> {
+    fn alloc_out(&mut self) -> VortexResult<()> {
+        if self.unpacked.is_some() {
+            return Ok(());
+        }
+
+        let cu_out = unsafe {
+            self.stream
+                .alloc::<P>(self.len.next_multiple_of(1024))
+                .map_err(|e| vortex_err!("Failed to allocate stream: {e}"))?
+        };
+        let old_value = self.unpacked.replace(cu_out);
+        assert!(
+            old_value.is_none(),
+            "Allocated output when previous one wasn't yet consumed"
+        );
+        Ok(())
+    }
 }
 
 pub fn new_task(
@@ -141,15 +160,14 @@ pub fn new_task(
     let kernel_func = cuda_bit_unpack_kernel(
         UnpackKernelId::new(
             array.bit_width(),
-            u8::try_from(array.dtype().as_ptype().bit_width())
-                .vortex_expect("bit width must fit in u8"),
+            u8::try_from(array.ptype().bit_width()).vortex_expect("bit width must fit in u8"),
         ),
         ctx,
     )?;
     let num_chunks =
         u32::try_from(array.len().div_ceil(1024)).vortex_expect("Too many grid elements");
 
-    match_each_unsigned_integer_ptype!(array.dtype().as_ptype().to_unsigned(), |P| {
+    match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |P| {
         let values = Buffer::<P>::from_byte_buffer(array.packed().clone());
         // TODO(robert): You likely want to register (cuMemHostRegister) and unregister here
         let cu_slice = stream
@@ -169,7 +187,7 @@ pub fn new_task(
 
         Ok(Box::new(BitPackingTask {
             packed: cu_slice,
-            unpacked: cu_out,
+            unpacked: Some(cu_out),
             func: kernel_func,
             launch_config,
             stream,
@@ -179,37 +197,23 @@ pub fn new_task(
     })
 }
 
-impl<P: NativePType + DeviceRepr> GPUTask for BitPackingTask<P> {
+impl<P: UnsignedPType + DeviceRepr> GPUTask for BitPackingTask<P> {
     fn launch_task(&mut self) -> VortexResult<()> {
+        self.alloc_out()?;
         let mut launch = self.stream.launch_builder(&self.func);
+        let output = self.unpacked.as_mut().vortex_expect("Must have output");
         launch.arg(&self.packed);
-        launch.arg(&self.unpacked);
+        launch.arg(output);
         unsafe { launch.launch(self.launch_config) }
             .map_err(|e| vortex_err!("Failed to launch: {e}"))
             .map(|_| ())
     }
 
-    fn export_result(&mut self) -> VortexResult<GpuArray> {
-        let mut buffer = BufferMut::<P>::with_capacity(self.len());
-
-        unsafe { buffer.set_len(self.len()) }
-        self.stream
-            .memcpy_dtoh(&self.unpacked, &mut buffer)
-            .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
-        self.stream
-            .synchronize()
-            .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
-        Ok(Canonical::Primitive(
-            PrimitiveArray::new(buffer, Validity::NonNullable).reinterpret_cast(self.ptype),
-        ))
-    }
-
-    fn output(&mut self) -> ErasedCudaSlice {
-        ErasedCudaSlice::new(self.unpacked)
-    }
-
-    fn len(&self) -> usize {
-        self.len
+    fn result(&mut self) -> VortexResult<GpuArray> {
+        Ok(GpuArray::Primitive(GpuPrimitiveArray::from_casted_array(
+            self.unpacked.take().vortex_expect("Must have output"),
+            self.ptype,
+        )))
     }
 }
 

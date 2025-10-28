@@ -4,8 +4,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use futures::Stream;
-use futures::future::BoxFuture;
+use futures::{Stream, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
@@ -13,17 +12,18 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
+use vortex_gpu::GpuArray;
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_layout::GpuLayoutReaderRef;
 
-use crate::gpu::gputask::{GpuTaskContext, gpu_split_exec};
+use crate::gpu::gputask::{GpuTaskContext, TaskFuture, gpu_split_exec};
 
 pub struct GpuScan<A: 'static + Send> {
     handle: Handle,
     layout_reader: GpuLayoutReaderRef,
     projection: ExprRef,
     splits: BTreeSet<u64>,
-    map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    map_fn: Arc<dyn Fn(Vec<GpuArray>) -> VortexResult<Vec<A>> + Send + Sync>,
     /// The dtype of the projected arrays.
     dtype: DType,
 }
@@ -52,7 +52,7 @@ impl<A: 'static + Send> GpuScan<A> {
         layout_reader: GpuLayoutReaderRef,
         projection: ExprRef,
         splits: BTreeSet<u64>,
-        map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+        map_fn: Arc<dyn Fn(Vec<GpuArray>) -> VortexResult<Vec<A>> + Send + Sync>,
         dtype: DType,
     ) -> Self {
         Self {
@@ -65,7 +65,7 @@ impl<A: 'static + Send> GpuScan<A> {
         }
     }
 
-    pub fn execute(&self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    pub fn execute(&self) -> VortexResult<Vec<TaskFuture<Option<Vec<A>>>>> {
         let ctx = Arc::new(GpuTaskContext {
             reader: self.layout_reader.clone(),
             projection: self.projection.clone(),
@@ -98,6 +98,9 @@ impl<A: 'static + Send> GpuScan<A> {
 
         let stream = stream.buffered(concurrency).boxed();
 
-        Ok(stream.filter_map(|chunk| async move { chunk.transpose() }))
+        Ok(stream
+            .filter_map(|chunk| async move { chunk.transpose() })
+            .map(|v| v.map(|a| futures::stream::iter(a.into_iter().map(Ok))))
+            .try_flatten())
     }
 }

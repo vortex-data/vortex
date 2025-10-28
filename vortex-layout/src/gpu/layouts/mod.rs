@@ -3,5 +3,4 @@
 
 pub mod chunked;
 pub mod flat;
-mod gpu_segments;
 pub mod struct_;

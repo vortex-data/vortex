@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod bit_unpack;
-mod buffer;
 pub mod for_;
 mod for_bp;
 mod gpu_array;
@@ -13,7 +12,6 @@ mod take;
 mod task;
 
 pub use bit_unpack::{cuda_bit_unpack, cuda_bit_unpack_timed};
-pub use buffer::*;
 pub use for_::{cuda_for_unpack, cuda_for_unpack_timed};
 pub use for_bp::{cuda_for_bp_unpack, cuda_for_bp_unpack_timed};
 pub use gpu_array::*;

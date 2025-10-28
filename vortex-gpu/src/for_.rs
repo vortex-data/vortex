@@ -15,7 +15,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::{BitPackedVTable, FoRArray};
 
 use crate::task::GPUTask;
-use crate::{ErasedCudaSlice, GpuArray, GpuPrimitiveArray, bit_unpack};
+use crate::{GpuArray, bit_unpack};
 
 struct ForTask<P> {
     stream: Arc<CudaStream>,
@@ -70,7 +70,8 @@ impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {
     fn launch_task(&mut self) -> VortexResult<()> {
         self.bp_task.launch_task()?;
         let mut launch = self.stream.launch_builder(&self.func);
-        let mut view = self.bp_task.output().as_slice::<P>();
+        let mut result_array = self.bp_task.result()?.into_primitive();
+        let mut view = result_array.as_mut_slice::<P>();
         launch.arg(&mut view);
         launch.arg(&self.reference);
         unsafe { launch.launch(self.launch_config) }
@@ -78,18 +79,8 @@ impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {
             .map(|_| ())
     }
 
-    fn export_result(&mut self) -> VortexResult<GpuArray> {
-        Ok(GpuArray::Primitive(GpuPrimitiveArray {
-            values: self.bp_task.output(),
-        }))
-    }
-
-    fn output(&mut self) -> ErasedCudaSlice {
-        self.bp_task.output()
-    }
-
-    fn len(&self) -> usize {
-        self.bp_task.len()
+    fn result(&mut self) -> VortexResult<GpuArray> {
+        self.bp_task.result()
     }
 }
 
@@ -117,8 +108,8 @@ pub fn cuda_for_unpack_timed(
             .vortex_expect("Failed to get elapsed time")
             / 1000.0,
     );
-    task.export_result()
-        .map(|c| c.into_primitive())
+    task.result()
+        .and_then(|c| c.into_primitive().into_host_array())
         .map(|x| (x, time))
 }
 
@@ -126,7 +117,8 @@ pub fn cuda_for_unpack(array: &FoRArray, ctx: Arc<CudaContext>) -> VortexResult<
     let stream = ctx.default_stream();
     let mut task = new_task(array, ctx, stream)?;
     task.launch_task()?;
-    task.export_result().map(|c| c.into_primitive())
+    task.result()
+        .and_then(|c| c.into_primitive().into_host_array())
 }
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]

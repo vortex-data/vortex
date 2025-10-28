@@ -5,22 +5,35 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
-use cudarc::driver::{CudaContext, CudaStream, LaunchArgs, LaunchConfig, PushKernelArg};
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, Canonical, IntoArray};
-use vortex_buffer::BufferMut;
+use cudarc::driver::{CudaContext, CudaEvent, CudaStream, LaunchArgs, LaunchConfig, PushKernelArg};
+use vortex_array::ArrayRef;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::jit::convert::new_jit_array;
 use crate::jit::kernel_fmt::create_kernel;
 use crate::jit::{GPUPipelineJIT, GPUVisitor};
+use crate::{GpuArray, GpuPrimitiveArray};
+
+pub struct RuntimeEvents {
+    start: CudaEvent,
+    end: CudaEvent,
+}
+
+impl RuntimeEvents {
+    pub fn elapsed(&self) -> VortexResult<Duration> {
+        let duration = self
+            .start
+            .elapsed_ms(&self.end)
+            .map_err(|e| vortex_err!("failed to get elapsed time {e}"))?;
+        Ok(Duration::from_secs_f32(duration / 1000.0))
+    }
+}
 
 pub fn create_run_jit_kernel(
-    ctx: Arc<CudaContext>,
+    ctx: &Arc<CudaContext>,
     array: &ArrayRef,
-) -> VortexResult<(ArrayRef, Duration)> {
+) -> VortexResult<(GpuArray, RuntimeEvents)> {
     let stream = ctx.default_stream();
 
     let kernel_output_arr_name = "s_output";
@@ -46,44 +59,29 @@ pub fn create_run_jit_kernel(
 
     match_each_native_ptype!(array.dtype().as_ptype(), |P| {
         // append final argument (output) of the kernel
-        let mut out = stream
-            .alloc_zeros::<P>(array.len())
-            .map_err(|e| vortex_err!("failed to alloc zeros {e}"))?;
+        let mut out = unsafe {
+            stream
+                .alloc::<P>(array.len())
+                .map_err(|e| vortex_err!("failed to alloc zeros {e}"))?
+        };
         launch_builder.arg(&mut out);
-        stream
-            .synchronize()
-            .map_err(|e| vortex_err!("failed to sync {e}"))?;
         let start = stream
             .record_event(Some(CU_EVENT_DEFAULT))
             .ok()
             .vortex_expect("Failed to record event");
-        let _ = unsafe { launch_builder.launch(launch_config) };
-        ctx.synchronize()
-            .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
+        let _ = unsafe {
+            launch_builder
+                .launch(launch_config)
+                .map_err(|e| vortex_err!("failed to launch kernel {e}"))?
+        };
         let end = stream
             .record_event(Some(CU_EVENT_DEFAULT))
             .ok()
             .vortex_expect("Failed to record event");
 
-        let duration = start
-            .elapsed_ms(&end)
-            .map_err(|e| vortex_err!("failed to get elapsed time {e}"))?;
+        let c = GpuArray::Primitive(GpuPrimitiveArray::from_slice_with_len(out, array.len()));
 
-        let mut buffer = BufferMut::<P>::with_capacity(array.len());
-        unsafe { buffer.set_len(array.len()) }
-
-        stream
-            .memcpy_dtoh(&out, &mut buffer)
-            .map_err(|e| vortex_err!("Failed to copy to device: {e}"))
-            .vortex_unwrap();
-        stream
-            .synchronize()
-            .map_err(|e| vortex_err!("Failed to synchronize: {e}"))
-            .vortex_unwrap();
-        let c =
-            Canonical::Primitive(PrimitiveArray::new(buffer, Validity::NonNullable)).into_array();
-
-        Ok((c, Duration::from_secs_f32(duration / 1000.0)))
+        Ok((c, RuntimeEvents { start, end }))
     })
 }
 

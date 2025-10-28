@@ -109,12 +109,14 @@ impl VTable for StructVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        ctx: Arc<cudarc::driver::CudaContext>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
         Ok(Arc::new(
             crate::gpu::layouts::struct_::GpuStructReader::try_new(
                 layout.clone(),
                 name,
                 segment_source,
+                ctx,
             )?,
         ))
     }

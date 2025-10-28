@@ -45,6 +45,7 @@ vortex-expr = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-fsst = { workspace = true }
+vortex-gpu = { workspace = true, optional = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-metrics = { workspace = true }
@@ -77,4 +78,4 @@ tokio = [
     "vortex-scan/tokio",
 ]
 zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]
-gpu = ["dep:cudarc", "vortex-layout/gpu", "vortex-scan/gpu"]
+gpu = ["dep:cudarc", "dep:vortex-gpu", "vortex-gpu/cuda", "vortex-layout/gpu", "vortex-scan/gpu"]

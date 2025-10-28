@@ -5,16 +5,15 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
+use cudarc::driver::CudaContext;
 use futures::FutureExt;
-use futures::future::BoxFuture;
-use vortex_array::ArrayRef;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, is_root};
+use vortex_expr::ExprRef;
+use vortex_gpu::create_run_jit_kernel;
 
-use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
 use crate::{GpuArrayFuture, GpuLayoutReader, ShareGpuArrayFuture};
@@ -23,6 +22,7 @@ pub struct GpuFlatReader {
     layout: FlatLayout,
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
+    context: Arc<CudaContext>,
 }
 
 impl GpuFlatReader {
@@ -30,11 +30,13 @@ impl GpuFlatReader {
         layout: FlatLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        context: Arc<CudaContext>,
     ) -> Self {
         Self {
             layout,
             name,
             segment_source,
+            context,
         }
     }
 
@@ -51,7 +53,9 @@ impl GpuFlatReader {
         let dtype = self.layout.dtype().clone();
         async move {
             let segment = segment_fut.await?;
-            ArrayParts::try_from(segment)?.decode(&ctx, &dtype, row_count)?
+            ArrayParts::try_from(segment)?
+                .decode(&ctx, &dtype, row_count)
+                .map_err(Arc::new)
         }
         .boxed()
         .shared()
@@ -94,11 +98,14 @@ impl GpuLayoutReader for GpuFlatReader {
         let name = self.name.clone();
         let array = self.array_future();
         let expr = expr.clone();
+        let ctx = self.context.clone();
 
         Ok(async move {
             log::debug!("Flat array evaluation {} - {}", name, expr);
 
-            array.clone().await
+            let array = array.clone().await?;
+            let (gpu_result, _) = create_run_jit_kernel(&ctx, &array)?;
+            Ok(vec![gpu_result])
         }
         .boxed())
     }

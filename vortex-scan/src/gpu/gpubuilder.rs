@@ -5,28 +5,26 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use futures::Stream;
-use futures::future::BoxFuture;
-use vortex_array::ArrayRef;
-use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{ExprRef, root};
+use vortex_gpu::GpuArray;
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_layout::gpu::GpuLayoutReaderRef;
 
 use crate::gpu::GpuScan;
+use crate::gpu::gputask::TaskFuture;
 use crate::scan_builder::filter_and_projection_masks;
 
 pub struct GpuScanBuilder<A> {
     handle: Option<Handle>,
     layout_reader: GpuLayoutReaderRef,
     projection: ExprRef,
-    map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    map_fn: Arc<dyn Fn(Vec<GpuArray>) -> VortexResult<Vec<A>> + Send + Sync>,
 }
 
-impl GpuScanBuilder<ArrayRef> {
+impl GpuScanBuilder<GpuArray> {
     pub fn new(layout_reader: GpuLayoutReaderRef) -> Self {
         Self {
             handle: Handle::find(),
@@ -39,23 +37,19 @@ impl GpuScanBuilder<ArrayRef> {
     /// Returns an [`ArrayStream`] with tasks spawned onto the scan's [`Handle`].
     ///
     /// See [`ScanBuilder::into_stream`] for more details.
-    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + Send + 'static> {
-        let dtype = self.dtype()?;
-        let stream = self.into_stream()?;
-        Ok(ArrayStreamAdapter::new(dtype, stream))
+    pub fn into_array_stream(
+        self,
+    ) -> VortexResult<impl Stream<Item = VortexResult<GpuArray>> + Send + 'static> {
+        self.into_stream()
     }
 
     /// Returns an [`ArrayIterator`] using the given blocking runtime.
     pub fn into_array_iter<B: BlockingRuntime>(
         self,
         runtime: &B,
-    ) -> VortexResult<impl ArrayIterator + 'static> {
+    ) -> VortexResult<impl Iterator<Item = VortexResult<GpuArray>> + 'static> {
         let stream = self.with_handle(runtime.handle()).into_array_stream()?;
-        let dtype = stream.dtype().clone();
-        Ok(ArrayIteratorAdapter::new(
-            dtype,
-            runtime.block_on_stream(|_| stream),
-        ))
+        Ok(runtime.block_on_stream(|_| stream))
     }
 }
 
@@ -79,7 +73,7 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
     /// Map each split of the scan. The function will be run on the spawned task.
     pub fn map<B: 'static>(
         self,
-        map_fn: impl Fn(A) -> VortexResult<B> + 'static + Send + Sync,
+        map_fn: impl Fn(Vec<A>) -> VortexResult<Vec<B>> + 'static + Send + Sync,
     ) -> GpuScanBuilder<B> {
         let old_map_fn = self.map_fn;
         GpuScanBuilder {
@@ -127,7 +121,7 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    pub fn build(self) -> VortexResult<Vec<TaskFuture<Option<Vec<A>>>>> {
         self.prepare()?.execute()
     }
 

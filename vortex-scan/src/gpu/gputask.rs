@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
+use vortex_gpu::GpuArray;
 use vortex_layout::GpuLayoutReader;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
@@ -16,7 +16,7 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 pub(super) fn gpu_split_exec<A: 'static + Send>(
     ctx: Arc<GpuTaskContext<A>>,
     split: Range<u64>,
-) -> VortexResult<TaskFuture<Option<A>>> {
+) -> VortexResult<TaskFuture<Option<Vec<A>>>> {
     let projection_future = ctx.reader.projection_evaluation(&split, &ctx.projection)?;
 
     let mapper = ctx.mapper.clone();
@@ -35,5 +35,5 @@ pub(super) struct GpuTaskContext<A> {
     /// The projection expression to apply to gather the scanned rows.
     pub(super) projection: ExprRef,
     /// Function that maps into an A.
-    pub(super) mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    pub(super) mapper: Arc<dyn Fn(Vec<GpuArray>) -> VortexResult<Vec<A>> + Send + Sync>,
 }
