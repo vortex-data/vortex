@@ -28,12 +28,7 @@ vortex-vector = { workspace = true }
 num-traits = { workspace = true }
 
 [features]
-default = [
-    "arithmetic",
-    "comparison",
-    "filter",
-    "logical",
-]
+default = ["arithmetic", "comparison", "filter", "logical"]
 
 arithmetic = []
 comparison = []

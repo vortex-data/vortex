@@ -10,8 +10,6 @@ mod collection;
 mod pvector;
 
 /// Trait for comparison operations.
-///
-/// It may be easier to use the specific traits like [`CompareLessThan`], [`CompareGreaterThan`], etc.
 pub trait Compare<Op, Rhs = Self> {
     /// The result type after performing the operation.
     type Output;
