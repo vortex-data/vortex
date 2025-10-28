@@ -64,7 +64,9 @@ impl VectorMut {
                 }
 
                 // SAFETY: All fields and validity have length 0, so they all have the same length.
-                Self::Struct(unsafe { StructVectorMut::new_unchecked(fields, validity) })
+                Self::Struct(unsafe {
+                    StructVectorMut::new_unchecked(fields.into_boxed_slice(), validity)
+                })
             }
             _ => vortex_panic!("Unsupported dtype for VectorMut"),
         }

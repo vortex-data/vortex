@@ -173,7 +173,7 @@ impl VectorOps for StructVector {
         }
 
         Ok(StructVectorMut {
-            fields: mutable_fields,
+            fields: mutable_fields.into_boxed_slice(),
             len: self.len,
             validity,
         })
