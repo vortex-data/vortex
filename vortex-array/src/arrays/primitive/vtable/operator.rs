@@ -30,7 +30,7 @@ impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
                 // the elements.
                 let elements = elements.filter(&mask);
 
-                Ok(PVector::new(elements, validity).into())
+                Ok(PVector::try_new(elements, validity)?.into())
             }))
         })
     }

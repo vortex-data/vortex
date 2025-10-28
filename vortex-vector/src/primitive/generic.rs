@@ -34,8 +34,7 @@ impl<T: NativePType> PVector<T> {
     ///
     /// Panics if the length of the validity mask does not match the length of the elements buffer.
     pub fn new(elements: Buffer<T>, validity: Mask) -> Self {
-        Self::try_new(elements, validity)
-            .vortex_expect("`PVector` validity mask must have the same length as elements")
+        Self::try_new(elements, validity).vortex_expect("Failed to create `PVector`")
     }
 
     /// Tries to create a new [`PVector<T>`] from the given elements buffer and validity mask.
@@ -59,14 +58,12 @@ impl<T: NativePType> PVector<T> {
     /// # Safety
     ///
     /// The caller must ensure that the validity mask has the same length as the elements buffer.
-    pub fn new_unchecked(elements: Buffer<T>, validity: Mask) -> Self {
-        debug_assert_eq!(
-            validity.len(),
-            elements.len(),
-            "`PVector` validity mask must have the same length as elements"
-        );
-
-        Self { elements, validity }
+    pub unsafe fn new_unchecked(elements: Buffer<T>, validity: Mask) -> Self {
+        if cfg!(debug_assertions) {
+            Self::new(elements, validity)
+        } else {
+            Self { elements, validity }
+        }
     }
 
     /// Decomposes the primitive vector into its constituent parts (buffer and validity).

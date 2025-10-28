@@ -18,12 +18,14 @@ use crate::{StructVector, Vector, VectorMut, VectorMutOps, VectorOps};
 /// ## Creating a [`StructVector`] and [`StructVectorMut`]
 ///
 /// ```
-/// use vortex_vector::{StructVectorMut, VectorMut, BoolVectorMut, PVectorMut, NullVector};
+/// use vortex_vector::{
+///     BoolVectorMut, NullVectorMut, PVectorMut, StructVectorMut, VectorMut, VectorMutOps,
+/// };
 /// use vortex_mask::MaskMut;
 ///
 /// // Create a struct with three fields: nulls, booleans, and integers.
 /// let fields = vec![
-///     NullVector::new(3).try_into_mut().unwrap().into(),
+///     NullVectorMut::new(3).into(),
 ///     BoolVectorMut::from_iter([true, false, true]).into(),
 ///     PVectorMut::<i32>::from_iter([10, 20, 30]).into(),
 /// ];
@@ -38,11 +40,13 @@ use crate::{StructVector, Vector, VectorMut, VectorMutOps, VectorOps};
 /// [`unsplit()`]: VectorMutOps::unsplit
 ///
 /// ```
-/// use vortex_vector::{StructVectorMut, VectorMut, BoolVectorMut, PVectorMut, NullVector};
+/// use vortex_vector::{
+///     BoolVectorMut, NullVectorMut, PVectorMut, StructVectorMut, VectorMut, VectorMutOps,
+/// };
 /// use vortex_mask::MaskMut;
 ///
 /// let fields = vec![
-///     NullVector::new(6).try_into_mut().unwrap().into(),
+///     NullVectorMut::new(6).into(),
 ///     PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6]).into(),
 /// ];
 ///
@@ -62,12 +66,14 @@ use crate::{StructVector, Vector, VectorMut, VectorMutOps, VectorOps};
 /// ## Accessing field values
 ///
 /// ```
-/// use vortex_vector::{StructVectorMut, VectorMut, BoolVectorMut, PVectorMut, NullVector};
+/// use vortex_vector::{
+///     BoolVectorMut, NullVectorMut, PVectorMut, StructVectorMut, VectorMut, VectorMutOps,
+/// };
 /// use vortex_mask::MaskMut;
 /// use vortex_dtype::PTypeDowncast;
 ///
 /// let fields = vec![
-///     NullVector::new(3).try_into_mut().unwrap().into(),
+///     NullVectorMut::new(3).into(),
 ///     BoolVectorMut::from_iter([true, false, true]).into(),
 ///     PVectorMut::<i32>::from_iter([10, 20, 30]).into(),
 /// ];
@@ -75,13 +81,13 @@ use crate::{StructVector, Vector, VectorMut, VectorMutOps, VectorOps};
 /// let struct_vec = StructVectorMut::new(fields, MaskMut::new_true(3));
 ///
 /// // Access the boolean field vector (field index 1).
-/// if let VectorMut::Bool(bool_vec) = struct_vec.fields[1].clone() {
+/// if let VectorMut::Bool(bool_vec) = struct_vec.fields()[1].clone() {
 ///     let values: Vec<_> = bool_vec.into_iter().map(|v| v.unwrap()).collect();
 ///     assert_eq!(values, vec![true, false, true]);
 /// }
 ///
 /// // Access the integer field column (field index 2).
-/// if let VectorMut::Primitive(prim_vec) = struct_vec.fields[2].clone() {
+/// if let VectorMut::Primitive(prim_vec) = struct_vec.fields()[2].clone() {
 ///     let values: Vec<_> = prim_vec.into_i32().into_iter().map(|v| v.unwrap()).collect();
 ///     assert_eq!(values, vec![10, 20, 30]);
 /// }
@@ -114,9 +120,7 @@ impl StructVectorMut {
     /// - Any field vector has a length that does not match the length of other fields.
     /// - The validity mask length does not match the field length.
     pub fn new(fields: Vec<VectorMut>, validity: MaskMut) -> Self {
-        Self::try_new(fields, validity).vortex_expect(
-            "`StructVectorMut` fields must have matching length and validity constraints",
-        )
+        Self::try_new(fields, validity).vortex_expect("Failed to create `StructVectorMut`")
     }
 
     /// Tries to create a new [`StructVectorMut`] with the given fields and validity mask.
@@ -134,7 +138,24 @@ impl StructVectorMut {
             fields[0].len()
         };
 
-        Self::validate(&fields, len, &validity)?;
+        // Validate that the validity mask has the correct length.
+        vortex_ensure!(
+            validity.len() == len,
+            "Validity mask length ({}) does not match expected length ({})",
+            validity.len(),
+            len
+        );
+
+        // Validate that all fields have the correct length.
+        for (i, field) in fields.iter().enumerate() {
+            vortex_ensure!(
+                field.len() == len,
+                "Field {} has length {} but expected length {}",
+                i,
+                field.len(),
+                len
+            );
+        }
 
         Ok(Self {
             fields,
@@ -159,47 +180,15 @@ impl StructVectorMut {
             fields[0].len()
         };
 
-        debug_assert!(
-            Self::validate(&fields, len, &validity).is_ok(),
-            "`StructVectorMut` fields must have matching length and validity constraints"
-        );
-
-        Self {
-            fields,
-            validity,
-            len,
+        if cfg!(debug_assertions) {
+            Self::new(fields, validity)
+        } else {
+            Self {
+                fields,
+                validity,
+                len,
+            }
         }
-    }
-
-    /// Validates the fields and validity mask for a [`StructVectorMut`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// - Any field vector has a length that does not match `len`.
-    /// - The validity mask length does not match `len`.
-    fn validate(fields: &[VectorMut], len: usize, validity: &MaskMut) -> VortexResult<()> {
-        // Validate that the validity mask has the correct length.
-        vortex_ensure!(
-            validity.len() == len,
-            "Validity mask length ({}) does not match expected length ({})",
-            validity.len(),
-            len
-        );
-
-        // Validate that all fields have the correct length.
-        for (i, field) in fields.iter().enumerate() {
-            vortex_ensure!(
-                field.len() == len,
-                "Field {} has length {} but expected length {}",
-                i,
-                field.len(),
-                len
-            );
-        }
-
-        Ok(())
     }
 
     /// Decomposes the struct vector into its constituent parts (fields, validity, and length).
@@ -208,8 +197,8 @@ impl StructVectorMut {
     }
 
     /// Returns the fields of the `StructVectorMut`, each stored column-wise as a [`VectorMut`].
-    pub fn fields(&mut self) -> &[VectorMut] {
-        self.fields.as_mut_slice()
+    pub fn fields(&self) -> &[VectorMut] {
+        self.fields.as_slice()
     }
 
     /// Finds the minimum capacity of all field vectors.
@@ -218,17 +207,14 @@ impl StructVectorMut {
     /// least one of the child field vectors.
     ///
     /// If there are no fields, this returns the length of the vector.
+    ///
+    /// Note that this takes time in `O(f)`, where `f` is the number of fields.
     pub fn minimum_capacity(&self) -> usize {
-        if self.fields.is_empty() {
-            return self.len;
-        }
-
-        let mut minimum_capacity = usize::MAX;
-        for field in &self.fields {
-            minimum_capacity = minimum_capacity.min(field.capacity());
-        }
-
-        minimum_capacity
+        self.fields
+            .iter()
+            .map(|field| field.capacity())
+            .min()
+            .unwrap_or(self.len)
     }
 }
 
@@ -239,13 +225,8 @@ impl VectorMutOps for StructVectorMut {
         self.len
     }
 
-    /// Note that this returns the length of the [`StructVectorMut`].
-    ///
-    /// If you want the actual capacity of the struct vector, use the [`minimum_capacity()`] method.
-    ///
-    /// [`minimum_capacity()`]: Self::minimum_capacity
     fn capacity(&self) -> usize {
-        self.len
+        self.minimum_capacity()
     }
 
     fn reserve(&mut self, additional: usize) {
@@ -267,7 +248,7 @@ impl VectorMutOps for StructVectorMut {
         assert_eq!(
             self.fields.len(),
             other.fields().len(),
-            "Cannot extend StructVectorMut: field count mismatch ({} vs {})",
+            "Cannot extend StructVectorMut: field count mismatch (self had {} but other had {})",
             self.fields.len(),
             other.fields().len()
         );
@@ -377,7 +358,7 @@ mod tests {
     use vortex_mask::{Mask, MaskMut};
 
     use super::*;
-    use crate::{BoolVectorMut, NullVector, PVectorMut, VectorMut};
+    use crate::{BoolVectorMut, NullVector, NullVectorMut, PVectorMut, VectorMut};
 
     #[test]
     fn test_empty_fields() {
@@ -592,5 +573,104 @@ mod tests {
         outer.unsplit(second);
         assert_eq!(outer.len(), 4);
         assert!(matches!(outer.fields[0], VectorMut::Struct(_)));
+    }
+
+    #[test]
+    fn test_reserve() {
+        // Test that reserve increases capacity for all fields correctly.
+        let mut struct_vec = StructVectorMut::try_new(
+            vec![
+                NullVectorMut::new(3).into(),
+                BoolVectorMut::from_iter([true, false, true]).into(),
+                PVectorMut::<i32>::from_iter([10, 20, 30]).into(),
+            ],
+            MaskMut::new_true(3),
+        )
+        .unwrap();
+
+        let initial_capacity = struct_vec.capacity();
+        assert_eq!(struct_vec.len(), 3);
+
+        // Reserve additional capacity.
+        struct_vec.reserve(50);
+
+        // Capacity should now be at least len + 50.
+        assert!(struct_vec.capacity() >= 3 + 50);
+        assert!(struct_vec.capacity() >= initial_capacity + 50);
+
+        // Verify minimum_capacity returns the smallest field capacity.
+        let min_cap = struct_vec.minimum_capacity();
+        for field in struct_vec.fields() {
+            assert!(field.capacity() >= min_cap);
+        }
+
+        // Test reserve on an empty struct.
+        let mut empty_struct = StructVectorMut::try_new(
+            vec![
+                NullVectorMut::new(0).into(),
+                BoolVectorMut::with_capacity(0).into(),
+            ],
+            MaskMut::new_true(0),
+        )
+        .unwrap();
+
+        empty_struct.reserve(100);
+        assert!(empty_struct.capacity() >= 100);
+    }
+
+    #[test]
+    fn test_freeze_and_new_unchecked() {
+        // Test new_unchecked creates a valid struct, and freeze preserves data correctly.
+        let fields = vec![
+            NullVectorMut::new(4).into(),
+            BoolVectorMut::from_iter([Some(true), None, Some(false), Some(true)]).into(),
+            PVectorMut::<i32>::from_iter([Some(100), Some(200), None, Some(400)]).into(),
+        ];
+
+        let validity = Mask::from_iter([true, false, true, true])
+            .try_into_mut()
+            .unwrap();
+
+        // Use new_unchecked to create the struct.
+        // SAFETY: All fields have length 4 and validity has length 4.
+        let struct_vec = unsafe { StructVectorMut::new_unchecked(fields, validity) };
+
+        assert_eq!(struct_vec.len(), 4);
+        assert_eq!(struct_vec.fields().len(), 3);
+
+        // Freeze the struct and verify data preservation.
+        let frozen = struct_vec.freeze();
+
+        assert_eq!(frozen.len(), 4);
+        assert_eq!(frozen.fields().len(), 3);
+
+        // Verify validity is preserved (only indices 0, 2, 3 are valid at the struct level).
+        assert_eq!(frozen.validity().true_count(), 3);
+
+        // Verify that `try_into_mut` fails when data isn't owned.
+        {
+            let cloned_vector = frozen.fields()[1].clone();
+            cloned_vector.try_into_mut().unwrap_err();
+        }
+
+        // Verify field data is preserved.
+        let mut fields = frozen.into_parts().0.into_vec();
+
+        if let Vector::Primitive(prim_vec) = fields.pop().unwrap() {
+            let prim_vec_mut = prim_vec.try_into_mut().unwrap();
+            let values: Vec<_> = prim_vec_mut.into_i32().into_iter().collect();
+            assert_eq!(values, vec![Some(100), Some(200), None, Some(400)]);
+        } else {
+            panic!("Expected primitive vector");
+        }
+
+        if let Vector::Bool(bool_vec) = fields.pop().unwrap() {
+            let bool_vec_mut = bool_vec.try_into_mut().unwrap();
+            let values: Vec<_> = bool_vec_mut.into_iter().collect();
+            // Note: struct-level validity doesn't affect field-level data, only the interpretation.
+            assert_eq!(values, vec![Some(true), None, Some(false), Some(true)]);
+        } else {
+            panic!("Expected bool vector");
+        }
     }
 }

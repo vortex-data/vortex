@@ -8,7 +8,7 @@ use vortex_mask::Mask;
 
 use crate::{StructVectorMut, Vector, VectorMutOps, VectorOps};
 
-/// An immutable vector of boolean values.
+/// An immutable vector of struct values.
 ///
 /// `StructVector` can be considered a borrowed / frozen version of [`StructVectorMut`], which is
 /// created via the [`freeze`](crate::VectorMutOps::freeze) method.
@@ -39,9 +39,7 @@ impl StructVector {
     /// - Any field vector has a length that does not match the length of other fields.
     /// - The validity mask length does not match the field length.
     pub fn new(fields: Box<[Vector]>, validity: Mask) -> Self {
-        Self::try_new(fields, validity).vortex_expect(
-            "`StructVector` fields must have matching length and validity constraints",
-        )
+        Self::try_new(fields, validity).vortex_expect("Failed to create `StructVector`")
     }
 
     /// Tries to create a new [`StructVector`] from the given fields and validity mask.
@@ -59,7 +57,24 @@ impl StructVector {
             fields[0].len()
         };
 
-        Self::validate(&fields, len, &validity)?;
+        // Validate that the validity mask has the correct length.
+        vortex_ensure!(
+            validity.len() == len,
+            "Validity mask length ({}) does not match expected length ({})",
+            validity.len(),
+            len
+        );
+
+        // Validate that all fields have the correct length.
+        for (i, field) in fields.iter().enumerate() {
+            vortex_ensure!(
+                field.len() == len,
+                "Field {} has length {} but expected length {}",
+                i,
+                field.len(),
+                len
+            );
+        }
 
         Ok(Self {
             fields,
@@ -83,47 +98,15 @@ impl StructVector {
             fields[0].len()
         };
 
-        debug_assert!(
-            Self::validate(&fields, len, &validity).is_ok(),
-            "`StructVector` fields must have matching length and validity constraints"
-        );
-
-        Self {
-            fields,
-            validity,
-            len,
+        if cfg!(debug_assertions) {
+            Self::new(fields, validity)
+        } else {
+            Self {
+                fields,
+                validity,
+                len,
+            }
         }
-    }
-
-    /// Validates the fields and validity mask for a [`StructVector`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// - Any field vector has a length that does not match the length of other fields.
-    /// - The validity mask length does not match the field length.
-    fn validate(fields: &[Vector], len: usize, validity: &Mask) -> VortexResult<()> {
-        // Validate that the validity mask has the correct length.
-        vortex_ensure!(
-            validity.len() == len,
-            "Validity mask length ({}) does not match expected length ({})",
-            validity.len(),
-            len
-        );
-
-        // Validate that all fields have the correct length.
-        for (i, field) in fields.iter().enumerate() {
-            vortex_ensure!(
-                field.len() == len,
-                "Field {} has length {} but expected length {}",
-                i,
-                field.len(),
-                len
-            );
-        }
-
-        Ok(())
     }
 
     /// Decomposes the struct vector into its constituent parts (fields, validity, and length).
@@ -172,7 +155,6 @@ impl VectorOps for StructVector {
                 Err(immutable_field) => {
                     // We were unable to take ownership, so we must re-freeze all of the fields
                     // vectors we took ownership over and reconstruct the original `StructVector`.
-
                     let mut all_fields: Vec<Vector> = mutable_fields
                         .into_iter()
                         .map(|mut_field| mut_field.freeze())

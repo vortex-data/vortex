@@ -114,8 +114,7 @@ impl<T> PVectorMut<T> {
     ///
     /// Panics if the length of the validity mask does not match the length of the elements buffer.
     pub fn new(elements: BufferMut<T>, validity: MaskMut) -> Self {
-        Self::try_new(elements, validity)
-            .vortex_expect("`PVectorMut` validity mask must have the same length as elements")
+        Self::try_new(elements, validity).vortex_expect("Failed to create `PVectorMut`")
     }
 
     /// Tries to create a new [`PVectorMut<T>`] from the given elements buffer and validity mask.
@@ -143,13 +142,11 @@ impl<T> PVectorMut<T> {
     /// Ideally, they are taken from `into_parts`, mutated in a way that doesn't re-allocate, and
     /// then passed back to this function.
     pub unsafe fn new_unchecked(elements: BufferMut<T>, validity: MaskMut) -> Self {
-        debug_assert_eq!(
-            elements.len(),
-            validity.len(),
-            "`PVectorMut` validity mask must have the same length as elements"
-        );
-
-        Self { elements, validity }
+        if cfg!(debug_assertions) {
+            Self::new(elements, validity)
+        } else {
+            Self { elements, validity }
+        }
     }
 
     /// Create a new mutable primitive vector with the given capacity.

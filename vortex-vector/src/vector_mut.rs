@@ -8,6 +8,7 @@
 
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
+use vortex_mask::MaskMut;
 
 use super::macros::match_each_vector_mut;
 use crate::{
@@ -47,6 +48,24 @@ impl VectorMut {
             DType::Primitive(ptype, _) => {
                 PrimitiveVectorMut::with_capacity(*ptype, capacity).into()
             }
+            DType::Struct(struct_fields, _) => {
+                let fields: Vec<VectorMut> = struct_fields
+                    .fields()
+                    .map(|dtype| Self::with_capacity(capacity, &dtype))
+                    .collect();
+                let validity = MaskMut::with_capacity(capacity);
+
+                #[cfg(debug_assertions)]
+                {
+                    for field in &fields {
+                        debug_assert_eq!(field.len(), 0);
+                    }
+                    debug_assert_eq!(validity.len(), 0);
+                }
+
+                // SAFETY: All fields and validity have length 0, so they all have the same length.
+                Self::Struct(unsafe { StructVectorMut::new_unchecked(fields, validity) })
+            }
             _ => vortex_panic!("Unsupported dtype for VectorMut"),
         }
     }
@@ -72,6 +91,7 @@ impl VectorMutOps for VectorMut {
             (VectorMut::Null(a), Vector::Null(b)) => a.extend_from_vector(b),
             (VectorMut::Bool(a), Vector::Bool(b)) => a.extend_from_vector(b),
             (VectorMut::Primitive(a), Vector::Primitive(b)) => a.extend_from_vector(b),
+            (VectorMut::Struct(a), Vector::Struct(b)) => a.extend_from_vector(b),
             _ => vortex_panic!("Mismatched vector types"),
         }
     }
@@ -93,6 +113,7 @@ impl VectorMutOps for VectorMut {
             (VectorMut::Null(a), VectorMut::Null(b)) => a.unsplit(b),
             (VectorMut::Bool(a), VectorMut::Bool(b)) => a.unsplit(b),
             (VectorMut::Primitive(a), VectorMut::Primitive(b)) => a.unsplit(b),
+            (VectorMut::Struct(a), VectorMut::Struct(b)) => a.unsplit(b),
             _ => vortex_panic!("Mismatched vector types"),
         }
     }
