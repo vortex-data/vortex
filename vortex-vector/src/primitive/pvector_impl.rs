@@ -174,9 +174,9 @@ mod tests {
 
         // Also test PVector methods.
         let frozen = vec.freeze();
-        assert_eq!(frozen.get(0), Some(1));
+        assert_eq!(frozen.get(0), Some(&1));
         assert_eq!(frozen.get(1), None);
-        assert_eq!(frozen.get(2), Some(3));
+        assert_eq!(frozen.get(2), Some(&3));
     }
 
     #[test]
@@ -327,9 +327,9 @@ mod tests {
         assert_eq!(vec.len(), 6);
         let frozen = vec.freeze();
         assert_eq!(frozen.validity().true_count(), 4);
-        assert_eq!(frozen.get(0), Some(1));
+        assert_eq!(frozen.get(0), Some(&1));
         assert_eq!(frozen.get(2), None);
-        assert_eq!(frozen.get(3), Some(99));
+        assert_eq!(frozen.get(3), Some(&99));
         assert_eq!(frozen.get(5), None);
     }
 
