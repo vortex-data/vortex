@@ -66,19 +66,7 @@ impl StructVector {
     /// - Any field vector has a length that does not match the length of other fields.
     /// - The validity mask length does not match the field length.
     pub fn try_new(fields: Arc<Box<[Vector]>>, validity: Mask) -> VortexResult<Self> {
-        let len = if fields.is_empty() {
-            validity.len()
-        } else {
-            fields[0].len()
-        };
-
-        // Validate that the validity mask has the correct length.
-        vortex_ensure!(
-            validity.len() == len,
-            "Validity mask length ({}) does not match expected length ({})",
-            validity.len(),
-            len
-        );
+        let len = validity.len();
 
         // Validate that all fields have the correct length.
         for (i, field) in fields.iter().enumerate() {
@@ -110,11 +98,7 @@ impl StructVector {
     /// - All field vectors have the same length.
     /// - The validity mask has a length equal to the field length.
     pub unsafe fn new_unchecked(fields: Arc<Box<[Vector]>>, validity: Mask) -> Self {
-        let len = if fields.is_empty() {
-            validity.len()
-        } else {
-            fields[0].len()
-        };
+        let len = validity.len();
 
         if cfg!(debug_assertions) {
             Self::new(fields, validity)

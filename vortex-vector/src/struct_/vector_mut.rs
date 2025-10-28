@@ -131,19 +131,7 @@ impl StructVectorMut {
     /// - Any field vector has a length that does not match the length of other fields.
     /// - The validity mask length does not match the field length.
     pub fn try_new(fields: Box<[VectorMut]>, validity: MaskMut) -> VortexResult<Self> {
-        let len = if fields.is_empty() {
-            validity.len()
-        } else {
-            fields[0].len()
-        };
-
-        // Validate that the validity mask has the correct length.
-        vortex_ensure!(
-            validity.len() == len,
-            "Validity mask length ({}) does not match expected length ({})",
-            validity.len(),
-            len
-        );
+        let len = validity.len();
 
         // Validate that all fields have the correct length.
         for (i, field) in fields.iter().enumerate() {
@@ -173,11 +161,7 @@ impl StructVectorMut {
     /// - All field vectors have the same length.
     /// - The validity mask has a length equal to the field length.
     pub unsafe fn new_unchecked(fields: Box<[VectorMut]>, validity: MaskMut) -> Self {
-        let len = if fields.is_empty() {
-            validity.len()
-        } else {
-            fields[0].len()
-        };
+        let len = validity.len();
 
         if cfg!(debug_assertions) {
             Self::new(fields, validity)
@@ -268,17 +252,19 @@ impl VectorMutOps for StructVectorMut {
 
         // Extend the validity mask.
         self.validity.append_mask(other.validity());
-
         self.len += other.len();
+
+        debug_assert_eq!(self.len, self.validity.len());
     }
 
     fn append_nulls(&mut self, n: usize) {
         for field in &mut self.fields {
             field.append_nulls(n); // Note that the value we push to each doesn't actually matter.
         }
-        self.validity.append_n(false, n);
 
+        self.validity.append_n(false, n);
         self.len += n;
+        debug_assert_eq!(self.len, self.validity.len());
     }
 
     fn freeze(self) -> Self::Immutable {
@@ -346,14 +332,14 @@ impl VectorMutOps for StructVectorMut {
         }
 
         self.validity.unsplit(other.validity);
-
         self.len += other.len;
+        debug_assert_eq!(self.len, self.validity.len());
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::PTypeDowncast;
+    use vortex_dtype::{DType, FieldNames, Nullability, PType, PTypeDowncast, StructFields};
     use vortex_mask::{Mask, MaskMut};
 
     use super::*;
@@ -667,6 +653,52 @@ mod tests {
             assert_eq!(values, vec![Some(true), None, Some(false), Some(true)]);
         } else {
             panic!("Expected bool vector");
+        }
+    }
+
+    #[test]
+    fn test_with_capacity_struct() {
+        // Create a struct dtype with multiple field types.
+        let struct_dtype = DType::Struct(
+            StructFields::new(
+                FieldNames::from(["null_field", "bool_field", "int_field"]),
+                vec![
+                    DType::Null,
+                    DType::Bool(Nullability::NonNullable),
+                    DType::Primitive(PType::I32, Nullability::Nullable),
+                ],
+            ),
+            Nullability::Nullable,
+        );
+
+        // Create a VectorMut with capacity using the struct dtype.
+        let vector_mut = VectorMut::with_capacity(100, &struct_dtype);
+
+        // Verify it's a struct vector.
+        match vector_mut {
+            VectorMut::Struct(mut struct_vec) => {
+                // Check initial state.
+                assert_eq!(struct_vec.len(), 0);
+                assert_eq!(struct_vec.fields.len(), 3);
+
+                // Verify each field has the correct type.
+                assert!(matches!(struct_vec.fields[0], VectorMut::Null(_)));
+                assert!(matches!(struct_vec.fields[1], VectorMut::Bool(_)));
+                assert!(matches!(struct_vec.fields[2], VectorMut::Primitive(_)));
+
+                // Check that capacity was reserved (minimum should be at least 100).
+                assert!(struct_vec.capacity() >= 100);
+
+                // Verify we can actually use the reserved capacity by pushing values.
+                for _ in 0..50 {
+                    struct_vec.append_nulls(1);
+                }
+                assert_eq!(struct_vec.len(), 50);
+
+                // Should not need reallocation since we reserved capacity.
+                assert!(struct_vec.capacity() >= 100);
+            }
+            _ => panic!("Expected VectorMut::Struct"),
         }
     }
 }
