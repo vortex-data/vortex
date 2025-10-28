@@ -111,10 +111,10 @@ impl LayoutReader for DictReader {
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_offset: u64,
+        row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        self.codes.register_splits(field_mask, row_offset, splits)
+        self.codes.register_splits(field_mask, row_range, splits)
     }
 
     fn pruning_evaluation(

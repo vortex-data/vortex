@@ -24,10 +24,10 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 ///
 /// # Task execution flow
 ///
-/// First, the tasks's row range (split) is intersected with the global file row-range requested,
+/// First, the task's row range (split) is intersected with the global file row-range requested,
 /// if any.
 ///
-/// Then intersected row range is then further reduced via expression-based pruning. After pruning
+/// The intersected row range is then further reduced via expression-based pruning. After pruning
 /// has eliminated more blocks, the full filter is executed over the remainder of the split.
 ///
 /// This mask is then provided to the reader to perform a filtered projection over the split data,
@@ -46,7 +46,7 @@ pub(super) fn split_exec<A: 'static + Send>(
     }
 
     let filter_mask = match ctx.filter.as_ref() {
-        // No filter == immediate task
+        // No filter == immediate mask
         None => {
             let row_mask = match limit {
                 Some(l) if *l == 0 => Mask::new_false(row_mask.len()),

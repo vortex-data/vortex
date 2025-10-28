@@ -84,10 +84,10 @@ impl LayoutReader for FlatReader {
     fn register_splits(
         &self,
         _field_mask: &[FieldMask],
-        row_offset: u64,
+        row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        splits.insert(row_offset + self.layout.row_count());
+        splits.insert(row_range.start + self.layout.row_count);
         Ok(())
     }
 
