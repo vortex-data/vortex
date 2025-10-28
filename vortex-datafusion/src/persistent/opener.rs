@@ -251,7 +251,6 @@ impl FileOpener for VortexOpener {
                     FieldName::from(field.name().as_str())
                 })
                 .collect::<Vec<_>>();
-            // println!("FIELDS: {fields:?}");
             let projection_expr = select(fields, root());
 
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
