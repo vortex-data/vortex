@@ -3,6 +3,8 @@
 
 //! Definition and implementation of [`StructVectorMut`].
 
+use std::sync::Arc;
+
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_mask::MaskMut;
 
@@ -24,11 +26,11 @@ use crate::{StructVector, Vector, VectorMut, VectorMutOps, VectorOps};
 /// use vortex_mask::MaskMut;
 ///
 /// // Create a struct with three fields: nulls, booleans, and integers.
-/// let fields = vec![
+/// let fields = Box::new([
 ///     NullVectorMut::new(3).into(),
 ///     BoolVectorMut::from_iter([true, false, true]).into(),
 ///     PVectorMut::<i32>::from_iter([10, 20, 30]).into(),
-/// ];
+/// ]);
 ///
 /// let mut struct_vec = StructVectorMut::new(fields, MaskMut::new_true(3));
 /// assert_eq!(struct_vec.len(), 3);
@@ -45,10 +47,10 @@ use crate::{StructVector, Vector, VectorMut, VectorMutOps, VectorOps};
 /// };
 /// use vortex_mask::MaskMut;
 ///
-/// let fields = vec![
+/// let fields = Box::new([
 ///     NullVectorMut::new(6).into(),
 ///     PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6]).into(),
-/// ];
+/// ]);
 ///
 /// let mut struct_vec = StructVectorMut::new(fields, MaskMut::new_true(6));
 ///
@@ -72,11 +74,11 @@ use crate::{StructVector, Vector, VectorMut, VectorMutOps, VectorOps};
 /// use vortex_mask::MaskMut;
 /// use vortex_dtype::PTypeDowncast;
 ///
-/// let fields = vec![
+/// let fields = Box::new([
 ///     NullVectorMut::new(3).into(),
 ///     BoolVectorMut::from_iter([true, false, true]).into(),
 ///     PVectorMut::<i32>::from_iter([10, 20, 30]).into(),
-/// ];
+/// ]);
 ///
 /// let struct_vec = StructVectorMut::new(fields, MaskMut::new_true(3));
 ///
@@ -287,7 +289,7 @@ impl VectorMutOps for StructVectorMut {
             .collect();
 
         StructVector {
-            fields: frozen_fields.into_boxed_slice(),
+            fields: Arc::new(frozen_fields.into_boxed_slice()),
             len: self.len,
             validity: self.validity.freeze(),
         }
@@ -368,7 +370,7 @@ mod tests {
     #[test]
     fn test_try_into_mut_and_values() {
         let struct_vec = StructVector {
-            fields: vec![
+            fields: Arc::new(Box::new([
                 NullVector::new(5).into(),
                 BoolVectorMut::from_iter([true, false, true, false, true])
                     .freeze()
@@ -376,8 +378,7 @@ mod tests {
                 PVectorMut::<i32>::from_iter([10, 20, 30, 40, 50])
                     .freeze()
                     .into(),
-            ]
-            .into_boxed_slice(),
+            ])),
             len: 5,
             validity: Mask::AllTrue(5),
         };
@@ -410,12 +411,11 @@ mod tests {
         let bool_field_clone = bool_field.clone();
 
         let struct_vec = StructVector {
-            fields: vec![
+            fields: Arc::new(Box::new([
                 NullVector::new(3).into(),
                 bool_field_clone,
                 PVectorMut::<i32>::from_iter([1, 2, 3]).freeze().into(),
-            ]
-            .into_boxed_slice(),
+            ])),
             len: 3,
             validity: Mask::AllTrue(3),
         };
@@ -479,12 +479,11 @@ mod tests {
 
         // Test extend.
         let to_extend = StructVector {
-            fields: vec![
+            fields: Arc::new(Box::new([
                 NullVector::new(2).into(),
                 BoolVectorMut::from_iter([false, true]).freeze().into(),
                 PVectorMut::<i32>::from_iter([40, 50]).freeze().into(),
-            ]
-            .into_boxed_slice(),
+            ])),
             len: 2,
             validity: Mask::AllTrue(2),
         };
@@ -651,7 +650,7 @@ mod tests {
         }
 
         // Verify field data is preserved.
-        let mut fields = frozen.into_parts().0.into_vec();
+        let mut fields = Arc::try_unwrap(frozen.into_parts().0).unwrap().into_vec();
 
         if let Vector::Primitive(prim_vec) = fields.pop().unwrap() {
             let prim_vec_mut = prim_vec.try_into_mut().unwrap();

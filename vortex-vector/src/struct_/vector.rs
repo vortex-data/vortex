@@ -3,6 +3,8 @@
 
 //! Definition and implementation of [`StructVector`].
 
+use std::sync::Arc;
+
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
@@ -17,7 +19,14 @@ use crate::{StructVectorMut, Vector, VectorMutOps, VectorOps};
 #[derive(Debug, Clone)]
 pub struct StructVector {
     /// The fields of the `StructVector`, each stored column-wise as a [`Vector`].
-    pub(super) fields: Box<[Vector]>,
+    ///
+    /// We store these as an [`Arc<Box<_>>`] because we need to call [`try_unwrap()`] in our
+    /// [`try_into_mut()`] implementation, and since slices are unsized it is not implemented for
+    /// [`Arc<[Vector]>`].
+    ///
+    /// [`try_unwrap()`]: Arc::try_unwrap
+    /// [`try_into_mut()`]: Self::try_into_mut
+    pub(super) fields: Arc<Box<[Vector]>>,
 
     /// The validity mask (where `true` represents an element is **not** null).
     pub(super) validity: Mask,
@@ -32,17 +41,23 @@ pub struct StructVector {
 impl StructVector {
     /// Creates a new [`StructVector`] from the given fields and validity mask.
     ///
+    /// Note that we take [`Arc<Box<[_]>>`] in order to enable easier conversion to
+    /// [`StructVectorMut`] via [`try_into_mut()`](Self::try_into_mut).
+    ///
     /// # Panics
     ///
     /// Panics if:
     ///
     /// - Any field vector has a length that does not match the length of other fields.
     /// - The validity mask length does not match the field length.
-    pub fn new(fields: Box<[Vector]>, validity: Mask) -> Self {
+    pub fn new(fields: Arc<Box<[Vector]>>, validity: Mask) -> Self {
         Self::try_new(fields, validity).vortex_expect("Failed to create `StructVector`")
     }
 
     /// Tries to create a new [`StructVector`] from the given fields and validity mask.
+    ///
+    /// Note that we take [`Arc<Box<[_]>>`] in order to enable easier conversion to
+    /// [`StructVectorMut`] via [`try_into_mut()`](Self::try_into_mut).
     ///
     /// # Errors
     ///
@@ -50,7 +65,7 @@ impl StructVector {
     ///
     /// - Any field vector has a length that does not match the length of other fields.
     /// - The validity mask length does not match the field length.
-    pub fn try_new(fields: Box<[Vector]>, validity: Mask) -> VortexResult<Self> {
+    pub fn try_new(fields: Arc<Box<[Vector]>>, validity: Mask) -> VortexResult<Self> {
         let len = if fields.is_empty() {
             validity.len()
         } else {
@@ -85,13 +100,16 @@ impl StructVector {
 
     /// Creates a new [`StructVector`] from the given fields and validity mask without validation.
     ///
+    /// Note that we take [`Arc<Box<[_]>>`] in order to enable easier conversion to
+    /// [`StructVectorMut`] via [`try_into_mut()`](Self::try_into_mut).
+    ///
     /// # Safety
     ///
     /// The caller must ensure that:
     ///
     /// - All field vectors have the same length.
     /// - The validity mask has a length equal to the field length.
-    pub unsafe fn new_unchecked(fields: Box<[Vector]>, validity: Mask) -> Self {
+    pub unsafe fn new_unchecked(fields: Arc<Box<[Vector]>>, validity: Mask) -> Self {
         let len = if fields.is_empty() {
             validity.len()
         } else {
@@ -110,7 +128,7 @@ impl StructVector {
     }
 
     /// Decomposes the struct vector into its constituent parts (fields, validity, and length).
-    pub fn into_parts(self) -> (Box<[Vector]>, Mask, usize) {
+    pub fn into_parts(self) -> (Arc<Box<[Vector]>>, Mask, usize) {
         (self.fields, self.validity, self.len)
     }
 
@@ -135,16 +153,26 @@ impl VectorOps for StructVector {
     where
         Self: Sized,
     {
+        let len = self.len;
+        let fields = match Arc::try_unwrap(self.fields) {
+            Ok(fields) => fields,
+            Err(fields) => return Err(StructVector { fields, ..self }),
+        };
+
         let validity = match self.validity.try_into_mut() {
             Ok(validity) => validity,
             Err(validity) => {
-                return Err(StructVector { validity, ..self });
+                return Err(StructVector {
+                    fields: Arc::new(fields),
+                    validity,
+                    len,
+                });
             }
         };
 
         // Convert all of the remaining fields to mutable, if possible.
-        let mut mutable_fields = Vec::with_capacity(self.fields.len());
-        let mut fields_iter = self.fields.into_iter();
+        let mut mutable_fields = Vec::with_capacity(fields.len());
+        let mut fields_iter = fields.into_iter();
 
         while let Some(field) = fields_iter.next() {
             match field.try_into_mut() {
@@ -164,7 +192,7 @@ impl VectorOps for StructVector {
                     all_fields.extend(fields_iter);
 
                     return Err(StructVector {
-                        fields: all_fields.into_boxed_slice(),
+                        fields: Arc::new(all_fields.into_boxed_slice()),
                         len: self.len,
                         validity: validity.freeze(),
                     });
