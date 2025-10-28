@@ -5,8 +5,8 @@ use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect as _, VortexUnwrap};
 use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::compute::{MinMaxResult, cast, min_max};
+use crate::{Array, ToCanonical};
 
 /// Test conformance of the cast compute function for an array.
 ///
@@ -40,6 +40,10 @@ pub fn test_cast_conformance(array: &dyn Array) {
             | PType::I64 => test_cast_to_integral_types(array),
             PType::F16 | PType::F32 | PType::F64 => test_cast_from_floating_point_types(array),
         },
+        DType::Utf8(n) => {
+            cast(array, &DType::Binary(*n))
+                .vortex_expect("utf8 always successfully casts to binary");
+        }
         _ => {}
     }
 }
