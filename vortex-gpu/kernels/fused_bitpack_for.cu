@@ -118,19 +118,25 @@ extern "C" __global__ void fused_bitpack6_for_u32(
     uint32_t reference
 ) {
     int i = threadIdx.x;
-    auto in = packed_in + (blockIdx.x * (128 * 6 / sizeof(uint32_t)));
+    auto in = packed_in + (2 * blockIdx.x * (128 * 6 / sizeof(uint32_t)));
     const uint32_t fl_lane_count = 32;
-    auto blockSize = blockDim.x * fl_lane_count;
-    auto out = unpacked_out + (blockIdx.x * 1024);
+    auto blockSize = 32 * fl_lane_count;
+    auto out = unpacked_out + (2 * blockIdx.x * 1024);
 
     __shared__ uint32_t shared_data[1024];
 
     fls_unpack_6bw_32ow_device(in, shared_data, i);
-
     for_device(shared_data, reference, i);
 
     for (int i = 0; i < 32; i++) {
         auto idx = i * 32 + threadIdx.x;
         out[idx] = shared_data[idx];
+    }
+
+    fls_unpack_6bw_32ow_device(in + 128 * 6 / sizeof(uint32_t), shared_data, i);
+    for_device(shared_data, reference, i);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + threadIdx.x;
+        out[idx + 1024] = shared_data[idx];
     }
 }

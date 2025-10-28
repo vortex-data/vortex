@@ -43,8 +43,9 @@ pub fn new_task(
     assert_eq!(bp.offset(), 0);
     assert_eq!(bp.bit_width(), 6);
 
-    let num_chunks =
-        u32::try_from(array.len().div_ceil(1024)).vortex_expect("Too many grid elements");
+    let block_dim = 32;
+    let num_chunks = u32::try_from(array.len().div_ceil(2 * 32 * block_dim))
+        .vortex_expect("Too many grid elements");
 
     let values = Buffer::<u32>::from_byte_buffer(bp.packed().clone());
 
@@ -62,7 +63,7 @@ pub fn new_task(
         func: cuda_for_bp_kernel(array.ptype(), &ctx)?,
         launch_config: LaunchConfig {
             grid_dim: (num_chunks, 1, 1),
-            block_dim: (32, 1, 1),
+            block_dim: (block_dim as u32, 1, 1),
             shared_mem_bytes: 0,
         },
         packed: cu_slice,
