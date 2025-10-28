@@ -5,7 +5,7 @@ use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
 use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_panic};
 
 use crate::delta::{DeltaArray, DeltaVTable};
 
@@ -20,7 +20,7 @@ impl CastKernel for DeltaVTable {
         };
 
         let DType::Primitive(source_ptype, _) = array.dtype() else {
-            unreachable!()
+            vortex_panic!("delta should be primitive typed");
         };
 
         // TODO(DK): narrows can be safe but we must decompress to compute the maximum value.
