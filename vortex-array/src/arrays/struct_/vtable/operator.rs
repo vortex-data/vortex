@@ -168,7 +168,7 @@ mod tests {
         // Verify integer field has the correct filtered values with nulls.
         // Selected indices: 0, 1, 2, 4, 5 from [Some(100), None, Some(200), Some(300), None, Some(400)].
         let int_vector = fields[0].as_primitive().clone().into_i32();
-        let int_values: Vec<Option<i32>> = (0..5).map(|i| int_vector.get(i)).collect();
+        let int_values: Vec<Option<i32>> = (0..5).map(|i| int_vector.get(i).copied()).collect();
         assert_eq!(
             int_values,
             vec![Some(100), None, Some(200), None, Some(400)]
