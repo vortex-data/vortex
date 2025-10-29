@@ -9,7 +9,7 @@ use std::sync::Arc;
 use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Field, FieldMask, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_ensure};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};

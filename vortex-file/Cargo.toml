@@ -78,4 +78,10 @@ tokio = [
     "vortex-scan/tokio",
 ]
 zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]
-gpu = ["dep:cudarc", "dep:vortex-gpu", "vortex-gpu/cuda", "vortex-layout/gpu", "vortex-scan/gpu"]
+gpu = [
+    "dep:cudarc",
+    "dep:vortex-gpu",
+    "vortex-gpu/cuda",
+    "vortex-layout/gpu",
+    "vortex-scan/gpu",
+]

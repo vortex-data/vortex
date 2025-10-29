@@ -141,8 +141,8 @@ mod tests {
         )?
         .into_array();
 
-        let (d, _) = create_run_jit_kernel(ctx, &for_)?;
-        let prim = d.to_primitive();
+        let (d, _) = create_run_jit_kernel(&ctx, &for_)?;
+        let prim = d.into_primitive().into_host_array()?;
         let expect = for_.to_primitive();
 
         for i in 0..prim.len() {
@@ -169,7 +169,11 @@ mod tests {
         )?
         .into_array();
 
-        create_run_jit_kernel(ctx, &for_.into_array())?;
+        let (d, _) = create_run_jit_kernel(&ctx, &for_)?;
+        assert_eq!(
+            d.into_primitive().into_host_array()?.as_slice::<u32>(),
+            for_.to_primitive().as_slice::<u32>()
+        );
 
         Ok(())
     }
