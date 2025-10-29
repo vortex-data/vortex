@@ -76,7 +76,7 @@ pub trait ArraySessionExt {
     fn register_encoding(&self, encoding: EncodingRef);
 
     /// Returns the array registry.
-    fn array_registry(&self) -> ArrayRegistry;
+    fn array_registry(&self) -> Arc<ArrayRegistry>;
 }
 
 impl ArraySessionExt for VortexSession {

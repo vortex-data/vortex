@@ -13,19 +13,10 @@ use vortex_error::VortexExpect;
 /// etc. that are available for use in a given context.
 ///
 /// It is also the entry-point passed to dynamic libraries to initialize Vortex plugins.
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct VortexSession(Arc<SessionVars>);
 
 impl VortexSession {
-    /// Creates an empty Vortex session.
-    ///
-    /// Do not call this function otherwise you will end up with an empty session!
-    pub fn _empty() -> Self {
-        Self(Arc::new(
-            DashMap::with_hasher(BuildHasherDefault::default()),
-        ))
-    }
-
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
     pub fn get<V: SessionVar + Default>(&self) -> impl Deref<Target = V> {
         self.0
