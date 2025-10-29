@@ -27,7 +27,7 @@ pub struct PVector<T> {
     pub(super) validity: Mask,
 }
 
-impl<T: NativePType> PVector<T> {
+impl<T> PVector<T> {
     /// Creates a new [`PVector<T>`] from the given elements buffer and validity mask.
     ///
     /// # Panics
@@ -79,8 +79,8 @@ impl<T: NativePType> PVector<T> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn get(&self, index: usize) -> Option<T> {
-        self.validity.value(index).then(|| self.elements[index])
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.validity.value(index).then(|| &self.elements[index])
     }
 
     /// Returns the internal [`Buffer`] of the [`PVector`].

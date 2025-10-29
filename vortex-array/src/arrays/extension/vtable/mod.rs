@@ -4,6 +4,7 @@
 mod array;
 mod canonical;
 mod operations;
+mod operator;
 mod serde;
 mod validity;
 mod visitor;

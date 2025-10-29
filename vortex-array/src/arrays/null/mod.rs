@@ -9,12 +9,14 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+use vortex_vector::NullVector;
 
+use crate::execution::{BatchKernelRef, BindCtx, kernel};
 use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, SerdeVTable, VTable,
-    ValidityVTable, VisitorVTable,
+    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, OperatorVTable, SerdeVTable,
+    VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, EncodingId,
@@ -36,8 +38,8 @@ impl VTable for NullVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type OperatorVTable = NotSupported;
     type SerdeVTable = Self;
+    type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.null")
@@ -168,5 +170,16 @@ impl ValidityVTable<NullVTable> for NullVTable {
 
     fn validity_mask(array: &NullArray) -> Mask {
         Mask::AllFalse(array.len)
+    }
+}
+
+impl OperatorVTable<NullVTable> for NullVTable {
+    fn bind(
+        array: &NullArray,
+        _selection: Option<&ArrayRef>,
+        _ctx: &mut dyn BindCtx,
+    ) -> VortexResult<BatchKernelRef> {
+        let len = array.len();
+        Ok(kernel(move || Ok(NullVector::new(len).into())))
     }
 }
