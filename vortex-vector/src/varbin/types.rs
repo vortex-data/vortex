@@ -85,7 +85,7 @@ pub trait VarBinTypeUpcast {
 
 /// Private module to seal the [`VarBinType`] trait.
 mod private {
-    /// Sealed trait to prevent external implementations of [`VarBinType`].
+    /// Sealed trait to prevent external implementations of [`VarBinType`](super::VarBinType).
     pub trait Sealed {}
 
     impl Sealed for super::StringType {}

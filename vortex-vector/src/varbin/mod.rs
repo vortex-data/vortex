@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of variable-length binary types.
+//!
+//! All types are wrappers around the [`VarBinVector`] type, which is represented internally by
+//! `BinaryView`s. `BinaryView`s are identical to the `BinaryView` type defined by the Arrow
+//! [specification](https://arrow.apache.org/docs/format/Columnar.html#variable-size-binary-view-layout),
+//! which are inspired by "German" strings.
+
 pub use types::*;
 pub use vector::*;
 pub use vector_mut::*;
