@@ -134,7 +134,7 @@ impl OperatorVTable<GetItemVTable> for GetItemVTable {
 
             // We must intersect the validity with that of the parent struct
             let field = struct_.fields()[idx].clone();
-            let field = MaskValidity::mask_validity(field, &struct_.validity());
+            let field = MaskValidity::mask_validity(field, struct_.validity());
 
             Ok(field)
         }))
@@ -209,10 +209,7 @@ mod tests {
 
         // Check that validity was properly intersected
         // Elements at indices 1 and 3 should be null due to struct validity
-        assert_eq!(result.get(0), Some(&10));
-        assert_eq!(result.get(1), None); // Null from struct
-        assert_eq!(result.get(2), Some(&30));
-        assert_eq!(result.get(3), None); // Null from struct
+        assert_eq!(result.validity().to_bit_buffer(), bitbuffer![1 0 1 0]);
     }
 
     #[test]
@@ -248,9 +245,7 @@ mod tests {
         assert_eq!(result.elements(), &buffer![10i32, 30, 50]);
 
         // Check validity: index 0 is valid, index 2 is null (struct), index 4 is valid
-        assert_eq!(result.get(0), Some(&10));
-        assert_eq!(result.get(1), None); // Index 2 of original was null in struct
-        assert_eq!(result.get(2), Some(&50));
+        assert_eq!(result.validity().to_bit_buffer(), bitbuffer![1 0 1]);
     }
 
     #[test]
@@ -282,11 +277,7 @@ mod tests {
         // Index 2: null (struct null)
         // Index 3: null (field null)
         // Index 4: null (struct null)
-        assert_eq!(result.get(0), Some(&10));
-        assert_eq!(result.get(1), None);
-        assert_eq!(result.get(2), None);
-        assert_eq!(result.get(3), None);
-        assert_eq!(result.get(4), None);
+        assert_eq!(result.validity().to_bit_buffer(), bitbuffer![1 0 0 0 0]);
     }
 
     #[test]
