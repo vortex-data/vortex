@@ -8968,6 +8968,7 @@ dependencies = [
  "vortex-scalar",
  "vortex-scan",
  "vortex-sequence",
+ "vortex-session",
  "vortex-sparse",
  "vortex-utils",
  "vortex-zigzag",

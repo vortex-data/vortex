@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use futures::executor::block_on;
 use parking_lot::RwLock;
-use vortex_array::ArrayRegistry;
+use vortex_array::{ArrayRegistry, ArraySessionExt};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_io::file::IntoReadSource;
 use vortex_io::runtime::Handle;
 use vortex_io::{InstrumentedReadAt, VortexReadAt};
@@ -18,11 +18,12 @@ use vortex_layout::segments::{
 };
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
 use crate::segments::{FileSegmentSource, InitialReadSegmentCache};
-use crate::{DEFAULT_REGISTRY, DeserializeStep, EOF_SIZE, MAX_POSTSCRIPT_SIZE, VortexFile};
+use crate::{DeserializeStep, VortexFile, DEFAULT_REGISTRY, EOF_SIZE, MAX_POSTSCRIPT_SIZE};
 
 const INITIAL_READ_SIZE: usize = 1 << 20; // 1 MB
 
@@ -56,11 +57,25 @@ impl Default for VortexOpenOptions {
     }
 }
 
+pub trait OpenOptionsSessionExt {
+    fn open(&self) -> VortexOpenOptions;
+}
+
+impl OpenOptionsSessionExt for VortexSession {
+    fn open(&self) -> VortexOpenOptions {
+        // Construct the open options using values from session's array registry.
+        VortexOpenOptions::new().with_array_registry(self.array_registry())
+    }
+}
+
 impl VortexOpenOptions {
     /// Create a new [`VortexOpenOptions`] with the expected options for the file source.
     ///
     /// This should not be used directly, instead public API clients are expected to
     /// access either `VortexOpenOptions::new()` or `VortexOpenOptions::memory()`
+    ///
+    // FIXME(ngates): so instead of allowing users to construct these things incorrectly, we force
+    //  them to go via the session.
     pub fn new() -> Self {
         Self {
             handle: Handle::find(),

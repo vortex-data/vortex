@@ -20,6 +20,7 @@ pub use encoding::*;
 pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
+use std::sync::Arc;
 use vortex_session::VortexSession;
 
 pub mod accessor;
@@ -57,19 +58,35 @@ pub mod flatbuffers {
     pub use vortex_flatbuffers::array::*;
 }
 
-#[derive(Default, Debug)]
-pub struct VortexArraySession {
+#[derive(Debug)]
+pub struct ArraySession {
     registry: ArrayRegistry,
 }
 
-pub trait VortexArraySessionExt {
-    fn register_encoding(&self, encoding: EncodingRef);
+impl Default for ArraySession {
+    fn default() -> Self {
+        Self {
+            registry: ArrayRegistry::canonical_only(),
+        }
+    }
 }
 
-impl VortexArraySessionExt for VortexSession {
+pub trait ArraySessionExt {
+    /// Register an array encoding with the session.
+    fn register_encoding(&self, encoding: EncodingRef);
+
+    /// Returns the array registry.
+    fn array_registry(&self) -> ArrayRegistry;
+}
+
+impl ArraySessionExt for VortexSession {
     fn register_encoding(&self, encoding: EncodingRef) {
-        self.get_or_create::<VortexArraySession>()
-            .registry
-            .register(encoding)
+        self.get_mut::<ArraySession>().registry.register(encoding)
+    }
+
+    fn array_registry(&self) -> Arc<ArrayRegistry> {
+        // TODO(ngates): the registry type is weird... we shouldn't arc it here, but it's weirdly
+        //  mutable.
+        Arc::new(self.get::<ArraySession>().registry.clone())
     }
 }
