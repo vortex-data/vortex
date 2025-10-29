@@ -16,6 +16,7 @@ mod visitor;
 use std::fmt::Debug;
 use std::ops::Deref;
 
+use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
 pub use array::*;
 pub use canonical::*;
 pub use compute::*;
@@ -25,8 +26,7 @@ pub use operator::*;
 pub use serde::*;
 pub use validity::*;
 pub use visitor::*;
-
-use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
+use vortex_session::VortexSession;
 
 /// The encoding [`VTable`] encapsulates logic for an Encoding type and associated Array type.
 /// The logic is split across several "VTable" traits to enable easier code organization than
@@ -72,6 +72,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
     /// Returns the encoding for the array.
     fn encoding(array: &Self::Array) -> EncodingRef;
+
+    /// Initialize the encoding.
+    fn init(session: &VortexSession);
 }
 
 /// Placeholder type used to indicate when a particular vtable is not supported by the encoding.

@@ -8589,6 +8589,7 @@ dependencies = [
  "vortex-mask",
  "vortex-metrics",
  "vortex-scalar",
+ "vortex-session",
  "vortex-utils",
  "vortex-vector",
 ]
@@ -9323,6 +9324,14 @@ dependencies = [
  "vortex-proto",
  "vortex-scalar",
  "vortex-vector",
+]
+
+[[package]]
+name = "vortex-session"
+version = "0.1.0"
+dependencies = [
+ "dashmap",
+ "vortex-error",
 ]
 
 [[package]]
