@@ -641,6 +641,28 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
     }
 }
 
+/// Unsafely reinterprets a `Buffer<u8>` into a `Buffer<U>`.
+///
+/// # Safety
+///
+/// The caller must ensure:
+/// - The alignment of the [`ByteBuffer`] is the same as the alignment of `T`.
+/// - The number of bytes is a multiple of `size_of::<T>`.
+/// - The bytes of the [`ByteBuffer`] make up valid `U` values.
+pub unsafe fn byte_buffer_to_buffer<T: Copy>(byte_buffer: ByteBuffer) -> Buffer<T> {
+    debug_assert_eq!(byte_buffer.alignment, Alignment::of::<T>());
+
+    debug_assert!(byte_buffer.length.is_multiple_of(size_of::<T>()));
+    let new_length = byte_buffer.length / size_of::<T>();
+
+    Buffer {
+        bytes: byte_buffer.bytes,
+        length: new_length,
+        alignment: byte_buffer.alignment,
+        _marker: PhantomData,
+    }
+}
+
 #[cfg(test)]
 mod test {
     use bytes::Buf;

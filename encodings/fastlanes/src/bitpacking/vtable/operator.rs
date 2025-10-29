@@ -1,208 +1,85 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// TODO(connor): Refactor this entire module!
-
-use std::any::Any;
-use std::cmp::min;
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
-
-use fastlanes::{BitPacking, FastLanes};
-use vortex_array::operator::{
-    LengthBounds, Operator, OperatorEq, OperatorHash, OperatorId, OperatorRef,
-};
-use vortex_array::pipeline::bits::BitView;
-use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{
-    BindContext, Element, Kernel, KernelContext, N, PipelinedOperator, RowSelection,
-};
-use vortex_array::vtable::OperatorVTable;
-use vortex_buffer::Buffer;
-use vortex_dtype::{DType, PhysicalPType, match_each_integer_ptype};
+use fastlanes::BitPacking;
+use vortex_array::execution::{BatchKernelRef, BindCtx, MaskExecution, kernel};
+use vortex_array::vtable::{OperatorVTable, ValidityHelper};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical, compute};
+use vortex_buffer::{Buffer, byte_buffer_to_buffer};
+use vortex_compute::filter::Filter;
+use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::VortexResult;
+use vortex_vector::PVector;
 
 use crate::{BitPackedArray, BitPackedVTable};
 
 impl OperatorVTable<BitPackedVTable> for BitPackedVTable {
-    fn to_operator(array: &BitPackedArray) -> VortexResult<Option<OperatorRef>> {
-        if array.dtype.is_nullable() {
-            log::trace!("BitPackedVTable does not support nullable arrays");
-            return Ok(None);
-        }
-        if array.patches.is_some() {
-            log::trace!("BitPackedVTable does not support nullable arrays");
-            return Ok(None);
-        }
-        if array.offset != 0 {
-            log::trace!("BitPackedVTable does not support non-zero offsets");
-            return Ok(None);
-        }
+    fn bind(
+        array: &BitPackedArray,
+        selection: Option<&ArrayRef>,
+        ctx: &mut dyn BindCtx,
+    ) -> VortexResult<BatchKernelRef> {
+        let selection_mask = ctx.bind_selection(array.len(), selection)?;
+        let validity = ctx.bind_validity(array.validity(), array.len(), selection)?;
 
-        Ok(Some(Arc::new(array.clone())))
-    }
-}
+        // Since the fastlanes crate only supports unsigned integers, and since we know that all
+        // numbers are going to be non-negative, we can safely "cast" to unsigned.
+        let ptype = array.ptype().to_unsigned();
 
-impl OperatorHash for BitPackedArray {
-    fn operator_hash<H: Hasher>(&self, state: &mut H) {
-        self.offset.hash(state);
-        self.len.hash(state);
-        self.dtype.hash(state);
-        self.bit_width.hash(state);
-        self.packed.operator_hash(state);
-        // We don't care about patches because they're not yet supported by the operator.
-        // OperatorHash(&self.patches).hash(state);
-        self.validity.operator_hash(state);
-    }
-}
-
-impl OperatorEq for BitPackedArray {
-    fn operator_eq(&self, other: &Self) -> bool {
-        self.offset == other.offset
-            && self.len == other.len
-            && self.dtype == other.dtype
-            && self.bit_width == other.bit_width
-            && self.packed.operator_eq(&other.packed)
-            && self.validity.operator_eq(&other.validity)
-    }
-}
-
-impl Operator for BitPackedArray {
-    fn id(&self) -> OperatorId {
-        self.encoding_id()
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    fn bounds(&self) -> LengthBounds {
-        self.len.into()
-    }
-
-    fn children(&self) -> &[OperatorRef] {
-        &[]
-    }
-
-    fn with_children(self: Arc<Self>, _children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
-        Ok(self)
-    }
-}
-
-impl PipelinedOperator for BitPackedArray {
-    fn row_selection(&self) -> RowSelection {
-        RowSelection::Domain(self.len)
-    }
-
-    fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
-        assert!(self.bit_width > 0);
-        match_each_integer_ptype!(self.ptype(), |T| {
-            let packed_stride =
-                self.bit_width as usize * <<T as PhysicalPType>::Physical as FastLanes>::LANES;
-            let buffer = Buffer::<<T as PhysicalPType>::Physical>::from_byte_buffer(
-                self.packed.clone().into_byte_buffer(),
-            );
-
-            if self.offset == 0 {
-                Ok(Box::new(BitPackedKernel::<T>::new(
-                    self.bit_width as usize,
-                    packed_stride,
-                    buffer,
-                )) as Box<dyn Kernel>)
-            } else {
-                // TODO(ngates): the unaligned kernel needs fixing for the non-masked API
-                // Ok(Box::new(BitPackedUnalignedKernel::<T>::new(
-                //     self.bit_width as usize,
-                //     packed_stride,
-                //     buffer,
-                //     0,
-                //     self.offset,
-                // )) as Box<dyn Kernel>)
-                unreachable!("Offset must be zero")
-            }
+        match_each_unsigned_integer_ptype!(ptype, |U| {
+            Ok(bitpack_filter_kernel::<U>(array, selection_mask, validity))
         })
     }
-
-    fn vector_children(&self) -> Vec<usize> {
-        vec![]
-    }
-
-    fn batch_children(&self) -> Vec<usize> {
-        vec![]
-    }
 }
 
-// TODO(ngates): we should try putting the const bit width as a generic here, to avoid
-//  a switch in the fastlanes library on every invocation of `unchecked_unpack`.
-#[derive(Clone)]
-pub struct BitPackedKernel<T: PhysicalPType<Physical: BitPacking>> {
-    width: usize,
-    packed_stride: usize,
-    buffer: Buffer<<T as PhysicalPType>::Physical>,
-}
+/// Creates the [`BitPackedArray`] filter kernel.
+///
+/// Note that the generic type parameter `U` may be the unsigned version of the signed [`PType`] of
+/// the input array. This is fine because we know that all values in bitpacked arrays are
+/// non-negative.
+fn bitpack_filter_kernel<U: NativePType + BitPacking>(
+    array: &BitPackedArray,
+    selection_mask: MaskExecution,
+    validity: MaskExecution,
+) -> BatchKernelRef {
+    let array = array.clone(); // Cheap clone due to many internal `Arc`s.
+    kernel(move || {
+        let selection_mask = selection_mask.execute()?;
+        let filtered_validity = validity.execute()?;
 
-impl<T: PhysicalPType<Physical: BitPacking>> BitPackedKernel<T> {
-    pub fn new(
-        width: usize,
-        packed_stride: usize,
-        buffer: Buffer<<T as PhysicalPType>::Physical>,
-    ) -> Self {
-        Self {
-            width,
-            packed_stride,
-            buffer,
-        }
-    }
-}
+        // TODO(connor): This function is implemented in a very roundabout way where we use the
+        // existing `BitPackedArray` `filter` implementation that gives us an array, and then we
+        // extract out the underlying buffer of the `PrimitiveArray` to create a `PrimitiveVector`.
+        //
+        // Ideally, we should take the underlying `ByteBuffer` of the `BitPackedArray` and unpack
+        // that directly into a `Buffer<T>` via a `BufferMut<T>`. This is a much more general
+        // solution that does not force everyone to use `PrimitiveBuilder`.
+        //
+        // However, the current decompression implementation for `BitPackedArray` is heavily tied
+        // to the `PrimitiveBuilder` and `UninitRange` API. What we really need to do is _replace_
+        // the `PrimitiveBuilder` with `PrimitiveVectorMut`, where instead of `UninitRange` we can
+        // write directly to a `PVectorMut`.
+        //
+        // For the sake of time to get this working, we have implemented this like so.
+        // When we eventually replace our builders with vectors, we can revisit this.
 
-impl<T> Kernel for BitPackedKernel<T>
-where
-    T: PhysicalPType<Physical: BitPacking>,
-    T: Element,
-    <T as PhysicalPType>::Physical: Element,
-{
-    fn step(
-        &self,
-        _ctx: &KernelContext,
-        chunk_idx: usize,
-        _selection: &BitView,
-        out: &mut ViewMut,
-    ) -> VortexResult<()> {
-        assert_eq!(
-            N % 1024,
-            0,
-            "BitPackedKernel assumes N is a multiple of 1024"
-        );
+        // Use the existing `filter` implementation over `PrimitiveArray` and extract the underlying
+        // `ByteBuffer`.
+        let filtered_array = compute::filter(&array.into_array(), &selection_mask)?.to_primitive();
+        debug_assert_eq!(filtered_array.ptype().byte_width(), size_of::<U>());
 
-        // We re-interpret the output view as the unsigned bitpacked type.
-        out.reinterpret_as::<<T as PhysicalPType>::Physical>();
+        let byte_buffer = filtered_array.into_byte_buffer();
 
-        let elements = out.as_array_mut::<<T as PhysicalPType>::Physical>();
+        // SAFETY: The `filter` compute function maintains the type of the bitpacked array, which
+        // must have the same byte representation and alignment as `U`, so it is safe to reinterpret
+        // this buffer.
+        let buffer: Buffer<U> = unsafe { byte_buffer_to_buffer(byte_buffer) };
+        let filtered_buffer = buffer.filter(&selection_mask);
 
-        let packed_offset = ((chunk_idx * N) / 1024) * self.packed_stride;
-        let packed = &self.buffer.as_slice()[packed_offset..];
+        debug_assert_eq!(filtered_buffer.len(), filtered_validity.len());
 
-        // We compute the number of FastLanes vectors for this chunk.
-        let nvecs = min(N / 1024, packed.len() / self.packed_stride);
-
-        for i in 0..nvecs {
-            // TODO(ngates): decide if the selection mask is sufficiently sparse to warrant
-            //  unpacking only the selected elements.
-            unsafe {
-                BitPacking::unchecked_unpack(
-                    self.width,
-                    &packed[(i * self.packed_stride)..][..self.packed_stride],
-                    &mut elements[(i * 1024)..],
-                );
-            }
-        }
-
-        out.reinterpret_as::<T>();
-
-        Ok(())
-    }
+        // SAFETY: The buffer and validity (which should have started with the same length) were
+        // filtered by the same mask, which means their new lengths should also be the same.
+        Ok(unsafe { PVector::new_unchecked(filtered_buffer, filtered_validity) }.into())
+    })
 }

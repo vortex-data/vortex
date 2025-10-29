@@ -8898,6 +8898,7 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
@@ -8905,6 +8906,7 @@ dependencies = [
  "vortex-mask",
  "vortex-scalar",
  "vortex-utils",
+ "vortex-vector",
 ]
 
 [[package]]
