@@ -1466,3 +1466,54 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 
     Ok(())
 }
+
+// #[cfg(all(target_os = "linux", feature = "gpu"))]
+#[cfg_attr(miri, ignore)]
+#[tokio::test]
+async fn test_gpu_read_simple() -> VortexResult<()> {
+    let numbers = ChunkedArray::from_iter([
+        (0..4096)
+            .map(|i| i % 64)
+            .collect::<Buffer<u32>>()
+            .into_array(),
+        (0..4096)
+            .map(|i| i % 64)
+            .collect::<Buffer<u32>>()
+            .into_array(),
+    ])
+    .into_array();
+    let floats = ChunkedArray::from_iter([
+        (0..4096)
+            .map(|i| (i % 64) as f32 + 0.234)
+            .collect::<Buffer<f32>>()
+            .into_array(),
+        (0..4096)
+            .map(|i| (i % 64) as f32 + 4.789)
+            .collect::<Buffer<f32>>()
+            .into_array(),
+    ])
+    .into_array();
+
+    let st = StructArray::from_fields(&[("numbers", numbers), ("floats", floats)])?;
+    let mut buf = ByteBufferMut::empty();
+    VortexWriteOptions::default()
+        .write(&mut buf, st.to_array_stream())
+        .await?;
+    let ctx = cudarc::driver::CudaContext::new(0).unwrap();
+
+    let stream = VortexOpenOptions::new()
+        .open_buffer(buf)?
+        .gpu_scan(ctx)?
+        .into_array_stream()?;
+    pin_mut!(stream);
+
+    let mut row_count = 0;
+
+    while let Some(array) = stream.next().await {
+        let array = array?.into_host_array()?;
+        row_count += array.as_ref().len();
+    }
+
+    assert_eq!(row_count, 8);
+    Ok(())
+}
