@@ -12,7 +12,7 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
-use vortex_gpu::GpuArray;
+use vortex_gpu::GpuVector;
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_layout::GpuLayoutReaderRef;
 
@@ -23,7 +23,7 @@ pub struct GpuScan<A: 'static + Send> {
     layout_reader: GpuLayoutReaderRef,
     projection: ExprRef,
     splits: BTreeSet<u64>,
-    map_fn: Arc<dyn Fn(Vec<GpuArray>) -> VortexResult<Vec<A>> + Send + Sync>,
+    map_fn: Arc<dyn Fn(Vec<GpuVector>) -> VortexResult<Vec<A>> + Send + Sync>,
     /// The dtype of the projected arrays.
     dtype: DType,
 }
@@ -52,7 +52,7 @@ impl<A: 'static + Send> GpuScan<A> {
         layout_reader: GpuLayoutReaderRef,
         projection: ExprRef,
         splits: BTreeSet<u64>,
-        map_fn: Arc<dyn Fn(Vec<GpuArray>) -> VortexResult<Vec<A>> + Send + Sync>,
+        map_fn: Arc<dyn Fn(Vec<GpuVector>) -> VortexResult<Vec<A>> + Send + Sync>,
         dtype: DType,
     ) -> Self {
         Self {

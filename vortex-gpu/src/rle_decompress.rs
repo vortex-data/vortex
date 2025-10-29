@@ -19,7 +19,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_fastlanes::RLEArray;
 
 use crate::task::GPUTask;
-use crate::{GpuArray, GpuPrimitiveArray};
+use crate::{GpuPrimitiveVector, GpuVector};
 
 struct RLETask<V: DeviceRepr + NativePType, I, O> {
     values: CudaSlice<V>,
@@ -66,11 +66,13 @@ impl<V: DeviceRepr + NativePType, I, O> GPUTask for RLETask<V, I, O> {
             .map(|_| ())
     }
 
-    fn result(&mut self) -> VortexResult<GpuArray> {
-        Ok(GpuArray::Primitive(GpuPrimitiveArray::from_slice_with_len(
-            self.output.take().vortex_expect("must have output"),
-            self.len,
-        )))
+    fn result(&mut self) -> VortexResult<GpuVector> {
+        Ok(GpuVector::Primitive(
+            GpuPrimitiveVector::from_slice_with_len(
+                self.output.take().vortex_expect("must have output"),
+                self.len,
+            ),
+        ))
     }
 }
 

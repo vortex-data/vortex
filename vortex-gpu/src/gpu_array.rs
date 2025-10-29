@@ -10,42 +10,42 @@ use vortex_dtype::{FieldNames, NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 #[derive(Clone)]
-pub enum GpuArray {
-    Primitive(GpuPrimitiveArray),
-    Struct(GpuStructArray),
+pub enum GpuVector {
+    Primitive(GpuPrimitiveVector),
+    Struct(GpuStructVector),
 }
 
-impl GpuArray {
+impl GpuVector {
     pub fn into_host_array(self) -> VortexResult<Canonical> {
         match self {
-            GpuArray::Primitive(p) => p.into_host_array().map(Canonical::Primitive),
-            GpuArray::Struct(s) => s.into_host_array().map(Canonical::Struct),
+            GpuVector::Primitive(p) => p.into_host_array().map(Canonical::Primitive),
+            GpuVector::Struct(s) => s.into_host_array().map(Canonical::Struct),
         }
     }
 
-    pub fn into_primitive(self) -> GpuPrimitiveArray {
+    pub fn into_primitive(self) -> GpuPrimitiveVector {
         match self {
-            GpuArray::Primitive(p) => p,
+            GpuVector::Primitive(p) => p,
             _ => vortex_panic!("Not a primitive gpu array"),
         }
     }
 
-    pub fn into_struct(self) -> GpuStructArray {
+    pub fn into_struct(self) -> GpuStructVector {
         match self {
-            GpuArray::Struct(s) => s,
+            GpuVector::Struct(s) => s,
             _ => vortex_panic!("Not a struct gpu array"),
         }
     }
 }
 
 #[derive(Clone)]
-pub struct GpuPrimitiveArray {
+pub struct GpuPrimitiveVector {
     values: CudaSlice<u8>,
     len: usize,
     ptype: PType,
 }
 
-impl GpuPrimitiveArray {
+impl GpuPrimitiveVector {
     pub fn from_casted_array<T: NativePType>(values: CudaSlice<T>, ptype: PType) -> Self {
         let len = values.len();
         Self::new(values, len, ptype)
@@ -129,14 +129,14 @@ impl GpuPrimitiveArray {
 }
 
 #[derive(Clone)]
-pub struct GpuStructArray {
+pub struct GpuStructVector {
     names: FieldNames,
-    children: Box<[Vec<GpuArray>]>,
+    children: Box<[Vec<GpuVector>]>,
     len: usize,
 }
 
-impl GpuStructArray {
-    pub fn new(names: FieldNames, children: Box<[Vec<GpuArray>]>, len: usize) -> Self {
+impl GpuStructVector {
+    pub fn new(names: FieldNames, children: Box<[Vec<GpuVector>]>, len: usize) -> Self {
         Self {
             names,
             children,
@@ -144,7 +144,7 @@ impl GpuStructArray {
         }
     }
 
-    pub fn child(&self, idx: usize) -> &[GpuArray] {
+    pub fn child(&self, idx: usize) -> &[GpuVector] {
         &self.children[idx]
     }
 

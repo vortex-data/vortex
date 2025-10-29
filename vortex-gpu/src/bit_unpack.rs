@@ -19,7 +19,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::BitPackedArray;
 
 use crate::task::GPUTask;
-use crate::{GpuArray, GpuPrimitiveArray};
+use crate::{GpuPrimitiveVector, GpuVector};
 
 #[derive(Hash, PartialEq, Eq, Debug)]
 struct UnpackKernelId {
@@ -209,8 +209,8 @@ impl<P: UnsignedPType + DeviceRepr> GPUTask for BitPackingTask<P> {
             .map(|_| ())
     }
 
-    fn result(&mut self) -> VortexResult<GpuArray> {
-        Ok(GpuArray::Primitive(GpuPrimitiveArray::from_casted_array(
+    fn result(&mut self) -> VortexResult<GpuVector> {
+        Ok(GpuVector::Primitive(GpuPrimitiveVector::from_casted_array(
             self.unpacked.take().vortex_expect("Must have output"),
             self.ptype,
         )))

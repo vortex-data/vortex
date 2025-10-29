@@ -94,7 +94,7 @@ impl VortexFile {
     pub fn gpu_scan(
         &self,
         ctx: Arc<cudarc::driver::CudaContext>,
-    ) -> VortexResult<vortex_scan::gpu::GpuScanBuilder<vortex_gpu::GpuArray>> {
+    ) -> VortexResult<vortex_scan::gpu::GpuScanBuilder<vortex_gpu::GpuVector>> {
         let segment_source = self.segment_source();
         let gpu_reader = self
             .footer

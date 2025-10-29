@@ -3,12 +3,12 @@
 
 use vortex_error::VortexResult;
 
-use crate::GpuArray;
+use crate::GpuVector;
 
 pub trait GPUTask {
     // Must call `launch_task` once
     fn launch_task(&mut self) -> VortexResult<()>;
 
     // Must call this after launch_task
-    fn result(&mut self) -> VortexResult<GpuArray>;
+    fn result(&mut self) -> VortexResult<GpuVector>;
 }

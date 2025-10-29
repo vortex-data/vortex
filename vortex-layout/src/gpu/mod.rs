@@ -14,11 +14,11 @@ use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexResult};
 use vortex_expr::ExprRef;
-use vortex_gpu::GpuArray;
+use vortex_gpu::GpuVector;
 
 pub type GpuLayoutReaderRef = Arc<dyn GpuLayoutReader>;
 
-pub type GpuArrayFuture = BoxFuture<'static, VortexResult<Vec<GpuArray>>>;
+pub type GpuArrayFuture = BoxFuture<'static, VortexResult<Vec<GpuVector>>>;
 
 pub type ShareGpuArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
 

@@ -9,7 +9,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{ExprRef, root};
-use vortex_gpu::GpuArray;
+use vortex_gpu::GpuVector;
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_layout::gpu::GpuLayoutReaderRef;
 
@@ -21,10 +21,10 @@ pub struct GpuScanBuilder<A> {
     handle: Option<Handle>,
     layout_reader: GpuLayoutReaderRef,
     projection: ExprRef,
-    map_fn: Arc<dyn Fn(Vec<GpuArray>) -> VortexResult<Vec<A>> + Send + Sync>,
+    map_fn: Arc<dyn Fn(Vec<GpuVector>) -> VortexResult<Vec<A>> + Send + Sync>,
 }
 
-impl GpuScanBuilder<GpuArray> {
+impl GpuScanBuilder<GpuVector> {
     pub fn new(layout_reader: GpuLayoutReaderRef) -> Self {
         Self {
             handle: Handle::find(),
@@ -39,7 +39,7 @@ impl GpuScanBuilder<GpuArray> {
     /// See [`ScanBuilder::into_stream`] for more details.
     pub fn into_array_stream(
         self,
-    ) -> VortexResult<impl Stream<Item = VortexResult<GpuArray>> + Send + 'static> {
+    ) -> VortexResult<impl Stream<Item = VortexResult<GpuVector>> + Send + 'static> {
         self.into_stream()
     }
 
@@ -47,7 +47,7 @@ impl GpuScanBuilder<GpuArray> {
     pub fn into_array_iter<B: BlockingRuntime>(
         self,
         runtime: &B,
-    ) -> VortexResult<impl Iterator<Item = VortexResult<GpuArray>> + 'static> {
+    ) -> VortexResult<impl Iterator<Item = VortexResult<GpuVector>> + 'static> {
         let stream = self.with_handle(runtime.handle()).into_array_stream()?;
         Ok(runtime.block_on_stream(|_| stream))
     }

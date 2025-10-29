@@ -8,7 +8,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
-use vortex_gpu::GpuArray;
+use vortex_gpu::GpuVector;
 use vortex_layout::GpuLayoutReader;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
@@ -35,5 +35,5 @@ pub(super) struct GpuTaskContext<A> {
     /// The projection expression to apply to gather the scanned rows.
     pub(super) projection: ExprRef,
     /// Function that maps into an A.
-    pub(super) mapper: Arc<dyn Fn(Vec<GpuArray>) -> VortexResult<Vec<A>> + Send + Sync>,
+    pub(super) mapper: Arc<dyn Fn(Vec<GpuVector>) -> VortexResult<Vec<A>> + Send + Sync>,
 }

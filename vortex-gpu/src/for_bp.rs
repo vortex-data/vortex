@@ -16,7 +16,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::{BitPackedVTable, FoRArray};
 
 use crate::task::GPUTask;
-use crate::{GpuArray, GpuPrimitiveArray};
+use crate::{GpuPrimitiveVector, GpuVector};
 
 struct FoRBPTask<P> {
     stream: Arc<CudaStream>,
@@ -96,11 +96,10 @@ impl<P: NativePType + DeviceRepr> GPUTask for FoRBPTask<P> {
         Ok(())
     }
 
-    fn result(&mut self) -> VortexResult<GpuArray> {
-        Ok(GpuArray::Primitive(GpuPrimitiveArray::from_slice_with_len(
-            self.unpacked.clone(),
-            self.len,
-        )))
+    fn result(&mut self) -> VortexResult<GpuVector> {
+        Ok(GpuVector::Primitive(
+            GpuPrimitiveVector::from_slice_with_len(self.unpacked.clone(), self.len),
+        ))
     }
 }
 

@@ -16,7 +16,7 @@ use vortex_expr::transform::{
     PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
 };
 use vortex_expr::{ExactExpr, ExprRef, col, root};
-use vortex_gpu::{GpuArray, GpuStructArray};
+use vortex_gpu::{GpuStructVector, GpuVector};
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -225,7 +225,7 @@ impl GpuLayoutReader for GpuStructReader {
                     // TODO(ngates): ideally we'd spawn these so the CPU can be utilized more effectively.
                     let field_arrays = try_join_all(field_evals).await?;
 
-                    Ok(vec![GpuArray::Struct(GpuStructArray::new(
+                    Ok(vec![GpuVector::Struct(GpuStructVector::new(
                         partitioned.partition_names.clone(),
                         field_arrays.into(),
                         len,

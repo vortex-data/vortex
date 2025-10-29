@@ -13,7 +13,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use crate::jit::convert::new_jit_array;
 use crate::jit::kernel_fmt::create_kernel;
 use crate::jit::{GPUPipelineJIT, GPUVisitor};
-use crate::{GpuArray, GpuPrimitiveArray};
+use crate::{GpuPrimitiveVector, GpuVector};
 
 pub struct RuntimeEvents {
     start: CudaEvent,
@@ -33,7 +33,7 @@ impl RuntimeEvents {
 pub fn create_run_jit_kernel(
     ctx: &Arc<CudaContext>,
     array: &ArrayRef,
-) -> VortexResult<(GpuArray, RuntimeEvents)> {
+) -> VortexResult<(GpuVector, RuntimeEvents)> {
     let stream = ctx.default_stream();
 
     let kernel_output_arr_name = "s_output";
@@ -79,7 +79,7 @@ pub fn create_run_jit_kernel(
             .ok()
             .vortex_expect("Failed to record event");
 
-        let c = GpuArray::Primitive(GpuPrimitiveArray::from_slice_with_len(out, array.len()));
+        let c = GpuVector::Primitive(GpuPrimitiveVector::from_slice_with_len(out, array.len()));
 
         Ok((c, RuntimeEvents { start, end }))
     })
