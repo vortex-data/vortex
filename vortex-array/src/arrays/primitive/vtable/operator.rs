@@ -6,10 +6,10 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_vector::PVector;
 
-use crate::ArrayRef;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::execution::{BatchKernelRef, BindCtx, kernel};
+use crate::execution::{kernel, BatchKernelRef, BindCtx};
 use crate::vtable::{OperatorVTable, ValidityHelper};
+use crate::ArrayRef;
 
 impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
     fn bind(

@@ -3,7 +3,6 @@
 
 mod batch;
 mod mask;
-mod optimizer;
 mod validity;
 
 pub use batch::*;

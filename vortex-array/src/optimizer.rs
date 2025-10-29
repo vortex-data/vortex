@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 
+use crate::vtable::VTable;
 use crate::{Array, ArrayRef, ArrayVisitor};
 
 impl dyn Array + '_ {
@@ -60,14 +61,32 @@ fn optimize_recursive(
     Ok(node)
 }
 
+/// An optimizer rule that tries to reduce/replace a parent array where the implementer is a
+/// child array in the `CHILD_IDX` position of the parent array.
+pub trait ReduceParent<Parent: VTable, const CHILD_IDX: usize>: VTable {
+    /// Try to reduce/replace the given parent array based on this child array.
+    ///
+    /// If no reduction is possible, return None.
+    fn reduce_parent(array: &Self::Array, parent: &Parent::Array)
+    -> VortexResult<Option<ArrayRef>>;
+}
+
+/// A generic optimizer rule that can be applied to an array to try to optimize it.
+pub trait OptimizerRule {
+    /// Try to optimize the given array, returning a replacement if successful.
+    ///
+    /// If no optimization is possible, return None.
+    fn optimize(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
-    use crate::IntoArray;
     use crate::arrays::{ConstantArray, ConstantVTable};
     use crate::compute::arrays::logical::{LogicalArray, LogicalOperator};
+    use crate::IntoArray;
 
     #[test]
     fn test_constant_fold_logical_and() {

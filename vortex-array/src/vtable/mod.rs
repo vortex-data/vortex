@@ -16,6 +16,7 @@ mod visitor;
 use std::fmt::Debug;
 use std::ops::Deref;
 
+use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
 pub use array::*;
 pub use canonical::*;
 pub use compute::*;
@@ -25,8 +26,6 @@ pub use operator::*;
 pub use serde::*;
 pub use validity::*;
 pub use visitor::*;
-
-use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
 
 /// The encoding [`VTable`] encapsulates logic for an Encoding type and associated Array type.
 /// The logic is split across several "VTable" traits to enable easier code organization than
