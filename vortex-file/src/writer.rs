@@ -29,6 +29,84 @@ use crate::footer::FileStatistics;
 use crate::segments::writer::BufferedSegmentSink;
 use crate::{Footer, MAGIC_BYTES, WriteStrategyBuilder};
 
+const DEFAULT_EXCLUDE_DTYPE: bool = false;
+const DEFAULT_MAX_VARIABLE_LENGTH_STATISTICS_SIZE: usize = 64;
+const DEFAULT_FILE_STATISTICS: &[Stat] = PRUNING_STATS;
+
+#[derive(Clone)]
+pub struct VortexWriteOptionsFactory {
+    strategy: Arc<dyn LayoutStrategy>,
+    exclude_dtype: Option<bool>,
+    max_variable_length_statistics_size: Option<usize>,
+    file_statistics: Option<Vec<Stat>>,
+}
+
+impl std::fmt::Debug for VortexWriteOptionsFactory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VortexWriteOptions")
+            .field("exclude_dtype", &self.exclude_dtype)
+            .field(
+                "max_variable_length_statistics_size",
+                &self.max_variable_length_statistics_size,
+            )
+            .field("file_statistics", &self.file_statistics)
+            .finish()
+    }
+}
+
+impl Default for VortexWriteOptionsFactory {
+    fn default() -> Self {
+        Self {
+            strategy: WriteStrategyBuilder::new().build(),
+            exclude_dtype: None,
+            max_variable_length_statistics_size: None,
+            file_statistics: None,
+        }
+    }
+}
+
+impl VortexWriteOptionsFactory {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
+        self.strategy = strategy;
+        self
+    }
+
+    pub fn exclude_dtype(mut self) -> Self {
+        self.exclude_dtype = Some(true);
+        self
+    }
+
+    pub fn with_max_variable_length_statistics_size(mut self, size: usize) -> Self {
+        self.max_variable_length_statistics_size = Some(size);
+        self
+    }
+
+    pub fn with_file_statistics(mut self, stats: Vec<Stat>) -> Self {
+        self.file_statistics = Some(stats);
+        self
+    }
+
+    pub fn build(&self) -> VortexWriteOptions {
+        VortexWriteOptions {
+            strategy: self.strategy.clone(),
+            exclude_dtype: self.exclude_dtype.clone().unwrap_or(DEFAULT_EXCLUDE_DTYPE),
+            max_variable_length_statistics_size: self
+                .max_variable_length_statistics_size
+                .clone()
+                .unwrap_or(DEFAULT_MAX_VARIABLE_LENGTH_STATISTICS_SIZE),
+            file_statistics: self
+                .file_statistics
+                .clone()
+                .unwrap_or_else(|| DEFAULT_FILE_STATISTICS.to_vec()),
+            handle: None,
+        }
+    }
+}
+
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
 /// Unless overridden, the default [write strategy][crate::WriteStrategyBuilder] will be used with no
@@ -45,9 +123,9 @@ impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
             strategy: WriteStrategyBuilder::new().build(),
-            exclude_dtype: false,
-            file_statistics: PRUNING_STATS.to_vec(),
-            max_variable_length_statistics_size: 64,
+            exclude_dtype: DEFAULT_EXCLUDE_DTYPE,
+            file_statistics: DEFAULT_FILE_STATISTICS.to_vec(),
+            max_variable_length_statistics_size: DEFAULT_MAX_VARIABLE_LENGTH_STATISTICS_SIZE,
             handle: Handle::find(),
         }
     }

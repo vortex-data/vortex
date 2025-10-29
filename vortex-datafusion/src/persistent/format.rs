@@ -32,7 +32,7 @@ use object_store::{ObjectMeta, ObjectStore};
 use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::{DType, Nullability, PType};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
-use vortex::file::VORTEX_FILE_EXTENSION;
+use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptionsFactory};
 use vortex::metrics::VortexMetrics;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
@@ -50,6 +50,7 @@ pub struct VortexFormat {
     session: Arc<VortexSession>,
     file_cache: VortexFileCache,
     opts: VortexOptions,
+    write_options_factory: Arc<VortexWriteOptionsFactory>,
 }
 
 impl Debug for VortexFormat {
@@ -81,6 +82,7 @@ impl Eq for VortexOptions {}
 pub struct VortexFormatFactory {
     session: Arc<VortexSession>,
     options: Option<VortexOptions>,
+    write_options_factory: Option<VortexWriteOptionsFactory>,
 }
 
 impl GetExt for VortexFormatFactory {
@@ -96,16 +98,7 @@ impl VortexFormatFactory {
         Self {
             session: Arc::new(VortexSession::default()),
             options: None,
-        }
-    }
-
-    /// Creates a new instance with customized session and default options for all [`VortexFormat`] instances created from this factory.
-    ///
-    /// The options can be overridden by table-level configuration pass in [`FileFormatFactory::create`].
-    pub fn new_with_options(session: Arc<VortexSession>, options: VortexOptions) -> Self {
-        Self {
-            session,
-            options: Some(options),
+            write_options_factory: None,
         }
     }
 
@@ -119,6 +112,23 @@ impl VortexFormatFactory {
     /// ```
     pub fn with_options(mut self, options: VortexOptions) -> Self {
         self.options = Some(options);
+        self
+    }
+
+    /// Override the default write options for this factory.
+    ////
+    /// For example:
+    /// ```rust
+    /// use vortex_datafusion::VortexFormatFactory;
+    /// use vortex::file::VortexWriteOptionsFactory;
+    ///
+    /// let factory = VortexFormatFactory::new().with_write_options(VortexWriteOptionsFactory::default());
+    /// ```
+    pub fn with_write_options_factory(
+        mut self,
+        write_options_factory: VortexWriteOptionsFactory,
+    ) -> Self {
+        self.write_options_factory = Some(write_options_factory);
         self
     }
 }
@@ -139,10 +149,13 @@ impl FileFormatFactory for VortexFormatFactory {
             }
         }
 
-        Ok(Arc::new(VortexFormat::new_with_options(
-            self.session.clone(),
-            opts,
-        )))
+        let write_opts = self.write_options_factory.clone().unwrap_or_default();
+
+        Ok(Arc::new(
+            VortexFormat::new(self.session.clone())
+                .with_options(opts)
+                .with_write_options_factory(write_opts),
+        ))
     }
 
     fn default(&self) -> Arc<dyn FileFormat> {
@@ -163,11 +176,7 @@ impl Default for VortexFormat {
 impl VortexFormat {
     /// Create a new instance with default options.
     pub fn new(session: Arc<VortexSession>) -> Self {
-        Self::new_with_options(session, VortexOptions::default())
-    }
-
-    /// Creates a new instance with configured by a [`VortexOptions`].
-    pub fn new_with_options(session: Arc<VortexSession>, opts: VortexOptions) -> Self {
+        let opts = VortexOptions::default();
         Self {
             session: session.clone(),
             file_cache: VortexFileCache::new(
@@ -176,12 +185,47 @@ impl VortexFormat {
                 session,
             ),
             opts,
+            write_options_factory: VortexWriteOptionsFactory::default().into(),
         }
+    }
+
+    /// Override the default options for this format.
+    ////
+    /// For example:
+    /// ```rust
+    /// use vortex_datafusion::{VortexFormat, VortexOptions};
+    ///
+    /// let format = VortexFormat::default().with_options(VortexOptions::default());
+    /// ```
+    pub fn with_options(mut self, opts: VortexOptions) -> Self {
+        self.opts = opts;
+        self
+    }
+
+    /// Override the default write options for this format.
+    //// For example:
+    /// ```rust
+    /// use vortex_datafusion::VortexFormat;
+    /// use vortex::file::VortexWriteOptions;
+    ///
+    /// let format = VortexFormat::default().with_write_options(VortexWriteOptions::default());
+    /// ```
+    pub fn with_write_options_factory(
+        mut self,
+        write_options_factory: impl Into<Arc<VortexWriteOptionsFactory>>,
+    ) -> Self {
+        self.write_options_factory = write_options_factory.into();
+        self
     }
 
     /// Return the format specific configuration
     pub fn options(&self) -> &VortexOptions {
         &self.opts
+    }
+
+    /// Return the write options
+    pub fn write_options_factory(&self) -> Arc<VortexWriteOptionsFactory> {
+        Arc::clone(&self.write_options_factory)
     }
 }
 
@@ -395,7 +439,7 @@ impl FileFormat for VortexFormat {
         }
 
         let schema = conf.output_schema().clone();
-        let sink = Arc::new(VortexSink::new(conf, schema));
+        let sink = Arc::new(VortexSink::new(conf, schema, self.write_options_factory()));
 
         Ok(Arc::new(DataSinkExec::new(input, sink, order_requirements)) as _)
     }

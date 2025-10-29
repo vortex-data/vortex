@@ -25,18 +25,27 @@ use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
-use vortex::file::VortexWriteOptions;
+use vortex::file::VortexWriteOptionsFactory;
 use vortex::io::{ObjectStoreWriter, VortexWrite};
 use vortex::stream::ArrayStreamAdapter;
 
 pub struct VortexSink {
     config: FileSinkConfig,
     schema: SchemaRef,
+    write_options_factory: Arc<VortexWriteOptionsFactory>,
 }
 
 impl VortexSink {
-    pub fn new(config: FileSinkConfig, schema: SchemaRef) -> Self {
-        Self { config, schema }
+    pub fn new(
+        config: FileSinkConfig,
+        schema: SchemaRef,
+        write_options_factory: Arc<VortexWriteOptionsFactory>,
+    ) -> Self {
+        Self {
+            config,
+            schema,
+            write_options_factory,
+        }
     }
 }
 
@@ -106,6 +115,7 @@ impl FileSink for VortexSink {
             let row_counter = row_counter.clone();
             let object_store = object_store.clone();
             let writer_schema = get_writer_schema(&self.config);
+            let write_options_factory = Arc::clone(&self.write_options_factory);
             let dtype = DType::from_arrow(writer_schema);
 
             // We need to spawn work because there's a dependency between the different files. If one file has too many batches buffered,
@@ -126,7 +136,8 @@ impl FileSink for VortexSink {
                         ))
                     })?;
 
-                VortexWriteOptions::default()
+                let write_options = write_options_factory.build();
+                write_options
                     .write(&mut sink, stream_adapter)
                     .await
                     .map_err(|e| {
