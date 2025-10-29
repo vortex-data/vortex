@@ -50,11 +50,11 @@ fn optimize_recursive(
     }
 
     // 4. If we have a parent, try reduce_parent (e.g., filter pushdown)
-    if let Some((parent, child_idx)) = parent_context {
-        if let Some(new_parent) = node.reduce_parent(parent, child_idx)? {
-            // This child replaced its parent! Return the replacement
-            return Ok(new_parent);
-        }
+    if let Some((parent, child_idx)) = parent_context
+        && let Some(new_parent) = node.reduce_parent(parent, child_idx)?
+    {
+        // This child replaced its parent! Return the replacement
+        return Ok(new_parent);
     }
 
     Ok(node)
@@ -65,9 +65,9 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
+    use crate::IntoArray;
     use crate::arrays::{ConstantArray, ConstantVTable};
     use crate::compute::arrays::logical::{LogicalArray, LogicalOperator};
-    use crate::IntoArray;
 
     #[test]
     fn test_constant_fold_logical_and() {
