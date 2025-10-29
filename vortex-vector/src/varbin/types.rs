@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Variable-length binary types and related traits.
+
 use std::fmt::Debug;
 
 use crate::{VarBinVector, VarBinVectorMut, Vector, VectorMut};
@@ -81,8 +83,11 @@ pub trait VarBinTypeUpcast {
     fn from_string(input: Self::Input<StringType>) -> Self;
 }
 
+/// Private module to seal the [`VarBinType`] trait.
 mod private {
+    /// Sealed trait to prevent external implementations of [`VarBinType`].
     pub trait Sealed {}
+
     impl Sealed for super::StringType {}
     impl Sealed for super::BinaryType {}
 }

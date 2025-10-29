@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! The 16-byte view struct stored in variable-length binary vectors.
+
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
@@ -8,15 +10,43 @@ use std::ops::Range;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_error::VortexUnwrap;
 
+/// A view over a variable-length binary value.
+///
+/// Either an inlined representation (for values <= 12 bytes) or a reference
+/// to an external buffer (for values > 12 bytes).
+#[derive(Clone, Copy)]
+#[repr(C, align(16))]
+pub union BinaryView {
+    /// Numeric representation. This is logically `u128`, but we split it into the high and low
+    /// bits to preserve the alignment.
+    le_bytes: [u8; 16],
+
+    /// Inlined representation: strings <= 12 bytes
+    inlined: Inlined,
+
+    /// Reference type: strings > 12 bytes.
+    _ref: Ref,
+}
+
+assert_eq_align!(BinaryView, u128);
+assert_eq_size!(BinaryView, [u8; 16]);
+assert_eq_size!(Inlined, [u8; 16]);
+assert_eq_size!(Ref, [u8; 16]);
+
+/// Variant of a [`BinaryView`] that holds an inlined value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C, align(8))]
 pub struct Inlined {
-    pub(super) size: u32,
-    pub(super) data: [u8; BinaryView::MAX_INLINED_SIZE],
+    /// The size of the full value.
+    pub size: u32,
+    /// The full inlined value.
+    pub data: [u8; BinaryView::MAX_INLINED_SIZE],
 }
 
 impl Inlined {
+    /// Creates a new inlined representation from the provided value of constant size.
     fn new<const N: usize>(value: &[u8]) -> Self {
+        debug_assert_eq!(value.len(), N);
         let mut inlined = Self {
             size: N.try_into().vortex_unwrap(),
             data: [0u8; BinaryView::MAX_INLINED_SIZE],
@@ -25,85 +55,50 @@ impl Inlined {
         inlined
     }
 
+    /// Returns the full inlined value.
     #[inline]
     pub fn value(&self) -> &[u8] {
         &self.data[0..(self.size as usize)]
     }
 }
 
+/// Variant of a [`BinaryView`] that holds a reference to an external buffer.
 #[derive(Clone, Copy, Debug)]
 #[repr(C, align(8))]
 pub struct Ref {
-    pub(super) size: u32,
-    pub(super) prefix: [u8; 4],
-    pub(super) buffer_index: u32,
-    pub(super) offset: u32,
+    /// The size of the full value.
+    pub size: u32,
+    /// The prefix bytes of the value (first 4 bytes).
+    pub prefix: [u8; 4],
+    /// The index of the buffer where the full value is stored.
+    pub buffer_index: u32,
+    /// The offset within the buffer where the full value starts.
+    pub offset: u32,
 }
 
 impl Ref {
-    pub fn new(size: u32, prefix: [u8; 4], buffer_index: u32, offset: u32) -> Self {
-        Self {
-            size,
-            prefix,
-            buffer_index,
-            offset,
-        }
-    }
-
-    #[inline]
-    pub fn size(&self) -> u32 {
-        self.size
-    }
-
-    #[inline]
-    pub fn buffer_index(&self) -> u32 {
-        self.buffer_index
-    }
-
-    #[inline]
-    pub fn offset(&self) -> u32 {
-        self.offset
-    }
-
-    #[inline]
-    pub fn prefix(&self) -> &[u8; 4] {
-        &self.prefix
-    }
-
+    /// Returns the range within the buffer where the full value is stored.
     #[inline]
     pub fn as_range(&self) -> Range<usize> {
         self.offset as usize..(self.offset + self.size) as usize
     }
 
+    /// Replaces the buffer index and offset of the reference, returning a new `Ref`.
     #[inline]
     pub fn with_buffer_and_offset(&self, buffer_index: u32, offset: u32) -> Ref {
-        Self::new(self.size, self.prefix, buffer_index, offset)
+        Self {
+            size: self.size,
+            prefix: self.prefix,
+            buffer_index,
+            offset,
+        }
     }
 }
 
-#[derive(Clone, Copy)]
-#[repr(C, align(16))]
-pub union BinaryView {
-    // Numeric representation. This is logically `u128`, but we split it into the high and low
-    // bits to preserve the alignment.
-    pub(super) le_bytes: [u8; 16],
-
-    // Inlined representation: strings <= 12 bytes
-    pub(super) inlined: Inlined,
-
-    // Reference type: strings > 12 bytes.
-    pub(super) _ref: Ref,
-}
-
-assert_eq_size!(BinaryView, [u8; 16]);
-assert_eq_size!(Inlined, [u8; 16]);
-assert_eq_size!(Ref, [u8; 16]);
-assert_eq_align!(BinaryView, u128);
-
 impl PartialEq for BinaryView {
     fn eq(&self, other: &Self) -> bool {
-        let a = unsafe { std::mem::transmute::<&BinaryView, &[u8; 16]>(self) };
-        let b = unsafe { std::mem::transmute::<&BinaryView, &[u8; 16]>(other) };
+        let a = unsafe { std::mem::transmute::<&BinaryView, &u128>(self) };
+        let b = unsafe { std::mem::transmute::<&BinaryView, &u128>(other) };
         a == b
     }
 }
@@ -111,7 +106,7 @@ impl Eq for BinaryView {}
 
 impl Hash for BinaryView {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        unsafe { std::mem::transmute::<&BinaryView, &[u8; 16]>(self) }.hash(state);
+        unsafe { std::mem::transmute::<&BinaryView, &u128>(self) }.hash(state);
     }
 }
 
@@ -122,7 +117,8 @@ impl Default for BinaryView {
 }
 
 impl BinaryView {
-    pub const MAX_INLINED_SIZE: usize = 12;
+    /// Maximum size of an inlined binary value.
+    const MAX_INLINED_SIZE: usize = 12;
 
     /// Create a view from a value, block and offset
     ///
@@ -174,12 +170,12 @@ impl BinaryView {
                 inlined: Inlined::new::<12>(value),
             },
             _ => Self {
-                _ref: Ref::new(
-                    u32::try_from(value.len()).vortex_unwrap(),
-                    value[0..4].try_into().vortex_unwrap(),
-                    block,
+                _ref: Ref {
+                    size: u32::try_from(value.len()).vortex_unwrap(),
+                    prefix: value[0..4].try_into().vortex_unwrap(),
+                    buffer_index: block,
                     offset,
-                ),
+                },
             },
         }
     }
@@ -202,30 +198,36 @@ impl BinaryView {
         Self::make_view(value, 0, 0)
     }
 
+    /// Returns the length of the binary value.
     #[inline]
     pub fn len(&self) -> u32 {
         unsafe { self.inlined.size }
     }
 
+    /// Returns true if the binary value is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Returns true if the binary value is inlined.
     #[inline]
     #[allow(clippy::cast_possible_truncation)]
     pub fn is_inlined(&self) -> bool {
         self.len() <= (Self::MAX_INLINED_SIZE as u32)
     }
 
+    /// Returns the inlined representation of the binary value.
     pub fn as_inlined(&self) -> &Inlined {
         unsafe { &self.inlined }
     }
 
+    /// Returns the reference representation of the binary value.
     pub fn as_view(&self) -> &Ref {
         unsafe { &self._ref }
     }
 
+    /// Returns the binary view as u128 representation.
     pub fn as_u128(&self) -> u128 {
         // SAFETY: binary view always safe to read as u128 LE bytes
         unsafe { u128::from_le_bytes(self.le_bytes) }

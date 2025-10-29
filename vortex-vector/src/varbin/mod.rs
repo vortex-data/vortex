@@ -29,7 +29,6 @@ impl VarBinTypeDowncast for Vector {
         if let Vector::Binary(v) = self {
             return v;
         }
-
         vortex_panic!("Expected BinaryVector, got {self:?}");
     }
 

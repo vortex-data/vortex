@@ -8,8 +8,8 @@ use std::ops::BitAnd;
 use vortex_dtype::NativePType;
 use vortex_mask::Mask;
 use vortex_vector::{
-    BoolVector, NullVector, PrimitiveVector, StructVector, Vector, match_each_pvector,
-    match_each_vector,
+    BoolVector, NullVector, PVector, PrimitiveVector, StructVector, VarBinType, VarBinVector,
+    Vector, match_each_pvector, match_each_vector,
 };
 
 /// Trait for masking the validity of an array or vector.
@@ -37,7 +37,8 @@ impl MaskValidity for NullVector {
 impl MaskValidity for BoolVector {
     fn mask_validity(self, mask: &Mask) -> Self {
         let (bits, validity) = self.into_parts();
-        Self::new(bits, validity.bitand(mask))
+        // SAFETY: we are preserving the original bits buffer and only modifying the validity.
+        unsafe { Self::new_unchecked(bits, validity.bitand(mask)) }
     }
 }
 
@@ -47,16 +48,26 @@ impl MaskValidity for PrimitiveVector {
     }
 }
 
-impl<T: NativePType> MaskValidity for vortex_vector::PVector<T> {
+impl<T: NativePType> MaskValidity for PVector<T> {
     fn mask_validity(self, mask: &Mask) -> Self {
         let (data, validity) = self.into_parts();
-        Self::new(data, validity.bitand(mask))
+        // SAFETY: we are preserving the original data buffer and only modifying the validity.
+        unsafe { Self::new_unchecked(data, validity.bitand(mask)) }
+    }
+}
+
+impl<T: VarBinType> MaskValidity for VarBinVector<T> {
+    fn mask_validity(self, mask: &Mask) -> Self {
+        let (views, buffers, validity) = self.into_parts();
+        // SAFETY: we are preserving the original views and buffers, only modifying the validity.
+        unsafe { Self::new_unchecked(views, buffers, validity.bitand(mask)) }
     }
 }
 
 impl MaskValidity for StructVector {
     fn mask_validity(self, mask: &Mask) -> Self {
         let (fields, validity) = self.into_parts();
-        StructVector::new(fields, validity.bitand(mask))
+        // SAFETY: we are preserving the original fields and only modifying the validity.
+        unsafe { StructVector::new_unchecked(fields, validity.bitand(mask)) }
     }
 }

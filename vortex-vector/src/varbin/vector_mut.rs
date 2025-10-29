@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::{BufferMut, ByteBuffer};
+//! Mutable variable-length binary vector.
+
+use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_mask::MaskMut;
 
 use crate::VectorMutOps;
@@ -10,31 +12,21 @@ use crate::varbin::vector::VarBinVector;
 use crate::varbin::view::BinaryView;
 
 /// Mutable variable-length binary vector.
+#[allow(dead_code)] // FIXME(ngates): remove after implementing the methods
 #[derive(Clone, Debug)]
 pub struct VarBinVectorMut<T: VarBinType> {
+    /// Views into the binary data.
     views: BufferMut<BinaryView>,
+    /// Validity mask for the vector.
     validity: MaskMut,
 
+    /// The completed buffers holding referenced binary data.
     buffers: Vec<ByteBuffer>,
-    open_buffer: Option<ByteBuffer>,
+    /// The current buffer being appended to, if any.
+    open_buffer: Option<ByteBufferMut>,
 
+    /// Marker trait for the [`VarBinType`].
     _marker: std::marker::PhantomData<T>,
-}
-
-impl<T: VarBinType> VarBinVectorMut<T> {
-    pub(super) fn new(
-        views: BufferMut<BinaryView>,
-        validity: MaskMut,
-        buffers: Vec<ByteBuffer>,
-    ) -> Self {
-        Self {
-            views,
-            validity,
-            buffers,
-            open_buffer: None,
-            _marker: std::marker::PhantomData,
-        }
-    }
 }
 
 impl<T: VarBinType> VectorMutOps for VarBinVectorMut<T> {
@@ -52,7 +44,7 @@ impl<T: VarBinType> VectorMutOps for VarBinVectorMut<T> {
         self.views.reserve(additional);
     }
 
-    fn extend_from_vector(&mut self, other: &Self::Immutable) {
+    fn extend_from_vector(&mut self, _other: &Self::Immutable) {
         todo!()
     }
 
@@ -65,11 +57,11 @@ impl<T: VarBinType> VectorMutOps for VarBinVectorMut<T> {
         todo!()
     }
 
-    fn split_off(&mut self, at: usize) -> Self {
+    fn split_off(&mut self, _at: usize) -> Self {
         todo!()
     }
 
-    fn unsplit(&mut self, other: Self) {
+    fn unsplit(&mut self, _other: Self) {
         todo!()
     }
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Variable-length binary vector implementation.
+
 use std::sync::Arc;
 
 use vortex_buffer::{Buffer, ByteBuffer};
@@ -14,9 +16,13 @@ use crate::varbin::view::BinaryView;
 /// A variable-length binary vector.
 #[derive(Debug, Clone)]
 pub struct VarBinVector<T: VarBinType> {
+    /// Views into the binary data.
     views: Buffer<BinaryView>,
-    validity: Mask,
+    /// Buffers holding the referenced binary data.
     buffers: Arc<Box<[ByteBuffer]>>,
+    /// Validity mask for the vector.
+    validity: Mask,
+    /// Marker trait for the [`VarBinType`].
     _marker: std::marker::PhantomData<T>,
 }
 
@@ -33,15 +39,20 @@ impl<T: VarBinType> VarBinVector<T> {
     /// - The `views` buffer correctly references the data in the `buffers`.
     pub unsafe fn new_unchecked(
         views: Buffer<BinaryView>,
-        validity: Mask,
         buffers: Arc<Box<[ByteBuffer]>>,
+        validity: Mask,
     ) -> Self {
         Self {
             views,
-            validity,
             buffers,
+            validity,
             _marker: std::marker::PhantomData,
         }
+    }
+
+    /// Decomposes the vector into its constituent parts.
+    pub fn into_parts(self) -> (Buffer<BinaryView>, Arc<Box<[ByteBuffer]>>, Mask) {
+        (self.views, self.buffers, self.validity)
     }
 }
 
