@@ -50,9 +50,7 @@ pub fn create_run_jit_kernel(
     let launch_config = LaunchConfig {
         grid_dim: (num_chunks, 1, 1),
         block_dim: (config.block_width, 1, 1),
-        shared_mem_bytes: u32::try_from(output.output_type().byte_width())
-            .vortex_expect("oversized output type byte width")
-            * 1024,
+        shared_mem_bytes: 0,
     };
 
     collect_args(output.as_ref(), stream.clone(), &mut launch_builder)?;

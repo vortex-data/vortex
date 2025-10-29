@@ -6,14 +6,11 @@ use std::sync::Arc;
 
 use futures::{Stream, TryStreamExt};
 use itertools::Itertools;
-use vortex_array::ArrayRef;
-use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_gpu::GpuVector;
-use vortex_io::runtime::{BlockingRuntime, Handle};
+use vortex_io::runtime::Handle;
 use vortex_layout::GpuLayoutReaderRef;
 
 use crate::gpu::gputask::{GpuTaskContext, TaskFuture, gpu_split_exec};
@@ -26,24 +23,6 @@ pub struct GpuScan<A: 'static + Send> {
     map_fn: Arc<dyn Fn(Vec<GpuVector>) -> VortexResult<Vec<A>> + Send + Sync>,
     /// The dtype of the projected arrays.
     dtype: DType,
-}
-
-impl GpuScan<ArrayRef> {
-    pub fn execute_array_iter<B: BlockingRuntime>(
-        &self,
-        runtime: &B,
-    ) -> VortexResult<impl ArrayIterator + 'static> {
-        let dtype = self.dtype.clone();
-        let stream = self.execute_stream()?;
-        let iter = runtime.block_on_stream(move |_h| stream);
-        Ok(ArrayIteratorAdapter::new(dtype, iter))
-    }
-
-    pub fn execute_array_stream(&self) -> VortexResult<impl ArrayStream + Send + 'static> {
-        let dtype = self.dtype.clone();
-        let stream = self.execute_stream()?;
-        Ok(ArrayStreamAdapter::new(dtype, stream))
-    }
 }
 
 impl<A: 'static + Send> GpuScan<A> {

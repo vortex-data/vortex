@@ -60,10 +60,11 @@ vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
+criterion = { version = "0.7", features = ["html_reports", "async", "async_tokio"] }
 tokio = { workspace = true, features = ["full"] }
-vortex-array = { workspace = true, features = ["test-harness"] }
-vortex-io = { workspace = true, features = ["tokio"] }
-vortex-scan = { workspace = true, features = ["tokio"] }
+vortex-array = { path = "../vortex-array", features = ["test-harness"] }
+vortex-io = { path = "../vortex-io", features = ["tokio"] }
+vortex-scan = { path = "../vortex-scan", features = ["tokio"] }
 
 [lints]
 workspace = true
@@ -85,3 +86,7 @@ gpu = [
     "vortex-layout/gpu",
     "vortex-scan/gpu",
 ]
+
+[[bench]]
+name = "gpu_scan"
+harness = false

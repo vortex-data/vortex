@@ -16,8 +16,7 @@ publish = false
 
 [dependencies]
 cudarc = { workspace = true, features = ["f16"] }
-itertools = { workspace = true }
-parking_lot = { workspace = true }
+dashmap = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true, features = ["cuda"] }
@@ -29,11 +28,14 @@ vortex-mask = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
-criterion = { version = "0.7", features = ["html_reports"] }
+criterion = { version = "0.7", features = ["html_reports", "async", "async_tokio"] }
 cudarc = { workspace = true, features = ["f16"] }
+futures = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
+tokio = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
+vortex-file = { workspace = true, features = ["tokio", "gpu"] }
 
 [build-dependencies]
 vortex-gpu-kernels = { workspace = true }
@@ -49,3 +51,4 @@ cuda = []
 [[bench]]
 name = "gpu_bitunpack"
 harness = false
+

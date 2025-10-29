@@ -38,7 +38,7 @@ impl UnpackKernelId {
 
 fn cuda_bit_unpack_kernel(
     kernel_id: UnpackKernelId,
-    ctx: Arc<CudaContext>,
+    ctx: &Arc<CudaContext>,
 ) -> VortexResult<CudaFunction> {
     let module = ctx
         .load_module(Ptx::from_file(format!(
@@ -66,7 +66,7 @@ fn cuda_bit_unpack_kernel(
 
 pub fn cuda_bit_unpack(
     array: &BitPackedArray,
-    ctx: Arc<CudaContext>,
+    ctx: &Arc<CudaContext>,
 ) -> VortexResult<PrimitiveArray> {
     let stream = ctx.default_stream();
     let mut task = new_task(array, ctx, stream)?;
@@ -79,10 +79,10 @@ pub fn cuda_bit_unpack(
 /// The input array must already be allocated on the GPU.
 pub fn cuda_bit_unpack_timed(
     array: &BitPackedArray,
-    ctx: Arc<CudaContext>,
+    ctx: &Arc<CudaContext>,
 ) -> VortexResult<Duration> {
     let stream = ctx.default_stream();
-    let mut task = new_task(array, ctx.clone(), stream.clone())?;
+    let mut task = new_task(array, ctx, stream.clone())?;
 
     let start = stream
         .record_event(Some(CU_EVENT_DEFAULT))
@@ -142,9 +142,10 @@ impl<P: UnsignedPType + DeviceRepr> BitPackingTask<P> {
     }
 }
 
+#[allow(clippy::as_ptr_cast_mut)]
 pub fn new_task(
     array: &BitPackedArray,
-    ctx: Arc<CudaContext>,
+    ctx: &Arc<CudaContext>,
     stream: Arc<CudaStream>,
 ) -> VortexResult<Box<dyn GPUTask>> {
     assert!(!array.is_empty());
@@ -169,7 +170,7 @@ pub fn new_task(
 
     match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |P| {
         let values = Buffer::<P>::from_byte_buffer(array.packed().clone());
-        // TODO(robert): You likely want to register (cuMemHostRegister) and unregister here
+
         let cu_slice = stream
             .memcpy_stod(values.as_slice())
             .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
@@ -217,7 +218,7 @@ impl<P: UnsignedPType + DeviceRepr> GPUTask for BitPackingTask<P> {
     }
 }
 
-#[cfg(all(target_os = "linux", feature = "cuda"))]
+// #[cfg(all(target_os = "linux", feature = "cuda"))]
 #[cfg(test)]
 mod tests {
     use cudarc::driver::CudaContext;
@@ -252,7 +253,7 @@ mod tests {
         );
 
         let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
-        let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
+        let unpacked = cuda_bit_unpack(&array, &ctx).unwrap();
 
         assert_eq!(
             primitive_array.as_slice::<u8>(),
@@ -291,7 +292,7 @@ mod tests {
         );
 
         let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
-        let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
+        let unpacked = cuda_bit_unpack(&array, &ctx).unwrap();
 
         assert_eq!(
             primitive_array.as_slice::<u16>(),
@@ -346,7 +347,7 @@ mod tests {
         );
 
         let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
-        let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
+        let unpacked = cuda_bit_unpack(&array, &ctx).unwrap();
 
         assert_eq!(
             primitive_array.as_slice::<u32>(),
@@ -433,7 +434,7 @@ mod tests {
         );
 
         let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_unwrap();
-        let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
+        let unpacked = cuda_bit_unpack(&array, &ctx).unwrap();
 
         assert_eq!(
             primitive_array.as_slice::<u64>(),

@@ -28,12 +28,12 @@ struct ForTask<P> {
 
 pub fn new_task(
     array: &FoRArray,
-    ctx: Arc<CudaContext>,
+    ctx: &Arc<CudaContext>,
     stream: Arc<CudaStream>,
 ) -> VortexResult<Box<dyn GPUTask>> {
     assert!(!array.is_empty());
     let bp = array.encoded().as_::<BitPackedVTable>();
-    let bp_task = bit_unpack::new_task(bp, ctx.clone(), stream.clone())?;
+    let bp_task = bit_unpack::new_task(bp, ctx, stream.clone())?;
 
     let num_chunks =
         u32::try_from(array.len().div_ceil(1024)).vortex_expect("Too many grid elements");
@@ -41,7 +41,7 @@ pub fn new_task(
     match_each_native_ptype!(array.ptype(), |P| {
         Ok(Box::new(ForTask {
             stream,
-            func: cuda_for_kernel(array.ptype(), &ctx)?,
+            func: cuda_for_kernel(array.ptype(), ctx)?,
             bp_task,
             result: None,
             launch_config: LaunchConfig {
@@ -94,10 +94,10 @@ impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {
 
 pub fn cuda_for_unpack_timed(
     array: &FoRArray,
-    ctx: Arc<CudaContext>,
+    ctx: &Arc<CudaContext>,
 ) -> VortexResult<(PrimitiveArray, Duration)> {
     let stream = ctx.default_stream();
-    let mut task = new_task(array, ctx.clone(), stream.clone())?;
+    let mut task = new_task(array, ctx, stream.clone())?;
     let start = stream
         .record_event(Some(CU_EVENT_DEFAULT))
         .ok()
@@ -121,7 +121,7 @@ pub fn cuda_for_unpack_timed(
         .map(|x| (x, time))
 }
 
-pub fn cuda_for_unpack(array: &FoRArray, ctx: Arc<CudaContext>) -> VortexResult<PrimitiveArray> {
+pub fn cuda_for_unpack(array: &FoRArray, ctx: &Arc<CudaContext>) -> VortexResult<PrimitiveArray> {
     let stream = ctx.default_stream();
     let mut task = new_task(array, ctx, stream)?;
     task.launch_task()?;
@@ -152,7 +152,7 @@ mod tests {
         let array = FoRArray::try_new(array.into_array(), 1u32.into()).vortex_unwrap();
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
-        let unpacked = cuda_for_unpack(&array, ctx).unwrap();
+        let unpacked = cuda_for_unpack(&array, &ctx).unwrap();
         let primitive_array = array.into_array().to_primitive();
         assert_eq!(
             primitive_array.as_slice::<u32>(),

@@ -2,13 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Write;
-use std::sync::Arc;
+use std::hash::BuildHasher;
+use std::sync::{Arc, LazyLock};
 
 use cudarc::driver::{CudaContext, CudaFunction};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_utils::aliases::dash_map::{DashMap, Entry};
 
 use crate::indent::{IndentedWrite, IndentedWriter};
 use crate::jit::{GPUKernelParameter, GPUPipelineJIT, GPUVisitor};
+
+static JIT_CACHE: LazyLock<DashMap<u64, CudaFunction>> = LazyLock::new(DashMap::default);
 
 struct DeclPrinter<'a, 'b: 'a> {
     w: &'a mut IndentedWrite<'b>,
@@ -115,15 +119,22 @@ pub fn create_kernel(
     create_kernel_str(w, array, kernel_out_array)
         .map_err(|e| vortex_err!("jit str cannot fail {e}"))?;
 
-    let module =
-        cudarc::nvrtc::compile_ptx(s.clone()).map_err(|e| vortex_err!("compile ptx {e}"))?;
+    match JIT_CACHE.entry(JIT_CACHE.hasher().hash_one(&s)) {
+        Entry::Occupied(oc) => Ok(oc.get().clone()),
+        Entry::Vacant(vac) => {
+            let module =
+                cudarc::nvrtc::compile_ptx(s).map_err(|e| vortex_err!("compile ptx {e}"))?;
 
-    // Dynamically load it into the device
-    let module = ctx
-        .load_module(module)
-        .map_err(|e| vortex_err!("load module {e}"))?;
+            // Dynamically load it into the device
+            let module = ctx
+                .load_module(module)
+                .map_err(|e| vortex_err!("load module {e}"))?;
 
-    module
-        .load_function("kernel")
-        .map_err(|e| vortex_err!("load_function {e}"))
+            let cuf = module
+                .load_function("kernel")
+                .map_err(|e| vortex_err!("load_function {e}"))?;
+            vac.insert(cuf.clone());
+            Ok(cuf)
+        }
+    }
 }

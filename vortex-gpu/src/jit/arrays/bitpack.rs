@@ -23,6 +23,7 @@ struct BitPack<P> {
     output_array: String,
 }
 
+#[allow(clippy::as_ptr_cast_mut)]
 pub fn new_jit(
     bp: &BitPackedArray,
     stream: &Arc<CudaStream>,
@@ -33,6 +34,7 @@ pub fn new_jit(
     assert!(bp.patches().is_none());
     match_each_native_ptype!(bp.ptype(), |P| {
         let values = Buffer::<P>::from_byte_buffer(bp.packed().clone());
+
         let cuda_slice = stream
             .memcpy_stod(values.as_slice())
             .map_err(|e| vortex_err!("Failed to copy to device: {e}"))

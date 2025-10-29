@@ -30,9 +30,10 @@ struct FoRBPTask<P> {
     len: usize,
 }
 
+#[allow(clippy::as_ptr_cast_mut)]
 pub fn new_task(
     array: &FoRArray,
-    ctx: Arc<CudaContext>,
+    ctx: &Arc<CudaContext>,
     stream: Arc<CudaStream>,
 ) -> VortexResult<Box<dyn GPUTask>> {
     assert!(!array.is_empty());
@@ -57,7 +58,7 @@ pub fn new_task(
 
     Ok(Box::new(FoRBPTask {
         stream,
-        func: cuda_for_bp_kernel(array.ptype(), &ctx)?,
+        func: cuda_for_bp_kernel(array.ptype(), ctx)?,
         launch_config: LaunchConfig {
             grid_dim: (num_chunks, 1, 1),
             block_dim: (32, 1, 1),
@@ -105,10 +106,10 @@ impl<P: NativePType + DeviceRepr> GPUTask for FoRBPTask<P> {
 
 pub fn cuda_for_bp_unpack_timed(
     array: &FoRArray,
-    ctx: Arc<CudaContext>,
+    ctx: &Arc<CudaContext>,
 ) -> VortexResult<(PrimitiveArray, Duration)> {
     let stream = ctx.default_stream();
-    let mut task = new_task(array, ctx.clone(), stream.clone())?;
+    let mut task = new_task(array, ctx, stream.clone())?;
     let start = stream
         .record_event(Some(CU_EVENT_DEFAULT))
         .ok()
@@ -132,7 +133,10 @@ pub fn cuda_for_bp_unpack_timed(
         .map(|x| (x, time))
 }
 
-pub fn cuda_for_bp_unpack(array: &FoRArray, ctx: Arc<CudaContext>) -> VortexResult<PrimitiveArray> {
+pub fn cuda_for_bp_unpack(
+    array: &FoRArray,
+    ctx: &Arc<CudaContext>,
+) -> VortexResult<PrimitiveArray> {
     let stream = ctx.default_stream();
     let mut task = new_task(array, ctx, stream)?;
     task.launch_task()?;
@@ -163,7 +167,7 @@ mod tests {
         let array = FoRArray::try_new(array.into_array(), 8u32.into()).vortex_unwrap();
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
-        let unpacked = cuda_for_bp_unpack(&array, ctx).unwrap();
+        let unpacked = cuda_for_bp_unpack(&array, &ctx).unwrap();
         let primitive_array = array.into_array().to_primitive();
         assert_eq!(
             primitive_array.as_slice::<u32>(),
