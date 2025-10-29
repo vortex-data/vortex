@@ -59,7 +59,7 @@ impl LayoutStrategy for RepartitionStrategy {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
         let dtype = stream.dtype().clone();
-        let stream = if self.options.canonicalize {
+        let stream = if self.options.canonicalize && !dtype.is_list() {
             SequentialStreamAdapter::new(
                 dtype.clone(),
                 stream.map(|chunk| {

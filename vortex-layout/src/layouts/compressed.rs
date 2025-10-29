@@ -135,9 +135,17 @@ impl LayoutStrategy for CompressingStrategy {
                 handle2.spawn_cpu(move || {
                     let (sequence_id, chunk) = chunk?;
                     // Compute the stats for the chunk prior to compression
-                    chunk
-                        .statistics()
-                        .compute_all(&Stat::all().collect::<Vec<_>>())?;
+                    chunk.statistics().compute_all(&[
+                        Stat::IsConstant,
+                        Stat::IsSorted,
+                        Stat::IsStrictSorted,
+                        Stat::Max,
+                        Stat::Min,
+                        Stat::Sum,
+                        Stat::NullCount,
+                        Stat::NaNCount,
+                    ])?;
+                    // .compute_all(&Stat::all().collect::<Vec<_>>())?;
                     Ok((sequence_id, compressor.compress_chunk(&chunk)?))
                 })
             })
