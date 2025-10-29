@@ -146,7 +146,13 @@ impl GpuLayoutReader for GpuChunkedLayoutReader {
 
         Ok(async move {
             let chunks: Vec<_> = chunk_evals.try_collect().await?;
-            Ok(chunks.into_iter().flatten().collect())
+            Ok(chunks
+                .into_iter()
+                .map(|mut c| {
+                    assert_eq!(c.len(), 1);
+                    c.pop().vortex_expect("must have one chunk")
+                })
+                .collect())
         }
         .boxed())
     }
