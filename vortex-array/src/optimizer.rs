@@ -6,15 +6,13 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, ArrayVisitor};
+use crate::{Array, ArrayRef};
 
-pub trait ArrayOptimizeExt {
-    /// Optimize the entire tree in a single bottom-up pass
-    fn optimize(&self) -> VortexResult<ArrayRef>;
-}
-
-impl ArrayOptimizeExt for ArrayRef {
-    fn optimize(&self) -> VortexResult<ArrayRef> {
+impl dyn Array + '_ {
+    /// Optimize this array by applying optimization rules recursively to its children in a single
+    /// bottom-up pass.
+    pub fn optimize(&self) -> VortexResult<ArrayRef> {
+        let slf = self.to_array();
         let children = self.children();
 
         let mut new_children = Vec::with_capacity(children.len());
@@ -23,7 +21,7 @@ impl ArrayOptimizeExt for ArrayRef {
             let child = child.optimize()?;
 
             // Check if the child can reduce us (its parent), and if so bail early.
-            if let Some(reduced) = child.reduce_parent(self, idx)? {
+            if let Some(reduced) = child.reduce_parent(&slf, idx)? {
                 return Ok(reduced);
             }
 
@@ -37,7 +35,7 @@ impl ArrayOptimizeExt for ArrayRef {
             return self.with_children(&new_children);
         }
 
-        Ok(self.to_array())
+        Ok(slf)
     }
 }
 
@@ -79,8 +77,7 @@ mod tests {
             array.into_array(),
             Validity::Array(BoolArray::from(bitbuffer![0 1 0 1]).into_array()),
         )
-        .unwrap()
-        .into_array();
+        .unwrap();
 
         let result = masked.optimize().unwrap();
         assert_eq!(masked.dtype(), result.dtype());
