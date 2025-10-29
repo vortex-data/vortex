@@ -15,7 +15,7 @@ pub use operator::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -25,7 +25,7 @@ use crate::arrays::{
     VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
+use crate::compute::{is_constant_opts, ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output};
 use crate::operator::OperatorRef;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
@@ -34,8 +34,8 @@ use crate::vtable::{
     VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
-    ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, EncodingId, EncodingRef,
-    SerializeMetadata, hash,
+    hash, ArrayEq, ArrayHash, Canonical, DynArrayEq, DynArrayHash, EncodingId,
+    EncodingRef, SerializeMetadata,
 };
 
 /// The public API trait for all Vortex arrays.
@@ -263,6 +263,7 @@ impl Array for Arc<dyn Array> {
         self.as_ref().statistics()
     }
 
+    // TODO(ngates): take a Vec<ArrayRef> to avoid clones
     fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
         self.as_ref().with_children(children)
     }

@@ -24,6 +24,12 @@ pub trait ArrayOperator: 'static + Send + Sync {
     /// Execute the array with a selection mask, producing a canonical vector.
     fn execute_with_selection(&self, selection: Option<&ArrayRef>) -> VortexResult<Vector>;
 
+    /// Optimize the array by running the optimization rules.
+    fn reduce_children(&self) -> VortexResult<Option<ArrayRef>>;
+
+    /// Optimize the array by pushing down a parent array.
+    fn reduce_parent(&self, parent: ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>>;
+
     /// Bind the array to a batch kernel. This is an internal function
     fn bind(
         &self,
@@ -33,6 +39,28 @@ pub trait ArrayOperator: 'static + Send + Sync {
 }
 
 impl ArrayOperator for Arc<dyn Array> {
+    fn execute_with_selection(&self, selection: Option<&ArrayRef>) -> VortexResult<Vector> {
+        self.as_ref().execute_with_selection(selection)
+    }
+
+    fn reduce_children(&self) -> VortexResult<Option<ArrayRef>> {
+        self.as_ref().reduce_children()
+    }
+
+    fn reduce_parent(&self, parent: ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
+        self.as_ref().reduce_parent(parent, child_idx)
+    }
+
+    fn bind(
+        &self,
+        selection: Option<&ArrayRef>,
+        ctx: &mut dyn BindCtx,
+    ) -> VortexResult<BatchKernelRef> {
+        self.as_ref().bind(selection, ctx)
+    }
+}
+
+impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
     fn execute_with_selection(&self, selection: Option<&ArrayRef>) -> VortexResult<Vector> {
         if let Some(selection) = selection.as_ref() {
             if !matches!(selection.dtype(), DType::Bool(_)) {
@@ -49,21 +77,15 @@ impl ArrayOperator for Arc<dyn Array> {
                 );
             }
         }
-        self.as_ref().execute_with_selection(selection)
-    }
-
-    fn bind(
-        &self,
-        selection: Option<&ArrayRef>,
-        ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernelRef> {
-        self.as_ref().bind(selection, ctx)
-    }
-}
-
-impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
-    fn execute_with_selection(&self, selection: Option<&ArrayRef>) -> VortexResult<Vector> {
         self.bind(selection, &mut ())?.execute()
+    }
+
+    fn reduce_children(&self) -> VortexResult<Option<ArrayRef>> {
+        <V::OperatorVTable as OperatorVTable<V>>::reduce_children(&self.0)
+    }
+
+    fn reduce_parent(&self, parent: ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
+        <V::OperatorVTable as OperatorVTable<V>>::reduce_parent(&self.0, parent, child_idx)
     }
 
     fn bind(
