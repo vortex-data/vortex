@@ -3,7 +3,6 @@
 
 use std::ops::{BitAnd, BitOr};
 
-use vortex_mask::Mask;
 use vortex_vector::{BoolVector, VectorOps};
 
 use crate::logical::LogicalOr;
@@ -25,22 +24,6 @@ impl LogicalOr<&BoolVector> for BoolVector {
 
     fn or(self, other: &BoolVector) -> BoolVector {
         (&self).or(other)
-    }
-}
-
-impl LogicalOr for &Mask {
-    type Output = Mask;
-
-    fn or(self, other: Self) -> Self::Output {
-        self.bitor(other)
-    }
-}
-
-impl LogicalOr<&Mask> for Mask {
-    type Output = Mask;
-
-    fn or(self, other: &Mask) -> Self::Output {
-        self.bitor(other)
     }
 }
 

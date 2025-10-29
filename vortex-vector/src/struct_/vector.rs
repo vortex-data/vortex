@@ -112,8 +112,8 @@ impl StructVector {
     }
 
     /// Decomposes the struct vector into its constituent parts (fields, validity, and length).
-    pub fn into_parts(self) -> (Arc<Box<[Vector]>>, Mask, usize) {
-        (self.fields, self.validity, self.len)
+    pub fn into_parts(self) -> (Arc<Box<[Vector]>>, Mask) {
+        (self.fields, self.validity)
     }
 
     /// Returns the fields of the `StructVector`, each stored column-wise as a [`Vector`].
