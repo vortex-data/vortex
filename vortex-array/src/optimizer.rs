@@ -64,7 +64,6 @@ mod tests {
     use vortex_vector::VectorOps;
 
     use crate::arrays::{BoolArray, MaskedArray, PrimitiveArray};
-    use crate::optimizer::ArrayOptimizeExt;
     use crate::validity::Validity;
     use crate::{ArrayOperator, IntoArray};
 
