@@ -15,12 +15,13 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::{BitPackedVTable, FoRArray};
 
 use crate::task::GPUTask;
-use crate::{GpuVector, bit_unpack};
+use crate::{GpuPrimitiveVector, GpuVector, bit_unpack};
 
 struct ForTask<P> {
     stream: Arc<CudaStream>,
     func: CudaFunction,
     bp_task: Box<dyn GPUTask>,
+    result: Option<GpuPrimitiveVector>,
     launch_config: LaunchConfig,
     reference: P,
 }
@@ -42,6 +43,7 @@ pub fn new_task(
             stream,
             func: cuda_for_kernel(array.ptype(), &ctx)?,
             bp_task,
+            result: None,
             launch_config: LaunchConfig {
                 grid_dim: (num_chunks, 1, 1),
                 block_dim: (32, 1, 1),
@@ -69,9 +71,13 @@ fn cuda_for_kernel(ptype: PType, ctx: &Arc<CudaContext>) -> VortexResult<CudaFun
 impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {
     fn launch_task(&mut self) -> VortexResult<()> {
         self.bp_task.launch_task()?;
+        self.result.replace(self.bp_task.result()?.into_primitive());
         let mut launch = self.stream.launch_builder(&self.func);
-        let mut result_array = self.bp_task.result()?.into_primitive();
-        let mut view = result_array.as_mut_slice::<P>();
+        let mut view = self
+            .result
+            .as_mut()
+            .vortex_expect("must have output")
+            .as_mut_slice::<P>();
         launch.arg(&mut view);
         launch.arg(&self.reference);
         unsafe { launch.launch(self.launch_config) }
@@ -80,7 +86,9 @@ impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {
     }
 
     fn result(&mut self) -> VortexResult<GpuVector> {
-        self.bp_task.result()
+        Ok(GpuVector::Primitive(
+            self.result.take().vortex_expect("must have output"),
+        ))
     }
 }
 
