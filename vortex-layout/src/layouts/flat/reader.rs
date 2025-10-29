@@ -55,7 +55,7 @@ impl FlatReader {
         // This is gross... see the function's TODO for a maybe better solution?
         let segment_fut = self.segment_source.request(self.layout.segment_id());
 
-        let ctx = self.layout.ctx.clone();
+        let ctx = self.layout.array_ctx().clone();
         let dtype = self.layout.dtype().clone();
         async move {
             let segment = segment_fut.await?;

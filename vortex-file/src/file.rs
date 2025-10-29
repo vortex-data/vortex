@@ -90,6 +90,20 @@ impl VortexFile {
         Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
     }
 
+    #[cfg(feature = "gpu")]
+    pub fn gpu_scan(
+        &self,
+        ctx: Arc<cudarc::driver::CudaContext>,
+    ) -> VortexResult<vortex_scan::gpu::GpuScanBuilder<vortex_gpu::GpuVector>> {
+        let segment_source = self.segment_source();
+        let gpu_reader = self
+            .footer
+            .layout()
+            .new_gpu_reader("".into(), segment_source, ctx)?;
+
+        Ok(vortex_scan::gpu::GpuScanBuilder::new(gpu_reader))
+    }
+
     /// Returns true if the expression will never match any rows in the file.
     pub fn can_prune(&self, filter: &ExprRef) -> VortexResult<bool> {
         let Some((stats, fields)) = self
