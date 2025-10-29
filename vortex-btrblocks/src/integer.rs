@@ -13,7 +13,10 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
-use vortex_fastlanes::{FoRArray, bit_width_histogram, bitpack_encode, find_best_bit_width};
+use vortex_fastlanes::FoRArray;
+use vortex_fastlanes::bitpack_compress::{
+    bit_width_histogram, bitpack_encode, find_best_bit_width,
+};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;

@@ -79,7 +79,7 @@ fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
 // Primitive compression benchmarks
 #[divan::bench(name = "bitpacked_compress_u32")]
 fn bench_bitpacked_compress_u32(bencher: Bencher) {
-    use vortex::encodings::fastlanes::bitpack_encode_unchecked;
+    use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode_unchecked;
 
     let (uint_array, ..) = setup_primitive_arrays();
     let bit_width = 8;
@@ -91,7 +91,7 @@ fn bench_bitpacked_compress_u32(bencher: Bencher) {
 
 #[divan::bench(name = "bitpacked_decompress_u32")]
 fn bench_bitpacked_decompress_u32(bencher: Bencher) {
-    use vortex::encodings::fastlanes::bitpack_encode;
+    use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode;
 
     let (uint_array, ..) = setup_primitive_arrays();
     let bit_width = 8;

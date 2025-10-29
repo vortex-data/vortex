@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ProstMetadata;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper, VisitorVTable};
-use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, Canonical, ProstMetadata};
+use vortex_array::vtable::SerdeVTable;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
-use super::{BitPackedEncoding, bit_width_histogram, find_best_bit_width};
-use crate::{BitPackedArray, BitPackedVTable, bitpack_encode};
+use super::BitPackedEncoding;
+use crate::{BitPackedArray, BitPackedVTable};
 
 #[derive(Clone, prost::Message)]
 pub struct BitPackedMetadata {
@@ -118,58 +118,5 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
                 )
             })?,
         )
-    }
-}
-
-impl EncodeVTable<BitPackedVTable> for BitPackedVTable {
-    fn encode(
-        _encoding: &BitPackedEncoding,
-        canonical: &Canonical,
-        like: Option<&BitPackedArray>,
-    ) -> VortexResult<Option<BitPackedArray>> {
-        let parray = canonical.clone().into_primitive();
-
-        let bit_width = like
-            .map(|like_array| like_array.bit_width())
-            // Only reuse the bitwidth if its smaller than the array's original bitwidth.
-            .filter(|bw| (*bw as usize) < parray.ptype().bit_width());
-
-        // In our current benchmark suite this seems to be the faster option,
-        // but it has an unbounded worst-case where some array becomes all patches.
-        let (bit_width, bit_width_histogram) = match bit_width {
-            Some(bw) => (bw, None),
-            None => {
-                let histogram = bit_width_histogram(&parray)?;
-                let bit_width = find_best_bit_width(parray.ptype(), &histogram)?;
-                (bit_width, Some(histogram))
-            }
-        };
-
-        if bit_width as usize == parray.ptype().bit_width()
-            || parray.ptype().is_signed_int()
-                && parray.statistics().compute_min::<i64>().unwrap_or_default() < 0
-        {
-            // Bit-packed compression not supported.
-            return Ok(None);
-        }
-
-        Ok(Some(bitpack_encode(
-            &parray,
-            bit_width,
-            bit_width_histogram.as_deref(),
-        )?))
-    }
-}
-
-impl VisitorVTable<BitPackedVTable> for BitPackedVTable {
-    fn visit_buffers(array: &BitPackedArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(array.packed());
-    }
-
-    fn visit_children(array: &BitPackedArray, visitor: &mut dyn ArrayChildVisitor) {
-        if let Some(patches) = array.patches() {
-            visitor.visit_patches(patches);
-        }
-        visitor.visit_validity(array.validity(), array.len());
     }
 }
