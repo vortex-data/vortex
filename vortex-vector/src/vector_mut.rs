@@ -11,6 +11,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
 use super::macros::match_each_vector_mut;
+use crate::varbin::{BinaryVectorMut, StringVectorMut};
 use crate::{
     BoolVectorMut, NullVectorMut, PrimitiveVectorMut, StructVectorMut, Vector, VectorMutOps,
 };
@@ -35,6 +36,10 @@ pub enum VectorMut {
     /// Note that [`PrimitiveVectorMut`] is an enum over the different possible (generic)
     /// [`PVectorMut<T>`](crate::PVectorMut)s. See the documentation for more information.
     Primitive(PrimitiveVectorMut),
+    /// Mutable String vectors.
+    String(StringVectorMut),
+    /// Mutable Binary vectors.
+    Binary(BinaryVectorMut),
     /// Mutable vectors of Struct elements.
     Struct(StructVectorMut),
 }
@@ -115,6 +120,8 @@ impl VectorMutOps for VectorMut {
             (VectorMut::Null(a), VectorMut::Null(b)) => a.unsplit(b),
             (VectorMut::Bool(a), VectorMut::Bool(b)) => a.unsplit(b),
             (VectorMut::Primitive(a), VectorMut::Primitive(b)) => a.unsplit(b),
+            (VectorMut::String(a), VectorMut::String(b)) => a.unsplit(b),
+            (VectorMut::Binary(a), VectorMut::Binary(b)) => a.unsplit(b),
             (VectorMut::Struct(a), VectorMut::Struct(b)) => a.unsplit(b),
             _ => vortex_panic!("Mismatched vector types"),
         }
@@ -144,6 +151,22 @@ impl VectorMut {
             return v;
         }
         vortex_panic!("Expected PrimitiveVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`StringVectorMut`] if `self` is of that variant.
+    pub fn as_string(&self) -> &StringVectorMut {
+        if let VectorMut::String(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StringVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`BinaryVectorMut`] if `self` is of that variant.
+    pub fn as_binary(&self) -> &BinaryVectorMut {
+        if let VectorMut::Binary(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BinaryVectorMut, got {self:?}");
     }
 
     /// Returns a reference to the inner [`StructVectorMut`] if `self` is of that variant.
@@ -176,6 +199,22 @@ impl VectorMut {
             return v;
         }
         vortex_panic!("Expected PrimitiveVectorMut, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`StringVectorMut`] if `self` is of that variant.
+    pub fn into_string(self) -> StringVectorMut {
+        if let VectorMut::String(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StringVectorMut, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`BinaryVectorMut`] if `self` is of that variant.
+    pub fn into_binary(self) -> BinaryVectorMut {
+        if let VectorMut::Binary(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BinaryVectorMut, got {self:?}");
     }
 
     /// Consumes `self` and returns the inner [`StructVectorMut`] if `self` is of that variant.

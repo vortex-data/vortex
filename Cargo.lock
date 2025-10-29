@@ -9373,6 +9373,7 @@ dependencies = [
 name = "vortex-vector"
 version = "0.1.0"
 dependencies = [
+ "static_assertions",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",

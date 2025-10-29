@@ -9,6 +9,7 @@
 use vortex_error::vortex_panic;
 
 use crate::macros::match_each_vector;
+use crate::varbin::{BinaryVector, StringVector};
 use crate::{BoolVector, NullVector, PrimitiveVector, StructVector, VectorMut, VectorOps};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
@@ -33,10 +34,10 @@ pub enum Vector {
     Primitive(PrimitiveVector),
     // Decimal
     // Decimal(DecimalVector),
-    // String
-    // String(StringVector),
-    // Binary
-    // Binary(BinaryVector),
+    /// String vectors
+    String(StringVector),
+    /// Binary vectors
+    Binary(BinaryVector),
     // List
     // List(ListVector),
     // FixedList
@@ -93,6 +94,22 @@ impl Vector {
         vortex_panic!("Expected PrimitiveVector, got {self:?}");
     }
 
+    /// Returns a reference to the inner [`StringVector`] if `self` is of that variant.
+    pub fn as_string(&self) -> &StringVector {
+        if let Vector::String(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StringVector, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`BinaryVector`] if `self` is of that variant.
+    pub fn as_binary(&self) -> &BinaryVector {
+        if let Vector::Binary(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BinaryVector, got {self:?}");
+    }
+
     /// Returns a reference to the inner [`StructVector`] if `self` is of that variant.
     pub fn as_struct(&self) -> &StructVector {
         if let Vector::Struct(v) = self {
@@ -123,6 +140,22 @@ impl Vector {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`StringVector`] if `self` is of that variant.
+    pub fn into_string(self) -> StringVector {
+        if let Vector::String(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StringVector, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`BinaryVector`] if `self` is of that variant.
+    pub fn into_binary(self) -> BinaryVector {
+        if let Vector::Binary(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BinaryVector, got {self:?}");
     }
 
     /// Consumes `self` and returns the inner [`StructVector`] if `self` is of that variant.

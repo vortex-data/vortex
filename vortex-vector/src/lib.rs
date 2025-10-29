@@ -15,11 +15,16 @@ mod bool;
 mod null;
 mod primitive;
 mod struct_;
+mod varbin;
 
 pub use bool::{BoolVector, BoolVectorMut};
 pub use null::{NullVector, NullVectorMut};
 pub use primitive::{PVector, PVectorMut, PrimitiveVector, PrimitiveVectorMut};
 pub use struct_::{StructVector, StructVectorMut};
+pub use varbin::{
+    BinaryVector, BinaryVectorMut, StringVector, StringVectorMut, VarBinType, VarBinVector,
+    VarBinVectorMut,
+};
 
 mod ops;
 mod vector;

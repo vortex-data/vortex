@@ -49,6 +49,14 @@ macro_rules! match_each_vector {
                 let $vec = v;
                 $body
             }
+            $crate::Vector::String(v) => {
+                let $vec = v;
+                $body
+            }
+            $crate::Vector::Binary(v) => {
+                let $vec = v;
+                $body
+            }
             $crate::Vector::Struct(v) => {
                 let $vec = v;
                 $body
@@ -101,6 +109,14 @@ macro_rules! match_each_vector_mut {
                 $body
             }
             $crate::VectorMut::Primitive(v) => {
+                let $vec = v;
+                $body
+            }
+            $crate::VectorMut::String(v) => {
+                let $vec = v;
+                $body
+            }
+            $crate::VectorMut::Binary(v) => {
                 let $vec = v;
                 $body
             }
