@@ -52,7 +52,7 @@ impl VTable for IsNotNullVTable {
     type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::from("vortex.is_null")
+        EncodingId::from("vortex.is_not_null")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
@@ -62,7 +62,7 @@ impl VTable for IsNotNullVTable {
 
 impl ArrayVTable<IsNotNullVTable> for IsNotNullVTable {
     fn len(array: &IsNotNullArray) -> usize {
-        array.len()
+        array.child.len()
     }
 
     fn dtype(_array: &IsNotNullArray) -> &DType {

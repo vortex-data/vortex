@@ -63,7 +63,7 @@ impl VTable for IsNullVTable {
 
 impl ArrayVTable<IsNullVTable> for IsNullVTable {
     fn len(array: &IsNullArray) -> usize {
-        array.len()
+        array.child.len()
     }
 
     fn dtype(_array: &IsNullArray) -> &DType {

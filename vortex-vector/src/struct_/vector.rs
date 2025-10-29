@@ -154,7 +154,7 @@ impl VectorOps for StructVector {
             }
         };
 
-        // Convert all of the remaining fields to mutable, if possible.
+        // Convert all the remaining fields to mutable, if possible.
         let mut mutable_fields = Vec::with_capacity(fields.len());
         let mut fields_iter = fields.into_iter();
 

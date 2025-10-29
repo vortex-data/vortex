@@ -369,6 +369,18 @@ impl DType {
         }
     }
 
+    /// Returns the [`StructFields`] from a struct [`DType`].
+    ///
+    /// # Panics
+    ///
+    /// If the [`DType`] is not a struct.
+    pub fn as_struct_fields(&self) -> &StructFields {
+        if let Struct(f, _) = self {
+            return f;
+        }
+        vortex_panic!("DType is not a Struct")
+    }
+
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
     pub fn as_struct_fields_opt(&self) -> Option<&StructFields> {
         if let Struct(f, _) = self {
