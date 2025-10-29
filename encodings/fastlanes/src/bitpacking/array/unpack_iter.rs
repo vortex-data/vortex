@@ -13,7 +13,8 @@ use vortex_array::builders::UninitRange;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::PhysicalPType;
 
-use crate::{BitPackedArray, BitPackingStrategy};
+use crate::BitPackedArray;
+use crate::bitpack_compress::BitPackingStrategy;
 
 const CHUNK_SIZE: usize = 1024;
 

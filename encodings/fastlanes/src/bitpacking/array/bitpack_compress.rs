@@ -571,7 +571,7 @@ mod test {
 
     use super::*;
     use crate::BitPackedVTable;
-    use crate::bitpacking::compress::test_harness::make_array;
+    use crate::bitpacking::bitpack_compress::test_harness::make_array;
 
     #[test]
     fn test_all_zeros() {

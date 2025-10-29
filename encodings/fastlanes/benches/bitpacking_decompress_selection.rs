@@ -15,7 +15,7 @@ use vortex_array::compute::{filter, warm_up_vtables};
 use vortex_array::{Array, IntoArray as _, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::IntegerPType;
-use vortex_fastlanes::bitpack_to_best_bit_width;
+use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 use vortex_mask::Mask;
 
 fn main() {
