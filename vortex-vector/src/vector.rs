@@ -43,8 +43,6 @@ pub enum Vector {
     // FixedList(FixedListVector),
     /// Vectors of Struct elements.
     Struct(StructVector),
-    // Extension
-    // Extension(ExtensionVector),
 }
 
 impl VectorOps for Vector {

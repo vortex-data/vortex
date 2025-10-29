@@ -28,7 +28,7 @@ pub trait ArrayOperator: 'static + Send + Sync {
     fn reduce_children(&self) -> VortexResult<Option<ArrayRef>>;
 
     /// Optimize the array by pushing down a parent array.
-    fn reduce_parent(&self, parent: ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>>;
+    fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>>;
 
     /// Bind the array to a batch kernel. This is an internal function
     fn bind(
@@ -47,7 +47,7 @@ impl ArrayOperator for Arc<dyn Array> {
         self.as_ref().reduce_children()
     }
 
-    fn reduce_parent(&self, parent: ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
+    fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
         self.as_ref().reduce_parent(parent, child_idx)
     }
 
@@ -84,7 +84,7 @@ impl<V: VTable> ArrayOperator for ArrayAdapter<V> {
         <V::OperatorVTable as OperatorVTable<V>>::reduce_children(&self.0)
     }
 
-    fn reduce_parent(&self, parent: ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
+    fn reduce_parent(&self, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>> {
         <V::OperatorVTable as OperatorVTable<V>>::reduce_parent(&self.0, parent, child_idx)
     }
 

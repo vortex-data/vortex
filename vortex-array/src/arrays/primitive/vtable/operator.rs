@@ -6,10 +6,10 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_vector::PVector;
 
-use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::execution::{kernel, BatchKernelRef, BindCtx};
+use crate::arrays::{MaskedVTable, PrimitiveArray, PrimitiveVTable};
+use crate::execution::{BatchKernelRef, BindCtx, kernel};
 use crate::vtable::{OperatorVTable, ValidityHelper};
-use crate::ArrayRef;
+use crate::{ArrayRef, IntoArray};
 
 impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
     fn bind(
@@ -33,5 +33,25 @@ impl OperatorVTable<PrimitiveVTable> for PrimitiveVTable {
                 Ok(PVector::try_new(elements, validity)?.into())
             }))
         })
+    }
+
+    fn reduce_parent(
+        array: &PrimitiveArray,
+        parent: &ArrayRef,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Push-down masking of validity from parent MaskedVTable.
+        if let Some(masked) = parent.as_opt::<MaskedVTable>() {
+            return Ok(Some(
+                PrimitiveArray::from_byte_buffer(
+                    array.byte_buffer().clone(),
+                    array.ptype(),
+                    array.validity().clone().and(masked.validity().clone()),
+                )
+                .into_array(),
+            ));
+        }
+
+        Ok(None)
     }
 }

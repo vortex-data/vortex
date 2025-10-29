@@ -8,57 +8,37 @@ use vortex_error::VortexResult;
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, ArrayVisitor};
 
-impl dyn Array + '_ {
+pub trait ArrayOptimizeExt {
     /// Optimize the entire tree in a single bottom-up pass
-    pub fn optimize(&self) -> VortexResult<ArrayRef> {
-        optimize_recursive(&self.to_array(), None)
-    }
+    fn optimize(&self) -> VortexResult<ArrayRef>;
 }
 
-fn optimize_recursive(
-    node: &ArrayRef,
-    parent_context: Option<(ArrayRef, usize)>,
-) -> VortexResult<ArrayRef> {
-    // 1. Recursively optimize all children first (post-order traversal)
-    let node_children = node.children();
-    let optimized_children: VortexResult<Vec<_>> = node_children
-        .iter()
-        .enumerate()
-        .map(|(idx, child)| optimize_recursive(child, Some((node.clone(), idx))))
-        .collect();
+impl ArrayOptimizeExt for ArrayRef {
+    fn optimize(&self) -> VortexResult<ArrayRef> {
+        let children = self.children();
 
-    let optimized_children = optimized_children?;
+        let mut new_children = Vec::with_capacity(children.len());
+        let mut children_modified = false;
+        for (idx, child) in children.iter().enumerate() {
+            let child = child.optimize()?;
 
-    // 2. Rebuild node with optimized children if any changed
-    let mut node = if !optimized_children.is_empty() {
-        let any_changed = node_children
-            .iter()
-            .zip(&optimized_children)
-            .any(|(old, new)| !Arc::ptr_eq(old, new));
+            // Check if the child can reduce us (its parent), and if so bail early.
+            if let Some(reduced) = child.reduce_parent(self, idx)? {
+                return Ok(reduced);
+            }
 
-        if any_changed {
-            node.with_children(&optimized_children)?
-        } else {
-            node.clone()
+            if !Arc::ptr_eq(&child, &children[idx]) {
+                children_modified = true;
+            }
+            new_children.push(child);
         }
-    } else {
-        node.clone()
-    };
 
-    // 3. Try reduce_children (e.g., constant folding with optimized children)
-    if let Some(reduced) = node.reduce_children()? {
-        node = reduced;
+        if children_modified {
+            return self.with_children(&new_children);
+        }
+
+        Ok(self.to_array())
     }
-
-    // 4. If we have a parent, try reduce_parent (e.g., filter pushdown)
-    if let Some((parent, child_idx)) = parent_context
-        && let Some(new_parent) = node.reduce_parent(parent, child_idx)?
-    {
-        // This child replaced its parent! Return the replacement
-        return Ok(new_parent);
-    }
-
-    Ok(node)
 }
 
 /// An optimizer rule that tries to reduce/replace a parent array where the implementer is a
@@ -81,28 +61,33 @@ pub trait OptimizerRule {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
+    use vortex_buffer::{bitbuffer, buffer};
+    use vortex_dtype::PTypeDowncast;
+    use vortex_vector::VectorOps;
 
-    use crate::arrays::{ConstantArray, ConstantVTable};
-    use crate::compute::arrays::logical::{LogicalArray, LogicalOperator};
-    use crate::IntoArray;
+    use crate::arrays::{BoolArray, MaskedArray, PrimitiveArray};
+    use crate::optimizer::ArrayOptimizeExt;
+    use crate::validity::Validity;
+    use crate::{ArrayOperator, IntoArray};
 
     #[test]
-    fn test_constant_fold_logical_and() {
-        // Create two constant boolean arrays: AND(true, false) => false
-        let lhs = ConstantArray::new(Scalar::bool(true, Nullability::NonNullable), 10).into_array();
-        let rhs =
-            ConstantArray::new(Scalar::bool(false, Nullability::NonNullable), 10).into_array();
+    fn test_masked_pushdown() {
+        let array = PrimitiveArray::from_iter([0u32, 1, 2, 3]);
+        assert!(!array.dtype().is_nullable());
 
-        let logical_and = LogicalArray::new(lhs, rhs, LogicalOperator::And).into_array();
+        let masked = MaskedArray::try_new(
+            array.into_array(),
+            Validity::Array(BoolArray::from(bitbuffer![0 1 0 1]).into_array()),
+        )
+        .unwrap()
+        .into_array();
 
-        // Optimize should fold this to a constant false array
-        let optimized = logical_and.optimize().unwrap();
+        let result = masked.optimize().unwrap();
+        assert_eq!(masked.dtype(), result.dtype());
+        assert!(result.dtype().is_nullable());
 
-        // Check if the result is a constant array with value false
-        let constant = optimized.as_::<ConstantVTable>();
-        assert_eq!(constant.scalar().as_bool().value(), Some(false));
-        assert_eq!(optimized.len(), 10);
+        let vector = result.execute().unwrap().into_primitive().into_u32();
+        assert_eq!(vector.elements(), &buffer![0, 1, 2, 3]);
+        assert_eq!(vector.validity().to_bit_buffer(), bitbuffer![0 1 0 1]);
     }
 }
