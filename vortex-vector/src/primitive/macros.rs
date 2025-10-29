@@ -40,6 +40,7 @@
 ///
 /// [`PrimitiveVector`]: crate::PrimitiveVector
 /// [`VectorOps`]: crate::VectorOps
+#[macro_export]
 macro_rules! match_each_pvector {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
