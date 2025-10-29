@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::varbin::vector::VarBinVector;
-use crate::varbin::view::BinaryView;
-use crate::varbin::VarBinType;
-use crate::VectorMutOps;
 use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_mask::MaskMut;
+
+use crate::VectorMutOps;
+use crate::varbin::VarBinType;
+use crate::varbin::vector::VarBinVector;
+use crate::varbin::view::BinaryView;
 
 /// Mutable variable-length binary vector.
 #[derive(Clone, Debug)]

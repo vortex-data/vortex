@@ -17,14 +17,11 @@ mod primitive;
 mod struct_;
 mod varbin;
 
-pub use bool::{BoolVector, BoolVectorMut};
-pub use null::{NullVector, NullVectorMut};
-pub use primitive::{PVector, PVectorMut, PrimitiveVector, PrimitiveVectorMut};
-pub use struct_::{StructVector, StructVectorMut};
-pub use varbin::{
-    BinaryVector, BinaryVectorMut, StringVector, StringVectorMut, VarBinType, VarBinVector,
-    VarBinVectorMut,
-};
+pub use bool::*;
+pub use null::*;
+pub use primitive::*;
+pub use struct_::*;
+pub use varbin::*;
 
 mod ops;
 mod vector;
