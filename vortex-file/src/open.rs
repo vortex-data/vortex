@@ -17,8 +17,7 @@ use vortex_layout::segments::{
     SharedSegmentSource,
 };
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
-use vortex_metrics::VortexMetrics;
-use vortex_session::VortexSession;
+use vortex_metrics::{MetricsSessionExt, VortexMetrics};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
@@ -57,16 +56,16 @@ impl Default for VortexOpenOptions {
     }
 }
 
-pub trait OpenOptionsSessionExt {
-    fn open(&self) -> VortexOpenOptions;
-}
-
-impl OpenOptionsSessionExt for VortexSession {
+/// Session extension for opening Vortex files.
+pub trait OpenOptionsSessionExt: ArraySessionExt {
     fn open(&self) -> VortexOpenOptions {
         // Construct the open options using values from session's array registry.
-        VortexOpenOptions::new().with_array_registry(self.array_registry())
+        VortexOpenOptions::new()
+            .with_array_registry(self.array_registry())
+            .with_metrics(self.metrics())
     }
 }
+impl<T: ArraySessionExt> OpenOptionsSessionExt for T {}
 
 impl VortexOpenOptions {
     /// Create a new [`VortexOpenOptions`] with the expected options for the file source.

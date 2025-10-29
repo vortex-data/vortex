@@ -16,9 +16,25 @@ use vortex_error::VortexExpect;
 #[derive(Default, Clone, Debug)]
 pub struct VortexSession(Arc<SessionVars>);
 
-impl VortexSession {
+/// Trait for accessing and modifying the state of a Vortex session.
+pub trait SessionExt: private::Sealed {
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
-    pub fn get<V: SessionVar + Default>(&self) -> impl Deref<Target = V> {
+    fn get<V: SessionVar + Default>(&self) -> impl Deref<Target = V>;
+
+    /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
+    ///
+    /// Note that the returned value internally holds a lock on the variable.
+    fn get_mut<V: SessionVar + Default>(&self) -> impl DerefMut<Target = V>;
+}
+
+mod private {
+    pub trait Sealed {}
+    impl Sealed for super::VortexSession {}
+}
+
+impl SessionExt for VortexSession {
+    /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
+    fn get<V: SessionVar + Default>(&self) -> impl Deref<Target = V> {
         self.0
             .entry(TypeId::of::<V>())
             .or_insert_with(|| Box::new(V::default()))
@@ -33,7 +49,7 @@ impl VortexSession {
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
     ///
     /// Note that the returned value internally holds a lock on the variable.
-    pub fn get_mut<V: SessionVar + Default>(&self) -> impl DerefMut<Target = V> {
+    fn get_mut<V: SessionVar + Default>(&self) -> impl DerefMut<Target = V> {
         self.0
             .entry(TypeId::of::<V>())
             .or_insert_with(|| Box::new(V::default()))

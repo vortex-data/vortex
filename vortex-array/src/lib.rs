@@ -12,7 +12,6 @@
 //! Every data type recognized by Vortex also has a canonical physical encoding format, which
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 
-use crate::vtable::VTable;
 pub use array::*;
 pub use canonical::*;
 pub use context::*;
@@ -21,7 +20,7 @@ pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
 use std::sync::Arc;
-use vortex_session::VortexSession;
+use vortex_session::SessionExt;
 
 pub mod accessor;
 #[doc(hidden)]
@@ -71,22 +70,18 @@ impl Default for ArraySession {
     }
 }
 
-pub trait ArraySessionExt {
+/// Session extension trait for array-related functionality.
+pub trait ArraySessionExt: SessionExt {
     /// Register an array encoding with the session.
-    fn register_encoding(&self, encoding: EncodingRef);
-
-    /// Returns the array registry.
-    fn array_registry(&self) -> Arc<ArrayRegistry>;
-}
-
-impl ArraySessionExt for VortexSession {
     fn register_encoding(&self, encoding: EncodingRef) {
         self.get_mut::<ArraySession>().registry.register(encoding)
     }
 
+    /// Returns the array registry.
     fn array_registry(&self) -> Arc<ArrayRegistry> {
         // TODO(ngates): the registry type is weird... we shouldn't arc it here, but it's weirdly
         //  mutable.
         Arc::new(self.get::<ArraySession>().registry.clone())
     }
 }
+impl<T> ArraySessionExt for T where T: SessionExt {}
