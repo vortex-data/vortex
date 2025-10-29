@@ -122,7 +122,7 @@ impl VortexFormatFactory {
     /// use vortex_datafusion::VortexFormatFactory;
     /// use vortex::file::VortexWriteOptionsFactory;
     ///
-    /// let factory = VortexFormatFactory::new().with_write_options(VortexWriteOptionsFactory::default());
+    /// let factory = VortexFormatFactory::new().with_write_options_factory(VortexWriteOptionsFactory::default());
     /// ```
     pub fn with_write_options_factory(
         mut self,
@@ -206,9 +206,9 @@ impl VortexFormat {
     //// For example:
     /// ```rust
     /// use vortex_datafusion::VortexFormat;
-    /// use vortex::file::VortexWriteOptions;
+    /// use vortex::file::VortexWriteOptionsFactory;
     ///
-    /// let format = VortexFormat::default().with_write_options(VortexWriteOptions::default());
+    /// let format = VortexFormat::default().with_write_options_factory(VortexWriteOptionsFactory::default());
     /// ```
     pub fn with_write_options_factory(
         mut self,
@@ -223,7 +223,7 @@ impl VortexFormat {
         &self.opts
     }
 
-    /// Return the write options
+    /// Return the write options factory
     pub fn write_options_factory(&self) -> Arc<VortexWriteOptionsFactory> {
         Arc::clone(&self.write_options_factory)
     }

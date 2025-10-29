@@ -33,9 +33,14 @@ const DEFAULT_EXCLUDE_DTYPE: bool = false;
 const DEFAULT_MAX_VARIABLE_LENGTH_STATISTICS_SIZE: usize = 64;
 const DEFAULT_FILE_STATISTICS: &[Stat] = PRUNING_STATS;
 
+/// Factory for creating [`VortexWriteOptions`] with custom defaults.
+///
+/// This can be used to configure writer options before acquiring a handle, where we later reuse the options but need to source an available handle.
+///
+/// This factory maintains the default behaviour of [`VortexWriteOptions::default`].
 #[derive(Clone)]
 pub struct VortexWriteOptionsFactory {
-    strategy: Arc<dyn LayoutStrategy>,
+    strategy: Option<Arc<dyn LayoutStrategy>>,
     exclude_dtype: Option<bool>,
     max_variable_length_statistics_size: Option<usize>,
     file_statistics: Option<Vec<Stat>>,
@@ -57,7 +62,7 @@ impl std::fmt::Debug for VortexWriteOptionsFactory {
 impl Default for VortexWriteOptionsFactory {
     fn default() -> Self {
         Self {
-            strategy: WriteStrategyBuilder::new().build(),
+            strategy: None,
             exclude_dtype: None,
             max_variable_length_statistics_size: None,
             file_statistics: None,
@@ -66,15 +71,20 @@ impl Default for VortexWriteOptionsFactory {
 }
 
 impl VortexWriteOptionsFactory {
+    /// Create a new builder with default settings.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Replace the default layout strategy with the provided one.
     pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
-        self.strategy = strategy;
+        self.strategy = Some(strategy);
         self
     }
 
+    /// Exclude the DType from the Vortex file. You must provide the DType to the reader.
+    ///
+    /// See [`VortexWriteOptions::exclude_dtype`] for details.
     pub fn exclude_dtype(mut self) -> Self {
         self.exclude_dtype = Some(true);
         self
@@ -85,14 +95,23 @@ impl VortexWriteOptionsFactory {
         self
     }
 
+    /// Configure which statistics to compute at the file-level.
+    ///
+    /// See [`VortexWriteOptions::with_file_statistics`] for details.
     pub fn with_file_statistics(mut self, stats: Vec<Stat>) -> Self {
         self.file_statistics = Some(stats);
         self
     }
 
+    /// Build the [`VortexWriteOptions`] with the configured settings.
+    ///
+    /// Finds an appropriate [`Handle`] automatically.
     pub fn build(&self) -> VortexWriteOptions {
         VortexWriteOptions {
-            strategy: self.strategy.clone(),
+            strategy: self
+                .strategy
+                .clone()
+                .unwrap_or_else(|| WriteStrategyBuilder::new().build()),
             exclude_dtype: self.exclude_dtype.clone().unwrap_or(DEFAULT_EXCLUDE_DTYPE),
             max_variable_length_statistics_size: self
                 .max_variable_length_statistics_size
@@ -102,7 +121,7 @@ impl VortexWriteOptionsFactory {
                 .file_statistics
                 .clone()
                 .unwrap_or_else(|| DEFAULT_FILE_STATISTICS.to_vec()),
-            handle: None,
+            handle: Handle::find(),
         }
     }
 }
