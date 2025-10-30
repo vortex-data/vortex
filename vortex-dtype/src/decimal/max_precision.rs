@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Lookup tables for minumum/maximum i256 decimal values for each precision.
+//! We cannot perform const computations for i256, so we precompute these values.
+
 use crate::i256;
 
 pub(super) const MAX_DECIMAL256_FOR_EACH_PRECISION: [i256; 77] = [

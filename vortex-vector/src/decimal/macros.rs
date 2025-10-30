@@ -43,30 +43,12 @@
 macro_rules! match_each_dvector {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
-            $crate::DecimalVector::D8(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::DecimalVector::D16(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::DecimalVector::D32(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::DecimalVector::D64(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::DecimalVector::D128(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::DecimalVector::D256(v) => {
-                let $vec = v;
-                $body
-            }
+            $crate::DecimalVector::D8($vec) => $body,
+            $crate::DecimalVector::D16($vec) => $body,
+            $crate::DecimalVector::D32($vec) => $body,
+            $crate::DecimalVector::D64($vec) => $body,
+            $crate::DecimalVector::D128($vec) => $body,
+            $crate::DecimalVector::D256($vec) => $body,
         }
     }};
 }
@@ -105,30 +87,12 @@ macro_rules! match_each_dvector {
 macro_rules! match_each_dvector_mut {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
-            $crate::DecimalVectorMut::D8(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::DecimalVectorMut::D16(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::DecimalVectorMut::D32(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::DecimalVectorMut::D64(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::DecimalVectorMut::D128(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::DecimalVectorMut::D256(v) => {
-                let $vec = v;
-                $body
-            }
+            $crate::DecimalVectorMut::D8($vec) => $body,
+            $crate::DecimalVectorMut::D16($vec) => $body,
+            $crate::DecimalVectorMut::D32($vec) => $body,
+            $crate::DecimalVectorMut::D64($vec) => $body,
+            $crate::DecimalVectorMut::D128($vec) => $body,
+            $crate::DecimalVectorMut::D256($vec) => $body,
         }
     }};
 }

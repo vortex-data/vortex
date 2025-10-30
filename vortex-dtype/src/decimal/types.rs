@@ -117,8 +117,8 @@ macro_rules! impl_decimal {
                 const DECIMAL_TYPE: DecimalType = DecimalType::$UPPER;
 
                 const MAX_PRECISION: u8 = match DecimalType::$UPPER {
-                    DecimalType::I8 => 3,
-                    DecimalType::I16 => 5,
+                    DecimalType::I8 => 2,
+                    DecimalType::I16 => 4,
                     DecimalType::I32 => 9,
                     DecimalType::I64 => 18,
                     DecimalType::I128 => 38,
@@ -131,8 +131,8 @@ macro_rules! impl_decimal {
                     let mut p = $T::ONE;
                     let mut i = 0;
                     while i < Self::MAX_PRECISION as usize {
-                        mins[i] = -((p * 10) - 1);
-                        p = p * (10 as $T);
+                        p = p * 10;
+                        mins[i] = -(p - 1);
                         i += 1;
                     }
                     mins
@@ -143,8 +143,8 @@ macro_rules! impl_decimal {
                     let mut p = $T::ONE;
                     let mut i = 0;
                     while i < Self::MAX_PRECISION as usize {
-                        maxs[i] = (p * 10) - 1;
-                        p = p * (10 as $T);
+                        p = p * 10;
+                        maxs[i] = p - 1;
                         i += 1;
                     }
                     maxs
