@@ -61,6 +61,7 @@ vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
+vortex-array = { path = "../vortex-array", features = ["test-harness"] }
 vortex-btrblocks = { path = "../vortex-btrblocks" }
 
 [lints]

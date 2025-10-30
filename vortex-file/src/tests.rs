@@ -1501,8 +1501,7 @@ async fn test_gpu_read_simple() -> VortexResult<()> {
     let st = StructArray::from_fields(&[("numbers", numbers), ("floats", floats)])?;
     let mut buf = ByteBufferMut::empty();
 
-    let strategy = WriteStrategyBuilder::new();
-    strategy.with_compressor(BtrBlocksCompressor {
+    let strategy = WriteStrategyBuilder::new().with_compressor(BtrBlocksCompressor {
         exclude_int_dict_encoding: true,
     });
 
