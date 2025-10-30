@@ -403,7 +403,7 @@ impl DType {
     }
 
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
-    pub fn into_struct_fields_opt(self) -> StructFields {
+    pub fn into_struct_fields_opt(self) -> Option<StructFields> {
         if let Struct(f, _) = self {
             Some(f)
         } else {
