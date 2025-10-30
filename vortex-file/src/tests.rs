@@ -17,6 +17,7 @@ use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
+use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dict::{DictEncoding, DictVTable};
 use vortex_dtype::PType::I32;
@@ -26,7 +27,10 @@ use vortex_expr::{PackExpr, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, ro
 use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
 
-use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
+use crate::{
+    V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions,
+    WriteStrategyBuilder,
+};
 
 #[tokio::test]
 async fn test_eof_values() {
@@ -1496,7 +1500,14 @@ async fn test_gpu_read_simple() -> VortexResult<()> {
 
     let st = StructArray::from_fields(&[("numbers", numbers), ("floats", floats)])?;
     let mut buf = ByteBufferMut::empty();
+
+    let strategy = WriteStrategyBuilder::new();
+    strategy.with_compressor(BtrBlocksCompressor {
+        exclude_int_dict_encoding: true,
+    });
+
     VortexWriteOptions::default()
+        .with_strategy(strategy.build())
         .write(&mut buf, st.to_array_stream())
         .await?;
     let ctx = cudarc::driver::CudaContext::new(0).unwrap();
