@@ -6,13 +6,13 @@ use std::sync::Arc;
 use arrow_array::{ArrayRef, GenericByteViewArray};
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
-use vortex_vector::{BinaryType, StringType, VarBinVector};
+use vortex_vector::{BinaryType, BinaryViewVector, StringType};
 
 use crate::arrow::IntoArrow;
 
 macro_rules! impl_varbin {
     ($T:ty, $A:ty) => {
-        impl IntoArrow<ArrayRef> for VarBinVector<$T> {
+        impl IntoArrow<ArrayRef> for BinaryViewVector<$T> {
             fn into_arrow(self) -> VortexResult<ArrayRef> {
                 let (views, buffers, validity) = self.into_parts();
 

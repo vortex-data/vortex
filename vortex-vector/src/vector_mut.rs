@@ -9,7 +9,7 @@
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 
-use crate::varbin::{BinaryVectorMut, StringVectorMut};
+use crate::binaryview::{BinaryVectorMut, StringVectorMut};
 use crate::{
     BoolVectorMut, DecimalVectorMut, NullVectorMut, PrimitiveVectorMut, StructVectorMut, Vector,
     VectorMutOps, match_each_vector_mut, match_vector_pair,
