@@ -1476,22 +1476,22 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 #[tokio::test]
 async fn test_gpu_read_simple() -> VortexResult<()> {
     let numbers = ChunkedArray::from_iter([
-        (0..4096*4)
+        (0..4096 * 4)
             .map(|i| i % 64)
             .collect::<Buffer<u32>>()
             .into_array(),
-        (0..4096*4)
+        (0..4096 * 4)
             .map(|i| i % 64)
             .collect::<Buffer<u32>>()
             .into_array(),
     ])
     .into_array();
     let floats = ChunkedArray::from_iter([
-        (0..4096*4)
+        (0..4096 * 4)
             .map(|i| (i % 64) as f32 + 0.234)
             .collect::<Buffer<f32>>()
             .into_array(),
-        (0..4096*4)
+        (0..4096 * 4)
             .map(|i| (i % 64) as f32 + 4.789)
             .collect::<Buffer<f32>>()
             .into_array(),
@@ -1509,11 +1509,18 @@ async fn test_gpu_read_simple() -> VortexResult<()> {
         .with_strategy(strategy.build())
         .write(&mut buf, st.to_array_stream())
         .await?;
-    let ctx = cudarc::driver::CudaContext::new(0).unwrap();
+
+    let cpu_read = VortexOpenOptions::new()
+        .open_buffer(buf.clone())?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    println!("Compressed tree: {}", cpu_read.display_tree());
 
     let stream = VortexOpenOptions::new()
         .open_buffer(buf)?
-        .gpu_scan(ctx)?
+        .gpu_scan(cudarc::driver::CudaContext::new(0).unwrap())?
         .into_array_stream()?;
     pin_mut!(stream);
 
