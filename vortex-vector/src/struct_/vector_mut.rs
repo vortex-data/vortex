@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use vortex_dtype::StructFields;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
@@ -171,6 +172,23 @@ impl StructVectorMut {
                 validity,
                 len,
             }
+        }
+    }
+
+    /// Creates a new [`StructVectorMut`] with the given fields and capacity.
+    pub fn with_capacity(struct_fields: &StructFields, capacity: usize) -> Self {
+        let fields: Vec<VectorMut> = struct_fields
+            .fields()
+            .map(|dtype| VectorMut::with_capacity(&dtype, capacity))
+            .collect();
+
+        let validity = MaskMut::with_capacity(capacity);
+        let len = validity.len();
+
+        Self {
+            fields: fields.into_boxed_slice(),
+            validity,
+            len,
         }
     }
 
@@ -662,7 +680,7 @@ mod tests {
         );
 
         // Create a VectorMut with capacity using the struct dtype.
-        let vector_mut = VectorMut::with_capacity(100, &struct_dtype);
+        let vector_mut = VectorMut::with_capacity(&struct_dtype, 100);
 
         // Verify it's a struct vector.
         match vector_mut {

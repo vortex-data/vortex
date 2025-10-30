@@ -137,6 +137,7 @@ impl VectorOps for StructVector {
         Self: Sized,
     {
         let len = self.len;
+
         let fields = match Arc::try_unwrap(self.fields) {
             Ok(fields) => fields,
             Err(fields) => return Err(StructVector { fields, ..self }),
