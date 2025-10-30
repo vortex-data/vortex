@@ -30,6 +30,5 @@ pub use ops::{VectorMutOps, VectorOps};
 pub use vector::Vector;
 pub use vector_mut::VectorMut;
 
-mod decimal;
 mod macros;
 mod private;

@@ -3,9 +3,9 @@
 
 use num_traits::PrimInt;
 use vortex_dtype::Nullability::Nullable;
-use vortex_dtype::{DType, DecimalDType, NativePType, match_each_native_ptype};
+use vortex_dtype::{DType, DecimalDType, NativePType, i256, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{DecimalScalar, DecimalValue, FromPrimitiveOrF16, Scalar, i256};
+use vortex_scalar::{DecimalScalar, DecimalValue, FromPrimitiveOrF16, Scalar};
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::compute::{SumKernel, SumKernelAdapter, sum};

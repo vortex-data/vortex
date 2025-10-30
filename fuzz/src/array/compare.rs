@@ -10,9 +10,9 @@ use vortex_array::compute::{Operator, scalar_cmp};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BitBuffer;
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_dtype::{DType, NativeDecimalType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
+use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 pub fn compare_canonical_array(
     array: &dyn Array,

@@ -12,7 +12,6 @@
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;
-mod bigint;
 mod binary;
 mod bool;
 mod decimal;
@@ -30,7 +29,6 @@ mod struct_;
 mod tests;
 mod utf8;
 
-pub use bigint::*;
 pub use binary::*;
 pub use bool::*;
 pub use decimal::*;

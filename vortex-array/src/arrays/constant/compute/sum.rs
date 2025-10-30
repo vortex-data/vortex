@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::{CheckedMul, ToPrimitive};
-use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, match_each_native_ptype};
+use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, i256, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{
-    DecimalScalar, DecimalValue, FromPrimitiveOrF16, PrimitiveScalar, Scalar, ScalarValue, i256,
+    DecimalScalar, DecimalValue, FromPrimitiveOrF16, PrimitiveScalar, Scalar, ScalarValue,
 };
 
 use crate::arrays::{ConstantArray, ConstantVTable};

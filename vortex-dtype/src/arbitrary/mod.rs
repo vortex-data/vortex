@@ -11,6 +11,8 @@ use crate::{
     Nullability, PType, StructFields,
 };
 
+mod decimal;
+
 impl<'a> Arbitrary<'a> for DType {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         random_dtype(u, 2)

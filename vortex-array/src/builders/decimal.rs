@@ -4,12 +4,11 @@
 use std::any::Any;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, DecimalDType, Nullability};
+use vortex_dtype::{BigCast, DType, DecimalDType, NativeDecimalType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{
-    BigCast, DecimalValue, NativeDecimalType, Scalar, i256, match_each_decimal_value,
-    match_each_decimal_value_type,
+    DecimalValue, Scalar, i256, match_each_decimal_value, match_each_decimal_value_type,
 };
 
 use crate::arrays::DecimalArray;
@@ -98,7 +97,7 @@ impl DecimalBuilder {
     ) -> Self {
         Self {
             dtype: DType::Decimal(decimal, nullability),
-            values: match_each_decimal_value_type!(T::VALUES_TYPE, |D| {
+            values: match_each_decimal_value_type!(T::DECIMAL_TYPE, |D| {
                 DecimalBuffer::from(BufferMut::<D>::with_capacity(capacity))
             }),
             nulls: LazyBitBufferBuilder::new(capacity),

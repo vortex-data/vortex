@@ -88,7 +88,7 @@ mod tests {
 
     use rstest::rstest;
 
-    use crate::{BigCast, i256};
+    use super::*;
 
     // All BigCast types must losslessly round-trip themselves
     #[rstest]

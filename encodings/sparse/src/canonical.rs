@@ -19,13 +19,12 @@ use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
 use vortex_array::{Array, Canonical, ToCanonical};
 use vortex_buffer::{BitBuffer, Buffer, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
-    DType, DecimalDType, IntegerPType, NativePType, Nullability, StructFields,
+    DType, DecimalDType, IntegerPType, NativeDecimalType, NativePType, Nullability, StructFields,
     match_each_integer_ptype, match_each_native_ptype,
 };
 use vortex_error::{VortexError, VortexExpect, vortex_panic};
 use vortex_scalar::{
-    DecimalScalar, ListScalar, NativeDecimalType, Scalar, StructScalar,
-    match_each_decimal_value_type,
+    DecimalScalar, ListScalar, Scalar, StructScalar, match_each_decimal_value_type,
 };
 
 use crate::{SparseArray, SparseVTable};

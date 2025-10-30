@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod types;
 use std::fmt::{Display, Formatter};
 
 use num_traits::ToPrimitive;
+pub use types::*;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::DType;

@@ -8778,6 +8778,7 @@ name = "vortex-dtype"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "arrow-buffer",
  "arrow-schema",
  "flatbuffers",
  "half",
@@ -8787,6 +8788,7 @@ dependencies = [
  "num-traits",
  "num_enum",
  "paste",
+ "primitive-types",
  "prost 0.14.1",
  "rstest",
  "serde",
@@ -9258,12 +9260,10 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "arrow-array",
- "arrow-buffer",
  "bytes",
  "itertools 0.14.0",
  "num-traits",
  "paste",
- "primitive-types",
  "prost 0.14.1",
  "rstest",
  "vortex-buffer",

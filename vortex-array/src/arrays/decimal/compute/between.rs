@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::Nullability;
+use vortex_dtype::{NativeDecimalType, Nullability};
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
+use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 use crate::arrays::{BoolArray, DecimalArray, DecimalVTable};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
@@ -51,7 +51,7 @@ fn between_unpack<T: NativeDecimalType>(
     else {
         vortex_bail!(
             "invalid lower bound Scalar: {lower}, expected {:?}",
-            T::VALUES_TYPE
+            T::DECIMAL_TYPE
         )
     };
     let Some(upper_value) = upper
@@ -61,7 +61,7 @@ fn between_unpack<T: NativeDecimalType>(
     else {
         vortex_bail!(
             "invalid upper bound Scalar: {upper}, expected {:?}",
-            T::VALUES_TYPE
+            T::DECIMAL_TYPE
         )
     };
 

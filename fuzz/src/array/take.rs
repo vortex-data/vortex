@@ -7,9 +7,11 @@ use vortex_array::builders::builder_with_capacity;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, match_each_native_ptype};
+use vortex_dtype::{
+    DType, DecimalDType, NativeDecimalType, NativePType, Nullability, match_each_native_ptype,
+};
 use vortex_error::VortexResult;
-use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
+use vortex_scalar::match_each_decimal_value_type;
 
 pub fn take_canonical_array_non_nullable_indices(
     array: &dyn Array,

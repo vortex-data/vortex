@@ -13,6 +13,7 @@
 mod arbitrary;
 #[cfg(feature = "arrow")]
 pub mod arrow;
+mod bigint;
 pub mod datetime;
 mod decimal;
 mod dtype;
@@ -26,6 +27,7 @@ mod ptype;
 mod serde;
 mod struct_;
 
+pub use bigint::*;
 pub use decimal::*;
 pub use dtype::{DType, NativeDType};
 pub use extension::*;
