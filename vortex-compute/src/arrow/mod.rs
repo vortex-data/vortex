@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 mod binaryview;
 mod bool;
 mod decimal;
+mod fixed_size_list;
 mod mask;
 mod null;
 mod primitive;

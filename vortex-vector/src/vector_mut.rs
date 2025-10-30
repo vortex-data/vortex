@@ -57,7 +57,9 @@ impl VectorMut {
             DType::Primitive(ptype, _) => {
                 PrimitiveVectorMut::with_capacity(*ptype, capacity).into()
             }
-            DType::FixedSizeList(..) => todo!("TODO(connor)"),
+            DType::FixedSizeList(elem_dtype, list_size, _) => {
+                FixedSizeListVectorMut::with_capacity(elem_dtype, *list_size, capacity).into()
+            }
             DType::Struct(struct_fields, _) => {
                 StructVectorMut::with_capacity(struct_fields, capacity).into()
             }
@@ -65,7 +67,6 @@ impl VectorMut {
             | DType::Utf8(_)
             | DType::Binary(_)
             | DType::List(..)
-            | DType::FixedSizeList(..)
             | DType::Extension(_) => vortex_panic!("Unsupported dtype for VectorMut"),
         }
     }

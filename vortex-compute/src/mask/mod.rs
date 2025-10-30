@@ -80,8 +80,11 @@ impl<T: BinaryViewType> MaskValidity for BinaryViewVector<T> {
 }
 
 impl MaskValidity for FixedSizeListVector {
-    fn mask_validity(self, _mask: &Mask) -> Self {
-        todo!()
+    fn mask_validity(self, mask: &Mask) -> Self {
+        let (elements, list_size, validity) = self.into_parts();
+        // SAFETY: we are preserving the original elements and `list_size`, only modifying the
+        // validity.
+        unsafe { Self::new_unchecked(elements, list_size, validity.bitand(mask)) }
     }
 }
 

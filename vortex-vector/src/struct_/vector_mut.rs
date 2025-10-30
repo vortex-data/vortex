@@ -308,10 +308,10 @@ impl VectorMutOps for StructVectorMut {
             .collect();
 
         let split_validity = self.validity.split_off(at);
-
-        // Update self's state.
         let split_len = self.len.saturating_sub(at);
         self.len = at;
+
+        debug_assert_eq!(self.len, self.validity.len());
 
         Self {
             fields: split_fields.into_boxed_slice(),
