@@ -153,7 +153,7 @@ pub const ENUM_MAX_TYPE: u8 = 10;
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_DECIMAL_TYPE: [Type; 11] = [
+pub const ENUM_VALUES_TYPE: [Type; 11] = [
     Type::NONE,
     Type::Null,
     Type::Bool,
@@ -311,7 +311,7 @@ impl flatbuffers::Verifiable for Null<'_> {
         v: &mut flatbuffers::Verifier,
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        v.visit_table(pos)?.finish();
+      v.visit_table(pos)?.finish();
         Ok(())
     }
 }
@@ -402,7 +402,7 @@ impl flatbuffers::Verifiable for Bool<'_> {
         v: &mut flatbuffers::Verifier,
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        v.visit_table(pos)?
+      v.visit_table(pos)?
             .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
             .finish();
         Ok(())
@@ -516,7 +516,7 @@ impl flatbuffers::Verifiable for Primitive<'_> {
         v: &mut flatbuffers::Verifier,
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        v.visit_table(pos)?
+      v.visit_table(pos)?
             .visit_field::<PType>("ptype", Self::VT_PTYPE, false)?
             .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
             .finish();
@@ -646,7 +646,7 @@ impl flatbuffers::Verifiable for Decimal<'_> {
         v: &mut flatbuffers::Verifier,
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        v.visit_table(pos)?
+      v.visit_table(pos)?
             .visit_field::<u8>("precision", Self::VT_PRECISION, false)?
             .visit_field::<i8>("scale", Self::VT_SCALE, false)?
             .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
@@ -766,7 +766,7 @@ impl flatbuffers::Verifiable for Utf8<'_> {
         v: &mut flatbuffers::Verifier,
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        v.visit_table(pos)?
+      v.visit_table(pos)?
             .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
             .finish();
         Ok(())
@@ -867,7 +867,7 @@ impl flatbuffers::Verifiable for Binary<'_> {
         v: &mut flatbuffers::Verifier,
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        v.visit_table(pos)?
+      v.visit_table(pos)?
             .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
             .finish();
         Ok(())
@@ -1000,7 +1000,7 @@ impl flatbuffers::Verifiable for Struct_<'_> {
         v: &mut flatbuffers::Verifier,
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        v.visit_table(pos)?
+      v.visit_table(pos)?
             .visit_field::<flatbuffers::ForwardsUOffset<
                 flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<&'_ str>>,
             >>("names", Self::VT_NAMES, false)?
@@ -1153,7 +1153,7 @@ impl flatbuffers::Verifiable for List<'_> {
         v: &mut flatbuffers::Verifier,
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        v.visit_table(pos)?
+      v.visit_table(pos)?
             .visit_field::<flatbuffers::ForwardsUOffset<DType>>(
                 "element_type",
                 Self::VT_ELEMENT_TYPE,
@@ -1296,7 +1296,7 @@ impl flatbuffers::Verifiable for FixedSizeList<'_> {
         v: &mut flatbuffers::Verifier,
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        v.visit_table(pos)?
+      v.visit_table(pos)?
             .visit_field::<flatbuffers::ForwardsUOffset<DType>>(
                 "element_type",
                 Self::VT_ELEMENT_TYPE,
@@ -1456,7 +1456,7 @@ impl flatbuffers::Verifiable for Extension<'_> {
         v: &mut flatbuffers::Verifier,
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        v.visit_table(pos)?
+      v.visit_table(pos)?
             .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, false)?
             .visit_field::<flatbuffers::ForwardsUOffset<DType>>(
                 "storage_dtype",
@@ -1750,7 +1750,7 @@ impl flatbuffers::Verifiable for DType<'_> {
         v: &mut flatbuffers::Verifier,
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        v.visit_table(pos)?
+      v.visit_table(pos)?
             .visit_union::<Type, _>(
                 "type_type",
                 Self::VT_TYPE_TYPE,
