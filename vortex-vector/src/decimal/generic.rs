@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::decimal::precision::PrecisionScale;
 use vortex_buffer::Buffer;
+use vortex_dtype::{NativeDecimalType, PrecisionScale};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
@@ -14,7 +14,7 @@ pub struct DVector<D> {
     validity: Mask,
 }
 
-impl<D> DVector<D> {
+impl<D: NativeDecimalType> DVector<D> {
     /// Try to create a new decimal vector from the given elements and validity.
     ///
     /// # Errors
@@ -27,6 +27,27 @@ impl<D> DVector<D> {
         elements: Buffer<D>,
         validity: Mask,
     ) -> VortexResult<Self> {
-        vortex_bail!("Not implemented")
+        if elements.len() != validity.len() {
+            vortex_bail!(
+                "Elements length {} does not match validity length {}",
+                elements.len(),
+                validity.len()
+            );
+        }
+
+        // We assert that each element is within bounds for the given precision/scale.
+        if !elements.iter().all(|e| ps.is_valid(*e)) {
+            vortex_bail!(
+                "One or more elements are out of bounds for precision {} and scale {}",
+                ps.precision(),
+                ps.scale()
+            );
+        }
+
+        Ok(Self {
+            ps,
+            elements,
+            validity,
+        })
     }
 }

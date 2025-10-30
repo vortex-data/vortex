@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::decimal::max_precision::{
+    MAX_DECIMAL256_FOR_EACH_PRECISION, MIN_DECIMAL256_FOR_EACH_PRECISION,
+};
+use crate::{i256, BigCast};
+use num_traits::ConstOne;
+use num_traits::ConstZero;
+use paste::paste;
 use std::fmt::{Debug, Display};
 use std::panic::RefUnwindSafe;
-
-use paste::paste;
-
-use crate::{i256, BigCast};
 
 /// Type of the decimal values.
 ///
@@ -55,6 +58,11 @@ pub trait NativeDecimalType:
     const MAX_PRECISION: u8;
     /// The maximum scale supported by this decimal type.
     const MAX_SCALE: i8;
+
+    /// The minimum value for each precision supported by this decimal type.
+    const MIN_BY_PRECISION: &'static [Self];
+    /// The maximum value for each precision supported by this decimal type.
+    const MAX_BY_PRECISION: &'static [Self];
 
     /// Downcast the provided object to a type-specific instance.
     fn downcast<V: DecimalTypeDowncast>(visitor: V) -> V::Output<Self>;
@@ -107,6 +115,40 @@ macro_rules! impl_decimal {
             impl NativeDecimalType for $T {
                 const DECIMAL_TYPE: DecimalType = DecimalType::$UPPER;
 
+                const MAX_PRECISION: u8 = match DecimalType::$UPPER {
+                    DecimalType::I8 => 3,
+                    DecimalType::I16 => 5,
+                    DecimalType::I32 => 9,
+                    DecimalType::I64 => 18,
+                    DecimalType::I128 => 38,
+                    DecimalType::I256 => 76,
+                };
+                const MAX_SCALE: i8 = Self::MAX_PRECISION as i8;
+
+                const MIN_BY_PRECISION: &'static [Self] = &{
+                    let mut mins = [$T::ZERO; Self::MAX_PRECISION as usize];
+                    let mut p = $T::ONE;
+                    let mut i = 0;
+                    while i < Self::MAX_PRECISION as usize {
+                        mins[i] = -((p * 10) - 1);
+                        p = p * (10 as $T);
+                        i += 1;
+                    }
+                    mins
+                };
+
+                const MAX_BY_PRECISION: &'static [Self] = &{
+                    let mut maxs = [$T::ZERO; Self::MAX_PRECISION as usize];
+                    let mut p = $T::ONE;
+                    let mut i = 0;
+                    while i < Self::MAX_PRECISION as usize {
+                        maxs[i] = (p * 10) - 1;
+                        p = p * (10 as $T);
+                        i += 1;
+                    }
+                    maxs
+                };
+
                 #[inline]
                 fn downcast<V: DecimalTypeDowncast>(visitor: V) -> V::Output<Self> {
                     paste::paste! { visitor.[<into_ $T>]() }
@@ -126,4 +168,19 @@ impl_decimal!(i16, I16);
 impl_decimal!(i32, I32);
 impl_decimal!(i64, I64);
 impl_decimal!(i128, I128);
-impl_decimal!(i256, I256);
+
+impl NativeDecimalType for i256 {
+    const DECIMAL_TYPE: DecimalType = DecimalType::I256;
+    const MAX_PRECISION: u8 = 76;
+    const MAX_SCALE: i8 = 76;
+    const MIN_BY_PRECISION: &'static [Self] = &MIN_DECIMAL256_FOR_EACH_PRECISION;
+    const MAX_BY_PRECISION: &'static [Self] = &MAX_DECIMAL256_FOR_EACH_PRECISION;
+
+    fn downcast<V: DecimalTypeDowncast>(visitor: V) -> V::Output<Self> {
+        visitor.into_i256()
+    }
+
+    fn upcast<V: DecimalTypeUpcast>(input: V::Input<Self>) -> V {
+        V::from_i256(input)
+    }
+}

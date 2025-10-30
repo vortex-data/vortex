@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::{DecimalDType, NativeDecimalType};
 use std::marker::PhantomData;
-use vortex_dtype::NativeDecimalType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 /// A struct representing the precision and scale of a decimal type, to be represented
@@ -69,12 +69,40 @@ impl<D: NativeDecimalType> PrecisionScale<D> {
         }
     }
 
-    /// Validate that the given value fits within the precision and scale.
-    pub fn validate(&self, value: &D) -> bool {
-        let (int_digits, frac_digits) = D::count_digits(value);
-        let allowed_int_digits = (self.precision as i8 - self.scale).max(0) as usize;
-        let allowed_frac_digits = self.scale.max(0) as usize;
+    /// The precision is the number of significant figures that the decimal tracks.
+    #[inline(always)]
+    pub fn precision(&self) -> u8 {
+        self.precision
+    }
 
-        int_digits <= allowed_int_digits && frac_digits <= allowed_frac_digits
+    /// The scale is the maximum number of digits relative to the decimal point.
+    #[inline(always)]
+    pub fn scale(&self) -> i8 {
+        self.scale
+    }
+
+    /// Validate whether a given value of type `D` fits within the precision and scale.
+    #[inline]
+    pub fn is_valid(&self, value: D) -> bool {
+        self.precision <= D::MAX_PRECISION
+            && value >= D::MIN_BY_PRECISION[self.precision as usize]
+            && value <= D::MAX_BY_PRECISION[self.precision as usize]
+    }
+}
+
+impl<D: NativeDecimalType> From<PrecisionScale<D>> for DecimalDType {
+    fn from(value: PrecisionScale<D>) -> Self {
+        DecimalDType {
+            precision: value.precision,
+            scale: value.scale,
+        }
+    }
+}
+
+impl<D: NativeDecimalType> TryFrom<&DecimalDType> for PrecisionScale<D> {
+    type Error = vortex_error::VortexError;
+
+    fn try_from(value: &DecimalDType) -> VortexResult<Self> {
+        PrecisionScale::try_new(value.precision, value.scale)
     }
 }

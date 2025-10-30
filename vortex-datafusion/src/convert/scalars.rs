@@ -6,11 +6,11 @@ use std::sync::Arc;
 use datafusion_common::ScalarValue;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::datetime::arrow::make_temporal_ext_dtype;
-use vortex::dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
+use vortex::dtype::datetime::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
 use vortex::dtype::half::f16;
-use vortex::dtype::{DECIMAL128_MAX_PRECISION, DType, DecimalDType, Nullability, PType};
-use vortex::error::{VortexResult, vortex_bail};
-use vortex::scalar::{DecimalValue, Scalar, i256};
+use vortex::dtype::{DType, DecimalDType, NativeDecimalType, Nullability, PType};
+use vortex::error::{vortex_bail, VortexResult};
+use vortex::scalar::{i256, DecimalValue, Scalar};
 
 use crate::convert::{FromDataFusion, TryToDataFusion};
 
@@ -40,7 +40,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                 let precision = decimal_type.precision();
                 let scale = decimal_type.scale();
 
-                if precision <= DECIMAL128_MAX_PRECISION {
+                if precision <= i128::MAX_PRECISION {
                     match dscalar.decimal_value() {
                         None => ScalarValue::Decimal128(None, precision, scale),
                         Some(DecimalValue::I128(v128)) => {
@@ -244,12 +244,12 @@ impl FromDataFusion<ScalarValue> for Scalar {
 
 #[cfg(test)]
 mod tests {
-    use datafusion_common::ScalarValue;
     use datafusion_common::arrow::datatypes::i256 as arrow_i256;
+    use datafusion_common::ScalarValue;
     use rstest::rstest;
     use vortex::buffer::ByteBuffer;
     use vortex::dtype::{DType, DecimalDType, Nullability, PType};
-    use vortex::scalar::{DecimalValue, Scalar, i256};
+    use vortex::scalar::{i256, DecimalValue, Scalar};
 
     use super::*;
 

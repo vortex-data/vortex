@@ -6,18 +6,15 @@
 //! This module provides functions to generate arbitrary scalar values of various data types.
 //! It is used by the fuzzer to test the correctness of the scalar value implementation.
 
-mod decimal;
-
 use std::iter;
 use std::sync::Arc;
 
 use arbitrary::{Result, Unstructured};
-pub use decimal::random_decimal;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{i256, DType, DecimalDType, NativeDecimalType, PType};
 
-use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
+use crate::{DecimalValue, InnerScalarValue, PValue, Scalar, ScalarValue};
 
 /// Generate an arbitrary scalar value of the given data type.
 pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
@@ -80,4 +77,24 @@ fn random_pvalue(u: &mut Unstructured, ptype: &PType) -> Result<PValue> {
         PType::F32 => PValue::F32(u.arbitrary()?),
         PType::F64 => PValue::F64(u.arbitrary()?),
     })
+}
+
+/// Generate an arbitrary decimal scalar confined to the given bounds of precision and scale.
+pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Result<ScalarValue> {
+    let precision = decimal_type.precision();
+    if precision <= i128::MAX_PRECISION {
+        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I128(
+            u.int_in_range(
+                i128::MIN_BY_PRECISION[precision as usize]
+                    ..=i128::MAX_BY_PRECISION[precision as usize],
+            )?,
+        ))))
+    } else {
+        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I256(
+            u.int_in_range(
+                i256::MIN_BY_PRECISION[precision as usize]
+                    ..=i256::MAX_BY_PRECISION[precision as usize],
+            )?,
+        ))))
+    }
 }

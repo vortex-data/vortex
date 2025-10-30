@@ -1,29 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod precision;
 mod types;
-use std::fmt::{Display, Formatter};
+mod max_precision;
 
+use crate::{i256, DType};
 use num_traits::ToPrimitive;
+use std::fmt::{Display, Formatter};
+use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
+
+pub use precision::*;
 pub use types::*;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
-use crate::DType;
-
-/// Maximum precision for a Decimal128 type from Arrow
-pub const DECIMAL128_MAX_PRECISION: u8 = 38;
-
-/// Maximum precision for a Decimal256 type from Arrow
-pub const DECIMAL256_MAX_PRECISION: u8 = 76;
-
-/// Maximum scale for a Decimal128 type from Arrow
-pub const DECIMAL128_MAX_SCALE: i8 = 38;
-
-/// Maximum scale for a Decimal256 type from Arrow
-pub const DECIMAL256_MAX_SCALE: i8 = 76;
-
-const MAX_PRECISION: u8 = DECIMAL256_MAX_PRECISION;
-const MAX_SCALE: i8 = DECIMAL256_MAX_SCALE;
+const MAX_PRECISION: u8 = <i256 as NativeDecimalType>::MAX_PRECISION;
+const MAX_SCALE: i8 = <i256 as NativeDecimalType>::MAX_SCALE;
 
 /// Parameters that define the precision and scale of a decimal type.
 ///
@@ -251,20 +242,6 @@ mod tests {
         let decimal = DecimalDType::try_new(1, -5).unwrap();
         assert_eq!(decimal.precision(), 1);
         assert_eq!(decimal.scale(), -5);
-    }
-
-    #[test]
-    fn test_decimal128_boundaries() {
-        let decimal = DecimalDType::new(DECIMAL128_MAX_PRECISION, DECIMAL128_MAX_SCALE);
-        assert_eq!(decimal.precision(), 38);
-        assert_eq!(decimal.scale(), 38);
-    }
-
-    #[test]
-    fn test_decimal256_boundaries() {
-        let decimal = DecimalDType::new(DECIMAL256_MAX_PRECISION, DECIMAL256_MAX_SCALE);
-        assert_eq!(decimal.precision(), 76);
-        assert_eq!(decimal.scale(), 76);
     }
 
     #[test]
