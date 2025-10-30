@@ -6,7 +6,7 @@ use std::panic::RefUnwindSafe;
 
 use paste::paste;
 
-use crate::{BigCast, i256};
+use crate::{i256, BigCast};
 
 /// Type of the decimal values.
 ///
@@ -50,6 +50,11 @@ pub trait NativeDecimalType:
 {
     /// The decimal value type corresponding to this native type.
     const DECIMAL_TYPE: DecimalType;
+
+    /// The maximum precision supported by this decimal type.
+    const MAX_PRECISION: u8;
+    /// The maximum scale supported by this decimal type.
+    const MAX_SCALE: i8;
 
     /// Downcast the provided object to a type-specific instance.
     fn downcast<V: DecimalTypeDowncast>(visitor: V) -> V::Output<Self>;
