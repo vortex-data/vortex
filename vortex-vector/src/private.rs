@@ -37,5 +37,8 @@ impl<T: NativePType> Sealed for PVectorMut<T> {}
 impl<T: BinaryViewType> Sealed for BinaryViewVector<T> {}
 impl<T: BinaryViewType> Sealed for BinaryViewVectorMut<T> {}
 
+impl Sealed for FixedSizeListVector {}
+impl Sealed for FixedSizeListVectorMut {}
+
 impl Sealed for StructVector {}
 impl Sealed for StructVectorMut {}

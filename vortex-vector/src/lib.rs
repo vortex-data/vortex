@@ -13,6 +13,7 @@
 mod binaryview;
 mod bool;
 mod decimal;
+mod fixed_size_list;
 mod null;
 mod primitive;
 mod struct_;
@@ -20,6 +21,7 @@ mod struct_;
 pub use binaryview::*;
 pub use bool::*;
 pub use decimal::*;
+pub use fixed_size_list::*;
 pub use null::*;
 pub use primitive::*;
 pub use struct_::*;

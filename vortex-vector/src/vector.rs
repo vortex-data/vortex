@@ -8,6 +8,7 @@
 
 use vortex_error::vortex_panic;
 
+use crate::fixed_size_list::FixedSizeListVector;
 use crate::{
     BinaryVector, BoolVector, DecimalVector, NullVector, PrimitiveVector, StringVector,
     StructVector, VectorMut, VectorOps, match_each_vector,
@@ -41,8 +42,8 @@ pub enum Vector {
     Binary(BinaryVector),
     // List
     // List(ListVector),
-    // FixedList
-    // FixedList(FixedListVector),
+    /// Vectors of Lists with fixed sizes.
+    FixedSizeList(FixedSizeListVector),
     /// Vectors of Struct elements.
     Struct(StructVector),
 }
@@ -109,6 +110,14 @@ impl Vector {
         vortex_panic!("Expected BinaryVector, got {self:?}");
     }
 
+    /// Returns a reference to the inner [`FixedSizeListVector`] if `self` is of that variant.
+    pub fn as_fixed_size_list(&self) -> &FixedSizeListVector {
+        if let Vector::FixedSizeList(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected FixedSizeListVector, got {self:?}");
+    }
+
     /// Returns a reference to the inner [`StructVector`] if `self` is of that variant.
     pub fn as_struct(&self) -> &StructVector {
         if let Vector::Struct(v) = self {
@@ -157,6 +166,15 @@ impl Vector {
             return v;
         }
         vortex_panic!("Expected BinaryVector, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`FixedSizeListVector`] if `self` is of that
+    /// variant.
+    pub fn into_fixed_size_list(self) -> FixedSizeListVector {
+        if let Vector::FixedSizeList(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected FixedSizeListVector, got {self:?}");
     }
 
     /// Consumes `self` and returns the inner [`StructVector`] if `self` is of that variant.
