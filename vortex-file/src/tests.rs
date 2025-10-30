@@ -1476,22 +1476,22 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 #[tokio::test]
 async fn test_gpu_read_simple() -> VortexResult<()> {
     let numbers = ChunkedArray::from_iter([
-        (0..4096)
+        (0..4096*4)
             .map(|i| i % 64)
             .collect::<Buffer<u32>>()
             .into_array(),
-        (0..4096)
+        (0..4096*4)
             .map(|i| i % 64)
             .collect::<Buffer<u32>>()
             .into_array(),
     ])
     .into_array();
     let floats = ChunkedArray::from_iter([
-        (0..4096)
+        (0..4096*4)
             .map(|i| (i % 64) as f32 + 0.234)
             .collect::<Buffer<f32>>()
             .into_array(),
-        (0..4096)
+        (0..4096*4)
             .map(|i| (i % 64) as f32 + 4.789)
             .collect::<Buffer<f32>>()
             .into_array(),
