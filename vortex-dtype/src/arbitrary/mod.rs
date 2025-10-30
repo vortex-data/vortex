@@ -7,8 +7,8 @@ use arbitrary::{Arbitrary, Result, Unstructured};
 use vortex_error::VortexExpect;
 
 use crate::{
-    i256, DType, DecimalDType, FieldName, FieldNames, NativeDecimalType, Nullability,
-    PType, StructFields,
+    DType, DecimalDType, FieldName, FieldNames, NativeDecimalType, Nullability, PType,
+    StructFields, i256,
 };
 
 mod decimal;

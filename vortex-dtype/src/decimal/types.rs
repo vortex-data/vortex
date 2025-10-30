@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::{Debug, Display};
+use std::panic::RefUnwindSafe;
+
+use num_traits::{ConstOne, ConstZero};
+use paste::paste;
+
 use crate::decimal::max_precision::{
     MAX_DECIMAL256_FOR_EACH_PRECISION, MIN_DECIMAL256_FOR_EACH_PRECISION,
 };
-use crate::{i256, BigCast};
-use num_traits::ConstOne;
-use num_traits::ConstZero;
-use paste::paste;
-use std::fmt::{Debug, Display};
-use std::panic::RefUnwindSafe;
+use crate::{BigCast, i256};
 
 /// Type of the decimal values.
 ///

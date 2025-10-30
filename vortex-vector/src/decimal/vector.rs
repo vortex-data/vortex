@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::decimal::DVector;
-use vortex_dtype::{i256, DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType};
+use vortex_dtype::{DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType, i256};
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
+
+use crate::decimal::DVector;
+use crate::{DecimalVectorMut, VectorOps, match_each_dvector};
 
 /// An enum over all supported decimal mutable vector types.
 #[derive(Clone, Debug)]
@@ -20,6 +23,29 @@ pub enum DecimalVector {
     D128(DVector<i128>),
     /// A decimal vector with 256-bit integer representation.
     D256(DVector<i256>),
+}
+
+impl VectorOps for DecimalVector {
+    type Mutable = DecimalVectorMut;
+
+    fn len(&self) -> usize {
+        match_each_dvector!(self, |v| { v.len() })
+    }
+
+    fn validity(&self) -> &Mask {
+        match_each_dvector!(self, |v| { v.validity() })
+    }
+
+    fn try_into_mut(self) -> Result<Self::Mutable, Self>
+    where
+        Self: Sized,
+    {
+        match_each_dvector!(self, |v| {
+            v.try_into_mut()
+                .map(DecimalVectorMut::from)
+                .map_err(DecimalVector::from)
+        })
+    }
 }
 
 impl DecimalTypeDowncast for DecimalVector {

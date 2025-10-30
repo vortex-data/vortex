@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{DecimalDType, NativeDecimalType};
+use std::any::type_name;
+use std::fmt::Display;
 use std::marker::PhantomData;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+
+use crate::{DecimalDType, NativeDecimalType};
 
 /// A struct representing the precision and scale of a decimal type, to be represented
 /// by the native type `D`.
@@ -12,6 +16,18 @@ pub struct PrecisionScale<D> {
     precision: u8,
     scale: i8,
     phantom: PhantomData<D>,
+}
+
+impl<D: NativeDecimalType> Display for PrecisionScale<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "decimal({}, p={}, s={})",
+            type_name::<D>(),
+            self.precision,
+            self.scale
+        )
+    }
 }
 
 impl<D: NativeDecimalType> PrecisionScale<D> {

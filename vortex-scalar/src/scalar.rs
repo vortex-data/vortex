@@ -6,8 +6,8 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
-use vortex_dtype::{i256, DType, NativeDType, NativeDecimalType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativeDType, NativeDecimalType, Nullability, i256};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use super::*;
 

@@ -8,12 +8,12 @@ use std::hash::Hash;
 
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use enum_iterator::{all, last, Sequence};
+use enum_iterator::{Sequence, all, last};
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
-use vortex_dtype::{i256, DType, DecimalDType, NativeDecimalType, PType};
+use vortex_dtype::{DType, DecimalDType, NativeDecimalType, PType, i256};
 
 mod array;
 mod bound;

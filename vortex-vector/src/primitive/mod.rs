@@ -23,8 +23,8 @@ pub use generic_mut::PVectorMut;
 mod vector;
 pub use vector::PrimitiveVector;
 
+mod generic_mut_impl;
 mod iter;
-mod pvector_impl;
 mod vector_mut;
 pub use vector_mut::PrimitiveVectorMut;
 
@@ -40,6 +40,12 @@ impl From<PrimitiveVector> for Vector {
     }
 }
 
+impl<T: NativePType> From<PVector<T>> for PrimitiveVector {
+    fn from(v: PVector<T>) -> Self {
+        T::upcast(v)
+    }
+}
+
 impl<T: NativePType> From<PVector<T>> for Vector {
     fn from(v: PVector<T>) -> Self {
         Self::Primitive(PrimitiveVector::from(v))
@@ -49,6 +55,12 @@ impl<T: NativePType> From<PVector<T>> for Vector {
 impl From<PrimitiveVectorMut> for VectorMut {
     fn from(v: PrimitiveVectorMut) -> Self {
         Self::Primitive(v)
+    }
+}
+
+impl<T: NativePType> From<PVectorMut<T>> for PrimitiveVectorMut {
+    fn from(v: PVectorMut<T>) -> Self {
+        T::upcast(v)
     }
 }
 

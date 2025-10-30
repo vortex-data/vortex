@@ -6,11 +6,11 @@ use std::sync::Arc;
 use datafusion_common::ScalarValue;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::datetime::arrow::make_temporal_ext_dtype;
-use vortex::dtype::datetime::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
+use vortex::dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, DecimalDType, NativeDecimalType, Nullability, PType};
-use vortex::error::{vortex_bail, VortexResult};
-use vortex::scalar::{i256, DecimalValue, Scalar};
+use vortex::error::{VortexResult, vortex_bail};
+use vortex::scalar::{DecimalValue, Scalar, i256};
 
 use crate::convert::{FromDataFusion, TryToDataFusion};
 
@@ -244,12 +244,12 @@ impl FromDataFusion<ScalarValue> for Scalar {
 
 #[cfg(test)]
 mod tests {
-    use datafusion_common::arrow::datatypes::i256 as arrow_i256;
     use datafusion_common::ScalarValue;
+    use datafusion_common::arrow::datatypes::i256 as arrow_i256;
     use rstest::rstest;
     use vortex::buffer::ByteBuffer;
     use vortex::dtype::{DType, DecimalDType, Nullability, PType};
-    use vortex::scalar::{i256, DecimalValue, Scalar};
+    use vortex::scalar::{DecimalValue, Scalar, i256};
 
     use super::*;
 

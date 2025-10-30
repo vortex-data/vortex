@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::decimal::DVectorMut;
-use vortex_dtype::{i256, DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType};
+use vortex_dtype::{DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType, i256};
 use vortex_error::vortex_panic;
+
+use crate::decimal::DVectorMut;
+use crate::{DecimalVector, VectorMutOps, match_each_dvector_mut};
 
 /// An enum over all supported decimal mutable vector types.
 #[derive(Clone, Debug)]
@@ -20,6 +22,58 @@ pub enum DecimalVectorMut {
     D128(DVectorMut<i128>),
     /// A decimal vector with 256-bit integer representation.
     D256(DVectorMut<i256>),
+}
+
+impl VectorMutOps for DecimalVectorMut {
+    type Immutable = DecimalVector;
+
+    fn len(&self) -> usize {
+        match_each_dvector_mut!(self, |d| { d.len() })
+    }
+
+    fn capacity(&self) -> usize {
+        match_each_dvector_mut!(self, |d| { d.capacity() })
+    }
+
+    fn reserve(&mut self, additional: usize) {
+        match_each_dvector_mut!(self, |d| { d.reserve(additional) })
+    }
+
+    fn extend_from_vector(&mut self, other: &Self::Immutable) {
+        match (self, other) {
+            (DecimalVectorMut::D8(s), DecimalVector::D8(o)) => s.extend_from_vector(o),
+            (DecimalVectorMut::D16(s), DecimalVector::D16(o)) => s.extend_from_vector(o),
+            (DecimalVectorMut::D32(s), DecimalVector::D32(o)) => s.extend_from_vector(o),
+            (DecimalVectorMut::D64(s), DecimalVector::D64(o)) => s.extend_from_vector(o),
+            (DecimalVectorMut::D128(s), DecimalVector::D128(o)) => s.extend_from_vector(o),
+            (DecimalVectorMut::D256(s), DecimalVector::D256(o)) => s.extend_from_vector(o),
+            _ => vortex_panic!("Mismatched decimal vector types in extend_from_vector"),
+        }
+    }
+
+    fn append_nulls(&mut self, n: usize) {
+        match_each_dvector_mut!(self, |d| { d.append_nulls(n) })
+    }
+
+    fn freeze(self) -> Self::Immutable {
+        match_each_dvector_mut!(self, |d| { d.freeze().into() })
+    }
+
+    fn split_off(&mut self, at: usize) -> Self {
+        match_each_dvector_mut!(self, |d| { d.split_off(at).into() })
+    }
+
+    fn unsplit(&mut self, other: Self) {
+        match (self, other) {
+            (DecimalVectorMut::D8(s), DecimalVectorMut::D8(o)) => s.unsplit(o),
+            (DecimalVectorMut::D16(s), DecimalVectorMut::D16(o)) => s.unsplit(o),
+            (DecimalVectorMut::D32(s), DecimalVectorMut::D32(o)) => s.unsplit(o),
+            (DecimalVectorMut::D64(s), DecimalVectorMut::D64(o)) => s.unsplit(o),
+            (DecimalVectorMut::D128(s), DecimalVectorMut::D128(o)) => s.unsplit(o),
+            (DecimalVectorMut::D256(s), DecimalVectorMut::D256(o)) => s.unsplit(o),
+            _ => vortex_panic!("Mismatched decimal vector types in unsplit"),
+        }
+    }
 }
 
 impl DecimalTypeDowncast for DecimalVectorMut {

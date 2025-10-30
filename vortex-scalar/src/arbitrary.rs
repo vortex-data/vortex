@@ -12,7 +12,7 @@ use std::sync::Arc;
 use arbitrary::{Result, Unstructured};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_dtype::{i256, DType, DecimalDType, NativeDecimalType, PType};
+use vortex_dtype::{DType, DecimalDType, NativeDecimalType, PType, i256};
 
 use crate::{DecimalValue, InnerScalarValue, PValue, Scalar, ScalarValue};
 

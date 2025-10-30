@@ -144,12 +144,6 @@ impl VectorMutOps for PrimitiveVectorMut {
     }
 }
 
-impl<T: NativePType> From<PVectorMut<T>> for PrimitiveVectorMut {
-    fn from(v: PVectorMut<T>) -> Self {
-        T::upcast(v)
-    }
-}
-
 impl PTypeUpcast for PrimitiveVectorMut {
     type Input<T: NativePType> = PVectorMut<T>;
 

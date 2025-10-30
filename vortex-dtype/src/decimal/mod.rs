@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod max_precision;
 mod precision;
 mod types;
-mod max_precision;
 
-use crate::{i256, DType};
-use num_traits::ToPrimitive;
 use std::fmt::{Display, Formatter};
-use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
 
+use num_traits::ToPrimitive;
 pub use precision::*;
 pub use types::*;
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_panic};
+
+use crate::{DType, i256};
 
 const MAX_PRECISION: u8 = <i256 as NativeDecimalType>::MAX_PRECISION;
 const MAX_SCALE: i8 = <i256 as NativeDecimalType>::MAX_SCALE;
