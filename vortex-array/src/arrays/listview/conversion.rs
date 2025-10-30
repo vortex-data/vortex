@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::backtrace::Backtrace;
 use std::sync::Arc;
 
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::VortexExpect;
 
@@ -69,6 +71,125 @@ fn build_sizes_from_offsets<O: IntegerPType>(list: &ListArray) -> ArrayRef {
     sizes_builder.finish_into_primitive().into_array()
 }
 
+/// Fast path for converting a contiguous ListView to ListArray.
+///
+/// Returns `Some(ListArray)` if the ListView is contiguous and can be efficiently converted,
+/// or `None` if the slow path should be used.
+fn try_list_from_listview_fast_path<O: IntegerPType>(
+    list_view: &ListViewArray,
+) -> Option<ListArray> {
+    let len = list_view.len();
+
+    // Empty arrays always use fast path
+    if len == 0 {
+        let empty_offsets = Buffer::<O>::from(vec![O::default()]);
+        return Some(
+            ListArray::try_new(
+                list_view.elements().clone(),
+                empty_offsets.into_array(),
+                list_view.validity().clone(),
+            )
+            .vortex_expect("Failed to create empty ListArray"),
+        );
+    }
+
+    // Get offsets and sizes as O type
+    let offsets = list_view.offsets().to_primitive();
+    let sizes = list_view.sizes().to_primitive();
+    let offsets_buf = offsets.as_slice::<O>();
+    let sizes_buf = sizes.as_slice::<O>();
+
+    // Check if the ListView is contiguous: for all valid positions i < len-1,
+    // offsets[i] + sizes[i] == offsets[i+1]
+
+    // Find the first valid element
+    let mut idx = 0;
+    while !list_view.is_valid(idx) {
+        idx += 1;
+    }
+
+    let mut prev_offset = offsets_buf[idx];
+    let mut prev_size = sizes_buf[idx];
+    let mut iters = idx;
+
+    for i in (idx + 1)..len {
+        iters += 1;
+
+        // Skip null positions
+        if !list_view.is_valid(i) {
+            continue;
+        }
+
+        if offsets_buf[i] != prev_offset + prev_size {
+            println!(
+                "BAIL @ {iters}-th iter (of {len}): {} + {} != {}",
+                prev_offset, prev_size, offsets_buf[i]
+            );
+            return None;
+        }
+
+        prev_offset = offsets_buf[i];
+        prev_size = sizes_buf[i];
+    }
+
+    // ListView is contiguous! Build the offsets array for ListArray by computing a prefix sum.
+
+    // Find the range of elements actually used by valid lists
+    let mut min_offset = None;
+    let mut max_offset = O::default();
+
+    for i in 0..len {
+        if !list_view.is_valid(i) {
+            continue;
+        }
+
+        if min_offset.is_none() {
+            min_offset = Some(offsets_buf[i]);
+        }
+        max_offset = offsets_buf[i] + sizes_buf[i];
+    }
+
+    let first_offset = min_offset.unwrap_or_default();
+    let last_offset = max_offset;
+
+    // Build new offsets starting from 0 by computing prefix sum of sizes
+    let mut new_offsets = BufferMut::with_capacity(len + 1);
+    new_offsets.push(O::default());
+
+    for i in 0..len {
+        let prev = new_offsets[i];
+        // For null positions, use size 0; for valid positions, use the actual size
+        let size = if list_view.is_valid(i) {
+            sizes_buf[i]
+        } else {
+            O::default()
+        };
+        new_offsets.push(prev + size);
+    }
+
+    // Slice the elements array to only include the range used by the lists
+    let start = first_offset
+        .to_usize()
+        .vortex_expect("Failed to convert offset to usize");
+    let end = last_offset
+        .to_usize()
+        .vortex_expect("Failed to convert offset to usize");
+
+    let elements = if start != 0 || end != list_view.elements().len() {
+        list_view.elements().slice(start..end)
+    } else {
+        list_view.elements().clone()
+    };
+
+    // Construct the ListArray
+    println!("contiguous!! for len {len}");
+    let offsets_array = new_offsets.freeze().into_array();
+    Some(
+        ListArray::try_new(elements, offsets_array, list_view.validity().clone())
+            .vortex_expect("Failed to create ListArray from contiguous ListView"),
+    )
+}
+
 /// Creates a [`ListArray`] from a [`ListViewArray`].
 pub fn list_from_list_view(list_view: ListViewArray) -> ListArray {
     let elements_dtype = list_view
@@ -79,6 +200,15 @@ pub fn list_from_list_view(list_view: ListViewArray) -> ListArray {
     let len = list_view.len();
 
     match_each_integer_ptype!(list_view.offsets().dtype().as_ptype(), |O| {
+        // Try the fast path if the ListView is contiguous
+        if let Some(list_array) = try_list_from_listview_fast_path::<O>(&list_view) {
+            println!("backtrace for CONTIG: {}", Backtrace::capture());
+            return list_array;
+        } else {
+            println!("backtrace for non-contiguous: {}", Backtrace::capture());
+        }
+
+        // Slow path: rebuild using ListBuilder
         let mut builder = ListBuilder::<O>::with_capacity(
             elements_dtype.clone(),
             nullability,

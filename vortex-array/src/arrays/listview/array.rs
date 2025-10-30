@@ -102,6 +102,11 @@ pub struct ListViewArray {
 
     /// The stats for this array.
     pub(super) stats_set: ArrayStats,
+    // TODO(aduffy): remove this once we've figure out a better way to pass this information around.
+    //  once we do any sort of slicing operation on the array, we fail this check anyway.
+    //  This is problematic because this means that we need to review them all.
+    // #[doc(hidden)]
+    // pub(super) unsafe_from_list_flag: bool,
 }
 
 impl ListViewArray {

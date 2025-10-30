@@ -34,8 +34,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::arrays::{
-    ExtensionArray, FixedSizeListArray, ListArray, ListVTable, StructArray, TemporalArray,
-    list_from_list_view,
+    ExtensionArray, FixedSizeListArray, ListArray, ListVTable, ListViewVTable, StructArray,
+    TemporalArray, list_from_list_view,
 };
 use vortex_array::vtable::{VTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
@@ -358,7 +358,6 @@ impl BtrBlocksCompressor {
         // Canonicalize the array
         // TODO(aduffy): revert this once we put ListView support in a better place
         if let Some(list_array) = array.as_opt::<ListVTable>() {
-            println!("skipping for List");
             let compressed_elems = self.compress(list_array.elements())?;
 
             // Note that since the type of our offsets are not encoded in our `DType`,
@@ -384,7 +383,11 @@ impl BtrBlocksCompressor {
         let canonical = array.to_canonical();
 
         // Compact it, removing any wasted space before we attempt to compress it
-        let compact = canonical.compact()?;
+        let compact = if !array.is::<ListViewVTable>() {
+            canonical.compact()?
+        } else {
+            canonical
+        };
 
         self.compress_canonical(compact)
     }

@@ -28,13 +28,12 @@ use vortex_scalar::DecimalValueType;
 
 use crate::arrays::{
     BoolArray, DecimalArray, FixedSizeListArray, ListViewArray, NullArray, PrimitiveArray,
-    StructArray, VarBinViewArray,
+    StructArray, VarBinViewArray, list_from_list_view,
 };
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::ToArrowArgs;
 use crate::arrow::compute::to_arrow::null_buffer::to_null_buffer;
-use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{InvocationArgs, Kernel, Output, cast};
 use crate::{Array as _, Canonical, IntoArray, ToCanonical};
 
@@ -487,26 +486,8 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     array: ListViewArray,
     element_field: Option<&FieldRef>,
 ) -> VortexResult<ArrowArrayRef> {
-    // Since `ListViewArray` can have lists stored out-of-order, we must rebuild the entire array.
-    // We also can't use `list_from_list_view` because we need this specific `O` type for offsets.
-    let mut list_builder = ListBuilder::<O>::with_capacity(
-        array
-            .dtype()
-            .as_list_element_opt()
-            .vortex_expect("`ListViewArray` somehow was not of type `List`")
-            .clone(),
-        array.dtype().nullability(),
-        array.elements().len(), // This might be wrong, but it's better than nothing.
-        array.len(),
-    );
-
-    // TODO(connor)[ListView]: We can potentially make a generic version of `list_from_list_view`
-    // over the offsets so we don't have to rewrite this.
-
-    list_builder.extend_from_array(&array.to_array());
-    let list_array = list_builder.finish_into_list();
-
-    // Now that we have a normal `ListArray`, we can convert all the child arrays.
+    // Convert ListView to ListArray (using fastpath when possible)
+    let list_array = list_from_list_view(array);
 
     // Convert the child `elements` array to Arrow.
     let (elements, element_field) = {
@@ -529,9 +510,10 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
         }
     };
 
-    // Convert the child `offsets` and `validity` array to Arrow.
-    let offsets = list_array
-        .offsets()
+    // Cast offsets to the target type O and convert to Arrow.
+    let offsets_dtype = DType::Primitive(O::PTYPE, list_array.dtype().nullability());
+    let offsets = cast(list_array.offsets(), &offsets_dtype)
+        .map_err(|err| err.with_context(format!("Failed to cast offsets to {offsets_dtype}")))?
         .to_primitive()
         .buffer::<O>()
         .into_arrow_offset_buffer();
@@ -1068,5 +1050,226 @@ mod tests {
             .unwrap();
         assert_eq!(third_values.value(0), 200);
         assert_eq!(third_values.value(1), 300);
+    }
+
+    #[test]
+    fn test_to_arrow_list_fast_path_non_nullable() {
+        // Create a contiguous ListViewArray: [[1, 2, 3], [4, 5], [6]]
+        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i32, 3, 5], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![3i32, 2, 1], Validity::NonNullable);
+
+        let list_view = ListViewArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            sizes.into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        // Convert to Arrow List
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::List(field.into());
+        let arrow_array = list_view.into_array().into_arrow(&arrow_dt).unwrap();
+
+        // Verify
+        let list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i32>>()
+            .unwrap();
+
+        assert_eq!(list.len(), 3);
+
+        // Verify first list [1, 2, 3]
+        let first = list.value(0);
+        let first_values = first
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(first_values.len(), 3);
+        assert_eq!(first_values.value(0), 1);
+        assert_eq!(first_values.value(1), 2);
+        assert_eq!(first_values.value(2), 3);
+
+        // Verify second list [4, 5]
+        let second = list.value(1);
+        let second_values = second
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(second_values.len(), 2);
+        assert_eq!(second_values.value(0), 4);
+        assert_eq!(second_values.value(1), 5);
+
+        // Verify third list [6]
+        let third = list.value(2);
+        let third_values = third
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(third_values.len(), 1);
+        assert_eq!(third_values.value(0), 6);
+    }
+
+    #[test]
+    fn test_to_arrow_list_fast_path_nullable() {
+        // Create a contiguous nullable ListViewArray: [[1, 2], null, [3, 4, 5]]
+        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i32, 2, 2], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![2i32, 0, 3], Validity::NonNullable);
+        let validity = Validity::from_iter([true, false, true]);
+
+        let list_view = ListViewArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            sizes.into_array(),
+            validity,
+        )
+        .unwrap();
+
+        // Convert to Arrow List
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::List(field.into());
+        let arrow_array = list_view.into_array().into_arrow(&arrow_dt).unwrap();
+
+        // Verify
+        let list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i32>>()
+            .unwrap();
+
+        assert_eq!(list.len(), 3);
+        assert!(!list.is_null(0));
+        assert!(list.is_null(1));
+        assert!(!list.is_null(2));
+
+        // Verify first list [1, 2]
+        let first = list.value(0);
+        let first_values = first
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(first_values.len(), 2);
+        assert_eq!(first_values.value(0), 1);
+        assert_eq!(first_values.value(1), 2);
+
+        // Verify third list [3, 4, 5]
+        let third = list.value(2);
+        let third_values = third
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(third_values.len(), 3);
+        assert_eq!(third_values.value(0), 3);
+        assert_eq!(third_values.value(1), 4);
+        assert_eq!(third_values.value(2), 5);
+    }
+
+    #[test]
+    fn test_to_arrow_list_non_contiguous_slow_path() {
+        // Create a non-contiguous ListViewArray: [[3, 4], [1, 2], [5]]
+        // Elements are stored out of order in the elements array
+        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![2i32, 0, 4], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![2i32, 2, 1], Validity::NonNullable);
+
+        let list_view = ListViewArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            sizes.into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        // Convert to Arrow List (should use slow path)
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::List(field.into());
+        let arrow_array = list_view.into_array().into_arrow(&arrow_dt).unwrap();
+
+        // Verify
+        let list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i32>>()
+            .unwrap();
+
+        assert_eq!(list.len(), 3);
+
+        // Verify first list [3, 4]
+        let first = list.value(0);
+        let first_values = first
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(first_values.len(), 2);
+        assert_eq!(first_values.value(0), 3);
+        assert_eq!(first_values.value(1), 4);
+
+        // Verify second list [1, 2]
+        let second = list.value(1);
+        let second_values = second
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(second_values.len(), 2);
+        assert_eq!(second_values.value(0), 1);
+        assert_eq!(second_values.value(1), 2);
+
+        // Verify third list [5]
+        let third = list.value(2);
+        let third_values = third
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(third_values.len(), 1);
+        assert_eq!(third_values.value(0), 5);
+    }
+
+    #[test]
+    fn test_to_arrow_list_fast_path_with_offset_start() {
+        // Create a contiguous ListViewArray that starts at a non-zero offset: [[4, 5], [6]]
+        // The elements array has unused prefix elements
+        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6, 7], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![3i32, 5], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![2i32, 1], Validity::NonNullable);
+
+        let list_view = ListViewArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            sizes.into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        // Convert to Arrow List
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::List(field.into());
+        let arrow_array = list_view.into_array().into_arrow(&arrow_dt).unwrap();
+
+        // Verify
+        let list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i32>>()
+            .unwrap();
+
+        assert_eq!(list.len(), 2);
+
+        // Verify first list [4, 5]
+        let first = list.value(0);
+        let first_values = first
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(first_values.len(), 2);
+        assert_eq!(first_values.value(0), 4);
+        assert_eq!(first_values.value(1), 5);
+
+        // Verify second list [6]
+        let second = list.value(1);
+        let second_values = second
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(second_values.len(), 1);
+        assert_eq!(second_values.value(0), 6);
     }
 }
