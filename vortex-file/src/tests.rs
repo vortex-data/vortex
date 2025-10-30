@@ -1526,10 +1526,14 @@ async fn test_gpu_read_simple() -> VortexResult<()> {
 
     let mut row_count = 0;
 
+    let mut gpu_chunks = vec![];
     while let Some(array) = stream.next().await {
         let array = array?.into_host_array()?;
         row_count += array.as_ref().len();
+        gpu_chunks.push(array.into_array());
     }
+
+    assert_arrays_eq!(ChunkedArray::from_iter(gpu_chunks), cpu_read);
 
     assert_eq!(row_count, 32768);
     Ok(())
