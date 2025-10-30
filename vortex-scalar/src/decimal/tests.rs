@@ -6,7 +6,7 @@
 #![allow(clippy::disallowed_types, clippy::panic)]
 
 use rstest::rstest;
-use vortex_dtype::{i256, DType, DecimalDType, DecimalType, NativeDecimalType, Nullability, PType};
+use vortex_dtype::{DType, DecimalDType, DecimalType, NativeDecimalType, Nullability, PType, i256};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::decimal::DecimalScalar;
