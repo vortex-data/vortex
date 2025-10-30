@@ -39,30 +39,13 @@
 macro_rules! match_each_vector {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
-            $crate::Vector::Null(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::Vector::Bool(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::Vector::Primitive(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::Vector::String(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::Vector::Binary(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::Vector::Struct(v) => {
-                let $vec = v;
-                $body
-            }
+            $crate::Vector::Null($vec) => $body,
+            $crate::Vector::Bool($vec) => $body,
+            $crate::Vector::Decimal($vec) => $body,
+            $crate::Vector::Primitive($vec) => $body,
+            $crate::Vector::String($vec) => $body,
+            $crate::Vector::Binary($vec) => $body,
+            $crate::Vector::Struct($vec) => $body,
         }
     }};
 }
@@ -104,30 +87,13 @@ pub(crate) use match_each_vector;
 macro_rules! match_each_vector_mut {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
-            $crate::VectorMut::Null(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::VectorMut::Bool(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::VectorMut::Primitive(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::VectorMut::String(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::VectorMut::Binary(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::VectorMut::Struct(v) => {
-                let $vec = v;
-                $body
-            }
+            $crate::VectorMut::Null($vec) => $body,
+            $crate::VectorMut::Bool($vec) => $body,
+            $crate::VectorMut::Decimal($vec) => $body,
+            $crate::VectorMut::Primitive($vec) => $body,
+            $crate::VectorMut::String($vec) => $body,
+            $crate::VectorMut::Binary($vec) => $body,
+            $crate::VectorMut::Struct($vec) => $body,
         }
     }};
 }

@@ -13,7 +13,8 @@ use vortex_mask::MaskMut;
 use super::macros::match_each_vector_mut;
 use crate::varbin::{BinaryVectorMut, StringVectorMut};
 use crate::{
-    BoolVectorMut, NullVectorMut, PrimitiveVectorMut, StructVectorMut, Vector, VectorMutOps,
+    BoolVectorMut, DecimalVectorMut, NullVectorMut, PrimitiveVectorMut, StructVectorMut, Vector,
+    VectorMutOps,
 };
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
@@ -31,6 +32,8 @@ pub enum VectorMut {
     Null(NullVectorMut),
     /// Mutable Boolean vectors.
     Bool(BoolVectorMut),
+    /// Mutable Decimal vectors
+    Decimal(DecimalVectorMut),
     /// Mutable Primitive vectors.
     ///
     /// Note that [`PrimitiveVectorMut`] is an enum over the different possible (generic)

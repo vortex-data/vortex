@@ -8,3 +8,5 @@ mod vector_mut;
 
 pub use generic::*;
 pub use generic_mut::*;
+pub use vector::*;
+pub use vector_mut::*;

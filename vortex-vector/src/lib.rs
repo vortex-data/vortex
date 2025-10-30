@@ -11,12 +11,14 @@
 #![deny(clippy::missing_safety_doc)]
 
 mod bool;
+mod decimal;
 mod null;
 mod primitive;
 mod struct_;
 mod varbin;
 
 pub use bool::*;
+pub use decimal::*;
 pub use null::*;
 pub use primitive::*;
 pub use struct_::*;
@@ -30,6 +32,5 @@ pub use ops::{VectorMutOps, VectorOps};
 pub use vector::Vector;
 pub use vector_mut::VectorMut;
 
-mod decimal;
 mod macros;
 mod private;

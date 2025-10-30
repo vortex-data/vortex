@@ -24,6 +24,9 @@ impl Sealed for NullVectorMut {}
 impl Sealed for BoolVector {}
 impl Sealed for BoolVectorMut {}
 
+impl Sealed for DecimalVector {}
+impl Sealed for DecimalVectorMut {}
+
 impl Sealed for PrimitiveVector {}
 impl Sealed for PrimitiveVectorMut {}
 impl<T: NativePType> Sealed for PVector<T> {}
