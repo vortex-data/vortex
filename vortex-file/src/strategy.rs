@@ -91,16 +91,16 @@ impl WriteStrategyBuilder {
         };
 
         // 3. apply dict encoding or fallback
-        // let dict = DictStrategy::new(
-        //     coalescing.clone(),
-        //     compress_then_flat.clone(),
-        //     coalescing,
-        //     Default::default(),
-        // );
+        let dict = DictStrategy::new(
+            coalescing.clone(),
+            compress_then_flat.clone(),
+            coalescing,
+            Default::default(),
+        );
 
         // 2. calculate stats for each row group
         let stats = ZonedStrategy::new(
-            coalescing,
+            dict,
             compress_then_flat.clone(),
             ZonedLayoutOptions {
                 block_size: self.row_block_size,
