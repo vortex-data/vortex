@@ -26,7 +26,7 @@ use vortex_expr::{PackExpr, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, ro
 use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
 
-use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
+use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
 
 #[tokio::test]
 async fn test_eof_values() {
