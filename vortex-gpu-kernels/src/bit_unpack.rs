@@ -167,6 +167,10 @@ fn generate_unpack_for_width<T: FastLanes, W: Write>(
 
 pub fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> anyhow::Result<()> {
     let cu_filename = format!("gen/fls_{}_bit_unpack.cu", T::T);
+    // TODO(joe): check if the generator changed.
+    if output_dir.exists() {
+        return Ok(());
+    }
     let cu_path = output_dir.join(&cu_filename);
     let mut cu_file = File::create(&cu_path)?;
     let mut cu_writer = IndentedWriter::new(&mut cu_file);
