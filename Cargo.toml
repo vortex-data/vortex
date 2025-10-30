@@ -92,8 +92,8 @@ crossterm = "0.29"
 cudarc = { version = "0.17.3", features = [
     "std",
     "driver",
-    "cuda-12080",
-    "dynamic-loading",
+    "cuda-12060",
+    "dynamic-linking",
 ], default-features = false }
 dashmap = "6.1.0"
 datafusion = { version = "50", default-features = false }
