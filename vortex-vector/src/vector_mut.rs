@@ -10,10 +10,10 @@ use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 use vortex_mask::MaskMut;
 
-use super::macros::match_each_vector_mut;
 use crate::varbin::{BinaryVectorMut, StringVectorMut};
 use crate::{
     BoolVectorMut, NullVectorMut, PrimitiveVectorMut, StructVectorMut, Vector, VectorMutOps,
+    match_each_vector_mut,
 };
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
@@ -98,6 +98,8 @@ impl VectorMutOps for VectorMut {
             (VectorMut::Null(a), Vector::Null(b)) => a.extend_from_vector(b),
             (VectorMut::Bool(a), Vector::Bool(b)) => a.extend_from_vector(b),
             (VectorMut::Primitive(a), Vector::Primitive(b)) => a.extend_from_vector(b),
+            (VectorMut::String(a), Vector::String(b)) => a.extend_from_vector(b),
+            (VectorMut::Binary(a), Vector::Binary(b)) => a.extend_from_vector(b),
             (VectorMut::Struct(a), Vector::Struct(b)) => a.extend_from_vector(b),
             _ => vortex_panic!("Mismatched vector types"),
         }

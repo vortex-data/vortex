@@ -237,12 +237,14 @@ impl VectorMutOps for StructVectorMut {
         );
 
         // Extend each field vector.
-        let pairs = self.fields.iter_mut().zip(other.fields());
+        let pairs = self.fields.iter_mut().zip(other.fields().as_ref());
         for (self_mut_vector, other_vec) in pairs {
             match (self_mut_vector, other_vec) {
                 (VectorMut::Null(a), Vector::Null(b)) => a.extend_from_vector(b),
                 (VectorMut::Bool(a), Vector::Bool(b)) => a.extend_from_vector(b),
                 (VectorMut::Primitive(a), Vector::Primitive(b)) => a.extend_from_vector(b),
+                (VectorMut::String(a), Vector::String(b)) => a.extend_from_vector(b),
+                (VectorMut::Binary(a), Vector::Binary(b)) => a.extend_from_vector(b),
                 (VectorMut::Struct(a), Vector::Struct(b)) => a.extend_from_vector(b),
                 _ => {
                     vortex_panic!("Mismatched field types in `StructVectorMut::extend_from_vector`")
@@ -324,6 +326,8 @@ impl VectorMutOps for StructVectorMut {
                 (VectorMut::Null(a), VectorMut::Null(b)) => a.unsplit(b),
                 (VectorMut::Bool(a), VectorMut::Bool(b)) => a.unsplit(b),
                 (VectorMut::Primitive(a), VectorMut::Primitive(b)) => a.unsplit(b),
+                (VectorMut::String(a), VectorMut::String(b)) => a.unsplit(b),
+                (VectorMut::Binary(a), VectorMut::Binary(b)) => a.unsplit(b),
                 (VectorMut::Struct(a), VectorMut::Struct(b)) => a.unsplit(b),
                 _ => {
                     vortex_panic!("Mismatched field types in `StructVectorMut::unsplit`")

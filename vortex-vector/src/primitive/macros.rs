@@ -59,8 +59,6 @@ macro_rules! match_each_pvector {
     }};
 }
 
-pub(crate) use match_each_pvector;
-
 /// Matches on all primitive type variants of [`PrimitiveVectorMut`] and executes the same code
 /// for each variant branch.
 ///
@@ -110,5 +108,3 @@ macro_rules! match_each_pvector_mut {
         }
     }};
 }
-
-pub(crate) use match_each_pvector_mut;
