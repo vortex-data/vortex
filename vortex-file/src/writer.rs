@@ -38,7 +38,7 @@ const DEFAULT_FILE_STATISTICS: &[Stat] = PRUNING_STATS;
 /// This can be used to configure writer options before acquiring a handle, where we later reuse the options but need to source an available handle.
 ///
 /// This factory maintains the default behaviour of [`VortexWriteOptions::default`].
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct VortexWriteOptionsFactory {
     strategy: Option<Arc<dyn LayoutStrategy>>,
     exclude_dtype: Option<bool>,
@@ -56,17 +56,6 @@ impl std::fmt::Debug for VortexWriteOptionsFactory {
             )
             .field("file_statistics", &self.file_statistics)
             .finish()
-    }
-}
-
-impl Default for VortexWriteOptionsFactory {
-    fn default() -> Self {
-        Self {
-            strategy: None,
-            exclude_dtype: None,
-            max_variable_length_statistics_size: None,
-            file_statistics: None,
-        }
     }
 }
 
@@ -112,10 +101,9 @@ impl VortexWriteOptionsFactory {
                 .strategy
                 .clone()
                 .unwrap_or_else(|| WriteStrategyBuilder::new().build()),
-            exclude_dtype: self.exclude_dtype.clone().unwrap_or(DEFAULT_EXCLUDE_DTYPE),
+            exclude_dtype: self.exclude_dtype.unwrap_or(DEFAULT_EXCLUDE_DTYPE),
             max_variable_length_statistics_size: self
                 .max_variable_length_statistics_size
-                .clone()
                 .unwrap_or(DEFAULT_MAX_VARIABLE_LENGTH_STATISTICS_SIZE),
             file_statistics: self
                 .file_statistics
@@ -542,5 +530,24 @@ impl WriteSummary {
     /// The footer of the written Vortex file.
     pub fn row_count(&self) -> u64 {
         self.footer.row_count()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_write_options_factory() {
+        let factory = VortexWriteOptionsFactory::new()
+            .exclude_dtype()
+            .with_max_variable_length_statistics_size(128)
+            .with_file_statistics(vec![Stat::Min, Stat::Max]);
+        let options = factory.build();
+
+        assert!(options.exclude_dtype);
+        assert_eq!(options.max_variable_length_statistics_size, 128);
+        assert_eq!(options.file_statistics, vec![Stat::Min, Stat::Max]);
+        assert_eq!(options.handle.is_some(), false); // test is running synchronously, so no handle
     }
 }
