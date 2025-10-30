@@ -19,7 +19,7 @@ all-features = true
 [dependencies]
 async-trait = { workspace = true }
 bytes = { workspace = true }
-cudarc = { workspace = true, optional = true }
+cudarc = { workspace = true, optional = true, features = ["cufile"] }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration

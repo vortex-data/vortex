@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt;
 use std::fmt::Write;
 use std::sync::Arc;
@@ -8,34 +9,35 @@ use std::sync::Arc;
 use cudarc::driver::{CudaStream, DeviceRepr, LaunchArgs, PushKernelArg};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_fastlanes::FoRArray;
+use vortex_scalar::Scalar;
 
 use crate::indent::{IndentedWrite, IndentedWriter};
 use crate::jit::convert::handle_array;
+use crate::jit::encoding_tree::EncodingTree;
 use crate::jit::{
-    CUDAType, GPUKernelParameter, GPUPipelineJIT, ScalarGPUPipelineJIT, ScalarGPUPipelineJITNode,
-    StepIdAllocator,
+    CUDAType, EncodingTreeRef, GPUKernelParameter, GPUPipelineJIT, ScalarGPUPipelineJIT,
+    ScalarGPUPipelineJITNode, StepIdAllocator,
 };
 
-struct FoR<P> {
+struct FoR<'a, P> {
     step_id: usize,
     reference: P,
-    child: Box<dyn GPUPipelineJIT>,
+    child: Box<dyn GPUPipelineJIT + 'a>,
 }
 
-pub fn new_jit(
-    for_: &FoRArray,
+pub fn new_jit<'a>(
+    for_: &'a FoREncodingTree,
     stream: &Arc<CudaStream>,
     allocator: &mut StepIdAllocator,
     output_array: String,
-) -> Box<dyn GPUPipelineJIT> {
-    match_each_native_ptype!(for_.reference_scalar().as_primitive().ptype(), |P| {
-        let child = handle_array(for_.encoded(), stream, allocator, output_array);
+) -> Box<dyn GPUPipelineJIT + 'a> {
+    match_each_native_ptype!(for_.reference.as_primitive().ptype(), |P| {
+        let child = handle_array(&for_.child, stream, allocator, output_array);
         Box::new(ScalarGPUPipelineJITNode {
             inner: FoR {
                 step_id: allocator.fresh_id(),
                 reference: for_
-                    .reference_scalar()
+                    .reference
                     .as_primitive()
                     .as_::<P>()
                     .vortex_expect("cannot have a null reference"),
@@ -45,7 +47,7 @@ pub fn new_jit(
     })
 }
 
-impl<P> FoR<P> {
+impl<'a, P> FoR<'a, P> {
     fn tmp_var(&self) -> String {
         format!("tmp{}", self.step_id)
     }
@@ -55,7 +57,7 @@ impl<P> FoR<P> {
     }
 }
 
-impl<P: NativePType + DeviceRepr> ScalarGPUPipelineJIT for FoR<P> {
+impl<'a, P: NativePType + DeviceRepr> ScalarGPUPipelineJIT for FoR<'a, P> {
     fn in_params(&self, p: &mut Vec<GPUKernelParameter>) {
         p.push(GPUKernelParameter {
             name: self.ref_var(),
@@ -63,10 +65,10 @@ impl<P: NativePType + DeviceRepr> ScalarGPUPipelineJIT for FoR<P> {
         })
     }
 
-    fn args<'a>(
-        &'a self,
+    fn args<'b>(
+        &'b self,
         _stream: &Arc<CudaStream>,
-        args: &mut LaunchArgs<'a>,
+        args: &mut LaunchArgs<'b>,
     ) -> VortexResult<()> {
         args.arg(&self.reference);
         Ok(())
@@ -115,5 +117,16 @@ impl<P: NativePType + DeviceRepr> ScalarGPUPipelineJIT for FoR<P> {
 
     fn child(&self) -> &dyn GPUPipelineJIT {
         self.child.as_ref()
+    }
+}
+
+pub struct FoREncodingTree {
+    pub reference: Scalar,
+    pub child: EncodingTreeRef,
+}
+
+impl EncodingTree for FoREncodingTree {
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

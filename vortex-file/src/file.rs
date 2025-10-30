@@ -94,12 +94,12 @@ impl VortexFile {
     pub fn gpu_scan(
         &self,
         ctx: Arc<cudarc::driver::CudaContext>,
-    ) -> VortexResult<vortex_scan::gpu::GpuScanBuilder<vortex_gpu::GpuVector>> {
-        let segment_source = self.segment_source();
+        gpu_segment_source: Arc<dyn vortex_layout::segments::GpuSegmentSource>,
+    ) -> VortexResult<vortex_scan::gpu::GpuScanBuilder<vortex_gpu::GpuArray>> {
         let gpu_reader = self
             .footer
             .layout()
-            .new_gpu_reader("".into(), segment_source, ctx)?;
+            .new_gpu_reader("".into(), gpu_segment_source, ctx)?;
 
         Ok(vortex_scan::gpu::GpuScanBuilder::new(gpu_reader))
     }

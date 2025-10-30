@@ -15,16 +15,19 @@ version = { workspace = true }
 publish = false
 
 [dependencies]
+flatbuffers = { workspace = true }
 cudarc = { workspace = true, features = ["f16"] }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
+vortex-scalar = { workspace = true }
 vortex-buffer = { workspace = true, features = ["cuda"] }
 vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
+vortex-flatbuffers = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-utils = { workspace = true }
 

@@ -1,52 +1,54 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt;
 use std::fmt::Write;
 use std::sync::Arc;
 
 use cudarc::driver::{CudaStream, DeviceRepr, LaunchArgs, PushKernelArg};
-use vortex_alp::{ALPArray, ALPFloat, match_each_alp_float_ptype};
+use vortex_alp::{ALPFloat, match_each_alp_float_ptype};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
 use crate::indent::{IndentedWrite, IndentedWriter};
 use crate::jit::convert::handle_array;
+use crate::jit::encoding_tree::EncodingTree;
 use crate::jit::{
-    CUDAType, GPUKernelParameter, GPUPipelineJIT, ScalarGPUPipelineJIT, ScalarGPUPipelineJITNode,
-    StepIdAllocator,
+    CUDAType, EncodingTreeRef, GPUKernelParameter, GPUPipelineJIT, ScalarGPUPipelineJIT,
+    ScalarGPUPipelineJITNode, StepIdAllocator,
 };
 
-struct Alp<A: ALPFloat> {
+struct Alp<'a, A: ALPFloat> {
     step_id: usize,
     float_type: PType,
-    child: Box<dyn GPUPipelineJIT>,
+    child: Box<dyn GPUPipelineJIT + 'a>,
     f: A,
     e: A,
 }
 
-pub fn new_jit(
-    alp: &ALPArray,
+pub fn new_jit<'a>(
+    alp: &'a AlpEncodingTree,
     stream: &Arc<CudaStream>,
     allocator: &mut StepIdAllocator,
     output_array: String,
-) -> Box<dyn GPUPipelineJIT> {
-    match_each_alp_float_ptype!(alp.ptype(), |A| {
-        let child = handle_array(alp.encoded(), stream, allocator, output_array);
+) -> Box<dyn GPUPipelineJIT + 'a> {
+    match_each_alp_float_ptype!(alp.float_type, |A| {
+        let child = handle_array(&alp.child, stream, allocator, output_array);
         let step_id = allocator.fresh_id();
         Box::new(ScalarGPUPipelineJITNode {
             inner: Alp {
                 step_id,
-                float_type: alp.ptype(),
+                float_type: alp.float_type,
                 child,
-                f: A::F10[alp.exponents().f as usize],
-                e: A::IF10[alp.exponents().e as usize],
+                f: A::F10[alp.f as usize],
+                e: A::IF10[alp.e as usize],
             },
         })
     })
 }
 
-impl<A: ALPFloat> Alp<A> {
+impl<'a, A: ALPFloat> Alp<'a, A> {
     fn tmp_var(&self) -> String {
         format!("tmp{}", self.step_id)
     }
@@ -60,7 +62,7 @@ impl<A: ALPFloat> Alp<A> {
     }
 }
 
-impl<A: ALPFloat + DeviceRepr> ScalarGPUPipelineJIT for Alp<A> {
+impl<'a, A: ALPFloat + DeviceRepr> ScalarGPUPipelineJIT for Alp<'a, A> {
     fn in_params(&self, params: &mut Vec<GPUKernelParameter>) {
         params.extend([
             GPUKernelParameter {
@@ -74,10 +76,10 @@ impl<A: ALPFloat + DeviceRepr> ScalarGPUPipelineJIT for Alp<A> {
         ])
     }
 
-    fn args<'a>(
-        &'a self,
+    fn args<'b>(
+        &'b self,
         _stream: &Arc<CudaStream>,
-        args: &mut LaunchArgs<'a>,
+        args: &mut LaunchArgs<'b>,
     ) -> VortexResult<()> {
         args.arg(&self.e);
         args.arg(&self.f);
@@ -126,5 +128,18 @@ impl<A: ALPFloat + DeviceRepr> ScalarGPUPipelineJIT for Alp<A> {
 
     fn child(&self) -> &dyn GPUPipelineJIT {
         self.child.as_ref()
+    }
+}
+
+pub struct AlpEncodingTree {
+    pub float_type: PType,
+    pub child: EncodingTreeRef,
+    pub f: u32,
+    pub e: u32,
+}
+
+impl EncodingTree for AlpEncodingTree {
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

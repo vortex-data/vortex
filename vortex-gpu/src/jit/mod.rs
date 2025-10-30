@@ -73,6 +73,7 @@
 
 mod arrays;
 mod convert;
+mod encoding_tree;
 mod kernel_fmt;
 mod run;
 mod type_;
@@ -81,7 +82,11 @@ use std::fmt;
 use std::fmt::Write;
 use std::sync::Arc;
 
+pub use arrays::alp::AlpEncodingTree;
+pub use arrays::bitpack::BitPackedEncodingTree;
+pub use arrays::for_::FoREncodingTree;
 use cudarc::driver::{CudaStream, LaunchArgs};
+pub use encoding_tree::{EncodingTree, EncodingTreeRef};
 pub use run::create_run_jit_kernel;
 pub use type_::CUDAType;
 use vortex_dtype::PType;

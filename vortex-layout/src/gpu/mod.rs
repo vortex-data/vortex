@@ -8,19 +8,19 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::future::{BoxFuture, Shared};
-use vortex_array::ArrayRef;
+use futures::future::BoxFuture;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexResult};
 use vortex_expr::ExprRef;
+use vortex_gpu::{EncodingTreeRef, GpuArray};
 use vortex_gpu::GpuVector;
 
 pub type GpuLayoutReaderRef = Arc<dyn GpuLayoutReader>;
 
 pub type GpuArrayFuture = BoxFuture<'static, VortexResult<Vec<GpuVector>>>;
 
-pub type ShareGpuArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
+pub type ShareGpuArrayFuture = BoxFuture<'static, SharedVortexResult<EncodingTreeRef>>;
 
 /// A [`crate::gpu::GpuLayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
 /// evaluation operations.

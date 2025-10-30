@@ -16,9 +16,9 @@ use crate::{BitPackedArray, BitPackedVTable};
 #[derive(Clone, prost::Message)]
 pub struct BitPackedMetadata {
     #[prost(uint32, tag = "1")]
-    pub(crate) bit_width: u32,
+    pub bit_width: u32,
     #[prost(uint32, tag = "2")]
-    pub(crate) offset: u32, // must be <1024
+    pub offset: u32, // must be <1024
     #[prost(message, optional, tag = "3")]
     pub(crate) patches: Option<PatchesMetadata>,
 }

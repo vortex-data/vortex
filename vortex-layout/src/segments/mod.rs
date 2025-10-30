@@ -6,6 +6,8 @@ mod shared;
 mod sink;
 mod source;
 
+#[cfg(feature = "cuda")]
+mod gpu_source;
 #[cfg(any(test, feature = "test-harness"))]
 mod test;
 
@@ -13,6 +15,8 @@ use std::fmt::Display;
 use std::ops::Deref;
 
 pub use cache::*;
+#[cfg(feature = "cuda")]
+pub use gpu_source::*;
 pub use shared::*;
 pub use sink::*;
 pub use source::*;

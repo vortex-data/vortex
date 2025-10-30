@@ -22,7 +22,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::gpu::children::LazyGpuReaderChildren;
 use crate::layouts::struct_::StructLayout;
-use crate::segments::SegmentSource;
+use crate::segments::GpuSegmentSource;
 use crate::{GpuArrayFuture, GpuLayoutReader, GpuLayoutReaderRef};
 
 pub struct GpuStructReader {
@@ -43,7 +43,7 @@ impl GpuStructReader {
     pub(crate) fn try_new(
         layout: StructLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: Arc<dyn GpuSegmentSource>,
         ctx: Arc<CudaContext>,
     ) -> VortexResult<Self> {
         let struct_dt = layout.struct_fields();

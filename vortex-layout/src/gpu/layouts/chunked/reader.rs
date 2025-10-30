@@ -15,7 +15,7 @@ use vortex_expr::ExprRef;
 
 use crate::gpu::children::LazyGpuReaderChildren;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::segments::SegmentSource;
+use crate::segments::GpuSegmentSource;
 use crate::{GpuArrayFuture, GpuLayoutReader, GpuLayoutReaderRef};
 
 pub struct GpuChunkedLayoutReader {
@@ -31,7 +31,7 @@ impl GpuChunkedLayoutReader {
     pub fn new(
         layout: ChunkedLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: Arc<dyn GpuSegmentSource>,
         ctx: Arc<CudaContext>,
     ) -> Self {
         let nchildren = layout.nchildren();

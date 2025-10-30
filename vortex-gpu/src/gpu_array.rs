@@ -9,6 +9,8 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{FieldNames, NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 
+pub type CudaByteBuffer = CudaSlice<u8>;
+
 #[derive(Clone)]
 pub enum GpuVector {
     Primitive(GpuPrimitiveVector),

@@ -108,14 +108,12 @@ pub fn cuda_for_bp_unpack_timed(
     ctx: Arc<CudaContext>,
 ) -> VortexResult<(PrimitiveArray, Duration)> {
     let stream = ctx.default_stream();
-    let mut task = new_task(array, ctx.clone(), stream.clone())?;
+    let mut task = new_task(array, ctx, stream.clone())?;
     let start = stream
         .record_event(Some(CU_EVENT_DEFAULT))
         .ok()
         .vortex_expect("Failed to record event");
     task.launch_task()?;
-    ctx.synchronize()
-        .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
     let end = stream
         .record_event(Some(CU_EVENT_DEFAULT))
         .ok()

@@ -8,17 +8,20 @@ use once_cell::sync::OnceCell;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::segments::SegmentSource;
+use crate::segments::GpuSegmentSource;
 use crate::{GpuLayoutReaderRef, LayoutChildren};
 
 pub struct LazyGpuReaderChildren {
     children: Arc<dyn LayoutChildren>,
-    segment_source: Arc<dyn SegmentSource>,
+    segment_source: Arc<dyn GpuSegmentSource>,
     cache: Vec<OnceCell<GpuLayoutReaderRef>>,
 }
 
 impl LazyGpuReaderChildren {
-    pub fn new(children: Arc<dyn LayoutChildren>, segment_source: Arc<dyn SegmentSource>) -> Self {
+    pub fn new(
+        children: Arc<dyn LayoutChildren>,
+        segment_source: Arc<dyn GpuSegmentSource>,
+    ) -> Self {
         let nchildren = children.nchildren();
         let cache = (0..nchildren).map(|_| OnceCell::new()).collect();
         Self {

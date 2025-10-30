@@ -4,37 +4,37 @@
 use std::sync::Arc;
 
 use cudarc::driver::CudaStream;
-use vortex_alp::ALPVTable;
-use vortex_array::{Array, ArrayRef};
-use vortex_fastlanes::{BitPackedVTable, FoRVTable};
 
 use crate::jit::arrays::{alp, bitpack, for_};
-use crate::jit::{GPUPipelineJIT, StepIdAllocator};
+use crate::jit::{
+    AlpEncodingTree, BitPackedEncodingTree, EncodingTreeRef, FoREncodingTree, GPUPipelineJIT,
+    StepIdAllocator,
+};
 
-pub fn new_jit_array(
-    a: &ArrayRef,
+pub fn new_jit_array<'a>(
+    a: &'a EncodingTreeRef,
     stream: &Arc<CudaStream>,
     output_array: String,
-) -> Box<dyn GPUPipelineJIT> {
+) -> Box<dyn GPUPipelineJIT + 'a> {
     handle_array(a, stream, &mut StepIdAllocator::default(), output_array)
 }
 
-pub fn handle_array(
-    a: &ArrayRef,
+pub fn handle_array<'a>(
+    a: &'a EncodingTreeRef,
     stream: &Arc<CudaStream>,
     allocator: &mut StepIdAllocator,
     output_array: String,
-) -> Box<dyn GPUPipelineJIT> {
-    if let Some(alp) = a.as_opt::<ALPVTable>() {
+) -> Box<dyn GPUPipelineJIT + 'a> {
+    if let Some(alp) = a.as_any().downcast_ref::<AlpEncodingTree>() {
         return alp::new_jit(alp, stream, allocator, output_array);
     }
-    if let Some(bp) = a.as_opt::<BitPackedVTable>() {
+    if let Some(bp) = a.as_any().downcast_ref::<BitPackedEncodingTree>() {
         return bitpack::new_jit(bp, stream, allocator, output_array);
     };
 
-    if let Some(for_) = a.as_opt::<FoRVTable>() {
+    if let Some(for_) = a.as_any().downcast_ref::<FoREncodingTree>() {
         return for_::new_jit(for_, stream, allocator, output_array);
     }
 
-    todo!("unimplemented jit for {}", a.encoding_id())
+    todo!("unimplemented jit for kernel ?")
 }

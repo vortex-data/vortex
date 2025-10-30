@@ -7,21 +7,20 @@ use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
 use futures::FutureExt;
-use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexResult, VortexUnwrap as _};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::ExprRef;
-use vortex_gpu::create_run_jit_kernel;
+use vortex_gpu::{GpuArrayParts, create_run_jit_kernel};
 
 use crate::layouts::flat::FlatLayout;
-use crate::segments::SegmentSource;
+use crate::segments::GpuSegmentSource;
 use crate::{GpuArrayFuture, GpuLayoutReader, ShareGpuArrayFuture};
 
 pub struct GpuFlatReader {
     layout: FlatLayout,
     name: Arc<str>,
-    segment_source: Arc<dyn SegmentSource>,
+    segment_source: Arc<dyn GpuSegmentSource>,
     context: Arc<CudaContext>,
 }
 
@@ -29,7 +28,7 @@ impl GpuFlatReader {
     pub(crate) fn new(
         layout: FlatLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: Arc<dyn GpuSegmentSource>,
         context: Arc<CudaContext>,
     ) -> Self {
         Self {
@@ -51,14 +50,20 @@ impl GpuFlatReader {
 
         let ctx = self.layout.array_ctx().clone();
         let dtype = self.layout.dtype().clone();
+        let tree = self
+            .layout
+            .array_tree
+            .as_ref()
+            .vortex_expect("exists")
+            .clone();
         async move {
+            let tree = tree;
             let segment = segment_fut.await?;
-            ArrayParts::try_from(segment)?
-                .decode(&ctx, &dtype, row_count)
-                .map_err(Arc::new)
+            let mut parts = GpuArrayParts::new(&tree, segment, ctx);
+
+            Ok(parts.create_array(&dtype, row_count))
         }
         .boxed()
-        .shared()
     }
 }
 
@@ -99,12 +104,14 @@ impl GpuLayoutReader for GpuFlatReader {
         let array = self.array_future();
         let expr = expr.clone();
         let ctx = self.context.clone();
+        let row_count = usize::try_from(self.layout.row_count()).vortex_unwrap();
+        let dtype = self.layout.dtype().clone();
 
         Ok(async move {
             log::debug!("Flat array evaluation {} - {}", name, expr);
 
-            let array = array.clone().await?;
-            let (gpu_result, _) = create_run_jit_kernel(&ctx, &array)?;
+            let array = array.await?;
+            let (gpu_result, _) = create_run_jit_kernel(&ctx, &array, &dtype, row_count)?;
             Ok(vec![gpu_result])
         }
         .boxed())

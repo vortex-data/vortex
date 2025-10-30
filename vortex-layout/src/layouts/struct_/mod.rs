@@ -108,7 +108,7 @@ impl VTable for StructVTable {
     fn new_gpu_reader(
         layout: &Self::Layout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: Arc<dyn crate::segments::GpuSegmentSource>,
         ctx: Arc<cudarc::driver::CudaContext>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
         Ok(Arc::new(

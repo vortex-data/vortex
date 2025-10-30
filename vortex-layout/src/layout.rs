@@ -55,7 +55,7 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     fn new_gpu_reader(
         &self,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: Arc<dyn crate::segments::GpuSegmentSource>,
         ctx: Arc<cudarc::driver::CudaContext>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef>;
 
@@ -263,7 +263,7 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
     fn new_gpu_reader(
         &self,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: Arc<dyn crate::segments::GpuSegmentSource>,
         ctx: Arc<cudarc::driver::CudaContext>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
         V::new_gpu_reader(&self.0, name, segment_source, ctx)

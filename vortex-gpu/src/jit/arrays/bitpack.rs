@@ -1,54 +1,50 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
-use cudarc::driver::{CudaSlice, CudaStream, DeviceRepr, LaunchArgs, PushKernelArg};
-use vortex_buffer::Buffer;
+use cudarc::driver::{CudaStream, CudaView, DeviceRepr, LaunchArgs, PushKernelArg};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, VortexUnwrap, vortex_err};
-use vortex_fastlanes::BitPackedArray;
+use vortex_error::{VortexExpect, VortexResult};
 
+use crate::CudaByteBuffer;
 use crate::indent::IndentedWrite;
+use crate::jit::encoding_tree::EncodingTree;
 use crate::jit::{
     CUDAType, GPUKernelParameter, GPULaunchConfig, GPUPipelineJIT, GPUVisitor, StepIdAllocator,
 };
 
-struct BitPack<P> {
+struct BitPack<'a, P> {
     step_id: usize,
     bit_width: u8,
     output_type: PType,
-    cuda_slice: CudaSlice<P>,
+    cuda_slice: CudaView<'a, P>,
     output_array: String,
 }
 
-pub fn new_jit(
-    bp: &BitPackedArray,
-    stream: &Arc<CudaStream>,
+pub fn new_jit<'a>(
+    bp: &'a BitPackedEncodingTree,
+    _stream: &Arc<CudaStream>,
     allocator: &mut StepIdAllocator,
     output_array: String,
-) -> Box<dyn GPUPipelineJIT> {
-    assert_eq!(bp.offset(), 0);
-    assert!(bp.patches().is_none());
-    match_each_native_ptype!(bp.ptype(), |P| {
-        let values = Buffer::<P>::from_byte_buffer(bp.packed().clone());
-        let cuda_slice = stream
-            .memcpy_stod(values.as_slice())
-            .map_err(|e| vortex_err!("Failed to copy to device: {e}"))
-            .vortex_unwrap();
+) -> Box<dyn GPUPipelineJIT + 'a> {
+    match_each_native_ptype!(bp.output_type, |P| {
         let step_id = allocator.fresh_id();
+        let len = bp.buffer_handle.len();
         Box::new(BitPack::<P> {
             step_id,
-            bit_width: bp.bit_width(),
-            output_type: bp.ptype(),
-            cuda_slice,
+            bit_width: bp.bit_width,
+            output_type: bp.output_type,
+            cuda_slice: unsafe { bp.buffer_handle.transmute(len / P::PTYPE.byte_width()) }
+                .vortex_expect("transmute"),
             output_array,
         })
     })
 }
 
-impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
+impl<'a, P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<'a, P> {
     fn in_params(&self, p: &mut Vec<GPUKernelParameter>) {
         p.push(GPUKernelParameter {
             name: self.in_var_g(),
@@ -59,10 +55,10 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
         });
     }
 
-    fn args<'a>(
-        &'a self,
+    fn args<'b>(
+        &'b self,
         _stream: &Arc<CudaStream>,
-        launch_args: &mut LaunchArgs<'a>,
+        launch_args: &mut LaunchArgs<'b>,
     ) -> VortexResult<()> {
         launch_args.arg(&self.cuda_slice);
 
@@ -219,7 +215,7 @@ impl<P: NativePType + DeviceRepr> GPUPipelineJIT for BitPack<P> {
     }
 }
 
-impl<P> BitPack<P> {
+impl<'a, P> BitPack<'a, P> {
     fn tmp_var(&self) -> String {
         format!("tmp{}", self.step_id)
     }
@@ -238,5 +234,17 @@ impl<P> BitPack<P> {
 
     fn in_var_g(&self) -> String {
         format!("_in{}", self.step_id)
+    }
+}
+
+pub struct BitPackedEncodingTree {
+    pub bit_width: u8,
+    pub output_type: PType,
+    pub buffer_handle: CudaByteBuffer,
+}
+
+impl EncodingTree for BitPackedEncodingTree {
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

@@ -87,7 +87,7 @@ impl VTable for DictVTable {
     fn new_gpu_reader(
         _layout: &Self::Layout,
         _name: Arc<str>,
-        _segment_source: Arc<dyn SegmentSource>,
+        _segment_source: Arc<dyn crate::segments::GpuSegmentSource>,
         _ctx: Arc<cudarc::driver::CudaContext>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
         todo!()

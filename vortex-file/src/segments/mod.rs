@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod cache;
+#[cfg(feature = "gpu")]
+mod gpu_source;
 mod source;
 pub(crate) mod writer;
 

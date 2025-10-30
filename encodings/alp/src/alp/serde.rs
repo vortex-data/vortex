@@ -17,9 +17,9 @@ use crate::{ALPArray, ALPVTable, Exponents};
 #[derive(Clone, prost::Message)]
 pub struct ALPMetadata {
     #[prost(uint32, tag = "1")]
-    exp_e: u32,
+    pub exp_e: u32,
     #[prost(uint32, tag = "2")]
-    exp_f: u32,
+    pub exp_f: u32,
     #[prost(message, optional, tag = "3")]
     patches: Option<PatchesMetadata>,
 }

@@ -124,8 +124,15 @@ extern "C" __global__ void fused_bitpack6_for_u32(
     auto out = unpacked_out + (blockIdx.x * 1024);
 
     __shared__ uint32_t shared_data[1024];
+    __shared__ uint32_t shared_data_in[192];
 
-    fls_unpack_6bw_32ow_device(in, shared_data, i);
+    for (int i = 0; i < 6; i++) {
+        auto idx = i * 32 + threadIdx.x;
+        shared_data_in[idx] = in[idx];
+    }
+    fls_unpack_6bw_32ow_device(shared_data_in, shared_data, i);
+
+//     fls_unpack_6bw_32ow_device(in, shared_data, i);
 
     for_device(shared_data, reference, i);
 

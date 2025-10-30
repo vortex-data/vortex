@@ -23,7 +23,7 @@ use vortex_gpu::{
 // Data sizes: 1GB, 2.5GB, 5GB, 10GB
 // These are approximate sizes in bytes, accounting for bit-packing compression
 const DATA_SIZES: &[(usize, &str)] = &[
-    (268_435_456, "1GB"), // ~1GB when unpacked (268M * 4 bytes)
+    // (268_435_456, "1GB"), // ~1GB when unpacked (268M * 4 bytes)
     // (671_088_640, "2.5GB"),  // ~2.5GB when unpacked
     // (1_342_177_280, "5GB"),  // ~5GB when unpacked
     (2_684_354_560, "10GB"), // ~10GB when unpacked
@@ -232,13 +232,11 @@ fn benchmark_cpu_canonicalize(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    benchmark_gpu_decompress_kernel_only,
-    benchmark_gpu_for_decompress_kernel_only,
-    benchmark_gpu_for_bp_fused_decompress_kernel_only,
-    benchmark_gpu_for_bp_jit_decompress_kernel_only
-);
+// criterion_group!(
+//     benches,
+//     benchmark_gpu_decompress_kernel_only,
+//     benchmark_gpu_for_bp_jit_decompress_kernel_only
+// );
 
-// criterion_group!(benches, benchmark_gpu_for_bp_jit_decompress_kernel_only);
+criterion_group!(benches, benchmark_gpu_for_bp_fused_decompress_kernel_only,);
 criterion_main!(benches);

@@ -6,13 +6,12 @@ use std::time::Duration;
 
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::driver::{CudaContext, CudaEvent, CudaStream, LaunchArgs, LaunchConfig, PushKernelArg};
-use vortex_array::ArrayRef;
-use vortex_dtype::match_each_native_ptype;
+use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::jit::convert::new_jit_array;
 use crate::jit::kernel_fmt::create_kernel;
-use crate::jit::{GPUPipelineJIT, GPUVisitor};
+use crate::jit::{EncodingTreeRef, GPUPipelineJIT, GPUVisitor};
 use crate::{GpuPrimitiveVector, GpuVector};
 
 pub struct RuntimeEvents {
@@ -32,7 +31,9 @@ impl RuntimeEvents {
 
 pub fn create_run_jit_kernel(
     ctx: &Arc<CudaContext>,
-    array: &ArrayRef,
+    array: &EncodingTreeRef,
+    dtype: &DType,
+    len: usize,
 ) -> VortexResult<(GpuVector, RuntimeEvents)> {
     let stream = ctx.default_stream();
 
@@ -40,8 +41,7 @@ pub fn create_run_jit_kernel(
     let output = new_jit_array(array, &stream, kernel_output_arr_name.to_string());
     let kernel = create_kernel(ctx.clone(), output.as_ref(), kernel_output_arr_name)?;
 
-    let num_chunks =
-        u32::try_from(array.len().div_ceil(1024)).vortex_expect("Too many grid elements");
+    let num_chunks = u32::try_from(len.div_ceil(1024)).vortex_expect("Too many grid elements");
 
     let mut launch_builder = stream.launch_builder(&kernel);
 
@@ -57,11 +57,11 @@ pub fn create_run_jit_kernel(
 
     collect_args(output.as_ref(), stream.clone(), &mut launch_builder)?;
 
-    match_each_native_ptype!(array.dtype().as_ptype(), |P| {
+    match_each_native_ptype!(dtype.as_ptype(), |P| {
         // append final argument (output) of the kernel
         let mut out = unsafe {
             stream
-                .alloc::<P>(array.len())
+                .alloc::<P>(len)
                 .map_err(|e| vortex_err!("failed to alloc zeros {e}"))?
         };
         launch_builder.arg(&mut out);

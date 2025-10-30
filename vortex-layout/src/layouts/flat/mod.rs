@@ -83,7 +83,7 @@ impl VTable for FlatVTable {
     fn new_gpu_reader(
         layout: &Self::Layout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: Arc<dyn crate::segments::GpuSegmentSource>,
         ctx: Arc<cudarc::driver::CudaContext>,
     ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
         Ok(Arc::new(crate::gpu::layouts::flat::GpuFlatReader::new(
@@ -128,7 +128,7 @@ pub struct FlatLayout {
     dtype: DType,
     segment_id: SegmentId,
     ctx: ArrayContext,
-    array_tree: Option<ByteBuffer>,
+    pub array_tree: Option<ByteBuffer>,
 }
 
 impl FlatLayout {
