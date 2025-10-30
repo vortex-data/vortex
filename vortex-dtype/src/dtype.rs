@@ -390,6 +390,27 @@ impl DType {
         }
     }
 
+    /// Returns the [`StructFields`] from a struct [`DType`].
+    ///
+    /// # Panics
+    ///
+    /// If the [`DType`] is not a struct.
+    pub fn into_struct_fields(self) -> StructFields {
+        if let Struct(f, _) = self {
+            return f;
+        }
+        vortex_panic!("DType is not a Struct")
+    }
+
+    /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
+    pub fn into_struct_fields_opt(self) -> StructFields {
+        if let Struct(f, _) = self {
+            Some(f)
+        } else {
+            None
+        }
+    }
+
     /// Convenience method for creating a [`DType::List`].
     pub fn list(dtype: impl Into<DType>, nullability: Nullability) -> Self {
         List(Arc::new(dtype.into()), nullability)
