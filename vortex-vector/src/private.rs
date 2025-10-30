@@ -8,7 +8,7 @@
 //! usage, which gives us the freedom to add new trait methods in the future without breaking
 //! backward compatibility.
 
-use vortex_dtype::NativePType;
+use vortex_dtype::{NativeDecimalType, NativePType};
 
 use crate::*;
 
@@ -23,6 +23,11 @@ impl Sealed for NullVectorMut {}
 
 impl Sealed for BoolVector {}
 impl Sealed for BoolVectorMut {}
+
+impl Sealed for DecimalVector {}
+impl Sealed for DecimalVectorMut {}
+impl<D: NativeDecimalType> Sealed for DVector<D> {}
+impl<D: NativeDecimalType> Sealed for DVectorMut<D> {}
 
 impl Sealed for PrimitiveVector {}
 impl Sealed for PrimitiveVectorMut {}

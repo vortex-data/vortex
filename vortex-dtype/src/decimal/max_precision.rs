@@ -1,117 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arbitrary::{Result, Unstructured};
-use vortex_dtype::{DECIMAL128_MAX_PRECISION, DecimalDType, i256};
+//! Lookup tables for minumum/maximum i256 decimal values for each precision.
+//! We cannot perform const computations for i256, so we precompute these values.
 
-use crate::scalar_value::InnerScalarValue;
-use crate::{DecimalValue, ScalarValue};
+use crate::i256;
 
-/// Generate an arbitrary decimal scalar confined to the given bounds of precision and scale.
-pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Result<ScalarValue> {
-    let precision = decimal_type.precision();
-    if precision <= DECIMAL128_MAX_PRECISION {
-        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I128(
-            u.int_in_range(
-                MIN_DECIMAL128_FOR_EACH_PRECISION[precision as usize]
-                    ..=MAX_DECIMAL128_FOR_EACH_PRECISION[precision as usize],
-            )?,
-        ))))
-    } else {
-        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I256(
-            u.int_in_range(
-                MIN_DECIMAL256_FOR_EACH_PRECISION[precision as usize]
-                    ..=MAX_DECIMAL256_FOR_EACH_PRECISION[precision as usize],
-            )?,
-        ))))
-    }
-}
-
-const MAX_DECIMAL128_FOR_EACH_PRECISION: [i128; 39] = [
-    0, // unused first element
-    9,
-    99,
-    999,
-    9999,
-    99999,
-    999999,
-    9999999,
-    99999999,
-    999999999,
-    9999999999,
-    99999999999,
-    999999999999,
-    9999999999999,
-    99999999999999,
-    999999999999999,
-    9999999999999999,
-    99999999999999999,
-    999999999999999999,
-    9999999999999999999,
-    99999999999999999999,
-    999999999999999999999,
-    9999999999999999999999,
-    99999999999999999999999,
-    999999999999999999999999,
-    9999999999999999999999999,
-    99999999999999999999999999,
-    999999999999999999999999999,
-    9999999999999999999999999999,
-    99999999999999999999999999999,
-    999999999999999999999999999999,
-    9999999999999999999999999999999,
-    99999999999999999999999999999999,
-    999999999999999999999999999999999,
-    9999999999999999999999999999999999,
-    99999999999999999999999999999999999,
-    999999999999999999999999999999999999,
-    9999999999999999999999999999999999999,
-    99999999999999999999999999999999999999,
-];
-
-const MIN_DECIMAL128_FOR_EACH_PRECISION: [i128; 39] = [
-    0, // unused first element
-    -9,
-    -99,
-    -999,
-    -9999,
-    -99999,
-    -999999,
-    -9999999,
-    -99999999,
-    -999999999,
-    -9999999999,
-    -99999999999,
-    -999999999999,
-    -9999999999999,
-    -99999999999999,
-    -999999999999999,
-    -9999999999999999,
-    -99999999999999999,
-    -999999999999999999,
-    -9999999999999999999,
-    -99999999999999999999,
-    -999999999999999999999,
-    -9999999999999999999999,
-    -99999999999999999999999,
-    -999999999999999999999999,
-    -9999999999999999999999999,
-    -99999999999999999999999999,
-    -999999999999999999999999999,
-    -9999999999999999999999999999,
-    -99999999999999999999999999999,
-    -999999999999999999999999999999,
-    -9999999999999999999999999999999,
-    -99999999999999999999999999999999,
-    -999999999999999999999999999999999,
-    -9999999999999999999999999999999999,
-    -99999999999999999999999999999999999,
-    -999999999999999999999999999999999999,
-    -9999999999999999999999999999999999999,
-    -99999999999999999999999999999999999999,
-];
-
-const MAX_DECIMAL256_FOR_EACH_PRECISION: [i256; 77] = [
+pub(super) const MAX_DECIMAL256_FOR_EACH_PRECISION: [i256; 77] = [
     i256::ZERO, // unused first element
     i256::from_le_bytes([
         9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -419,7 +314,7 @@ const MAX_DECIMAL256_FOR_EACH_PRECISION: [i256; 77] = [
     ]),
 ];
 
-const MIN_DECIMAL256_FOR_EACH_PRECISION: [i256; 77] = [
+pub(super) const MIN_DECIMAL256_FOR_EACH_PRECISION: [i256; 77] = [
     i256::ZERO, // unused first element
     i256::from_le_bytes([
         247, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,

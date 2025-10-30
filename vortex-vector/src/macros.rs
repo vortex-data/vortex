@@ -41,6 +41,7 @@ macro_rules! match_each_vector {
         match $self {
             $crate::Vector::Null($vec) => $body,
             $crate::Vector::Bool($vec) => $body,
+            $crate::Vector::Decimal($vec) => $body,
             $crate::Vector::Primitive($vec) => $body,
             $crate::Vector::String($vec) => $body,
             $crate::Vector::Binary($vec) => $body,
@@ -86,6 +87,7 @@ macro_rules! match_each_vector_mut {
         match $self {
             $crate::VectorMut::Null($vec) => $body,
             $crate::VectorMut::Bool($vec) => $body,
+            $crate::VectorMut::Decimal($vec) => $body,
             $crate::VectorMut::Primitive($vec) => $body,
             $crate::VectorMut::String($vec) => $body,
             $crate::VectorMut::Binary($vec) => $body,

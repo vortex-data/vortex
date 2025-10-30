@@ -85,12 +85,6 @@ impl VectorOps for PrimitiveVector {
     }
 }
 
-impl<T: NativePType> From<PVector<T>> for PrimitiveVector {
-    fn from(v: PVector<T>) -> Self {
-        T::upcast(v)
-    }
-}
-
 impl PTypeUpcast for PrimitiveVector {
     type Input<T: NativePType> = PVector<T>;
 

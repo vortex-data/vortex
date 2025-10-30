@@ -8,9 +8,9 @@
 
 use vortex_error::vortex_panic;
 
-use crate::varbin::{BinaryVector, StringVector};
 use crate::{
-    BoolVector, NullVector, PrimitiveVector, StructVector, VectorMut, VectorOps, match_each_vector,
+    BinaryVector, BoolVector, DecimalVector, NullVector, PrimitiveVector, StringVector,
+    StructVector, VectorMut, VectorOps, match_each_vector,
 };
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
@@ -28,13 +28,13 @@ pub enum Vector {
     Null(NullVector),
     /// Boolean vectors.
     Bool(BoolVector),
+    /// Decimal
+    Decimal(DecimalVector),
     /// Primitive vectors.
     ///
     /// Note that [`PrimitiveVector`] is an enum over the different possible (generic)
     /// [`PVector<T>`](crate::PVector)s. See the documentation for more information.
     Primitive(PrimitiveVector),
-    // Decimal
-    // Decimal(DecimalVector),
     /// String vectors
     String(StringVector),
     /// Binary vectors
