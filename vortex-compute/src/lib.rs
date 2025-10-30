@@ -9,6 +9,8 @@
 
 #[cfg(feature = "arithmetic")]
 pub mod arithmetic;
+#[cfg(feature = "arrow")]
+pub mod arrow;
 #[cfg(feature = "comparison")]
 pub mod comparison;
 #[cfg(feature = "filter")]

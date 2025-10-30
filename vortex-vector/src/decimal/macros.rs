@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Helper macros for working with the different variants of [`DecimalVector`] and
-//! [`DecimalVectorMut`].
-//!
-//! [`DecimalVector`]: crate::DecimalVector
-//! [`DecimalVectorMut`]: crate::DecimalVectorMut
+//! Helper macros for working with the different variants of [`crate::DecimalVector`] and
+//! [`crate::DecimalVectorMut`].
 
-/// Matches on all decimal type variants of [`DecimalVector`] and executes the same code for
+/// Matches on all decimal type variants of [`crate::DecimalVector`] and executes the same code for
 /// each variant branch.
 ///
 /// This macro eliminates repetitive match statements when implementing operations that need to work
@@ -26,7 +23,7 @@ macro_rules! match_each_dvector {
     }};
 }
 
-/// Matches on all decimal type variants of [`DecimalVectorMut`] and executes the same code
+/// Matches on all decimal type variants of [`crate::DecimalVectorMut`] and executes the same code
 /// for each variant branch.
 ///
 /// This macro eliminates repetitive match statements when implementing mutable operations that need

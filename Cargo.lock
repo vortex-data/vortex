@@ -8659,9 +8659,13 @@ dependencies = [
 name = "vortex-compute"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-schema",
  "num-traits",
  "vortex-buffer",
  "vortex-dtype",
+ "vortex-error",
  "vortex-mask",
  "vortex-vector",
 ]
