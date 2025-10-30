@@ -33,8 +33,7 @@ pub struct StructVector {
 
     /// The length of the vector (which is the same as all field vectors).
     ///
-    /// This is stored here as a convenience, and also helps in the case that the `StructVector` has
-    /// no fields.
+    /// This is stored here as a convenience, as the validity also tracks this information.
     pub(super) len: usize,
 }
 
@@ -111,14 +110,14 @@ impl StructVector {
         }
     }
 
-    /// Decomposes the struct vector into its constituent parts (fields, validity, and length).
+    /// Decomposes the struct vector into its constituent parts (fields and validity).
     pub fn into_parts(self) -> (Arc<Box<[Vector]>>, Mask) {
         (self.fields, self.validity)
     }
 
     /// Returns the fields of the `StructVector`, each stored column-wise as a [`Vector`].
-    pub fn fields(&self) -> &[Vector] {
-        self.fields.as_ref()
+    pub fn fields(&self) -> &Arc<Box<[Vector]>> {
+        &self.fields
     }
 }
 
@@ -138,6 +137,7 @@ impl VectorOps for StructVector {
         Self: Sized,
     {
         let len = self.len;
+
         let fields = match Arc::try_unwrap(self.fields) {
             Ok(fields) => fields,
             Err(fields) => return Err(StructVector { fields, ..self }),

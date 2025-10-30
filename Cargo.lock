@@ -9228,7 +9228,6 @@ dependencies = [
  "arrow-schema",
  "itertools 0.14.0",
  "log",
- "mimalloc",
  "object_store",
  "parking_lot",
  "pyo3",

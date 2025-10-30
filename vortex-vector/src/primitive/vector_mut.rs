@@ -7,8 +7,7 @@ use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
 
-use super::macros::match_each_pvector_mut;
-use crate::{PVectorMut, PrimitiveVector, VectorMutOps};
+use crate::{PVectorMut, PrimitiveVector, VectorMutOps, match_each_pvector_mut};
 
 /// A mutable vector of primitive values.
 ///

@@ -8,10 +8,9 @@
 
 use vortex_error::vortex_panic;
 
-use crate::macros::match_each_vector;
-use crate::varbin::{BinaryVector, StringVector};
 use crate::{
-    BoolVector, DecimalVector, NullVector, PrimitiveVector, StructVector, VectorMut, VectorOps,
+    BinaryVector, BoolVector, DecimalVector, NullVector, PrimitiveVector, StringVector,
+    StructVector, VectorMut, VectorOps, match_each_vector,
 };
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)

@@ -5,10 +5,11 @@
 
 use std::sync::Arc;
 
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
+use vortex_dtype::StructFields;
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
-use crate::{StructVector, Vector, VectorMut, VectorMutOps, VectorOps};
+use crate::{StructVector, Vector, VectorMut, VectorMutOps, VectorOps, match_vector_pair};
 
 /// A mutable vector of struct values (values with named fields).
 ///
@@ -174,6 +175,23 @@ impl StructVectorMut {
         }
     }
 
+    /// Creates a new [`StructVectorMut`] with the given fields and capacity.
+    pub fn with_capacity(struct_fields: &StructFields, capacity: usize) -> Self {
+        let fields: Vec<VectorMut> = struct_fields
+            .fields()
+            .map(|dtype| VectorMut::with_capacity(&dtype, capacity))
+            .collect();
+
+        let validity = MaskMut::with_capacity(capacity);
+        let len = validity.len();
+
+        Self {
+            fields: fields.into_boxed_slice(),
+            validity,
+            len,
+        }
+    }
+
     /// Decomposes the struct vector into its constituent parts (fields, validity, and length).
     pub fn into_parts(self) -> (Box<[VectorMut]>, MaskMut, usize) {
         (self.fields, self.validity, self.len)
@@ -237,17 +255,11 @@ impl VectorMutOps for StructVectorMut {
         );
 
         // Extend each field vector.
-        let pairs = self.fields.iter_mut().zip(other.fields());
+        let pairs = self.fields.iter_mut().zip(other.fields().as_ref());
         for (self_mut_vector, other_vec) in pairs {
-            match (self_mut_vector, other_vec) {
-                (VectorMut::Null(a), Vector::Null(b)) => a.extend_from_vector(b),
-                (VectorMut::Bool(a), Vector::Bool(b)) => a.extend_from_vector(b),
-                (VectorMut::Primitive(a), Vector::Primitive(b)) => a.extend_from_vector(b),
-                (VectorMut::Struct(a), Vector::Struct(b)) => a.extend_from_vector(b),
-                _ => {
-                    vortex_panic!("Mismatched field types in `StructVectorMut::extend_from_vector`")
-                }
-            }
+            match_vector_pair!(self_mut_vector, other_vec, |a: VectorMut, b: Vector| {
+                a.extend_from_vector(b)
+            })
         }
 
         // Extend the validity mask.
@@ -320,15 +332,11 @@ impl VectorMutOps for StructVectorMut {
         // Unsplit each field vector.
         let pairs = self.fields.iter_mut().zip(other.fields);
         for (self_mut_vector, other_mut_vec) in pairs {
-            match (self_mut_vector, other_mut_vec) {
-                (VectorMut::Null(a), VectorMut::Null(b)) => a.unsplit(b),
-                (VectorMut::Bool(a), VectorMut::Bool(b)) => a.unsplit(b),
-                (VectorMut::Primitive(a), VectorMut::Primitive(b)) => a.unsplit(b),
-                (VectorMut::Struct(a), VectorMut::Struct(b)) => a.unsplit(b),
-                _ => {
-                    vortex_panic!("Mismatched field types in `StructVectorMut::unsplit`")
-                }
-            }
+            match_vector_pair!(
+                self_mut_vector,
+                other_mut_vec,
+                |a: VectorMut, b: VectorMut| a.unsplit(b)
+            )
         }
 
         self.validity.unsplit(other.validity);
@@ -672,7 +680,7 @@ mod tests {
         );
 
         // Create a VectorMut with capacity using the struct dtype.
-        let vector_mut = VectorMut::with_capacity(100, &struct_dtype);
+        let vector_mut = VectorMut::with_capacity(&struct_dtype, 100);
 
         // Verify it's a struct vector.
         match vector_mut {
