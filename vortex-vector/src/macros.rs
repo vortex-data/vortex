@@ -170,19 +170,10 @@ macro_rules! __match_vector_pair_arms {
 /// let new_bool_mut = extend_vector_owned(mut_vec, vec);
 /// assert_eq!(new_bool_mut.len(), 5);
 /// ```
-#[rustfmt::skip]
-#[macro_export]
+#[macro_export] // DO NOT ADD `#[rustfmt::skip]`!!! https://github.com/rust-lang/rust/pull/52234#issuecomment-903419099
 macro_rules! match_vector_pair {
-    ($left:expr, $right:expr, | $a:ident: Vector, $b:ident: Vector | $body:expr) => {{
-        $crate::__match_vector_pair_arms!($left, $right, Vector, Vector, $a, $b, $body)
-    }};
-    ($left:expr, $right:expr, | $a:ident: Vector, $b:ident: VectorMut | $body:expr) => {{
-        $crate::__match_vector_pair_arms!($left, $right, Vector, VectorMut, $a, $b, $body)
-    }};
-    ($left:expr, $right:expr, | $a:ident: VectorMut, $b:ident: Vector | $body:expr) => {{
-        $crate::__match_vector_pair_arms!($left, $right, VectorMut, Vector, $a, $b, $body)
-    }};
-    ($left:expr, $right:expr, | $a:ident: VectorMut, $b:ident: VectorMut | $body:expr) => {{
-        $crate::__match_vector_pair_arms!($left, $right, VectorMut, VectorMut, $a, $b, $body)
-    }};
+    ($left:expr, $right:expr, | $a:ident : Vector, $b:ident : Vector | $body:expr) => {{ $crate::__match_vector_pair_arms!($left, $right, Vector, Vector, $a, $b, $body) }};
+    ($left:expr, $right:expr, | $a:ident : Vector, $b:ident : VectorMut | $body:expr) => {{ $crate::__match_vector_pair_arms!($left, $right, Vector, VectorMut, $a, $b, $body) }};
+    ($left:expr, $right:expr, | $a:ident : VectorMut, $b:ident : Vector | $body:expr) => {{ $crate::__match_vector_pair_arms!($left, $right, VectorMut, Vector, $a, $b, $body) }};
+    ($left:expr, $right:expr, | $a:ident : VectorMut, $b:ident : VectorMut | $body:expr) => {{ $crate::__match_vector_pair_arms!($left, $right, VectorMut, VectorMut, $a, $b, $body) }};
 }

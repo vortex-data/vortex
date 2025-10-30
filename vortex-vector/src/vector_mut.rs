@@ -13,7 +13,7 @@ use vortex_mask::MaskMut;
 use crate::varbin::{BinaryVectorMut, StringVectorMut};
 use crate::{
     BoolVectorMut, NullVectorMut, PrimitiveVectorMut, StructVectorMut, Vector, VectorMutOps,
-    match_each_vector_mut,
+    match_each_vector_mut, match_vector_pair,
 };
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
@@ -94,15 +94,9 @@ impl VectorMutOps for VectorMut {
     }
 
     fn extend_from_vector(&mut self, other: &Self::Immutable) {
-        match (self, other) {
-            (VectorMut::Null(a), Vector::Null(b)) => a.extend_from_vector(b),
-            (VectorMut::Bool(a), Vector::Bool(b)) => a.extend_from_vector(b),
-            (VectorMut::Primitive(a), Vector::Primitive(b)) => a.extend_from_vector(b),
-            (VectorMut::String(a), Vector::String(b)) => a.extend_from_vector(b),
-            (VectorMut::Binary(a), Vector::Binary(b)) => a.extend_from_vector(b),
-            (VectorMut::Struct(a), Vector::Struct(b)) => a.extend_from_vector(b),
-            _ => vortex_panic!("Mismatched vector types"),
-        }
+        match_vector_pair!(self, other, |a: VectorMut, b: Vector| {
+            a.extend_from_vector(b)
+        })
     }
 
     fn append_nulls(&mut self, n: usize) {
@@ -118,15 +112,7 @@ impl VectorMutOps for VectorMut {
     }
 
     fn unsplit(&mut self, other: Self) {
-        match (self, other) {
-            (VectorMut::Null(a), VectorMut::Null(b)) => a.unsplit(b),
-            (VectorMut::Bool(a), VectorMut::Bool(b)) => a.unsplit(b),
-            (VectorMut::Primitive(a), VectorMut::Primitive(b)) => a.unsplit(b),
-            (VectorMut::String(a), VectorMut::String(b)) => a.unsplit(b),
-            (VectorMut::Binary(a), VectorMut::Binary(b)) => a.unsplit(b),
-            (VectorMut::Struct(a), VectorMut::Struct(b)) => a.unsplit(b),
-            _ => vortex_panic!("Mismatched vector types"),
-        }
+        match_vector_pair!(self, other, |a: VectorMut, b: VectorMut| a.unsplit(b))
     }
 }
 
