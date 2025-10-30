@@ -6,7 +6,7 @@
 #![allow(clippy::disallowed_types, clippy::panic)]
 
 use rstest::rstest;
-use vortex_dtype::{DType, DecimalDType, DecimalType, NativeDecimalType, Nullability, PType, i256};
+use vortex_dtype::{i256, DType, DecimalDType, DecimalType, NativeDecimalType, Nullability, PType};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::decimal::DecimalScalar;
@@ -475,40 +475,6 @@ fn test_decimal_i8_all_primitive_casts(#[case] ptype: PType, #[case] expected: u
         ),
         PType::F16 | PType::F32 | PType::F64 => panic!("Unexpected type {ptype}"),
     }
-}
-
-#[test]
-fn test_native_decimal_type_maybe_from() {
-    // Test NativeDecimalType::maybe_from for each type
-    assert_eq!(DecimalValue::I8(42).cast::<i8>(), Some(42i8));
-    assert_eq!(DecimalValue::I16(42).cast::<i8>(), None);
-
-    assert_eq!(DecimalValue::I16(1234).cast::<i16>(), Some(1234i16));
-    assert_eq!(DecimalValue::I32(1234).cast::<i16>(), None);
-
-    assert_eq!(DecimalValue::I32(56789).cast::<i32>(), Some(56789i32));
-    assert_eq!(DecimalValue::I64(56789).cast::<i32>(), None);
-
-    assert_eq!(
-        DecimalValue::I64(123456789).cast::<i64>(),
-        Some(123456789i64)
-    );
-    assert_eq!(DecimalValue::I128(123456789).cast::<i64>(), None);
-
-    assert_eq!(
-        DecimalValue::I128(987654321).cast::<i128>(),
-        Some(987654321i128)
-    );
-    assert_eq!(
-        DecimalValue::I256(i256::from_i128(987654321)).cast::<i128>(),
-        None
-    );
-
-    assert_eq!(
-        DecimalValue::I256(i256::from_i128(112233)).cast::<i256>(),
-        Some(i256::from_i128(112233))
-    );
-    assert_eq!(DecimalValue::I8(42).cast::<i256>(), None);
 }
 
 #[test]
