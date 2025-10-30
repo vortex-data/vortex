@@ -1488,11 +1488,11 @@ async fn test_gpu_read_simple() -> VortexResult<()> {
     .into_array();
     let floats = ChunkedArray::from_iter([
         (0..4096 * 4)
-            .map(|i| (i % 64) as f32 + 0.234)
+            .map(|i| (i % 2) as f32 + 0.1)
             .collect::<Buffer<f32>>()
             .into_array(),
         (0..4096 * 4)
-            .map(|i| (i % 64) as f32 + 4.789)
+            .map(|i| (i % 2) as f32 + 4.1)
             .collect::<Buffer<f32>>()
             .into_array(),
     ])
