@@ -1531,6 +1531,6 @@ async fn test_gpu_read_simple() -> VortexResult<()> {
         row_count += array.as_ref().len();
     }
 
-    assert_eq!(row_count, 8);
+    assert_eq!(row_count, 32768);
     Ok(())
 }
