@@ -79,7 +79,7 @@ pub fn create_run_jit_kernel(
             .ok()
             .vortex_expect("Failed to record event");
 
-        let c = GpuVector::Primitive(GpuPrimitiveVector::from_slice_with_len(out, array.len()));
+        let c = GpuVector::Primitive(GpuPrimitiveVector::from_slice_with_len(out, len));
 
         Ok((c, RuntimeEvents { start, end }))
     })

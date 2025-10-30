@@ -76,6 +76,7 @@ struct ALPScheme;
 struct ALPRDScheme;
 
 #[derive(Debug, Copy, Clone)]
+#[allow(dead_code)]
 struct DictScheme;
 
 pub const RLE_FLOAT_SCHEME: RLEScheme<FloatStats, FloatCode> = RLEScheme::new(

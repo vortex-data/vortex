@@ -8,4 +8,6 @@ mod source;
 pub(crate) mod writer;
 
 pub use cache::*;
+#[cfg(feature = "gpu")]
+pub use gpu_source::FileGpuSegmentSource;
 pub use source::*;

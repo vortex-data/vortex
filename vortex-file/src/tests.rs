@@ -8,6 +8,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
+use tokio::fs::File;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
     ChunkedArray, ConstantArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
@@ -17,7 +18,6 @@ use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
-use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dict::{DictEncoding, DictVTable};
 use vortex_dtype::PType::I32;
@@ -1471,10 +1471,14 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     Ok(())
 }
 
-// #[cfg(all(target_os = "linux", feature = "gpu"))]
+#[cfg(all(target_os = "linux", feature = "gpu"))]
 #[cfg_attr(miri, ignore)]
 #[tokio::test]
 async fn test_gpu_read_simple() -> VortexResult<()> {
+    use vortex_btrblocks::BtrBlocksCompressor;
+
+    use crate::segments::FileGpuSegmentSource;
+
     let numbers = ChunkedArray::from_iter([
         (0..4096 * 4)
             .map(|i| i % 64)
@@ -1499,7 +1503,8 @@ async fn test_gpu_read_simple() -> VortexResult<()> {
     .into_array();
 
     let st = StructArray::from_fields(&[("numbers", numbers), ("floats", floats)])?;
-    let mut buf = ByteBufferMut::empty();
+    let path = "test.vortex";
+    let file = File::open(path).await?;
 
     let strategy = WriteStrategyBuilder::new().with_compressor(BtrBlocksCompressor {
         exclude_int_dict_encoding: true,
@@ -1507,20 +1512,35 @@ async fn test_gpu_read_simple() -> VortexResult<()> {
 
     VortexWriteOptions::default()
         .with_strategy(strategy.build())
-        .write(&mut buf, st.to_array_stream())
+        .write(file, st.to_array_stream())
         .await?;
 
+    let file = std::fs::File::open(path)?;
+
     let cpu_read = VortexOpenOptions::new()
-        .open_buffer(buf.clone())?
+        .open(path)
+        .await?
         .scan()?
         .into_array_stream()?
         .read_all()
         .await?;
     println!("Compressed tree: {}", cpu_read.display_tree());
 
-    let stream = VortexOpenOptions::new()
-        .open_buffer(buf)?
-        .gpu_scan(cudarc::driver::CudaContext::new(0).unwrap())?
+    let cuda_ctx = cudarc::driver::CudaContext::new(0).unwrap();
+
+    let vx_file = VortexOpenOptions::new().open(path).await?;
+    let stream = vx_file
+        .gpu_scan(
+            cuda_ctx.clone(),
+            Arc::new(FileGpuSegmentSource::new(
+                vx_file.footer.segment_map().clone(),
+                // .iter()
+                // .map(|f| SegmentSpec::try_from(f).vortex_unwrap())
+                // .collect::<Arc<[_]>>(),
+                cuda_ctx.default_stream(),
+                file,
+            )),
+        )?
         .into_array_stream()?;
     pin_mut!(stream);
 

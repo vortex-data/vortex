@@ -13,8 +13,7 @@ use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexResult};
 use vortex_expr::ExprRef;
-use vortex_gpu::{EncodingTreeRef, GpuArray};
-use vortex_gpu::GpuVector;
+use vortex_gpu::{EncodingTreeRef, GpuVector};
 
 pub type GpuLayoutReaderRef = Arc<dyn GpuLayoutReader>;
 
