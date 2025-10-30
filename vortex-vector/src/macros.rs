@@ -39,35 +39,15 @@
 macro_rules! match_each_vector {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
-            $crate::Vector::Null(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::Vector::Bool(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::Vector::Primitive(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::Vector::String(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::Vector::Binary(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::Vector::Struct(v) => {
-                let $vec = v;
-                $body
-            }
+            $crate::Vector::Null($vec) => $body,
+            $crate::Vector::Bool($vec) => $body,
+            $crate::Vector::Primitive($vec) => $body,
+            $crate::Vector::String($vec) => $body,
+            $crate::Vector::Binary($vec) => $body,
+            $crate::Vector::Struct($vec) => $body,
         }
     }};
 }
-
-pub(crate) use match_each_vector;
 
 /// Matches on all variants of [`VectorMut`] and executes the same code for each variant branch.
 ///
@@ -104,32 +84,96 @@ pub(crate) use match_each_vector;
 macro_rules! match_each_vector_mut {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
-            $crate::VectorMut::Null(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::VectorMut::Bool(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::VectorMut::Primitive(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::VectorMut::String(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::VectorMut::Binary(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::VectorMut::Struct(v) => {
-                let $vec = v;
-                $body
-            }
+            $crate::VectorMut::Null($vec) => $body,
+            $crate::VectorMut::Bool($vec) => $body,
+            $crate::VectorMut::Primitive($vec) => $body,
+            $crate::VectorMut::String($vec) => $body,
+            $crate::VectorMut::Binary($vec) => $body,
+            $crate::VectorMut::Struct($vec) => $body,
         }
     }};
 }
 
-pub(crate) use match_each_vector_mut;
+/// Internal macro to generate match arms for vector pairs.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __match_vector_pair_arms {
+    (
+        $left:expr,
+        $right:expr,
+        $enum_left:ident,
+        $enum_right:ident,
+        $a:ident,
+        $b:ident,
+        $body:expr
+    ) => {{
+        match ($left, $right) {
+            ($crate::$enum_left::Null($a), $crate::$enum_right::Null($b)) => $body,
+            ($crate::$enum_left::Bool($a), $crate::$enum_right::Bool($b)) => $body,
+            ($crate::$enum_left::Primitive($a), $crate::$enum_right::Primitive($b)) => $body,
+            ($crate::$enum_left::String($a), $crate::$enum_right::String($b)) => $body,
+            ($crate::$enum_left::Binary($a), $crate::$enum_right::Binary($b)) => $body,
+            ($crate::$enum_left::Struct($a), $crate::$enum_right::Struct($b)) => $body,
+            _ => ::vortex_error::vortex_panic!("Mismatched vector types"),
+        }
+    }};
+}
+
+/// Matches on pairs of vector variants and executes the same code for matching variant pairs.
+///
+/// This macro eliminates repetitive match statements when implementing operations that need to work
+/// with pairs of vectors where the variants must match.
+///
+/// Specify the types of the left and right vectors (either `Vector` or `VectorMut`) and the macro
+/// generates the appropriate match arms.
+///
+/// The macro binds the matched inner values to identifiers in the closure that can be used in the
+/// body expression.
+///
+/// # Examples
+///
+/// ```
+/// use vortex_vector::{
+///     BoolVector, BoolVectorMut, Vector, VectorMut, VectorMutOps, match_vector_pair
+/// };
+///
+/// fn extend_vector(left: &mut VectorMut, right: &Vector) {
+///     match_vector_pair!(left, right, |a: VectorMut, b: Vector| {
+///         a.extend_from_vector(b);
+///     })
+/// }
+///
+/// let mut mut_vec: VectorMut = BoolVectorMut::from_iter([true, false, true]).into();
+/// let vec: Vector = BoolVectorMut::from_iter([false, true]).freeze().into();
+///
+/// extend_vector(&mut mut_vec, &vec);
+/// assert_eq!(mut_vec.len(), 5);
+/// ```
+///
+/// Note that the vectors can also be owned:
+///
+/// ```
+/// use vortex_vector::{
+///     BoolVector, BoolVectorMut, Vector, VectorMut, VectorMutOps, match_vector_pair
+/// };
+///
+/// fn extend_vector_owned(mut dest: VectorMut, src: Vector) -> VectorMut {
+///     match_vector_pair!(&mut dest, src, |a: VectorMut, b: Vector| {
+///         a.extend_from_vector(&b);
+///         dest
+///     })
+/// }
+///
+/// let mut_vec: VectorMut = BoolVectorMut::from_iter([true, false, true]).into();
+/// let vec: Vector = BoolVectorMut::from_iter([false, true]).freeze().into();
+///
+/// let new_bool_mut = extend_vector_owned(mut_vec, vec);
+/// assert_eq!(new_bool_mut.len(), 5);
+/// ```
+#[macro_export] // DO NOT ADD `#[rustfmt::skip]`!!! https://github.com/rust-lang/rust/pull/52234#issuecomment-903419099
+macro_rules! match_vector_pair {
+    ($left:expr, $right:expr, | $a:ident : Vector, $b:ident : Vector | $body:expr) => {{ $crate::__match_vector_pair_arms!($left, $right, Vector, Vector, $a, $b, $body) }};
+    ($left:expr, $right:expr, | $a:ident : Vector, $b:ident : VectorMut | $body:expr) => {{ $crate::__match_vector_pair_arms!($left, $right, Vector, VectorMut, $a, $b, $body) }};
+    ($left:expr, $right:expr, | $a:ident : VectorMut, $b:ident : Vector | $body:expr) => {{ $crate::__match_vector_pair_arms!($left, $right, VectorMut, Vector, $a, $b, $body) }};
+    ($left:expr, $right:expr, | $a:ident : VectorMut, $b:ident : VectorMut | $body:expr) => {{ $crate::__match_vector_pair_arms!($left, $right, VectorMut, VectorMut, $a, $b, $body) }};
+}
