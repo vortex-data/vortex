@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future::{Future, ready};
+use std::future::{ready, Future};
 use std::io::{self, Cursor, Write};
 
 use futures::{AsyncWrite, AsyncWriteExt};
@@ -88,6 +88,23 @@ impl<W: VortexWrite> VortexWrite for &mut W {
 
     fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
         (*self).shutdown()
+    }
+}
+
+impl VortexWrite for async_fs::File {
+    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
+        async move {
+            AsyncWriteExt::write_all(self, buffer.as_slice()).await?;
+            Ok(buffer)
+        }
+    }
+
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+        AsyncWriteExt::flush(self)
+    }
+
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+        AsyncWriteExt::close(self)
     }
 }
 

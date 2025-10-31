@@ -280,7 +280,7 @@ fn test_vortex_scan_booleans() {
     assert_eq!(true_count, 3);
 }
 
-#[test]
+#[tokio::test]
 fn test_vortex_multi_column() {
     let file = SESSION.block_on(async {
         let f1 = BoolArray::from_bit_buffer(
@@ -303,7 +303,7 @@ fn test_vortex_multi_column() {
     assert_eq!(result, vec![2, 3]);
 }
 
-#[test]
+#[tokio::test]
 fn test_vortex_scan_multiple_files() {
     let (tempdir, _file1, _file2) = SESSION.block_on(async {
         let tempdir = tempfile::tempdir().unwrap();
@@ -332,7 +332,7 @@ fn test_vortex_scan_multiple_files() {
     assert_eq!(total_sum, 21);
 }
 
-#[test]
+#[tokio::test]
 fn test_write_file() {
     let conn = database_connection();
     let tempdir = tempfile::tempdir().unwrap();
@@ -355,7 +355,7 @@ fn test_write_file() {
     assert_eq!(total_sum, 55);
 }
 
-#[test]
+#[tokio::test]
 fn test_write_timestamps() {
     let conn = database_connection();
     let tempdir = tempfile::tempdir().unwrap();
@@ -382,7 +382,7 @@ fn test_write_timestamps() {
     );
 }
 
-#[test]
+#[tokio::test]
 fn test_vortex_scan_fixed_size_list_utf8() {
     // Test a simple FixedSizeList of Utf8 strings to ensure proper materialization.
 
@@ -431,7 +431,7 @@ fn test_vortex_scan_fixed_size_list_utf8() {
     assert_eq!(row_count, 6, "Should have retrieved 6 lists");
 }
 
-#[test]
+#[tokio::test]
 fn test_vortex_scan_nested_fixed_size_list_utf8() {
     // Regression test for a segfault that occurs inside query 7 and 8 of the `statpopgen` benchmark
     // when running with `FixedSizeList` instead of `List`.
@@ -491,7 +491,7 @@ fn test_vortex_scan_nested_fixed_size_list_utf8() {
     assert_eq!(row_count, 2, "Should have retrieved 2 outer lists");
 }
 
-#[test]
+#[tokio::test]
 fn test_vortex_scan_list_of_ints() {
     // Test a simple List of integers.
 

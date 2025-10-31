@@ -9070,6 +9070,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-compat",
+ "async-fs",
  "async-stream",
  "async-trait",
  "bytes",

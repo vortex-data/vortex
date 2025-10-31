@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::runtime::current::CurrentThreadRuntime;
-use crate::runtime::tokio::TokioRuntime;
 use crate::runtime::BlockingRuntime;
 use crate::runtime::Handle;
 use futures::Stream;
@@ -16,7 +15,8 @@ pub struct RuntimeSession {
 
 /// The choices for the runtime used in a session.
 enum Runtime {
-    Tokio(TokioRuntime),
+    #[cfg(feature = "tokio")]
+    Tokio(crate::runtime::tokio::TokioRuntime),
     CurrentThread(CurrentThreadRuntime),
 }
 
@@ -27,7 +27,7 @@ impl Default for RuntimeSession {
             use tokio::runtime::Handle as TokioHandle;
             if let Ok(h) = TokioHandle::try_current() {
                 return RuntimeSession {
-                    runtime: Runtime::Tokio(TokioRuntime::new(h)),
+                    runtime: Runtime::Tokio(crate::runtime::tokio::TokioRuntime::new(h)),
                 };
             }
         }
@@ -51,6 +51,7 @@ pub trait RuntimeSessionExt: SessionExt {
     fn handle(&self) -> Handle {
         let session = self.get::<RuntimeSession>();
         match &session.runtime {
+            #[cfg(feature = "tokio")]
             Runtime::Tokio(rt) => rt.handle(),
             Runtime::CurrentThread(rt) => rt.handle(),
         }
@@ -59,7 +60,8 @@ pub trait RuntimeSessionExt: SessionExt {
     /// Configure the runtime session to use Tokio.
     #[cfg(feature = "tokio")]
     fn with_tokio(self, handle: tokio::runtime::Handle) -> Self {
-        self.get_mut::<RuntimeSession>().runtime = Runtime::Tokio(TokioRuntime::from(handle));
+        self.get_mut::<RuntimeSession>().runtime =
+            Runtime::Tokio(crate::runtime::tokio::TokioRuntime::from(handle));
         self
     }
 
@@ -78,6 +80,7 @@ pub trait RuntimeSessionExt: SessionExt {
     {
         let session = self.get::<RuntimeSession>();
         match &session.runtime {
+            #[cfg(feature = "tokio")]
             Runtime::Tokio(rt) => BlockingRuntime::block_on(rt, |_| fut),
             Runtime::CurrentThread(rt) => BlockingRuntime::block_on(rt, |_| fut),
         }
@@ -93,6 +96,7 @@ pub trait RuntimeSessionExt: SessionExt {
     {
         let session = self.get::<RuntimeSession>();
         match &session.runtime {
+            #[cfg(feature = "tokio")]
             Runtime::Tokio(rt) => Box::new(BlockingRuntime::block_on_stream(rt, |_| s)),
             Runtime::CurrentThread(rt) => Box::new(BlockingRuntime::block_on_stream(rt, |_| s)),
         }
