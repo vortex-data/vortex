@@ -10,6 +10,7 @@
 //!cargo run -p vortex-ffi --example hello_vortex
 //! ```
 
+use std::clone::Clone;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -19,12 +20,16 @@ use tokio::fs::File as TokioFile;
 use tokio::runtime::Runtime;
 use vortex::arrays::{ChunkedArray, StructArray};
 use vortex::buffer::Buffer;
-use vortex::error::{VortexResult, vortex_err};
-use vortex::file::VortexWriteOptions;
+use vortex::error::{vortex_err, VortexResult};
+use vortex::file::WriteOptionsSessionExt;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::io::VortexWrite;
-use vortex::{Array, ArrayRef, IntoArray};
+use vortex::session::VortexSession;
+use vortex::{Array, ArrayRef, IntoArray, VortexSessionDefault};
 
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| Runtime::new().unwrap());
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::default().with_tokio(RUNTIME.handle().clone()));
 
 const BIN_NAME: &str = "hello_vortex";
 
@@ -143,7 +148,8 @@ async fn write_vortex_file(path: impl AsRef<Path>) -> VortexResult<()> {
 
     let test_data = ChunkedArray::try_new(vec![chunk1, chunk2, chunk3], dtype)?;
 
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut file, test_data.to_array_stream())
         .await?;
     file.shutdown().await?;

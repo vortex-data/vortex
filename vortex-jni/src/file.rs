@@ -18,7 +18,6 @@ use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::session::ExprSessionExt;
 use vortex::expr::{root, select};
 use vortex::file::{OpenOptionsSessionExt, VortexFile};
-use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::proto::expr as pb;
 use vortex::utils::aliases::hash_map::HashMap;
@@ -26,7 +25,7 @@ use vortex::utils::aliases::hash_map::HashMap;
 use crate::array_iter::NativeArrayIterator;
 use crate::errors::try_or_throw;
 use crate::object_store::make_object_store;
-use crate::{SESSION, TOKIO_RUNTIME};
+use crate::SESSION;
 
 pub struct NativeFile {
     inner: VortexFile,
@@ -312,9 +311,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
             scan_builder = scan_builder.with_row_range(start_idx..end_idx);
         }
 
-        Ok(NativeArrayIterator::new(Box::new(
-            scan_builder.into_array_iter(&TokioRuntime::from(TOKIO_RUNTIME.handle()))?,
-        ))
-        .into_raw())
+        Ok(NativeArrayIterator::new(Box::new(scan_builder.into_array_iter()?)).into_raw())
     })
 }

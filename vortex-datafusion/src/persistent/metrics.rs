@@ -2,17 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Vortex table provider metrics.
-use std::sync::Arc;
-
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_physical_plan::metrics::{
     Count, Gauge, Label as DatafusionLabel, MetricValue as DatafusionMetricValue, MetricsSet,
 };
 use datafusion_physical_plan::{
-    ExecutionPlan, ExecutionPlanVisitor, Metric as DatafusionMetric, accept,
+    accept, ExecutionPlan, ExecutionPlanVisitor, Metric as DatafusionMetric,
 };
-use vortex::metrics::{Metric, MetricId, Tags};
+use std::sync::Arc;
+use vortex::metrics::{Metric, MetricId, MetricsSessionExt, Tags};
 
 use crate::persistent::source::VortexSource;
 
@@ -51,7 +50,8 @@ impl ExecutionPlanVisitor for VortexMetricsFinder {
             {
                 let mut set = MetricsSet::new();
                 for metric in scan
-                    .metrics
+                    .session
+                    .metrics()
                     .snapshot()
                     .iter()
                     .flat_map(|(id, metric)| metric_to_datafusion(id, metric))

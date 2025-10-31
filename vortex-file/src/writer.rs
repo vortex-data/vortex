@@ -20,7 +20,6 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_io::kanal_ext::KanalExt;
-use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_io::session::RuntimeSessionExt;
 use vortex_io::{IoBuf, VortexWrite};
 use vortex_layout::layouts::file_stats::accumulate_stats;
@@ -37,7 +36,6 @@ pub struct VortexWriteOptions {
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
-    handle: Handle,
     session: VortexSession,
 }
 
@@ -48,7 +46,6 @@ pub trait WriteOptionsSessionExt: RuntimeSessionExt + SessionExt {
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
-            handle: self.handle(),
             session: self.session(),
         }
     }
@@ -56,12 +53,6 @@ pub trait WriteOptionsSessionExt: RuntimeSessionExt + SessionExt {
 impl<S: RuntimeSessionExt + SessionExt> WriteOptionsSessionExt for S {}
 
 impl VortexWriteOptions {
-    /// Replace the handle used to spawn layout tasks.
-    pub fn with_handle(mut self, handle: Handle) -> Self {
-        self.handle = handle;
-        self
-    }
-
     /// Replace the default layout strategy with the provided one.
     pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
         self.strategy = strategy;
@@ -85,16 +76,8 @@ impl VortexWriteOptions {
 
 impl VortexWriteOptions {
     /// Drop into the blocking writer API using the given runtime.
-    pub fn blocking<B: BlockingRuntime + Default>(self) -> BlockingWrite<B> {
-        self.with_blocking(B::default())
-    }
-
-    /// Drop into the blocking writer API using the given runtime.
-    pub fn with_blocking<B: BlockingRuntime>(self, runtime: B) -> BlockingWrite<B> {
-        BlockingWrite {
-            options: self,
-            runtime,
-        }
+    pub fn blocking(self) -> BlockingWrite {
+        BlockingWrite { options: self }
     }
 
     /// Write an [`ArrayStream`] as a Vortex file.
@@ -337,50 +320,43 @@ impl Writer<'_> {
 }
 
 /// A blocking API for writing Vortex files.
-pub struct BlockingWrite<B: BlockingRuntime> {
+pub struct BlockingWrite {
     options: VortexWriteOptions,
-    runtime: B,
 }
 
-impl<B: BlockingRuntime> BlockingWrite<B> {
+impl BlockingWrite {
     /// Write a Vortex file into the given `Write` sink.
     pub fn write<W: Write + Unpin>(
         self,
         write: W,
         iter: impl ArrayIterator + Send + 'static,
     ) -> VortexResult<WriteSummary> {
-        self.runtime.block_on(|handle| async move {
+        let session = self.options.session.clone();
+        session.block_on(async move {
             self.options
-                .with_handle(handle)
                 .write(BlockingWriteAdapter(write), iter.into_array_stream())
                 .await
         })
     }
 
-    pub fn writer<'w, W: Write + Unpin + 'w>(
-        self,
-        write: W,
-        dtype: DType,
-    ) -> BlockingWriter<'w, B> {
+    pub fn writer<'w, W: Write + Unpin + 'w>(self, write: W, dtype: DType) -> BlockingWriter<'w> {
+        let session = self.options.session.clone();
         BlockingWriter {
-            writer: self
-                .options
-                .with_handle(self.runtime.handle())
-                .writer(BlockingWriteAdapter(write), dtype),
-            runtime: self.runtime,
+            writer: self.options.writer(BlockingWriteAdapter(write), dtype),
+            session,
         }
     }
 }
 
 /// A blocking adapter around a [`Writer`], allowing incremental writing of arrays to a Vortex file.
-pub struct BlockingWriter<'w, B: BlockingRuntime> {
-    runtime: B,
+pub struct BlockingWriter<'w> {
     writer: Writer<'w>,
+    session: VortexSession,
 }
 
-impl<B: BlockingRuntime> BlockingWriter<'_, B> {
+impl BlockingWriter<'_> {
     pub fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
-        self.runtime.block_on(|_| self.writer.push(chunk))
+        self.session.block_on(self.writer.push(chunk))
     }
 
     pub fn bytes_written(&self) -> u64 {
@@ -392,7 +368,7 @@ impl<B: BlockingRuntime> BlockingWriter<'_, B> {
     }
 
     pub fn finish(self) -> VortexResult<WriteSummary> {
-        self.runtime.block_on(|_| self.writer.finish())
+        self.session.block_on(self.writer.finish())
     }
 }
 

@@ -1,27 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::RecordBatchReader;
+use crate::arrays::{PyArray, PyArrayRef};
+use crate::arrow::FromPyArrow;
+use crate::dataset::PyVortexDataset;
+use crate::expr::PyExpr;
+use crate::iter::PyArrayIterator;
+use crate::{install_module, PyVortex, SESSION};
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
+use arrow_array::RecordBatchReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
 use tokio::fs::File;
 use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::file::{WriteOptionsSessionExt, WriteStrategyBuilder};
+use vortex::io::session::RuntimeSessionExt;
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{ArrayRef, Canonical, IntoArray};
-
-use crate::arrays::{PyArray, PyArrayRef};
-use crate::arrow::FromPyArrow;
-use crate::dataset::PyVortexDataset;
-use crate::expr::PyExpr;
-use crate::iter::PyArrayIterator;
-use crate::{PyVortex, TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;
@@ -102,7 +102,7 @@ pub fn read_url<'py>(
     indices: Option<PyArrayRef>,
     row_range: Option<(u64, u64)>,
 ) -> PyResult<PyArrayRef> {
-    let dataset = py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?;
+    let dataset = py.detach(|| SESSION.block_on(PyVortexDataset::from_url(url)))?;
     dataset.to_array(projection, row_filter, indices, row_range)
 }
 
@@ -160,9 +160,10 @@ pub fn read_url<'py>(
 #[pyo3(signature = (iter, path))]
 pub fn write(py: Python, iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
     py.detach(|| {
-        TOKIO_RUNTIME.block_on(async move {
+        SESSION.block_on(async move {
             let mut file = File::create(path).await?;
-            VortexWriteOptions::default()
+            SESSION
+                .write_options()
                 .write(&mut file, iter.into_inner().into_array_stream())
                 .await
         })
@@ -273,7 +274,7 @@ impl PyVortexWriteOptions {
     #[pyo3(signature = (iter, path))]
     pub fn write_path(&self, py: Python, iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
         py.detach(|| {
-            TOKIO_RUNTIME.block_on(async move {
+            SESSION.block_on(async move {
                 let mut file = File::create(path).await?;
 
                 let mut strategy = WriteStrategyBuilder::new();
@@ -281,7 +282,8 @@ impl PyVortexWriteOptions {
                     strategy = strategy.with_compressor(compressor.clone())
                 }
 
-                VortexWriteOptions::default()
+                SESSION
+                    .write_options()
                     .with_strategy(strategy.build())
                     .write(&mut file, iter.into_inner().into_array_stream())
                     .await

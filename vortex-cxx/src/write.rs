@@ -13,7 +13,6 @@ use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect};
 use vortex::file::{VortexWriteOptions as WriteOptions, WriteOptionsSessionExt};
-use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::io::VortexWrite;
 use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::stream::ArrayStream;
@@ -32,7 +31,7 @@ pub(crate) struct VortexWriteOptions {
 
 pub(crate) fn write_options_new() -> Box<VortexWriteOptions> {
     Box::new(VortexWriteOptions {
-        inner: SESSION.write_options().with_handle(TokioRuntime::current()),
+        inner: SESSION.write_options(),
     })
 }
 

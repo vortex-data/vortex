@@ -10,7 +10,6 @@ use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_io::file::IntoReadSource;
-use vortex_io::runtime::Handle;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_io::{InstrumentedReadAt, VortexReadAt};
 use vortex_layout::segments::{
@@ -32,8 +31,6 @@ const INITIAL_READ_SIZE: usize = 1 << 20; // 1 MB
 pub struct VortexOpenOptions {
     /// The session to use for opening the file.
     session: VortexSession,
-    /// The handle to use for I/O operations.
-    handle: Handle,
     /// Cache to use for file segments.
     segment_cache: Arc<dyn SegmentCache>,
     /// The number of bytes to read when parsing the footer.
@@ -57,7 +54,6 @@ pub trait OpenOptionsSessionExt:
     fn open_options(&self) -> VortexOpenOptions {
         VortexOpenOptions {
             session: self.session(),
-            handle: self.handle(),
             segment_cache: Arc::new(NoOpSegmentCache),
             initial_read_size: INITIAL_READ_SIZE,
             file_size: None,
@@ -74,12 +70,6 @@ impl<S: ArraySessionExt + LayoutSessionExt + MetricsSessionExt + RuntimeSessionE
 }
 
 impl VortexOpenOptions {
-    /// Configure the handle to use for I/O operations.
-    pub fn with_handle(mut self, handle: Handle) -> Self {
-        self.handle = handle;
-        self
-    }
-
     /// Configure the initial read size for the Vortex file.
     pub fn with_initial_read_size(mut self, initial_read_size: usize) -> Self {
         self.initial_read_size = initial_read_size;
@@ -190,6 +180,7 @@ impl VortexOpenOptions {
             footer,
             segment_source,
             metrics: self.metrics,
+            session: self.session.clone(),
         })
     }
 

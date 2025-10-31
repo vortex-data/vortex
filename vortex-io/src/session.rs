@@ -63,6 +63,12 @@ pub trait RuntimeSessionExt: SessionExt {
         self
     }
 
+    /// Configure the runtime session to use a specific current-thread runtime.
+    fn with_current_thread_runtime(self, runtime: CurrentThreadRuntime) -> Self {
+        self.get_mut::<RuntimeSession>().runtime = Runtime::CurrentThread(runtime);
+        self
+    }
+
     /// Use the session's runtime to block on a future.
     ///
     /// Note that care should be used to avoid deadlocks when using this method.
@@ -80,7 +86,7 @@ pub trait RuntimeSessionExt: SessionExt {
     /// Use the session's runtime to block on a stream, returning a blocking iterator.
     ///
     /// Note that care should be used to avoid deadlocks when using this method.
-    fn block_on_stream<'a, S, R>(&self, s: S) -> Box<dyn Iterator<Item = R> + 'a>
+    fn block_on_stream<'a, S, R>(&self, s: S) -> Box<dyn Iterator<Item = R> + Send + 'a>
     where
         S: Stream<Item = R> + Send + 'a,
         R: Send + 'a,

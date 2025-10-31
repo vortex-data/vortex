@@ -33,7 +33,6 @@ use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::{DType, Nullability, PType};
 use vortex::error::{vortex_err, VortexExpect, VortexResult};
 use vortex::file::VORTEX_FILE_EXTENSION;
-use vortex::metrics::{MetricsSessionExt, VortexMetrics};
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
 use vortex::stats::{Stat, StatsSet};
@@ -146,17 +145,11 @@ impl FileFormatFactory for VortexFormatFactory {
     }
 
     fn default(&self) -> Arc<dyn FileFormat> {
-        Arc::new(VortexFormat::default())
+        Arc::new(VortexFormat::new(self.session.clone()))
     }
 
     fn as_any(&self) -> &dyn Any {
         self
-    }
-}
-
-impl Default for VortexFormat {
-    fn default() -> Self {
-        Self::new(VortexSession::default())
     }
 }
 
@@ -373,7 +366,7 @@ impl FileFormat for VortexFormat {
         _state: &dyn Session,
         file_scan_config: FileScanConfig,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        let source = VortexSource::new(self.file_cache.clone(), self.session.metrics().clone());
+        let source = VortexSource::new(self.session.clone(), self.file_cache.clone());
         let source = Arc::new(source);
 
         Ok(DataSourceExec::from_data_source(
@@ -402,8 +395,8 @@ impl FileFormat for VortexFormat {
 
     fn file_source(&self) -> Arc<dyn FileSource> {
         Arc::new(VortexSource::new(
+            self.session.clone(),
             self.file_cache.clone(),
-            VortexMetrics::default(),
         ))
     }
 }

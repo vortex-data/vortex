@@ -3,6 +3,11 @@
 
 use std::sync::Arc;
 
+use crate::arrays::PyArrayRef;
+use crate::arrow::{IntoPyArrow, ToPyArrow};
+use crate::expr::PyExpr;
+use crate::object_store_urls::object_store_from_url;
+use crate::{install_module, SESSION};
 use arrow_array::RecordBatchReader;
 use arrow_schema::SchemaRef;
 use itertools::Itertools;
@@ -11,17 +16,12 @@ use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::dtype::{FieldName, FieldNames};
 use vortex::error::VortexResult;
-use vortex::expr::{ExprRef, SelectExpr, root, select};
-use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::expr::{root, select, ExprRef, SelectExpr};
+use vortex::file::{OpenOptionsSessionExt, VortexFile};
+use vortex::io::session::RuntimeSessionExt;
 use vortex::iter::ArrayIteratorExt;
 use vortex::scan::SplitBy;
 use vortex::{ArrayRef, ToCanonical};
-
-use crate::arrays::PyArrayRef;
-use crate::arrow::{IntoPyArrow, ToPyArrow};
-use crate::expr::PyExpr;
-use crate::object_store_urls::object_store_from_url;
-use crate::{RUNTIME, TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
@@ -57,7 +57,7 @@ pub fn read_array_from_reader(
         scan = scan.with_row_range(l..r);
     }
 
-    scan.into_array_iter(&*RUNTIME)?.read_all()
+    scan.into_array_iter()?.read_all()
 }
 
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRef> {
@@ -103,7 +103,8 @@ impl PyVortexDataset {
     pub async fn from_url(url: &str) -> VortexResult<Self> {
         let (_scheme, object_store, path) = object_store_from_url(url)?;
         PyVortexDataset::try_new(
-            VortexOpenOptions::new()
+            SESSION
+                .open_options()
                 .open_object_store(&object_store, path.as_ref())
                 .await?,
         )
@@ -155,7 +156,7 @@ impl PyVortexDataset {
         // TODO(ngates): should we use multi-threaded read or not?
         let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
         let reader: Box<dyn RecordBatchReader + Send> =
-            Box::new(scan.into_record_batch_reader(schema, &*RUNTIME)?);
+            Box::new(scan.into_record_batch_reader(schema)?);
 
         reader.into_pyarrow(self_.py())
     }
@@ -188,7 +189,7 @@ impl PyVortexDataset {
 
         // TODO(ngates): should we use multi-threaded read or not?
         let n_rows: usize = scan
-            .into_array_iter(&*RUNTIME)?
+            .into_array_iter()?
             .map_ok(|array| array.len())
             .process_results(|iter| iter.sum())
             .map_err(|err| PyValueError::new_err(format!("vortex error: {}", err)))?;
@@ -210,5 +211,5 @@ impl PyVortexDataset {
 
 #[pyfunction]
 pub fn dataset_from_url(py: Python, url: &str) -> PyResult<PyVortexDataset> {
-    Ok(py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?)
+    Ok(py.detach(|| SESSION.block_on(PyVortexDataset::from_url(url)))?)
 }

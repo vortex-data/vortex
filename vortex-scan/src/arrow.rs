@@ -5,10 +5,9 @@ use arrow_array::cast::AsArray;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, DataType, SchemaRef};
 use futures::{Stream, TryStreamExt};
-use vortex_array::ArrayRef;
 use vortex_array::arrow::IntoArrowArray;
+use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
-use vortex_io::runtime::BlockingRuntime;
 
 use crate::ScanBuilder;
 
@@ -18,16 +17,15 @@ impl ScanBuilder<ArrayRef> {
     /// The `schema` parameter is used to define the schema of the resulting record batches. In
     /// general, it is not possible to exactly infer an Arrow schema from a Vortex
     /// [`vortex_dtype::DType`], therefore it is required to be provided explicitly.
-    pub fn into_record_batch_reader<B: BlockingRuntime>(
+    pub fn into_record_batch_reader(
         self,
         schema: SchemaRef,
-        runtime: &B,
-    ) -> VortexResult<impl RecordBatchReader + 'static> {
+    ) -> VortexResult<impl RecordBatchReader + Send + 'static> {
         let data_type = DataType::Struct(schema.fields().clone());
 
         let iter = self
             .map(move |chunk| to_record_batch(chunk, &data_type))
-            .into_iter(runtime)?
+            .into_iter()?
             .map(|result| result.map_err(|e| ArrowError::ExternalError(Box::new(e))));
 
         Ok(RecordBatchIteratorAdapter { iter, schema })
@@ -99,8 +97,8 @@ mod tests {
         Array, ArrayRef as ArrowArrayRef, Int32Array, RecordBatch, StringArray, StructArray,
     };
     use arrow_schema::{ArrowError, DataType, Field, Schema};
-    use vortex_array::ArrayRef;
     use vortex_array::arrow::FromArrowArray;
+    use vortex_array::ArrayRef;
     use vortex_error::VortexResult;
 
     use super::*;

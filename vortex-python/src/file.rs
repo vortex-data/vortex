@@ -3,6 +3,14 @@
 
 use std::sync::Arc;
 
+use crate::arrays::PyArrayRef;
+use crate::arrow::IntoPyArrow;
+use crate::dataset::PyVortexDataset;
+use crate::dtype::PyDType;
+use crate::expr::PyExpr;
+use crate::iter::PyArrayIterator;
+use crate::scan::PyRepeatedScan;
+use crate::{install_module, SESSION};
 use arrow_array::RecordBatchReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -11,21 +19,12 @@ use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, FieldNames, PType};
 use vortex::error::VortexResult;
-use vortex::expr::{ExprRef, root, select};
-use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::io::runtime::BlockingRuntime;
+use vortex::expr::{root, select, ExprRef};
+use vortex::file::{OpenOptionsSessionExt, VortexFile};
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::segments::MokaSegmentCache;
 use vortex::scan::{ScanBuilder, SplitBy};
 use vortex::{ArrayRef, ToCanonical};
-
-use crate::arrays::PyArrayRef;
-use crate::arrow::IntoPyArrow;
-use crate::dataset::PyVortexDataset;
-use crate::dtype::PyDType;
-use crate::expr::PyExpr;
-use crate::iter::PyArrayIterator;
-use crate::scan::PyRepeatedScan;
-use crate::{RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "file")?;
@@ -42,15 +41,15 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyo3(signature = (path, *, without_segment_cache = false))]
 pub fn open(py: Python, path: &str, without_segment_cache: bool) -> PyResult<PyVortexFile> {
     let vxf = py.detach(|| {
-        RUNTIME.block_on(|h| async move {
-            let mut options = VortexOpenOptions::new();
+        SESSION.block_on(async move {
+            let mut options = SESSION.open_options();
             if without_segment_cache {
                 options = options.without_segment_cache();
             } else {
                 // TODO(ngates): use a globally shared segment cache for all files
                 options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
             }
-            options.with_handle(h).open(path).await
+            options.open(path).await
         })
     })?;
 
@@ -88,9 +87,7 @@ impl PyVortexFile {
             batch_size,
         )?;
 
-        Ok(PyArrayIterator::new(Box::new(
-            builder.into_array_iter(&*RUNTIME)?,
-        )))
+        Ok(PyArrayIterator::new(Box::new(builder.into_array_iter()?)))
     }
 
     #[pyo3(signature = (projection = None, *, expr = None, indices = None, batch_size = None))]
@@ -136,7 +133,7 @@ impl PyVortexFile {
             }
 
             let schema = Arc::new(builder.dtype()?.to_arrow_schema()?);
-            builder.into_record_batch_reader(schema, &*RUNTIME)
+            builder.into_record_batch_reader(schema)
         })?;
 
         let rbr: Box<dyn RecordBatchReader + Send> = Box::new(reader);
@@ -169,7 +166,6 @@ impl PyVortexFile {
         let mut builder = self
             .vxf
             .scan()?
-            .with_handle(RUNTIME.handle())
             .with_some_filter(expr)
             .with_projection(projection.unwrap_or_else(root));
 

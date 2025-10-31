@@ -268,8 +268,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         )?;
 
         let layout_reader = file.layout_reader()?;
-        let mut scan_builder = ScanBuilder::new(layout_reader)
-            .with_handle(TokioRuntime::current())
+        let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader)
             .with_row_offset(scan_options.row_offset);
 
         // Apply options if provided.

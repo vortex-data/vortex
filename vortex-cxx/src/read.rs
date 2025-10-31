@@ -15,7 +15,7 @@ use futures::stream::TryStreamExt;
 use vortex::arrow::IntoArrowArray;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
-use vortex::io::runtime::BlockingRuntime;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::arrow::RecordBatchIteratorAdapter;
 use vortex::scan::ScanBuilder;
 use vortex::ArrayRef;
@@ -40,13 +40,7 @@ impl VortexFile {
 /// File operations - using blocking operations for simplicity
 /// TODO(xinyu): object store (see vortex-ffi)
 pub(crate) fn open_file(path: &str) -> Result<Box<VortexFile>> {
-    let file = RUNTIME.block_on(|h| {
-        SESSION
-            .open_options()
-            // TODO(ngates): we should expose a block_on function on the RuntimeSessionExt?
-            .with_handle(h)
-            .open(std::path::Path::new(path))
-    })?;
+    let file = SESSION.block_on(SESSION.open_options().open(std::path::Path::new(path)))?;
     Ok(Box::new(VortexFile { inner: file }))
 }
 
@@ -121,7 +115,7 @@ pub(crate) unsafe fn scan_builder_into_stream(
             Arc::new(arrow_schema)
         }
     };
-    let reader = builder.inner.into_record_batch_reader(schema, &*RUNTIME)?;
+    let reader = builder.inner.into_record_batch_reader(schema)?;
     let stream = FFI_ArrowArrayStream::new(Box::new(reader));
     let out_stream = out_stream as *mut FFI_ArrowArrayStream;
     // # Safety
@@ -162,7 +156,6 @@ pub(crate) fn scan_builder_into_threadsafe_cloneable_reader(
 
     let stream = builder
         .inner
-        .with_handle(RUNTIME.handle())
         .map(move |b| {
             b.into_arrow(&data_type)
                 .map(|struct_array| RecordBatch::from(struct_array.as_struct()))

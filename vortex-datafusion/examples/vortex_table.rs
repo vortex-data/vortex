@@ -9,16 +9,21 @@ use datafusion::datasource::listing::{
 use datafusion::prelude::SessionContext;
 use tempfile::tempdir;
 use tokio::fs::OpenOptions;
-use vortex::IntoArray;
+use tokio::runtime::Handle;
 use vortex::arrays::{ChunkedArray, StructArray, VarBinArray};
 use vortex::buffer::buffer;
 use vortex::error::vortex_err;
-use vortex::file::VortexWriteOptions;
+use vortex::file::WriteOptionsSessionExt;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::session::VortexSession;
 use vortex::validity::Validity;
+use vortex::{IntoArray, VortexSessionDefault};
 use vortex_datafusion::VortexFormat;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let session = VortexSession::default().with_tokio(Handle::current());
+
     let temp_dir = tempdir()?;
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
@@ -48,12 +53,13 @@ async fn main() -> anyhow::Result<()> {
         .open(&filepath)
         .await?;
 
-    VortexWriteOptions::default()
+    session
+        .write_options()
         .write(&mut f, st.to_array_stream())
         .await?;
 
     let ctx = SessionContext::new();
-    let format = Arc::new(VortexFormat::default());
+    let format = Arc::new(VortexFormat::new(session));
     let table_url = ListingTableUrl::parse(
         filepath
             .to_str()
