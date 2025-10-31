@@ -28,7 +28,11 @@ vortex-mask = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
-criterion = { version = "0.7", features = ["html_reports", "async", "async_tokio"] }
+criterion = { version = "0.7", features = [
+    "html_reports",
+    "async",
+    "async_tokio",
+] }
 cudarc = { workspace = true, features = ["f16"] }
 futures = { workspace = true }
 rand = { workspace = true }
@@ -51,4 +55,3 @@ cuda = []
 [[bench]]
 name = "gpu_bitunpack"
 harness = false
-

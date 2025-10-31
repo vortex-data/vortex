@@ -60,7 +60,11 @@ vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
-criterion = { version = "0.7", features = ["html_reports", "async", "async_tokio"] }
+criterion = { version = "0.7", features = [
+    "html_reports",
+    "async",
+    "async_tokio",
+] }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { path = "../vortex-array", features = ["test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
