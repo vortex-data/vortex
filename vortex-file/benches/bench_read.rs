@@ -32,7 +32,7 @@ fn make_test_array(len: usize) -> ArrayRef {
         .into_array();
     let float_value = (0..64).map(|v| v as f32 / 10f32).collect::<Vec<_>>();
     let floats = (0..len)
-        .map(|i| float_value.iter().choose_stable(&mut rng).unwrap())
+        .map(|i| *float_value.iter().choose_stable(&mut rng).unwrap())
         .collect::<Buffer<f32>>()
         .into_array();
 
