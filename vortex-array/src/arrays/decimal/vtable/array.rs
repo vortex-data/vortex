@@ -4,8 +4,7 @@
 use std::hash::Hash;
 
 use vortex_dtype::DType;
-use vortex_error::vortex_panic;
-use vortex_scalar::DecimalValueType;
+use vortex_scalar::DecimalType;
 
 use crate::Precision;
 use crate::arrays::{DecimalArray, DecimalVTable};
@@ -16,13 +15,12 @@ use crate::vtable::ArrayVTable;
 impl ArrayVTable<DecimalVTable> for DecimalVTable {
     fn len(array: &DecimalArray) -> usize {
         let divisor = match array.values_type {
-            DecimalValueType::I8 => 1,
-            DecimalValueType::I16 => 2,
-            DecimalValueType::I32 => 4,
-            DecimalValueType::I64 => 8,
-            DecimalValueType::I128 => 16,
-            DecimalValueType::I256 => 32,
-            ty => vortex_panic!("unknown decimal value type {:?}", ty),
+            DecimalType::I8 => 1,
+            DecimalType::I16 => 2,
+            DecimalType::I32 => 4,
+            DecimalType::I64 => 8,
+            DecimalType::I128 => 16,
+            DecimalType::I256 => 32,
         };
         array.values.len() / divisor
     }

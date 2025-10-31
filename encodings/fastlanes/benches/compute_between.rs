@@ -10,7 +10,7 @@ use vortex_array::compute::warm_up_vtables;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
-use vortex_fastlanes::bitpack_to_best_bit_width;
+use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 
 fn main() {
     warm_up_vtables();

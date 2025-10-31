@@ -12,7 +12,8 @@ use vortex_array::compute::{filter, warm_up_vtables};
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::{BitBuffer, BufferMut};
 use vortex_dtype::NativePType;
-use vortex_fastlanes::{FoRArray, bitpack_to_best_bit_width};
+use vortex_fastlanes::FoRArray;
+use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 use vortex_mask::Mask;
 
 #[global_allocator]

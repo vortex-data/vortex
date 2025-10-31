@@ -294,7 +294,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 /// Compute masks of field paths referenced by the projection and filter in the scan.
 ///
 /// Projection and filter must be pre-simplified.
-fn filter_and_projection_masks(
+pub(crate) fn filter_and_projection_masks(
     projection: &ExprRef,
     filter: Option<&ExprRef>,
     dtype: &DType,

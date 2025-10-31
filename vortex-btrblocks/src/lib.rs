@@ -294,7 +294,7 @@ pub trait Compressor {
 
             let ratio =
                 scheme.expected_compression_ratio(stats, is_sample, allowed_cascading, excludes)?;
-            log::debug!("depth={depth} is_sample={is_sample} scheme: {scheme:?} ratio = {ratio}");
+            log::trace!("depth={depth} is_sample={is_sample} scheme: {scheme:?} ratio = {ratio}");
 
             if !(ratio.is_subnormal() || ratio.is_infinite() || ratio.is_nan()) {
                 if ratio > best_ratio {
@@ -308,7 +308,7 @@ pub trait Compressor {
             }
         }
 
-        log::debug!("depth={depth} best scheme = {best_scheme:?}  ratio = {best_ratio}");
+        log::trace!("depth={depth} best scheme = {best_scheme:?}  ratio = {best_ratio}");
 
         if let Some(best) = best_scheme {
             Ok(best)

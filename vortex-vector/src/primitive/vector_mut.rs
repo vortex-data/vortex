@@ -7,8 +7,7 @@ use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
 
-use super::macros::match_each_pvector_mut;
-use crate::{PVectorMut, PrimitiveVector, VectorMutOps};
+use crate::{PVectorMut, PrimitiveVector, VectorMutOps, match_each_pvector_mut};
 
 /// A mutable vector of primitive values.
 ///
@@ -141,12 +140,6 @@ impl VectorMutOps for PrimitiveVectorMut {
             (PrimitiveVectorMut::F64(a), PrimitiveVectorMut::F64(b)) => a.unsplit(b),
             _ => ::vortex_error::vortex_panic!("Mismatched primitive vector types"),
         }
-    }
-}
-
-impl<T: NativePType> From<PVectorMut<T>> for PrimitiveVectorMut {
-    fn from(v: PVectorMut<T>) -> Self {
-        T::upcast(v)
     }
 }
 

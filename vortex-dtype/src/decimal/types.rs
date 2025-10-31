@@ -1,0 +1,187 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::fmt::{Debug, Display};
+use std::panic::RefUnwindSafe;
+
+use num_traits::{ConstOne, ConstZero};
+use paste::paste;
+
+use crate::decimal::max_precision::{
+    MAX_DECIMAL256_FOR_EACH_PRECISION, MIN_DECIMAL256_FOR_EACH_PRECISION,
+};
+use crate::{BigCast, i256};
+
+/// Type of the decimal values.
+///
+/// This is used for other crates to understand the different underlying representations possible
+/// for decimals.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash, prost::Enumeration)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+#[repr(u8)]
+pub enum DecimalType {
+    /// 8-bit decimal value type.
+    I8 = 0,
+    /// 16-bit decimal value type.
+    I16 = 1,
+    /// 32-bit decimal value type.
+    I32 = 2,
+    /// 64-bit decimal value type.
+    I64 = 3,
+    /// 128-bit decimal value type.
+    I128 = 4,
+    /// 256-bit decimal value type.
+    I256 = 5,
+}
+
+/// Type of decimal scalar values.
+///
+/// This trait is implemented by native integer types that can be used to store decimal values.
+pub trait NativeDecimalType:
+    Send
+    + Sync
+    + Clone
+    + Copy
+    + Debug
+    + Display
+    + Default
+    + RefUnwindSafe
+    + Eq
+    + Ord
+    + BigCast
+    + 'static
+{
+    /// The decimal value type corresponding to this native type.
+    const DECIMAL_TYPE: DecimalType;
+
+    /// The maximum precision supported by this decimal type.
+    const MAX_PRECISION: u8;
+    /// The maximum scale supported by this decimal type.
+    const MAX_SCALE: i8;
+
+    /// The minimum value for each precision supported by this decimal type.
+    const MIN_BY_PRECISION: &'static [Self];
+    /// The maximum value for each precision supported by this decimal type.
+    const MAX_BY_PRECISION: &'static [Self];
+
+    /// Downcast the provided object to a type-specific instance.
+    fn downcast<V: DecimalTypeDowncast>(visitor: V) -> V::Output<Self>;
+
+    /// Upcast a type-specific instance to a generic instance.
+    fn upcast<V: DecimalTypeUpcast>(input: V::Input<Self>) -> V;
+}
+
+/// Trait for downcasting decimal values to native integer types.
+pub trait DecimalTypeDowncast {
+    /// The output type for downcasting.
+    type Output<T: NativeDecimalType>;
+
+    /// Downcast to i8.
+    fn into_i8(self) -> Self::Output<i8>;
+    /// Downcast to i16.
+    fn into_i16(self) -> Self::Output<i16>;
+    /// Downcast to i32.
+    fn into_i32(self) -> Self::Output<i32>;
+    /// Downcast to i64.
+    fn into_i64(self) -> Self::Output<i64>;
+    /// Downcast to i128.
+    fn into_i128(self) -> Self::Output<i128>;
+    /// Downcast to i256.
+    fn into_i256(self) -> Self::Output<i256>;
+}
+
+/// Trait for upcasting native integer types to decimal values.
+pub trait DecimalTypeUpcast {
+    /// The input type for upcasting.
+    type Input<T: NativeDecimalType>;
+
+    /// Upcast from i8.
+    fn from_i8(input: Self::Input<i8>) -> Self;
+    /// Upcast from i16.
+    fn from_i16(input: Self::Input<i16>) -> Self;
+    /// Upcast from i32.
+    fn from_i32(input: Self::Input<i32>) -> Self;
+    /// Upcast from i64.
+    fn from_i64(input: Self::Input<i64>) -> Self;
+    /// Upcast from i128.
+    fn from_i128(input: Self::Input<i128>) -> Self;
+    /// Upcast from i256.
+    fn from_i256(input: Self::Input<i256>) -> Self;
+}
+
+macro_rules! impl_decimal {
+    ($T:ty, $UPPER:ident) => {
+        paste! {
+            impl NativeDecimalType for $T {
+                const DECIMAL_TYPE: DecimalType = DecimalType::$UPPER;
+
+                const MAX_PRECISION: u8 = match DecimalType::$UPPER {
+                    DecimalType::I8 => 2,
+                    DecimalType::I16 => 4,
+                    DecimalType::I32 => 9,
+                    DecimalType::I64 => 18,
+                    DecimalType::I128 => 38,
+                    DecimalType::I256 => 76,
+                };
+                const MAX_SCALE: i8 = Self::MAX_PRECISION as i8;
+
+                const MIN_BY_PRECISION: &'static [Self] = &{
+                    let mut mins = [$T::ZERO; Self::MAX_PRECISION as usize];
+                    let mut p = $T::ONE;
+                    let mut i = 0;
+                    while i < Self::MAX_PRECISION as usize {
+                        p = p * 10;
+                        mins[i] = -(p - 1);
+                        i += 1;
+                    }
+                    mins
+                };
+
+                const MAX_BY_PRECISION: &'static [Self] = &{
+                    let mut maxs = [$T::ZERO; Self::MAX_PRECISION as usize];
+                    let mut p = $T::ONE;
+                    let mut i = 0;
+                    while i < Self::MAX_PRECISION as usize {
+                        p = p * 10;
+                        maxs[i] = p - 1;
+                        i += 1;
+                    }
+                    maxs
+                };
+
+                #[inline]
+                fn downcast<V: DecimalTypeDowncast>(visitor: V) -> V::Output<Self> {
+                    paste::paste! { visitor.[<into_ $T>]() }
+                }
+
+                #[inline]
+                fn upcast<V: DecimalTypeUpcast>(input: V::Input<Self>) -> V {
+                    paste::paste! { V::[<from_ $T>](input) }
+                }
+            }
+        }
+    };
+}
+
+impl_decimal!(i8, I8);
+impl_decimal!(i16, I16);
+impl_decimal!(i32, I32);
+impl_decimal!(i64, I64);
+impl_decimal!(i128, I128);
+
+impl NativeDecimalType for i256 {
+    const DECIMAL_TYPE: DecimalType = DecimalType::I256;
+    const MAX_PRECISION: u8 = 76;
+    const MAX_SCALE: i8 = 76;
+    const MIN_BY_PRECISION: &'static [Self] = &MIN_DECIMAL256_FOR_EACH_PRECISION;
+    const MAX_BY_PRECISION: &'static [Self] = &MAX_DECIMAL256_FOR_EACH_PRECISION;
+
+    fn downcast<V: DecimalTypeDowncast>(visitor: V) -> V::Output<Self> {
+        visitor.into_i256()
+    }
+
+    fn upcast<V: DecimalTypeUpcast>(input: V::Input<Self>) -> V {
+        V::from_i256(input)
+    }
+}

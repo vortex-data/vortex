@@ -204,8 +204,8 @@ fn benchmark_gpu_for_bp_jit_decompress_kernel_only(c: &mut Criterion) {
                 let mut total_time = Duration::ZERO;
                 for _ in 0..iters {
                     // This only measures kernel execution time, not memory transfers
-                    let (_result, kernel_time) = create_run_jit_kernel(ctx.clone(), array).unwrap();
-                    total_time += kernel_time;
+                    let (_result, kernel_time) = create_run_jit_kernel(&ctx, array).unwrap();
+                    total_time += kernel_time.elapsed().unwrap();
                 }
                 total_time
             });

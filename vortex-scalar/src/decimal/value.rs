@@ -8,35 +8,10 @@ use std::fmt;
 use std::hash::Hash;
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub};
-use vortex_dtype::{DType, DecimalDType, Nullability};
+use vortex_dtype::{DType, DecimalDType, NativeDecimalType, Nullability, ToI256, i256};
 use vortex_error::{VortexError, VortexExpect, vortex_err};
 
-use crate::{
-    DecimalScalar, InnerScalarValue, NativeDecimalType, Scalar, ScalarValue, ToI256, i256,
-    match_each_decimal_value,
-};
-
-/// Type of the decimal values.
-///
-/// This is used for other crates to understand the different underlying representations possible
-/// for decimals.
-#[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u8)]
-#[non_exhaustive]
-pub enum DecimalValueType {
-    /// 8-bit decimal value type.
-    I8 = 0,
-    /// 16-bit decimal value type.
-    I16 = 1,
-    /// 32-bit decimal value type.
-    I32 = 2,
-    /// 64-bit decimal value type.
-    I64 = 3,
-    /// 128-bit decimal value type.
-    I128 = 4,
-    /// 256-bit decimal value type.
-    I256 = 5,
-}
+use crate::{DecimalScalar, InnerScalarValue, Scalar, ScalarValue, match_each_decimal_value};
 
 impl Scalar {
     /// Creates a new decimal scalar with the given value, precision, scale, and nullability.

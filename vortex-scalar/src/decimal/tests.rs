@@ -6,11 +6,11 @@
 #![allow(clippy::disallowed_types, clippy::panic)]
 
 use rstest::rstest;
-use vortex_dtype::{DType, DecimalDType, Nullability, PType};
+use vortex_dtype::{DType, DecimalDType, DecimalType, NativeDecimalType, Nullability, PType, i256};
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::decimal::{DecimalScalar, DecimalValueType, NativeDecimalType};
-use crate::{DecimalValue, Scalar, i256};
+use crate::decimal::DecimalScalar;
+use crate::{DecimalValue, Scalar};
 
 #[rstest]
 #[case(DecimalValue::I8(100), DecimalValue::I8(100))]
@@ -339,7 +339,7 @@ fn test_null_decimal_cast() {
 #[test]
 fn test_decimal_i256_to_primitive() {
     // Create a decimal with i256 value
-    use crate::i256;
+    use vortex_dtype::i256;
     let large_value = i256::from_i128(1234567890);
     let decimal = Scalar::decimal(
         DecimalValue::I256(large_value),
@@ -475,40 +475,6 @@ fn test_decimal_i8_all_primitive_casts(#[case] ptype: PType, #[case] expected: u
         ),
         PType::F16 | PType::F32 | PType::F64 => panic!("Unexpected type {ptype}"),
     }
-}
-
-#[test]
-fn test_native_decimal_type_maybe_from() {
-    // Test NativeDecimalType::maybe_from for each type
-    assert_eq!(i8::maybe_from(DecimalValue::I8(42)), Some(42i8));
-    assert_eq!(i8::maybe_from(DecimalValue::I16(42)), None);
-
-    assert_eq!(i16::maybe_from(DecimalValue::I16(1234)), Some(1234i16));
-    assert_eq!(i16::maybe_from(DecimalValue::I32(1234)), None);
-
-    assert_eq!(i32::maybe_from(DecimalValue::I32(56789)), Some(56789i32));
-    assert_eq!(i32::maybe_from(DecimalValue::I64(56789)), None);
-
-    assert_eq!(
-        i64::maybe_from(DecimalValue::I64(123456789)),
-        Some(123456789i64)
-    );
-    assert_eq!(i64::maybe_from(DecimalValue::I128(123456789)), None);
-
-    assert_eq!(
-        i128::maybe_from(DecimalValue::I128(987654321)),
-        Some(987654321i128)
-    );
-    assert_eq!(
-        i128::maybe_from(DecimalValue::I256(i256::from_i128(987654321))),
-        None
-    );
-
-    assert_eq!(
-        i256::maybe_from(DecimalValue::I256(i256::from_i128(112233))),
-        Some(i256::from_i128(112233))
-    );
-    assert_eq!(i256::maybe_from(DecimalValue::I8(42)), None);
 }
 
 #[test]
@@ -732,13 +698,13 @@ fn test_decimal_cast_zero_scale() {
 
 #[test]
 fn test_native_decimal_type_values_type() {
-    // Test VALUES_TYPE constant for each type
-    assert_eq!(i8::VALUES_TYPE, DecimalValueType::I8);
-    assert_eq!(i16::VALUES_TYPE, DecimalValueType::I16);
-    assert_eq!(i32::VALUES_TYPE, DecimalValueType::I32);
-    assert_eq!(i64::VALUES_TYPE, DecimalValueType::I64);
-    assert_eq!(i128::VALUES_TYPE, DecimalValueType::I128);
-    assert_eq!(i256::VALUES_TYPE, DecimalValueType::I256);
+    // Test DECIMAL_TYPE constant for each type
+    assert_eq!(i8::DECIMAL_TYPE, DecimalType::I8);
+    assert_eq!(i16::DECIMAL_TYPE, DecimalType::I16);
+    assert_eq!(i32::DECIMAL_TYPE, DecimalType::I32);
+    assert_eq!(i64::DECIMAL_TYPE, DecimalType::I64);
+    assert_eq!(i128::DECIMAL_TYPE, DecimalType::I128);
+    assert_eq!(i256::DECIMAL_TYPE, DecimalType::I256);
 }
 
 #[test]

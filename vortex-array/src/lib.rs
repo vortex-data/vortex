@@ -39,6 +39,7 @@ pub mod iter;
 mod mask_future;
 mod metadata;
 pub mod operator;
+pub mod optimizer;
 mod partial_ord;
 pub mod patches;
 pub mod pipeline;

@@ -21,7 +21,7 @@ use vortex::arrays::StructArray;
 use vortex::arrow::FromArrowArray;
 use vortex::dtype::{DecimalDType, FieldNames};
 use vortex::error::{VortexResult, vortex_err};
-use vortex::scalar::DecimalValueType;
+use vortex::scalar::DecimalType;
 
 use crate::cpp::{
     DUCKDB_TYPE, duckdb_date, duckdb_string_t, duckdb_string_t_data, duckdb_string_t_length,
@@ -284,19 +284,19 @@ pub fn flat_vector_to_arrow_array(
             // https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
             let decimal_values: Vec<i128> = match precision_to_duckdb_storage_size(&decimal_dtype)?
             {
-                DecimalValueType::I16 => {
+                DecimalType::I16 => {
                     let data = vector.as_slice_with_len::<i16>(len);
                     data.iter().map(|&v| v as i128).collect()
                 }
-                DecimalValueType::I32 => {
+                DecimalType::I32 => {
                     let data = vector.as_slice_with_len::<i32>(len);
                     data.iter().map(|&v| v as i128).collect()
                 }
-                DecimalValueType::I64 => {
+                DecimalType::I64 => {
                     let data = vector.as_slice_with_len::<i64>(len);
                     data.iter().map(|&v| v as i128).collect()
                 }
-                DecimalValueType::I128 => {
+                DecimalType::I128 => {
                     let data = vector.as_slice_with_len::<i128>(len);
                     data.to_vec()
                 }

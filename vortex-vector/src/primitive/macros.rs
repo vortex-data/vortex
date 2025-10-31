@@ -16,8 +16,8 @@
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use vortex_vector::{PrimitiveVector, PVectorMut, VectorOps, VectorMutOps};
+/// ```
+/// use vortex_vector::{PrimitiveVector, PVectorMut, VectorOps, VectorMutOps, match_each_pvector};
 ///
 /// fn get_primitive_len(vector: &PrimitiveVector) -> usize {
 ///     match_each_pvector!(vector, |v| { v.len() })
@@ -44,55 +44,20 @@
 macro_rules! match_each_pvector {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
-            $crate::PrimitiveVector::U8(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVector::U16(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVector::U32(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVector::U64(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVector::I8(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVector::I16(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVector::I32(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVector::I64(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVector::F16(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVector::F32(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVector::F64(v) => {
-                let $vec = v;
-                $body
-            }
+            $crate::PrimitiveVector::U8($vec) => $body,
+            $crate::PrimitiveVector::U16($vec) => $body,
+            $crate::PrimitiveVector::U32($vec) => $body,
+            $crate::PrimitiveVector::U64($vec) => $body,
+            $crate::PrimitiveVector::I8($vec) => $body,
+            $crate::PrimitiveVector::I16($vec) => $body,
+            $crate::PrimitiveVector::I32($vec) => $body,
+            $crate::PrimitiveVector::I64($vec) => $body,
+            $crate::PrimitiveVector::F16($vec) => $body,
+            $crate::PrimitiveVector::F32($vec) => $body,
+            $crate::PrimitiveVector::F64($vec) => $body,
         }
     }};
 }
-
-pub(crate) use match_each_pvector;
 
 /// Matches on all primitive type variants of [`PrimitiveVectorMut`] and executes the same code
 /// for each variant branch.
@@ -103,8 +68,8 @@ pub(crate) use match_each_pvector;
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use vortex_vector::{PrimitiveVectorMut, PVectorMut, VectorMutOps};
+/// ```
+/// use vortex_vector::{PrimitiveVectorMut, PVectorMut, VectorMutOps, match_each_pvector_mut};
 ///
 /// fn reserve_primitive_space(vector: &mut PrimitiveVectorMut, additional: usize) {
 ///     match_each_pvector_mut!(vector, |v| { v.reserve(additional) })
@@ -125,55 +90,21 @@ pub(crate) use match_each_pvector;
 ///
 /// [`PrimitiveVectorMut`]: crate::PrimitiveVectorMut
 /// [`VectorMutOps`]: crate::VectorMutOps
+#[macro_export]
 macro_rules! match_each_pvector_mut {
     ($self:expr, | $vec:ident | $body:block) => {{
         match $self {
-            $crate::PrimitiveVectorMut::U8(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVectorMut::U16(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVectorMut::U32(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVectorMut::U64(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVectorMut::I8(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVectorMut::I16(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVectorMut::I32(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVectorMut::I64(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVectorMut::F16(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVectorMut::F32(v) => {
-                let $vec = v;
-                $body
-            }
-            $crate::PrimitiveVectorMut::F64(v) => {
-                let $vec = v;
-                $body
-            }
+            $crate::PrimitiveVectorMut::U8($vec) => $body,
+            $crate::PrimitiveVectorMut::U16($vec) => $body,
+            $crate::PrimitiveVectorMut::U32($vec) => $body,
+            $crate::PrimitiveVectorMut::U64($vec) => $body,
+            $crate::PrimitiveVectorMut::I8($vec) => $body,
+            $crate::PrimitiveVectorMut::I16($vec) => $body,
+            $crate::PrimitiveVectorMut::I32($vec) => $body,
+            $crate::PrimitiveVectorMut::I64($vec) => $body,
+            $crate::PrimitiveVectorMut::F16($vec) => $body,
+            $crate::PrimitiveVectorMut::F32($vec) => $body,
+            $crate::PrimitiveVectorMut::F64($vec) => $body,
         }
     }};
 }
-
-pub(crate) use match_each_pvector_mut;

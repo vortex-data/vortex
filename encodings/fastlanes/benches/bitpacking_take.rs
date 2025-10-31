@@ -13,7 +13,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{take, warm_up_vtables};
 use vortex_array::validity::Validity;
 use vortex_buffer::{Buffer, buffer};
-use vortex_fastlanes::bitpack_to_best_bit_width;
+use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 
 fn main() {
     warm_up_vtables();

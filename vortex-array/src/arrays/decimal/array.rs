@@ -3,9 +3,12 @@
 
 use itertools::Itertools;
 use vortex_buffer::{BitBufferMut, Buffer, BufferMut, ByteBuffer};
-use vortex_dtype::{DType, DecimalDType, IntegerPType, match_each_integer_ptype};
+use vortex_dtype::{
+    BigCast, DType, DecimalDType, DecimalType, IntegerPType, NativeDecimalType,
+    match_each_integer_ptype,
+};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
-use vortex_scalar::{BigCast, DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
+use vortex_scalar::match_each_decimal_value_type;
 
 use crate::ToCanonical;
 use crate::arrays::is_compatible_decimal_value_type;
@@ -51,7 +54,7 @@ use crate::vtable::ValidityHelper;
 /// ## Valid Scalar Types
 ///
 /// The underlying storage uses these native types based on precision:
-/// - `DecimalValueType::I8`, `I16`, `I32`, `I64`, `I128`, `I256`
+/// - `DecimalType::I8`, `I16`, `I32`, `I64`, `I128`, `I256`
 /// - Type selection is automatic based on the required precision
 ///
 /// # Examples
@@ -75,7 +78,7 @@ use crate::vtable::ValidityHelper;
 pub struct DecimalArray {
     pub(super) dtype: DType,
     pub(super) values: ByteBuffer,
-    pub(super) values_type: DecimalValueType,
+    pub(super) values_type: DecimalType,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
@@ -139,7 +142,7 @@ impl DecimalArray {
 
         Self {
             values: buffer.into_byte_buffer(),
-            values_type: T::VALUES_TYPE,
+            values_type: T::DECIMAL_TYPE,
             dtype: DType::Decimal(decimal_dtype, validity.nullability()),
             validity,
             stats_set: Default::default(),
@@ -171,10 +174,10 @@ impl DecimalArray {
     }
 
     pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
-        if self.values_type != T::VALUES_TYPE {
+        if self.values_type != T::DECIMAL_TYPE {
             vortex_panic!(
                 "Cannot extract Buffer<{:?}> for DecimalArray with values_type {:?}",
-                T::VALUES_TYPE,
+                T::DECIMAL_TYPE,
                 self.values_type,
             );
         }
@@ -190,7 +193,7 @@ impl DecimalArray {
         }
     }
 
-    pub fn values_type(&self) -> DecimalValueType {
+    pub fn values_type(&self) -> DecimalType {
         self.values_type
     }
 
@@ -276,10 +279,10 @@ where
     PatchDVT: NativeDecimalType,
     ValuesDVT: NativeDecimalType,
 {
-    if !is_compatible_decimal_value_type(ValuesDVT::VALUES_TYPE, decimal_dtype) {
+    if !is_compatible_decimal_value_type(ValuesDVT::DECIMAL_TYPE, decimal_dtype) {
         vortex_panic!(
             "patch_typed: {:?} cannot represent every value in {}.",
-            ValuesDVT::VALUES_TYPE,
+            ValuesDVT::DECIMAL_TYPE,
             decimal_dtype
         )
     }

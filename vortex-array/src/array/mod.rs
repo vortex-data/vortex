@@ -263,6 +263,7 @@ impl Array for Arc<dyn Array> {
         self.as_ref().statistics()
     }
 
+    // TODO(ngates): take a Vec<ArrayRef> to avoid clones
     fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
         self.as_ref().with_children(children)
     }

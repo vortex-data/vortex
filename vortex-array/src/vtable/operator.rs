@@ -20,6 +20,29 @@ pub trait OperatorVTable<V: VTable> {
         Ok(None)
     }
 
+    /// Bind the array for execution in batch mode.
+    ///
+    /// This function should return a [`BatchKernelRef`] that can be used to execute the array in
+    /// batch mode.
+    ///
+    /// The selection parameter is a non-nullable boolean array that indicates which rows to
+    /// return. i.e. the result of the kernel should be a vector whose length is equal to the
+    /// true count of the selection array.
+    ///
+    /// The context should be used to bind child arrays in order to support common subtree
+    /// elimination. See also the utility functions on the `BindCtx` for efficiently extracting
+    /// common objects such as a [`vortex_mask::Mask`].
+    fn bind(
+        array: &V::Array,
+        _selection: Option<&ArrayRef>,
+        _ctx: &mut dyn BindCtx,
+    ) -> VortexResult<BatchKernelRef> {
+        vortex_bail!(
+            "Bind is not yet implemented for {} arrays",
+            array.encoding_id()
+        )
+    }
+
     /// Attempt to optimize this array by analyzing its children.
     ///
     /// For example, if all the children are constant, this function should perform constant
@@ -47,33 +70,10 @@ pub trait OperatorVTable<V: VTable> {
     /// Returns `None` if no optimization is possible.
     fn reduce_parent(
         _array: &V::Array,
-        _parent: ArrayRef,
+        _parent: &ArrayRef,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(None)
-    }
-
-    /// Bind the array for execution in batch mode.
-    ///
-    /// This function should return a [`BatchKernelRef`] that can be used to execute the array in
-    /// batch mode.
-    ///
-    /// The selection parameter is a non-nullable boolean array that indicates which rows to
-    /// return. i.e. the result of the kernel should be a vector whose length is equal to the
-    /// true count of the selection array.
-    ///
-    /// The context should be used to bind child arrays in order to support common subtree
-    /// elimination. See also the utility functions on the `BindCtx` for efficiently extracting
-    /// common objects such as a [`vortex_mask::Mask`].
-    fn bind(
-        array: &V::Array,
-        _selection: Option<&ArrayRef>,
-        _ctx: &mut dyn BindCtx,
-    ) -> VortexResult<BatchKernelRef> {
-        vortex_bail!(
-            "Bind is not yet implemented for {} arrays",
-            array.encoding_id()
-        )
     }
 }
 

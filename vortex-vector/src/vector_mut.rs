@@ -8,11 +8,11 @@
 
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
-use vortex_mask::MaskMut;
 
-use super::macros::match_each_vector_mut;
+use crate::varbin::{BinaryVectorMut, StringVectorMut};
 use crate::{
-    BoolVectorMut, NullVectorMut, PrimitiveVectorMut, StructVectorMut, Vector, VectorMutOps,
+    BoolVectorMut, DecimalVectorMut, NullVectorMut, PrimitiveVectorMut, StructVectorMut, Vector,
+    VectorMutOps, match_each_vector_mut, match_vector_pair,
 };
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
@@ -30,45 +30,39 @@ pub enum VectorMut {
     Null(NullVectorMut),
     /// Mutable Boolean vectors.
     Bool(BoolVectorMut),
+    /// Mutable Decimal vectors
+    Decimal(DecimalVectorMut),
     /// Mutable Primitive vectors.
     ///
     /// Note that [`PrimitiveVectorMut`] is an enum over the different possible (generic)
     /// [`PVectorMut<T>`](crate::PVectorMut)s. See the documentation for more information.
     Primitive(PrimitiveVectorMut),
+    /// Mutable String vectors.
+    String(StringVectorMut),
+    /// Mutable Binary vectors.
+    Binary(BinaryVectorMut),
     /// Mutable vectors of Struct elements.
     Struct(StructVectorMut),
 }
 
 impl VectorMut {
     /// Create a new mutable vector with the given capacity and dtype.
-    pub fn with_capacity(capacity: usize, dtype: &DType) -> Self {
+    pub fn with_capacity(dtype: &DType, capacity: usize) -> Self {
         match dtype {
-            DType::Null => NullVectorMut::new(0).into(), // `NullVector` has `usize::MAX` capacity.
+            DType::Null => NullVectorMut::new(0).into(),
             DType::Bool(_) => BoolVectorMut::with_capacity(capacity).into(),
             DType::Primitive(ptype, _) => {
                 PrimitiveVectorMut::with_capacity(*ptype, capacity).into()
             }
             DType::Struct(struct_fields, _) => {
-                let fields: Vec<VectorMut> = struct_fields
-                    .fields()
-                    .map(|dtype| Self::with_capacity(capacity, &dtype))
-                    .collect();
-                let validity = MaskMut::with_capacity(capacity);
-
-                #[cfg(debug_assertions)]
-                {
-                    for field in &fields {
-                        debug_assert_eq!(field.len(), 0);
-                    }
-                    debug_assert_eq!(validity.len(), 0);
-                }
-
-                // SAFETY: All fields and validity have length 0, so they all have the same length.
-                Self::Struct(unsafe {
-                    StructVectorMut::new_unchecked(fields.into_boxed_slice(), validity)
-                })
+                StructVectorMut::with_capacity(struct_fields, capacity).into()
             }
-            _ => vortex_panic!("Unsupported dtype for VectorMut"),
+            DType::Decimal(..)
+            | DType::Utf8(_)
+            | DType::Binary(_)
+            | DType::List(..)
+            | DType::FixedSizeList(..)
+            | DType::Extension(_) => vortex_panic!("Unsupported dtype for VectorMut"),
         }
     }
 }
@@ -89,13 +83,9 @@ impl VectorMutOps for VectorMut {
     }
 
     fn extend_from_vector(&mut self, other: &Self::Immutable) {
-        match (self, other) {
-            (VectorMut::Null(a), Vector::Null(b)) => a.extend_from_vector(b),
-            (VectorMut::Bool(a), Vector::Bool(b)) => a.extend_from_vector(b),
-            (VectorMut::Primitive(a), Vector::Primitive(b)) => a.extend_from_vector(b),
-            (VectorMut::Struct(a), Vector::Struct(b)) => a.extend_from_vector(b),
-            _ => vortex_panic!("Mismatched vector types"),
-        }
+        match_vector_pair!(self, other, |a: VectorMut, b: Vector| {
+            a.extend_from_vector(b)
+        })
     }
 
     fn append_nulls(&mut self, n: usize) {
@@ -111,13 +101,7 @@ impl VectorMutOps for VectorMut {
     }
 
     fn unsplit(&mut self, other: Self) {
-        match (self, other) {
-            (VectorMut::Null(a), VectorMut::Null(b)) => a.unsplit(b),
-            (VectorMut::Bool(a), VectorMut::Bool(b)) => a.unsplit(b),
-            (VectorMut::Primitive(a), VectorMut::Primitive(b)) => a.unsplit(b),
-            (VectorMut::Struct(a), VectorMut::Struct(b)) => a.unsplit(b),
-            _ => vortex_panic!("Mismatched vector types"),
-        }
+        match_vector_pair!(self, other, |a: VectorMut, b: VectorMut| a.unsplit(b))
     }
 }
 
@@ -144,6 +128,22 @@ impl VectorMut {
             return v;
         }
         vortex_panic!("Expected PrimitiveVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`StringVectorMut`] if `self` is of that variant.
+    pub fn as_string(&self) -> &StringVectorMut {
+        if let VectorMut::String(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StringVectorMut, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`BinaryVectorMut`] if `self` is of that variant.
+    pub fn as_binary(&self) -> &BinaryVectorMut {
+        if let VectorMut::Binary(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BinaryVectorMut, got {self:?}");
     }
 
     /// Returns a reference to the inner [`StructVectorMut`] if `self` is of that variant.
@@ -178,6 +178,24 @@ impl VectorMut {
         vortex_panic!("Expected PrimitiveVectorMut, got {self:?}");
     }
 
+    /// Consumes `self` and returns the inner [`StringVectorMut`] if `self` is of that variant.
+    #[allow(clippy::same_name_method)] // Same as VarBinTypeDowncast
+    pub fn into_string(self) -> StringVectorMut {
+        if let VectorMut::String(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StringVectorMut, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`BinaryVectorMut`] if `self` is of that variant.
+    #[allow(clippy::same_name_method)] // Same as VarBinTypeDowncast
+    pub fn into_binary(self) -> BinaryVectorMut {
+        if let VectorMut::Binary(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BinaryVectorMut, got {self:?}");
+    }
+
     /// Consumes `self` and returns the inner [`StructVectorMut`] if `self` is of that variant.
     pub fn into_struct(self) -> StructVectorMut {
         if let VectorMut::Struct(v) = self {
@@ -197,14 +215,14 @@ mod tests {
     #[test]
     fn test_with_capacity() {
         // Test capacity allocation for different types.
-        let null_vec = VectorMut::with_capacity(10, &DType::Null);
+        let null_vec = VectorMut::with_capacity(&DType::Null, 10);
         assert_eq!(null_vec.capacity(), usize::MAX); // Null vectors have unlimited capacity.
 
-        let bool_vec = VectorMut::with_capacity(100, &DType::Bool(Nullability::Nullable));
+        let bool_vec = VectorMut::with_capacity(&DType::Bool(Nullability::Nullable), 100);
         assert!(bool_vec.capacity() >= 100);
 
         let prim_vec =
-            VectorMut::with_capacity(50, &DType::Primitive(PType::I32, Nullability::Nullable));
+            VectorMut::with_capacity(&DType::Primitive(PType::I32, Nullability::Nullable), 50);
         assert!(prim_vec.capacity() >= 50);
     }
 
@@ -212,9 +230,9 @@ mod tests {
     #[should_panic(expected = "Mismatched vector types")]
     fn test_type_mismatch_panics() {
         // Test that operations between mismatched types panic.
-        let mut vec1 = VectorMut::with_capacity(10, &DType::Bool(Nullability::Nullable));
+        let mut vec1 = VectorMut::with_capacity(&DType::Bool(Nullability::Nullable), 10);
         let vec2 =
-            VectorMut::with_capacity(10, &DType::Primitive(PType::I32, Nullability::Nullable));
+            VectorMut::with_capacity(&DType::Primitive(PType::I32, Nullability::Nullable), 10);
 
         vec1.unsplit(vec2); // Should panic.
     }

@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::DType;
 #[cfg(test)]
 use vortex_dtype::DecimalDType;
+use vortex_dtype::{DType, NativeDecimalType};
 use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
-use vortex_scalar::{DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
+use vortex_scalar::{DecimalType, match_each_decimal_value_type};
 
 use super::{DecimalArray, DecimalEncoding};
 use crate::ProstMetadata;
@@ -18,7 +18,7 @@ use crate::vtable::SerdeVTable;
 // The type of the values can be determined by looking at the type info...right?
 #[derive(prost::Message)]
 pub struct DecimalMetadata {
-    #[prost(enumeration = "DecimalValueType", tag = "1")]
+    #[prost(enumeration = "DecimalType", tag = "1")]
     pub(super) values_type: i32,
 }
 
@@ -62,7 +62,7 @@ impl SerdeVTable<DecimalVTable> for DecimalVTable {
             vortex_ensure!(
                 buffer.is_aligned(Alignment::of::<D>()),
                 "DecimalArray buffer not aligned for values type {:?}",
-                D::VALUES_TYPE
+                D::DECIMAL_TYPE
             );
             let buffer = Buffer::<D>::from_byte_buffer(buffer);
             DecimalArray::try_new::<D>(buffer, *decimal_dtype, validity)

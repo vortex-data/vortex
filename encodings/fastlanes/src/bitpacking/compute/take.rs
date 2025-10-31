@@ -17,7 +17,7 @@ use vortex_dtype::{
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::chunked_indices;
-use crate::{BitPackedArray, BitPackedVTable, unpack_single_primitive};
+use crate::{BitPackedArray, BitPackedVTable, bitpack_compress};
 
 /// assuming the buffer is already allocated (which will happen at most once) then unpacking
 /// all 1024 elements takes ~8.8x as long as unpacking a single element on an M2 Macbook Air.
@@ -107,7 +107,9 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
                 // we had fewer than UNPACK_CHUNK_THRESHOLD offsets in the first place,
                 // so we need to unpack each one individually
                 for &index in offset_chunk_iter.remainder() {
-                    output.push(unsafe { unpack_single_primitive::<T>(packed, bit_width, index) });
+                    output.push(unsafe {
+                        bitpack_compress::unpack_single_primitive::<T>(packed, bit_width, index)
+                    });
                 }
             }
         }

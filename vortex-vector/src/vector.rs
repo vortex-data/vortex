@@ -8,8 +8,10 @@
 
 use vortex_error::vortex_panic;
 
-use crate::macros::match_each_vector;
-use crate::{BoolVector, NullVector, PrimitiveVector, StructVector, VectorMut, VectorOps};
+use crate::{
+    BinaryVector, BoolVector, DecimalVector, NullVector, PrimitiveVector, StringVector,
+    StructVector, VectorMut, VectorOps, match_each_vector,
+};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.
@@ -26,25 +28,23 @@ pub enum Vector {
     Null(NullVector),
     /// Boolean vectors.
     Bool(BoolVector),
+    /// Decimal
+    Decimal(DecimalVector),
     /// Primitive vectors.
     ///
     /// Note that [`PrimitiveVector`] is an enum over the different possible (generic)
     /// [`PVector<T>`](crate::PVector)s. See the documentation for more information.
     Primitive(PrimitiveVector),
-    // Decimal
-    // Decimal(DecimalVector),
-    // String
-    // String(StringVector),
-    // Binary
-    // Binary(BinaryVector),
+    /// String vectors
+    String(StringVector),
+    /// Binary vectors
+    Binary(BinaryVector),
     // List
     // List(ListVector),
     // FixedList
     // FixedList(FixedListVector),
     /// Vectors of Struct elements.
     Struct(StructVector),
-    // Extension
-    // Extension(ExtensionVector),
 }
 
 impl VectorOps for Vector {
@@ -93,6 +93,22 @@ impl Vector {
         vortex_panic!("Expected PrimitiveVector, got {self:?}");
     }
 
+    /// Returns a reference to the inner [`StringVector`] if `self` is of that variant.
+    pub fn as_string(&self) -> &StringVector {
+        if let Vector::String(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StringVector, got {self:?}");
+    }
+
+    /// Returns a reference to the inner [`BinaryVector`] if `self` is of that variant.
+    pub fn as_binary(&self) -> &BinaryVector {
+        if let Vector::Binary(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BinaryVector, got {self:?}");
+    }
+
     /// Returns a reference to the inner [`StructVector`] if `self` is of that variant.
     pub fn as_struct(&self) -> &StructVector {
         if let Vector::Struct(v) = self {
@@ -123,6 +139,24 @@ impl Vector {
             return v;
         }
         vortex_panic!("Expected PrimitiveVector, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`StringVector`] if `self` is of that variant.
+    #[allow(clippy::same_name_method)] // Same as VarBinTypeDowncast
+    pub fn into_string(self) -> StringVector {
+        if let Vector::String(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected StringVector, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`BinaryVector`] if `self` is of that variant.
+    #[allow(clippy::same_name_method)] // Same as VarBinTypeDowncast
+    pub fn into_binary(self) -> BinaryVector {
+        if let Vector::Binary(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected BinaryVector, got {self:?}");
     }
 
     /// Consumes `self` and returns the inner [`StructVector`] if `self` is of that variant.

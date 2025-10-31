@@ -6,10 +6,10 @@ use std::marker::PhantomData;
 use num_traits::ToPrimitive;
 use vortex::arrays::DecimalArray;
 use vortex::buffer::Buffer;
-use vortex::dtype::DecimalDType;
+use vortex::dtype::{BigCast, DecimalDType, NativeDecimalType};
 use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 use vortex::mask::Mask;
-use vortex::scalar::{BigCast, DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
+use vortex::scalar::{DecimalType, match_each_decimal_value_type};
 
 use crate::duckdb::{Vector, VectorBuffer};
 use crate::exporter::ColumnExporter;
@@ -55,14 +55,12 @@ pub(crate) fn new_exporter(array: &DecimalArray) -> VortexResult<Box<dyn ColumnE
 
 /// Maps a decimal precision into the small type that can represent it.
 /// see <https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals>
-pub fn precision_to_duckdb_storage_size(
-    decimal_dtype: &DecimalDType,
-) -> VortexResult<DecimalValueType> {
+pub fn precision_to_duckdb_storage_size(decimal_dtype: &DecimalDType) -> VortexResult<DecimalType> {
     Ok(match decimal_dtype.precision() {
-        1..=4 => DecimalValueType::I16,
-        5..=9 => DecimalValueType::I32,
-        10..=18 => DecimalValueType::I64,
-        19..=38 => DecimalValueType::I128,
+        1..=4 => DecimalType::I16,
+        5..=9 => DecimalType::I32,
+        10..=18 => DecimalType::I64,
+        19..=38 => DecimalType::I128,
         decimal_dtype => vortex_bail!("cannot represent decimal in ducdkb {decimal_dtype}"),
     })
 }
