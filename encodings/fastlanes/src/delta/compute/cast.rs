@@ -5,7 +5,7 @@ use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
 use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_panic};
 
 use crate::delta::{DeltaArray, DeltaVTable};
 
@@ -15,7 +15,16 @@ impl CastKernel for DeltaVTable {
         // unsigned integers to avoid overflow issues. Signed integers could produce
         // negative deltas that wouldn't fit in the unsigned delta representation.
         // This encoding is optimized for monotonically increasing sequences.
-        if !matches!(dtype, DType::Primitive(ptype, _) if ptype.is_unsigned_int()) {
+        let DType::Primitive(target_ptype, _) = dtype else {
+            return Ok(None);
+        };
+
+        let DType::Primitive(source_ptype, _) = array.dtype() else {
+            vortex_panic!("delta should be primitive typed");
+        };
+
+        // TODO(DK): narrows can be safe but we must decompress to compute the maximum value.
+        if target_ptype.is_signed_int() || source_ptype.bit_width() > target_ptype.bit_width() {
             return Ok(None);
         }
 
@@ -35,10 +44,10 @@ register_kernel!(CastKernelAdapter(DeltaVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::{ToCanonical, assert_arrays_eq};
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -64,7 +73,7 @@ mod tests {
 
         // Verify by decoding
         let decoded = casted.to_primitive();
-        assert_eq!(decoded.as_slice::<u32>(), &[10u32, 20, 30, 40, 50]);
+        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([10u32, 20, 30, 40, 50]));
     }
 
     #[test]

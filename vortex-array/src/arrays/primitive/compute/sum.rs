@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use num_traits::{CheckedAdd, Float, ToPrimitive};
+use vortex_buffer::BitBuffer;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::AllOr;
@@ -16,7 +16,7 @@ use crate::stats::Stat;
 
 impl SumKernel for PrimitiveVTable {
     fn sum(&self, array: &PrimitiveArray) -> VortexResult<Scalar> {
-        Ok(match array.validity_mask().boolean_buffer() {
+        Ok(match array.validity_mask().bit_buffer() {
             AllOr::All => {
                 // All-valid
                 match_each_native_ptype!(
@@ -67,7 +67,7 @@ fn sum_integer<T: NativePType + ToPrimitive, R: NativePType + CheckedAdd>(
 
 fn sum_integer_with_validity<T: NativePType + ToPrimitive, R: NativePType + CheckedAdd>(
     values: &[T],
-    validity: &BooleanBuffer,
+    validity: &BitBuffer,
 ) -> Option<R> {
     let mut sum = R::zero();
     for (&x, valid) in values.iter().zip_eq(validity.iter()) {
@@ -86,7 +86,7 @@ fn sum_float<T: NativePType + Float>(values: &[T]) -> f64 {
     sum
 }
 
-fn sum_float_with_validity<T: NativePType + Float>(array: &[T], validity: &BooleanBuffer) -> f64 {
+fn sum_float_with_validity<T: NativePType + Float>(array: &[T], validity: &BitBuffer) -> f64 {
     let mut sum = 0.0;
     for (&x, valid) in array.iter().zip_eq(validity.iter()) {
         if valid {

@@ -20,7 +20,7 @@ impl FillNullKernel for DictVTable {
         )?
         .to_bool();
 
-        let Some(first_fill_value) = found_fill_values.boolean_buffer().set_indices().next() else {
+        let Some(first_fill_value) = found_fill_values.bit_buffer().set_indices().next() else {
             // No fill values found, so we must canonicalize and fill_null.
             // TODO(ngates): compute kernels should all return Option<ArrayRef> to support this
             //  fall back.
@@ -50,12 +50,11 @@ register_kernel!(FillNullKernelAdapter(DictVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::fill_null;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::buffer;
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::Nullability;
     use vortex_error::VortexUnwrap;
     use vortex_scalar::Scalar;
@@ -67,7 +66,7 @@ mod tests {
         let dict = DictArray::try_new(
             PrimitiveArray::new(
                 buffer![0u32, 1, 2],
-                Validity::from(BooleanBuffer::from(vec![true, false, true])),
+                Validity::from(BitBuffer::from(vec![true, false, true])),
             )
             .into_array(),
             PrimitiveArray::new(buffer![10, 20, 20], Validity::AllValid).into_array(),
@@ -80,7 +79,7 @@ mod tests {
         )
         .vortex_unwrap();
         let filled_primitive = filled.to_primitive();
-        assert_eq!(filled_primitive.as_slice::<i32>(), [10, 20, 20]);
+        assert_arrays_eq!(filled_primitive, PrimitiveArray::from_iter([10, 20, 20]));
         assert!(filled_primitive.all_valid());
     }
 }

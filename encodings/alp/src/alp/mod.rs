@@ -21,7 +21,7 @@ use vortex_scalar::PValue;
 
 const SAMPLE_SIZE: usize = 32;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Exponents {
     pub e: u8,
     pub f: u8,
@@ -127,7 +127,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
         Buffer<Self::ALPInt>,
         Buffer<u64>,
         Buffer<Self>,
-        Buffer<u64>,
+        BufferMut<u64>,
     ) {
         let exp = exponents.unwrap_or_else(|| Self::find_best_exponents(values));
 
@@ -158,7 +158,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
             encoded_output.freeze(),
             patch_indices.freeze(),
             patch_values.freeze(),
-            chunk_offsets.freeze(),
+            chunk_offsets,
         )
     }
 
@@ -193,7 +193,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
     }
 
     fn decode_buffer(encoded: BufferMut<Self::ALPInt>, exponents: Exponents) -> BufferMut<Self> {
-        encoded.map_each(move |encoded| Self::decode_single(encoded, exponents))
+        encoded.map_each_in_place(move |encoded| Self::decode_single(encoded, exponents))
     }
 
     #[inline(always)]

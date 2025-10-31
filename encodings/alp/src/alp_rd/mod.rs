@@ -7,6 +7,7 @@ pub use array::*;
 use vortex_array::IntoArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
+use vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked;
 
 mod array;
 mod compute;
@@ -24,7 +25,6 @@ use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
-use vortex_fastlanes::bitpack_encode_unchecked;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::match_each_alp_float_ptype;
@@ -311,7 +311,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     // Shift the left-parts and add in the right-parts.
     let mut index = 0;
     right_parts
-        .map_each(|right| {
+        .map_each_in_place(|right| {
             let left = values[index];
             index += 1;
             let left = <T as ALPRDFloat>::from_u16(left);

@@ -24,14 +24,14 @@ vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
+vortex-gpu = { workspace = true, optional = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 
 bit-vec = { workspace = true }
-crossbeam-deque = { workspace = true }
-crossbeam-queue = { workspace = true }
+cudarc = { workspace = true, optional = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
@@ -39,16 +39,16 @@ parking_lot = { workspace = true }
 roaring = { workspace = true, optional = true }
 sketches-ddsketch = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
-tracing = { workspace = true }
 
 [dev-dependencies]
-loom = { workspace = true }
 vortex-layout = { workspace = true, features = ["test-harness"] }
 
 [features]
 default = []
 roaring = ["dep:roaring"]
 tokio = ["dep:tokio"]
+gpu = ["cuda", "dep:vortex-gpu", "vortex-layout/gpu"]
+cuda = ["dep:cudarc", "vortex-gpu/cuda"]
 
 [lints]
 workspace = true

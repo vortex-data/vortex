@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(dead_code)]
+
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::pipeline::operator::PipelineNode;

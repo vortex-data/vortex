@@ -2,11 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hash;
 
-use arrow_buffer::BooleanBuffer;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
-use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, ToCanonical, vtable};
+use vortex_array::{
+    Array, ArrayEq, ArrayHash, ArrayRef, EncodingId, EncodingRef, Precision, ToCanonical, vtable,
+};
+use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
@@ -25,7 +28,7 @@ impl VTable for DictVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
+    type OperatorVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.dict")
@@ -116,6 +119,18 @@ impl ArrayVTable<DictVTable> for DictVTable {
     fn stats(array: &DictArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
     }
+
+    fn array_hash<H: std::hash::Hasher>(array: &DictArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.codes.array_hash(state, precision);
+        array.values.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &DictArray, other: &DictArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.codes.array_eq(&other.codes, precision)
+            && array.values.array_eq(&other.values, precision)
+    }
 }
 
 impl ValidityVTable<DictVTable> for DictVTable {
@@ -142,13 +157,13 @@ impl ValidityVTable<DictVTable> for DictVTable {
 
     fn validity_mask(array: &DictArray) -> Mask {
         let codes_validity = array.codes().validity_mask();
-        match codes_validity.boolean_buffer() {
+        match codes_validity.bit_buffer() {
             AllOr::All => {
                 let primitive_codes = array.codes().to_primitive();
                 let values_mask = array.values().validity_mask();
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
                     let codes_slice = primitive_codes.as_slice::<P>();
-                    BooleanBuffer::collect_bool(array.len(), |idx| {
+                    BitBuffer::collect_bool(array.len(), |idx| {
                         #[allow(clippy::cast_possible_truncation)]
                         values_mask.value(codes_slice[idx] as usize)
                     })
@@ -162,7 +177,7 @@ impl ValidityVTable<DictVTable> for DictVTable {
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
                     let codes_slice = primitive_codes.as_slice::<P>();
                     #[allow(clippy::cast_possible_truncation)]
-                    BooleanBuffer::collect_bool(array.len(), |idx| {
+                    BitBuffer::collect_bool(array.len(), |idx| {
                         validity_buff.value(idx) && values_mask.value(codes_slice[idx] as usize)
                     })
                 });
@@ -174,15 +189,16 @@ impl ValidityVTable<DictVTable> for DictVTable {
 
 #[cfg(test)]
 mod test {
-    use arrow_buffer::BooleanBuffer;
+    #[allow(unused_imports)]
+    use itertools::Itertools;
     use rand::distr::{Distribution, StandardUniform};
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
     use vortex_array::arrays::{ChunkedArray, PrimitiveArray};
     use vortex_array::builders::builder_with_capacity;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-    use vortex_buffer::buffer;
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, NativePType, PType, UnsignedPType};
     use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
@@ -195,7 +211,7 @@ mod test {
         let dict = DictArray::try_new(
             PrimitiveArray::new(
                 buffer![0u32, 1, 2, 2, 1],
-                Validity::from(BooleanBuffer::from(vec![true, false, true, false, true])),
+                Validity::from(BitBuffer::from(vec![true, false, true, false, true])),
             )
             .into_array(),
             PrimitiveArray::new(buffer![3, 6, 9], Validity::AllValid).into_array(),
@@ -214,7 +230,7 @@ mod test {
             buffer![0u32, 1, 2, 2, 1].into_array(),
             PrimitiveArray::new(
                 buffer![3, 6, 9],
-                Validity::from(BooleanBuffer::from(vec![true, false, false])),
+                Validity::from(BitBuffer::from(vec![true, false, false])),
             )
             .into_array(),
         )
@@ -231,12 +247,12 @@ mod test {
         let dict = DictArray::try_new(
             PrimitiveArray::new(
                 buffer![0u32, 1, 2, 2, 1],
-                Validity::from(BooleanBuffer::from(vec![true, false, true, false, true])),
+                Validity::from(BitBuffer::from(vec![true, false, true, false, true])),
             )
             .into_array(),
             PrimitiveArray::new(
                 buffer![3, 6, 9],
-                Validity::from(BooleanBuffer::from(vec![false, true, true])),
+                Validity::from(BitBuffer::from(vec![false, true, true])),
             )
             .into_array(),
         )
@@ -253,7 +269,7 @@ mod test {
         let dict = DictArray::try_new(
             PrimitiveArray::new(
                 buffer![0u32, 1, 2, 2, 1],
-                Validity::from(BooleanBuffer::from(vec![true, false, true, false, true])),
+                Validity::from(BitBuffer::from(vec![true, false, true, false, true])),
             )
             .into_array(),
             PrimitiveArray::new(buffer![3, 6, 9], Validity::NonNullable).into_array(),
@@ -310,10 +326,6 @@ mod test {
         let into_prim = array.to_primitive();
         let prim_into = builder.finish_into_canonical().into_primitive();
 
-        assert_eq!(into_prim.as_slice::<u64>(), prim_into.as_slice::<u64>());
-        assert_eq!(
-            into_prim.validity_mask().boolean_buffer(),
-            prim_into.validity_mask().boolean_buffer()
-        )
+        assert_arrays_eq!(into_prim, prim_into);
     }
 }

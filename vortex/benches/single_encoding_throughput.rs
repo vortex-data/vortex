@@ -22,7 +22,6 @@ use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::ZstdArray;
 use vortex::{IntoArray, ToCanonical};
-use vortex_fastlanes::BitPackedArray;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -80,7 +79,7 @@ fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
 // Primitive compression benchmarks
 #[divan::bench(name = "bitpacked_compress_u32")]
 fn bench_bitpacked_compress_u32(bencher: Bencher) {
-    use vortex::encodings::fastlanes::bitpack_encode_unchecked;
+    use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode_unchecked;
 
     let (uint_array, ..) = setup_primitive_arrays();
     let bit_width = 8;
@@ -92,7 +91,7 @@ fn bench_bitpacked_compress_u32(bencher: Bencher) {
 
 #[divan::bench(name = "bitpacked_decompress_u32")]
 fn bench_bitpacked_decompress_u32(bencher: Bencher) {
-    use vortex::encodings::fastlanes::bitpack_encode;
+    use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode;
 
     let (uint_array, ..) = setup_primitive_arrays();
     let bit_width = 8;
@@ -154,21 +153,6 @@ fn bench_for_compress_i32(bencher: Bencher) {
     with_counter!(bencher, NUM_VALUES * 4)
         .with_inputs(|| int_array.clone())
         .bench_values(|a| FoRArray::encode(a).unwrap());
-}
-
-#[divan::bench(name = "for_decompress_u64")]
-fn bench_for_decompress_u64(bencher: Bencher) {
-    let (uint_array, ..) = setup_primitive_arrays();
-
-    let compressed = FoRArray::encode(uint_array).unwrap();
-    let inner = compressed.encoded();
-    let bp = BitPackedArray::encode(inner, 8).unwrap();
-    let compressed =
-        FoRArray::try_new(bp.into_array(), compressed.reference_scalar().clone()).unwrap();
-
-    with_counter!(bencher, NUM_VALUES * 4)
-        .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical());
 }
 
 #[divan::bench(name = "for_decompress_i32")]

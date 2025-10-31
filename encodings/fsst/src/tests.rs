@@ -3,7 +3,7 @@
 
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::compute::{filter, take};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
 use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_mask::Mask;
@@ -98,9 +98,5 @@ fn test_fsst_array_ops() {
     // test to_canonical
     let canonical_array = fsst_array.to_varbinview().into_array();
 
-    assert_eq!(canonical_array.len(), fsst_array.len());
-
-    for i in 0..fsst_array.len() {
-        assert_eq!(fsst_array.scalar_at(i), canonical_array.scalar_at(i),);
-    }
+    assert_arrays_eq!(fsst_array.to_array(), canonical_array);
 }

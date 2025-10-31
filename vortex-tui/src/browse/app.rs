@@ -10,10 +10,10 @@ use ratatui::widgets::ListState;
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
-use vortex::layout::LayoutRef;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::layout::segments::{SegmentId, SegmentSource};
+use vortex::layout::{LayoutRef, VTable};
 use vortex::serde::ArrayParts;
 
 use crate::browse::ui::SegmentGridState;
@@ -101,6 +101,27 @@ impl LayoutCursor {
             .vortex_unwrap()
             .metadata()
             .len()
+    }
+
+    /// Get information about the flat layout metadata.
+    ///
+    /// NOTE: this is only safe to run against a FLAT layout.
+    pub fn flat_layout_metadata_info(&self) -> String {
+        let flat_layout = self.layout.as_::<FlatVTable>();
+        let metadata = FlatVTable::metadata(flat_layout);
+
+        // Check if array_encoding_tree is present and get its size
+        match metadata.0.array_encoding_tree.as_ref() {
+            Some(tree) => {
+                let size = tree.len();
+                // Truncate to a single line - show the size and presence
+                format!(
+                    "Flat Metadata: array_encoding_tree present ({} bytes)",
+                    size
+                )
+            }
+            None => "Flat Metadata: array_encoding_tree not present".to_string(),
+        }
     }
 
     pub fn total_size(&self) -> usize {

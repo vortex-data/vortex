@@ -17,7 +17,7 @@ use vortex_dtype::{
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::chunked_indices;
-use crate::{BitPackedArray, BitPackedVTable, unpack_single_primitive};
+use crate::{BitPackedArray, BitPackedVTable, bitpack_compress};
 
 /// assuming the buffer is already allocated (which will happen at most once) then unpacking
 /// all 1024 elements takes ~8.8x as long as unpacking a single element on an M2 Macbook Air.
@@ -107,7 +107,9 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
                 // we had fewer than UNPACK_CHUNK_THRESHOLD offsets in the first place,
                 // so we need to unpack each one individually
                 for &index in offset_chunk_iter.remainder() {
-                    output.push(unsafe { unpack_single_primitive::<T>(packed, bit_width, index) });
+                    output.push(unsafe {
+                        bitpack_compress::unpack_single_primitive::<T>(packed, bit_width, index)
+                    });
                 }
             }
         }
@@ -137,7 +139,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::take;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{Buffer, buffer};
 
     use crate::BitPackedArray;
@@ -152,8 +154,10 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
 
         let primitive_result = take(bitpacked.as_ref(), &indices).unwrap().to_primitive();
-        let res_bytes = primitive_result.as_slice::<u8>();
-        assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
+        assert_arrays_eq!(
+            primitive_result,
+            PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18])
+        );
     }
 
     #[test]
@@ -166,8 +170,7 @@ mod test {
         let primitive_result = take(bitpacked.as_ref(), indices.as_ref())
             .unwrap()
             .to_primitive();
-        let res_bytes = primitive_result.as_slice::<u32>();
-        assert_eq!(res_bytes, &[0, 2, 4, 6]);
+        assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([0u32, 2, 4, 6]));
     }
 
     #[test]
@@ -180,8 +183,7 @@ mod test {
         let sliced = bitpacked.slice(128..2050);
 
         let primitive_result = take(&sliced, &indices).unwrap().to_primitive();
-        let res_bytes = primitive_result.as_slice::<u8>();
-        assert_eq!(res_bytes, &[31, 33]);
+        assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([31u8, 33]));
     }
 
     #[test]
@@ -228,7 +230,7 @@ mod test {
             Validity::NonNullable,
         )
         .unwrap();
-        assert_eq!(taken_primitive.as_slice::<i32>(), &[1i32, 2, 3, 4]);
+        assert_arrays_eq!(taken_primitive, PrimitiveArray::from_iter([1i32, 2, 3, 4]));
     }
 
     #[test]
@@ -242,7 +244,10 @@ mod test {
         )
         .unwrap()
         .to_primitive();
-        assert_eq!(taken_primitive.as_slice::<i32>(), &[1i32, 2, 1, 4]);
+        assert_arrays_eq!(
+            taken_primitive,
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4)])
+        );
         assert_eq!(taken_primitive.invalid_count(), 1);
     }
 

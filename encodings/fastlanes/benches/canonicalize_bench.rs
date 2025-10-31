@@ -9,7 +9,7 @@ use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::{Array, IntoArray};
 use vortex_error::VortexExpect;
-use vortex_fastlanes::test_harness::make_array;
+use vortex_fastlanes::bitpack_compress::test_harness::make_array;
 
 fn main() {
     warm_up_vtables();

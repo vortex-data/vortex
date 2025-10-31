@@ -29,7 +29,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{Array, ToCanonical};
+    use vortex_array::{Array, ToCanonical, assert_arrays_eq};
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::{ZigZagArray, zigzag_encode};
@@ -58,7 +58,7 @@ mod tests {
         );
 
         let decoded = casted.to_primitive();
-        assert_eq!(decoded.as_slice::<i64>(), &[-100i64, -1, 0, 1, 100]);
+        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([-100i64, -1, 0, 1, 100]));
     }
 
     #[test]
@@ -79,7 +79,10 @@ mod tests {
         );
 
         let decoded = casted.to_primitive();
-        assert_eq!(decoded.as_slice::<i16>(), &[100i16, -50, 0, 25, -100]);
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_iter([100i16, -50, 0, 25, -100])
+        );
 
         // Test i16 to i64 (widening)
         let values16 = PrimitiveArray::from_iter([1000i16, -500, 0, 250, -1000]);
@@ -97,7 +100,10 @@ mod tests {
         );
 
         let decoded64 = casted64.to_primitive();
-        assert_eq!(decoded64.as_slice::<i64>(), &[1000i64, -500, 0, 250, -1000]);
+        assert_arrays_eq!(
+            decoded64,
+            PrimitiveArray::from_iter([1000i64, -500, 0, 250, -1000])
+        );
     }
 
     #[test]

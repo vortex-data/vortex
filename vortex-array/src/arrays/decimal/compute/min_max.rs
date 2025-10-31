@@ -2,12 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, NativeDecimalType};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{
-    DecimalValue, NativeDecimalType, Scalar, ScalarValue, match_each_decimal_value_type,
-};
+use vortex_scalar::{DecimalValue, Scalar, ScalarValue, match_each_decimal_value_type};
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
@@ -35,7 +33,7 @@ where
             array
                 .buffer::<D>()
                 .iter()
-                .zip(v.boolean_buffer().iter())
+                .zip(v.bit_buffer().iter())
                 .filter_map(|(v, m)| m.then_some(v)),
             array.dtype(),
         ),

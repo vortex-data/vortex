@@ -79,9 +79,10 @@ fn invoke_elementwise(
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::BitBuffer;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::arrays::{BoolArray, BooleanBuffer, ChunkedArray};
+    use crate::arrays::{BoolArray, ChunkedArray};
     use crate::canonical::ToCanonical;
     use crate::compute::{BooleanOperator, boolean};
 
@@ -101,8 +102,8 @@ mod tests {
             .unwrap()
             .to_bool();
         assert_eq!(
-            result.boolean_buffer(),
-            &BooleanBuffer::from_iter([true, true, false, false, true])
+            result.bit_buffer(),
+            &BitBuffer::from_iter([true, true, false, false, true])
         );
     }
 }

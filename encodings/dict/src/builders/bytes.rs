@@ -2,15 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::BuildHasher;
+use std::mem;
 use std::sync::Arc;
 
-use arrow_buffer::NullBufferBuilder;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::arrays::{PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_buffer::{BufferMut, ByteBufferMut};
+use vortex_buffer::{BitBufferMut, BufferMut, ByteBufferMut};
 use vortex_dtype::{DType, UnsignedPType};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
 use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashTable, HashTableEntry, RandomState};
@@ -23,7 +23,7 @@ pub struct BytesDictBuilder<Codes> {
     lookup: Option<HashTable<Codes>>,
     views: BufferMut<BinaryView>,
     values: ByteBufferMut,
-    values_nulls: NullBufferBuilder,
+    values_nulls: BitBufferMut,
     hasher: RandomState,
     dtype: DType,
     max_dict_bytes: usize,
@@ -45,7 +45,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
             lookup: Some(HashTable::new()),
             views: BufferMut::<BinaryView>::empty(),
             values: BufferMut::empty(),
-            values_nulls: NullBufferBuilder::new(0),
+            values_nulls: BitBufferMut::empty(),
             hasher: DefaultHashBuilder::default(),
             dtype,
             max_dict_bytes: constraints.max_bytes,
@@ -59,7 +59,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
 
     #[inline]
     fn lookup_bytes(&self, idx: usize) -> Option<&[u8]> {
-        self.values_nulls.is_valid(idx).then(|| {
+        self.values_nulls.value(idx).then(|| {
             let bin_view = &self.views[idx];
             if bin_view.is_inlined() {
                 bin_view.as_inlined().value()
@@ -87,7 +87,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
                     None => {
                         // Null value
                         self.views.push(BinaryView::default());
-                        self.values_nulls.append_null();
+                        self.values_nulls.append_false();
                     }
                     Some(val) => {
                         let view = BinaryView::make_view(
@@ -106,7 +106,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
                         }
 
                         self.views.push(view);
-                        self.values_nulls.append_non_null();
+                        self.values_nulls.append_true();
                         if !view.is_inlined() {
                             self.values.extend_from_slice(val);
                         }
@@ -173,8 +173,8 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
                 self.views.clone().freeze(),
                 Arc::from([self.values.clone().freeze()]),
                 self.dtype.clone(),
-                Validity::from_null_buffer(
-                    self.values_nulls.finish_cloned(),
+                Validity::from_bit_buffer(
+                    mem::take(&mut self.values_nulls).freeze(),
                     self.dtype.nullability(),
                 ),
             )

@@ -28,10 +28,6 @@ pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
 
     fn to_encoding(&self) -> EncodingRef;
 
-    fn into_encoding(self) -> EncodingRef
-    where
-        Self: Sized;
-
     /// Returns the ID of the encoding.
     fn id(&self) -> EncodingId;
 
@@ -70,13 +66,6 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
 
     fn to_encoding(&self) -> EncodingRef {
         ArcRef::new_arc(Arc::new(EncodingAdapter::<V>(self.0.clone())))
-    }
-
-    fn into_encoding(self) -> EncodingRef
-    where
-        Self: Sized,
-    {
-        todo!()
     }
 
     fn id(&self) -> EncodingId {

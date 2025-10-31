@@ -8,7 +8,7 @@ use vortex::buffer::ByteBuffer;
 use vortex::dtype::datetime::arrow::make_temporal_ext_dtype;
 use vortex::dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
 use vortex::dtype::half::f16;
-use vortex::dtype::{DECIMAL128_MAX_PRECISION, DType, DecimalDType, Nullability, PType};
+use vortex::dtype::{DType, DecimalDType, NativeDecimalType, Nullability, PType};
 use vortex::error::{VortexResult, vortex_bail};
 use vortex::scalar::{DecimalValue, Scalar, i256};
 
@@ -40,7 +40,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                 let precision = decimal_type.precision();
                 let scale = decimal_type.scale();
 
-                if precision <= DECIMAL128_MAX_PRECISION {
+                if precision <= i128::MAX_PRECISION {
                     match dscalar.decimal_value() {
                         None => ScalarValue::Decimal128(None, precision, scale),
                         Some(DecimalValue::I128(v128)) => {
@@ -236,6 +236,7 @@ impl FromDataFusion<ScalarValue> for Scalar {
                     Scalar::null(DType::Decimal(decimal_dtype, nullable))
                 }
             }
+            ScalarValue::Dictionary(_, v) => Scalar::from_df(v.as_ref()),
             _ => unimplemented!("Can't convert {value:?} value to a Vortex scalar"),
         }
     }

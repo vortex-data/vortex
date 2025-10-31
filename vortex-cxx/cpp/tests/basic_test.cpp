@@ -242,7 +242,7 @@ TEST_F(VortexTest, ScanBuilderWithRowRangeWithIncludeByIndex) {
 
     RunScanBuilderTest(
         [&include_by_index](vortex::ScanBuilder &scan_builder) {
-            return std::move(scan_builder.WithRowRange(2, 6).WithIncludeByIndex(include_by_index.data(),
+            return std::move(scan_builder.WithRowRange(2, 5).WithIncludeByIndex(include_by_index.data(),
                                                                                 include_by_index.size()))
                 .IntoStream();
         },

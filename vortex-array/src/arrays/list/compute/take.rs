@@ -1,30 +1,182 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
+use vortex_buffer::BitBufferMut;
+use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_mask::Mask;
 
-use crate::arrays::{ListArray, ListVTable, list_view_from_list};
-use crate::compute::{self, TakeKernel, TakeKernelAdapter};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::arrays::{ListArray, ListVTable, PrimitiveArray};
+use crate::builders::{ArrayBuilder, PrimitiveBuilder};
+use crate::compute::{TakeKernel, TakeKernelAdapter, take};
+use crate::validity::Validity;
+use crate::vtable::ValidityHelper;
+use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-// TODO(connor): For very short arrays it is probably more efficient to build the list from scratch.
+// TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
+// the `ListView::take` compute function once `ListView` is more stable.
+
 /// Take implementation for [`ListArray`].
 ///
-/// This implementation converts the [`ListArray`] to a [`ListViewArray`] and then delegates to its
-/// `take` implementation. This approach avoids the need to rebuild the `elements` array.
-///
-/// The resulting [`ListViewArray`] can represent non-contiguous and out-of-order lists, which would
-/// violate [`ListArray`]'s invariants (but not [`ListViewArray`]'s).
-///
-/// [`ListViewArray`]: crate::arrays::ListViewArray
+/// Unlike `ListView`, `ListArray` must rebuild the elements array to maintain its invariant
+/// that lists are stored contiguously and in-order (`offset[i+1] >= offset[i]`). Taking
+/// non-contiguous indices would violate this requirement.
 impl TakeKernel for ListVTable {
     fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let list_view = list_view_from_list(array.clone());
-        compute::take(&list_view.into_array(), indices)
+        let indices = indices.to_primitive();
+        let offsets = array.offsets().to_primitive();
+
+        match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
+            match_each_integer_ptype!(indices.ptype(), |I| {
+                _take::<I, O>(
+                    array,
+                    offsets.as_slice::<O>(),
+                    &indices,
+                    array.validity_mask(),
+                    indices.validity_mask(),
+                )
+            })
+        })
     }
 }
 
 register_kernel!(TakeKernelAdapter(ListVTable).lift());
+
+fn _take<I: IntegerPType, O: IntegerPType>(
+    array: &ListArray,
+    offsets: &[O],
+    indices_array: &PrimitiveArray,
+    data_validity: Mask,
+    indices_validity_mask: Mask,
+) -> VortexResult<ArrayRef> {
+    let indices: &[I] = indices_array.as_slice::<I>();
+
+    if !indices_validity_mask.all_true() || !data_validity.all_true() {
+        return _take_nullable::<I, O>(
+            array,
+            offsets,
+            indices,
+            data_validity,
+            indices_validity_mask,
+        );
+    }
+
+    let mut new_offsets = PrimitiveBuilder::with_capacity(Nullability::NonNullable, indices.len());
+    let mut elements_to_take =
+        PrimitiveBuilder::with_capacity(Nullability::NonNullable, 2 * indices.len());
+
+    let mut current_offset = O::zero();
+    new_offsets.append_zero();
+
+    for &data_idx in indices {
+        let data_idx = data_idx
+            .to_usize()
+            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
+
+        let start = offsets[data_idx];
+        let stop = offsets[data_idx + 1];
+
+        // Annoyingly, we can't turn (start..end) into a range, so we're doing that manually.
+        //
+        // We could convert start and end to usize, but that would impose a potentially
+        // harder constraint - now we don't care if they fit into usize as long as their
+        // difference does.
+        let additional = (stop - start).to_usize().unwrap_or_else(|| {
+            vortex_panic!("Failed to convert range length to usize: {}", stop - start)
+        });
+
+        elements_to_take.reserve_exact(additional);
+        for i in 0..additional {
+            elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < additional"));
+        }
+        current_offset += stop - start;
+        new_offsets.append_value(current_offset);
+    }
+
+    let elements_to_take = elements_to_take.finish();
+    let new_offsets = new_offsets.finish();
+
+    let new_elements = take(array.elements(), elements_to_take.as_ref())?;
+
+    Ok(ListArray::try_new(
+        new_elements,
+        new_offsets,
+        indices_array
+            .validity()
+            .clone()
+            .and(array.validity().clone()),
+    )?
+    .to_array())
+}
+
+fn _take_nullable<I: IntegerPType, O: IntegerPType>(
+    array: &ListArray,
+    offsets: &[O],
+    indices: &[I],
+    data_validity: Mask,
+    indices_validity: Mask,
+) -> VortexResult<ArrayRef> {
+    let mut new_offsets = PrimitiveBuilder::with_capacity(Nullability::NonNullable, indices.len());
+
+    // This will be the indices we push down to the child array to call `take` with.
+    //
+    // There are 2 things to note here:
+    // - We do not know how many elements we need to take from our child since lists are variable
+    //   size: thus we arbitrarily choose a capacity of `2 * # of indices`.
+    // - The type of the primitive builder needs to fit the largest offset of the (parent)
+    //   `ListArray`, so we make this `PrimitiveBuilder` generic over `O` (instead of `I`).
+    let mut elements_to_take =
+        PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, 2 * indices.len());
+
+    let mut current_offset = O::zero();
+    new_offsets.append_zero();
+
+    // Set all bits to invalid and selectively set which values are valid.
+    let mut new_validity = BitBufferMut::new_unset(indices.len());
+
+    for (idx, data_idx) in indices.iter().enumerate() {
+        if !indices_validity.value(idx) {
+            new_offsets.append_value(current_offset);
+            // Bit buffer already has this set to invalid.
+            continue;
+        }
+
+        let data_idx = data_idx
+            .to_usize()
+            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
+
+        if !data_validity.value(data_idx) {
+            new_offsets.append_value(current_offset);
+            // Bit buffer already has this set to invalid.
+            continue;
+        }
+
+        let start = offsets[data_idx];
+        let stop = offsets[data_idx + 1];
+
+        // See the note it the `take` on the reasoning
+        let additional = (stop - start).to_usize().unwrap_or_else(|| {
+            vortex_panic!("Failed to convert range length to usize: {}", stop - start)
+        });
+
+        elements_to_take.reserve_exact(additional);
+        for i in 0..additional {
+            elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < additional"));
+        }
+        current_offset += stop - start;
+        new_offsets.append_value(current_offset);
+        new_validity.set(idx);
+    }
+
+    let elements_to_take = elements_to_take.finish();
+    let new_offsets = new_offsets.finish();
+    let new_elements = take(array.elements(), elements_to_take.as_ref())?;
+
+    let new_validity = Validity::from(new_validity.freeze());
+    // data are indexes are nullable, so the final result is also nullable.
+
+    Ok(ListArray::try_new(new_elements, new_offsets, new_validity)?.to_array())
+}
 
 #[cfg(test)]
 mod test {

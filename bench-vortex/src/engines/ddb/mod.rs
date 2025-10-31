@@ -9,6 +9,7 @@ use log::trace;
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::{Config, Connection, Database};
+use vortex_duckdb::register_extension_options;
 
 use crate::statpopgen::StatPopGenBenchmark;
 use crate::{BenchmarkDataset, Format, IdempotentPath};
@@ -33,10 +34,16 @@ pub struct DuckDBCtx {
     pub db: Database,
     pub connection: Connection,
     pub db_path: Option<PathBuf>,
+    pub threads: Option<usize>,
 }
 
 impl DuckDBCtx {
-    pub fn new(dataset: BenchmarkDataset, format: Format, delete_database: bool) -> Result<Self> {
+    pub fn new(
+        dataset: BenchmarkDataset,
+        format: Format,
+        delete_database: bool,
+        threads: Option<usize>,
+    ) -> Result<Self> {
         let dir = match dataset {
             BenchmarkDataset::ClickBench { flavor, .. } => {
                 format!("clickbench_{}/{}", flavor, format.name()).to_data_path()
@@ -60,22 +67,30 @@ impl DuckDBCtx {
             std::fs::remove_file(&db_path)?;
         }
 
-        let (db, connection) = Self::open_and_setup_database(Some(db_path.clone()))?;
+        let (db, connection) = Self::open_and_setup_database(Some(db_path.clone()), threads)?;
 
         Ok(Self {
             db,
             connection,
             db_path: Some(db_path),
+            threads,
         })
     }
 
-    pub fn open_and_setup_database(path: Option<PathBuf>) -> Result<(Database, Connection)> {
+    pub fn open_and_setup_database(
+        path: Option<PathBuf>,
+        threads: Option<usize>,
+    ) -> Result<(Database, Connection)> {
         let config = Config::new().vortex_expect("failed to create duckdb config");
+
+        // Register Vortex extension options before creating connection
+        register_extension_options(&config);
 
         let db = match path {
             Some(path) => Database::open_with_config(path, config),
             None => Database::open_in_memory_with_config(config),
         }?;
+
         let connection = db.connect()?;
         vortex_duckdb::register_table_functions(&connection)?;
 
@@ -89,6 +104,11 @@ impl DuckDBCtx {
         // "Invalid Input Error: The following options were not recognized:
         // parquet_metadata_cache" when running DuckDB in debug mode.
         connection.query("SET parquet_metadata_cache = true")?;
+
+        // Set vortex_max_threads if specified
+        if let Some(thread_count) = threads {
+            connection.query(&format!("SET vortex_max_threads = {}", thread_count))?;
+        }
 
         Ok((db, connection))
     }
@@ -105,7 +125,8 @@ impl DuckDBCtx {
         drop(connection);
         drop(db);
 
-        let (mut db, mut connection) = Self::open_and_setup_database(self.db_path.clone())?;
+        let (mut db, mut connection) =
+            Self::open_and_setup_database(self.db_path.clone(), self.threads)?;
 
         std::mem::swap(&mut self.connection, &mut connection);
         std::mem::swap(&mut self.db, &mut db);
@@ -114,13 +135,12 @@ impl DuckDBCtx {
     }
 
     pub fn new_in_memory() -> Result<Self> {
-        let db = Database::open_in_memory()?;
-        let connection = db.connect()?;
-        vortex_duckdb::register_table_functions(&connection)?;
+        let (db, connection) = Self::open_and_setup_database(None, None)?;
         Ok(Self {
             db,
             connection,
             db_path: None,
+            threads: None,
         })
     }
 

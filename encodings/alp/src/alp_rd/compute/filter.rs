@@ -37,7 +37,7 @@ mod test {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
@@ -57,7 +57,7 @@ mod test {
         let filtered = filter(encoded.as_ref(), &Mask::from_iter([true, false, true]))
             .unwrap()
             .to_primitive();
-        assert_eq!(filtered.as_slice::<T>(), &[a, outlier]);
+        assert_arrays_eq!(filtered, PrimitiveArray::from_iter([a, outlier]));
     }
 
     #[rstest]

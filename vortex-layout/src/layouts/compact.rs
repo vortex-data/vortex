@@ -11,7 +11,7 @@ use vortex_decimal_byte_parts::DecimalBytePartsArray;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_pco::PcoArray;
-use vortex_scalar::DecimalValueType;
+use vortex_scalar::DecimalType;
 use vortex_zstd::ZstdArray;
 
 fn is_pco_number_type(ptype: PType) -> bool {
@@ -91,16 +91,16 @@ impl CompactCompressor {
                 let decimal = narrowed_decimal(decimal.clone());
                 let validity = decimal.validity();
                 let int_values = match decimal.values_type() {
-                    DecimalValueType::I8 => {
+                    DecimalType::I8 => {
                         PrimitiveArray::new(decimal.buffer::<i8>(), validity.clone())
                     }
-                    DecimalValueType::I16 => {
+                    DecimalType::I16 => {
                         PrimitiveArray::new(decimal.buffer::<i16>(), validity.clone())
                     }
-                    DecimalValueType::I32 => {
+                    DecimalType::I32 => {
                         PrimitiveArray::new(decimal.buffer::<i32>(), validity.clone())
                     }
-                    DecimalValueType::I64 => {
+                    DecimalType::I64 => {
                         PrimitiveArray::new(decimal.buffer::<i64>(), validity.clone())
                     }
                     _ => {
@@ -194,7 +194,7 @@ impl Default for CompactCompressor {
 mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::FieldName;
 
@@ -238,16 +238,10 @@ mod tests {
         // Verify each field can be accessed and has correct data
         for (i, name) in decompressed_struct.names().iter().enumerate() {
             assert_eq!(name, field_names[i]);
-            let decompressed_array = decompressed_struct
-                .field_by_name(name)
-                .unwrap()
-                .to_primitive();
-            // is there no direct way to assert_eq on (primitive) arrays?
+            let decompressed_array = decompressed_struct.field_by_name(name).unwrap().clone();
             assert_eq!(decompressed_array.len(), n_rows);
 
-            for j in 0..n_rows {
-                assert_eq!(decompressed_array.scalar_at(j), columns[i].scalar_at(j),);
-            }
+            assert_arrays_eq!(decompressed_array.as_ref(), columns[i].as_ref());
         }
     }
 }

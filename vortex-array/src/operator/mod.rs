@@ -20,10 +20,13 @@
 //! Vortex array to be a wrapped around an operator that _does_ have a known length, amongst other
 //! properties (such as non-blocking evaluation).
 //!
-//! We also introduce the idea of an executor that can evaluate an operator tree efficiently. It
+//! We also introduce the idea of an execution that can evaluate an operator tree efficiently. It
 //! supports common subtree elimination, as well as extracting sub-graphs for pipelined and GPU
-//! execution. The executor is also responsible for managing memory and scheduling work across
+//! execution. The execution is also responsible for managing memory and scheduling work across
 //! different execution resources.
+//!
+
+#![allow(dead_code)]
 
 pub mod canonical;
 pub mod compare;

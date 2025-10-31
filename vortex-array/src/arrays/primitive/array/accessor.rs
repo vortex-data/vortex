@@ -28,7 +28,7 @@ impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
                 let mut iter = self
                     .as_slice::<T>()
                     .iter()
-                    .zip(validity.boolean_buffer().iter())
+                    .zip(validity.bit_buffer().iter())
                     .map(|(value, valid)| valid.then_some(value));
                 Ok(f(&mut iter))
             }

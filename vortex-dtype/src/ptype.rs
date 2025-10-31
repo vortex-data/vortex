@@ -99,6 +99,7 @@ pub trait NativePType:
     + FromPrimitive
     + ToBytes
     + TryFromBytes
+    + private::Sealed
     + 'static
 {
     /// The PType that corresponds to this native type
@@ -143,78 +144,92 @@ pub trait NativePType:
     fn is_eq(self, other: Self) -> bool;
 
     /// Downcast the provided object to a type-specific instance.
-    fn downcast<V: PTypeVisitor + ?Sized>(visitor: &V) -> V::Output<Self>;
+    fn downcast<V: PTypeDowncast>(visitor: V) -> V::Output<Self>;
 
-    /// Downcast the provided object to a type-specific instance.
-    fn downcast_mut<V: PTypeVisitorMut + ?Sized>(visitor: &mut V) -> V::Output<Self>;
+    /// Upcast a type-specific instance to a generic instance.
+    fn upcast<V: PTypeUpcast>(input: V::Input<Self>) -> V;
+}
+
+mod private {
+    use half::f16;
+
+    /// A private trait to prevent external implementations of `NativePType`.
+    pub trait Sealed {}
+
+    impl Sealed for u8 {}
+    impl Sealed for u16 {}
+    impl Sealed for u32 {}
+    impl Sealed for u64 {}
+    impl Sealed for i8 {}
+    impl Sealed for i16 {}
+    impl Sealed for i32 {}
+    impl Sealed for i64 {}
+    impl Sealed for f16 {}
+    impl Sealed for f32 {}
+    impl Sealed for f64 {}
 }
 
 /// A visitor trait for converting a `NativePType` to another parameterized type.
 #[allow(missing_docs)] // Kind of obvious.
-pub trait PTypeVisitor {
+pub trait PTypeDowncast {
     type Output<T: NativePType>;
 
-    fn as_u8(&self) -> Self::Output<u8>;
-    fn as_u16(&self) -> Self::Output<u16>;
-    fn as_u32(&self) -> Self::Output<u32>;
-    fn as_u64(&self) -> Self::Output<u64>;
-    fn as_i8(&self) -> Self::Output<i8>;
-    fn as_i16(&self) -> Self::Output<i16>;
-    fn as_i32(&self) -> Self::Output<i32>;
-    fn as_i64(&self) -> Self::Output<i64>;
-    fn as_f16(&self) -> Self::Output<f16>;
-    fn as_f32(&self) -> Self::Output<f32>;
-    fn as_f64(&self) -> Self::Output<f64>;
+    fn into_u8(self) -> Self::Output<u8>;
+    fn into_u16(self) -> Self::Output<u16>;
+    fn into_u32(self) -> Self::Output<u32>;
+    fn into_u64(self) -> Self::Output<u64>;
+    fn into_i8(self) -> Self::Output<i8>;
+    fn into_i16(self) -> Self::Output<i16>;
+    fn into_i32(self) -> Self::Output<i32>;
+    fn into_i64(self) -> Self::Output<i64>;
+    fn into_f16(self) -> Self::Output<f16>;
+    fn into_f32(self) -> Self::Output<f32>;
+    fn into_f64(self) -> Self::Output<f64>;
 }
 
-/// Extension trait to provide generic downcasting for [`PTypeVisitor`].
-pub trait PTypeVisitorExt: PTypeVisitor {
+/// Extension trait to provide generic downcasting for [`PTypeDowncast`].
+pub trait PTypeDowncastExt: PTypeDowncast {
     /// Downcast the object to a specific primitive type.
-    fn as_primitive<T: NativePType>(&self) -> Self::Output<T> {
+    fn downcast<T: NativePType>(self) -> Self::Output<T>
+    where
+        Self: Sized,
+    {
         T::downcast(self)
     }
 }
 
-impl<T: PTypeVisitor + ?Sized> PTypeVisitorExt for T {}
-
-/// A visitor trait for converting a `NativePType` to another mutable parameterized type.
-#[allow(missing_docs)] // Kind of obvious..
-pub trait PTypeVisitorMut {
-    type Output<T: NativePType>;
-
-    fn as_u8(&mut self) -> Self::Output<u8>;
-    fn as_u16(&mut self) -> Self::Output<u16>;
-    fn as_u32(&mut self) -> Self::Output<u32>;
-    fn as_u64(&mut self) -> Self::Output<u64>;
-    fn as_i8(&mut self) -> Self::Output<i8>;
-    fn as_i16(&mut self) -> Self::Output<i16>;
-    fn as_i32(&mut self) -> Self::Output<i32>;
-    fn as_i64(&mut self) -> Self::Output<i64>;
-    fn as_f16(&mut self) -> Self::Output<f16>;
-    fn as_f32(&mut self) -> Self::Output<f32>;
-    fn as_f64(&mut self) -> Self::Output<f64>;
-}
-
-/// Extension trait to provide generic downcasting for [`PTypeVisitorMut`].
-pub trait PTypeVisitorMutExt: PTypeVisitorMut {
-    /// Downcast the object to a specific primitive type.
-    fn as_primitive_mut<T: NativePType>(&mut self) -> Self::Output<T> {
-        T::downcast_mut(self)
-    }
-}
+impl<T: PTypeDowncast> PTypeDowncastExt for T {}
 
 macro_rules! impl_ptype_downcast {
     ($T:ty) => {
         #[inline]
-        fn downcast<V: PTypeVisitor + ?Sized>(visitor: &V) -> V::Output<Self> {
-            paste::paste! { visitor.[<as_ $T>]() }
+        fn downcast<V: PTypeDowncast>(visitor: V) -> V::Output<Self> {
+            paste::paste! { visitor.[<into_ $T>]() }
         }
 
         #[inline]
-        fn downcast_mut<V: PTypeVisitorMut + ?Sized>(visitor: &mut V) -> V::Output<Self> {
-            paste::paste! { visitor.[<as_ $T>]() }
+        fn upcast<V: PTypeUpcast>(input: V::Input<Self>) -> V {
+            paste::paste! { V::[<from_ $T>](input) }
         }
     };
+}
+
+/// A visitor trait for converting a generic `NativePType` into a non-parameterized type.
+#[allow(missing_docs)] // Kind of obvious.
+pub trait PTypeUpcast {
+    type Input<T: NativePType>;
+
+    fn from_u8(input: Self::Input<u8>) -> Self;
+    fn from_u16(input: Self::Input<u16>) -> Self;
+    fn from_u32(input: Self::Input<u32>) -> Self;
+    fn from_u64(input: Self::Input<u64>) -> Self;
+    fn from_i8(input: Self::Input<i8>) -> Self;
+    fn from_i16(input: Self::Input<i16>) -> Self;
+    fn from_i32(input: Self::Input<i32>) -> Self;
+    fn from_i64(input: Self::Input<i64>) -> Self;
+    fn from_f16(input: Self::Input<f16>) -> Self;
+    fn from_f32(input: Self::Input<f32>) -> Self;
+    fn from_f64(input: Self::Input<f64>) -> Self;
 }
 
 macro_rules! native_ptype {
@@ -252,8 +267,6 @@ macro_rules! native_ptype {
         }
     };
 }
-
-impl<T: PTypeVisitorMut + ?Sized> PTypeVisitorMutExt for T {}
 
 macro_rules! native_float_ptype {
     ($T:ty, $ptype:tt) => {

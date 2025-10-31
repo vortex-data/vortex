@@ -8,7 +8,7 @@ use crate::{EncodingId, EncodingRef, vtable};
 mod array;
 mod canonical;
 mod operations;
-mod pipeline;
+mod operator;
 mod serde;
 mod validity;
 mod visitor;
@@ -26,7 +26,7 @@ impl VTable for StructVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type PipelineVTable = Self;
+    type OperatorVTable = Self;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

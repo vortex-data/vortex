@@ -10,7 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_io::runtime::Handle;
 
-use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::{FLAT_LAYOUT_INLINE_ARRAY_NODE, FlatLayout};
 use crate::layouts::zoned::{lower_bound, upper_bound};
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{SendableSequentialStream, SequencePointer};
@@ -122,15 +122,23 @@ impl LayoutStrategy for FlatLayoutStrategy {
                 include_padding: options.include_padding,
             },
         )?;
+        // there is at least the flatbuffer and the length
+        assert!(buffers.len() >= 2);
+        let array_node =
+            (*FLAT_LAYOUT_INLINE_ARRAY_NODE).then(|| buffers[buffers.len() - 2].clone());
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
         let None = stream.next().await else {
             vortex_bail!("flat layout received stream with more than a single chunk");
         };
-        Ok(
-            FlatLayout::new(row_count, stream.dtype().clone(), segment_id, ctx.clone())
-                .into_layout(),
+        Ok(FlatLayout::new_with_metadata(
+            row_count,
+            stream.dtype().clone(),
+            segment_id,
+            ctx.clone(),
+            array_node,
         )
+        .into_layout())
     }
 
     fn buffered_bytes(&self) -> u64 {
@@ -143,13 +151,12 @@ impl LayoutStrategy for FlatLayoutStrategy {
 mod tests {
     use std::sync::Arc;
 
-    use arrow_buffer::BooleanBufferBuilder;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_array::stats::{Precision, Stat, StatsProviderExt};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, MaskFuture, ToCanonical};
-    use vortex_buffer::buffer;
+    use vortex_buffer::{BitBufferMut, buffer};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
     use vortex_expr::root;
@@ -263,12 +270,12 @@ mod tests {
     #[test]
     fn struct_array_round_trip() {
         block_on(|handle| async {
-            let mut validity_builder = BooleanBufferBuilder::new(2);
+            let mut validity_builder = BitBufferMut::with_capacity(2);
             validity_builder.append(true);
             validity_builder.append(false);
-            let validity_boolean_buffer = validity_builder.finish();
+            let validity_boolean_buffer = validity_builder.freeze();
             let validity = Validity::Array(
-                BoolArray::from_bool_buffer(validity_boolean_buffer.clone(), Validity::NonNullable)
+                BoolArray::from_bit_buffer(validity_boolean_buffer.clone(), Validity::NonNullable)
                     .into_array(),
             );
             let array = StructArray::try_new(
@@ -316,7 +323,7 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                result.validity_mask().boolean_buffer(),
+                result.validity_mask().bit_buffer(),
                 AllOr::Some(&validity_boolean_buffer)
             );
             assert_eq!(

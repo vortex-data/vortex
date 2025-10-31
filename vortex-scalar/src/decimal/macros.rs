@@ -1,24 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-/// Implements `NativeDecimalType` for the given type.
-macro_rules! impl_native_decimal_type {
-    ($T:ty, $variant:ident) => {
-        impl NativeDecimalType for $T {
-            const VALUES_TYPE: DecimalValueType = DecimalValueType::$variant;
-
-            fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
-                if let DecimalValue::$variant(v) = decimal_type {
-                    Some(v)
-                } else {
-                    None
-                }
-            }
-        }
-    };
-}
-pub(crate) use impl_native_decimal_type;
-
 /// Implements `TryFrom<DecimalScalar>` for the given type.
 macro_rules! decimal_scalar_unpack {
     ($T:ident, $arm:ident) => {
@@ -80,65 +62,47 @@ pub(crate) use decimal_scalar_pack;
 /// ```
 #[macro_export] // Used in `vortex-array`.
 macro_rules! match_each_decimal_value {
-    ($self:expr, | $value:ident | $body:block) => {{
-        match $self {
-            DecimalValue::I8(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I16(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I32(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I64(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I128(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I256(v) => {
-                let $value = v;
-                $body
-            }
+    ($decimal_value:expr, | $ident:ident | $body:block) => {
+        match $decimal_value {
+            DecimalValue::I8($ident) => $body,
+            DecimalValue::I16($ident) => $body,
+            DecimalValue::I32($ident) => $body,
+            DecimalValue::I64($ident) => $body,
+            DecimalValue::I128($ident) => $body,
+            DecimalValue::I256($ident) => $body,
         }
-    }};
+    };
 }
 
 /// Macro to match over each decimal value type, binding the corresponding native type (from
-/// `DecimalValueType`)
+/// `DecimalType`)
 #[macro_export] // Used in `vortex-array`.
 macro_rules! match_each_decimal_value_type {
     ($self:expr, | $enc:ident | $body:block) => {{
-        use $crate::{DecimalValueType, i256};
+        use $crate::DecimalType;
         match $self {
-            DecimalValueType::I8 => {
+            DecimalType::I8 => {
                 type $enc = i8;
                 $body
             }
-            DecimalValueType::I16 => {
+            DecimalType::I16 => {
                 type $enc = i16;
                 $body
             }
-            DecimalValueType::I32 => {
+            DecimalType::I32 => {
                 type $enc = i32;
                 $body
             }
-            DecimalValueType::I64 => {
+            DecimalType::I64 => {
                 type $enc = i64;
                 $body
             }
-            DecimalValueType::I128 => {
+            DecimalType::I128 => {
                 type $enc = i128;
                 $body
             }
-            DecimalValueType::I256 => {
-                type $enc = i256;
+            DecimalType::I256 => {
+                type $enc = $crate::i256;
                 $body
             }
             ty => unreachable!("unknown decimal value type {:?}", ty),

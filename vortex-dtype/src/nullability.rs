@@ -15,13 +15,21 @@ pub enum Nullability {
 }
 
 impl Nullability {
-    /// A self-describing displayed form.
+    /// Returns `true` if the nullability is [`Nullable`](Self::Nullable), otherwise returns
+    /// `false`.
     ///
-    /// The usual Display renders [Nullability::NonNullable] as the empty string.
-    pub fn verbose_display(&self) -> impl Display {
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_dtype::Nullability::*;
+    ///
+    /// assert!(!NonNullable.is_nullable());
+    /// assert!(Nullable.is_nullable());
+    /// ```
+    pub fn is_nullable(&self) -> bool {
         match self {
-            Nullability::NonNullable => "NonNullable",
-            Nullability::Nullable => "Nullable",
+            Nullability::NonNullable => false,
+            Nullability::Nullable => true,
         }
     }
 }

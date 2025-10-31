@@ -191,7 +191,7 @@ fn test_decimal_scalars_to_arrow() {
     assert!(Arc::<dyn Datum>::try_from(&scalar_i128).is_ok());
 
     // Test i256
-    use crate::i256;
+    use vortex_dtype::i256;
     let value_i256 = i256::from_i128(123456789012345678901234567890i128);
     let scalar_i256 = Scalar::decimal(
         DecimalValue::I256(value_i256),

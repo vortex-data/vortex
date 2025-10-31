@@ -7,11 +7,12 @@ use vortex_array::arrow::compute::to_arrow_preferred;
 use vortex_array::serde::{ArrayParts, SerializeOptions};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{ArrayContext, ArrayRegistry, EncodingRef, ToCanonical};
+use vortex_array::{
+    ArrayContext, ArrayRegistry, EncodingRef, IntoArray, ToCanonical, assert_arrays_eq,
+};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::{PcoArray, PcoEncoding};
 
@@ -31,7 +32,7 @@ fn test_compress_decompress() {
 
     // check full decompression works
     let decompressed = compressed.decompress();
-    assert_eq!(decompressed.as_slice::<i32>(), &data);
+    assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
 
     // check slicing works
     let slice = compressed.slice(100..105);
@@ -39,22 +40,26 @@ fn test_compress_decompress() {
         assert_nth_scalar!(slice, i as usize, 100 + i);
     }
     let primitive = slice.to_primitive();
-    assert_eq!(primitive.as_slice::<i32>(), &[100, 101, 102, 103, 104]);
+    assert_arrays_eq!(
+        primitive,
+        PrimitiveArray::from_iter([100, 101, 102, 103, 104])
+    );
 
     let slice = compressed.slice(200..200);
     let primitive = slice.to_primitive();
-    assert_eq!(primitive.as_slice::<i32>(), &Vec::<i32>::new());
+    assert_arrays_eq!(primitive, PrimitiveArray::from_iter(Vec::<i32>::new()));
 }
 
 #[test]
 fn test_compress_decompress_small() {
     let array = PrimitiveArray::from_option_iter([None, Some(1)]);
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
-    assert_eq!(compressed.scalar_at(0), Scalar::null_typed::<i32>());
-    assert_eq!(compressed.scalar_at(1), Scalar::from(Some(1)));
+
+    let expected = array.into_array();
+    assert_arrays_eq!(compressed, expected);
+
     let decompressed = compressed.decompress();
-    assert_eq!(decompressed.scalar_at(0), Scalar::null_typed::<i32>());
-    assert_eq!(decompressed.scalar_at(1), Scalar::from(Some(1)));
+    assert_arrays_eq!(decompressed, expected);
 }
 
 #[test]
@@ -63,7 +68,7 @@ fn test_empty() {
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = PcoArray::from_primitive(&array, 3, 100).unwrap();
     let primitive = compressed.decompress();
-    assert_eq!(primitive.as_slice::<i32>(), &data);
+    assert_arrays_eq!(primitive, PrimitiveArray::from_iter(data));
 }
 
 #[test]

@@ -8,7 +8,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::ByteBuffer;
-    use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType};
+    use vortex_dtype::{DType, ExtDType, ExtID, NativeDecimalType, Nullability, PType};
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
@@ -131,14 +131,14 @@ mod tests {
 
     #[test]
     fn test_decimal_nbytes() {
-        use vortex_dtype::{DECIMAL128_MAX_PRECISION, DecimalDType};
+        use vortex_dtype::DecimalDType;
 
         use crate::decimal::DecimalValue;
 
         // Test decimal with precision <= 38 (should use i128 = 16 bytes)
         let decimal_low_precision = Scalar::decimal(
             DecimalValue::I128(123456789),
-            DecimalDType::new(DECIMAL128_MAX_PRECISION, 2), // precision 38
+            DecimalDType::new(i128::MAX_PRECISION, 2), // precision 38
             Nullability::NonNullable,
         );
         assert_eq!(
@@ -150,7 +150,7 @@ mod tests {
         // Test decimal with precision > 38 (should use i256 = 32 bytes)
         let decimal_high_precision = Scalar::decimal(
             DecimalValue::I128(123456789),
-            DecimalDType::new(DECIMAL128_MAX_PRECISION + 1, 2), // precision 39
+            DecimalDType::new(i128::MAX_PRECISION + 1, 2), // precision 39
             Nullability::NonNullable,
         );
         assert_eq!(

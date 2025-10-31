@@ -6,24 +6,22 @@ use std::time::Duration;
 
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::driver::{
-    CudaContext, CudaFunction, CudaStream, CudaViewMut, DeviceRepr, LaunchConfig, PushKernelArg,
+    CudaContext, CudaFunction, CudaStream, DeviceRepr, LaunchConfig, PushKernelArg,
 };
 use cudarc::nvrtc::Ptx;
-use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::validity::Validity;
-use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::{BitPackedVTable, FoRArray};
 
-use crate::bit_unpack;
 use crate::task::GPUTask;
+use crate::{GpuPrimitiveVector, GpuVector, bit_unpack};
 
 struct ForTask<P> {
     stream: Arc<CudaStream>,
     func: CudaFunction,
     bp_task: Box<dyn GPUTask>,
+    result: Option<GpuPrimitiveVector>,
     launch_config: LaunchConfig,
     reference: P,
 }
@@ -45,6 +43,7 @@ pub fn new_task(
             stream,
             func: cuda_for_kernel(array.ptype(), &ctx)?,
             bp_task,
+            result: None,
             launch_config: LaunchConfig {
                 grid_dim: (num_chunks, 1, 1),
                 block_dim: (32, 1, 1),
@@ -71,15 +70,14 @@ fn cuda_for_kernel(ptype: PType, ctx: &Arc<CudaContext>) -> VortexResult<CudaFun
 
 impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {
     fn launch_task(&mut self) -> VortexResult<()> {
-        let len = self.len();
         self.bp_task.launch_task()?;
+        self.result.replace(self.bp_task.result()?.into_primitive());
         let mut launch = self.stream.launch_builder(&self.func);
-        let mut view = unsafe {
-            self.bp_task
-                .output()
-                .transmute_mut::<P>(len)
-                .vortex_expect("")
-        };
+        let mut view = self
+            .result
+            .as_mut()
+            .vortex_expect("must have output")
+            .as_mut_slice::<P>();
         launch.arg(&mut view);
         launch.arg(&self.reference);
         unsafe { launch.launch(self.launch_config) }
@@ -87,32 +85,10 @@ impl<P: NativePType + DeviceRepr> GPUTask for ForTask<P> {
             .map(|_| ())
     }
 
-    fn export_result(&mut self) -> VortexResult<Canonical> {
-        let len = self.len();
-        let mut buffer = BufferMut::<P>::with_capacity(len);
-
-        unsafe { buffer.set_len(len) }
-        self.stream
-            .memcpy_dtoh(
-                &unsafe { self.bp_task.output().transmute::<P>(len).vortex_expect("") },
-                &mut buffer,
-            )
-            .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
-        self.stream
-            .synchronize()
-            .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
-        Ok(Canonical::Primitive(PrimitiveArray::new(
-            buffer,
-            Validity::NonNullable,
-        )))
-    }
-
-    fn output(&mut self) -> CudaViewMut<'_, u8> {
-        self.bp_task.output()
-    }
-
-    fn len(&self) -> usize {
-        self.bp_task.len()
+    fn result(&mut self) -> VortexResult<GpuVector> {
+        Ok(GpuVector::Primitive(
+            self.result.take().vortex_expect("must have output"),
+        ))
     }
 }
 
@@ -140,8 +116,8 @@ pub fn cuda_for_unpack_timed(
             .vortex_expect("Failed to get elapsed time")
             / 1000.0,
     );
-    task.export_result()
-        .map(|c| c.into_primitive())
+    task.result()
+        .and_then(|c| c.into_primitive().into_host_array())
         .map(|x| (x, time))
 }
 
@@ -149,7 +125,8 @@ pub fn cuda_for_unpack(array: &FoRArray, ctx: Arc<CudaContext>) -> VortexResult<
     let stream = ctx.default_stream();
     let mut task = new_task(array, ctx, stream)?;
     task.launch_task()?;
-    task.export_result().map(|c| c.into_primitive())
+    task.result()
+        .and_then(|c| c.into_primitive().into_host_array())
 }
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]

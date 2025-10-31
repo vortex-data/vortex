@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::mem;
 
-use arrow_buffer::NullBufferBuilder;
 use rustc_hash::FxBuildHasher;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{NativeValue, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::BufferMut;
+use vortex_buffer::{BitBufferMut, BufferMut};
 use vortex_dtype::{NativePType, Nullability, PType, UnsignedPType};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
@@ -64,7 +64,7 @@ where
         Self {
             lookup: HashMap::with_hasher(FxBuildHasher),
             values: BufferMut::<T>::empty(),
-            values_nulls: NullBufferBuilder::new(0),
+            values_nulls: BitBufferMut::empty(),
             nullability,
             max_dict_len,
         }
@@ -85,11 +85,11 @@ where
                 match v {
                     None => {
                         self.values.push(T::default());
-                        self.values_nulls.append_null();
+                        self.values_nulls.append_false();
                     }
                     Some(v) => {
                         self.values.push(v);
-                        self.values_nulls.append_non_null();
+                        self.values_nulls.append_true();
                     }
                 }
                 Some(next_code)
@@ -104,7 +104,7 @@ where
 pub struct PrimitiveDictBuilder<T, Code> {
     lookup: HashMap<Option<NativeValue<T>>, Code, FxBuildHasher>,
     values: BufferMut<T>,
-    values_nulls: NullBufferBuilder,
+    values_nulls: BitBufferMut,
     nullability: Nullability,
     max_dict_len: usize,
 }
@@ -136,7 +136,7 @@ where
     fn values(&mut self) -> VortexResult<ArrayRef> {
         Ok(PrimitiveArray::new(
             self.values.clone(),
-            Validity::from_null_buffer(self.values_nulls.finish_cloned(), self.nullability),
+            Validity::from_bit_buffer(mem::take(&mut self.values_nulls).freeze(), self.nullability),
         )
         .into_array())
     }
@@ -144,11 +144,11 @@ where
 
 #[cfg(test)]
 mod test {
+    #[allow(unused_imports)]
+    use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{Array, IntoArray as _, ToCanonical};
+    use vortex_array::{Array, IntoArray as _, assert_arrays_eq};
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_scalar::Scalar;
 
     use crate::builders::dict_encode;
 
@@ -156,11 +156,12 @@ mod test {
     fn encode_primitive() {
         let arr = buffer![1, 1, 3, 3, 3].into_array();
         let dict = dict_encode(arr.as_ref()).unwrap();
-        assert_eq!(
-            dict.codes().to_primitive().as_slice::<u8>(),
-            &[0, 0, 1, 1, 1]
-        );
-        assert_eq!(dict.values().to_primitive().as_slice::<i32>(), &[1, 3]);
+
+        let expected_codes = buffer![0u8, 0, 1, 1, 1].into_array();
+        assert_arrays_eq!(dict.codes(), expected_codes);
+
+        let expected_values = buffer![1i32, 3].into_array();
+        assert_arrays_eq!(dict.values(), expected_values);
     }
 
     #[test]
@@ -176,15 +177,12 @@ mod test {
             None,
         ]);
         let dict = dict_encode(arr.as_ref()).unwrap();
-        assert_eq!(
-            dict.codes().to_primitive().as_slice::<u8>(),
-            &[0, 0, 1, 2, 2, 1, 2, 1],
-        );
-        let dict_values = dict.values();
-        assert_eq!(dict_values.scalar_at(0), Scalar::primitive(1, Nullable));
-        assert_eq!(
-            dict_values.scalar_at(1),
-            Scalar::null(dict_values.dtype().clone())
-        );
+
+        let expected_codes = buffer![0u8, 0, 1, 2, 2, 1, 2, 1].into_array();
+        assert_arrays_eq!(dict.codes(), expected_codes);
+
+        let expected_values =
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
+        assert_arrays_eq!(dict.values(), expected_values);
     }
 }

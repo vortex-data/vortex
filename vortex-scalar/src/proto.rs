@@ -174,12 +174,12 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BufferString;
     use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, StructFields, i256};
     use vortex_error::vortex_panic;
     use vortex_proto::scalar as pb;
 
     use super::*;
-    use crate::{InnerScalarValue, Scalar, ScalarValue, i256};
+    use crate::{InnerScalarValue, Scalar, ScalarValue};
 
     fn round_trip(scalar: Scalar) {
         assert_eq!(

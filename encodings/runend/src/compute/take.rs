@@ -80,10 +80,8 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::take;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
-    use vortex_scalar::{Scalar, ScalarValue};
 
     use crate::RunEndArray;
 
@@ -98,13 +96,15 @@ mod test {
             buffer![9, 8, 1, 3].into_array().as_ref(),
         )
         .unwrap();
-        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[5, 5, 1, 4]);
+        let expected = PrimitiveArray::from_iter(vec![5i32, 5, 1, 4]).into_array();
+        assert_arrays_eq!(taken, expected);
     }
 
     #[test]
     fn ree_take_end() {
         let taken = take(ree_array().as_ref(), buffer![11].into_array().as_ref()).unwrap();
-        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[5]);
+        let expected = PrimitiveArray::from_iter(vec![5i32]).into_array();
+        assert_arrays_eq!(taken, expected);
     }
 
     #[test]
@@ -118,10 +118,8 @@ mod test {
         let sliced = ree_array().slice(4..9);
         let taken = take(sliced.as_ref(), buffer![1, 3, 4].into_array().as_ref()).unwrap();
 
-        assert_eq!(taken.len(), 3);
-        assert_eq!(taken.scalar_at(0), 4.into());
-        assert_eq!(taken.scalar_at(1), 2.into());
-        assert_eq!(taken.scalar_at(2), 5.into());
+        let expected = PrimitiveArray::from_iter(vec![4i32, 2, 5]).into_array();
+        assert_arrays_eq!(taken, expected);
     }
 
     #[test]
@@ -132,17 +130,8 @@ mod test {
         )
         .unwrap();
 
-        assert_eq!(
-            taken.scalar_at(0),
-            Scalar::new(
-                DType::Primitive(PType::I32, Nullability::Nullable),
-                ScalarValue::from(1i32)
-            )
-        );
-        assert_eq!(
-            taken.scalar_at(1),
-            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
-        );
+        let expected = PrimitiveArray::from_option_iter([Some(1i32), None]);
+        assert_arrays_eq!(taken, expected.to_array());
     }
 
     #[rstest]

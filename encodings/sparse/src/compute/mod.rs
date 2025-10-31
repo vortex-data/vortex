@@ -40,7 +40,7 @@ mod test {
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::{cast, filter};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_mask::Mask;
@@ -71,7 +71,10 @@ mod test {
 
         assert_eq!(filtered_array.len(), 1);
         assert_eq!(filtered_array.patches().values().len(), 1);
-        assert_eq!(filtered_array.patches().indices().len(), 1);
+        assert_arrays_eq!(
+            filtered_array.patches().indices(),
+            PrimitiveArray::from_iter([0u64])
+        );
     }
 
     #[test]
@@ -90,9 +93,10 @@ mod test {
         let filtered_array = filtered_array.as_::<SparseVTable>();
 
         assert_eq!(filtered_array.len(), 4);
-        let primitive = filtered_array.patches().indices().to_primitive();
-
-        assert_eq!(primitive.as_slice::<u64>(), &[1, 3]);
+        assert_arrays_eq!(
+            filtered_array.patches().indices(),
+            PrimitiveArray::from_iter([1u64, 3])
+        );
     }
 
     #[rstest]

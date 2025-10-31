@@ -5,9 +5,11 @@ mod binary_numeric;
 mod boolean;
 mod cast;
 mod compare;
+mod fill_null;
 mod filter;
 mod invert;
 mod mask;
+mod min_max;
 mod sum;
 mod take;
 

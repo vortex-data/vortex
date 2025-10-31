@@ -4,8 +4,8 @@
 #![allow(clippy::panic)]
 #![allow(clippy::many_single_char_names)]
 
-use arrow_buffer::BooleanBuffer;
 use rstest::rstest;
+use vortex_buffer::BitBuffer;
 
 use crate::{AllOr, Mask, MaskIter};
 
@@ -18,7 +18,7 @@ fn mask_all_true() {
     assert_eq!(mask.density(), 1.0);
     assert_eq!(mask.indices(), AllOr::All);
     assert_eq!(mask.slices(), AllOr::All);
-    assert_eq!(mask.boolean_buffer(), AllOr::All,);
+    assert_eq!(mask.bit_buffer(), AllOr::All,);
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn mask_all_false() {
     assert_eq!(mask.density(), 0.0);
     assert_eq!(mask.indices(), AllOr::None);
     assert_eq!(mask.slices(), AllOr::None);
-    assert_eq!(mask.boolean_buffer(), AllOr::None,);
+    assert_eq!(mask.bit_buffer(), AllOr::None,);
 }
 
 #[test]
@@ -37,7 +37,7 @@ fn mask_from() {
     let masks = [
         Mask::from_indices(5, vec![0, 2, 3]),
         Mask::from_slices(5, vec![(0, 1), (2, 4)]),
-        Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false])),
+        Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false])),
     ];
 
     for mask in &masks {
@@ -47,8 +47,8 @@ fn mask_from() {
         assert_eq!(mask.indices(), AllOr::Some(&[0, 2, 3][..]));
         assert_eq!(mask.slices(), AllOr::Some(&[(0, 1), (2, 4)][..]));
         assert_eq!(
-            mask.boolean_buffer(),
-            AllOr::Some(&BooleanBuffer::from_iter([true, false, true, true, false]))
+            mask.bit_buffer(),
+            AllOr::Some(&BitBuffer::from_iter([true, false, true, true, false]))
         );
     }
 }
@@ -57,8 +57,8 @@ fn mask_from() {
 fn length_zero_masks() {
     let all_false = Mask::new_false(0);
     let all_true = Mask::new_true(0);
-    let buffer_set = Mask::from_buffer(BooleanBuffer::new_set(0));
-    let buffer_unset = Mask::from_buffer(BooleanBuffer::new_unset(0));
+    let buffer_set = Mask::from_buffer(BitBuffer::new_set(0));
+    let buffer_unset = Mask::from_buffer(BitBuffer::new_unset(0));
 
     assert!(all_false.all_false());
     assert!(all_false.all_true());
@@ -81,7 +81,7 @@ fn test_mask_value() {
     assert!(!all_false.value(0));
     assert!(!all_false.value(4));
 
-    let values = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+    let values = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
     assert!(values.value(0));
     assert!(!values.value(1));
     assert!(values.value(2));
@@ -95,7 +95,7 @@ fn test_mask_first() {
     assert_eq!(Mask::new_false(5).first(), None);
     assert_eq!(Mask::new_true(0).first(), None);
 
-    let values = Mask::from_buffer(BooleanBuffer::from_iter([false, false, true, false, true]));
+    let values = Mask::from_buffer(BitBuffer::from_iter([false, false, true, false, true]));
     assert_eq!(values.first(), Some(2));
 
     let values_indices = Mask::from_indices(5, vec![2, 4]);
@@ -110,14 +110,14 @@ fn test_mask_false_count() {
     assert_eq!(Mask::new_true(5).false_count(), 0);
     assert_eq!(Mask::new_false(5).false_count(), 5);
 
-    let values = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+    let values = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
     assert_eq!(values.false_count(), 2);
 }
 
 // Slice operations
 #[test]
 fn test_mask_slice() {
-    let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false]));
+    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false]));
 
     let sliced = mask.slice(1..4);
     assert_eq!(sliced.len(), 3);
@@ -152,8 +152,8 @@ fn limit_all_true_mask() {
     assert_eq!(all_true.len(), limited_mask.len());
     assert_eq!(limited_mask.true_count(), 2);
     assert_eq!(
-        limited_mask.boolean_buffer(),
-        AllOr::Some(&BooleanBuffer::from_iter([true, true, false, false]))
+        limited_mask.bit_buffer(),
+        AllOr::Some(&BitBuffer::from_iter([true, true, false, false]))
     );
 
     let limited_mask = all_true.clone().limit(5);
@@ -166,8 +166,8 @@ fn limit_mask_values() {
     let limited_mask = original_mask.clone().limit(2);
 
     assert_eq!(
-        limited_mask.boolean_buffer(),
-        AllOr::Some(&BooleanBuffer::from_iter([
+        limited_mask.bit_buffer(),
+        AllOr::Some(&BitBuffer::from_iter([
             true, true, false, false, false, false
         ]))
     );
@@ -176,8 +176,8 @@ fn limit_mask_values() {
     let limited_mask = original_mask.limit(3);
 
     assert_eq!(
-        limited_mask.boolean_buffer(),
-        AllOr::Some(&BooleanBuffer::from_iter([
+        limited_mask.bit_buffer(),
+        AllOr::Some(&BitBuffer::from_iter([
             true, true, false, true, false, false
         ]))
     );
@@ -199,7 +199,7 @@ fn test_limit_all_false_mask() {
 
 #[test]
 fn test_limit_mask_exact() {
-    let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
     let limited = mask.clone().limit(3);
     assert_eq!(limited.true_count(), 3);
     assert_eq!(limited, mask);
@@ -207,7 +207,7 @@ fn test_limit_mask_exact() {
 
 #[test]
 fn test_limit_mask_zero() {
-    let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
     let limited = mask.limit(0);
     assert!(limited.all_false());
     assert_eq!(limited.true_count(), 0);
@@ -215,35 +215,21 @@ fn test_limit_mask_zero() {
 
 // Buffer conversion tests
 #[test]
-fn test_mask_to_boolean_buffer() {
+fn test_mask_to_bit_buffer() {
     let all_true = Mask::new_true(5);
-    let buffer = all_true.to_boolean_buffer();
-    assert_eq!(buffer.count_set_bits(), 5);
+    let buffer = all_true.to_bit_buffer();
+    assert_eq!(buffer.true_count(), 5);
     assert_eq!(buffer.len(), 5);
 
     let all_false = Mask::new_false(5);
-    let buffer = all_false.to_boolean_buffer();
-    assert_eq!(buffer.count_set_bits(), 0);
+    let buffer = all_false.to_bit_buffer();
+    assert_eq!(buffer.true_count(), 0);
     assert_eq!(buffer.len(), 5);
 
-    let values = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
-    let buffer = values.to_boolean_buffer();
-    assert_eq!(buffer.count_set_bits(), 3);
+    let values = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
+    let buffer = values.to_bit_buffer();
+    assert_eq!(buffer.true_count(), 3);
     assert_eq!(buffer.len(), 5);
-}
-
-#[test]
-fn test_mask_to_null_buffer() {
-    let all_true = Mask::new_true(5);
-    assert!(all_true.to_null_buffer().is_none());
-
-    let all_false = Mask::new_false(5);
-    let null_buffer = all_false.to_null_buffer().unwrap();
-    assert_eq!(null_buffer.null_count(), 5);
-
-    let values = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
-    let null_buffer = values.to_null_buffer().unwrap();
-    assert_eq!(null_buffer.null_count(), 2);
 }
 
 // MaskValues tests
@@ -255,7 +241,7 @@ fn test_mask_values() {
     let all_false = Mask::new_false(5);
     assert!(all_false.values().is_none());
 
-    let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
     let values = mask.values().unwrap();
     assert_eq!(values.len(), 5);
     assert_eq!(values.true_count(), 3);
@@ -265,7 +251,7 @@ fn test_mask_values() {
 
 #[test]
 fn test_mask_values_threshold_iter() {
-    let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false]));
+    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false]));
     let values = mask.values().unwrap();
 
     // With low threshold, should prefer indices
@@ -287,12 +273,12 @@ fn test_mask_values_threshold_iter() {
 
 #[test]
 fn test_mask_values_is_empty() {
-    let empty_mask = Mask::from_buffer(BooleanBuffer::new_unset(0));
+    let empty_mask = Mask::from_buffer(BitBuffer::new_unset(0));
     if let Some(values) = empty_mask.values() {
         assert!(values.is_empty());
     }
 
-    let non_empty_mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false]));
+    let non_empty_mask = Mask::from_buffer(BitBuffer::from_iter([true, false]));
     if let Some(values) = non_empty_mask.values() {
         assert!(!values.is_empty());
     }
@@ -369,9 +355,7 @@ fn test_mask_from_intersection_indices_same() {
 // Valid counts tests
 #[test]
 fn test_mask_valid_counts_for_indices() {
-    let mask = Mask::from_buffer(BooleanBuffer::from_iter([
-        true, false, true, true, false, true,
-    ]));
+    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false, true]));
     let indices = vec![0, 2, 4, 6];
     let counts = mask.valid_counts_for_indices(&indices);
     assert_eq!(counts, vec![0, 1, 3, 4]);
@@ -388,7 +372,7 @@ fn test_mask_valid_counts_for_indices() {
 #[test]
 #[should_panic]
 fn test_mask_valid_counts_for_indices_error() {
-    let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true]));
+    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true]));
     let indices = vec![0, 2, 5]; // 5 is out of bounds
     let _ = mask.valid_counts_for_indices(&indices);
 }
@@ -397,9 +381,9 @@ fn test_mask_valid_counts_for_indices_error() {
 #[test]
 fn test_mask_from_iter_masks() {
     let masks = vec![
-        Mask::from_buffer(BooleanBuffer::from_iter([true, false])),
-        Mask::from_buffer(BooleanBuffer::from_iter([true, true, false])),
-        Mask::from_buffer(BooleanBuffer::from_iter([false, true])),
+        Mask::from_buffer(BitBuffer::from_iter([true, false])),
+        Mask::from_buffer(BitBuffer::from_iter([true, true, false])),
+        Mask::from_buffer(BitBuffer::from_iter([false, true])),
     ];
 
     let combined = Mask::from_iter(masks);
@@ -499,7 +483,7 @@ fn test_mask_threshold_iter() {
     let all_false = Mask::new_false(5);
     assert!(matches!(all_false.threshold_iter(0.5), AllOr::None));
 
-    let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false]));
+    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false]));
     if let AllOr::Some(MaskIter::Indices(indices)) = mask.threshold_iter(0.7) {
         assert_eq!(indices, &[0, 2, 3]);
     } else {
@@ -606,7 +590,7 @@ fn test_allor_eq() {
 #[case::all_true(Mask::new_true(5), 5, 5, 0, 1.0)]
 #[case::all_false(Mask::new_false(5), 5, 0, 5, 0.0)]
 #[case::mixed(
-        Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true])),
+        Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true])),
         5, 3, 2, 0.6
     )]
 #[case::single_true(Mask::from_indices(10, vec![5]), 10, 1, 9, 0.1)]
@@ -699,7 +683,7 @@ fn test_mask_concat_all_false() {
 #[test]
 fn test_mask_concat_mixed_types() {
     let masks = [
-        Mask::from_buffer(BooleanBuffer::from_iter([true, false, true])),
+        Mask::from_buffer(BitBuffer::from_iter([true, false, true])),
         Mask::new_true(2),
         Mask::new_false(3),
     ];

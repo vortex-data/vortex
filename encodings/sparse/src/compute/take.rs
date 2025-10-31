@@ -47,13 +47,12 @@ register_kernel!(TakeKernelAdapter(SparseVTable).lift());
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::take;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::buffer;
-    use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use crate::{SparseArray, SparseVTable};
@@ -78,27 +77,31 @@ mod test {
     fn take_with_non_zero_offset() {
         let sparse = sparse_array();
         let sparse = sparse.slice(30..40);
-        let sparse = take(&sparse, &buffer![6, 7, 8].into_array()).unwrap();
-        assert_eq!(sparse.scalar_at(0), test_array_fill_value());
-        assert_eq!(sparse.scalar_at(1), Scalar::from(Some(0.47)));
-        assert_eq!(sparse.scalar_at(2), test_array_fill_value());
+        let taken = take(&sparse, &buffer![6, 7, 8].into_array()).unwrap();
+        let expected = PrimitiveArray::from_option_iter([Option::<f64>::None, Some(0.47), None]);
+        assert_arrays_eq!(taken, expected.to_array());
     }
 
     #[test]
     fn sparse_take() {
         let sparse = sparse_array();
-        let prim = take(&sparse, &buffer![0, 47, 47, 0, 99].into_array())
-            .unwrap()
-            .to_primitive();
-        assert_eq!(prim.as_slice::<f64>(), [1.23f64, 9.99, 9.99, 1.23, 3.5]);
+        let taken = take(&sparse, &buffer![0, 47, 47, 0, 99].into_array()).unwrap();
+        let expected = PrimitiveArray::from_option_iter([
+            Some(1.23f64),
+            Some(9.99),
+            Some(9.99),
+            Some(1.23),
+            Some(3.5),
+        ]);
+        assert_arrays_eq!(taken, expected.to_array());
     }
 
     #[test]
     fn nonexistent_take() {
         let sparse = sparse_array();
         let taken = take(&sparse, &buffer![69].into_array()).unwrap();
-        assert_eq!(taken.len(), 1);
-        assert_eq!(taken.scalar_at(0), test_array_fill_value());
+        let expected = ConstantArray::new(test_array_fill_value(), 1).into_array();
+        assert_arrays_eq!(taken, expected);
     }
 
     #[test]
@@ -135,18 +138,8 @@ mod test {
         )
         .unwrap();
 
-        assert_eq!(
-            taken.scalar_at(0),
-            Scalar::primitive(1, Nullability::Nullable)
-        );
-        assert_eq!(
-            taken.scalar_at(1),
-            Scalar::primitive(10, Nullability::Nullable)
-        );
-        assert_eq!(
-            taken.scalar_at(2),
-            Scalar::null(DType::Primitive(I32, Nullability::Nullable))
-        );
+        let expected = PrimitiveArray::from_option_iter([Some(1), Some(10), Option::<i32>::None]);
+        assert_arrays_eq!(taken, expected.to_array());
     }
 
     #[test]
@@ -166,18 +159,8 @@ mod test {
         )
         .unwrap();
 
-        assert_eq!(
-            taken.scalar_at(0),
-            Scalar::primitive(1, Nullability::Nullable)
-        );
-        assert_eq!(
-            taken.scalar_at(1),
-            Scalar::primitive(10, Nullability::Nullable)
-        );
-        assert_eq!(
-            taken.scalar_at(2),
-            Scalar::null(DType::Primitive(I32, Nullability::Nullable))
-        );
+        let expected = PrimitiveArray::from_option_iter([Some(1), Some(10), Option::<i32>::None]);
+        assert_arrays_eq!(taken, expected.to_array());
     }
 
     #[rstest]

@@ -16,7 +16,7 @@ use vortex_array::arrays::{
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dict::{DictEncoding, DictVTable};
 use vortex_dtype::PType::I32;
@@ -240,14 +240,9 @@ async fn test_read_projection() {
         )
     );
 
-    let actual = array.to_struct().fields()[0]
-        .to_varbinview()
-        .with_iterator(|x| {
-            x.map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
-                .collect::<Vec<_>>()
-        })
-        .unwrap();
-    assert_eq!(actual, strings_expected);
+    let actual = array.to_struct().fields()[0].clone();
+    let expected = VarBinArray::from(strings_expected.to_vec()).into_array();
+    assert_arrays_eq!(actual.as_ref(), expected.as_ref());
 
     let array = file
         .scan()
@@ -267,9 +262,9 @@ async fn test_read_projection() {
         )
     );
 
-    let primitive_array = array.to_struct().fields()[0].to_primitive();
-    let actual = primitive_array.as_slice::<u32>();
-    assert_eq!(actual, numbers_expected);
+    let actual = array.to_struct().fields()[0].clone();
+    let expected = Buffer::copy_from(numbers_expected).into_array();
+    assert_arrays_eq!(actual.as_ref(), expected.as_ref());
 }
 
 #[tokio::test]
@@ -433,19 +428,15 @@ async fn filter_string() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0].to_struct().fields()[0].clone();
-    assert_eq!(
-        names
-            .to_varbinview()
-            .with_iterator(|iter| iter
-                .flatten()
-                .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
-                .collect::<Vec<_>>())
-            .unwrap(),
-        vec!["Joseph".to_string()]
-    );
-    let ages = result[0].to_struct().fields()[1].clone();
-    assert_eq!(ages.to_primitive().as_slice::<i32>(), vec![25]);
+    let names_actual = result[0].to_struct().fields()[0].clone();
+    let names_expected =
+        VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
+            .into_array();
+    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+
+    let ages_actual = result[0].to_struct().fields()[1].clone();
+    let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
+    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
 }
 
 #[tokio::test]
@@ -549,18 +540,17 @@ async fn filter_and() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0].to_struct().fields()[0].clone();
-    assert_eq!(
-        names
-            .to_varbinview()
-            .with_iterator(|iter| iter
-                .map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
-                .collect::<Vec<_>>())
-            .unwrap(),
-        vec![Some("Joseph".to_string()), None]
-    );
-    let ages = result[0].to_struct().fields()[1].clone();
-    assert_eq!(ages.to_primitive().as_slice::<i32>(), vec![25, 31]);
+    let names_actual = result[0].to_struct().fields()[0].clone();
+    let names_expected = VarBinArray::from_iter(
+        vec![Some("Joseph"), None],
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+
+    let ages_actual = result[0].to_struct().fields()[1].clone();
+    let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), Some(31i32)]).into_array();
+    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
 }
 
 #[tokio::test]
@@ -621,9 +611,8 @@ async fn test_with_indices_simple() {
         .iter()
         .map(|&x| expected_numbers[x as usize])
         .collect();
-    let actual_kept_numbers = actual_kept_numbers_array.as_slice::<i16>();
-
-    assert_eq!(expected_kept_numbers, actual_kept_numbers);
+    let expected_array = Buffer::copy_from(&expected_kept_numbers).into_array();
+    assert_arrays_eq!(actual_kept_numbers_array.as_ref(), expected_array.as_ref());
 
     // test all indices
     let actual_array = file
@@ -636,10 +625,9 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .to_struct();
-    let actual_numbers_array = actual_array.fields()[0].to_primitive();
-    let actual_numbers = actual_numbers_array.as_slice::<i16>();
-
-    assert_eq!(expected_numbers, actual_numbers);
+    let actual_numbers_array = actual_array.fields()[0].clone();
+    let expected_array = Buffer::copy_from(&expected_numbers).into_array();
+    assert_arrays_eq!(actual_numbers_array.as_ref(), expected_array.as_ref());
 }
 
 #[tokio::test]
@@ -681,30 +669,21 @@ async fn test_with_indices_on_two_columns() {
         .to_struct()
         .to_struct();
 
-    let strings_actual = array.fields()[0]
-        .to_varbinview()
-        .with_iterator(|x| {
-            x.map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
-                .collect::<Vec<_>>()
-        })
-        .unwrap();
-    assert_eq!(
-        strings_actual,
-        kept_indices
-            .iter()
-            .map(|&x| strings_expected[x as usize])
-            .collect::<Vec<_>>()
-    );
+    let strings_actual = array.fields()[0].clone();
+    let strings_expected_vec: Vec<&str> = kept_indices
+        .iter()
+        .map(|&x| strings_expected[x as usize])
+        .collect();
+    let strings_expected_array = VarBinArray::from(strings_expected_vec).into_array();
+    assert_arrays_eq!(strings_actual.as_ref(), strings_expected_array.as_ref());
 
-    let numbers_actual_array = array.fields()[1].to_primitive();
-    let numbers_actual = numbers_actual_array.as_slice::<u32>();
-    assert_eq!(
-        numbers_actual,
-        kept_indices
-            .iter()
-            .map(|&x| numbers_expected[x as usize])
-            .collect::<Vec<u32>>()
-    );
+    let numbers_actual = array.fields()[1].clone();
+    let numbers_expected_vec: Vec<u32> = kept_indices
+        .iter()
+        .map(|&x| numbers_expected[x as usize])
+        .collect();
+    let numbers_expected_array = Buffer::copy_from(&numbers_expected_vec).into_array();
+    assert_arrays_eq!(numbers_actual.as_ref(), numbers_expected_array.as_ref());
 }
 
 #[tokio::test]
@@ -768,9 +747,8 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .map(|&x| expected_numbers[x as usize])
         .filter(|&x| x > 50)
         .collect();
-    let actual_kept_numbers = actual_kept_numbers_array.as_slice::<i16>();
-
-    assert_eq!(expected_kept_numbers.as_slice(), actual_kept_numbers);
+    let expected_array = expected_kept_numbers.into_array();
+    assert_arrays_eq!(actual_kept_numbers_array.as_ref(), expected_array.as_ref());
 
     // test all indices
     let actual_array = file
@@ -847,19 +825,15 @@ async fn filter_string_chunked() {
         .to_struct();
 
     assert_eq!(actual_array.len(), 1);
-    let names = &actual_array.fields()[0];
-    assert_eq!(
-        names
-            .to_varbinview()
-            .with_iterator(|iter| iter
-                .flatten()
-                .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
-                .collect::<Vec<_>>())
-            .unwrap(),
-        vec!["Joseph".to_string()]
-    );
-    let ages = &actual_array.fields()[1];
-    assert_eq!(ages.to_primitive().as_slice::<i32>(), vec![25]);
+    let names_actual = actual_array.fields()[0].clone();
+    let names_expected =
+        VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
+            .into_array();
+    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+
+    let ages_actual = actual_array.fields()[1].clone();
+    let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
+    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
 }
 
 #[tokio::test]
@@ -941,47 +915,37 @@ async fn test_pruning_with_or() {
         .to_struct();
 
     assert_eq!(actual_array.len(), 10);
-    let letters = &actual_array.fields()[0];
-    assert_eq!(
-        letters
-            .to_varbinview()
-            .with_iterator(|iter| iter
-                .map(|opt| opt.map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) }))
-                .collect::<Vec<_>>())
-            .unwrap(),
-        vec![
-            Some("A".to_string()),
-            Some("B".to_string()),
-            Some("D".to_string()),
-            Some("G".to_string()),
-            Some("I".to_string()),
-            Some("J".to_string()),
-            None,
-            Some("L".to_string()),
-            None,
-            Some("P".to_string())
-        ]
-    );
-    let numbers = &actual_array.fields()[1];
-    assert_eq!(
-        (0..numbers.len())
-            .map(|index| -> Option<i32> {
-                numbers.scalar_at(index).as_primitive().typed_value::<i32>()
-            })
-            .collect::<Vec<_>>(),
-        vec![
-            Some(25),
-            Some(31),
-            None,
-            Some(4),
-            Some(18),
-            None,
-            Some(21),
-            Some(10),
-            Some(15),
-            Some(22)
-        ]
-    );
+    let letters_actual = actual_array.fields()[0].clone();
+    let letters_expected = VarBinViewArray::from_iter_nullable_str([
+        Some("A".to_owned()),
+        Some("B".to_owned()),
+        Some("D".to_owned()),
+        Some("G".to_owned()),
+        Some("I".to_owned()),
+        Some("J".to_owned()),
+        None,
+        Some("L".to_owned()),
+        None,
+        Some("P".to_owned()),
+    ])
+    .into_array();
+    assert_arrays_eq!(letters_actual.as_ref(), letters_expected.as_ref());
+
+    let numbers_actual = actual_array.fields()[1].clone();
+    let numbers_expected = PrimitiveArray::from_option_iter([
+        Some(25_i32),
+        Some(31),
+        None,
+        Some(4),
+        Some(18),
+        None,
+        Some(21),
+        Some(10),
+        Some(15),
+        Some(22),
+    ])
+    .into_array();
+    assert_arrays_eq!(numbers_actual.as_ref(), numbers_expected.as_ref());
 }
 
 #[tokio::test]
@@ -1048,14 +1012,10 @@ async fn chunked_file() -> VortexResult<VortexFile> {
 #[tokio::test]
 async fn basic_file_roundtrip() -> VortexResult<()> {
     let vxf = chunked_file().await?;
-    let result = vxf
-        .scan()?
-        .into_array_stream()?
-        .read_all()
-        .await?
-        .to_primitive();
+    let result = vxf.scan()?.into_array_stream()?.read_all().await?;
 
-    assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    let expected = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8].into_array();
+    assert_arrays_eq!(result.as_ref(), expected.as_ref());
 
     Ok(())
 }
@@ -1098,10 +1058,10 @@ async fn file_take() -> VortexResult<()> {
         .with_row_indices(buffer![0, 1, 8])
         .into_array_stream()?
         .read_all()
-        .await?
-        .to_primitive();
+        .await?;
 
-    assert_eq!(result.as_slice::<i32>(), &[0, 1, 8]);
+    let expected = buffer![0i32, 1, 8].into_array();
+    assert_arrays_eq!(result.as_ref(), expected.as_ref());
 
     Ok(())
 }
@@ -1305,8 +1265,9 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 9);
-    let numbers = result.to_struct().field_by_name("numbers")?.to_primitive();
-    assert_eq!(numbers.as_slice::<u32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    let numbers = result.to_struct().field_by_name("numbers")?.clone();
+    let expected = buffer![1u32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
+    assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
 
     Ok(())
 }
@@ -1335,8 +1296,9 @@ async fn test_writer_push_stream() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
-    let numbers = result.to_struct().field_by_name("numbers")?.to_primitive();
-    assert_eq!(numbers.as_slice::<u32>(), &[1, 2, 3, 4, 5, 6]);
+    let numbers = result.to_struct().field_by_name("numbers")?.clone();
+    let expected = buffer![1u32, 2, 3, 4, 5, 6].into_array();
+    assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
 
     Ok(())
 }
@@ -1395,8 +1357,9 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 2);
-    let numbers = result.to_struct().field_by_name("numbers")?.to_primitive();
-    assert_eq!(numbers.as_slice::<u32>(), &[1, 2]);
+    let numbers = result.to_struct().field_by_name("numbers")?.clone();
+    let expected = buffer![1u32, 2].into_array();
+    assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
 
     Ok(())
 }
@@ -1429,8 +1392,9 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
-    let numbers = result.to_struct().field_by_name("numbers")?.to_primitive();
-    assert_eq!(numbers.as_slice::<u32>(), &[1, 2, 3, 4, 5, 6]);
+    let numbers = result.to_struct().field_by_name("numbers")?.clone();
+    let expected = buffer![1u32, 2, 3, 4, 5, 6].into_array();
+    assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
 
     Ok(())
 }

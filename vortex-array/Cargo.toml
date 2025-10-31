@@ -34,12 +34,12 @@ async-trait = { workspace = true }
 bitvec = { workspace = true }
 cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
+enum-map = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
 getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
 humansize = { workspace = true }
-insta = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
@@ -48,7 +48,7 @@ num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
-pin-project = { workspace = true }
+pin-project-lite = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true, optional = true }
@@ -61,13 +61,16 @@ tabled = { workspace = true, optional = true, default-features = false, features
 ] }
 termtree = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-compute = { workspace = true, default-features = true }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = ["prost"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
+vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
+vortex-vector = { workspace = true }
 
 [features]
 arbitrary = [

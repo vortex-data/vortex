@@ -4,16 +4,15 @@
 use std::any::Any;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, DecimalDType, Nullability};
+use vortex_dtype::{BigCast, DType, DecimalDType, NativeDecimalType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{
-    BigCast, DecimalValue, NativeDecimalType, Scalar, i256, match_each_decimal_value,
-    match_each_decimal_value_type,
+    DecimalValue, Scalar, i256, match_each_decimal_value, match_each_decimal_value_type,
 };
 
 use crate::arrays::DecimalArray;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder};
 use crate::canonical::Canonical;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
@@ -25,7 +24,7 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 pub struct DecimalBuilder {
     dtype: DType,
     values: DecimalBuffer,
-    nulls: LazyNullBufferBuilder,
+    nulls: LazyBitBufferBuilder,
 }
 
 /// Wrapper around the typed builder.
@@ -98,10 +97,10 @@ impl DecimalBuilder {
     ) -> Self {
         Self {
             dtype: DType::Decimal(decimal, nullability),
-            values: match_each_decimal_value_type!(T::VALUES_TYPE, |D| {
+            values: match_each_decimal_value_type!(T::DECIMAL_TYPE, |D| {
                 DecimalBuffer::from(BufferMut::<D>::with_capacity(capacity))
             }),
-            nulls: LazyNullBufferBuilder::new(capacity),
+            nulls: LazyBitBufferBuilder::new(capacity),
         }
     }
 
@@ -197,7 +196,7 @@ impl ArrayBuilder for DecimalBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls = LazyBitBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }
 
@@ -271,6 +270,10 @@ impl Default for DecimalBuffer {
 
 #[cfg(test)]
 mod tests {
+    use vortex_dtype::DecimalDType;
+
+    use crate::arrays::DecimalArray;
+    use crate::assert_arrays_eq;
     use crate::builders::{ArrayBuilder, DecimalBuilder};
 
     #[test]
@@ -303,21 +306,11 @@ mod tests {
         builder.append_null();
 
         let array = builder.finish();
-        assert_eq!(array.len(), 3);
-
-        // Check actual values using scalar_at.
-        let scalar0 = array.scalar_at(0);
-        let decimal0 = scalar0.as_decimal();
-        assert!(decimal0.decimal_value().is_some());
-        // We can't easily check the exact value without accessing internals.
-
-        let scalar1 = array.scalar_at(1);
-        let decimal1 = scalar1.as_decimal();
-        assert!(decimal1.decimal_value().is_some());
-
-        let scalar2 = array.scalar_at(2);
-        let decimal2 = scalar2.as_decimal();
-        assert!(decimal2.decimal_value().is_none()); // This should be null.
+        let expected = DecimalArray::from_option_iter(
+            [Some(1234i64), Some(5678), None],
+            DecimalDType::new(10, 2),
+        );
+        assert_arrays_eq!(&array, &expected);
 
         // Test by taking a scalar from the array and appending it to a new builder.
         let mut builder2 = DecimalBuilder::new::<i64>(10, 2, true.into());
@@ -327,12 +320,7 @@ mod tests {
         }
 
         let array2 = builder2.finish();
-        assert_eq!(array2.len(), 3);
-
-        // Verify the values match.
-        for i in 0..3 {
-            assert_eq!(array.scalar_at(i), array2.scalar_at(i));
-        }
+        assert_arrays_eq!(&array2, &array);
 
         // Test wrong dtype error.
         let mut builder = DecimalBuilder::new::<i64>(10, 2, false.into());

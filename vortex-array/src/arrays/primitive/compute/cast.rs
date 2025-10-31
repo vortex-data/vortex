@@ -52,7 +52,7 @@ impl CastKernel for PrimitiveVTable {
 register_kernel!(CastKernelAdapter(PrimitiveVTable).lift());
 
 fn cast<F: NativePType, T: NativePType>(array: &[F], mask: Mask) -> VortexResult<Buffer<T>> {
-    match mask.boolean_buffer() {
+    match mask.bit_buffer() {
         AllOr::All => {
             let mut buffer = BufferMut::with_capacity(array.len());
             for item in array {
@@ -87,9 +87,8 @@ fn cast<F: NativePType, T: NativePType>(array: &[F], mask: Mask) -> VortexResult
 
 #[cfg(test)]
 mod test {
-    use arrow_buffer::BooleanBuffer;
     use rstest::rstest;
-    use vortex_buffer::buffer;
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
     use vortex_mask::Mask;
@@ -197,7 +196,7 @@ mod test {
         assert_eq!(p.as_slice::<u32>(), vec![0, 0, 10]);
         assert_eq!(
             p.validity_mask(),
-            Mask::from(BooleanBuffer::from(vec![false, true, true]))
+            Mask::from(BitBuffer::from(vec![false, true, true]))
         );
     }
 

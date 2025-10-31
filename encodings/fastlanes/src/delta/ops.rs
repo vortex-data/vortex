@@ -46,9 +46,10 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, assert_arrays_eq};
 
     use super::*;
 
@@ -56,106 +57,88 @@ mod test {
     fn test_slice_non_jagged_array_first_chunk_of_two() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        assert_eq!(
-            delta.slice(10..250).to_primitive().as_slice::<u32>(),
-            (10u32..250).collect::<Vec<_>>()
-        );
+        let actual = delta.slice(10..250);
+        let expected = PrimitiveArray::from_iter(10u32..250).into_array();
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
     fn test_slice_non_jagged_array_second_chunk_of_two() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        assert_eq!(
-            delta
-                .slice(1024 + 10..1024 + 250)
-                .to_primitive()
-                .as_slice::<u32>(),
-            ((1024 + 10u32)..(1024 + 250)).collect::<Vec<_>>()
-        );
+        let actual = delta.slice(1024 + 10..1024 + 250);
+        let expected = PrimitiveArray::from_iter((1024 + 10u32)..(1024 + 250)).into_array();
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
     fn test_slice_non_jagged_array_span_two_chunks_chunk_of_two() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        assert_eq!(
-            delta.slice(1000..1048).to_primitive().as_slice::<u32>(),
-            (1000u32..1048).collect::<Vec<_>>()
-        );
+        let actual = delta.slice(1000..1048);
+        let expected = PrimitiveArray::from_iter(1000u32..1048).into_array();
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
     fn test_slice_non_jagged_array_span_two_chunks_chunk_of_four() {
         let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
 
-        assert_eq!(
-            delta.slice(2040..2050).to_primitive().as_slice::<u32>(),
-            (2040u32..2050).collect::<Vec<_>>()
-        );
+        let actual = delta.slice(2040..2050);
+        let expected = PrimitiveArray::from_iter(2040u32..2050).into_array();
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
     fn test_slice_non_jagged_array_whole() {
         let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
 
-        assert_eq!(
-            delta.slice(0..4096).to_primitive().as_slice::<u32>(),
-            (0u32..4096).collect::<Vec<_>>()
-        );
+        let actual = delta.slice(0..4096);
+        let expected = PrimitiveArray::from_iter(0u32..4096).into_array();
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
     fn test_slice_non_jagged_array_empty() {
         let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
 
-        assert_eq!(
-            delta.slice(0..0).to_primitive().as_slice::<u32>(),
-            Vec::<u32>::new(),
-        );
+        let actual = delta.slice(0..0);
+        let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
+        assert_arrays_eq!(actual, expected);
 
-        assert_eq!(
-            delta.slice(4096..4096).to_primitive().as_slice::<u32>(),
-            Vec::<u32>::new(),
-        );
+        let actual = delta.slice(4096..4096);
+        let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
+        assert_arrays_eq!(actual, expected);
 
-        assert_eq!(
-            delta.slice(1024..1024).to_primitive().as_slice::<u32>(),
-            Vec::<u32>::new(),
-        );
+        let actual = delta.slice(1024..1024);
+        let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
     fn test_slice_jagged_array_second_chunk_of_two() {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
 
-        assert_eq!(
-            delta
-                .slice(1024 + 10..1024 + 250)
-                .to_primitive()
-                .as_slice::<u32>(),
-            ((1024 + 10u32)..(1024 + 250)).collect::<Vec<_>>()
-        );
+        let actual = delta.slice(1024 + 10..1024 + 250);
+        let expected = PrimitiveArray::from_iter((1024 + 10u32)..(1024 + 250)).into_array();
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
     fn test_slice_jagged_array_empty() {
         let delta = DeltaArray::try_from_vec((0u32..4000).collect()).unwrap();
 
-        assert_eq!(
-            delta.slice(0..0).to_primitive().as_slice::<u32>(),
-            Vec::<u32>::new(),
-        );
+        let actual = delta.slice(0..0);
+        let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
+        assert_arrays_eq!(actual, expected);
 
-        assert_eq!(
-            delta.slice(4000..4000).to_primitive().as_slice::<u32>(),
-            Vec::<u32>::new(),
-        );
+        let actual = delta.slice(4000..4000);
+        let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
+        assert_arrays_eq!(actual, expected);
 
-        assert_eq!(
-            delta.slice(1024..1024).to_primitive().as_slice::<u32>(),
-            Vec::<u32>::new(),
-        );
+        let actual = delta.slice(1024..1024);
+        let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
+        assert_arrays_eq!(actual, expected);
     }
 
     #[test]
@@ -165,7 +148,8 @@ mod test {
         let sliced = delta.slice(10..1013);
         let sliced_again = sliced.slice(0..2);
 
-        assert_eq!(sliced_again.to_primitive().as_slice::<u32>(), vec![10, 11]);
+        let expected = PrimitiveArray::from_iter(vec![10u32, 11]).into_array();
+        assert_arrays_eq!(sliced_again, expected);
     }
 
     #[test]
@@ -175,7 +159,8 @@ mod test {
         let sliced = delta.slice(10..1013);
         let sliced_again = sliced.slice(0..2);
 
-        assert_eq!(sliced_again.to_primitive().as_slice::<u32>(), vec![10, 11]);
+        let expected = PrimitiveArray::from_iter(vec![10u32, 11]).into_array();
+        assert_arrays_eq!(sliced_again, expected);
     }
 
     #[test]
@@ -185,10 +170,8 @@ mod test {
         let sliced = delta.slice(1034..1050);
         let sliced_again = sliced.slice(0..2);
 
-        assert_eq!(
-            sliced_again.to_primitive().as_slice::<u32>(),
-            vec![1034, 1035]
-        );
+        let expected = PrimitiveArray::from_iter(vec![1034u32, 1035]).into_array();
+        assert_arrays_eq!(sliced_again, expected);
     }
 
     #[test]
@@ -198,10 +181,8 @@ mod test {
         let sliced = delta.slice(1034..1050);
         let sliced_again = sliced.slice(0..2);
 
-        assert_eq!(
-            sliced_again.to_primitive().as_slice::<u32>(),
-            vec![1034, 1035]
-        );
+        let expected = PrimitiveArray::from_iter(vec![1034u32, 1035]).into_array();
+        assert_arrays_eq!(sliced_again, expected);
     }
 
     #[test]
@@ -211,10 +192,8 @@ mod test {
         let sliced = delta.slice(1010..1050);
         let sliced_again = sliced.slice(5..20);
 
-        assert_eq!(
-            sliced_again.to_primitive().as_slice::<u32>(),
-            (1015..1030).collect::<Vec<_>>(),
-        );
+        let expected = PrimitiveArray::from_iter(1015u32..1030).into_array();
+        assert_arrays_eq!(sliced_again, expected);
     }
 
     #[test]
@@ -224,10 +203,8 @@ mod test {
         let sliced = delta.slice(1010..1050);
         let sliced_again = sliced.slice(5..20);
 
-        assert_eq!(
-            sliced_again.to_primitive().as_slice::<u32>(),
-            (1015..1030).collect::<Vec<_>>(),
-        );
+        let expected = PrimitiveArray::from_iter(1015u32..1030).into_array();
+        assert_arrays_eq!(sliced_again, expected);
     }
 
     #[test]
@@ -236,13 +213,8 @@ mod test {
             .unwrap()
             .into_array();
 
-        assert_eq!(delta.scalar_at(0), 0_u32.into());
-        assert_eq!(delta.scalar_at(1), 1_u32.into());
-        assert_eq!(delta.scalar_at(10), 10_u32.into());
-        assert_eq!(delta.scalar_at(1023), 1023_u32.into());
-        assert_eq!(delta.scalar_at(1024), 1024_u32.into());
-        assert_eq!(delta.scalar_at(1025), 1025_u32.into());
-        assert_eq!(delta.scalar_at(2047), 2047_u32.into());
+        let expected = PrimitiveArray::from_iter(0u32..2048).into_array();
+        assert_arrays_eq!(delta, expected);
     }
 
     #[test]
@@ -259,13 +231,8 @@ mod test {
             .unwrap()
             .into_array();
 
-        assert_eq!(delta.scalar_at(0), 0_u32.into());
-        assert_eq!(delta.scalar_at(1), 1_u32.into());
-        assert_eq!(delta.scalar_at(10), 10_u32.into());
-        assert_eq!(delta.scalar_at(1023), 1023_u32.into());
-        assert_eq!(delta.scalar_at(1024), 1024_u32.into());
-        assert_eq!(delta.scalar_at(1025), 1025_u32.into());
-        assert_eq!(delta.scalar_at(1999), 1999_u32.into());
+        let expected = PrimitiveArray::from_iter(0u32..2000).into_array();
+        assert_arrays_eq!(delta, expected);
     }
 
     #[test]

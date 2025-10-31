@@ -27,10 +27,9 @@ arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
-mimalloc = { workspace = true }
 object_store = { workspace = true, features = ["aws", "gcp", "azure", "http"] }
 parking_lot = { workspace = true }
-pyo3 = { workspace = true, features = ["abi3-py311"] }
+pyo3 = { workspace = true, features = ["abi3", "abi3-py311"] }
 pyo3-log = { workspace = true }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 url = { workspace = true }

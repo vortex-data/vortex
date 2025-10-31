@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::ops::Range;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
@@ -19,7 +20,7 @@ use crate::vtable::{
 };
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef,
-    IntoArray, vtable,
+    IntoArray, Precision, vtable,
 };
 
 vtable!(Arrow);
@@ -34,7 +35,7 @@ impl VTable for ArrowVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type PipelineVTable = NotSupported;
+    type OperatorVTable = NotSupported;
     type SerdeVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -85,6 +86,16 @@ impl ArrayVTable<ArrowVTable> for ArrowVTable {
     fn stats(array: &ArrowArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
     }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ArrowArray, state: &mut H, _precision: Precision) {
+        array.dtype.hash(state);
+        // Hash based on pointer to the inner Arrow array since Arrow doesn't support hashing.
+        std::sync::Arc::as_ptr(&array.inner).hash(state);
+    }
+
+    fn array_eq(array: &ArrowArray, other: &ArrowArray, _precision: Precision) -> bool {
+        array.dtype == other.dtype && std::sync::Arc::ptr_eq(&array.inner, &other.inner)
+    }
 }
 
 impl CanonicalVTable<ArrowVTable> for ArrowVTable {
@@ -126,7 +137,7 @@ impl ValidityVTable<ArrowVTable> for ArrowVTable {
         array
             .inner
             .logical_nulls()
-            .map(|null_buffer| Mask::from_buffer(null_buffer.inner().clone()))
+            .map(|null_buffer| Mask::from_buffer(null_buffer.inner().clone().into()))
             .unwrap_or_else(|| Mask::new_true(array.inner.len()))
     }
 }

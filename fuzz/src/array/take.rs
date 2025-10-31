@@ -7,9 +7,11 @@ use vortex_array::builders::builder_with_capacity;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, match_each_native_ptype};
+use vortex_dtype::{
+    DType, DecimalDType, NativeDecimalType, NativePType, Nullability, match_each_native_ptype,
+};
 use vortex_error::VortexResult;
-use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
+use vortex_scalar::match_each_decimal_value_type;
 
 pub fn take_canonical_array_non_nullable_indices(
     array: &dyn Array,
@@ -36,7 +38,7 @@ pub fn take_canonical_array(
     };
 
     let validity = if array.dtype().is_nullable() || nullable == Nullability::Nullable {
-        let validity_idx = array.validity_mask().to_boolean_buffer();
+        let validity_idx = array.validity_mask().to_bit_buffer();
 
         Validity::from_iter(
             indices
@@ -53,8 +55,8 @@ pub fn take_canonical_array(
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool();
-            let vec_values = bool_array.boolean_buffer().iter().collect::<Vec<_>>();
-            Ok(BoolArray::from_bool_buffer(
+            let vec_values = bool_array.bit_buffer().iter().collect::<Vec<_>>();
+            Ok(BoolArray::from_bit_buffer(
                 indices_slice_non_opt
                     .iter()
                     .map(|i| vec_values[*i])

@@ -8,7 +8,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
-use vortex_buffer::BufferMut;
+use vortex_buffer::{BitBufferMut, BufferMut};
 use vortex_dtype::{NativePType, match_each_native_ptype, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexResult, vortex_panic};
 
@@ -110,6 +110,7 @@ where
         values_buf.into_array(),
         PrimitiveArray::new(indices_buf.freeze(), padded_validity(array)).into_array(),
         values_idx_offsets.into_array(),
+        0,
         array.len(),
     )
 }
@@ -128,11 +129,13 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
                 return Validity::Array(validity_array.clone());
             }
 
-            let mut builder = arrow_buffer::BooleanBufferBuilder::new(padded_len);
-            builder.append_buffer(validity_array.to_bool().boolean_buffer());
-            builder.append_n(padded_len - len, false);
+            let mut builder = BitBufferMut::with_capacity(padded_len);
 
-            Validity::from(builder.finish())
+            let bool_array = validity_array.to_bool();
+            builder.append_buffer(bool_array.bit_buffer());
+            builder.append_n(false, padded_len - len);
+
+            Validity::from(builder.freeze())
         }
     }
 }
@@ -201,7 +204,7 @@ where
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::Buffer;
     use vortex_dtype::half::f16;
 
@@ -214,21 +217,24 @@ mod test {
         let array_u8 = values_u8.into_array();
         let encoded_u8 = RLEArray::encode(&array_u8.to_primitive()).unwrap();
         let decoded_u8 = encoded_u8.to_primitive();
-        assert_eq!(decoded_u8.as_slice::<u8>(), &[1, 1, 2, 2, 3, 3]);
+        let expected_u8 = PrimitiveArray::from_iter(vec![1u8, 1, 2, 2, 3, 3]);
+        assert_arrays_eq!(decoded_u8, expected_u8);
 
         // u16
         let values_u16: Buffer<u16> = [100, 100, 200, 200].iter().copied().collect();
         let array_u16 = values_u16.into_array();
         let encoded_u16 = RLEArray::encode(&array_u16.to_primitive()).unwrap();
         let decoded_u16 = encoded_u16.to_primitive();
-        assert_eq!(decoded_u16.as_slice::<u16>(), &[100, 100, 200, 200]);
+        let expected_u16 = PrimitiveArray::from_iter(vec![100u16, 100, 200, 200]);
+        assert_arrays_eq!(decoded_u16, expected_u16);
 
         // u64
         let values_u64: Buffer<u64> = [1000, 1000, 2000].iter().copied().collect();
         let array_u64 = values_u64.into_array();
         let encoded_u64 = RLEArray::encode(&array_u64.to_primitive()).unwrap();
         let decoded_u64 = encoded_u64.to_primitive();
-        assert_eq!(decoded_u64.as_slice::<u64>(), &[1000, 1000, 2000]);
+        let expected_u64 = PrimitiveArray::from_iter(vec![1000u64, 1000, 2000]);
+        assert_arrays_eq!(decoded_u64, expected_u64);
     }
 
     #[test]
@@ -258,7 +264,8 @@ mod test {
         assert_eq!(encoded.values.len(), 2); // 2 chunks, each storing value 42
 
         let decoded = encoded.to_primitive(); // Verify round-trip
-        assert_eq!(decoded.as_slice::<u16>(), &vec![42; 2000]);
+        let expected = PrimitiveArray::from_iter(vec![42u16; 2000]);
+        assert_arrays_eq!(decoded, expected);
     }
 
     #[test]
@@ -270,21 +277,21 @@ mod test {
         assert_eq!(encoded.values.len(), 256);
 
         let decoded = encoded.to_primitive(); // Verify round-trip
-        assert_eq!(decoded.as_slice::<u8>(), &(0u8..=255).collect::<Vec<_>>());
+        let expected = PrimitiveArray::from_iter((0u8..=255).collect::<Vec<_>>());
+        assert_arrays_eq!(decoded, expected);
     }
 
     #[test]
     fn test_partial_last_chunk() {
         // Test array with partial last chunk (not divisible by 1024)
         let values: Buffer<u32> = (0..1500).map(|i| (i / 100) as u32).collect();
-        let expected: Vec<u32> = (0..1500).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
 
         let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
         let decoded = encoded.to_primitive();
 
         assert_eq!(encoded.len(), 1500);
-        assert_eq!(decoded.as_slice::<u32>(), expected.as_slice());
+        assert_arrays_eq!(decoded, array);
         // 2 chunks: 1024 + 476 elements
         assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
@@ -293,14 +300,13 @@ mod test {
     fn test_two_full_chunks() {
         // Array that spans exactly 2 chunks (2048 elements)
         let values: Buffer<u32> = (0..2048).map(|i| (i / 100) as u32).collect();
-        let expected: Vec<u32> = (0..2048).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
 
         let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
         let decoded = encoded.to_primitive();
 
         assert_eq!(encoded.len(), 2048);
-        assert_eq!(decoded.as_slice::<u32>(), expected.as_slice());
+        assert_arrays_eq!(decoded, array);
         assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
 
@@ -320,6 +326,7 @@ mod test {
         let primitive = values.clone().into_array().to_primitive();
         let result = RLEArray::encode(&primitive).unwrap();
         let decoded = result.to_primitive();
-        assert_eq!(decoded.as_slice::<T>(), values.as_slice());
+        let expected = PrimitiveArray::new(values, primitive.validity().clone());
+        assert_arrays_eq!(decoded, expected);
     }
 }

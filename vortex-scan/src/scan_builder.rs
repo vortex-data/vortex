@@ -237,7 +237,15 @@ impl<A: 'static + Send> ScanBuilder<A> {
             if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
                 Splits::Ranges(ranges)
             } else {
-                Splits::Natural(self.split_by.splits(layout_reader.as_ref(), &field_mask)?)
+                let split_range = self
+                    .row_range
+                    .clone()
+                    .unwrap_or_else(|| 0..layout_reader.row_count());
+                Splits::Natural(self.split_by.splits(
+                    layout_reader.as_ref(),
+                    &split_range,
+                    &field_mask,
+                )?)
             };
 
         Ok(RepeatedScan::new(
@@ -286,7 +294,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 /// Compute masks of field paths referenced by the projection and filter in the scan.
 ///
 /// Projection and filter must be pre-simplified.
-fn filter_and_projection_masks(
+pub(crate) fn filter_and_projection_masks(
     projection: &ExprRef,
     filter: Option<&ExprRef>,
     dtype: &DType,

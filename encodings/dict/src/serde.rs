@@ -54,12 +54,12 @@ impl SerdeVTable<DictVTable> for DictVTable {
                 children.len()
             )
         }
-        let codes_nullable: Nullability = metadata
+        let codes_nullable = metadata
             .is_nullable_codes
-            // The old behaviour of (without `is_nullable_codes` metadata) used the nullability
-            // of the values (and whole array).
-            .unwrap_or_else(|| dtype.is_nullable())
-            .into();
+            .map(Nullability::from)
+            // If no `is_nullable_codes` metadata use the nullability of the values
+            // (and whole array) as before.
+            .unwrap_or_else(|| dtype.nullability());
         let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
         let codes = children.get(0, &codes_dtype, len)?;
         let values = children.get(1, dtype, metadata.values_len as usize)?;

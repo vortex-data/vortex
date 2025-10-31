@@ -45,8 +45,8 @@ impl Sender {
         let (blocking_send, blocking_recv) = kanal::unbounded::<SpawnSync>();
         let (io_send, io_recv) = kanal::unbounded::<IoTask>();
 
-        // We pass weak references to the local executor into the async tasks such that the task's
-        // reference doesn't keep the executor alive after the runtime is dropped.
+        // We pass weak references to the local execution into the async tasks such that the task's
+        // reference doesn't keep the execution alive after the runtime is dropped.
         let weak_local = Rc::downgrade(local);
 
         // Drive scheduling tasks.
@@ -253,7 +253,7 @@ impl AbortHandle for LazyAbortHandle {
     }
 }
 
-/// A stream that wraps up the stream with the executor that drives it.
+/// A stream that wraps up the stream with the execution that drives it.
 pub struct SingleThreadIterator<'a, T> {
     executor: Rc<LocalExecutor<'static>>,
     stream: LocalBoxStream<'a, T>,

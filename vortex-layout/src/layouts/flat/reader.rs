@@ -2,22 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::env;
 use std::ops::{BitAnd, Range};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::compute::filter;
-use vortex_array::executor::Executor;
-use vortex_array::operator::OperatorRef;
-use vortex_array::operator::filter::FilterOperator;
-use vortex_array::operator::slice::SliceOperator;
 use vortex_array::serde::ArrayParts;
-use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef, IntoArray, MaskFuture};
+use vortex_array::{Array, ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, is_root};
 use vortex_mask::Mask;
 
@@ -32,13 +26,6 @@ use crate::segments::SegmentSource;
 // TODO(ngates): more experimentation is needed, and this should probably be dynamic based on the
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
-
-/// While we develop operator-based evaluation, we can enable it via an environment variable.
-static USE_OPERATOR_EVAL: LazyLock<bool> = LazyLock::new(|| {
-    env::var("VORTEX_USE_OPERATOR_EVAL")
-        .ok()
-        .is_some_and(|v| v == "1")
-});
 
 pub struct FlatReader {
     layout: FlatLayout,
@@ -68,7 +55,7 @@ impl FlatReader {
         // This is gross... see the function's TODO for a maybe better solution?
         let segment_fut = self.segment_source.request(self.layout.segment_id());
 
-        let ctx = self.layout.ctx.clone();
+        let ctx = self.layout.array_ctx().clone();
         let dtype = self.layout.dtype().clone();
         async move {
             let segment = segment_fut.await?;
@@ -90,17 +77,17 @@ impl LayoutReader for FlatReader {
         self.layout.dtype()
     }
 
-    fn row_count(&self) -> Precision<u64> {
-        Precision::Exact(self.layout.row_count())
+    fn row_count(&self) -> u64 {
+        self.layout.row_count()
     }
 
     fn register_splits(
         &self,
         _field_mask: &[FieldMask],
-        row_offset: u64,
+        row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        splits.insert(row_offset + self.layout.row_count());
+        splits.insert(row_range.start + self.layout.row_count);
         Ok(())
     }
 
@@ -133,14 +120,6 @@ impl LayoutReader for FlatReader {
             //  to evaluating the expression.
             let mut array = array.clone().await?;
             let mask = mask.await?;
-
-            if *USE_OPERATOR_EVAL {
-                let array =
-                    try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await?;
-                let array_mask = array.try_to_mask_fill_null_false()?;
-                let mask = mask.intersect_by_rank(&array_mask);
-                return Ok(mask);
-            }
 
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
@@ -201,10 +180,6 @@ impl LayoutReader for FlatReader {
             let mut array = array.clone().await?;
             let mask = mask.await?;
 
-            if *USE_OPERATOR_EVAL {
-                return try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask).await;
-            }
-
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
                 array = array.slice(row_range.clone());
@@ -226,47 +201,18 @@ impl LayoutReader for FlatReader {
     }
 }
 
-async fn try_evaluate_using_operator(
-    row_range: Range<usize>,
-    array: &ArrayRef,
-    expr: &ExprRef,
-    mask: &Mask,
-) -> VortexResult<ArrayRef> {
-    let Some(operator) = array.to_operator()? else {
-        vortex_bail!(
-            "ArrayEvaluation: cannot convert array to operator {}",
-            array.display_tree()
-        );
-    };
-    let Some(operator) = expr.operator(&operator)? else {
-        vortex_bail!("ArrayEvaluation: cannot convert expr to operator {}", expr);
-    };
-
-    let mut operator: OperatorRef = Arc::new(SliceOperator::try_new(operator, row_range)?);
-    if !mask.all_true() {
-        operator = Arc::new(FilterOperator::new(operator, mask.clone()));
-    }
-
-    // TODO(ngates): in the future we should be able to return operators from projection.
-    println!("Optimizing operator: {}", operator.display_tree());
-    let operator = operator.optimize()?;
-    println!("Executing operator: {}", operator.display_tree());
-    Ok(Executor::default().execute(operator).await?.into_array())
-}
-
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
 
-    use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayContext, MaskFuture, ToCanonical};
-    use vortex_buffer::buffer;
+    use vortex_array::{ArrayContext, IntoArray, MaskFuture, ToCanonical, assert_arrays_eq};
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;
 
-    use crate::LayoutStrategy as _;
+    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
@@ -342,8 +288,8 @@ mod test {
                 .to_bool();
 
             assert_eq!(
-                &BooleanBuffer::from_iter([false, false, false, true, true]),
-                result.boolean_buffer()
+                &BitBuffer::from_iter([false, false, false, true, true]),
+                result.bit_buffer()
             );
         })
     }
@@ -372,10 +318,10 @@ mod test {
                 .projection_evaluation(&(2..4), &root(), MaskFuture::new_true(2))
                 .unwrap()
                 .await
-                .unwrap()
-                .to_primitive();
+                .unwrap();
 
-            assert_eq!(result.as_slice::<i32>(), &[3, 4],);
+            let expected = PrimitiveArray::new(buffer![3i32, 4], Validity::AllValid).into_array();
+            assert_arrays_eq!(result.as_ref(), expected.as_ref());
         })
     }
 }

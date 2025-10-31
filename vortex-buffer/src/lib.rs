@@ -18,6 +18,7 @@
 //!   compile-time alignment of `A`.
 //! * `buffer!` and `buffer_mut!` macros with the same syntax as the builtin `vec!` macro for
 //!   inline construction of buffers.
+//! * `BitBuffer` and `BitBufferMut` provide packed bitsets that can be used to store boolean values.
 //!
 //! You can think of `BufferMut<T>` as similar to a `Vec<T>`, except that any operation that may
 //! cause a re-allocation, e.g. extend, will ensure the new allocation maintains the buffer's

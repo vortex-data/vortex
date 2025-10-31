@@ -243,7 +243,6 @@ impl StatsAccumulator {
 mod tests {
     use std::sync::Arc;
 
-    use arrow_buffer::BooleanBuffer;
     use itertools::Itertools;
     use rstest::rstest;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
@@ -251,7 +250,7 @@ mod tests {
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::buffer;
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::{DType, FieldPath, FieldPathSet, Nullability, PType};
     use vortex_error::{VortexExpect, VortexUnwrap};
     use vortex_expr::pruning::checked_pruning_expr;
@@ -285,12 +284,12 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1].to_bool().boolean_buffer(),
-            &BooleanBuffer::from(vec![false, true])
+            stats_table.array.fields()[1].to_bool().bit_buffer(),
+            &BitBuffer::from(vec![false, true])
         );
         assert_eq!(
-            stats_table.array.fields()[3].to_bool().boolean_buffer(),
-            &BooleanBuffer::from(vec![true, false])
+            stats_table.array.fields()[3].to_bool().bit_buffer(),
+            &BitBuffer::from(vec![true, false])
         );
     }
 
@@ -311,12 +310,12 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1].to_bool().boolean_buffer(),
-            &BooleanBuffer::from(vec![false])
+            stats_table.array.fields()[1].to_bool().bit_buffer(),
+            &BitBuffer::from(vec![false])
         );
         assert_eq!(
-            stats_table.array.fields()[3].to_bool().boolean_buffer(),
-            &BooleanBuffer::from(vec![false])
+            stats_table.array.fields()[3].to_bool().bit_buffer(),
+            &BitBuffer::from(vec![false])
         );
     }
 
@@ -370,7 +369,7 @@ mod tests {
         let (pruning_expr, _) = checked_pruning_expr(&expr, &stats).unwrap();
         let mask = zone_map.prune(&pruning_expr).unwrap();
         assert_eq!(
-            mask.to_boolean_buffer().into_iter().collect_vec(),
+            mask.to_bit_buffer().into_iter().collect_vec(),
             vec![true, false, false]
         );
 
@@ -380,7 +379,7 @@ mod tests {
         let (pruning_expr, _) = checked_pruning_expr(&expr, &stats).unwrap();
         let mask = zone_map.prune(&pruning_expr).unwrap();
         assert_eq!(
-            mask.to_boolean_buffer().into_iter().collect_vec(),
+            mask.to_bit_buffer().into_iter().collect_vec(),
             vec![true, false, false]
         );
 
@@ -390,7 +389,7 @@ mod tests {
         let (pruning_expr, _) = checked_pruning_expr(&expr, &stats).unwrap();
         let mask = zone_map.prune(&pruning_expr).unwrap();
         assert_eq!(
-            mask.to_boolean_buffer().into_iter().collect_vec(),
+            mask.to_bit_buffer().into_iter().collect_vec(),
             vec![false, true, true]
         );
     }

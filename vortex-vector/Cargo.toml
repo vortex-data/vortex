@@ -1,0 +1,28 @@
+[package]
+name = "vortex-vector"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex in-memory canonical data format"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lints]
+workspace = true
+
+[dependencies]
+vortex-buffer = { workspace = true }
+vortex-dtype = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+
+static_assertions = { workspace = true }

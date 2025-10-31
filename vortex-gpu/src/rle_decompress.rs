@@ -6,14 +6,12 @@
 use std::sync::Arc;
 
 use cudarc::driver::{
-    CudaContext, CudaFunction, CudaSlice, CudaStream, CudaViewMut, DeviceRepr, LaunchConfig,
-    PushKernelArg, ValidAsZeroBits,
+    CudaContext, CudaFunction, CudaSlice, CudaStream, DeviceRepr, LaunchConfig, PushKernelArg,
+    ValidAsZeroBits,
 };
 use cudarc::nvrtc::Ptx;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::validity::Validity;
-use vortex_array::{Canonical, ToCanonical};
-use vortex_buffer::BufferMut;
 use vortex_dtype::{
     NativePType, UnsignedPType, match_each_native_ptype, match_each_unsigned_integer_ptype,
 };
@@ -21,58 +19,60 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_fastlanes::RLEArray;
 
 use crate::task::GPUTask;
+use crate::{GpuPrimitiveVector, GpuVector};
 
 struct RLETask<V: DeviceRepr + NativePType, I, O> {
     values: CudaSlice<V>,
     indices: CudaSlice<I>,
     offsets: CudaSlice<O>,
-    output: CudaSlice<V>,
+    output: Option<CudaSlice<V>>,
     func: CudaFunction,
     launch_config: LaunchConfig,
     stream: Arc<CudaStream>,
     len: usize,
 }
 
+impl<V: DeviceRepr + NativePType, I, O> RLETask<V, I, O> {
+    fn alloc_out(&mut self) -> VortexResult<()> {
+        if self.output.is_some() {
+            return Ok(());
+        }
+
+        let cu_out = unsafe {
+            self.stream
+                .alloc::<V>(self.len.next_multiple_of(1024))
+                .map_err(|e| vortex_err!("Failed to allocate stream: {e}"))?
+        };
+        let old_value = self.output.replace(cu_out);
+        assert!(
+            old_value.is_none(),
+            "Allocated output when previous one wasn't yet consumed"
+        );
+        Ok(())
+    }
+}
+
 impl<V: DeviceRepr + NativePType, I, O> GPUTask for RLETask<V, I, O> {
     fn launch_task(&mut self) -> VortexResult<()> {
+        self.alloc_out()?;
         let mut launch = self.stream.launch_builder(&self.func);
+        let output = self.output.as_mut().vortex_expect("Must have output");
         launch.arg(&self.indices);
         launch.arg(&self.values);
         launch.arg(&self.offsets);
-        launch.arg(&mut self.output);
+        launch.arg(output);
         unsafe { launch.launch(self.launch_config) }
             .map_err(|e| vortex_err!("Failed to launch: {e}"))
             .map(|_| ())
     }
 
-    fn export_result(&mut self) -> VortexResult<Canonical> {
-        let rounded_len = self.len.next_multiple_of(1024);
-        let mut buffer = BufferMut::<V>::with_capacity(rounded_len);
-        unsafe { buffer.set_len(rounded_len) }
-
-        self.stream
-            .memcpy_dtoh(&self.output, &mut buffer)
-            .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
-        self.stream
-            .synchronize()
-            .map_err(|e| vortex_err!("Failed to synchronize: {e}"))?;
-
-        Ok(Canonical::Primitive(PrimitiveArray::new(
-            buffer.freeze().slice(0..self.len),
-            Validity::NonNullable,
-        )))
-    }
-
-    fn output(&mut self) -> CudaViewMut<'_, u8> {
-        unsafe {
-            self.output
-                .transmute_mut(self.len() * size_of::<V>())
-                .vortex_expect("Failed to transmute")
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.len
+    fn result(&mut self) -> VortexResult<GpuVector> {
+        Ok(GpuVector::Primitive(
+            GpuPrimitiveVector::from_slice_with_len(
+                self.output.take().vortex_expect("must have output"),
+                self.len,
+            ),
+        ))
     }
 }
 
@@ -161,7 +161,7 @@ where
         values: cu_values,
         indices: cu_indices,
         offsets: cu_offsets,
-        output: cu_out,
+        output: Some(cu_out),
         func: kernel_func,
         launch_config: LaunchConfig {
             grid_dim: (num_chunks, 1, 1),
@@ -202,7 +202,8 @@ pub fn cuda_rle_decompress(
     let stream = ctx.default_stream();
     let mut task = new_task(array, ctx, stream)?;
     task.launch_task()?;
-    task.export_result().map(|c| c.into_primitive())
+    task.result()
+        .and_then(|c| c.into_primitive().into_host_array())
 }
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]

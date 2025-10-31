@@ -59,7 +59,10 @@ itertools = { workspace = true }
 mimalloc = { workspace = true }
 parquet = { workspace = true }
 rand = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 vortex = { path = ".", features = ["tokio"] }
 
 [features]
@@ -82,5 +85,10 @@ unstable_encodings = ["vortex-btrblocks/unstable_encodings"]
 
 [[bench]]
 name = "single_encoding_throughput"
+harness = false
+test = false
+
+[[bench]]
+name = "common_encoding_tree_throughput"
 harness = false
 test = false

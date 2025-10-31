@@ -8,7 +8,6 @@ use std::sync::{Arc, OnceLock};
 use futures::future::BoxFuture;
 use futures::{FutureExt, TryFutureExt, try_join};
 use vortex_array::compute::{MinMaxResult, min_max, take};
-use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
@@ -105,17 +104,17 @@ impl LayoutReader for DictReader {
         self.layout.dtype()
     }
 
-    fn row_count(&self) -> Precision<u64> {
-        Precision::Exact(self.layout.row_count())
+    fn row_count(&self) -> u64 {
+        self.layout.row_count()
     }
 
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_offset: u64,
+        row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        self.codes.register_splits(field_mask, row_offset, splits)
+        self.codes.register_splits(field_mask, row_range, splits)
     }
 
     fn pruning_evaluation(
@@ -205,9 +204,8 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::arrays::{StructArray, VarBinArray};
-    use vortex_array::arrow::IntoArrowArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayContext, IntoArray as _, MaskFuture};
+    use vortex_array::{ArrayContext, IntoArray as _, MaskFuture, assert_arrays_eq};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_expr::{is_null, not, pack, root};
     use vortex_io::runtime::single::block_on;
@@ -300,11 +298,7 @@ mod tests {
             )
             .unwrap()
             .into_array();
-            let actual = actual.into_arrow_preferred().unwrap();
-            let expected_arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
-            let expected = expected.into_arrow(&expected_arrow_dtype).unwrap();
-            assert_eq!(actual.data_type(), expected.data_type());
-            assert_eq!(&actual, &expected);
+            assert_arrays_eq!(actual, expected);
         })
     }
 
@@ -319,7 +313,6 @@ mod tests {
         "", // Filter for empty string
         vec![false, false, false], // Expected: all false, no dict values match
     )]
-    #[test]
     fn shortpathes_filtering(
         #[case] data: Vec<Option<&str>>,
         #[case] filter_value: &str,
@@ -368,10 +361,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(
-                mask.to_boolean_buffer().iter().collect::<Vec<_>>(),
-                expected
-            );
+            assert_eq!(mask.to_bit_buffer().iter().collect::<Vec<_>>(), expected);
         })
     }
 
@@ -433,10 +423,7 @@ mod tests {
                 .await
                 .unwrap();
             let expected = array.validity_mask().into_array();
-            let actual = actual.into_arrow_preferred().unwrap();
-            let expected = expected.into_arrow_preferred().unwrap();
-            assert_eq!(actual.data_type(), expected.data_type());
-            assert_eq!(&actual, &expected);
+            assert_arrays_eq!(actual, expected);
         })
     }
 }

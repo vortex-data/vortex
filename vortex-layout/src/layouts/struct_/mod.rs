@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::{DType, Field, FieldMask, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_dtype::{DType, Field, FieldMask, Nullability, StructFields};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};
@@ -49,27 +49,47 @@ impl VTable for StructVTable {
     }
 
     fn nchildren(layout: &Self::Layout) -> usize {
-        layout.struct_fields().nfields()
+        let validity_children = if layout.dtype.is_nullable() { 1 } else { 0 };
+        layout.struct_fields().nfields() + validity_children
     }
 
-    fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
-        layout.children.child(
-            idx,
-            &layout
+    fn child(layout: &Self::Layout, index: usize) -> VortexResult<LayoutRef> {
+        let schema_index = if layout.dtype.is_nullable() {
+            index.saturating_sub(1)
+        } else {
+            index
+        };
+
+        let child_dtype = if index == 0 && layout.dtype.is_nullable() {
+            DType::Bool(Nullability::NonNullable)
+        } else {
+            layout
                 .struct_fields()
-                .field_by_index(idx)
-                .ok_or_else(|| vortex_err!("Missing field {idx}"))?,
-        )
+                .field_by_index(schema_index)
+                .ok_or_else(|| vortex_err!("Missing field {schema_index}"))?
+        };
+
+        layout.children.child(index, &child_dtype)
     }
 
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType {
-        LayoutChildType::Field(
-            layout
-                .struct_fields()
-                .field_name(idx)
-                .vortex_expect("Field index out of bounds")
-                .clone(),
-        )
+        let schema_index = if layout.dtype.is_nullable() {
+            idx.saturating_sub(1)
+        } else {
+            idx
+        };
+
+        if idx == 0 && layout.dtype.is_nullable() {
+            LayoutChildType::Auxiliary("validity".into())
+        } else {
+            LayoutChildType::Field(
+                layout
+                    .struct_fields()
+                    .field_name(schema_index)
+                    .vortex_expect("Field index out of bounds")
+                    .clone(),
+            )
+        }
     }
 
     fn new_reader(
@@ -84,6 +104,23 @@ impl VTable for StructVTable {
         )?))
     }
 
+    #[cfg(feature = "gpu")]
+    fn new_gpu_reader(
+        layout: &Self::Layout,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+        ctx: Arc<cudarc::driver::CudaContext>,
+    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
+        Ok(Arc::new(
+            crate::gpu::layouts::struct_::GpuStructReader::try_new(
+                layout.clone(),
+                name,
+                segment_source,
+                ctx,
+            )?,
+        ))
+    }
+
     fn build(
         _encoding: &Self::Encoding,
         dtype: &DType,
@@ -96,13 +133,15 @@ impl VTable for StructVTable {
         let struct_dt = dtype
             .as_struct_fields_opt()
             .ok_or_else(|| vortex_err!("Expected struct dtype"))?;
-        if children.nchildren() != struct_dt.nfields() {
-            vortex_bail!(
-                "Struct layout has {} children, but dtype has {} fields",
-                children.nchildren(),
-                struct_dt.nfields()
-            );
-        }
+
+        let expected_children = struct_dt.nfields() + (dtype.is_nullable() as usize);
+        vortex_ensure!(
+            children.nchildren() == expected_children,
+            "Struct layout has {} children, but dtype has {} fields",
+            children.nchildren(),
+            struct_dt.nfields()
+        );
+
         Ok(StructLayout {
             row_count,
             dtype: dtype.clone(),
@@ -131,10 +170,19 @@ impl StructLayout {
     }
 
     pub fn struct_fields(&self) -> &StructFields {
-        let DType::Struct(dtype, _) = self.dtype() else {
-            vortex_panic!("Mismatched dtype {} for struct layout", self.dtype());
-        };
-        dtype
+        self.dtype
+            .as_struct_fields_opt()
+            .vortex_expect("Struct layout dtype must be a struct")
+    }
+
+    #[inline]
+    pub fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
+    #[inline]
+    pub fn children(&self) -> &Arc<dyn LayoutChildren> {
+        &self.children
     }
 
     pub fn matching_fields<F>(&self, field_mask: &[FieldMask], mut per_child: F) -> VortexResult<()>

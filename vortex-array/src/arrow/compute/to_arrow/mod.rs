@@ -3,6 +3,7 @@
 
 mod canonical;
 mod list;
+mod null_buffer;
 mod temporal;
 mod varbin;
 

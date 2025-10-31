@@ -2,9 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use vortex_dtype::NativeDecimalType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
+use vortex_scalar::match_each_decimal_value_type;
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
@@ -47,7 +48,7 @@ where
         Mask::Values(mask_values) => {
             let values = array.buffer::<T>();
             let iter = mask_values
-                .boolean_buffer()
+                .bit_buffer()
                 .iter()
                 .zip_eq(values)
                 .map(|(is_valid, v)| is_valid.then_some(v));

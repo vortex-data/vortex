@@ -45,10 +45,10 @@ register_kernel!(CastKernelAdapter(ZstdVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::{ToCanonical, assert_arrays_eq};
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -73,7 +73,7 @@ mod tests {
         );
 
         let decoded = casted.to_primitive();
-        assert_eq!(decoded.as_slice::<i64>(), &[1i64, 2, 3, 4, 5]);
+        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i64, 2, 3, 4, 5]));
     }
 
     #[test]

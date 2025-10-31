@@ -8,6 +8,7 @@ members = [
     "vortex-array",
     "vortex-btrblocks",
     "vortex-buffer",
+    "vortex-compute",
     "vortex-cxx",
     "vortex-datafusion",
     "vortex-dtype",
@@ -29,6 +30,7 @@ members = [
     "vortex-scalar",
     "vortex-tui",
     "vortex-utils",
+    "vortex-vector",
     "xtask",
     "vortex-gpu",
 ]
@@ -101,6 +103,7 @@ datafusion-common-runtime = { version = "50" }
 datafusion-datasource = { version = "50", default-features = false }
 datafusion-execution = { version = "50" }
 datafusion-expr = { version = "50" }
+datafusion-functions = { version = "50" }
 datafusion-physical-expr = { version = "50" }
 datafusion-physical-expr-adapter = { version = "50" }
 datafusion-physical-expr-common = { version = "50" }
@@ -110,10 +113,11 @@ dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
+enum-map = "2.7.3"
 erased-serde = "0.4"
-fastlanes = { rev = "3820eeb33433458fa035bea5a834dee0039612f5", git = "https://github.com/spiraldb/fastlanes.git" }
+fastlanes = "0.5"
 flatbuffers = "25.2.10"
-fsst-rs = "0.5.2"
+fsst-rs = "0.5.5"
 futures = { version = "0.3.31", default-features = false }
 fuzzy-matcher = "0.3"
 glob = "0.3.2"
@@ -149,13 +153,12 @@ parking_lot = { version = "0.12.3", features = ["nightly"] }
 parquet = "56"
 paste = "1.0.15"
 pco = "0.4.4"
-pin-project = "1.1.5"
 pin-project-lite = "0.2.15"
 primitive-types = { version = "0.14.0" }
 prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
-pyo3 = { version = "0.26.0", features = ["extension-module", "abi3-py310"] }
+pyo3 = { version = "0.26.0" }
 pyo3-log = "0.13.0"
 rand = "0.9.0"
 rand_distr = "0.5"
@@ -215,6 +218,7 @@ vortex-array = { version = "0.1.0", path = "./vortex-array", default-features = 
 vortex-btrblocks = { version = "0.1.0", path = "./vortex-btrblocks", default-features = false }
 vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features = false }
 vortex-bytebool = { version = "0.1.0", path = "./encodings/bytebool", default-features = false }
+vortex-compute = { version = "0.1.0", path = "./vortex-compute", default-features = false }
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
@@ -241,6 +245,7 @@ vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-feat
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-tui = { version = "0.1.0", path = "./vortex-tui", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
+vortex-vector = { version = "0.1.0", path = "./vortex-vector", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }
 # END crates published by this project

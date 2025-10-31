@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBuffer;
-use vortex_dtype::Nullability;
+use vortex_buffer::BitBuffer;
+use vortex_dtype::{NativeDecimalType, Nullability};
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
+use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 use crate::arrays::{BoolArray, DecimalArray, DecimalVTable};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
@@ -51,7 +51,7 @@ fn between_unpack<T: NativeDecimalType>(
     else {
         vortex_bail!(
             "invalid lower bound Scalar: {lower}, expected {:?}",
-            T::VALUES_TYPE
+            T::DECIMAL_TYPE
         )
     };
     let Some(upper_value) = upper
@@ -61,7 +61,7 @@ fn between_unpack<T: NativeDecimalType>(
     else {
         vortex_bail!(
             "invalid upper bound Scalar: {upper}, expected {:?}",
-            T::VALUES_TYPE
+            T::DECIMAL_TYPE
         )
     };
 
@@ -96,8 +96,8 @@ fn between_impl<T: NativeDecimalType>(
     upper_op: impl Fn(T, T) -> bool,
 ) -> ArrayRef {
     let buffer = arr.buffer::<T>();
-    BoolArray::from_bool_buffer(
-        BooleanBuffer::collect_bool(buffer.len(), |idx| {
+    BoolArray::from_bit_buffer(
+        BitBuffer::collect_bool(buffer.len(), |idx| {
             let value = buffer[idx];
             lower_op(lower, value) & upper_op(value, upper)
         }),
@@ -168,6 +168,6 @@ mod tests {
     }
 
     fn bool_to_vec(array: &dyn Array) -> Vec<bool> {
-        array.to_bool().boolean_buffer().iter().collect()
+        array.to_bool().bit_buffer().iter().collect()
     }
 }

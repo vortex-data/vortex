@@ -34,6 +34,7 @@ The following table lists the built-in dtypes in Vortex, each of which can be ma
 | `Bool`      | `true`, `false`                             |
 | `Primitive` | See [Primitive](#primitive)                 |
 | `UTF8`      | Variable length valid UTF-8 encoded strings |
+| `Decimal`   | Fixed-precision real numbers                |
 | `Binary`    | Arbitrary variable length bytes             |
 | `Struct`    | See [Struct](#struct)                       |
 | `List`      | See [List](#list)                           |

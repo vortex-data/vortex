@@ -29,9 +29,6 @@ use tokio::runtime::Runtime;
 use vortex::error::{VortexError, VortexExpect as _};
 use vortex::io::runtime::tokio::TokioRuntime;
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Runtime::new()
         .map_err(VortexError::from)

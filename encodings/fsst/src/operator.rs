@@ -13,7 +13,7 @@ use vortex_array::operator::{
     BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
     OperatorEq, OperatorHash, OperatorId, OperatorRef,
 };
-use vortex_array::vtable::PipelineVTable;
+use vortex_array::vtable::OperatorVTable;
 use vortex_array::{Array, Canonical};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -21,7 +21,7 @@ use vortex_mask::Mask;
 
 use crate::{FSSTArray, FSSTVTable};
 
-impl PipelineVTable<FSSTVTable> for FSSTVTable {
+impl OperatorVTable<FSSTVTable> for FSSTVTable {
     fn to_operator(array: &FSSTArray) -> VortexResult<Option<OperatorRef>> {
         Ok(Some(Arc::new(array.clone())))
     }

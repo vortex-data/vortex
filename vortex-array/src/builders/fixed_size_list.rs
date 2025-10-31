@@ -11,7 +11,7 @@ use vortex_scalar::{ListScalar, Scalar};
 
 use crate::arrays::FixedSizeListArray;
 use crate::builders::{
-    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, builder_with_capacity,
+    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyBitBufferBuilder, builder_with_capacity,
 };
 use crate::canonical::{Canonical, ToCanonical};
 use crate::{Array, ArrayRef, IntoArray};
@@ -29,7 +29,7 @@ pub struct FixedSizeListBuilder {
     /// The null map builder of the [`FixedSizeListArray`].
     ///
     /// We also use this type to store the length of the final output array.
-    nulls: LazyNullBufferBuilder,
+    nulls: LazyBitBufferBuilder,
 }
 
 impl FixedSizeListBuilder {
@@ -54,7 +54,7 @@ impl FixedSizeListBuilder {
 
         let elements_builder = builder_with_capacity(&element_dtype, elements_capacity);
         let fsl_dtype = DType::FixedSizeList(element_dtype, list_size, nullability);
-        let nulls = LazyNullBufferBuilder::new(capacity);
+        let nulls = LazyBitBufferBuilder::new(capacity);
 
         Self {
             dtype: fsl_dtype,
@@ -214,7 +214,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls = LazyBitBufferBuilder::new(validity.len());
         self.nulls.append_validity_mask(validity);
     }
 

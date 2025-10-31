@@ -4,8 +4,8 @@
 use std::ops::Range;
 
 use vortex_buffer::Buffer;
-use vortex_dtype::DecimalDType;
-use vortex_scalar::{DecimalValue, NativeDecimalType, Scalar, match_each_decimal_value_type};
+use vortex_dtype::{DecimalDType, NativeDecimalType};
+use vortex_scalar::{DecimalValue, Scalar, match_each_decimal_value_type};
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::validity::Validity;

@@ -174,6 +174,7 @@ impl ListViewArray {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::BitBuffer;
     use vortex_dtype::Nullability;
 
     use crate::arrays::{ListViewArray, PrimitiveArray};
@@ -364,8 +365,6 @@ mod tests {
 
     #[test]
     fn test_rebuild_flatten_with_nullable() {
-        use arrow_buffer::BooleanBuffer;
-
         use crate::arrays::BoolArray;
 
         // Create a nullable list view with a null list
@@ -373,7 +372,11 @@ mod tests {
         let offsets = PrimitiveArray::from_iter(vec![0u32, 1, 2]).into_array();
         let sizes = PrimitiveArray::from_iter(vec![2u32, 1, 1]).into_array();
         let validity = Validity::Array(
-            BoolArray::from(BooleanBuffer::from(vec![true, false, true])).into_array(),
+            BoolArray::from_bit_buffer(
+                BitBuffer::from(vec![true, false, true]),
+                Validity::NonNullable,
+            )
+            .into_array(),
         );
 
         let listview = ListViewArray::try_new(elements, offsets, sizes, validity).unwrap();

@@ -13,7 +13,10 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
-use vortex_fastlanes::{FoRArray, bit_width_histogram, bitpack_encode, find_best_bit_width};
+use vortex_fastlanes::FoRArray;
+use vortex_fastlanes::bitpack_compress::{
+    bit_width_histogram, bitpack_encode, find_best_bit_width,
+};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
@@ -758,7 +761,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
     use vortex_dict::DictEncoding;
     use vortex_sequence::SequenceEncoding;
@@ -845,10 +848,11 @@ mod tests {
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
         assert_eq!(compressed.encoding_id(), SparseEncoding.id());
-        let decoded = compressed.to_primitive();
-        let expected = [189u8, 189, 189, 0, 0];
-        assert_eq!(decoded.as_slice::<u8>(), &expected);
-        assert_eq!(decoded.validity(), array.validity());
+        let decoded = compressed.clone();
+        let expected =
+            PrimitiveArray::new(buffer![189u8, 189, 189, 0, 0], array.validity().clone())
+                .into_array();
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 
     #[test]
@@ -863,10 +867,13 @@ mod tests {
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
         assert_eq!(compressed.encoding_id(), SparseEncoding.id());
-        let decoded = compressed.to_primitive();
-        let expected = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46];
-        assert_eq!(decoded.as_slice::<u8>(), &expected);
-        assert_eq!(decoded.validity(), array.validity());
+        let decoded = compressed.clone();
+        let expected = PrimitiveArray::new(
+            buffer![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46],
+            array.validity().clone(),
+        )
+        .into_array();
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 
     #[test]
@@ -877,8 +884,9 @@ mod tests {
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
         assert_eq!(compressed.encoding_id(), SequenceEncoding.id());
-        let decoded = compressed.to_primitive();
-        assert_eq!(decoded.as_slice::<i32>(), values.as_slice());
+        let decoded = compressed;
+        let expected = PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array();
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 
     #[test]
@@ -893,7 +901,8 @@ mod tests {
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
 
-        let decoded = compressed.to_primitive();
-        assert_eq!(decoded.as_slice::<i32>(), values.as_slice());
+        let decoded = compressed;
+        let expected = Buffer::copy_from(&values).into_array();
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
     }
 }

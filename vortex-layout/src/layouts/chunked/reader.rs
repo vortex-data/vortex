@@ -8,8 +8,8 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
+use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
@@ -38,14 +38,18 @@ impl ChunkedReader {
     ) -> Self {
         let nchildren = layout.nchildren();
 
-        let mut chunk_offsets = vec![0; nchildren];
+        let mut chunk_offsets = vec![0; nchildren + 1];
         for i in 1..nchildren {
             chunk_offsets[i] = chunk_offsets[i - 1] + layout.children.child_row_count(i - 1);
         }
-        chunk_offsets.push(layout.row_count());
-        debug_assert_eq!(chunk_offsets.len(), nchildren + 1);
+        chunk_offsets[nchildren] = layout.row_count();
 
-        let lazy_children = LazyReaderChildren::new(layout.children.clone(), segment_source);
+        let dtypes = vec![layout.dtype.clone(); nchildren];
+        let names = (0..nchildren)
+            .map(|idx| Arc::from(format!("{name}.[{idx}]")))
+            .collect();
+        let lazy_children =
+            LazyReaderChildren::new(layout.children.clone(), dtypes, names, segment_source);
 
         Self {
             layout,
@@ -57,11 +61,7 @@ impl ChunkedReader {
 
     /// Return the [`LayoutReader`] for the given chunk.
     fn chunk_reader(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
-        self.lazy_children.get(
-            idx,
-            self.layout.dtype(),
-            &format!("{}.[{}]", self.name, idx).into(),
-        )
+        self.lazy_children.get(idx)
     }
 
     fn chunk_offset(&self, idx: usize) -> u64 {
@@ -143,23 +143,42 @@ impl LayoutReader for ChunkedReader {
         self.layout.dtype()
     }
 
-    fn row_count(&self) -> Precision<u64> {
-        Precision::Exact(self.layout.row_count())
+    fn row_count(&self) -> u64 {
+        self.layout.row_count()
     }
 
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_offset: u64,
+        row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        let mut offset = row_offset;
-        for i in 0..self.layout.nchildren() {
-            let child = self.chunk_reader(i)?;
-            child.register_splits(field_mask, offset, splits)?;
-            offset += self.layout.child(i)?.row_count();
-            splits.insert(offset);
+        for (index, (&start, &end)) in self
+            .chunk_offsets
+            .iter()
+            .tuple_windows::<(_, _)>()
+            .enumerate()
+        {
+            if end < row_range.start {
+                continue;
+            }
+
+            if start >= row_range.end {
+                break;
+            }
+
+            // Child overlaps in whole or in part with split
+            let child = self.chunk_reader(index)?;
+            let child_range =
+                std::cmp::max(row_range.start, start)..std::cmp::min(row_range.end, end);
+
+            // Register any splits from the child
+            child.register_splits(field_mask, &child_range, splits)?;
+
+            // Register the split indicating the end of this chunk
+            splits.insert(child_range.end);
         }
+
         Ok(())
     }
 
@@ -270,7 +289,7 @@ mod test {
 
     use futures::stream;
     use rstest::{fixture, rstest};
-    use vortex_array::{ArrayContext, IntoArray, MaskFuture, ToCanonical};
+    use vortex_array::{ArrayContext, IntoArray, MaskFuture, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
@@ -327,11 +346,11 @@ mod test {
                 )
                 .unwrap()
                 .await
-                .unwrap()
-                .to_primitive();
+                .unwrap();
 
             assert_eq!(result.len(), 9);
-            assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+            let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
+            assert_arrays_eq!(result.as_ref(), expected.as_ref());
         })
     }
 }

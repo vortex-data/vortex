@@ -34,7 +34,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::arrays::{
-    ExtensionArray, FixedSizeListArray, ListViewArray, StructArray, TemporalArray,
+    ExtensionArray, FixedSizeListArray, ListArray, StructArray, TemporalArray, list_from_list_view,
 };
 use vortex_array::vtable::{VTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
@@ -294,7 +294,7 @@ pub trait Compressor {
 
             let ratio =
                 scheme.expected_compression_ratio(stats, is_sample, allowed_cascading, excludes)?;
-            log::debug!("depth={depth} is_sample={is_sample} scheme: {scheme:?} ratio = {ratio}");
+            log::trace!("depth={depth} is_sample={is_sample} scheme: {scheme:?} ratio = {ratio}");
 
             if !(ratio.is_subnormal() || ratio.is_infinite() || ratio.is_nan()) {
                 if ratio > best_ratio {
@@ -308,7 +308,7 @@ pub trait Compressor {
             }
         }
 
-        log::debug!("depth={depth} best scheme = {best_scheme:?}  ratio = {best_ratio}");
+        log::trace!("depth={depth} best scheme = {best_scheme:?}  ratio = {best_ratio}");
 
         if let Some(best) = best_scheme {
             Ok(best)
@@ -398,14 +398,16 @@ impl BtrBlocksCompressor {
                 )?
                 .into_array())
             }
-            Canonical::List(list_array) => {
-                // Compress the inner elements.
+            Canonical::List(list_view_array) => {
+                // TODO(joe): We might want to write list views in the future and chose between
+                // list and list view.
+                let list_array = list_from_list_view(list_view_array);
+
                 let compressed_elems = self.compress(list_array.elements())?;
 
-                // Note that since the type of our offsets and sizes is not encoded in our `DType`,
-                // we can narrow the widths.
+                // Note that since the type of our offsets are not encoded in our `DType`,
+                // we may narrow the widths.
 
-                // Compress the offsets.
                 let compressed_offsets = IntCompressor::compress_no_dict(
                     &list_array.offsets().to_primitive().narrow()?,
                     false,
@@ -413,18 +415,9 @@ impl BtrBlocksCompressor {
                     &[],
                 )?;
 
-                // Compress the sizes.
-                let compressed_sizes = IntCompressor::compress_no_dict(
-                    &list_array.sizes().to_primitive().narrow()?,
-                    false,
-                    MAX_CASCADE,
-                    &[],
-                )?;
-
-                Ok(ListViewArray::try_new(
+                Ok(ListArray::try_new(
                     compressed_elems,
                     compressed_offsets,
-                    compressed_sizes,
                     list_array.validity().clone(),
                 )?
                 .into_array())

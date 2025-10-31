@@ -4,6 +4,7 @@
 mod array;
 mod canonical;
 mod operations;
+mod operator;
 mod serde;
 mod validity;
 
@@ -28,7 +29,7 @@ impl VTable for MaskedVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
+    type OperatorVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.masked")

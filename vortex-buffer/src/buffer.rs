@@ -193,9 +193,10 @@ impl<T> Buffer<T> {
     /// Create a buffer with values from the TrustedLen iterator.
     /// Should be preferred over `from_iter` when the iterator is known to be `TrustedLen`.
     pub fn from_trusted_len_iter<I: TrustedLen<Item = T>>(iter: I) -> Self {
-        let (_, high) = iter.size_hint();
-        let mut buffer =
-            BufferMut::with_capacity(high.vortex_expect("TrustedLen iterator has no upper bound"));
+        let (_, upper_bound) = iter.size_hint();
+        let mut buffer = BufferMut::with_capacity(
+            upper_bound.vortex_expect("TrustedLen iterator has no upper bound"),
+        );
         buffer.extend_trusted(iter);
         buffer.freeze()
     }
@@ -299,10 +300,10 @@ impl<T> Buffer<T> {
         let end_byte = end * size_of::<T>();
 
         if !begin_byte.is_multiple_of(*alignment) {
-            vortex_panic!("range start must be aligned to {:?}", alignment);
+            vortex_panic!("range start must be aligned to {alignment:?}");
         }
         if !end_byte.is_multiple_of(*alignment) {
-            vortex_panic!("range end must be aligned to {:?}", alignment);
+            vortex_panic!("range end must be aligned to {alignment:?}");
         }
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!("Slice alignment must at least align to type T")
@@ -446,66 +447,6 @@ impl<T> Buffer<T> {
         } else {
             vortex_panic!("Buffer is not aligned to requested alignment {}", alignment)
         }
-    }
-
-    /// Align the buffer to alignment of U
-    pub fn align_to<U>(mut self) -> (Buffer<T>, Buffer<U>, Buffer<T>) {
-        let offset = self.as_ptr().align_offset(align_of::<U>());
-        if offset > self.len() {
-            (
-                self,
-                Buffer::empty_aligned(Alignment::of::<U>()),
-                Buffer::empty_aligned(Alignment::of::<T>()),
-            )
-        } else {
-            let left = self.bytes.split_to(offset);
-            self.length -= offset;
-            let (us_len, _) = self.align_to_offsets::<U>();
-            let trailer = self.bytes.split_off(us_len * size_of::<U>());
-            (
-                Buffer::from_bytes_aligned(left, Alignment::of::<T>()),
-                Buffer::from_bytes_aligned(self.bytes, Alignment::of::<U>()),
-                Buffer::from_bytes_aligned(trailer, Alignment::of::<T>()),
-            )
-        }
-    }
-
-    /// Adapted from standard library slice::align_to_offsets
-    /// Function to calculate lengths of the middle and trailing slice for `align_to`.
-    fn align_to_offsets<U>(&self) -> (usize, usize) {
-        // What we're going to do about `rest` is figure out what multiple of `U`s we can put in the
-        // lowest number of `T`s. And how many `T`s we need for each such "multiple".
-        //
-        // Consider for example T=u8 U=u16. Then we can put 1 U in 2 Ts. Simple. Now, consider
-        // for example a case where size_of::<T> = 16, size_of::<U> = 24. We can put 2 Us in
-        // place of every 3 Ts in the `rest` slice. A bit more complicated.
-        //
-        // Formula to calculate this is:
-        //
-        // Us = lcm(size_of::<T>, size_of::<U>) / size_of::<U>
-        // Ts = lcm(size_of::<T>, size_of::<U>) / size_of::<T>
-        //
-        // Expanded and simplified:
-        //
-        // Us = size_of::<T> / gcd(size_of::<T>, size_of::<U>)
-        // Ts = size_of::<U> / gcd(size_of::<T>, size_of::<U>)
-        //
-        // Luckily since all this is constant-evaluated... performance here matters not!
-        const fn gcd(a: usize, b: usize) -> usize {
-            if b == 0 { a } else { gcd(b, a % b) }
-        }
-
-        // Explicitly wrap the function call in a const block so it gets
-        // constant-evaluated even in debug mode.
-        let gcd: usize = const { gcd(size_of::<T>(), size_of::<U>()) };
-        let ts: usize = size_of::<U>() / gcd;
-        let us: usize = size_of::<T>() / gcd;
-
-        // Armed with this knowledge, we can find how many `U`s we can fit!
-        let us_len = self.len() / ts * us;
-        // And how many `T`s will be in the trailing slice!
-        let ts_len = self.len() % ts;
-        (us_len, ts_len)
     }
 }
 

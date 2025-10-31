@@ -55,6 +55,15 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         segment_source: Arc<dyn SegmentSource>,
     ) -> VortexResult<LayoutReaderRef>;
 
+    #[cfg(feature = "gpu")]
+    /// Create a new reader for the layout that uses a gpu device
+    fn new_gpu_reader(
+        layout: &Self::Layout,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+        ctx: Arc<cudarc::driver::CudaContext>,
+    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef>;
+
     /// Construct a new [`Layout`] from the provided parts.
     fn build(
         encoding: &Self::Encoding,

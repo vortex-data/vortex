@@ -154,7 +154,7 @@ mod test {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray as _, ToCanonical};
+    use vortex_array::{Array, IntoArray as _, ToCanonical, assert_arrays_eq};
     use vortex_buffer::{Buffer, buffer};
     use vortex_mask::Mask;
 
@@ -169,8 +169,10 @@ mod test {
         let mask = Mask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
 
         let primitive_result = filter(bitpacked.as_ref(), &mask).unwrap().to_primitive();
-        let res_bytes = primitive_result.as_slice::<u8>();
-        assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
+        assert_arrays_eq!(
+            primitive_result,
+            PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18])
+        );
     }
 
     #[test]
@@ -183,8 +185,7 @@ mod test {
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
 
         let primitive_result = filter(&sliced, &mask).unwrap().to_primitive();
-        let res_bytes = primitive_result.as_slice::<u8>();
-        assert_eq!(res_bytes, &[31, 33]);
+        assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([31u8, 33]));
     }
 
     #[test]
@@ -196,9 +197,9 @@ mod test {
             &Mask::from_indices(4096, (0..1024).collect()),
         )
         .unwrap();
-        assert_eq!(
-            filtered.to_primitive().as_slice::<u8>(),
-            (0..1024).map(|i| (i % 63) as u8).collect::<Vec<_>>()
+        assert_arrays_eq!(
+            filtered.to_primitive(),
+            PrimitiveArray::from_iter((0..1024).map(|i| (i % 63) as u8))
         );
     }
 
@@ -214,7 +215,10 @@ mod test {
         .unwrap()
         .to_primitive();
 
-        assert_eq!(filtered.as_slice::<i64>(), &values[0..250]);
+        assert_arrays_eq!(
+            filtered,
+            PrimitiveArray::from_iter(values[0..250].iter().copied())
+        );
     }
 
     #[test]

@@ -3,7 +3,7 @@
 
 //! All the built-in encoding schemes and arrays.
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-harness"))]
 mod assertions;
 
 #[cfg(test)]

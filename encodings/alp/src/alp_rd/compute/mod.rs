@@ -64,7 +64,6 @@ mod tests {
         let encoder = RDEncoder::new(&values);
         encoder.encode(&arr)
     })]
-
     fn test_alp_rd_consistency(#[case] array: ALPRDArray) {
         test_array_consistency(array.as_ref());
     }
