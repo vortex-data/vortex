@@ -48,14 +48,12 @@ impl GpuSegmentSource for FileGpuSegmentSource {
             .vortex_expect("missing segment id")
             .clone();
 
-        let mut cu_slice = self
-            .stream
-            .alloc_zeros::<u8>(spec.length as usize)
+        let mut cu_slice = unsafe { self.stream.alloc::<u8>(spec.length as usize) }
             .map_err(|e| vortex_err!("cu slice {e}"))
             .vortex_expect("Failed to allocate cu slice");
 
         // this is optional? and has strange perf characteristics.
-        // cu_file
+        // self.cu_file
         //     .buf_register(&cu_slice)
         //     .map_err(|e| vortex_err!("cu file {e}"))
         //     .vortex_unwrap();
@@ -64,14 +62,18 @@ impl GpuSegmentSource for FileGpuSegmentSource {
         let file_handle = self.file_handle.clone();
         let stream = self.stream.clone();
         async move {
+            // println!("try read");
+            file_handle.sync_read(offset, &mut cu_slice);
             let read = stream
                 .memcpy_ftod(&file_handle, offset, &mut cu_slice)
                 .ok()
                 .vortex_expect("memcpy_ftod");
+            // println!("did read");
 
-            read.synchronize()
-                .map_err(|e| vortex_err!("sync write {e}"))
-                .vortex_unwrap();
+            // read.synchronize()
+            //     .map_err(|e| vortex_err!("sync write {e}"))
+            //     .vortex_unwrap();
+            // println!("did sync");
             Ok(cu_slice)
         }
         .boxed()

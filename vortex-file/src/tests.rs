@@ -1475,6 +1475,7 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 #[cfg_attr(miri, ignore)]
 #[tokio::test]
 async fn test_gpu_read_simple() -> VortexResult<()> {
+    use vortex_array::compute::take;
     use vortex_btrblocks::BtrBlocksCompressor;
 
     use crate::segments::FileGpuSegmentSource;
@@ -1550,7 +1551,59 @@ async fn test_gpu_read_simple() -> VortexResult<()> {
         gpu_chunks.push(array.into_array());
     }
 
-    assert_arrays_eq!(ChunkedArray::from_iter(gpu_chunks), cpu_read);
+    // assert_arrays_eq!(
+    //     ChunkedArray::from_iter(gpu_chunks).into_array().as_ref(),
+    //     cpu_read
+    // );
+
+    let left = ChunkedArray::from_iter(gpu_chunks).into_array();
+    let right = cpu_read;
+    if left.dtype() != right.dtype() {
+        panic!(
+            "assertion left == right failed: arrays differ in type: {} != {}.\n  left: {}\n right: {}",
+            left.dtype(),
+            right.dtype(),
+            "x",
+            "x" // left.display_values(),
+                // right.display_values()
+        )
+    }
+
+    if left.len() != right.len() {
+        panic!(
+            "assertion left == right failed: arrays differ in length: {} != {}.\n  left: {}\n right: {}",
+            left.len(),
+            right.len(),
+            "x",
+            "x" // left.display_values(),
+                // right.display_values()
+        )
+    }
+    let n = left.len();
+    let mismatched_indices = (0..n)
+        .filter(|i| left.scalar_at(*i) != right.scalar_at(*i))
+        .collect::<Vec<_>>();
+    if mismatched_indices.len() != 0 {
+        let idx = PrimitiveArray::from_iter(
+            mismatched_indices
+                .clone()
+                .into_iter()
+                .map(|x| x as u64)
+                .take(20),
+        );
+        panic!(
+            "assertion left == right failed: arrays do not match at indices: {}.\n  left: {}\n right: {}",
+            Itertools::format(mismatched_indices.into_iter(), ", "),
+            take(&left, idx.as_ref())
+                .unwrap()
+                .slice(0..20)
+                .display_values(),
+            take(&right, idx.as_ref())
+                .unwrap()
+                .slice(0..20)
+                .display_values(),
+        )
+    }
 
     assert_eq!(row_count, 32768);
     Ok(())

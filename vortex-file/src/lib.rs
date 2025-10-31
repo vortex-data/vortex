@@ -107,6 +107,8 @@ pub use file::*;
 pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
+#[cfg(feature = "gpu")]
+pub use segments::FileGpuSegmentSource;
 pub use strategy::*;
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::{ArrayRegistry, EncodingRef};

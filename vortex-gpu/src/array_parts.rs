@@ -16,9 +16,7 @@ use vortex_flatbuffers::array::Array;
 use vortex_scalar::Scalar;
 
 use crate::CudaByteBuffer;
-use crate::jit::{
-    AlpEncodingTree, BitPackedEncodingTree, EncodingTree, EncodingTreeRef, FoREncodingTree,
-};
+use crate::jit::{AlpEncodingTree, BitPackedEncodingTree, EncodingTreeRef, FoREncodingTree};
 
 pub struct GpuArrayParts<'a> {
     buffers: Vec<Option<CudaByteBuffer>>,
@@ -100,7 +98,7 @@ impl<'a> GpuArrayParts<'a> {
                 len,
             );
             let reference = Scalar::new(dtype.clone(), deser);
-            return Arc::new(FoREncodingTree { reference, child }) as Arc<dyn EncodingTree>;
+            return Arc::new(FoREncodingTree { reference, child }) as EncodingTreeRef;
         } else if enc.id() == BitPackedEncoding.id() {
             assert!(array_node.children().unwrap_or_default().is_empty());
             let deser =

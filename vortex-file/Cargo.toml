@@ -65,6 +65,8 @@ vortex-array = { path = "../vortex-array", features = ["test-harness"] }
 vortex-btrblocks = { path = "../vortex-btrblocks" }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
 vortex-scan = { path = "../vortex-scan", features = ["tokio"] }
+criterion = { version = "0.7.0", features = ["html_reports", "async", "async_tokio"] }
+vortex-gpu = { workspace = true, features = ["cuda"] }
 
 [lints]
 workspace = true
@@ -86,3 +88,8 @@ gpu = [
     "vortex-layout/gpu",
     "vortex-scan/gpu",
 ]
+
+[[bench]]
+name = "bench_read"
+harness = false
+test = false

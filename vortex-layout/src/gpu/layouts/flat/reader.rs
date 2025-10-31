@@ -64,6 +64,7 @@ impl GpuFlatReader {
             Ok(parts.create_array(&dtype, row_count))
         }
         .boxed()
+        .shared()
     }
 }
 
