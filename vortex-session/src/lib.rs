@@ -1,30 +1,61 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use dashmap::DashMap;
-use std::any::{Any, TypeId};
+pub mod registry;
+
+use dashmap::{DashMap, Entry};
+use std::any::{type_name, Any, TypeId};
 use std::fmt::Debug;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use vortex_error::VortexExpect;
+use vortex_error::{vortex_panic, VortexExpect};
 
 /// A Vortex session encapsulates the set of extensible arrays, layouts, compute functions, dtypes,
 /// etc. that are available for use in a given context.
 ///
 /// It is also the entry-point passed to dynamic libraries to initialize Vortex plugins.
-#[derive(Default, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct VortexSession(Arc<SessionVars>);
 
+impl VortexSession {
+    /// Create a new [`VortexSession`] with no session state.
+    ///
+    /// It is recommended to use the `default()` method instead provided by the main `vortex` crate.
+    pub fn empty() -> Self {
+        Self(Default::default())
+    }
+
+    /// Inserts a new session variable of type `V` with its default value.
+    ///
+    /// # Panics
+    ///
+    /// If a variable of that type already exists.
+    pub fn with<V: SessionVar + Default>(self) -> Self {
+        match self.0.entry(TypeId::of::<V>()) {
+            Entry::Occupied(_) => {
+                vortex_panic!(
+                    "Session variable of type {} already exists",
+                    type_name::<V>()
+                );
+            }
+            Entry::Vacant(e) => {
+                e.insert(Box::new(V::default()));
+            }
+        }
+        self
+    }
+}
+
 /// Trait for accessing and modifying the state of a Vortex session.
-pub trait SessionExt: private::Sealed {
+pub trait SessionExt: Sized + private::Sealed {
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
-    fn get<V: SessionVar + Default>(&self) -> impl Deref<Target = V>;
+    fn get<V: SessionVar>(&self) -> Ref<V>;
 
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
     ///
     /// Note that the returned value internally holds a lock on the variable.
-    fn get_mut<V: SessionVar + Default>(&self) -> impl DerefMut<Target = V>;
+    fn get_mut<V: SessionVar>(&self) -> RefMut<V>;
 }
 
 mod private {
@@ -34,30 +65,38 @@ mod private {
 
 impl SessionExt for VortexSession {
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
-    fn get<V: SessionVar + Default>(&self) -> impl Deref<Target = V> {
-        self.0
-            .entry(TypeId::of::<V>())
-            .or_insert_with(|| Box::new(V::default()))
-            .downgrade()
+    fn get<V: SessionVar>(&self) -> Ref<V> {
+        Ref(self
+            .0
+            .get(&TypeId::of::<V>())
+            .vortex_expect(&format!(
+                "Session has not been initialized with {}",
+                type_name::<V>()
+            ))
             .map(|v| {
                 v.as_any()
                     .downcast_ref::<V>()
                     .vortex_expect("Type mismatch - this is a bug")
-            })
+            }))
     }
 
     /// Returns the scope variable of type `V`, or inserts a default one if it does not exist.
     ///
     /// Note that the returned value internally holds a lock on the variable.
-    fn get_mut<V: SessionVar + Default>(&self) -> impl DerefMut<Target = V> {
-        self.0
-            .entry(TypeId::of::<V>())
-            .or_insert_with(|| Box::new(V::default()))
-            .map(|v| {
-                v.as_any_mut()
-                    .downcast_mut::<V>()
-                    .vortex_expect("Type mismatch - this is a bug")
-            })
+    fn get_mut<V: SessionVar>(&self) -> RefMut<V> {
+        RefMut(
+            self.0
+                .get_mut(&TypeId::of::<V>())
+                .vortex_expect(&format!(
+                    "Session has not been initialized with {}",
+                    type_name::<V>()
+                ))
+                .map(|v| {
+                    v.as_any_mut()
+                        .downcast_mut::<V>()
+                        .vortex_expect("Type mismatch - this is a bug")
+                }),
+        )
     }
 }
 
@@ -87,17 +126,60 @@ impl Hasher for IdHasher {
 }
 
 /// This trait defines variables that can be stored against a Vortex session.
-pub trait SessionVar: Any + Send + Debug {
+pub trait SessionVar: Any + Send + Sync + Debug + 'static {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
-impl<T: Send + Debug + 'static> SessionVar for T {
+impl<T: Send + Sync + Debug + 'static> SessionVar for T {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+// NOTE(ngates): we don't want to expose that the internals of a session is a DashMap, so we have
+// our own wrapped Ref type.
+pub struct Ref<'a, T>(dashmap::mapref::one::MappedRef<'a, TypeId, Box<dyn SessionVar>, T>);
+impl<'a, T> Deref for Ref<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<'a, T> Ref<'a, T> {
+    /// Map this reference to a different target.
+    pub fn map<F, U>(self, f: F) -> Ref<'a, U>
+    where
+        F: FnOnce(&T) -> &U,
+    {
+        Ref(self.0.map(f))
+    }
+}
+
+pub struct RefMut<'a, T>(dashmap::mapref::one::MappedRefMut<'a, TypeId, Box<dyn SessionVar>, T>);
+impl<'a, T> Deref for RefMut<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<'a, T> DerefMut for RefMut<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.deref_mut()
+    }
+}
+impl<'a, T> RefMut<'a, T> {
+    /// Map this mutable reference to a different target.
+    pub fn map<F, U>(self, f: F) -> RefMut<'a, U>
+    where
+        F: FnOnce(&mut T) -> &mut U,
+    {
+        RefMut(self.0.map(f))
     }
 }

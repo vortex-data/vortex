@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod registry;
-pub use registry::*;
 pub mod layouts;
 
 pub use children::*;
@@ -25,5 +23,6 @@ mod layout;
 mod reader;
 pub mod segments;
 pub mod sequence;
+pub mod session;
 mod strategy;
 pub mod vtable;

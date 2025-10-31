@@ -38,6 +38,7 @@ vortex-error = { workspace = true, features = ["prost"] }
 vortex-mask = { workspace = true }
 vortex-proto = { workspace = true, features = ["expr"] }
 vortex-scalar = { workspace = true }
+vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]

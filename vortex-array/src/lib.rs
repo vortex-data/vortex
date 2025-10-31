@@ -12,6 +12,11 @@
 //! Every data type recognized by Vortex also has a canonical physical encoding format, which
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 
+use crate::arrays::{
+    BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
+    FixedSizeListEncoding, ListEncoding, ListViewEncoding, MaskedEncoding, NullEncoding,
+    PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
+};
 pub use array::*;
 pub use canonical::*;
 pub use context::*;
@@ -19,7 +24,7 @@ pub use encoding::*;
 pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
-use std::sync::Arc;
+use vortex_session::registry::Registry;
 use vortex_session::SessionExt;
 
 pub mod accessor;
@@ -58,31 +63,61 @@ pub mod flatbuffers {
     pub use vortex_flatbuffers::array::*;
 }
 
+pub type ArrayRegistry = Registry<EncodingRef>;
+
 #[derive(Debug)]
 pub struct ArraySession {
-    registry: ArrayRegistry,
+    /// The set of registered array encodings.
+    encodings: ArrayRegistry,
 }
 
 impl Default for ArraySession {
     fn default() -> Self {
-        Self {
-            registry: ArrayRegistry::canonical_only(),
-        }
+        let encodings = ArrayRegistry::default();
+
+        // Register the canonical encodings.
+        encodings.register_many([
+            EncodingRef::new_ref(NullEncoding.as_ref()),
+            EncodingRef::new_ref(BoolEncoding.as_ref()),
+            EncodingRef::new_ref(PrimitiveEncoding.as_ref()),
+            EncodingRef::new_ref(DecimalEncoding.as_ref()),
+            EncodingRef::new_ref(VarBinViewEncoding.as_ref()),
+            EncodingRef::new_ref(ListViewEncoding.as_ref()),
+            EncodingRef::new_ref(FixedSizeListEncoding.as_ref()),
+            EncodingRef::new_ref(StructEncoding.as_ref()),
+            EncodingRef::new_ref(ExtensionEncoding.as_ref()),
+        ]);
+
+        // Register the utility encodings.
+        encodings.register_many([
+            EncodingRef::new_ref(ChunkedEncoding.as_ref()),
+            EncodingRef::new_ref(ConstantEncoding.as_ref()),
+            EncodingRef::new_ref(MaskedEncoding.as_ref()),
+            EncodingRef::new_ref(ListEncoding.as_ref()),
+            EncodingRef::new_ref(VarBinEncoding.as_ref()),
+        ]);
+
+        Self { encodings }
     }
 }
 
-/// Session extension trait for array-related functionality.
+/// Session data for Vortex arrays.
 pub trait ArraySessionExt: SessionExt {
-    /// Register an array encoding with the session.
-    fn register_encoding(&self, encoding: EncodingRef) {
-        self.get_mut::<ArraySession>().registry.register(encoding)
+    /// Register a new array encoding, replacing any existing encoding with the same ID.
+    fn register_array(&self, encoding: EncodingRef) {
+        self.register_arrays([encoding])
     }
 
-    /// Returns the array registry.
-    fn array_registry(&self) -> Arc<ArrayRegistry> {
-        // TODO(ngates): the registry type is weird... we shouldn't arc it here, but it's weirdly
-        //  mutable.
-        Arc::new(self.get::<ArraySession>().registry.clone())
+    /// Register many array encodings, replacing any existing encodings with the same ID.
+    fn register_arrays(&self, encodings: impl IntoIterator<Item = EncodingRef>) {
+        self.get::<ArraySession>()
+            .encodings
+            .register_many(encodings);
+    }
+
+    /// Returns the array encoding registry.
+    fn arrays(&self) -> impl std::ops::Deref<Target = ArrayRegistry> {
+        self.get::<ArraySession>().map(|v| &v.encodings)
     }
 }
-impl<T> ArraySessionExt for T where T: SessionExt {}
+impl<S: SessionExt> ArraySessionExt for S {}

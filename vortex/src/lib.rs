@@ -4,16 +4,31 @@
 // https://github.com/rust-lang/cargo/pull/11645#issuecomment-1536905941
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
-pub mod session;
-
+use vortex_alp::{ALPEncoding, ALPRDEncoding};
 pub use vortex_array::*;
+use vortex_bytebool::ByteBoolEncoding;
+use vortex_datetime_parts::DateTimePartsEncoding;
+use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
+use vortex_dict::DictEncoding;
+use vortex_expr::session::ExprSession;
+use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding, RLEEncoding};
 #[cfg(feature = "files")]
 pub use vortex_file as file;
+use vortex_fsst::FSSTEncoding;
+use vortex_io::session::RuntimeSession;
+use vortex_layout::session::LayoutSession;
+use vortex_metrics::VortexMetrics;
+use vortex_pco::PcoEncoding;
+use vortex_runend::RunEndEncoding;
+use vortex_sequence::SequenceEncoding;
+use vortex_session::VortexSession;
+use vortex_sparse::SparseEncoding;
+use vortex_zigzag::ZigZagEncoding;
 pub use {
     vortex_buffer as buffer, vortex_dtype as dtype, vortex_error as error, vortex_expr as expr,
     vortex_flatbuffers as flatbuffers, vortex_io as io, vortex_ipc as ipc, vortex_layout as layout,
     vortex_mask as mask, vortex_metrics as metrics, vortex_proto as proto, vortex_scalar as scalar,
-    vortex_scan as scan, vortex_utils as utils,
+    vortex_scan as scan, vortex_session as session, vortex_utils as utils,
 };
 
 pub mod compressor {
@@ -32,6 +47,45 @@ pub mod encodings {
         vortex_runend as runend, vortex_sequence as sequence, vortex_sparse as sparse,
         vortex_zigzag as zigzag,
     };
+}
+
+/// Extension trait to create a default Vortex session.
+pub trait VortexSessionDefault {
+    /// Creates a default Vortex session with the standard arrays, layouts, and expressions.
+    fn default() -> VortexSession;
+}
+
+impl VortexSessionDefault for VortexSession {
+    fn default() -> VortexSession {
+        let session = VortexSession::empty()
+            .with::<VortexMetrics>()
+            .with::<ArraySession>()
+            .with::<LayoutSession>()
+            .with::<ExprSession>()
+            .with::<RuntimeSession>();
+
+        // Register the compressed encodings that Vortex ships with.
+        session.register_arrays([
+            EncodingRef::new_ref(ALPEncoding.as_ref()),
+            EncodingRef::new_ref(ALPRDEncoding.as_ref()),
+            EncodingRef::new_ref(BitPackedEncoding.as_ref()),
+            EncodingRef::new_ref(ByteBoolEncoding.as_ref()),
+            EncodingRef::new_ref(DateTimePartsEncoding.as_ref()),
+            EncodingRef::new_ref(DecimalBytePartsEncoding.as_ref()),
+            EncodingRef::new_ref(DeltaEncoding.as_ref()),
+            EncodingRef::new_ref(DictEncoding.as_ref()),
+            EncodingRef::new_ref(FSSTEncoding.as_ref()),
+            EncodingRef::new_ref(FoREncoding.as_ref()),
+            EncodingRef::new_ref(PcoEncoding.as_ref()),
+            EncodingRef::new_ref(RLEEncoding.as_ref()),
+            EncodingRef::new_ref(RunEndEncoding.as_ref()),
+            EncodingRef::new_ref(SequenceEncoding.as_ref()),
+            EncodingRef::new_ref(SparseEncoding.as_ref()),
+            EncodingRef::new_ref(ZigZagEncoding.as_ref()),
+        ]);
+
+        session
+    }
 }
 
 /// These tests are included in the getting started documentation, so be mindful of which imports

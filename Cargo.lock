@@ -8505,6 +8505,7 @@ dependencies = [
  "vortex-scalar",
  "vortex-scan",
  "vortex-sequence",
+ "vortex-session",
  "vortex-sparse",
  "vortex-utils",
  "vortex-zigzag",
@@ -8883,6 +8884,7 @@ dependencies = [
  "vortex-mask",
  "vortex-proto",
  "vortex-scalar",
+ "vortex-session",
  "vortex-utils",
 ]
 
@@ -9091,6 +9093,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-metrics",
+ "vortex-session",
  "wasm-bindgen-futures",
 ]
 
@@ -9174,6 +9177,7 @@ dependencies = [
  "vortex-pco",
  "vortex-scalar",
  "vortex-sequence",
+ "vortex-session",
  "vortex-utils",
  "vortex-zstd",
 ]
@@ -9335,6 +9339,7 @@ version = "0.1.0"
 dependencies = [
  "dashmap",
  "vortex-error",
+ "vortex-utils",
 ]
 
 [[package]]

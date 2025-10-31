@@ -22,3 +22,4 @@ workspace = true
 [dependencies]
 dashmap = { workspace = true }
 vortex-error = { workspace = true }
+vortex-utils = { workspace = true, features = ["dashmap"] }

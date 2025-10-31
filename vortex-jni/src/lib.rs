@@ -6,7 +6,9 @@ use std::sync::LazyLock;
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 use vortex::error::VortexExpect;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
+use vortex::VortexSessionDefault;
 
 macro_rules! throw_runtime {
     ($($tt:tt)*) => {
@@ -23,9 +25,6 @@ mod logging;
 mod object_store;
 mod writer;
 
-/// Shared Vortex session for the JNI instance.
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
-
 // Shared Tokio runtime for all the async operations in this package.
 static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Builder::new_multi_thread()
@@ -33,6 +32,9 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
         .build()
         .vortex_expect("Failed to build Tokio runtime")
 });
+
+/// Shared Vortex session for the JNI instance.
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::default().with_tokio());
 
 /// Helper to block the JNI thread on asynchronous tasks, with added logging.
 pub(crate) fn block_on<F: Future>(task_id: &str, future: F) -> F::Output {

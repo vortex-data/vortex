@@ -3,17 +3,17 @@
 
 use std::sync::Arc;
 
+use crate::footer::postscript::{Postscript, PostscriptSegment};
+use crate::footer::FileStatistics;
+use crate::{Footer, DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, VERSION};
 use flatbuffers::root;
-use vortex_array::ArrayRegistry;
+use vortex_array::{ArrayRegistry, EncodingRef};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
-use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
-
-use crate::footer::FileStatistics;
-use crate::footer::postscript::{Postscript, PostscriptSegment};
-use crate::{DEFAULT_REGISTRY, EOF_SIZE, Footer, MAGIC_BYTES, VERSION};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_flatbuffers::{dtype as fbd, FlatBuffer, ReadFlatBuffer};
+use vortex_layout::{LayoutEncodingRef, LayoutRegistry, LayoutRegistryExt};
+use vortex_session::registry::Registry;
 
 /// Deserialize a footer from the end of a Vortex file or created from a
 /// [`crate::footer::FooterSerializer`].
@@ -23,9 +23,9 @@ pub struct FooterDeserializer {
     // the caller.
     buffer: ByteBuffer,
     // The registry of array encodings.
-    array_registry: Arc<ArrayRegistry>,
+    array_registry: ArrayRegistry,
     // The registry of layouts.
-    layout_registry: Arc<LayoutRegistry>,
+    layout_registry: LayoutRegistry,
     // The DType, if provided externally.
     dtype: Option<DType>,
 
@@ -38,11 +38,15 @@ pub struct FooterDeserializer {
 }
 
 impl FooterDeserializer {
-    pub(super) fn new(initial_read: ByteBuffer) -> Self {
+    pub(super) fn new(
+        initial_read: ByteBuffer,
+        array_registry: Registry<EncodingRef>,
+        layout_registry: Registry<LayoutEncodingRef>,
+    ) -> Self {
         Self {
             buffer: initial_read,
-            array_registry: DEFAULT_REGISTRY.clone(),
-            layout_registry: Arc::new(LayoutRegistry::default()),
+            array_registry,
+            layout_registry,
             dtype: None,
             file_size: None,
             postscript: None,
@@ -66,16 +70,6 @@ impl FooterDeserializer {
 
     pub fn with_some_size(mut self, file_size: Option<u64>) -> Self {
         self.file_size = file_size;
-        self
-    }
-
-    pub fn with_array_registry(mut self, registry: Arc<ArrayRegistry>) -> Self {
-        self.array_registry = registry;
-        self
-    }
-
-    pub fn with_layout_registry(mut self, registry: Arc<LayoutRegistry>) -> Self {
-        self.layout_registry = registry;
         self
     }
 
