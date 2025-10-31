@@ -4,6 +4,7 @@
 use std::fs::File;
 use std::sync::Arc;
 
+use cudarc::cufile;
 use cudarc::cufile::{Cufile, FileHandle};
 use cudarc::driver::CudaStream;
 use futures::FutureExt;
@@ -64,10 +65,10 @@ impl GpuSegmentSource for FileGpuSegmentSource {
         async move {
             // println!("try read");
             file_handle.sync_read(offset, &mut cu_slice);
-            let read = stream
-                .memcpy_ftod(&file_handle, offset, &mut cu_slice)
-                .ok()
-                .vortex_expect("memcpy_ftod");
+            // let read = stream
+            //     .memcpy_ftod(&file_handle, offset, &mut cu_slice)
+            //     .ok()
+            //     .vortex_expect("memcpy_ftod");
             // println!("did read");
 
             // read.synchronize()

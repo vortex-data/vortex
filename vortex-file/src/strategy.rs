@@ -77,7 +77,7 @@ impl WriteStrategyBuilder {
         let coalescing = RepartitionStrategy::new(
             compressing,
             RepartitionWriterOptions {
-                block_size_minimum: ONE_MEG,
+                block_size_minimum: ONE_MEG * 128 * 4,
                 block_len_multiple: self.row_block_size,
                 canonicalize: true,
             },
