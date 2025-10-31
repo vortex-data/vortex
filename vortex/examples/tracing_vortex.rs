@@ -27,12 +27,11 @@ use tracing_subscriber::Layer;
 use vortex::arrays::{PrimitiveArray, StructArray, VarBinArray};
 use vortex::compressor::CompactCompressor;
 use vortex::dtype::{DType, Nullability};
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::file::WriteStrategyBuilder;
 use vortex::validity::Validity;
 use vortex::{IntoArray, VortexSessionDefault};
 use vortex_array::stream::ArrayStreamExt;
 use vortex_file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
-use vortex_layout::session;
 use vortex_session::VortexSession;
 
 #[tokio::main]

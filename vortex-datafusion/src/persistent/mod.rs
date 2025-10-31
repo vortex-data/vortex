@@ -47,23 +47,25 @@ mod tests {
     use datafusion_physical_plan::display::DisplayableExecutionPlan;
     use insta::assert_snapshot;
     use rstest::rstest;
-    use tempfile::{TempDir, tempdir};
+    use tempfile::{tempdir, TempDir};
     use tokio::fs::OpenOptions;
-    use vortex::IntoArray;
     use vortex::arrays::{ChunkedArray, StructArray, VarBinArray};
     use vortex::buffer::buffer;
     use vortex::error::vortex_err;
-    use vortex::file::VortexWriteOptions;
+    use vortex::file::WriteOptionsSessionExt;
+    use vortex::session::VortexSession;
     use vortex::validity::Validity;
+    use vortex::{IntoArray, VortexSessionDefault};
 
+    use crate::persistent::{register_vortex_format_factory, VortexFormat};
     use crate::VortexFormatFactory;
-    use crate::persistent::{VortexFormat, register_vortex_format_factory};
 
     #[rstest]
     #[case(Some(1))]
     #[case(None)]
     #[tokio::test]
     async fn query_file(#[case] limit: Option<usize>) -> anyhow::Result<()> {
+        let session = VortexSession::default();
         let temp_dir = tempdir()?;
         let strings = ChunkedArray::from_iter([
             VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
@@ -93,12 +95,13 @@ mod tests {
             .open(&filepath)
             .await?;
 
-        VortexWriteOptions::default()
+        session
+            .write_options()
             .write(&mut f, st.to_array_stream())
             .await?;
 
         let ctx = SessionContext::default();
-        let format = Arc::new(VortexFormat::default());
+        let format = Arc::new(VortexFormat::new(session));
         let table_url = ListingTableUrl::parse(
             temp_dir
                 .path()
@@ -166,7 +169,7 @@ mod tests {
             .sql(&format!(
                 "CREATE EXTERNAL TABLE written_data \
                     (a TINYINT NOT NULL) \
-                STORED AS vortex 
+                STORED AS vortex
                 LOCATION '{}/';",
                 dir.path().to_str().unwrap()
             ))

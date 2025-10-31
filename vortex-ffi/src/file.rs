@@ -29,7 +29,6 @@ use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::session::{ExprRegistry, ExprSessionExt};
 use vortex::expr::ExprRef;
 use vortex::file::{OpenOptionsSessionExt, VortexFile, WriteOptionsSessionExt};
-use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::iter::ArrayIteratorAdapter;
 use vortex::proto::expr::Expr;

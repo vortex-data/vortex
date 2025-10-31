@@ -11,15 +11,16 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
-use vortex::ArrayRef;
 use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::{DType, StructFields};
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
-use vortex::file::{VortexWriteOptions, WriteSummary};
+use vortex::error::{vortex_err, VortexExpect, VortexResult};
+use vortex::file::{WriteOptionsSessionExt, WriteSummary};
 use vortex::stream::ArrayStreamAdapter;
+use vortex::ArrayRef;
 
 use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
 use crate::duckdb::{CopyFunction, DataChunk, LogicalType};
+use crate::SESSION;
 
 #[derive(Debug)]
 pub struct VortexCopyFunction;
@@ -117,9 +118,7 @@ impl CopyFunction for VortexCopyFunction {
 
         let writer = COPY_RUNTIME.spawn(async move {
             let mut file = File::create(file_path).await?;
-            VortexWriteOptions::default()
-                .write(&mut file, array_stream)
-                .await
+            SESSION.write_options().write(&mut file, array_stream).await
         });
 
         Ok(GlobalState {

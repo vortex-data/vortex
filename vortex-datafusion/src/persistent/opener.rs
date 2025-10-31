@@ -408,7 +408,7 @@ mod tests {
     use rstest::rstest;
     use std::sync::LazyLock;
     use vortex::arrow::FromArrowArray;
-    use vortex::file::{VortexWriteOptions, WriteOptionsSessionExt};
+    use vortex::file::WriteOptionsSessionExt;
     use vortex::io::{ObjectStoreWriter, VortexWrite};
     use vortex::session::VortexSession;
     use vortex::VortexSessionDefault;
@@ -582,7 +582,6 @@ mod tests {
     ) -> anyhow::Result<()> {
         use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
 
-        let vx_session = Arc::new(VortexSession::default());
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file1_path = "/path/file1.vortex";
         let batch1 = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
@@ -662,7 +661,6 @@ mod tests {
     // a nested schema mismatch between the physical file schema and logical
     // table schema.
     async fn test_adapter_logical_physical_struct_mismatch() -> anyhow::Result<()> {
-        let vx_session = Arc::new(VortexSession::default());
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "/path/file.vortex";
         let file_struct_fields = Fields::from(vec![

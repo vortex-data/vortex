@@ -16,7 +16,6 @@ use expr::*;
 use read::*;
 use scalar::*;
 use vortex::io::runtime::current::CurrentThreadRuntime;
-use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex::VortexSessionDefault;

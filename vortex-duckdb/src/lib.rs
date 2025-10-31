@@ -2,15 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::missing_safety_doc)]
-use std::ffi::{CStr, c_char};
-
 // **WARNING end
-use vortex::error::{VortexExpect, VortexResult};
-
 use crate::copy::VortexCopyFunction;
 use crate::duckdb::Config;
 pub use crate::duckdb::{Connection, Database, LogicalType, Value};
 use crate::scan::VortexTableFunction;
+use std::ffi::{c_char, CStr};
+use std::sync::LazyLock;
+use vortex::error::{VortexExpect, VortexResult};
+use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::session::VortexSession;
+use vortex::VortexSessionDefault;
 
 mod convert;
 pub mod duckdb;
@@ -27,6 +30,10 @@ mod cpp;
 mod copy;
 #[cfg(test)]
 mod e2e_test;
+
+static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(|| CurrentThreadRuntime::new());
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::default().with_current_thread_runtime(RUNTIME.clone()));
 
 /// Register Vortex extension configuration options with DuckDB.
 /// This must be called before `register_table_functions` to take effect.
