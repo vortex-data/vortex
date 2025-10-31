@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
@@ -17,26 +17,32 @@ use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
-use object_store::ObjectStore;
 use object_store::path::Path;
+use object_store::ObjectStore;
 use tokio_stream::wrappers::ReceiverStream;
-use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::file::VortexWriteOptions;
+use vortex::file::WriteOptionsSessionExt;
 use vortex::io::{ObjectStoreWriter, VortexWrite};
+use vortex::session::VortexSession;
 use vortex::stream::ArrayStreamAdapter;
+use vortex::ArrayRef;
 
 pub struct VortexSink {
     config: FileSinkConfig,
     schema: SchemaRef,
+    session: VortexSession,
 }
 
 impl VortexSink {
-    pub fn new(config: FileSinkConfig, schema: SchemaRef) -> Self {
-        Self { config, schema }
+    pub fn new(config: FileSinkConfig, schema: SchemaRef, session: VortexSession) -> Self {
+        Self {
+            config,
+            schema,
+            session,
+        }
     }
 }
 
@@ -103,6 +109,7 @@ impl FileSink for VortexSink {
         // TODO(adamg):
         // 1. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
         while let Some((path, rx)) = file_stream_rx.recv().await {
+            let session = self.session.clone();
             let row_counter = row_counter.clone();
             let object_store = object_store.clone();
             let writer_schema = get_writer_schema(&self.config);
@@ -126,7 +133,8 @@ impl FileSink for VortexSink {
                         ))
                     })?;
 
-                VortexWriteOptions::default()
+                session
+                    .write_options()
                     .write(&mut sink, stream_adapter)
                     .await
                     .map_err(|e| {
@@ -168,7 +176,6 @@ impl FileSink for VortexSink {
 
 #[cfg(test)]
 mod tests {
-
     use std::sync::Arc;
 
     use arrow_schema::{DataType, Field, Schema};
@@ -183,7 +190,7 @@ mod tests {
     use tempfile::TempDir;
     use walkdir::WalkDir;
 
-    use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
+    use crate::persistent::{register_vortex_format_factory, VortexFormatFactory};
 
     #[tokio::test]
     async fn test_insert_into() {

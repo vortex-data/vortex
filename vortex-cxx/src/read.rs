@@ -3,6 +3,8 @@
 
 use std::sync::Arc;
 
+use crate::expr::Expr;
+use crate::{RUNTIME, SESSION};
 use anyhow::Result;
 use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowSchema;
@@ -10,16 +12,14 @@ use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, DataType, Schema, SchemaRef};
 use futures::stream::TryStreamExt;
-use vortex::ArrayRef;
 use vortex::arrow::IntoArrowArray;
 use vortex::buffer::Buffer;
-use vortex::file::VortexOpenOptions;
+use vortex::file::OpenOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::scan::ScanBuilder;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::arrow::RecordBatchIteratorAdapter;
-
-use crate::RUNTIME;
-use crate::expr::Expr;
+use vortex::scan::ScanBuilder;
+use vortex::ArrayRef;
 
 pub(crate) struct VortexFile {
     inner: vortex::file::VortexFile,
@@ -42,7 +42,9 @@ impl VortexFile {
 /// TODO(xinyu): object store (see vortex-ffi)
 pub(crate) fn open_file(path: &str) -> Result<Box<VortexFile>> {
     let file = RUNTIME.block_on(|h| {
-        VortexOpenOptions::new()
+        SESSION
+            .open_options()
+            // TODO(ngates): we should expose a block_on function on the RuntimeSessionExt?
             .with_handle(h)
             .open(std::path::Path::new(path))
     })?;
@@ -51,7 +53,7 @@ pub(crate) fn open_file(path: &str) -> Result<Box<VortexFile>> {
 
 pub(crate) fn open_file_from_buffer(data: &[u8]) -> Result<Box<VortexFile>> {
     let buffer = Buffer::from(data.to_vec());
-    let file = VortexOpenOptions::new().open_buffer(buffer)?;
+    let file = SESSION.open_options().open_buffer(buffer)?;
     Ok(Box::new(VortexFile { inner: file }))
 }
 

@@ -56,6 +56,12 @@ pub trait WriteOptionsSessionExt: RuntimeSessionExt + SessionExt {
 impl<S: RuntimeSessionExt + SessionExt> WriteOptionsSessionExt for S {}
 
 impl VortexWriteOptions {
+    /// Replace the handle used to spawn layout tasks.
+    pub fn with_handle(mut self, handle: Handle) -> Self {
+        self.handle = handle;
+        self
+    }
+
     /// Replace the default layout strategy with the provided one.
     pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
         self.strategy = strategy;
@@ -339,26 +345,28 @@ pub struct BlockingWrite<B: BlockingRuntime> {
 impl<B: BlockingRuntime> BlockingWrite<B> {
     /// Write a Vortex file into the given `Write` sink.
     pub fn write<W: Write + Unpin>(
-        mut self,
+        self,
         write: W,
         iter: impl ArrayIterator + Send + 'static,
     ) -> VortexResult<WriteSummary> {
         self.runtime.block_on(|handle| async move {
-            self.options.handle = handle;
             self.options
+                .with_handle(handle)
                 .write(BlockingWriteAdapter(write), iter.into_array_stream())
                 .await
         })
     }
 
     pub fn writer<'w, W: Write + Unpin + 'w>(
-        mut self,
+        self,
         write: W,
         dtype: DType,
     ) -> BlockingWriter<'w, B> {
-        self.options.handle = self.runtime.handle();
         BlockingWriter {
-            writer: self.options.writer(BlockingWriteAdapter(write), dtype),
+            writer: self
+                .options
+                .with_handle(self.runtime.handle())
+                .writer(BlockingWriteAdapter(write), dtype),
             runtime: self.runtime,
         }
     }

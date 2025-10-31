@@ -12,9 +12,8 @@ use object_store::{ObjectMeta, ObjectStore};
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::error::{vortex_err, VortexError, VortexResult};
-use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
+use vortex::file::{Footer, OpenOptionsSessionExt, SegmentSpec, VortexFile};
 use vortex::layout::segments::{SegmentCache, SegmentId};
-use vortex::layout::session::LayoutSessionExt;
 use vortex::metrics::MetricsSessionExt;
 use vortex::session::VortexSession;
 use vortex::stats::{Precision, Stat};
@@ -24,7 +23,7 @@ use vortex::utils::aliases::DefaultHashBuilder;
 pub(crate) struct VortexFileCache {
     file_cache: Cache<FileKey, VortexFile, DefaultHashBuilder>,
     segment_cache: Cache<SegmentKey, ByteBuffer, DefaultHashBuilder>,
-    session: Arc<VortexSession>,
+    session: VortexSession,
 }
 
 /// Cache key for a [`VortexFile`].
@@ -51,7 +50,7 @@ struct SegmentKey {
 }
 
 impl VortexFileCache {
-    pub fn new(size_mb: usize, segment_size_mb: usize, session: Arc<VortexSession>) -> Self {
+    pub fn new(size_mb: usize, segment_size_mb: usize, session: VortexSession) -> Self {
         let file_cache = Cache::builder()
             .max_capacity(size_mb as u64 * (1 << 20))
             .eviction_listener(|k: Arc<FileKey>, _v: VortexFile, cause| {
@@ -86,10 +85,8 @@ impl VortexFileCache {
         self.file_cache
             .try_get_with(
                 file_key.clone(),
-                VortexOpenOptions::new()
-                    // FIXME(ngates): we don't really want to clone on every open...
-                    .with_array_registry(Arc::new(self.session.arrays().clone()))
-                    .with_layout_registry(Arc::new(self.session.layouts().clone()))
+                self.session
+                    .open_options()
                     .with_metrics(
                         self.session
                             .metrics()

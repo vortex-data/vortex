@@ -3,20 +3,21 @@
 
 use std::sync::LazyLock;
 
+use crate::SESSION;
 use anyhow::Result;
-use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
+use arrow_array::RecordBatchReader;
 use tokio::runtime::Runtime;
-use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect};
-use vortex::file::VortexWriteOptions as WriteOptions;
-use vortex::io::VortexWrite;
+use vortex::file::{VortexWriteOptions as WriteOptions, WriteOptionsSessionExt};
 use vortex::io::runtime::tokio::TokioRuntime;
+use vortex::io::VortexWrite;
 use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::stream::ArrayStream;
+use vortex::ArrayRef;
 
 /// The tokio runtime for the write-side.
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
@@ -31,7 +32,7 @@ pub(crate) struct VortexWriteOptions {
 
 pub(crate) fn write_options_new() -> Box<VortexWriteOptions> {
     Box::new(VortexWriteOptions {
-        inner: WriteOptions::default().with_handle(TokioRuntime::current()),
+        inner: SESSION.write_options().with_handle(TokioRuntime::current()),
     })
 }
 

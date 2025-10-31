@@ -37,15 +37,15 @@ pub trait RuntimeSessionExt: SessionExt {
     /// Set the runtime handle for this session.
     ///
     /// Required only when the session was not initialized within a Tokio context.
-    fn set_handle(&self, handle: Handle) {
+    fn with_handle(self, handle: Handle) -> Self {
         self.get_mut::<RuntimeSession>().handle = Some(handle);
+        self
     }
 
     /// Configure the runtime session to use Tokio.
     #[cfg(feature = "tokio")]
     fn with_tokio(self) -> Self {
-        self.set_handle(crate::runtime::tokio::TokioRuntime::current());
-        self
+        self.with_handle(crate::runtime::tokio::TokioRuntime::current())
     }
 }
 impl<S: SessionExt> RuntimeSessionExt for S {}

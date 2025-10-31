@@ -12,8 +12,8 @@ use datafusion_common::config::ConfigField;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
 use datafusion_common::{
-    ColumnStatistics, DataFusionError, GetExt, Result as DFResult, Statistics, config_namespace,
-    not_impl_err,
+    config_namespace, not_impl_err, ColumnStatistics, DataFusionError, GetExt, Result as DFResult,
+    Statistics,
 };
 use datafusion_common_runtime::SpawnedTask;
 use datafusion_datasource::file::FileSource;
@@ -26,28 +26,28 @@ use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::LexRequirement;
 use datafusion_physical_plan::ExecutionPlan;
-use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
+use futures::{stream, FutureExt, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::{DType, Nullability, PType};
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::error::{vortex_err, VortexExpect, VortexResult};
 use vortex::file::VORTEX_FILE_EXTENSION;
-use vortex::metrics::VortexMetrics;
+use vortex::metrics::{MetricsSessionExt, VortexMetrics};
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
-use vortex::stats;
 use vortex::stats::{Stat, StatsSet};
+use vortex::{stats, VortexSessionDefault};
 
 use super::cache::VortexFileCache;
 use super::sink::VortexSink;
 use super::source::VortexSource;
-use crate::PrecisionExt as _;
 use crate::convert::TryToDataFusion;
+use crate::PrecisionExt as _;
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 pub struct VortexFormat {
-    session: Arc<VortexSession>,
+    session: VortexSession,
     file_cache: VortexFileCache,
     opts: VortexOptions,
 }
@@ -79,7 +79,7 @@ impl Eq for VortexOptions {}
 /// Minimal factory to create [`VortexFormat`] instances.
 #[derive(Debug)]
 pub struct VortexFormatFactory {
-    session: Arc<VortexSession>,
+    session: VortexSession,
     options: Option<VortexOptions>,
 }
 
@@ -94,7 +94,7 @@ impl VortexFormatFactory {
     #[allow(clippy::new_without_default)] // FormatFactory defines `default` method, so having `Default` implementation is confusing.
     pub fn new() -> Self {
         Self {
-            session: Arc::new(VortexSession::default()),
+            session: VortexSession::default(),
             options: None,
         }
     }
@@ -102,7 +102,7 @@ impl VortexFormatFactory {
     /// Creates a new instance with customized session and default options for all [`VortexFormat`] instances created from this factory.
     ///
     /// The options can be overridden by table-level configuration pass in [`FileFormatFactory::create`].
-    pub fn new_with_options(session: Arc<VortexSession>, options: VortexOptions) -> Self {
+    pub fn new_with_options(session: VortexSession, options: VortexOptions) -> Self {
         Self {
             session,
             options: Some(options),
@@ -156,18 +156,18 @@ impl FileFormatFactory for VortexFormatFactory {
 
 impl Default for VortexFormat {
     fn default() -> Self {
-        Self::new(Arc::new(VortexSession::default()))
+        Self::new(VortexSession::default())
     }
 }
 
 impl VortexFormat {
     /// Create a new instance with default options.
-    pub fn new(session: Arc<VortexSession>) -> Self {
+    pub fn new(session: VortexSession) -> Self {
         Self::new_with_options(session, VortexOptions::default())
     }
 
     /// Creates a new instance with configured by a [`VortexOptions`].
-    pub fn new_with_options(session: Arc<VortexSession>, opts: VortexOptions) -> Self {
+    pub fn new_with_options(session: VortexSession, opts: VortexOptions) -> Self {
         Self {
             session: session.clone(),
             file_cache: VortexFileCache::new(

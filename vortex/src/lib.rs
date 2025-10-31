@@ -93,6 +93,8 @@ impl VortexSessionDefault for VortexSession {
 /// get too verbose if we include _everything_.
 #[cfg(test)]
 mod test {
+    use crate as vortex;
+    use crate::VortexSessionDefault;
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stream::ArrayStreamExt;
@@ -102,10 +104,9 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_expr::{gt, lit, root};
-    use vortex_file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
+    use vortex_file::{OpenOptionsSessionExt, WriteOptionsSessionExt, WriteStrategyBuilder};
     use vortex_layout::layouts::compact::CompactCompressor;
-
-    use crate as vortex;
+    use vortex_session::VortexSession;
 
     #[test]
     fn convert() -> anyhow::Result<()> {
@@ -164,11 +165,14 @@ mod test {
 
     #[tokio::test]
     async fn read_write() -> VortexResult<()> {
+        let session = VortexSession::default();
+
         // [write]
         let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
 
         // Write a Vortex file with the default compression and layout strategy.
-        VortexWriteOptions::default()
+        session
+            .write_options()
             .write(
                 &mut tokio::fs::File::create("example.vortex").await?,
                 array.to_array_stream(),
@@ -178,7 +182,8 @@ mod test {
         // [write]
 
         // [read]
-        let array = VortexOpenOptions::new()
+        let array = session
+            .open_options()
             .open("example.vortex")
             .await?
             .scan()?
@@ -198,10 +203,13 @@ mod test {
 
     #[tokio::test]
     async fn compact_read_write() -> VortexResult<()> {
+        let session = VortexSession::default();
+
         // [compact write]
         let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
 
-        VortexWriteOptions::default()
+        session
+            .write_options()
             .with_strategy(
                 WriteStrategyBuilder::new()
                     .with_compressor(CompactCompressor::default())
@@ -214,7 +222,8 @@ mod test {
             .await?;
 
         // [compact read]
-        let recovered_array = VortexOpenOptions::new()
+        let recovered_array = session
+            .open_options()
             .open("example_compact.vortex")
             .await?
             .scan()?

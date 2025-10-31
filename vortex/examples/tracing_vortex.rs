@@ -21,21 +21,26 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinSet;
-use tracing::{Level, debug, error, info, span, warn};
-use tracing_subscriber::Layer;
+use tracing::{debug, error, info, span, warn, Level};
 use tracing_subscriber::layer::{Context, SubscriberExt};
-use vortex::IntoArray;
+use tracing_subscriber::Layer;
 use vortex::arrays::{PrimitiveArray, StructArray, VarBinArray};
 use vortex::compressor::CompactCompressor;
 use vortex::dtype::{DType, Nullability};
 use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
 use vortex::validity::Validity;
+use vortex::{IntoArray, VortexSessionDefault};
 use vortex_array::stream::ArrayStreamExt;
+use vortex_file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
+use vortex_layout::session;
+use vortex_session::VortexSession;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("=== Vortex Tracing Subscriber Example ===\n");
     println!("This example demonstrates using Vortex as a backend for structured logging.\n");
+
+    let session = VortexSession::default();
 
     // Create output directory
     let output_dir: PathBuf = "vortex-traces/".into();
@@ -43,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Create the Vortex tracing layer
     let (vortex_layer, writer_handle, shutdown) =
-        VortexLayer::new(output_dir.clone(), 100_000).await;
+        VortexLayer::new(session.clone(), output_dir.clone(), 100_000).await;
 
     // Set up the subscriber to write all spans and logs to Vortex
     let subscriber = tracing_subscriber::registry().with(vortex_layer);
@@ -68,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\nStep 3: Reading back trace data from Vortex files...");
 
     // Read back and display the logged events
-    read_trace_files(&output_dir).await?;
+    read_trace_files(&session, &output_dir).await?;
 
     println!("\n=== Example completed successfully! ===");
     Ok(())
@@ -170,10 +175,14 @@ impl ShutdownSignal {
 }
 
 impl VortexLayer {
-    async fn new(output_dir: PathBuf, batch_size: usize) -> (Self, WriterHandle, ShutdownSignal) {
+    async fn new(
+        session: VortexSession,
+        output_dir: PathBuf,
+        batch_size: usize,
+    ) -> (Self, WriterHandle, ShutdownSignal) {
         let (tx, rx) = mpsc::unbounded_channel();
         let signal = Arc::new(Mutex::new(Some(tx)));
-        let handle = WriterHandle::spawn(rx, output_dir, batch_size);
+        let handle = WriterHandle::spawn(session, rx, output_dir, batch_size);
         (
             Self {
                 sender: signal.clone(),
@@ -251,6 +260,7 @@ struct WriterHandle {
 
 impl WriterHandle {
     fn spawn(
+        session: VortexSession,
         mut rx: mpsc::UnboundedReceiver<TraceEvent>,
         output_dir: PathBuf,
         batch_size: usize,
@@ -263,14 +273,15 @@ impl WriterHandle {
                 buffer.push(event);
 
                 if buffer.len() >= batch_size {
-                    write_batch_to_vortex(&output_dir, &buffer, file_counter).await?;
+                    write_batch_to_vortex(session.clone(), &output_dir, &buffer, file_counter)
+                        .await?;
                     file_counter += 1;
                     buffer.clear();
                 }
             }
 
             if !buffer.is_empty() {
-                write_batch_to_vortex(&output_dir, &buffer, file_counter).await?;
+                write_batch_to_vortex(session, &output_dir, &buffer, file_counter).await?;
             }
 
             Ok(())
@@ -286,6 +297,7 @@ impl WriterHandle {
 
 /// Writes a batch of events to a Vortex file
 async fn write_batch_to_vortex(
+    session: VortexSession,
     output_dir: &Path,
     events: &[TraceEvent],
     file_index: usize,
@@ -362,7 +374,7 @@ async fn write_batch_to_vortex(
     let mut file = tokio::fs::File::create(&file_path).await?;
 
     // Use the write-optimized CompactCompressor for the telemetry files.
-    let write_opts = VortexWriteOptions::default().with_strategy(
+    let write_opts = session.write_options().with_strategy(
         WriteStrategyBuilder::new()
             .with_compressor(CompactCompressor::default())
             .build(),
@@ -384,6 +396,7 @@ async fn write_batch_to_vortex(
 
 /// Reads and displays trace files
 async fn read_trace_files(
+    session: &VortexSession,
     output_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut entries = tokio::fs::read_dir(output_dir).await?;
@@ -396,9 +409,7 @@ async fn read_trace_files(
             file_count += 1;
 
             // Read the file
-            let reader = vortex::file::VortexOpenOptions::new()
-                .open(path.clone())
-                .await?;
+            let reader = session.open_options().open(path.clone()).await?;
             let array = reader.scan()?.into_array_stream()?.read_all().await?;
 
             total_events += array.len();
