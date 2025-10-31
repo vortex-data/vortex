@@ -23,7 +23,7 @@ impl CurrentThreadWorkerPool {
         }
     }
 
-    /// Set the numer of worker threads to the available system parallelism as reported by
+    /// Set the number of worker threads to the available system parallelism as reported by
     /// `std::thread::available_parallelism()` minus 1, to leave a slot open for the calling thread.
     pub fn set_workers_to_available_parallelism(&self) {
         let n = std::thread::available_parallelism()
