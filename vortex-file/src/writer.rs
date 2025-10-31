@@ -3,31 +3,30 @@
 
 use std::io;
 use std::io::Write;
-use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
-
-use futures::future::{Fuse, LocalBoxFuture, ready};
-use futures::{FutureExt, StreamExt, TryStreamExt, pin_mut, select};
-use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-use vortex_array::stats::{PRUNING_STATS, Stat};
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt, SendableArrayStream};
-use vortex_array::{ArrayContext, ArrayRef};
-use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
-};
-use vortex_io::kanal_ext::KanalExt;
-use vortex_io::runtime::{BlockingRuntime, Handle};
-use vortex_io::{IoBuf, VortexWrite};
-use vortex_layout::LayoutStrategy;
-use vortex_layout::layouts::file_stats::accumulate_stats;
-use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
+use std::sync::Arc;
 
 use crate::counting::CountingVortexWrite;
 use crate::footer::FileStatistics;
 use crate::segments::writer::BufferedSegmentSink;
-use crate::{Footer, MAGIC_BYTES, WriteStrategyBuilder};
+use crate::{Footer, WriteStrategyBuilder, MAGIC_BYTES};
+use futures::future::{ready, Fuse, LocalBoxFuture};
+use futures::{pin_mut, select, FutureExt, StreamExt, TryStreamExt};
+use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
+use vortex_array::stats::{Stat, PRUNING_STATS};
+use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt, SendableArrayStream};
+use vortex_array::{ArrayContext, ArrayRef};
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_io::kanal_ext::KanalExt;
+use vortex_io::runtime::{BlockingRuntime, Handle};
+use vortex_io::session::RuntimeSessionExt;
+use vortex_io::{IoBuf, VortexWrite};
+use vortex_layout::layouts::file_stats::accumulate_stats;
+use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
+use vortex_layout::LayoutStrategy;
+use vortex_session::{SessionExt, VortexSession};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -38,36 +37,25 @@ pub struct VortexWriteOptions {
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
-    handle: Option<Handle>,
+    handle: Handle,
+    session: VortexSession,
 }
 
-impl Default for VortexWriteOptions {
-    fn default() -> Self {
-        Self {
+pub trait WriteOptionsSessionExt: RuntimeSessionExt + SessionExt {
+    fn write_options(&self) -> VortexWriteOptions {
+        VortexWriteOptions {
             strategy: WriteStrategyBuilder::new().build(),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
-            handle: Handle::find(),
+            handle: self.handle(),
+            session: self.session(),
         }
     }
 }
+impl<S: RuntimeSessionExt + SessionExt> WriteOptionsSessionExt for S {}
 
 impl VortexWriteOptions {
-    /// Configure a [`Handle`] for driving async tasks.
-    ///
-    /// If not provided, a handle will try to be inferred from [`Handle::find`].
-    pub fn with_handle(mut self, handle: Handle) -> Self {
-        self.handle = Some(handle);
-        self
-    }
-
-    /// See [`VortexWriteOptions::with_handle`].
-    pub fn with_some_handle(mut self, handle: Option<Handle>) -> Self {
-        self.handle = handle.or(self.handle);
-        self
-    }
-
     /// Replace the default layout strategy with the provided one.
     pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
         self.strategy = strategy;
@@ -97,9 +85,6 @@ impl VortexWriteOptions {
 
     /// Drop into the blocking writer API using the given runtime.
     pub fn with_blocking<B: BlockingRuntime>(self, runtime: B) -> BlockingWrite<B> {
-        if self.handle.is_some() {
-            vortex_panic!("Must not provide or infer a Handle when using the blocking writer API")
-        }
         BlockingWrite {
             options: self,
             runtime,
@@ -124,9 +109,7 @@ impl VortexWriteOptions {
         mut write: W,
         stream: SendableArrayStream,
     ) -> VortexResult<WriteSummary> {
-        let Some(handle) = self.handle else {
-            vortex_panic!("Must provide a Handle to use the async writer API");
-        };
+        let handle = self.session.handle();
 
         // Set up a Context to capture the encodings used in the file.
         let ctx = ArrayContext::empty();
@@ -356,28 +339,26 @@ pub struct BlockingWrite<B: BlockingRuntime> {
 impl<B: BlockingRuntime> BlockingWrite<B> {
     /// Write a Vortex file into the given `Write` sink.
     pub fn write<W: Write + Unpin>(
-        self,
+        mut self,
         write: W,
         iter: impl ArrayIterator + Send + 'static,
     ) -> VortexResult<WriteSummary> {
         self.runtime.block_on(|handle| async move {
+            self.options.handle = handle;
             self.options
-                .with_handle(handle)
                 .write(BlockingWriteAdapter(write), iter.into_array_stream())
                 .await
         })
     }
 
     pub fn writer<'w, W: Write + Unpin + 'w>(
-        self,
+        mut self,
         write: W,
         dtype: DType,
     ) -> BlockingWriter<'w, B> {
+        self.options.handle = self.runtime.handle();
         BlockingWriter {
-            writer: self
-                .options
-                .with_handle(self.runtime.handle())
-                .writer(BlockingWriteAdapter(write), dtype),
+            writer: self.options.writer(BlockingWriteAdapter(write), dtype),
             runtime: self.runtime,
         }
     }

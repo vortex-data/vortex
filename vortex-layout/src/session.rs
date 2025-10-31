@@ -7,21 +7,37 @@ use crate::layouts::flat::FlatLayoutEncoding;
 use crate::layouts::struct_::StructLayoutEncoding;
 use crate::layouts::zoned::ZonedLayoutEncoding;
 use crate::LayoutEncodingRef;
-use std::ops::Deref;
 use vortex_session::registry::Registry;
-use vortex_session::SessionExt;
+use vortex_session::{Ref, SessionExt};
 
 pub type LayoutRegistry = Registry<LayoutEncodingRef>;
 
 /// Session state for layout encodings.
 #[derive(Debug)]
 pub struct LayoutSession {
-    layouts: LayoutRegistry,
+    registry: LayoutRegistry,
+}
+
+impl LayoutSession {
+    /// Register a layout encoding in the session, replacing any existing encoding with the same ID.
+    pub fn register(&self, layout: LayoutEncodingRef) {
+        self.registry.register(layout);
+    }
+
+    /// Register layout encodings in the session, replacing any existing encodings with the same IDs.
+    pub fn register_many(&self, layouts: impl IntoIterator<Item = LayoutEncodingRef>) {
+        self.registry.register_many(layouts);
+    }
+
+    /// Returns the layout encoding registry.
+    pub fn registry(&self) -> &LayoutRegistry {
+        &self.registry
+    }
 }
 
 impl Default for LayoutSession {
     fn default() -> Self {
-        let mut layouts = LayoutRegistry::default();
+        let layouts = LayoutRegistry::default();
 
         // Register the built-in layout encodings.
         layouts.register_many([
@@ -32,25 +48,15 @@ impl Default for LayoutSession {
             LayoutEncodingRef::new_ref(DictLayoutEncoding.as_ref()),
         ]);
 
-        Self { layouts }
+        Self { registry: layouts }
     }
 }
 
 /// Extension trait for accessing layout session data.
 pub trait LayoutSessionExt: SessionExt {
-    /// Register a layout encoding in the session, replacing any existing encoding with the same ID.
-    fn register_layout(&self, layout: LayoutEncodingRef) {
-        self.register_layouts([layout])
-    }
-
-    /// Register layout encodings in the session, replacing any existing encodings with the same IDs.
-    fn register_layouts(&self, layouts: impl IntoIterator<Item = LayoutEncodingRef>) {
-        self.get::<LayoutSession>().layouts.register_many(layouts);
-    }
-
     /// Returns the layout encoding registry.
-    fn layouts(&self) -> impl Deref<Target = LayoutRegistry> {
-        self.get::<LayoutSession>().map(|v| &v.layouts)
+    fn layouts(&self) -> Ref<'_, LayoutSession> {
+        self.get::<LayoutSession>()
     }
 }
 impl<S: SessionExt> LayoutSessionExt for S {}

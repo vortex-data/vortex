@@ -65,7 +65,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<RuntimeSession>();
 
         // Register the compressed encodings that Vortex ships with.
-        session.register_arrays([
+        session.arrays().register_many([
             EncodingRef::new_ref(ALPEncoding.as_ref()),
             EncodingRef::new_ref(ALPRDEncoding.as_ref()),
             EncodingRef::new_ref(BitPackedEncoding.as_ref()),

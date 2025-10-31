@@ -8,7 +8,7 @@ use itertools::Itertools;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::{ArrayRef, ArrayRegistry};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::messages::{DecoderMessage, EncoderMessage, MessageEncoder, SyncMessageReader};
 
@@ -155,13 +155,15 @@ mod test {
     use std::io::Cursor;
 
     use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-    use vortex_array::{IntoArray as _, ToCanonical};
+    use vortex_array::{ArraySession, IntoArray as _, ToCanonical};
     use vortex_buffer::buffer;
 
     use super::*;
 
     #[test]
     fn test_sync_stream() {
+        let session = ArraySession::default();
+
         let array = buffer![1i32, 2, 3].into_array();
         let ipc_buffer = array
             .to_array_iterator()
@@ -170,8 +172,7 @@ mod test {
             .unwrap();
 
         let reader =
-            SyncIPCReader::try_new(Cursor::new(ipc_buffer), ArrayRegistry::canonical_only())
-                .unwrap();
+            SyncIPCReader::try_new(Cursor::new(ipc_buffer), session.registry().clone()).unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
         let result = reader.read_all().unwrap().to_primitive();

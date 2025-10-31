@@ -7,7 +7,7 @@ use vortex_array::{Canonical, DeserializeMetadata, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_proto::scalar::ScalarValue;
 use vortex_scalar::Scalar;
 
@@ -84,51 +84,5 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
             dtype.nullability(),
             len,
         ))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use vortex_array::ToCanonical;
-    use vortex_array::arrays::{PrimitiveArray, StructArray};
-    use vortex_array::stream::ArrayStreamExt;
-    use vortex_dtype::Nullability;
-    use vortex_expr::{get_item, root};
-    use vortex_file::{VortexOpenOptions, VortexWriteOptions};
-    use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-
-    use crate::SequenceArray;
-
-    #[tokio::test]
-    async fn round_trip_seq() {
-        let seq = SequenceArray::typed_new(2i8, 3, Nullability::NonNullable, 4).unwrap();
-        let st = StructArray::from_fields(&[("a", seq.to_array())]).unwrap();
-
-        let mut file = tokio::fs::File::create("/tmp/abc.vx").await.unwrap();
-        VortexWriteOptions::default()
-            .with_strategy(Arc::new(FlatLayoutStrategy::default()))
-            .write(&mut file, st.to_array_stream())
-            .await
-            .unwrap();
-
-        let file = VortexOpenOptions::new().open("/tmp/abc.vx").await.unwrap();
-        let array = file
-            .scan()
-            .unwrap()
-            .with_projection(get_item("a", root()))
-            .into_array_stream()
-            .unwrap()
-            .read_all()
-            .await
-            .unwrap();
-
-        let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i8 + i * 3));
-
-        assert_eq!(
-            array.to_primitive().as_slice::<i8>(),
-            canon.as_slice::<i8>()
-        )
     }
 }

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use futures::executor::block_on;
 use parking_lot::RwLock;
+use vortex_array::ArraySessionExt;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult};
@@ -15,7 +16,8 @@ use vortex_layout::segments::{
     NoOpSegmentCache, SegmentCache, SegmentCacheMetrics, SegmentCacheSourceAdapter, SegmentId,
     SharedSegmentSource,
 };
-use vortex_metrics::MetricsSessionExt;
+use vortex_layout::session::LayoutSessionExt;
+use vortex_metrics::{MetricsSessionExt, VortexMetrics};
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -27,7 +29,7 @@ const INITIAL_READ_SIZE: usize = 1 << 20; // 1 MB
 
 /// Open options for a Vortex file reader.
 pub struct VortexOpenOptions {
-    /// The Vortex session to use for registries and metrics.
+    /// The session to use for opening the file.
     session: VortexSession,
     /// Cache to use for file segments.
     segment_cache: Arc<dyn SegmentCache>,
@@ -41,25 +43,33 @@ pub struct VortexOpenOptions {
     footer: Option<Footer>,
     /// The segments read during the initial read.
     initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
+    /// A metrics registry for the file.
+    metrics: VortexMetrics,
 }
 
-impl VortexOpenOptions {
-    /// Create a new [`VortexOpenOptions`] with the expected options for the file source.
-    ///
-    /// This should not be used directly, instead public API clients are expected to
-    /// access either `VortexOpenOptions::new()` or `VortexOpenOptions::memory()`
-    pub fn new(session: VortexSession) -> Self {
-        Self {
-            session,
+pub trait OpenOptionsSessionExt:
+    ArraySessionExt + LayoutSessionExt + MetricsSessionExt + RuntimeSessionExt
+{
+    /// Create a new [`VortexOpenOptions`] using the provided session to open a file.
+    fn open_options(&self) -> VortexOpenOptions {
+        VortexOpenOptions {
+            session: self.session(),
             segment_cache: Arc::new(NoOpSegmentCache),
             initial_read_size: INITIAL_READ_SIZE,
             file_size: None,
             dtype: None,
             footer: None,
             initial_read_segments: Default::default(),
+            metrics: self.metrics(),
         }
     }
+}
+impl<S: ArraySessionExt + LayoutSessionExt + MetricsSessionExt + RuntimeSessionExt>
+    OpenOptionsSessionExt for S
+{
+}
 
+impl VortexOpenOptions {
     /// Configure the initial read size for the Vortex file.
     pub fn with_initial_read_size(mut self, initial_read_size: usize) -> Self {
         self.initial_read_size = initial_read_size;
@@ -106,6 +116,12 @@ impl VortexOpenOptions {
         self
     }
 
+    /// Configure a custom [`VortexMetrics`].
+    pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
+        self.metrics = metrics;
+        self
+    }
+
     /// Open a Vortex file using the provided I/O source.
     ///
     /// This is the most common way to open a [`VortexFile`] and tends to provide the best
@@ -114,7 +130,7 @@ impl VortexOpenOptions {
     /// whenever possible and file issues if they encounter problems.
     pub async fn open<S: IntoReadSource>(self, source: S) -> VortexResult<VortexFile> {
         let handle = self.session.handle();
-        let metrics = self.session.metrics().clone();
+        let metrics = self.metrics.clone();
         self.open_read_at(handle.open_read(source, metrics)?).await
     }
 
@@ -132,10 +148,7 @@ impl VortexOpenOptions {
     ///
     /// This is a low-level API and we strongly recommend using [`VortexOpenOptions::open`].
     pub async fn open_read_at<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile> {
-        let read = Arc::new(InstrumentedReadAt::new(
-            Arc::new(read),
-            &self.session.metrics(),
-        ));
+        let read = Arc::new(InstrumentedReadAt::new(Arc::new(read), &self.metrics));
 
         let footer = if let Some(footer) = self.footer {
             footer
@@ -148,7 +161,7 @@ impl VortexOpenOptions {
                 initial: self.initial_read_segments,
                 fallback: self.segment_cache,
             },
-            self.session.metrics(),
+            self.metrics.clone(),
         ));
 
         // Create a segment source backed by the VortexReadAt implementation.
@@ -166,7 +179,7 @@ impl VortexOpenOptions {
         Ok(VortexFile {
             footer,
             segment_source,
-            metrics: self.session.metrics(),
+            metrics: self.metrics,
         })
     }
 
@@ -190,11 +203,9 @@ impl VortexOpenOptions {
             .read_at(initial_offset, initial_read_size, Alignment::none())
             .await?;
 
-        let mut deserializer = Footer::deserializer(initial_read)
+        let mut deserializer = Footer::deserializer(initial_read, self.session.clone())
             .with_size(file_size)
-            .with_some_dtype(self.dtype.clone())
-            .with_array_registry(self.registry.clone())
-            .with_layout_registry(self.layout_registry.clone());
+            .with_some_dtype(self.dtype.clone());
 
         let footer = loop {
             match deserializer.deserialize()? {

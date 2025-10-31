@@ -25,8 +25,8 @@ impl<T: Clone + Display + Eq> Registry<T> {
     }
 
     /// List the items in the registry.
-    pub fn items(&self) -> impl Iterator<Item = impl Deref<Target = T>> + '_ {
-        self.0.iter()
+    pub fn items(&self) -> impl Iterator<Item = T> + '_ {
+        self.0.iter().map(|i| i.value().clone())
     }
 
     /// Return the items with the given IDs.
@@ -38,12 +38,12 @@ impl<T: Clone + Display + Eq> Registry<T> {
     }
 
     /// Find the item with the given ID.
-    pub fn get(&self, id: &str) -> Option<impl Deref<Target = T>> {
-        self.0.get(id)
+    pub fn find(&self, id: &str) -> Option<T> {
+        self.0.get(id).as_deref().cloned()
     }
 
     /// Register a new item, replacing any existing item with the same ID.
-    pub fn register(&mut self, item: T) {
+    pub fn register(&self, item: T) {
         self.0.insert(item.to_string(), item);
     }
 

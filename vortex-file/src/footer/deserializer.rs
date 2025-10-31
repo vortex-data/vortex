@@ -1,19 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use crate::footer::postscript::{Postscript, PostscriptSegment};
 use crate::footer::FileStatistics;
-use crate::{Footer, DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, VERSION};
+use crate::{Footer, EOF_SIZE, MAGIC_BYTES, VERSION};
 use flatbuffers::root;
-use vortex_array::{ArrayRegistry, EncodingRef};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{dtype as fbd, FlatBuffer, ReadFlatBuffer};
-use vortex_layout::{LayoutEncodingRef, LayoutRegistry, LayoutRegistryExt};
-use vortex_session::registry::Registry;
+use vortex_session::VortexSession;
 
 /// Deserialize a footer from the end of a Vortex file or created from a
 /// [`crate::footer::FooterSerializer`].
@@ -22,10 +18,8 @@ pub struct FooterDeserializer {
     // During deserialization, we may need to expand this buffer by requesting more data from
     // the caller.
     buffer: ByteBuffer,
-    // The registry of array encodings.
-    array_registry: ArrayRegistry,
-    // The registry of layouts.
-    layout_registry: LayoutRegistry,
+    // The session to use for deserialization.
+    session: VortexSession,
     // The DType, if provided externally.
     dtype: Option<DType>,
 
@@ -38,15 +32,10 @@ pub struct FooterDeserializer {
 }
 
 impl FooterDeserializer {
-    pub(super) fn new(
-        initial_read: ByteBuffer,
-        array_registry: Registry<EncodingRef>,
-        layout_registry: Registry<LayoutEncodingRef>,
-    ) -> Self {
+    pub(super) fn new(initial_read: ByteBuffer, session: VortexSession) -> Self {
         Self {
             buffer: initial_read,
-            array_registry,
-            layout_registry,
+            session,
             dtype: None,
             file_size: None,
             postscript: None,
@@ -254,8 +243,7 @@ impl FooterDeserializer {
             layout_bytes,
             dtype,
             file_stats,
-            &self.array_registry,
-            &self.layout_registry,
+            self.session.clone(),
         )
     }
 }

@@ -25,7 +25,7 @@ pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
 use vortex_session::registry::Registry;
-use vortex_session::SessionExt;
+use vortex_session::{Ref, SessionExt};
 
 pub mod accessor;
 #[doc(hidden)]
@@ -68,7 +68,23 @@ pub type ArrayRegistry = Registry<EncodingRef>;
 #[derive(Debug)]
 pub struct ArraySession {
     /// The set of registered array encodings.
-    encodings: ArrayRegistry,
+    registry: ArrayRegistry,
+}
+
+impl ArraySession {
+    pub fn registry(&self) -> &ArrayRegistry {
+        &self.registry
+    }
+
+    /// Register a new array encoding, replacing any existing encoding with the same ID.
+    pub fn register(&self, encoding: EncodingRef) {
+        self.registry.register(encoding)
+    }
+
+    /// Register many array encodings, replacing any existing encodings with the same ID.
+    pub fn register_many(&self, encodings: impl IntoIterator<Item = EncodingRef>) {
+        self.registry.register_many(encodings);
+    }
 }
 
 impl Default for ArraySession {
@@ -97,27 +113,17 @@ impl Default for ArraySession {
             EncodingRef::new_ref(VarBinEncoding.as_ref()),
         ]);
 
-        Self { encodings }
+        Self {
+            registry: encodings,
+        }
     }
 }
 
 /// Session data for Vortex arrays.
 pub trait ArraySessionExt: SessionExt {
-    /// Register a new array encoding, replacing any existing encoding with the same ID.
-    fn register_array(&self, encoding: EncodingRef) {
-        self.register_arrays([encoding])
-    }
-
-    /// Register many array encodings, replacing any existing encodings with the same ID.
-    fn register_arrays(&self, encodings: impl IntoIterator<Item = EncodingRef>) {
-        self.get::<ArraySession>()
-            .encodings
-            .register_many(encodings);
-    }
-
     /// Returns the array encoding registry.
-    fn arrays(&self) -> impl std::ops::Deref<Target = ArrayRegistry> {
-        self.get::<ArraySession>().map(|v| &v.encodings)
+    fn arrays(&self) -> Ref<'_, ArraySession> {
+        self.get::<ArraySession>()
     }
 }
 impl<S: SessionExt> ArraySessionExt for S {}

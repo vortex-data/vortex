@@ -8,8 +8,8 @@ use flatbuffers::Follow;
 use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, layout as fbl};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_flatbuffers::{layout as fbl, FlatBuffer};
 
 use crate::segments::SegmentId;
 use crate::{LayoutContext, LayoutRef};

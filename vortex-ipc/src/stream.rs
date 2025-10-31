@@ -3,7 +3,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{Poll, ready};
+use std::task::{ready, Poll};
 
 use bytes::{Bytes, BytesMut};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt, TryStreamExt};
@@ -11,7 +11,7 @@ use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayRef, ArrayRegistry};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::messages::{AsyncMessageReader, DecoderMessage, EncoderMessage, MessageEncoder};
 
@@ -189,13 +189,14 @@ impl Stream for ArrayStreamIPCBytes {
 mod test {
     use futures::io::Cursor;
     use vortex_array::stream::{ArrayStream, ArrayStreamExt};
-    use vortex_array::{IntoArray as _, ToCanonical};
+    use vortex_array::{ArraySession, IntoArray as _, ToCanonical};
     use vortex_buffer::buffer;
 
     use super::*;
 
     #[tokio::test]
     async fn test_async_stream() {
+        let session = ArraySession::default();
         let array = buffer![1, 2, 3].into_array();
         let ipc_buffer = array
             .to_array_stream()
@@ -204,10 +205,9 @@ mod test {
             .await
             .unwrap();
 
-        let reader =
-            AsyncIPCReader::try_new(Cursor::new(ipc_buffer), ArrayRegistry::canonical_only())
-                .await
-                .unwrap();
+        let reader = AsyncIPCReader::try_new(Cursor::new(ipc_buffer), session.registry().clone())
+            .await
+            .unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
         let result = reader.read_all().await.unwrap().to_primitive();

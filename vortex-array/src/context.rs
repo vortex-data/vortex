@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
-use std::sync::Arc;
-
+use crate::EncodingRef;
 use itertools::Itertools;
 use parking_lot::RwLock;
-use vortex_error::VortexExpect;
+use std::fmt::Display;
+use std::sync::Arc;
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_session::registry::Registry;
+
+pub type ArrayContext = VTableContext<EncodingRef>;
 
 /// A collection of encodings that can be addressed by a u16 positional index.
 /// This is used to map array encodings and layout encodings when reading from a file.
@@ -14,6 +17,34 @@ use vortex_error::VortexExpect;
 pub struct VTableContext<T>(Arc<RwLock<Vec<T>>>);
 
 impl<T: Clone + Eq> VTableContext<T> {
+    pub fn new(encodings: Vec<T>) -> Self {
+        Self(Arc::new(RwLock::new(encodings)))
+    }
+
+    pub fn try_from_registry<'a>(
+        registry: &Registry<T>,
+        ids: impl IntoIterator<Item = &'a str>,
+    ) -> VortexResult<Self>
+    where
+        T: Display,
+    {
+        let items: Vec<T> = ids
+            .into_iter()
+            .map(|id| {
+                registry
+                    .find(id)
+                    .ok_or_else(|| vortex_err!("Registry missing encoding with id {}", id))
+            })
+            .try_collect()?;
+        if items.len() > u16::MAX as usize {
+            vortex_bail!(
+                "Cannot create VTableContext: registry has more than u16::MAX ({}) items",
+                u16::MAX
+            );
+        }
+        Ok(Self::new(items))
+    }
+
     pub fn empty() -> Self {
         Self(Arc::new(RwLock::new(Vec::new())))
     }

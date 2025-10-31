@@ -7,16 +7,32 @@ use crate::{
     LiteralExprEncoding, MergeExprEncoding, NotExprEncoding, PackExprEncoding, RootExprEncoding,
     SelectExprEncoding,
 };
-use std::ops::Deref;
 use vortex_session::registry::Registry;
-use vortex_session::SessionExt;
+use vortex_session::{Ref, SessionExt};
 
+/// Registry of expression encodings.
 pub type ExprRegistry = Registry<ExprEncodingRef>;
 
 /// Session state for expression encodings.
 #[derive(Debug)]
 pub struct ExprSession {
-    expressions: ExprRegistry,
+    registry: ExprRegistry,
+}
+
+impl ExprSession {
+    pub fn registry(&self) -> &ExprRegistry {
+        &self.registry
+    }
+
+    /// Register an expression encoding in the session, replacing any existing encoding with the same ID.
+    pub fn register(&self, expr: ExprEncodingRef) {
+        self.registry.register(expr)
+    }
+
+    /// Register expression encodings in the session, replacing any existing encodings with the same IDs.
+    pub fn register_many(&self, exprs: impl IntoIterator<Item = ExprEncodingRef>) {
+        self.registry.register_many(exprs);
+    }
 }
 
 impl Default for ExprSession {
@@ -40,24 +56,16 @@ impl Default for ExprSession {
             ExprEncodingRef::new_ref(SelectExprEncoding.as_ref()),
         ]);
 
-        Self { expressions }
+        Self {
+            registry: expressions,
+        }
     }
 }
 
 /// Extension trait for accessing expression session data.
 pub trait ExprSessionExt: SessionExt {
-    /// Register an expression encoding in the session, replacing any existing encoding with the same ID.
-    fn register_expression(&self, expr: ExprEncodingRef) {
-        self.register_expressions([expr])
-    }
-
-    /// Register expression encodings in the session, replacing any existing encodings with the same IDs.
-    fn register_expressions(&self, exprs: impl IntoIterator<Item = ExprEncodingRef>) {
-        self.get::<ExprSession>().expressions.register_many(exprs);
-    }
-
     /// Returns the expression encoding registry.
-    fn expressions(&self) -> impl Deref<Target = ExprRegistry> {
-        self.get::<ExprSession>().map(|v| &v.expressions)
+    fn expressions(&self) -> Ref<'_, ExprSession> {
+        self.get::<ExprSession>()
     }
 }
