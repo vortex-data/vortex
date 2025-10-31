@@ -1503,8 +1503,8 @@ async fn test_gpu_read_simple() -> VortexResult<()> {
     .into_array();
 
     let st = StructArray::from_fields(&[("numbers", numbers), ("floats", floats)])?;
-    let path = "test.vortex";
-    let file = File::open(path).await?;
+    let path = "/tmp/test-vx/test.vortex";
+    let file = File::create(path).await?;
 
     let strategy = WriteStrategyBuilder::new().with_compressor(BtrBlocksCompressor {
         exclude_int_dict_encoding: true,
@@ -1534,9 +1534,6 @@ async fn test_gpu_read_simple() -> VortexResult<()> {
             cuda_ctx.clone(),
             Arc::new(FileGpuSegmentSource::new(
                 vx_file.footer.segment_map().clone(),
-                // .iter()
-                // .map(|f| SegmentSpec::try_from(f).vortex_unwrap())
-                // .collect::<Arc<[_]>>(),
                 cuda_ctx.default_stream(),
                 file,
             )),
