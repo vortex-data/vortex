@@ -91,6 +91,21 @@ impl<W: VortexWrite> VortexWrite for &mut W {
     }
 }
 
+impl VortexWrite for async_fs::File {
+    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
+        AsyncWriteExt::write_all(self, buffer.as_slice()).await?;
+        Ok(buffer)
+    }
+
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+        AsyncWriteExt::flush(self)
+    }
+
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+        AsyncWriteExt::close(self)
+    }
+}
+
 /// An adapter to use an `AsyncWrite` as a `VortexWrite`.
 pub struct AsyncWriteAdapter<W: AsyncWrite>(pub W);
 impl<W: AsyncWrite + Unpin> VortexWrite for AsyncWriteAdapter<W> {
