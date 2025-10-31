@@ -334,7 +334,7 @@ impl DType {
         }
     }
 
-    /// Owned version of [as_decimal_opt].
+    /// Owned version of [Self::as_decimal_opt].
     pub fn into_decimal_opt(self) -> Option<DecimalDType> {
         if let Decimal(decimal, _) = self {
             Some(decimal)
@@ -354,7 +354,7 @@ impl DType {
         }
     }
 
-    /// Owned version of [as_list_element_opt].
+    /// Owned version of [Self::as_list_element_opt].
     pub fn into_list_element_opt(self) -> Option<Arc<DType>> {
         if let List(edt, _) = self {
             Some(edt)
@@ -375,7 +375,7 @@ impl DType {
         }
     }
 
-    /// Owned version of [as_fixed_size_list_element_opt].
+    /// Owned version of [Self::as_fixed_size_list_element_opt].
     pub fn into_fixed_size_list_element_opt(self) -> Option<Arc<DType>> {
         if let FixedSizeList(edt, ..) = self {
             Some(edt)
@@ -396,7 +396,7 @@ impl DType {
         }
     }
 
-    /// Owned version of [as_any_size_list_element_opt].
+    /// Owned version of [Self::as_any_size_list_element_opt].
     pub fn into_any_size_list_element_opt(self) -> Option<Arc<DType>> {
         if let FixedSizeList(edt, ..) = self {
             Some(edt)
@@ -419,7 +419,7 @@ impl DType {
         vortex_panic!("DType is not a Struct")
     }
 
-    /// Owned version of [as_struct_fields].
+    /// Owned version of [Self::as_struct_fields].
     pub fn into_struct_fields(self) -> StructFields {
         if let Struct(f, _) = self {
             return f;
@@ -436,7 +436,7 @@ impl DType {
         }
     }
 
-    /// Owned version of [as_struct_fields_opt].
+    /// Owned version of [Self::as_struct_fields_opt].
     pub fn into_struct_fields_opt(self) -> Option<StructFields> {
         if let Struct(f, _) = self {
             Some(f)
