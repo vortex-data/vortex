@@ -52,6 +52,12 @@ impl CurrentThreadRuntime {
         Self::default()
     }
 
+    /// Returns a handle for this runtime.
+    pub fn handle(&self) -> Handle {
+        let executor: Arc<dyn Executor> = self.executor.clone();
+        Handle::new(Arc::downgrade(&executor))
+    }
+
     /// Returns an iterator wrapper around a stream, blocking the current thread for each item.
     ///
     /// ## Multi-threaded Usage
@@ -137,7 +143,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use futures::{StreamExt, stream};
+    use futures::{stream, StreamExt};
     use parking_lot::Mutex;
 
     use super::*;

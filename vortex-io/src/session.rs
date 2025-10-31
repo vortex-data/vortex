@@ -1,20 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::runtime::current::CurrentThreadRuntime;
+use crate::runtime::tokio::TokioRuntime;
+use crate::runtime::BlockingRuntime;
 use crate::runtime::Handle;
+use futures::Stream;
 use std::fmt::Debug;
-use vortex_error::VortexExpect;
 use vortex_session::SessionExt;
 
 /// Session state for Vortex async runtimes.
 pub struct RuntimeSession {
-    handle: Option<Handle>,
+    runtime: Runtime,
+}
+
+/// The choices for the runtime used in a session.
+enum Runtime {
+    Tokio(TokioRuntime),
+    CurrentThread(CurrentThreadRuntime),
 }
 
 impl Default for RuntimeSession {
     fn default() -> Self {
+        #[cfg(feature = "tokio")]
+        {
+            use tokio::runtime::Handle as TokioHandle;
+            if let Ok(h) = TokioHandle::try_current() {
+                return RuntimeSession {
+                    runtime: Runtime::Tokio(TokioRuntime::new(h)),
+                };
+            }
+        }
+
+        // Otherwise, by default we use a current-thread runtime.
         Self {
-            handle: Handle::find(),
+            runtime: Runtime::CurrentThread(CurrentThreadRuntime::default()),
         }
     }
 }
@@ -27,25 +47,49 @@ impl Debug for RuntimeSession {
 
 /// Extension trait for accessing runtime session data.
 pub trait RuntimeSessionExt: SessionExt {
-    /// Get the runtime handle for this session.
+    /// Returns a handle for this session's runtime.
     fn handle(&self) -> Handle {
-        self.get::<RuntimeSession>().handle
-            .clone()
-            .vortex_expect("Runtime session has not been configured with a handle, please call `RuntimeSessionExt::with_tokio` or `RuntimeSessionExt::set_handle` to set one up")
-    }
-
-    /// Set the runtime handle for this session.
-    ///
-    /// Required only when the session was not initialized within a Tokio context.
-    fn with_handle(self, handle: Handle) -> Self {
-        self.get_mut::<RuntimeSession>().handle = Some(handle);
-        self
+        let session = self.get::<RuntimeSession>();
+        match &session.runtime {
+            Runtime::Tokio(rt) => rt.handle(),
+            Runtime::CurrentThread(rt) => rt.handle(),
+        }
     }
 
     /// Configure the runtime session to use Tokio.
     #[cfg(feature = "tokio")]
-    fn with_tokio(self) -> Self {
-        self.with_handle(crate::runtime::tokio::TokioRuntime::current())
+    fn with_tokio(self, handle: tokio::runtime::Handle) -> Self {
+        self.get_mut::<RuntimeSession>().runtime = Runtime::Tokio(TokioRuntime::from(handle));
+        self
+    }
+
+    /// Use the session's runtime to block on a future.
+    ///
+    /// Note that care should be used to avoid deadlocks when using this method.
+    fn block_on<F, R>(&self, fut: F) -> R
+    where
+        F: Future<Output = R>,
+    {
+        let session = self.get::<RuntimeSession>();
+        match &session.runtime {
+            Runtime::Tokio(rt) => BlockingRuntime::block_on(rt, |_| fut),
+            Runtime::CurrentThread(rt) => BlockingRuntime::block_on(rt, |_| fut),
+        }
+    }
+
+    /// Use the session's runtime to block on a stream, returning a blocking iterator.
+    ///
+    /// Note that care should be used to avoid deadlocks when using this method.
+    fn block_on_stream<'a, S, R>(&self, s: S) -> Box<dyn Iterator<Item = R> + 'a>
+    where
+        S: Stream<Item = R> + Send + 'a,
+        R: Send + 'a,
+    {
+        let session = self.get::<RuntimeSession>();
+        match &session.runtime {
+            Runtime::Tokio(rt) => Box::new(BlockingRuntime::block_on_stream(rt, |_| s)),
+            Runtime::CurrentThread(rt) => Box::new(BlockingRuntime::block_on_stream(rt, |_| s)),
+        }
     }
 }
 impl<S: SessionExt> RuntimeSessionExt for S {}

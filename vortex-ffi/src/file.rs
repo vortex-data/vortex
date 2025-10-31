@@ -7,8 +7,15 @@ use std::ffi::{c_char, c_int, c_uint, c_ulong, CStr};
 use std::ops::Range;
 use std::slice;
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
+use vortex::stream::ArrayStream;
 
+use crate::array::vx_array;
+use crate::array_iterator::vx_array_iterator;
+use crate::dtype::vx_dtype;
+use crate::error::{try_or_default, vx_error};
+use crate::session::vx_session;
+use crate::{arc_wrapper, to_string_vec};
 use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
@@ -19,18 +26,15 @@ use prost::Message;
 use url::Url;
 use vortex::error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex::expr::proto::deserialize_expr_proto;
-use vortex::expr::{ExprRef, ExprRegistryExt};
-use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::expr::session::{ExprRegistry, ExprSessionExt};
+use vortex::expr::ExprRef;
+use vortex::file::{OpenOptionsSessionExt, VortexFile, WriteOptionsSessionExt};
 use vortex::io::runtime::tokio::TokioRuntime;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::iter::ArrayIteratorAdapter;
 use vortex::proto::expr::Expr;
 use vortex::scan::{ScanBuilder, SplitBy};
-
-use crate::array::vx_array;
-use crate::array_iterator::vx_array_iterator;
-use crate::dtype::vx_dtype;
-use crate::error::{try_or_default, vx_error};
-use crate::session::{vx_session, FileKey};
-use crate::{arc_wrapper, get_runtime, get_vx_runtime, to_string_vec};
+use vortex::session::VortexSession;
 
 arc_wrapper!(
     /// A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.
@@ -85,11 +89,8 @@ pub struct vx_file_scan_options {
     pub row_offset: c_ulong,
 }
 
-// FIXME(ngates): API should require a VortexSession to be passed in instead.
-static EXPR_REGISTRY: LazyLock<vortex::expr::ExprRegistry> =
-    LazyLock::new(vortex::expr::ExprRegistry::default);
-
 fn extract_expression(
+    registry: &ExprRegistry,
     expression: *const c_char,
     expression_len: c_uint,
 ) -> VortexResult<Option<ExprRef>> {
@@ -98,7 +99,7 @@ fn extract_expression(
             unsafe { slice::from_raw_parts(expression as *const u8, expression_len as usize) };
 
         // Decode the protobuf message.
-        deserialize_expr_proto(&Expr::decode(bytes)?, &EXPR_REGISTRY)
+        deserialize_expr_proto(&Expr::decode(bytes)?, registry)
             .map_err(|e| e.with_context("deserializing expr"))?
     }))
 }
@@ -107,12 +108,19 @@ impl vx_file_scan_options {
     /// Processes FFI scan options.
     ///
     /// Extracts and converts a scan configuration from an FFI options struct.
-    fn process_scan_options(&self) -> VortexResult<ScanOptions> {
+    fn process_scan_options(&self, session: &VortexSession) -> VortexResult<ScanOptions> {
         // Extract field names for projection.
-        let projection_expr =
-            extract_expression(self.projection_expression, self.projection_expr_len)?;
+        let projection_expr = extract_expression(
+            session.expressions().registry(),
+            self.projection_expression,
+            self.projection_expr_len,
+        )?;
 
-        let filter_expr = extract_expression(self.filter_expression, self.filter_expression_len)?;
+        let filter_expr = extract_expression(
+            session.expressions().registry(),
+            self.filter_expression,
+            self.filter_expression_len,
+        )?;
 
         let row_range = (self.row_range_end > self.row_range_start)
             .then_some(self.row_range_start..self.row_range_end);
@@ -159,26 +167,9 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
-        let mut file = VortexOpenOptions::new().with_handle(TokioRuntime::current());
-        let mut cache_hit = false;
-        if let Some(footer) = session.get_footer(&FileKey {
-            location: uri_str.to_string(),
-        }) {
-            file = file.with_footer(footer);
-            cache_hit = true;
-        }
-
-        let vxf = get_runtime()
+        let file = session.open_options();
+        let vxf = session
             .block_on(async move { file.open_object_store(&object_store, uri.path()).await })?;
-
-        if !cache_hit {
-            session.put_footer(
-                FileKey {
-                    location: uri_str.to_string(),
-                },
-                vxf.footer().clone(),
-            );
-        }
 
         Ok(vx_file::new(Arc::new(vxf)))
     })
@@ -186,18 +177,22 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_write_array(
+    session: *const vx_session,
     path: *const c_char,
     array: *const vx_array,
     error_out: *mut *mut vx_error,
 ) {
     let array = vx_array::as_ref(array);
     try_or_default(error_out, || {
+        let session = vx_session::as_ref(session);
+
         let path = unsafe { CStr::from_ptr(path) }
             .to_str()
             .map_err(|e| vortex_err!("invalid utf-8: {e}"))?;
 
-        get_runtime().block_on(async {
-            VortexWriteOptions::default()
+        let options = session.write_options();
+        session.block_on(async move {
+            options
                 .write(
                     &mut tokio::fs::File::create(path).await?,
                     array.to_array_stream(),
@@ -234,14 +229,20 @@ pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file) -> *const vx
 /// Can we prune the whole file using file stats and an expression
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_can_prune(
+    session: *const vx_session,
     file: *const vx_file,
     filter_expression: *const c_char,
     filter_expression_len: c_uint,
     error_out: *mut *mut vx_error,
 ) -> bool {
     try_or_default(error_out, || {
+        let session = vx_session::as_ref(session);
         let file = vx_file::as_ref(file);
-        let filter_expr = extract_expression(filter_expression, filter_expression_len)?;
+        let filter_expr = extract_expression(
+            session.expressions().registry(),
+            filter_expression,
+            filter_expression_len,
+        )?;
         Ok(filter_expr
             .map(|expr| file.can_prune(&expr))
             .transpose()?
@@ -252,16 +253,18 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
 /// Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_scan(
+    session: *const vx_session,
     file: *const vx_file,
     opts: *const vx_file_scan_options,
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_iterator {
     try_or_default(error_out, || {
+        let session = vx_session::as_ref(session);
         let file = vx_file::as_ref(file);
 
         let scan_options = unsafe { opts.as_ref() }.map_or_else(
             || Ok(ScanOptions::default()),
-            |options| options.process_scan_options(),
+            |options| options.process_scan_options(session),
         )?;
 
         let layout_reader = file.layout_reader()?;
@@ -286,7 +289,9 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
             scan_builder = scan_builder.with_split_by(split_by_value);
         }
 
-        let iter = scan_builder.into_array_iter(&get_vx_runtime())?;
+        let stream = scan_builder.into_array_stream()?;
+        let iter =
+            ArrayIteratorAdapter::new(stream.dtype().clone(), session.block_on_stream(stream));
 
         Ok(vx_array_iterator::new(Box::new(iter)))
     })

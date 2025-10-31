@@ -12,6 +12,15 @@ use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Executor, Han
 pub struct TokioRuntime(Arc<tokio::runtime::Handle>);
 
 impl TokioRuntime {
+    pub fn new(handle: tokio::runtime::Handle) -> Self {
+        Self(Arc::new(handle))
+    }
+
+    pub fn handle(&self) -> Handle {
+        let executor: Arc<dyn Executor> = self.0.clone();
+        Handle::new(Arc::downgrade(&executor))
+    }
+
     /// Create a new [`Handle`] that always uses the currently scoped Tokio runtime at the time
     /// each operation is invoked.
     pub fn current() -> Handle {
@@ -147,8 +156,8 @@ impl<T> Iterator for TokioBlockingIterator<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use futures::FutureExt;
     use tokio::runtime::Runtime as TokioRt;
