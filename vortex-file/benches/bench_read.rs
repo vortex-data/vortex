@@ -8,8 +8,10 @@ use std::sync::Arc;
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use cudarc::driver::CudaContext;
 use futures::TryStreamExt;
+use rand::prelude::IteratorRandom;
+use rand::{Rng, rng};
 use tokio::runtime::Runtime;
-use vortex_array::arrays::{ChunkedArray, StructArray};
+use vortex_array::arrays::StructArray;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_error::VortexUnwrap;
@@ -23,28 +25,16 @@ const DATA_SIZES: &[(usize, &str)] = &[
 
 #[allow(clippy::cast_possible_truncation)]
 fn make_test_array(len: usize) -> ArrayRef {
-    let numbers = ChunkedArray::from_iter([
-        (0..len / 2)
-            .map(|i| (i as u32) % 64)
-            .collect::<Buffer<u32>>()
-            .into_array(),
-        (0..len / 2)
-            .map(|i| (i as u32) % 64)
-            .collect::<Buffer<u32>>()
-            .into_array(),
-    ])
-    .into_array();
-    let floats = ChunkedArray::from_iter([
-        (0..len / 2)
-            .map(|i| (i % 2) as f32 + 0.1)
-            .collect::<Buffer<f32>>()
-            .into_array(),
-        (0..len / 2)
-            .map(|i| (i % 2) as f32 + 4.1)
-            .collect::<Buffer<f32>>()
-            .into_array(),
-    ])
-    .into_array();
+    let mut rng = rng();
+    let numbers = (0..len)
+        .map(|i| rng.random_range(0..64))
+        .collect::<Buffer<u32>>()
+        .into_array();
+    let float_value = (0..64).map(|v| v as f32 / 10f32).collect::<Vec<_>>();
+    let floats = (0..len)
+        .map(|i| float_value.iter().choose_stable(&mut rng).unwrap())
+        .collect::<Buffer<f32>>()
+        .into_array();
 
     StructArray::from_fields(&[("numbers", numbers), ("floats", floats)])
         .vortex_unwrap()
