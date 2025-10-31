@@ -3,8 +3,9 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::SESSION;
 use vortex::error::VortexResult;
-use vortex::file::VortexOpenOptions;
+use vortex::file::OpenOptionsSessionExt;
 use vortex::stream::ArrayStreamExt;
 
 #[derive(Debug, clap::Parser)]
@@ -41,7 +42,8 @@ pub async fn exec_tree(args: TreeArgs) -> VortexResult<()> {
 }
 
 async fn exec_array_tree(file: &Path) -> VortexResult<()> {
-    let full = VortexOpenOptions::new()
+    let full = SESSION
+        .open_options()
         .open(file)
         .await?
         .scan()?
@@ -55,7 +57,7 @@ async fn exec_array_tree(file: &Path) -> VortexResult<()> {
 }
 
 async fn exec_layout_tree(file: &Path, verbose: bool) -> VortexResult<()> {
-    let vxf = VortexOpenOptions::new().open(file).await?;
+    let vxf = SESSION.open_options().open(file).await?;
     let footer = vxf.footer();
 
     println!("{}", footer.layout().display_tree_verbose(verbose));

@@ -19,7 +19,7 @@ use prost::Message;
 use url::Url;
 use vortex::error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex::expr::proto::deserialize_expr_proto;
-use vortex::expr::{xprRegistryExt, ExprRef};
+use vortex::expr::{ExprRef, ExprRegistryExt};
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::proto::expr::Expr;

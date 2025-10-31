@@ -9,7 +9,7 @@ use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap};
-use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
+use vortex::file::{Footer, OpenOptionsSessionExt, SegmentSpec, VortexFile};
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::layout::segments::{SegmentId, SegmentSource};
@@ -17,6 +17,7 @@ use vortex::layout::{LayoutRef, VTable};
 use vortex::serde::ArrayParts;
 
 use crate::browse::ui::SegmentGridState;
+use crate::SESSION;
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
 pub enum Tab {
@@ -199,7 +200,7 @@ impl AppState<'_> {
 
 /// Create an app backed from a file path.
 pub async fn create_file_app<'a>(path: impl AsRef<Path>) -> VortexResult<AppState<'a>> {
-    let vxf = VortexOpenOptions::new().open(path.as_ref()).await?;
+    let vxf = SESSION.open_options().open(path.as_ref()).await?;
 
     let cursor = LayoutCursor::new(vxf.footer().clone(), vxf.segment_source());
 

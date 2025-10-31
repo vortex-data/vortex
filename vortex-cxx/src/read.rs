@@ -16,7 +16,6 @@ use vortex::arrow::IntoArrowArray;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::arrow::RecordBatchIteratorAdapter;
 use vortex::scan::ScanBuilder;
 use vortex::ArrayRef;

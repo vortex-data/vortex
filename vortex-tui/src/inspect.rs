@@ -7,12 +7,13 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::SESSION;
 use flatbuffers::root;
 use itertools::Itertools;
 use vortex::buffer::{Alignment, ByteBuffer};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex::file::{
-    EOF_SIZE, Footer, MAGIC_BYTES, MAX_POSTSCRIPT_SIZE, VERSION, VortexOpenOptions,
+    Footer, OpenOptionsSessionExt, EOF_SIZE, MAGIC_BYTES, MAX_POSTSCRIPT_SIZE, VERSION,
 };
 use vortex::flatbuffers::footer as fb;
 use vortex::layout::LayoutRef;
@@ -208,7 +209,8 @@ impl VortexInspector {
     }
 
     async fn read_footer(&mut self) -> VortexResult<Footer> {
-        Ok(VortexOpenOptions::new()
+        Ok(SESSION
+            .open_options()
             .open(self.path.as_path())
             .await?
             .footer()

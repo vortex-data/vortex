@@ -7,14 +7,16 @@ mod convert;
 mod inspect;
 mod tree;
 
-use std::path::PathBuf;
-
+use crate::inspect::InspectArgs;
 use browse::exec_tui;
 use clap::{CommandFactory, Parser};
-use tree::{TreeArgs, exec_tree};
+use std::path::PathBuf;
+use std::sync::LazyLock;
+use tree::{exec_tree, TreeArgs};
 use vortex::error::VortexExpect;
-
-use crate::inspect::InspectArgs;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::session::VortexSession;
+use vortex::VortexSessionDefault;
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -47,6 +49,9 @@ impl Commands {
         }
     }
 }
+
+pub(crate) static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::default().with_tokio());
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

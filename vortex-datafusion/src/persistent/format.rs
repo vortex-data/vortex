@@ -395,7 +395,7 @@ impl FileFormat for VortexFormat {
         }
 
         let schema = conf.output_schema().clone();
-        let sink = Arc::new(VortexSink::new(conf, schema));
+        let sink = Arc::new(VortexSink::new(conf, schema, self.session.clone()));
 
         Ok(Arc::new(DataSinkExec::new(input, sink, order_requirements)) as _)
     }

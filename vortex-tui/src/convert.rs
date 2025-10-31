@@ -3,20 +3,21 @@
 
 use std::path::PathBuf;
 
+use crate::SESSION;
 use clap::{Parser, ValueEnum};
 use futures::StreamExt;
 use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect};
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::file::{WriteOptionsSessionExt, WriteStrategyBuilder};
 use vortex::stream::ArrayStreamAdapter;
+use vortex::ArrayRef;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Strategy {
@@ -82,7 +83,8 @@ pub async fn exec_convert(flags: Flags) -> anyhow::Result<()> {
     };
 
     let mut file = File::create(output_path).await?;
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .with_strategy(strategy.build())
         .write(&mut file, ArrayStreamAdapter::new(dtype, vortex_stream))
         .await?;

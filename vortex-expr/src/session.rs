@@ -69,3 +69,4 @@ pub trait ExprSessionExt: SessionExt {
         self.get::<ExprSession>()
     }
 }
+impl<S: SessionExt> ExprSessionExt for S {}
