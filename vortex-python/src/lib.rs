@@ -38,7 +38,7 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 });
 
 static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio(TOKIO_RUNTIME.handle().clone()));
+    LazyLock::new(|| VortexSession::default().with_tokio_handle(TOKIO_RUNTIME.handle().clone()));
 
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
 #[pymodule]

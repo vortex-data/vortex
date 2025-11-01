@@ -21,7 +21,7 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{root, ExprRef};
-use vortex_io::session::RuntimeSessionExt;
+use vortex_io::runtime::BlockingRuntime;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
 use vortex_metrics::VortexMetrics;
@@ -88,13 +88,15 @@ impl ScanBuilder<ArrayRef> {
     }
 
     /// Returns an [`ArrayIterator`] using the given blocking runtime.
-    pub fn into_array_iter(self) -> VortexResult<impl ArrayIterator + 'static> {
-        let session = self.session.clone();
+    pub fn into_array_iter<B: BlockingRuntime>(
+        self,
+        runtime: &B,
+    ) -> VortexResult<impl ArrayIterator + 'static> {
         let stream = self.into_array_stream()?;
         let dtype = stream.dtype().clone();
         Ok(ArrayIteratorAdapter::new(
             dtype,
-            session.block_on_stream(stream),
+            runtime.block_on_stream(|_| stream),
         ))
     }
 }
@@ -269,10 +271,12 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     /// Returns an [`Iterator`] using the session's runtime.
-    pub fn into_iter(self) -> VortexResult<impl Iterator<Item = VortexResult<A>> + Send + 'static> {
-        let session = self.session.clone();
+    pub fn into_iter<B: BlockingRuntime>(
+        self,
+        runtime: &B,
+    ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
         let stream = self.into_stream()?;
-        Ok(session.block_on_stream(stream))
+        Ok(runtime.block_on_stream(|_h| stream))
     }
 }
 

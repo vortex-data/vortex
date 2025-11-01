@@ -20,6 +20,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_io::kanal_ext::KanalExt;
+use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_io::{IoBuf, VortexWrite};
 use vortex_layout::layouts::file_stats::accumulate_stats;
@@ -32,25 +33,26 @@ use vortex_session::{SessionExt, VortexSession};
 /// Unless overridden, the default [write strategy][crate::WriteStrategyBuilder] will be used with no
 /// additional configuration.
 pub struct VortexWriteOptions {
+    session: VortexSession,
     strategy: Arc<dyn LayoutStrategy>,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
-    session: VortexSession,
 }
 
-pub trait WriteOptionsSessionExt: RuntimeSessionExt + SessionExt {
+pub trait WriteOptionsSessionExt: SessionExt {
+    /// Create [`VortexWriteOptions`] for writing to a Vortex file.
     fn write_options(&self) -> VortexWriteOptions {
         VortexWriteOptions {
+            session: self.session(),
             strategy: WriteStrategyBuilder::new().build(),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
-            session: self.session(),
         }
     }
 }
-impl<S: RuntimeSessionExt + SessionExt> WriteOptionsSessionExt for S {}
+impl<S: SessionExt> WriteOptionsSessionExt for S {}
 
 impl VortexWriteOptions {
     /// Replace the default layout strategy with the provided one.
@@ -76,8 +78,16 @@ impl VortexWriteOptions {
 
 impl VortexWriteOptions {
     /// Drop into the blocking writer API using the given runtime.
-    pub fn blocking(self) -> BlockingWrite {
-        BlockingWrite { options: self }
+    pub fn blocking<B: BlockingRuntime + Default>(self) -> BlockingWrite<B> {
+        self.with_blocking(B::default())
+    }
+
+    /// Drop into the blocking writer API using the given runtime.
+    pub fn with_blocking<B: BlockingRuntime>(self, runtime: B) -> BlockingWrite<B> {
+        BlockingWrite {
+            options: self,
+            runtime,
+        }
     }
 
     /// Write an [`ArrayStream`] as a Vortex file.
@@ -98,8 +108,6 @@ impl VortexWriteOptions {
         mut write: W,
         stream: SendableArrayStream,
     ) -> VortexResult<WriteSummary> {
-        let handle = self.session.handle();
-
         // Set up a Context to capture the encodings used in the file.
         let ctx = ArrayContext::empty();
         let dtype = stream.dtype().clone();
@@ -131,7 +139,7 @@ impl VortexWriteOptions {
         // We spawn the layout future so it is driven in the background while we write the
         // buffer stream, so we don't need to poll it until all buffers have been drained.
         let ctx2 = ctx.clone();
-        let layout_fut = handle.spawn_nested(|h| async move {
+        let layout_fut = self.session.handle().spawn_nested(|h| async move {
             let layout = self
                 .strategy
                 .write_stream(ctx2, segments.clone(), stream, eof, h)
@@ -320,43 +328,46 @@ impl Writer<'_> {
 }
 
 /// A blocking API for writing Vortex files.
-pub struct BlockingWrite {
+pub struct BlockingWrite<B: BlockingRuntime> {
     options: VortexWriteOptions,
+    runtime: B,
 }
 
-impl BlockingWrite {
+impl<B: BlockingRuntime> BlockingWrite<B> {
     /// Write a Vortex file into the given `Write` sink.
     pub fn write<W: Write + Unpin>(
         self,
         write: W,
         iter: impl ArrayIterator + Send + 'static,
     ) -> VortexResult<WriteSummary> {
-        let session = self.options.session.clone();
-        session.block_on(async move {
+        self.runtime.block_on(|_| async move {
             self.options
                 .write(BlockingWriteAdapter(write), iter.into_array_stream())
                 .await
         })
     }
 
-    pub fn writer<'w, W: Write + Unpin + 'w>(self, write: W, dtype: DType) -> BlockingWriter<'w> {
-        let session = self.options.session.clone();
+    pub fn writer<'w, W: Write + Unpin + 'w>(
+        self,
+        write: W,
+        dtype: DType,
+    ) -> BlockingWriter<'w, B> {
         BlockingWriter {
             writer: self.options.writer(BlockingWriteAdapter(write), dtype),
-            session,
+            runtime: self.runtime,
         }
     }
 }
 
 /// A blocking adapter around a [`Writer`], allowing incremental writing of arrays to a Vortex file.
-pub struct BlockingWriter<'w> {
+pub struct BlockingWriter<'w, B: BlockingRuntime> {
+    runtime: B,
     writer: Writer<'w>,
-    session: VortexSession,
 }
 
-impl BlockingWriter<'_> {
+impl<B: BlockingRuntime> BlockingWriter<'_, B> {
     pub fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
-        self.session.block_on(self.writer.push(chunk))
+        self.runtime.block_on(|_| self.writer.push(chunk))
     }
 
     pub fn bytes_written(&self) -> u64 {
@@ -368,7 +379,7 @@ impl BlockingWriter<'_> {
     }
 
     pub fn finish(self) -> VortexResult<WriteSummary> {
-        self.session.block_on(self.writer.finish())
+        self.runtime.block_on(|_| self.writer.finish())
     }
 }
 

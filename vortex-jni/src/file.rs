@@ -25,7 +25,7 @@ use vortex::utils::aliases::hash_map::HashMap;
 use crate::array_iter::NativeArrayIterator;
 use crate::errors::try_or_throw;
 use crate::object_store::make_object_store;
-use crate::SESSION;
+use crate::{SESSION, TOKIO_RUNTIME};
 
 pub struct NativeFile {
     inner: VortexFile,
@@ -92,7 +92,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_listVortexFiles<'lo
 
         let mut stream = store.list(Some(&prefix));
 
-        let paths_vec = SESSION.block_on(async move {
+        let paths_vec = TOKIO_RUNTIME.block_on(async move {
             let mut paths = Vec::new();
             while let Some(file) = stream.next().await {
                 let file = file.map_err(VortexError::from)?;
@@ -165,7 +165,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_delete<'local>(
         for uri in delete_uris {
             let url = Url::parse(&uri).map_err(VortexError::from)?;
             // TODO(aduffy): block on all of them
-            SESSION
+            TOKIO_RUNTIME
                 .block_on(
                     store.delete(
                         &Path::from_url_path(url.path())
@@ -211,7 +211,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open<'local>(
 
         let (store, _scheme) = make_object_store(&url, &properties)?;
         let open_file =
-            SESSION.block_on(SESSION.open_options().open_object_store(&store, url.path()))?;
+            TOKIO_RUNTIME.block_on(SESSION.open_options().open_object_store(&store, url.path()))?;
 
         Ok(NativeFile::new(open_file).into_raw())
     })

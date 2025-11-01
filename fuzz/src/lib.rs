@@ -8,5 +8,10 @@ mod array;
 pub mod error;
 mod file;
 
-pub use array::{Action, CompressorStrategy, ExpectedValue, FuzzArrayAction, sort_canonical_array};
+pub use array::{sort_canonical_array, Action, CompressorStrategy, ExpectedValue, FuzzArrayAction};
 pub use file::FuzzFileAction;
+use std::sync::LazyLock;
+use vortex::VortexSessionDefault;
+use vortex_session::VortexSession;
+
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);

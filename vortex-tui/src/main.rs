@@ -52,7 +52,7 @@ impl Commands {
 }
 
 pub(crate) static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio(Handle::current()));
+    LazyLock::new(|| VortexSession::default().with_tokio_handle(Handle::current()));
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

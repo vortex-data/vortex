@@ -22,7 +22,7 @@ use vortex_datafusion::VortexFormat;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let session = VortexSession::default().with_tokio(Handle::current());
+    let session = VortexSession::default().with_tokio_handle(Handle::current());
 
     let temp_dir = tempdir()?;
     let strings = ChunkedArray::from_iter([

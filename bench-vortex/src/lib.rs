@@ -4,16 +4,16 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
-use std::clone::Clone;
-use std::fmt::Display;
-use std::str::FromStr;
-
 use clap::ValueEnum;
 use itertools::Itertools;
 use serde::Serialize;
+use std::clone::Clone;
+use std::fmt::Display;
+use std::str::FromStr;
+use std::sync::LazyLock;
 pub use utils::file_utils::*;
 pub use utils::logging::*;
-use vortex::error::{VortexUnwrap, vortex_err};
+use vortex::error::{vortex_err, VortexUnwrap};
 use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
 use vortex::layout::layouts::compact::CompactCompressor;
 
@@ -40,13 +40,19 @@ pub mod tpcds;
 pub mod tpch;
 pub mod utils;
 
-pub use datasets::{BenchmarkDataset, file};
+pub use datasets::{file, BenchmarkDataset};
 pub use engines::df;
 pub use vortex::error::vortex_panic;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::session::VortexSession;
+use vortex::VortexSessionDefault;
 
 // All benchmarks run with mimalloc for consistency.
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::default().with_tokio_handle());
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Target {

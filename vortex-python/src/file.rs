@@ -10,7 +10,7 @@ use crate::dtype::PyDType;
 use crate::expr::PyExpr;
 use crate::iter::PyArrayIterator;
 use crate::scan::PyRepeatedScan;
-use crate::{install_module, SESSION};
+use crate::{install_module, SESSION, TOKIO_RUNTIME};
 use arrow_array::RecordBatchReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -41,7 +41,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyo3(signature = (path, *, without_segment_cache = false))]
 pub fn open(py: Python, path: &str, without_segment_cache: bool) -> PyResult<PyVortexFile> {
     let vxf = py.detach(|| {
-        SESSION.block_on(async move {
+        TOKIO_RUNTIME.block_on(async move {
             let mut options = SESSION.open_options();
             if without_segment_cache {
                 options = options.without_segment_cache();

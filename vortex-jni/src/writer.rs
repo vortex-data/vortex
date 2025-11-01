@@ -5,7 +5,7 @@ use std::io::Cursor;
 
 use crate::errors::{try_or_throw, JNIError};
 use crate::object_store::make_object_store;
-use crate::SESSION;
+use crate::{SESSION, TOKIO_RUNTIME};
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::StreamReader;
 use futures::channel::mpsc;
@@ -84,7 +84,7 @@ impl NativeWriter {
 
         let mut sender = self.sender.clone();
 
-        SESSION.block_on(async move {
+        TOKIO_RUNTIME.block_on(async move {
             sender
                 .send(Ok(vortex_batch))
                 .await
@@ -108,7 +108,7 @@ impl NativeWriter {
 
         // Join the write handle, which completes after all chunks have been flushed and the file
         // stream is closed.
-        SESSION.block_on(handle)?;
+        TOKIO_RUNTIME.block_on(handle)?;
 
         Ok(())
     }

@@ -32,7 +32,7 @@ mod copy;
 mod e2e_test;
 
 // A global runtime for Vortex operations within DuckDB.
-static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(|| CurrentThreadRuntime::new());
+static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::default().with_current_thread_runtime(RUNTIME.clone()));
 

@@ -5,20 +5,21 @@
 #![allow(clippy::result_large_err)]
 
 use itertools::Itertools;
-use libfuzzer_sys::{Corpus, fuzz_target};
+use libfuzzer_sys::{fuzz_target, Corpus};
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::compute::{Operator, compare, filter};
+use vortex_array::compute::{compare, filter, Operator};
 use vortex_array::{Array, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::{DType, StructFields};
-use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
-use vortex_expr::{Scope, lit, root};
-use vortex_file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
-use vortex_fuzz::{CompressorStrategy, FuzzFileAction};
-use vortex_io::runtime::single::SingleThreadRuntime;
+use vortex_error::{vortex_panic, VortexExpect, VortexUnwrap};
+use vortex_expr::{lit, root, Scope};
+use vortex_file::OpenOptionsSessionExt;
+use vortex_file::WriteOptionsSessionExt;
+use vortex_file::WriteStrategyBuilder;
+use vortex_fuzz::{CompressorStrategy, FuzzFileAction, SESSION};
 use vortex_layout::layouts::compact::CompactCompressor;
-use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
+use vortex_utils::aliases::DefaultHashBuilder;
 
 fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let FuzzFileAction {
@@ -49,29 +50,30 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     };
 
     let write_options = match compressor_strategy {
-        CompressorStrategy::Default => VortexWriteOptions::default(),
+        CompressorStrategy::Default => SESSION.write_options(),
         CompressorStrategy::Compact => {
             let strategy = WriteStrategyBuilder::new()
                 .with_compressor(CompactCompressor::default())
                 .build();
-            VortexWriteOptions::default().with_strategy(strategy)
+            SESSION.write_options().with_strategy(strategy)
         }
     };
 
     let mut full_buff = ByteBufferMut::empty();
     let _footer = write_options
-        .blocking::<SingleThreadRuntime>()
+        .blocking()
         .write(&mut full_buff, array_data.to_array_iterator())
         .vortex_unwrap();
 
-    let mut output = VortexOpenOptions::new()
+    let mut output = SESSION
+        .open_options()
         .open_buffer(full_buff)
         .vortex_unwrap()
         .scan()
         .vortex_unwrap()
         .with_projection(projection_expr.unwrap_or_else(|| root()))
         .with_some_filter(filter_expr)
-        .into_array_iter(&SingleThreadRuntime::default())
+        .into_array_iter()
         .vortex_unwrap()
         .try_collect::<_, Vec<_>, _>()
         .vortex_unwrap();

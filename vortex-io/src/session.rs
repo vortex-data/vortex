@@ -4,7 +4,6 @@
 use crate::runtime::current::CurrentThreadRuntime;
 use crate::runtime::BlockingRuntime;
 use crate::runtime::Handle;
-use futures::Stream;
 use std::fmt::Debug;
 use vortex_session::SessionExt;
 
@@ -15,8 +14,13 @@ pub struct RuntimeSession {
 
 /// The choices for the runtime used in a session.
 enum Runtime {
+    /// A specific Tokio runtime.
     #[cfg(feature = "tokio")]
     Tokio(crate::runtime::tokio::TokioRuntime),
+    /// Whatever the current Tokio runtime is.
+    #[cfg(feature = "tokio")]
+    TokioCurrent,
+    /// A current-thread runtime.
     CurrentThread(CurrentThreadRuntime),
 }
 
@@ -33,6 +37,7 @@ impl Default for RuntimeSession {
         }
 
         // Otherwise, by default we use a current-thread runtime.
+        // TODO(ngates): is this sensible? How does the caller even execute this runtime?
         Self {
             runtime: Runtime::CurrentThread(CurrentThreadRuntime::default()),
         }
@@ -53,13 +58,24 @@ pub trait RuntimeSessionExt: SessionExt {
         match &session.runtime {
             #[cfg(feature = "tokio")]
             Runtime::Tokio(rt) => rt.handle(),
+            #[cfg(feature = "tokio")]
+            Runtime::TokioCurrent => crate::runtime::tokio::TokioRuntime::current(),
             Runtime::CurrentThread(rt) => rt.handle(),
         }
     }
 
-    /// Configure the runtime session to use Tokio.
+    /// Configure the runtime session to use the application's Tokio runtime.
+    ///
+    /// For example, if the application is launched using `#[tokio::main]`.
     #[cfg(feature = "tokio")]
-    fn with_tokio(self, handle: tokio::runtime::Handle) -> Self {
+    fn with_tokio(self) -> Self {
+        self.get_mut::<RuntimeSession>().runtime = Runtime::TokioCurrent;
+        self
+    }
+
+    /// Configure the runtime session to use a specific Tokio handle.
+    #[cfg(feature = "tokio")]
+    fn with_tokio_handle(self, handle: tokio::runtime::Handle) -> Self {
         self.get_mut::<RuntimeSession>().runtime =
             Runtime::Tokio(crate::runtime::tokio::TokioRuntime::from(handle));
         self
@@ -69,37 +85,6 @@ pub trait RuntimeSessionExt: SessionExt {
     fn with_current_thread_runtime(self, runtime: CurrentThreadRuntime) -> Self {
         self.get_mut::<RuntimeSession>().runtime = Runtime::CurrentThread(runtime);
         self
-    }
-
-    /// Use the session's runtime to block on a future.
-    ///
-    /// Note that care should be used to avoid deadlocks when using this method.
-    fn block_on<F, R>(&self, fut: F) -> R
-    where
-        F: Future<Output = R>,
-    {
-        let session = self.get::<RuntimeSession>();
-        match &session.runtime {
-            #[cfg(feature = "tokio")]
-            Runtime::Tokio(rt) => BlockingRuntime::block_on(rt, |_| fut),
-            Runtime::CurrentThread(rt) => BlockingRuntime::block_on(rt, |_| fut),
-        }
-    }
-
-    /// Use the session's runtime to block on a stream, returning a blocking iterator.
-    ///
-    /// Note that care should be used to avoid deadlocks when using this method.
-    fn block_on_stream<'a, S, R>(&self, s: S) -> Box<dyn Iterator<Item = R> + Send + 'a>
-    where
-        S: Stream<Item = R> + Send + 'a,
-        R: Send + 'a,
-    {
-        let session = self.get::<RuntimeSession>();
-        match &session.runtime {
-            #[cfg(feature = "tokio")]
-            Runtime::Tokio(rt) => Box::new(BlockingRuntime::block_on_stream(rt, |_| s)),
-            Runtime::CurrentThread(rt) => Box::new(BlockingRuntime::block_on_stream(rt, |_| s)),
-        }
     }
 }
 impl<S: SessionExt> RuntimeSessionExt for S {}

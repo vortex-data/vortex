@@ -31,7 +31,6 @@ use vortex::expr::{and, and_collect, col, lit, root, select, ExprRef};
 use vortex::file::{OpenOptionsSessionExt, VortexFile, VortexOpenOptions};
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::session::RuntimeSessionExt;
 use vortex::{ArrayRef, ToCanonical};
 
 pub struct VortexBindData {

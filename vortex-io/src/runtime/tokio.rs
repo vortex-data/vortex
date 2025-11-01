@@ -16,11 +16,6 @@ impl TokioRuntime {
         Self(Arc::new(handle))
     }
 
-    pub fn handle(&self) -> Handle {
-        let executor: Arc<dyn Executor> = self.0.clone();
-        Handle::new(Arc::downgrade(&executor))
-    }
-
     /// Create a new [`Handle`] that always uses the currently scoped Tokio runtime at the time
     /// each operation is invoked.
     pub fn current() -> Handle {

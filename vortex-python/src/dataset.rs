@@ -7,7 +7,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrow::{IntoPyArrow, ToPyArrow};
 use crate::expr::PyExpr;
 use crate::object_store_urls::object_store_from_url;
-use crate::{install_module, SESSION};
+use crate::{install_module, SESSION, TOKIO_RUNTIME};
 use arrow_array::RecordBatchReader;
 use arrow_schema::SchemaRef;
 use itertools::Itertools;
@@ -211,5 +211,5 @@ impl PyVortexDataset {
 
 #[pyfunction]
 pub fn dataset_from_url(py: Python, url: &str) -> PyResult<PyVortexDataset> {
-    Ok(py.detach(|| SESSION.block_on(PyVortexDataset::from_url(url)))?)
+    Ok(py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?)
 }

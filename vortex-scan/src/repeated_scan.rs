@@ -18,6 +18,7 @@ use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
+use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReaderRef;
 use vortex_session::VortexSession;
@@ -49,13 +50,14 @@ pub struct RepeatedScan<A: 'static + Send> {
 }
 
 impl RepeatedScan<ArrayRef> {
-    pub fn execute_array_iter(
+    pub fn execute_array_iter<B: BlockingRuntime>(
         &self,
         row_range: Option<Range<u64>>,
+        runtime: &B,
     ) -> VortexResult<impl ArrayIterator + 'static> {
         let dtype = self.dtype.clone();
         let stream = self.execute_stream(row_range)?;
-        let iter = self.session.block_on_stream(stream);
+        let iter = runtime.block_on_stream(|_| stream);
         Ok(ArrayIteratorAdapter::new(dtype, iter))
     }
 

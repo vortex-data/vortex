@@ -35,4 +35,4 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 
 /// Shared Vortex session for the JNI instance.
 static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio(TOKIO_RUNTIME.handle().clone()));
+    LazyLock::new(|| VortexSession::default().with_tokio_handle(TOKIO_RUNTIME.handle().clone()));

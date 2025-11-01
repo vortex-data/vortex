@@ -34,12 +34,6 @@ impl CurrentThreadRuntime {
         Self::default()
     }
 
-    /// Returns a handle for this runtime.
-    pub fn handle(&self) -> Handle {
-        let executor: Arc<dyn Executor> = self.executor.clone();
-        Handle::new(Arc::downgrade(&executor))
-    }
-
     /// Create a new worker pool for driving the runtime in the background.
     ///
     /// This pool can be used to offload work from the current thread to a set of worker threads

@@ -29,7 +29,7 @@ use vortex::{Array, ArrayRef, IntoArray, VortexSessionDefault};
 
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| Runtime::new().unwrap());
 static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio(RUNTIME.handle().clone()));
+    LazyLock::new(|| VortexSession::default().with_tokio_handle(RUNTIME.handle().clone()));
 
 const BIN_NAME: &str = "hello_vortex";
 
