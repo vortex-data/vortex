@@ -1,15 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::max;
-use std::ffi::CString;
-use std::fmt;
-use std::fmt::{Debug, Formatter};
-use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::task::{Context, Poll};
-
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
@@ -25,12 +16,21 @@ use futures::stream::{BoxStream, SelectAll};
 use futures::{stream, FutureExt, Stream, StreamExt};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
+use std::cmp::max;
+use std::ffi::CString;
+use std::fmt;
+use std::fmt::{Debug, Formatter};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::task::{Context, Poll};
 use url::Url;
 use vortex::dtype::FieldNames;
 use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex::expr::{and, and_collect, col, lit, root, select, ExprRef};
 use vortex::file::{OpenOptionsSessionExt, VortexFile, VortexOpenOptions};
 use vortex::io::runtime::current::ThreadSafeIterator;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::{ArrayRef, ToCanonical};
 
@@ -244,9 +244,8 @@ impl TableFunction for VortexTableFunction {
 
         log::trace!("running scan with max_threads {max_threads}");
 
-        let (file_urls, _metadata) = SESSION.block_on(Compat::new(expand_glob(
-            file_glob_string.as_ref().as_string(),
-        )))?;
+        let (file_urls, _metadata) = RUNTIME
+            .block_on(|_h| Compat::new(expand_glob(file_glob_string.as_ref().as_string())))?;
 
         // The first file is skipped in `create_file_paths_queue`.
         let Some(first_file_url) = file_urls.first() else {
@@ -255,7 +254,7 @@ impl TableFunction for VortexTableFunction {
 
         let footer_cache = FooterCache::new(ctx.object_cache());
         let entry = footer_cache.entry(first_file_url.as_ref());
-        let first_file = SESSION.block_on(async move {
+        let first_file = RUNTIME.block_on(|_h| async move {
             let options = entry.apply_to_file(SESSION.open_options());
             let file = open_file(first_file_url.clone(), options).await?;
             entry.put_if_absent(|| file.footer().clone());
@@ -343,6 +342,7 @@ impl TableFunction for VortexTableFunction {
         let client_context = init_input.client_context()?;
         let object_cache = client_context.object_cache();
 
+        let handle = RUNTIME.handle();
         let first_file = bind_data.first_file.clone();
         let scan_streams = stream::iter(bind_data.file_urls.clone())
             .enumerate()
@@ -353,8 +353,7 @@ impl TableFunction for VortexTableFunction {
                 let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
                 let object_cache = object_cache;
 
-                SESSION
-                    .handle()
+                handle
                     .spawn(async move {
                         let vxf = if idx == 0 {
                             // The first path from `file_paths` is skipped as

@@ -3,23 +3,24 @@
 
 use std::fmt::Debug;
 use std::iter;
-use std::sync::LazyLock;
 
-use tokio::fs::File;
-use tokio::runtime::{self, Runtime};
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::Sender;
-use tokio::task::JoinHandle;
-use tokio_stream::wrappers::ReceiverStream;
+use futures::channel::mpsc;
+use futures::channel::mpsc::Sender;
+use futures::{SinkExt, TryStreamExt};
+use parking_lot::Mutex;
 use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::{DType, StructFields};
 use vortex::error::{vortex_err, VortexExpect, VortexResult};
 use vortex::file::{WriteOptionsSessionExt, WriteSummary};
+use vortex::io::runtime::current::CurrentThreadWorkerPool;
+use vortex::io::runtime::{BlockingRuntime, Task};
+use vortex::io::session::RuntimeSessionExt;
 use vortex::stream::ArrayStreamAdapter;
 use vortex::ArrayRef;
 
 use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
 use crate::duckdb::{CopyFunction, DataChunk, LogicalType};
+use crate::RUNTIME;
 use crate::SESSION;
 
 #[derive(Debug)]
@@ -30,21 +31,19 @@ pub struct BindData {
     fields: StructFields,
 }
 
-static COPY_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-    runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .vortex_expect("Cannot start runtime")
-});
-
 /// Write to a file has two phases, writing data chunks and then closing the file.
 /// We use a spawned tokio task to actually compress arrays are write it to disk.
 /// Each chunk is pushed into the sink and read from the task.
 /// Once finished we can close all sinks and then the task can be awaited and the file
 /// flushed to disk.
 pub struct GlobalState {
-    write_task: Option<JoinHandle<VortexResult<WriteSummary>>>,
+    write_task: Mutex<Option<Task<VortexResult<WriteSummary>>>>,
     sink: Option<Sender<VortexResult<ArrayRef>>>,
+    // Pool of background workers helping to drive the write task.
+    // Note that this is optional and without it, we would only drive the task when DuckDB calls
+    // into us, and we call `RUNTIME.block_on`.
+    #[allow(dead_code)]
+    worker_pool: CurrentThreadWorkerPool,
 }
 
 impl CopyFunction for VortexCopyFunction {
@@ -77,10 +76,10 @@ impl CopyFunction for VortexCopyFunction {
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
         let chunk = data_chunk_to_arrow(bind_data.fields.names(), chunk);
-        COPY_RUNTIME.block_on(async {
+        RUNTIME.block_on(|_h| async {
             init_global
                 .sink
-                .as_ref()
+                .as_mut()
                 .vortex_expect("sink closed early")
                 .send(chunk)
                 .await
@@ -94,15 +93,16 @@ impl CopyFunction for VortexCopyFunction {
         _bind_data: &Self::BindData,
         init_global: &mut Self::GlobalState,
     ) -> VortexResult<()> {
-        COPY_RUNTIME.block_on(async {
+        RUNTIME.block_on(|_h| async {
             if let Some(sink) = init_global.sink.take() {
                 drop(sink)
             }
-            init_global
+            let task = init_global
                 .write_task
+                .lock()
                 .take()
-                .vortex_expect("no file to close")
-                .await??;
+                .vortex_expect("no file to close");
+            task.await?;
             Ok(())
         })
     }
@@ -113,16 +113,20 @@ impl CopyFunction for VortexCopyFunction {
     ) -> VortexResult<Self::GlobalState> {
         // The channel size 32 was chosen arbitrarily.
         let (sink, rx) = mpsc::channel(32);
-        let array_stream =
-            ArrayStreamAdapter::new(bind_data.dtype.clone(), ReceiverStream::new(rx));
+        let array_stream = ArrayStreamAdapter::new(bind_data.dtype.clone(), rx.into_stream());
 
-        let writer = COPY_RUNTIME.spawn(async move {
-            let mut file = File::create(file_path).await?;
+        let handle = SESSION.handle();
+        let writer = handle.spawn(async move {
+            let mut file = async_fs::File::create(file_path).await?;
             SESSION.write_options().write(&mut file, array_stream).await
         });
 
+        let worker_pool = RUNTIME.new_pool();
+        worker_pool.set_workers_to_available_parallelism();
+
         Ok(GlobalState {
-            write_task: Some(writer),
+            worker_pool,
+            write_task: Mutex::new(Some(writer)),
             sink: Some(sink),
         })
     }

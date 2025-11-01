@@ -26,6 +26,8 @@ pub use handle::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod current;
 #[cfg(not(target_arch = "wasm32"))]
+mod pool;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod single;
 #[cfg(not(target_arch = "wasm32"))]
 mod smol;

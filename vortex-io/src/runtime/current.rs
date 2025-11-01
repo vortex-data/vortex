@@ -7,43 +7,25 @@ use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
 use smol::block_on;
 
+pub use crate::runtime::pool::CurrentThreadWorkerPool;
 use crate::runtime::{BlockingRuntime, Executor, Handle};
 
-/// A current thread runtime allows users to explicitly drive Vortex futures from multiple worker
-/// threads that they manage. This is useful in environments where the user already has a thread
-/// pool and wants to integrate Vortex into that pool, for example query engines.
+/// A current thread runtime allows callers to much more explicitly drive Vortex futures than with
+/// a Tokio runtime.
+///
+/// The current thread runtime will do no work unless `block_on` is called. In other words, the
+/// default behavior is single-threaded with code running on the thread that called `block_on`.
+///
+/// It's also possible to clone the runtime onto other threads, each of which can call `block_on`
+/// to drive work on that thread. Each thread shares the same underlying executor with the same
+/// set of tasks, allowing work to be driven in parallel.
+///
+/// For automatic driving of work, a [`CurrentThreadWorkerPool`] can be created from the runtime
+/// by calling [`new_pool`](CurrentThreadRuntime::new_pool). The returned pool can be configured
+/// with the desired number of worker threads that will drive work on behalf of the runtime.
 #[derive(Clone, Default)]
 pub struct CurrentThreadRuntime {
     executor: Arc<smol::Executor<'static>>,
-}
-
-impl BlockingRuntime for CurrentThreadRuntime {
-    type BlockingIterator<'a, R: 'a> = CurrentThreadIterator<'a, R>;
-
-    fn handle(&self) -> Handle {
-        let executor: Arc<dyn Executor> = self.executor.clone();
-        Handle::new(Arc::downgrade(&executor))
-    }
-
-    fn block_on<F, Fut, R>(&self, f: F) -> R
-    where
-        F: FnOnce(Handle) -> Fut,
-        Fut: Future<Output = R>,
-    {
-        block_on(self.executor.run(f(self.handle())))
-    }
-
-    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
-    where
-        F: FnOnce(Handle) -> S,
-        S: Stream<Item = R> + Send + 'a,
-        R: Send + 'a,
-    {
-        CurrentThreadIterator {
-            executor: self.executor.clone(),
-            stream: f(self.handle()).boxed(),
-        }
-    }
 }
 
 impl CurrentThreadRuntime {
@@ -56,6 +38,17 @@ impl CurrentThreadRuntime {
     pub fn handle(&self) -> Handle {
         let executor: Arc<dyn Executor> = self.executor.clone();
         Handle::new(Arc::downgrade(&executor))
+    }
+
+    /// Create a new worker pool for driving the runtime in the background.
+    ///
+    /// This pool can be used to offload work from the current thread to a set of worker threads
+    /// that will drive the runtime's executor.
+    ///
+    /// By default, the pool has no worker threads; the caller must set the desired number of
+    /// worker threads using the `set_workers` method on the returned pool.
+    pub fn new_pool(&self) -> CurrentThreadWorkerPool {
+        CurrentThreadWorkerPool::new(self.executor.clone())
     }
 
     /// Returns an iterator wrapper around a stream, blocking the current thread for each item.
@@ -93,6 +86,35 @@ impl CurrentThreadRuntime {
         ThreadSafeIterator {
             executor: self.executor.clone(),
             results: result_rx,
+        }
+    }
+}
+
+impl BlockingRuntime for CurrentThreadRuntime {
+    type BlockingIterator<'a, R: 'a> = CurrentThreadIterator<'a, R>;
+
+    fn handle(&self) -> Handle {
+        let executor: Arc<dyn Executor> = self.executor.clone();
+        Handle::new(Arc::downgrade(&executor))
+    }
+
+    fn block_on<F, Fut, R>(&self, f: F) -> R
+    where
+        F: FnOnce(Handle) -> Fut,
+        Fut: Future<Output = R>,
+    {
+        block_on(self.executor.run(f(self.handle())))
+    }
+
+    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
+    where
+        F: FnOnce(Handle) -> S,
+        S: Stream<Item = R> + Send + 'a,
+        R: Send + 'a,
+    {
+        CurrentThreadIterator {
+            executor: self.executor.clone(),
+            stream: f(self.handle()).boxed(),
         }
     }
 }
@@ -147,6 +169,38 @@ mod tests {
     use parking_lot::Mutex;
 
     use super::*;
+
+    #[test]
+    fn test_worker_thread() {
+        let runtime = CurrentThreadRuntime::new();
+
+        // We spawn a future that sets a value on a separate thread.
+        let value = Arc::new(AtomicUsize::new(0));
+        let value2 = value.clone();
+        runtime
+            .handle()
+            .spawn(async move {
+                value2.store(42, Ordering::SeqCst);
+            })
+            .detach();
+
+        // By default, nothing has driven the executor, so the value should still be 0.
+        assert_eq!(value.load(Ordering::SeqCst), 0);
+
+        // An empty pool still does nothing.
+        let pool = runtime.new_pool();
+        assert_eq!(value.load(Ordering::SeqCst), 0);
+
+        // Adding a worker thread should drive the executor.
+        pool.set_workers(1);
+        for _ in 0..10 {
+            if value.load(Ordering::SeqCst) == 42 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(value.load(Ordering::SeqCst), 42);
+    }
 
     #[test]
     fn test_block_on_stream_single_thread() {
