@@ -9116,6 +9116,7 @@ dependencies = [
  "arrow-buffer",
  "async-stream",
  "async-trait",
+ "fastbloom",
  "flatbuffers",
  "futures",
  "getrandom 0.3.4",

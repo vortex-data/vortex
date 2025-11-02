@@ -7,6 +7,7 @@ use futures::future::{BoxFuture, Shared};
 use vortex_array::ArrayRef;
 use vortex_error::SharedVortexResult;
 
+pub mod bloom_zoned;
 pub mod buffered;
 pub mod chunked;
 #[cfg(feature = "zstd")]

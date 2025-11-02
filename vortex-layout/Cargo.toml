@@ -59,6 +59,7 @@ vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 vortex-zstd = { workspace = true, optional = true }
+fastbloom = "0.14.0"
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
