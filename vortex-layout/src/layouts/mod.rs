@@ -14,6 +14,7 @@ pub mod chunked;
 pub mod compact;
 pub mod compressed;
 pub mod dict;
+pub mod field_aware;
 pub mod file_stats;
 pub mod flat;
 mod partitioned;
