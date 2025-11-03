@@ -21,9 +21,10 @@ use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::runtime::current::{CurrentThreadRuntime, ThreadSafeIterator};
+use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::{ArrayRef, ToCanonical};
 
+use crate::RUNTIME;
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
@@ -40,7 +41,6 @@ pub struct VortexBindData {
     file_urls: Vec<Url>,
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
-    runtime: CurrentThreadRuntime,
     max_threads: u64,
 }
 
@@ -54,7 +54,6 @@ impl Clone for VortexBindData {
             file_urls: self.file_urls.clone(),
             column_names: self.column_names.clone(),
             column_types: self.column_types.clone(),
-            runtime: self.runtime.clone(),
             max_threads: self.max_threads,
         }
     }
@@ -224,8 +223,6 @@ impl TableFunction for VortexTableFunction {
         input: &BindInput,
         result: &mut BindResult,
     ) -> VortexResult<Self::BindData> {
-        let runtime = CurrentThreadRuntime::new();
-
         let file_glob_string = input
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
@@ -248,7 +245,7 @@ impl TableFunction for VortexTableFunction {
 
         log::trace!("running scan with max_threads {max_threads}");
 
-        let (file_urls, _metadata) = runtime
+        let (file_urls, _metadata) = RUNTIME
             .block_on(|_h| Compat::new(expand_glob(file_glob_string.as_ref().as_string())))?;
 
         // The first file is skipped in `create_file_paths_queue`.
@@ -258,7 +255,7 @@ impl TableFunction for VortexTableFunction {
 
         let footer_cache = FooterCache::new(ctx.object_cache());
         let entry = footer_cache.entry(first_file_url.as_ref());
-        let first_file = runtime.block_on(|h| async move {
+        let first_file = RUNTIME.block_on(|h| async move {
             let options = entry.apply_to_file(VortexOpenOptions::new().with_handle(h));
             let file = open_file(first_file_url.clone(), options).await?;
             entry.put_if_absent(|| file.footer().clone());
@@ -278,7 +275,6 @@ impl TableFunction for VortexTableFunction {
             filter_exprs: vec![],
             column_names,
             column_types,
-            runtime,
             max_threads: max_threads as u64,
         })
     }
@@ -347,7 +343,7 @@ impl TableFunction for VortexTableFunction {
         let client_context = init_input.client_context()?;
         let object_cache = client_context.object_cache();
 
-        let handle = bind_data.runtime.handle();
+        let handle = RUNTIME.handle();
         let first_file = bind_data.first_file.clone();
         let scan_streams = stream::iter(bind_data.file_urls.clone())
             .enumerate()
@@ -400,14 +396,12 @@ impl TableFunction for VortexTableFunction {
             .filter_map(|result| async move { result.transpose() });
 
         Ok(VortexGlobalData {
-            iterator: bind_data
-                .runtime
-                .block_on_stream_thread_safe(move |_| MultiScan {
-                    streams: scan_streams.boxed(),
-                    streams_finished: false,
-                    select_all: Default::default(),
-                    max_concurrency: num_workers * 2,
-                }),
+            iterator: RUNTIME.block_on_stream_thread_safe(move |_| MultiScan {
+                streams: scan_streams.boxed(),
+                streams_finished: false,
+                select_all: Default::default(),
+                max_concurrency: num_workers * 2,
+            }),
             batch_id: AtomicU64::new(0),
         })
     }
