@@ -11,6 +11,7 @@ use crate::compute::{self, TakeKernel, TakeKernelAdapter};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
+// TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
 /// The threshold for triggering a rebuild of the [`ListViewArray`].
 ///
 /// By default, we will not touch the underlying `elements` array of the [`ListViewArray`] since it
@@ -63,7 +64,6 @@ impl TakeKernel for ListViewVTable {
                 &Scalar::primitive(S::zero(), Nullability::NonNullable),
             )?
         });
-
         // SAFETY: Take operation maintains all `ListViewArray` invariants:
         // - `new_offsets` and `new_sizes` are derived from existing valid child arrays.
         // - `new_offsets` and `new_sizes` are non-nullable.

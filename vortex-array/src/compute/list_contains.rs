@@ -64,8 +64,16 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///         vec!["a", "a", "b", "a", "c"], DType::Utf8(false.into())).into_array();
 /// let offsets = buffer![0u32, 1, 3].into_array();
 /// let sizes = buffer![1u32, 2, 2].into_array();
-/// let list_array =
-///     ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable).unwrap();
+/// // SAFETY: The components are the same as a `ListArray`.
+/// let list_array = unsafe {
+///     ListViewArray::new_unchecked(
+///         elements,
+///         offsets,
+///         sizes,
+///         Validity::NonNullable,
+///     )
+///     .with_zero_copy_to_list(true)
+/// };
 ///
 /// let matches = compute::list_contains(
 ///     list_array.as_ref(),
@@ -293,8 +301,8 @@ fn list_contains_scalar(
     .into_array())
 }
 
-/// Returns a [`BooleanBuffer`] where each bit represents if a list contains the scalar, derived
-/// from a [`BoolArray`] of matches on the child elements array.
+/// Returns a [`BitBuffer`] where each bit represents if a list contains the scalar, derived from a
+/// [`BoolArray`] of matches on the child elements array.
 fn process_matches<O, S>(
     matches: BoolArray,
     list_array_len: usize,
@@ -592,13 +600,15 @@ mod tests {
         let offsets = Buffer::from_iter([0u32, 0, 0, 0]).into_array();
         let sizes = Buffer::from_iter([0u32, 0, 0, 0]).into_array();
 
-        let list_array = ListViewArray::try_new(
-            empty_elements.into_array(),
-            offsets,
-            sizes,
-            Validity::NonNullable,
-        )
-        .unwrap();
+        let list_array = unsafe {
+            ListViewArray::new_unchecked(
+                empty_elements.into_array(),
+                offsets,
+                sizes,
+                Validity::NonNullable,
+            )
+            .with_zero_copy_to_list(true)
+        };
 
         // Test with a non-null search value
         let search = ConstantArray::new(Scalar::from(42i32), list_array.len());
@@ -619,9 +629,15 @@ mod tests {
         let offsets = Buffer::from_iter([0u32, 2, 4]).into_array();
         let sizes = Buffer::from_iter([2u32, 2, 1]).into_array();
 
-        let list_array =
-            ListViewArray::try_new(elements.into_array(), offsets, sizes, Validity::NonNullable)
-                .unwrap();
+        let list_array = unsafe {
+            ListViewArray::new_unchecked(
+                elements.into_array(),
+                offsets,
+                sizes,
+                Validity::NonNullable,
+            )
+            .with_zero_copy_to_list(true)
+        };
 
         // Test searching for a null value
         let null_search = ConstantArray::new(
@@ -658,8 +674,7 @@ mod tests {
         let sizes = Buffer::from_iter([1u32, 2, 1, 0]).into_array();
 
         let list_array =
-            ListViewArray::try_new(elements.into_array(), offsets, sizes, Validity::NonNullable)
-                .unwrap();
+            ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
 
         // Test searching for value 2, which appears only in list 1
         let search = ConstantArray::new(Scalar::from(2i32), list_array.len());
@@ -692,8 +707,7 @@ mod tests {
         let sizes = Buffer::from_iter([50u8, 50, 54, 2]).into_array(); // Last list goes to index 255
 
         let list_array =
-            ListViewArray::try_new(elements.into_array(), offsets, sizes, Validity::NonNullable)
-                .unwrap();
+            ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
 
         // Search for value 255 which should only be in the last list
         let search = ConstantArray::new(Scalar::from(255i32), list_array.len());

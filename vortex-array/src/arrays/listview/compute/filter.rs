@@ -9,6 +9,7 @@ use crate::compute::{self, FilterKernel, FilterKernelAdapter};
 use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
+// TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
 /// The threshold for triggering a rebuild of the [`ListViewArray`].
 ///
 /// By default, we will not touch the underlying `elements` array of the [`ListViewArray`] since it
@@ -46,8 +47,6 @@ impl FilterKernel for ListViewVTable {
         );
 
         // Simply filter the offsets and sizes arrays.
-        // Filters keep scalars in order, and it cannot cause overlaps to form. However, filters
-        // **will** create gaps of unused elements.
         let new_offsets = compute::filter(offsets.as_ref(), selection_mask)?;
         let new_sizes = compute::filter(sizes.as_ref(), selection_mask)?;
 

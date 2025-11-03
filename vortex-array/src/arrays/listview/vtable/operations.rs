@@ -7,7 +7,7 @@ use std::sync::Arc;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ListViewArray, ListViewVTable};
-use crate::vtable::OperationsVTable;
+use crate::vtable::{OperationsVTable, ValidityHelper};
 use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<ListViewVTable> for ListViewVTable {
@@ -21,13 +21,17 @@ impl OperationsVTable<ListViewVTable> for ListViewVTable {
 
         // SAFETY: The preconditions of `slice` mean that the bounds have already been checked, and
         // slicing the components of an existing valid array is still valid.
+        // Additionally, slicing elements of a `ListViewArray` that is already zero-copyable to a
+        // `ListArray` does not reorder or create gaps and overlaps, slicing maintains whatever
+        // `is_zero_copy_to_list` flag it already had.
         unsafe {
             ListViewArray::new_unchecked(
                 array.elements().clone(),
                 array.offsets().slice(start..end),
                 array.sizes().slice(start..end),
-                array.validity.slice(start..end),
+                array.validity().slice(start..end),
             )
+            .with_zero_copy_to_list(array.is_zero_copy_to_list())
         }
         .into_array()
     }

@@ -5,7 +5,9 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType, StructFields};
 use vortex_error::VortexExpect;
 
-use crate::arrays::{ChunkedArray, ChunkedVTable, ListViewArray, PrimitiveArray, StructArray};
+use crate::arrays::{
+    ChunkedArray, ChunkedVTable, ListViewArray, ListViewRebuildMode, PrimitiveArray, StructArray,
+};
 use crate::builders::{ArrayBuilder, builder_with_capacity};
 use crate::compute::cast;
 use crate::validity::Validity;
@@ -121,6 +123,9 @@ fn swizzle_list_chunks(
 
     for chunk in chunks {
         let chunk_array = chunk.to_listview();
+        // By rebuilding as zero-copy to `List` and trimming all elements (to prevent gaps), we make
+        // the final output `ListView` also zero-copyable to `List`.
+        let chunk_array = chunk_array.rebuild(ListViewRebuildMode::MakeExact);
 
         // Add the `elements` of the current array as a new chunk.
         list_elements_chunks.push(chunk_array.elements().clone());
@@ -163,7 +168,12 @@ fn swizzle_list_chunks(
     // - Each `offset[i] + size[i]` list view is within bounds of elements array because it came
     //   from valid chunks
     // - Validity came from the outer chunked array so it must have the same length
-    unsafe { ListViewArray::new_unchecked(chunked_elements, offsets, sizes, validity) }
+    // - Since we made sure that all chunks were zero-copyable to a list above, we know that the
+    //   final concatenated output is also zero-copyable to a list.
+    unsafe {
+        ListViewArray::new_unchecked(chunked_elements, offsets, sizes, validity)
+            .with_zero_copy_to_list(true)
+    }
 }
 
 #[cfg(test)]
