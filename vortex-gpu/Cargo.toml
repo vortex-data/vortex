@@ -15,7 +15,7 @@ version = { workspace = true }
 publish = false
 
 [dependencies]
-cudarc = { workspace = true, features = ["f16"] }
+cudarc = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
 vortex-alp = { workspace = true }
@@ -30,7 +30,6 @@ vortex-utils = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.7", features = ["html_reports"] }
-cudarc = { workspace = true, features = ["f16"] }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
