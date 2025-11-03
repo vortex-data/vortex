@@ -96,8 +96,7 @@ fn random_array_chunk(
         DType::Decimal(decimal, n) => {
             let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
             match_each_decimal_value_type!(smallest_decimal_value_type(decimal), |DVT| {
-                let mut builder =
-                    DecimalBuilder::new::<DVT>(decimal.precision(), decimal.scale(), *n);
+                let mut builder = DecimalBuilder::new::<DVT>(*decimal, *n);
                 for _i in 0..elem_len {
                     let random_decimal = random_scalar(u, &DType::Decimal(*decimal, *n))?;
                     builder.append_scalar(&random_decimal).vortex_expect(
