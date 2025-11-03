@@ -399,7 +399,7 @@ mod test {
     fn test_stats_evaluator(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(|_h| async {
+        block_on(|_| async {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
@@ -422,7 +422,7 @@ mod test {
     fn test_stats_pruning_mask(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(|_h| async {
+        block_on(|_| async {
             let row_count = layout.row_count();
             let reader = layout.new_reader("".into(), segments).unwrap();
 

@@ -131,12 +131,13 @@ mod tests {
 
     use super::*;
     use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::session::{ExprRegistry, ExprSession};
     use crate::*;
 
     #[fixture]
     #[once]
     fn registry() -> ExprRegistry {
-        ExprRegistry::default()
+        ExprSession::default().registry().clone()
     }
 
     #[rstest]

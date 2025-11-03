@@ -8,7 +8,7 @@ use vortex_array::serde::{ArrayParts, SerializeOptions};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{
-    ArrayContext, ArrayRegistry, EncodingRef, IntoArray, ToCanonical, assert_arrays_eq,
+    ArrayContext, ArraySession, EncodingRef, IntoArray, ToCanonical, assert_arrays_eq,
 };
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, Nullability, PType};
@@ -135,12 +135,16 @@ fn test_serde() {
     let pco = PcoArray::from_primitive(&PrimitiveArray::new(data, Validity::NonNullable), 3, 100)
         .unwrap()
         .to_array();
-    let context = ArrayContext::empty().with_many(
-        ArrayRegistry::canonical_only()
-            .vtables()
-            .cloned()
-            .chain([EncodingRef::new_ref(PcoEncoding.as_ref())]),
+
+    let session = ArraySession::default();
+    let context = ArrayContext::new(
+        session
+            .registry()
+            .items()
+            .chain([EncodingRef::new_ref(PcoEncoding.as_ref())])
+            .collect(),
     );
+
     let bytes = pco
         .serialize(
             &context,

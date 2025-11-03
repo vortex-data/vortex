@@ -12,7 +12,7 @@ use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexResult};
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::file::{WriteOptionsSessionExt, WriteStrategyBuilder};
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{ArrayRef, Canonical, IntoArray};
 
@@ -21,7 +21,7 @@ use crate::arrow::FromPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::expr::PyExpr;
 use crate::iter::PyArrayIterator;
-use crate::{PyVortex, TOKIO_RUNTIME, install_module};
+use crate::{PyVortex, SESSION, TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;
@@ -162,7 +162,8 @@ pub fn write(py: Python, iter: PyIntoArrayIterator, path: &str) -> PyResult<()> 
     py.detach(|| {
         TOKIO_RUNTIME.block_on(async move {
             let mut file = File::create(path).await?;
-            VortexWriteOptions::default()
+            SESSION
+                .write_options()
                 .write(&mut file, iter.into_inner().into_array_stream())
                 .await
         })
@@ -281,7 +282,8 @@ impl PyVortexWriteOptions {
                     strategy = strategy.with_compressor(compressor.clone())
                 }
 
-                VortexWriteOptions::default()
+                SESSION
+                    .write_options()
                     .with_strategy(strategy.build())
                     .write(&mut file, iter.into_inner().into_array_stream())
                     .await

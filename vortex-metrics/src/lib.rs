@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![deny(missing_docs)]
+
 //! Vortex metrics
 
 mod macros;
+mod session;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -12,6 +14,7 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+pub use session::*;
 use witchcraft_metrics::{MetricRegistry, Metrics, MetricsIter};
 
 /// A metric registry for various performance metrics.

@@ -69,6 +69,7 @@ vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-vector = { workspace = true }
 

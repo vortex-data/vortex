@@ -4,16 +4,19 @@
 // https://github.com/rust-lang/cargo/pull/11645#issuecomment-1536905941
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
-pub mod session;
-
 pub use vortex_array::*;
+use vortex_expr::session::ExprSession;
 #[cfg(feature = "files")]
 pub use vortex_file as file;
+use vortex_io::session::RuntimeSession;
+use vortex_layout::session::LayoutSession;
+use vortex_metrics::VortexMetrics;
+use vortex_session::VortexSession;
 pub use {
     vortex_buffer as buffer, vortex_dtype as dtype, vortex_error as error, vortex_expr as expr,
     vortex_flatbuffers as flatbuffers, vortex_io as io, vortex_ipc as ipc, vortex_layout as layout,
     vortex_mask as mask, vortex_metrics as metrics, vortex_proto as proto, vortex_scalar as scalar,
-    vortex_scan as scan, vortex_utils as utils,
+    vortex_scan as scan, vortex_session as session, vortex_utils as utils,
 };
 
 pub mod compressor {
@@ -34,6 +37,28 @@ pub mod encodings {
     };
 }
 
+/// Extension trait to create a default Vortex session.
+pub trait VortexSessionDefault {
+    /// Creates a default Vortex session with the standard arrays, layouts, and expressions.
+    fn default() -> VortexSession;
+}
+
+impl VortexSessionDefault for VortexSession {
+    fn default() -> VortexSession {
+        let session = VortexSession::empty()
+            .with::<VortexMetrics>()
+            .with::<ArraySession>()
+            .with::<LayoutSession>()
+            .with::<ExprSession>()
+            .with::<RuntimeSession>();
+
+        #[cfg(feature = "files")]
+        file::register_default_encodings(&session);
+
+        session
+    }
+}
+
 /// These tests are included in the getting started documentation, so be mindful of which imports
 /// to keep inside the test functions, and which to just use from the outer scope. The examples
 /// get too verbose if we include _everything_.
@@ -48,10 +73,12 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_expr::{gt, lit, root};
-    use vortex_file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
+    use vortex_file::{OpenOptionsSessionExt, WriteOptionsSessionExt, WriteStrategyBuilder};
     use vortex_layout::layouts::compact::CompactCompressor;
+    use vortex_session::VortexSession;
 
     use crate as vortex;
+    use crate::VortexSessionDefault;
 
     #[test]
     fn convert() -> anyhow::Result<()> {
@@ -110,11 +137,14 @@ mod test {
 
     #[tokio::test]
     async fn read_write() -> VortexResult<()> {
+        let session = VortexSession::default();
+
         // [write]
         let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
 
         // Write a Vortex file with the default compression and layout strategy.
-        VortexWriteOptions::default()
+        session
+            .write_options()
             .write(
                 &mut tokio::fs::File::create("example.vortex").await?,
                 array.to_array_stream(),
@@ -124,7 +154,8 @@ mod test {
         // [write]
 
         // [read]
-        let array = VortexOpenOptions::new()
+        let array = session
+            .open_options()
             .open("example.vortex")
             .await?
             .scan()?
@@ -144,10 +175,13 @@ mod test {
 
     #[tokio::test]
     async fn compact_read_write() -> VortexResult<()> {
+        let session = VortexSession::default();
+
         // [compact write]
         let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
 
-        VortexWriteOptions::default()
+        session
+            .write_options()
             .with_strategy(
                 WriteStrategyBuilder::new()
                     .with_compressor(CompactCompressor::default())
@@ -160,7 +194,8 @@ mod test {
             .await?;
 
         // [compact read]
-        let recovered_array = VortexOpenOptions::new()
+        let recovered_array = session
+            .open_options()
             .open("example_compact.vortex")
             .await?
             .scan()?

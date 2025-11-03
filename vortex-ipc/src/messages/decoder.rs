@@ -5,6 +5,7 @@ use std::fmt::Debug;
 
 use bytes::Buf;
 use flatbuffers::{root, root_unchecked};
+use itertools::Itertools;
 use vortex_array::serde::ArrayParts;
 use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_buffer::{AlignedBuf, Alignment, ByteBuffer};
@@ -112,9 +113,17 @@ impl MessageDecoder {
                                 .header_as_array_message()
                                 .vortex_expect("header is array");
 
-                            let ctx = self
-                                .registry
-                                .new_context(header.encodings().iter().flat_map(|e| e.iter()))?;
+                            let encodings: Vec<_> = header
+                                .encodings()
+                                .iter()
+                                .flat_map(|e| e.iter())
+                                .map(|id| {
+                                    self.registry.find(id).ok_or_else(|| {
+                                        vortex_err!("unknown array encoding id: {}", id)
+                                    })
+                                })
+                                .try_collect()?;
+                            let ctx = ArrayContext::new(encodings);
                             let row_count = header.row_count() as usize;
 
                             self.state = Default::default();
@@ -157,7 +166,7 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{Array, ArraySession, IntoArray};
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 
@@ -171,7 +180,8 @@ mod test {
             ipc_bytes.extend_from_slice(buf.as_ref());
         }
 
-        let mut decoder = MessageDecoder::new(ArrayRegistry::canonical_only());
+        let registry = ArraySession::default().registry().clone();
+        let mut decoder = MessageDecoder::new(registry);
 
         // Since we provide all bytes up-front, we should never hit a NeedMore.
         let mut buffer = BytesMut::from(ipc_bytes.as_ref());

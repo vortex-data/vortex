@@ -1,19 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use flatbuffers::root;
-use vortex_array::ArrayRegistry;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
-use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
+use vortex_session::VortexSession;
 
 use crate::footer::FileStatistics;
 use crate::footer::postscript::{Postscript, PostscriptSegment};
-use crate::{DEFAULT_REGISTRY, EOF_SIZE, Footer, MAGIC_BYTES, VERSION};
+use crate::{EOF_SIZE, Footer, MAGIC_BYTES, VERSION};
 
 /// Deserialize a footer from the end of a Vortex file or created from a
 /// [`crate::footer::FooterSerializer`].
@@ -22,10 +19,8 @@ pub struct FooterDeserializer {
     // During deserialization, we may need to expand this buffer by requesting more data from
     // the caller.
     buffer: ByteBuffer,
-    // The registry of array encodings.
-    array_registry: Arc<ArrayRegistry>,
-    // The registry of layouts.
-    layout_registry: Arc<LayoutRegistry>,
+    // The session to use for deserialization.
+    session: VortexSession,
     // The DType, if provided externally.
     dtype: Option<DType>,
 
@@ -38,11 +33,10 @@ pub struct FooterDeserializer {
 }
 
 impl FooterDeserializer {
-    pub(super) fn new(initial_read: ByteBuffer) -> Self {
+    pub(super) fn new(initial_read: ByteBuffer, session: VortexSession) -> Self {
         Self {
             buffer: initial_read,
-            array_registry: DEFAULT_REGISTRY.clone(),
-            layout_registry: Arc::new(LayoutRegistry::default()),
+            session,
             dtype: None,
             file_size: None,
             postscript: None,
@@ -66,16 +60,6 @@ impl FooterDeserializer {
 
     pub fn with_some_size(mut self, file_size: Option<u64>) -> Self {
         self.file_size = file_size;
-        self
-    }
-
-    pub fn with_array_registry(mut self, registry: Arc<ArrayRegistry>) -> Self {
-        self.array_registry = registry;
-        self
-    }
-
-    pub fn with_layout_registry(mut self, registry: Arc<LayoutRegistry>) -> Self {
-        self.layout_registry = registry;
         self
     }
 
@@ -260,8 +244,7 @@ impl FooterDeserializer {
             layout_bytes,
             dtype,
             file_stats,
-            &self.array_registry,
-            &self.layout_registry,
+            self.session.clone(),
         )
     }
 }

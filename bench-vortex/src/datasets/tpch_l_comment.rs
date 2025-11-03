@@ -8,12 +8,12 @@ use glob::glob;
 use vortex::arrays::ChunkedArray;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::expr::{col, pack};
-use vortex::file::VortexOpenOptions;
+use vortex::file::OpenOptionsSessionExt;
 use vortex::{Array, ArrayRef, IntoArray, ToCanonical};
 
 use crate::datasets::Dataset;
 use crate::tpch::tpchgen::{TpchGenOptions, generate_tpch_tables};
-use crate::{Format, IdempotentPath};
+use crate::{Format, IdempotentPath, SESSION};
 
 pub struct TPCHLCommentChunked;
 
@@ -44,7 +44,7 @@ impl Dataset for TPCHLCommentChunked {
                 .to_string_lossy()
                 .as_ref(),
         )? {
-            let file = VortexOpenOptions::new().open(path?).await?;
+            let file = SESSION.open_options().open(path?).await?;
             let file_chunks: Vec<_> = file
                 .scan()?
                 .with_projection(pack(vec![("l_comment", col("l_comment"))], NonNullable))

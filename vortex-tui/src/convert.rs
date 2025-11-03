@@ -15,8 +15,10 @@ use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::file::{WriteOptionsSessionExt, WriteStrategyBuilder};
 use vortex::stream::ArrayStreamAdapter;
+
+use crate::SESSION;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Strategy {
@@ -82,7 +84,8 @@ pub async fn exec_convert(flags: Flags) -> anyhow::Result<()> {
     };
 
     let mut file = File::create(output_path).await?;
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .with_strategy(strategy.build())
         .write(&mut file, ArrayStreamAdapter::new(dtype, vortex_stream))
         .await?;

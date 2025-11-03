@@ -8,9 +8,13 @@ use std::path::Path;
 use vortex::arrays::StructArray;
 use vortex::builders::{ArrayBuilder, DecimalBuilder, VarBinViewBuilder};
 use vortex::dtype::{DType, DecimalDType, Nullability};
-use vortex::file::VortexWriteOptions;
-use vortex::io::runtime::single::SingleThreadRuntime;
+use vortex::file::WriteOptionsSessionExt;
+use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::runtime::BlockingRuntime;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::session::VortexSession;
 use vortex::validity::Validity;
+use vortex::VortexSessionDefault;
 
 /// Generate a test dataset with the following small set of rows:
 ///
@@ -27,6 +31,9 @@ use vortex::validity::Validity;
 /// | Ida    | 9000   | TX    |
 /// | John   | 10000  | VA    |
 fn main() {
+    let runtime = CurrentThreadRuntime::new();
+    let session = VortexSession::default().with_handle(runtime.handle());
+
     let mut names = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 10);
     names.append_value("Alice");
     names.append_value("Bob");
@@ -73,8 +80,9 @@ fn main() {
     let minimal_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vortex-jni/src/test/resources/minimal.vortex");
     let mut file = std::fs::File::create(&minimal_path).expect("opening Vortex file");
-    VortexWriteOptions::default()
-        .blocking::<SingleThreadRuntime>()
+    session
+        .write_options()
+        .blocking(&runtime)
         .write(&mut file, rows.to_array_iterator())
         .expect("writing Vortex file");
 

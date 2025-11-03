@@ -31,7 +31,7 @@ use tracing::info;
 use url::Url;
 use vortex::ArrayRef;
 use vortex::error::{VortexResult, vortex_err};
-use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
 use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_datafusion::VortexFormat;
@@ -39,7 +39,7 @@ use vortex_datafusion::VortexFormat;
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::{decompress_bz2, download_data};
-use crate::{IdempotentPath, idempotent_async, vortex_panic};
+use crate::{IdempotentPath, SESSION, idempotent_async, vortex_panic};
 
 pub static PBI_DATASETS: LazyLock<PBIDatasets> = LazyLock::new(|| {
     PBIDatasets::try_new(fetch_schemas_and_queries().expect("failed to fetch public bi queries"))
@@ -346,7 +346,8 @@ impl PBIData {
             async move {
                 let vortex_file =
                     idempotent_async(&vortex, async |output_path| -> anyhow::Result<()> {
-                        VortexWriteOptions::default()
+                        SESSION
+                            .write_options()
                             .write(
                                 &mut File::create(output_path)
                                     .await
@@ -398,7 +399,7 @@ impl PBIData {
                         .with_delimiter(b'|'),
                 ),
                 FileType::Parquet => Arc::new(ParquetFormat::default()),
-                FileType::Vortex => Arc::new(VortexFormat::default()),
+                FileType::Vortex => Arc::new(VortexFormat::new(SESSION.clone())),
                 _ => vortex_panic!("unsupported file type: {file_type}"),
             };
 
@@ -439,7 +440,8 @@ impl Dataset for PBIBenchmark {
             .ok_or_else(|| anyhow!("must have at least one table"))?
             .clone();
 
-        Ok(VortexOpenOptions::new()
+        Ok(SESSION
+            .open_options()
             .open(path.as_path())
             .await?
             .scan()?

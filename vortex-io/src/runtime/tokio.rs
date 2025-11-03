@@ -12,6 +12,10 @@ use crate::runtime::{AbortHandle, AbortHandleRef, BlockingRuntime, Executor, Han
 pub struct TokioRuntime(Arc<tokio::runtime::Handle>);
 
 impl TokioRuntime {
+    pub fn new(handle: tokio::runtime::Handle) -> Self {
+        Self(Arc::new(handle))
+    }
+
     /// Create a new [`Handle`] that always uses the currently scoped Tokio runtime at the time
     /// each operation is invoked.
     pub fn current() -> Handle {
@@ -96,9 +100,8 @@ impl BlockingRuntime for TokioRuntime {
         Handle::new(Arc::downgrade(&executor))
     }
 
-    fn block_on<F, Fut, R>(&self, f: F) -> R
+    fn block_on<Fut, R>(&self, fut: Fut) -> R
     where
-        F: FnOnce(Handle) -> Fut,
         Fut: Future<Output = R>,
     {
         // Assert that we're not currently inside the Tokio context.
@@ -106,13 +109,11 @@ impl BlockingRuntime for TokioRuntime {
             vortex_error::vortex_panic!("block_on cannot be called from within a Tokio runtime");
         }
         let handle = self.0.clone();
-        let fut = f(self.handle());
         tokio::task::block_in_place(move || handle.block_on(fut))
     }
 
-    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
+    fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
     where
-        F: FnOnce(Handle) -> S,
         S: futures::Stream<Item = R> + Send + 'a,
         R: Send + 'a,
     {
@@ -123,7 +124,7 @@ impl BlockingRuntime for TokioRuntime {
             );
         }
         let handle = self.0.clone();
-        let stream = Box::pin(f(self.handle()));
+        let stream = Box::pin(stream);
         TokioBlockingIterator { handle, stream }
     }
 }
@@ -159,7 +160,8 @@ mod tests {
     fn test_spawn_simple_future() {
         let tokio_rt = TokioRt::new().unwrap();
         let runtime = TokioRuntime::from(tokio_rt.handle());
-        let result = runtime.block_on(|h| {
+        let h = runtime.handle();
+        let result = runtime.block_on({
             h.spawn(async {
                 let fut = async { 77 };
                 fut.await

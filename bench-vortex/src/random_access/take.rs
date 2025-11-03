@@ -18,10 +18,12 @@ use parquet::arrow::async_reader::AsyncFileReader;
 use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
 use vortex::buffer::Buffer;
-use vortex::file::VortexOpenOptions;
+use vortex::file::OpenOptionsSessionExt;
 use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, IntoArray};
+
+use crate::SESSION;
 
 pub async fn take_vortex_tokio(
     path: &Path,
@@ -34,7 +36,8 @@ pub async fn take_vortex_tokio(
 }
 
 async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
-    Ok(VortexOpenOptions::new()
+    Ok(SESSION
+        .open_options()
         .open(reader.as_ref())
         .await?
         .scan()?

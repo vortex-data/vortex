@@ -476,7 +476,7 @@ mod tests {
             eq(col("a"), lit(7)),
             or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
         );
-        let result = block_on(|_h| {
+        let result = block_on(|_| {
             reader
                 .filter_evaluation(&(0..3), &filt, MaskFuture::new_true(3))
                 .unwrap()
@@ -494,7 +494,7 @@ mod tests {
     ) {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
-        let result = block_on(|_h| {
+        let result = block_on(|_| {
             reader
                 .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
                 .unwrap()
@@ -512,7 +512,7 @@ mod tests {
     ) {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
-        let result = block_on(|_h| {
+        let result = block_on(|_| {
             reader
                 .projection_evaluation(
                     &(0..3),
@@ -540,7 +540,7 @@ mod tests {
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             Nullability::NonNullable,
         );
-        let result = block_on(|_h| {
+        let result = block_on(|_| {
             reader
                 .projection_evaluation(
                     &(0..3),

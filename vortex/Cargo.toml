@@ -46,6 +46,7 @@ vortex-runend = { workspace = true, features = ["arrow"] }
 vortex-scalar = { workspace = true }
 vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
+vortex-session = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }

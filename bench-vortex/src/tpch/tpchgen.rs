@@ -27,11 +27,11 @@ use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexExpect;
-use vortex::file::VortexWriteOptions;
+use vortex::file::WriteOptionsSessionExt;
 use vortex::stream::ArrayStreamAdapter;
 
 use crate::utils::file_utils::idempotent_async;
-use crate::{CompactionStrategy, Format, IdempotentPath};
+use crate::{CompactionStrategy, Format, IdempotentPath, SESSION};
 
 type TableFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
@@ -388,7 +388,7 @@ impl VortexWriter {
 
             let mut file = TokioFile::create(&file_path).await?;
             compaction_strategy
-                .apply_options(VortexWriteOptions::default())
+                .apply_options(SESSION.write_options())
                 .write(&mut file, stream)
                 .await
                 .map_err(|e| anyhow!("Vortex write failed: {}", e))?;

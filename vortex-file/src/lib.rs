@@ -101,15 +101,13 @@ mod strategy;
 mod tests;
 mod writer;
 
-use std::sync::{Arc, LazyLock};
-
 pub use file::*;
 pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::{ArrayRegistry, EncodingRef};
+use vortex_array::{ArraySessionExt, EncodingRef};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
@@ -119,6 +117,7 @@ use vortex_fsst::FSSTEncoding;
 use vortex_pco::PcoEncoding;
 use vortex_runend::RunEndEncoding;
 use vortex_sequence::SequenceEncoding;
+use vortex_session::VortexSession;
 use vortex_sparse::SparseEncoding;
 use vortex_zigzag::ZigZagEncoding;
 pub use writer::*;
@@ -155,11 +154,12 @@ mod forever_constant {
     }
 }
 
-/// A default registry containing the built-in Vortex encodings and layouts.
-pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
-    // Register the compressed encodings that Vortex ships with.
-    let mut registry = ArrayRegistry::canonical_only();
-    registry.register_many([
+/// Register the default encodings use in Vortex files with the provided session.
+///
+/// NOTE: this function will be changed in the future to encapsulate logic for using different
+/// Vortex "Editions" that may support different sets of encodings.
+pub fn register_default_encodings(session: &VortexSession) {
+    session.arrays().register_many([
         EncodingRef::new_ref(ALPEncoding.as_ref()),
         EncodingRef::new_ref(ALPRDEncoding.as_ref()),
         EncodingRef::new_ref(BitPackedEncoding.as_ref()),
@@ -179,5 +179,4 @@ pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
         #[cfg(feature = "zstd")]
         EncodingRef::new_ref(vortex_zstd::ZstdEncoding.as_ref()),
     ]);
-    Arc::new(registry)
-});
+}

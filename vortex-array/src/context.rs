@@ -6,50 +6,12 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use parking_lot::RwLock;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_utils::aliases::hash_map::HashMap;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_session::registry::Registry;
 
 use crate::EncodingRef;
-use crate::arrays::{
-    BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
-    FixedSizeListEncoding, ListEncoding, ListViewEncoding, MaskedEncoding, NullEncoding,
-    PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
-};
 
-/// A collection of array encodings.
-// TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
 pub type ArrayContext = VTableContext<EncodingRef>;
-pub type ArrayRegistry = VTableRegistry<EncodingRef>;
-
-impl ArrayRegistry {
-    pub fn canonical_only() -> Self {
-        let mut this = Self::empty();
-
-        // Register the canonical encodings.
-        this.register_many([
-            EncodingRef::new_ref(NullEncoding.as_ref()),
-            EncodingRef::new_ref(BoolEncoding.as_ref()),
-            EncodingRef::new_ref(PrimitiveEncoding.as_ref()),
-            EncodingRef::new_ref(DecimalEncoding.as_ref()),
-            EncodingRef::new_ref(VarBinViewEncoding.as_ref()),
-            EncodingRef::new_ref(ListViewEncoding.as_ref()),
-            EncodingRef::new_ref(FixedSizeListEncoding.as_ref()),
-            EncodingRef::new_ref(StructEncoding.as_ref()),
-            EncodingRef::new_ref(ExtensionEncoding.as_ref()),
-        ]);
-
-        // Register the utility encodings.
-        this.register_many([
-            EncodingRef::new_ref(ChunkedEncoding.as_ref()),
-            EncodingRef::new_ref(ConstantEncoding.as_ref()),
-            EncodingRef::new_ref(MaskedEncoding.as_ref()),
-            EncodingRef::new_ref(ListEncoding.as_ref()),
-            EncodingRef::new_ref(VarBinEncoding.as_ref()),
-        ]);
-
-        this
-    }
-}
 
 /// A collection of encodings that can be addressed by a u16 positional index.
 /// This is used to map array encodings and layout encodings when reading from a file.
@@ -57,6 +19,34 @@ impl ArrayRegistry {
 pub struct VTableContext<T>(Arc<RwLock<Vec<T>>>);
 
 impl<T: Clone + Eq> VTableContext<T> {
+    pub fn new(encodings: Vec<T>) -> Self {
+        Self(Arc::new(RwLock::new(encodings)))
+    }
+
+    pub fn try_from_registry<'a>(
+        registry: &Registry<T>,
+        ids: impl IntoIterator<Item = &'a str>,
+    ) -> VortexResult<Self>
+    where
+        T: Display,
+    {
+        let items: Vec<T> = ids
+            .into_iter()
+            .map(|id| {
+                registry
+                    .find(id)
+                    .ok_or_else(|| vortex_err!("Registry missing encoding with id {}", id))
+            })
+            .try_collect()?;
+        if items.len() > u16::MAX as usize {
+            vortex_bail!(
+                "Cannot create VTableContext: registry has more than u16::MAX ({}) items",
+                u16::MAX
+            );
+        }
+        Ok(Self::new(items))
+    }
+
     pub fn empty() -> Self {
         Self(Arc::new(RwLock::new(Vec::new())))
     }
@@ -96,60 +86,5 @@ impl<T: Clone + Eq> VTableContext<T> {
     /// Find an encoding by its position.
     pub fn lookup_encoding(&self, idx: u16) -> Option<T> {
         self.0.read().get(idx as usize).cloned()
-    }
-}
-
-/// A registry of encodings that can be used to construct a context for serde.
-///
-/// In the future, we will support loading encodings from shared libraries or even from within
-/// the Vortex file itself. This registry will be used to manage the available encodings.
-#[derive(Clone, Debug)]
-pub struct VTableRegistry<T>(HashMap<String, T>);
-
-// TODO(ngates): define a trait for `T` that requires an `id` method returning a `Arc<str>` and
-//  auto-implement `Display` and `Eq` for it.
-impl<T: Clone + Display + Eq> VTableRegistry<T> {
-    pub fn empty() -> Self {
-        Self(Default::default())
-    }
-
-    /// Create a new [`VTableContext`] with the provided encodings.
-    pub fn new_context<'a>(
-        &self,
-        encoding_ids: impl Iterator<Item = &'a str>,
-    ) -> VortexResult<VTableContext<T>> {
-        let mut ctx = VTableContext::<T>::empty();
-        for id in encoding_ids {
-            let encoding = self.0.get(id).ok_or_else(|| {
-                vortex_err!(
-                    "Array encoding {} not found in registry {}",
-                    id,
-                    self.0.values().join(", ")
-                )
-            })?;
-            ctx = ctx.with(encoding.clone());
-        }
-        Ok(ctx)
-    }
-
-    /// List the vtables in the registry.
-    pub fn vtables(&self) -> impl Iterator<Item = &T> + '_ {
-        self.0.values()
-    }
-
-    /// Find the encoding with the given ID.
-    pub fn get(&self, id: &str) -> Option<&T> {
-        self.0.get(id)
-    }
-
-    /// Register a new encoding, replacing any existing encoding with the same ID.
-    pub fn register(&mut self, encoding: T) {
-        self.0.insert(encoding.to_string(), encoding);
-    }
-
-    /// Register a new encoding, replacing any existing encoding with the same ID.
-    pub fn register_many<I: IntoIterator<Item = T>>(&mut self, encodings: I) {
-        self.0
-            .extend(encodings.into_iter().map(|e| (e.to_string(), e)));
     }
 }

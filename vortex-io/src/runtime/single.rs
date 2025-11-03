@@ -176,23 +176,21 @@ impl BlockingRuntime for SingleThreadRuntime {
         Handle::new(Arc::downgrade(&executor))
     }
 
-    fn block_on<F, Fut, R>(&self, f: F) -> R
+    fn block_on<Fut, R>(&self, fut: Fut) -> R
     where
-        F: FnOnce(Handle) -> Fut,
         Fut: Future<Output = R>,
     {
-        smol::block_on(self.executor.run(f(self.handle())))
+        smol::block_on(self.executor.run(fut))
     }
 
-    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
+    fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
     where
-        F: FnOnce(Handle) -> S,
         S: Stream<Item = R> + Send + 'a,
         R: Send + 'a,
     {
         SingleThreadIterator {
             executor: self.executor.clone(),
-            stream: f(self.handle()).boxed_local(),
+            stream: stream.boxed_local(),
         }
     }
 }
@@ -206,7 +204,9 @@ where
     F: FnOnce(Handle) -> Fut,
     Fut: Future<Output = R>,
 {
-    SingleThreadRuntime::default().block_on(f)
+    let runtime = SingleThreadRuntime::default();
+    let handle = runtime.handle();
+    runtime.block_on(f(handle))
 }
 
 /// Returns an iterator wrapper around a stream, blocking the current thread for each item.
@@ -216,7 +216,9 @@ where
     S: Stream<Item = R> + Send + Unpin + 'a,
     R: Send + 'a,
 {
-    SingleThreadRuntime::default().block_on_stream(f)
+    let runtime = SingleThreadRuntime::default();
+    let handle = runtime.handle();
+    runtime.block_on_stream(f(handle))
 }
 
 /// A spawn request for a future.
@@ -280,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_drive_simple_future() {
-        let result = SingleThreadRuntime::default().block_on(|_h| async { 123 }.boxed_local());
+        let result = SingleThreadRuntime::default().block_on(async { 123 }.boxed_local());
         assert_eq!(result, 123);
     }
 

@@ -12,14 +12,15 @@ use vortex::ArrayRef;
 use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::{DType, StructFields};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
-use vortex::file::{VortexWriteOptions, WriteSummary};
+use vortex::file::{WriteOptionsSessionExt, WriteSummary};
 use vortex::io::runtime::current::CurrentThreadWorkerPool;
 use vortex::io::runtime::{BlockingRuntime, Task};
+use vortex::io::session::RuntimeSessionExt;
 use vortex::stream::ArrayStreamAdapter;
 
-use crate::RUNTIME;
 use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
 use crate::duckdb::{CopyFunction, DataChunk, LogicalType};
+use crate::{RUNTIME, SESSION};
 
 #[derive(Debug)]
 pub struct VortexCopyFunction;
@@ -74,7 +75,7 @@ impl CopyFunction for VortexCopyFunction {
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
         let chunk = data_chunk_to_arrow(bind_data.fields.names(), chunk);
-        RUNTIME.block_on(|_h| async {
+        RUNTIME.block_on(async {
             init_global
                 .sink
                 .as_mut()
@@ -91,7 +92,7 @@ impl CopyFunction for VortexCopyFunction {
         _bind_data: &Self::BindData,
         init_global: &mut Self::GlobalState,
     ) -> VortexResult<()> {
-        RUNTIME.block_on(|_h| async {
+        RUNTIME.block_on(async {
             if let Some(sink) = init_global.sink.take() {
                 drop(sink)
             }
@@ -113,12 +114,10 @@ impl CopyFunction for VortexCopyFunction {
         let (sink, rx) = mpsc::channel(32);
         let array_stream = ArrayStreamAdapter::new(bind_data.dtype.clone(), rx.into_stream());
 
-        let writer = RUNTIME.handle().spawn_nested(|h| async move {
+        let handle = SESSION.handle();
+        let writer = handle.spawn(async move {
             let mut file = async_fs::File::create(file_path).await?;
-            VortexWriteOptions::default()
-                .with_handle(h)
-                .write(&mut file, array_stream)
-                .await
+            SESSION.write_options().write(&mut file, array_stream).await
         });
 
         let worker_pool = RUNTIME.new_pool();

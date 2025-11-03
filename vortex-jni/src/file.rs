@@ -15,16 +15,16 @@ use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
+use vortex::expr::session::ExprSessionExt;
 use vortex::expr::{root, select};
-use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::io::runtime::tokio::TokioRuntime;
+use vortex::file::{OpenOptionsSessionExt, VortexFile};
 use vortex::proto::expr as pb;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::array_iter::NativeArrayIterator;
 use crate::errors::try_or_throw;
 use crate::object_store::make_object_store;
-use crate::{SESSION, TOKIO_RUNTIME, block_on};
+use crate::{RUNTIME, SESSION, TOKIO_RUNTIME};
 
 pub struct NativeFile {
     inner: VortexFile,
@@ -91,7 +91,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_listVortexFiles<'lo
 
         let mut stream = store.list(Some(&prefix));
 
-        let paths_vec = block_on("collect_paths", async move {
+        let paths_vec = TOKIO_RUNTIME.block_on(async move {
             let mut paths = Vec::new();
             while let Some(file) = stream.next().await {
                 let file = file.map_err(VortexError::from)?;
@@ -164,14 +164,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_delete<'local>(
         for uri in delete_uris {
             let url = Url::parse(&uri).map_err(VortexError::from)?;
             // TODO(aduffy): block on all of them
-            block_on(
-                "delete-file",
-                store.delete(
-                    &Path::from_url_path(url.path())
-                        .map_err(|_| vortex_err!("invalid path for url {url}"))?,
-                ),
-            )
-            .map_err(VortexError::from)?;
+            TOKIO_RUNTIME
+                .block_on(
+                    store.delete(
+                        &Path::from_url_path(url.path())
+                            .map_err(|_| vortex_err!("invalid path for url {url}"))?,
+                    ),
+                )
+                .map_err(VortexError::from)?;
         }
 
         Ok(())
@@ -209,14 +209,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open<'local>(
         }
 
         let (store, _scheme) = make_object_store(&url, &properties)?;
-        let open_file = block_on(
-            "VortexOpenOptions.open()",
-            VortexOpenOptions::new()
-                .with_handle(TokioRuntime::current())
-                .with_array_registry(Arc::new(SESSION.arrays().clone()))
-                .with_layout_registry(Arc::new(SESSION.layouts().clone()))
-                .open_object_store(&store, url.path()),
-        )?;
+        let open_file =
+            TOKIO_RUNTIME.block_on(SESSION.open_options().open_object_store(&store, url.path()))?;
 
         Ok(NativeFile::new(open_file).into_raw())
     })
@@ -292,7 +286,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
         if !predicate.is_null() {
             let proto_vec = env.convert_byte_array(predicate)?;
             let expr_proto = pb::Expr::decode(proto_vec.as_slice()).map_err(VortexError::from)?;
-            let expr = deserialize_expr_proto(&expr_proto, SESSION.expressions())?;
+            let expr = deserialize_expr_proto(&expr_proto, SESSION.expressions().registry())?;
             scan_builder = scan_builder.with_filter(expr);
         }
 
@@ -316,9 +310,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
             scan_builder = scan_builder.with_row_range(start_idx..end_idx);
         }
 
-        Ok(NativeArrayIterator::new(Box::new(
-            scan_builder.into_array_iter(&TokioRuntime::from(TOKIO_RUNTIME.handle()))?,
-        ))
-        .into_raw())
+        Ok(NativeArrayIterator::new(Box::new(scan_builder.into_array_iter(&*RUNTIME)?)).into_raw())
     })
 }

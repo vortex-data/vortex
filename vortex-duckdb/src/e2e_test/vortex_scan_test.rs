@@ -19,14 +19,14 @@ use vortex::arrays::{
     VarBinArray, VarBinViewArray,
 };
 use vortex::buffer::buffer;
-use vortex::file::VortexWriteOptions;
-use vortex::io::runtime::{BlockingRuntime, Handle};
+use vortex::file::WriteOptionsSessionExt;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::scalar::Scalar;
 use vortex::validity::Validity;
 
 use crate::cpp::{duckdb_string_t, duckdb_timestamp};
 use crate::duckdb::{Connection, Database};
-use crate::{RUNTIME, cpp};
+use crate::{RUNTIME, SESSION, cpp};
 
 fn database_connection() -> Connection {
     let db = Database::open_in_memory().unwrap();
@@ -39,24 +39,19 @@ fn create_temp_file() -> NamedTempFile {
     NamedTempFile::new().unwrap()
 }
 
-async fn write_single_column_vortex_file(
-    handle: Handle,
-    field_name: &str,
-    array: impl IntoArray,
-) -> NamedTempFile {
-    write_vortex_file(handle, [(field_name, array)].into_iter()).await
+async fn write_single_column_vortex_file(field_name: &str, array: impl IntoArray) -> NamedTempFile {
+    write_vortex_file([(field_name, array)].into_iter()).await
 }
 
 async fn write_vortex_file(
-    handle: Handle,
     iter: impl Iterator<Item = (impl AsRef<str>, impl IntoArray)>,
 ) -> NamedTempFile {
     let temp_file_path = create_temp_file();
 
     let struct_array = StructArray::try_from_iter(iter).unwrap();
     let mut file = async_fs::File::create(&temp_file_path).await.unwrap();
-    VortexWriteOptions::default()
-        .with_handle(handle)
+    SESSION
+        .write_options()
         .write(&mut file, struct_array.to_array_stream())
         .await
         .unwrap();
@@ -138,7 +133,6 @@ fn scan_vortex_file<D, T: FromDuckDBValue<D>>(
 }
 
 async fn write_vortex_file_to_dir(
-    handle: Handle,
     dir: &Path,
     field_name: &str,
     array: impl IntoArray,
@@ -150,8 +144,8 @@ async fn write_vortex_file_to_dir(
         .unwrap();
 
     let mut file = async_fs::File::create(&temp_file_path).await.unwrap();
-    VortexWriteOptions::default()
-        .with_handle(handle)
+    SESSION
+        .write_options()
         .write(&mut file, struct_array.to_array_stream())
         .await
         .unwrap();
@@ -176,9 +170,9 @@ fn test_scan_function_registration() {
 
 #[test]
 fn test_vortex_scan_strings() {
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
-        write_single_column_vortex_file(h, "strings", strings).await
+        write_single_column_vortex_file("strings", strings).await
     });
 
     let result: String = scan_vortex_file_single_row(
@@ -192,9 +186,9 @@ fn test_vortex_scan_strings() {
 
 #[test]
 fn test_vortex_scan_strings_contains() {
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
-        write_single_column_vortex_file(h, "strings", strings).await
+        write_single_column_vortex_file("strings", strings).await
     });
     let result: String = scan_vortex_file_single_row(
         file,
@@ -207,9 +201,9 @@ fn test_vortex_scan_strings_contains() {
 
 #[test]
 fn test_vortex_scan_integers() {
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         let numbers = buffer![1i32, 42, 100, -5, 0];
-        write_single_column_vortex_file(h, "number", numbers).await
+        write_single_column_vortex_file("number", numbers).await
     });
     let sum: i64 =
         scan_vortex_file_single_row::<i64, _>(file, "SELECT SUM(number) FROM vortex_scan(?)", 0);
@@ -218,9 +212,9 @@ fn test_vortex_scan_integers() {
 
 #[test]
 fn test_vortex_scan_integers_in_list() {
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         let numbers = buffer![1i32, 42, 100, -5, 0];
-        write_single_column_vortex_file(h, "number", numbers).await
+        write_single_column_vortex_file("number", numbers).await
     });
     let sum: i64 = scan_vortex_file_single_row::<i64, _>(
         file,
@@ -232,9 +226,9 @@ fn test_vortex_scan_integers_in_list() {
 
 #[test]
 fn test_vortex_scan_integers_between() {
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         let numbers = buffer![1i32, 42, 100, -5, 0];
-        write_single_column_vortex_file(h, "number", numbers).await
+        write_single_column_vortex_file("number", numbers).await
     });
     let sum: i64 = scan_vortex_file_single_row::<i64, _>(
         file,
@@ -246,9 +240,9 @@ fn test_vortex_scan_integers_between() {
 
 #[test]
 fn test_vortex_scan_floats() {
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         let values = buffer![1.5f64, -2.5, 0.0, 42.42];
-        write_single_column_vortex_file(h, "value", values).await
+        write_single_column_vortex_file("value", values).await
     });
     let count: i64 = scan_vortex_file_single_row::<i64, _>(
         file,
@@ -260,9 +254,9 @@ fn test_vortex_scan_floats() {
 
 #[test]
 fn test_vortex_scan_constant() {
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         let constant = ConstantArray::new(Scalar::from(42i32), 100);
-        write_single_column_vortex_file(h, "constant", constant).await
+        write_single_column_vortex_file("constant", constant).await
     });
     let value: i32 = scan_vortex_file_single_row::<i32, _>(
         file,
@@ -274,10 +268,10 @@ fn test_vortex_scan_constant() {
 
 #[test]
 fn test_vortex_scan_booleans() {
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         let flags = vec![true, false, true, true, false];
         let flags_array = BoolArray::from_bit_buffer(flags.into(), Validity::NonNullable);
-        write_single_column_vortex_file(h, "flag", flags_array).await
+        write_single_column_vortex_file("flag", flags_array).await
     });
     let true_count: i64 = scan_vortex_file_single_row::<i64, _>(
         file,
@@ -289,7 +283,7 @@ fn test_vortex_scan_booleans() {
 
 #[test]
 fn test_vortex_multi_column() {
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         let f1 = BoolArray::from_bit_buffer(
             vec![true, false, true, true, false].into(),
             Validity::NonNullable,
@@ -297,7 +291,7 @@ fn test_vortex_multi_column() {
         .to_array();
         let f2 = (0..5).collect::<PrimitiveArray>().to_array();
         let f3 = (100..105).collect::<PrimitiveArray>().to_array();
-        write_vortex_file(h, [("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await
+        write_vortex_file([("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await
     });
 
     let result: Vec<i32> = scan_vortex_file::<i32, _>(
@@ -312,15 +306,12 @@ fn test_vortex_multi_column() {
 
 #[test]
 fn test_vortex_scan_multiple_files() {
-    let (tempdir, _file1, _file2) = RUNTIME.block_on(|h| async {
+    let (tempdir, _file1, _file2) = RUNTIME.block_on(async {
         let tempdir = tempfile::tempdir().unwrap();
 
-        let file1 =
-            write_vortex_file_to_dir(h.clone(), tempdir.path(), "numbers", buffer![1i32, 2, 3])
-                .await;
+        let file1 = write_vortex_file_to_dir(tempdir.path(), "numbers", buffer![1i32, 2, 3]).await;
 
-        let file2 =
-            write_vortex_file_to_dir(h, tempdir.path(), "numbers", buffer![4i32, 5, 6]).await;
+        let file2 = write_vortex_file_to_dir(tempdir.path(), "numbers", buffer![4i32, 5, 6]).await;
 
         (tempdir, file1, file2)
     });
@@ -396,7 +387,7 @@ fn test_write_timestamps() {
 fn test_vortex_scan_fixed_size_list_utf8() {
     // Test a simple FixedSizeList of Utf8 strings to ensure proper materialization.
 
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         // Create a large number of strings to stress test.
         let strings: Vec<&str> = (0..24)
             .map(|i| match i % 6 {
@@ -419,7 +410,7 @@ fn test_vortex_scan_fixed_size_list_utf8() {
             6, // 6 lists total
         );
 
-        write_single_column_vortex_file(h, "string_lists", fsl).await
+        write_single_column_vortex_file("string_lists", fsl).await
     });
 
     let conn = database_connection();
@@ -447,7 +438,8 @@ fn test_vortex_scan_nested_fixed_size_list_utf8() {
     // when running with `FixedSizeList` instead of `List`.
 
     // Test FixedSizeList of FixedSizeList of Utf8 to ensure proper materialization.
-    let file = RUNTIME.block_on(|h| async {
+
+    let file = RUNTIME.block_on(async {
         // Create a large number of strings to stress test.
         let strings: Vec<&str> = (0..24)
             .map(|i| match i % 6 {
@@ -478,7 +470,7 @@ fn test_vortex_scan_nested_fixed_size_list_utf8() {
             2, // 2 outer lists
         );
 
-        write_single_column_vortex_file(h, "nested_string_lists", outer_fsl).await
+        write_single_column_vortex_file("nested_string_lists", outer_fsl).await
     });
 
     let conn = database_connection();
@@ -504,7 +496,7 @@ fn test_vortex_scan_nested_fixed_size_list_utf8() {
 fn test_vortex_scan_list_of_ints() {
     // Test a simple List of integers.
 
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         // Create integers that will be grouped into lists.
         let integers = PrimitiveArray::from_iter([
             10i32, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
@@ -524,7 +516,7 @@ fn test_vortex_scan_list_of_ints() {
         )
         .unwrap();
 
-        write_single_column_vortex_file(h, "int_list", list_array).await
+        write_single_column_vortex_file("int_list", list_array).await
     });
 
     let conn = database_connection();
@@ -556,7 +548,7 @@ fn test_vortex_scan_list_of_ints() {
 fn test_vortex_scan_list_of_utf8() {
     // Test a simple List of UTF8 strings.
 
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         // Create UTF8 strings that will be grouped into lists.
         let strings = VarBinViewArray::from_iter_str(vec![
             "apple",
@@ -586,7 +578,7 @@ fn test_vortex_scan_list_of_utf8() {
         )
         .unwrap();
 
-        write_single_column_vortex_file(h, "string_list", list_array).await
+        write_single_column_vortex_file("string_list", list_array).await
     });
 
     let conn = database_connection();
@@ -621,7 +613,7 @@ fn test_vortex_scan_ultra_deep_nesting() {
     // Test ultra-deep nesting: Multiple levels of FSL and List combinations with UTF8.
     // FSL[List[FSL[List[FSL[UTF8]]]]]
 
-    let file = RUNTIME.block_on(|h| async {
+    let file = RUNTIME.block_on(async {
         // Level 1: Create base UTF8 strings - need a lot for deep nesting.
         let strings = VarBinViewArray::from_iter_str(
             (0..360)
@@ -682,7 +674,7 @@ fn test_vortex_scan_ultra_deep_nesting() {
             1, // 1 outermost FSL
         );
 
-        write_single_column_vortex_file(h, "ultra_deep", outermost_fsl).await
+        write_single_column_vortex_file("ultra_deep", outermost_fsl).await
     });
 
     let conn = database_connection();

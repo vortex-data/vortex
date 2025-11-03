@@ -20,6 +20,7 @@ use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
 use vortex_scan::{ScanBuilder, SplitBy};
+use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
@@ -38,6 +39,8 @@ pub struct VortexFile {
     pub(crate) segment_source: Arc<dyn SegmentSource>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
+    /// The Vortex session used to open this file
+    pub(crate) session: VortexSession,
 }
 
 impl VortexFile {
@@ -87,7 +90,10 @@ impl VortexFile {
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
     pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
-        Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
+        Ok(
+            ScanBuilder::new(self.session.clone(), self.layout_reader()?)
+                .with_metrics(self.metrics.clone()),
+        )
     }
 
     #[cfg(feature = "gpu")]
@@ -101,7 +107,10 @@ impl VortexFile {
             .layout()
             .new_gpu_reader("".into(), segment_source, ctx)?;
 
-        Ok(vortex_scan::gpu::GpuScanBuilder::new(gpu_reader))
+        Ok(vortex_scan::gpu::GpuScanBuilder::new(
+            self.session.clone(),
+            gpu_reader,
+        ))
     }
 
     /// Returns true if the expression will never match any rows in the file.

@@ -12,7 +12,7 @@ use pyo3::types::PyString;
 use vortex::dtype::{FieldName, FieldNames};
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, SelectExpr, root, select};
-use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::file::{OpenOptionsSessionExt, VortexFile};
 use vortex::iter::ArrayIteratorExt;
 use vortex::scan::SplitBy;
 use vortex::{ArrayRef, ToCanonical};
@@ -21,7 +21,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrow::{IntoPyArrow, ToPyArrow};
 use crate::expr::PyExpr;
 use crate::object_store_urls::object_store_from_url;
-use crate::{RUNTIME, TOKIO_RUNTIME, install_module};
+use crate::{RUNTIME, SESSION, TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
@@ -103,7 +103,8 @@ impl PyVortexDataset {
     pub async fn from_url(url: &str) -> VortexResult<Self> {
         let (_scheme, object_store, path) = object_store_from_url(url)?;
         PyVortexDataset::try_new(
-            VortexOpenOptions::new()
+            SESSION
+                .open_options()
                 .open_object_store(&object_store, path.as_ref())
                 .await?,
         )

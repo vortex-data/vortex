@@ -28,6 +28,7 @@ use vortex::expr::{root, select};
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
+use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::{DashMap, Entry};
 
 use super::cache::VortexFileCache;
@@ -35,6 +36,7 @@ use crate::convert::exprs::{can_be_pushed_down, make_vortex_predicate};
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
+    pub session: VortexSession,
     pub object_store: Arc<dyn ObjectStore>,
     /// Projection by index of the file's columns
     pub projection: Option<Arc<[usize]>>,
@@ -144,6 +146,7 @@ fn compute_logical_file_schema(
 
 impl FileOpener for VortexOpener {
     fn open(&self, file_meta: FileMeta, file: PartitionedFile) -> DFResult<FileOpenFuture> {
+        let session = self.session.clone();
         let object_store = self.object_store.clone();
         let projection = self.projection.clone();
         let mut filter = self.filter.clone();
@@ -281,7 +284,7 @@ impl FileOpener for VortexOpener {
                 }
             };
 
-            let mut scan_builder = ScanBuilder::new(layout_reader);
+            let mut scan_builder = ScanBuilder::new(session, layout_reader);
             if let Some(file_range) = file_meta.range {
                 scan_builder = apply_byte_range(
                     file_range,
@@ -386,6 +389,8 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arrow_schema::Fields;
     use chrono::Utc;
     use datafusion::arrow::array::{RecordBatch, StringArray, StructArray};
@@ -402,12 +407,15 @@ mod tests {
     use object_store::ObjectMeta;
     use object_store::memory::InMemory;
     use rstest::rstest;
+    use vortex::VortexSessionDefault;
     use vortex::arrow::FromArrowArray;
-    use vortex::file::VortexWriteOptions;
+    use vortex::file::WriteOptionsSessionExt;
     use vortex::io::{ObjectStoreWriter, VortexWrite};
     use vortex::session::VortexSession;
 
     use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
     #[rstest]
     #[case(0..100, 100, 100, 0..100)]
@@ -460,7 +468,8 @@ mod tests {
         let path = Path::parse(path)?;
 
         let mut write = ObjectStoreWriter::new(object_store, &path).await?;
-        let summary = VortexWriteOptions::default()
+        let summary = SESSION
+            .write_options()
             .write(&mut write, array.to_array_stream())
             .await?;
         write.shutdown().await?;
@@ -493,7 +502,6 @@ mod tests {
         #[case] expected_result1: (usize, usize),
         #[case] expected_result2: (usize, usize),
     ) -> anyhow::Result<()> {
-        let vx_session = Arc::new(VortexSession::default());
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "part=1/file.vortex";
         let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
@@ -510,6 +518,7 @@ mod tests {
         ]));
 
         let make_opener = |filter| VortexOpener {
+            session: SESSION.clone(),
             object_store: object_store.clone(),
             projection: Some([0].into()),
             filter: Some(filter),
@@ -517,7 +526,7 @@ mod tests {
             expr_adapter_factory: expr_adapter_factory.clone(),
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
             partition_fields: vec![Arc::new(Field::new("part", DataType::Int32, false))],
-            file_cache: VortexFileCache::new(1, 1, vx_session.clone()),
+            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
             logical_schema: file_schema.clone(),
             batch_size: 100,
             limit: None,
@@ -575,7 +584,6 @@ mod tests {
     ) -> anyhow::Result<()> {
         use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
 
-        let vx_session = Arc::new(VortexSession::default());
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file1_path = "/path/file1.vortex";
         let batch1 = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
@@ -591,6 +599,7 @@ mod tests {
         let table_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, true)]));
 
         let make_opener = |filter| VortexOpener {
+            session: SESSION.clone(),
             object_store: object_store.clone(),
             projection: Some([0].into()),
             filter: Some(filter),
@@ -598,7 +607,7 @@ mod tests {
             expr_adapter_factory: expr_adapter_factory.clone(),
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
             partition_fields: vec![],
-            file_cache: VortexFileCache::new(1, 1, vx_session.clone()),
+            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
             logical_schema: table_schema.clone(),
             batch_size: 100,
             limit: None,
@@ -654,7 +663,6 @@ mod tests {
     // a nested schema mismatch between the physical file schema and logical
     // table schema.
     async fn test_adapter_logical_physical_struct_mismatch() -> anyhow::Result<()> {
-        let vx_session = Arc::new(VortexSession::default());
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "/path/file.vortex";
         let file_struct_fields = Fields::from(vec![
@@ -699,6 +707,7 @@ mod tests {
         )]));
 
         let opener = VortexOpener {
+            session: SESSION.clone(),
             object_store: object_store.clone(),
             projection: None,
             filter: Some(logical2physical(
@@ -709,7 +718,7 @@ mod tests {
             expr_adapter_factory: Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
             schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
             partition_fields: vec![],
-            file_cache: VortexFileCache::new(1, 1, vx_session),
+            file_cache: VortexFileCache::new(1, 1, SESSION.clone()),
             logical_schema: table_schema,
             batch_size: 100,
             limit: None,

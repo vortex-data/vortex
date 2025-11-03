@@ -17,10 +17,11 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{ExprRef, root};
-use vortex_io::runtime::{BlockingRuntime, Handle};
+use vortex_io::runtime::BlockingRuntime;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
 use vortex_metrics::VortexMetrics;
+use vortex_session::VortexSession;
 
 use crate::RepeatedScan;
 use crate::selection::Selection;
@@ -29,7 +30,7 @@ use crate::splits::{Splits, attempt_split_ranges};
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
-    handle: Option<Handle>,
+    session: VortexSession,
     layout_reader: LayoutReaderRef,
     projection: ExprRef,
     filter: Option<ExprRef>,
@@ -57,9 +58,9 @@ pub struct ScanBuilder<A> {
 }
 
 impl ScanBuilder<ArrayRef> {
-    pub fn new(layout_reader: Arc<dyn LayoutReader>) -> Self {
+    pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>) -> Self {
         Self {
-            handle: Handle::find(),
+            session,
             layout_reader,
             projection: root(),
             filter: None,
@@ -78,7 +79,7 @@ impl ScanBuilder<ArrayRef> {
         }
     }
 
-    /// Returns an [`ArrayStream`] with tasks spawned onto the scan's [`Handle`].
+    /// Returns an [`ArrayStream`] with tasks spawned onto the session's runtime handle.
     ///
     /// See [`ScanBuilder::into_stream`] for more details.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + Send + 'static> {
@@ -92,22 +93,16 @@ impl ScanBuilder<ArrayRef> {
         self,
         runtime: &B,
     ) -> VortexResult<impl ArrayIterator + 'static> {
-        let stream = self.with_handle(runtime.handle()).into_array_stream()?;
+        let stream = self.into_array_stream()?;
         let dtype = stream.dtype().clone();
         Ok(ArrayIteratorAdapter::new(
             dtype,
-            runtime.block_on_stream(|_| stream),
+            runtime.block_on_stream(stream),
         ))
     }
 }
 
 impl<A: 'static + Send> ScanBuilder<A> {
-    /// Provide a handle to the runtime on which to spawn tasks.
-    pub fn with_handle(mut self, handle: Handle) -> Self {
-        self.handle = Some(handle);
-        self
-    }
-
     pub fn with_filter(mut self, filter: ExprRef) -> Self {
         self.filter = Some(filter);
         self
@@ -183,7 +178,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ) -> ScanBuilder<B> {
         let old_map_fn = self.map_fn;
         ScanBuilder {
-            handle: self.handle,
+            session: self.session,
             layout_reader: self.layout_reader,
             projection: self.projection,
             filter: self.filter,
@@ -203,11 +198,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
         let dtype = self.dtype()?;
 
-        let Some(handle) = self.handle else {
-            vortex_bail!(
-                "A runtime handle must be provided to the scan builder using `with_handle`"
-            );
-        };
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
@@ -249,7 +239,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             };
 
         Ok(RepeatedScan::new(
-            handle,
+            self.session.clone(),
             layout_reader,
             projection,
             filter,
@@ -274,20 +264,20 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self.prepare()?.execute(None)
     }
 
-    /// Returns a [`Stream`] with tasks spawned onto the scan's [`Handle`].
+    /// Returns a [`Stream`] with tasks spawned onto the session's runtime handle.
     pub fn into_stream(
         self,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         self.prepare()?.execute_stream(None)
     }
 
-    /// Returns an [`Iterator`] using the given blocking runtime.
+    /// Returns an [`Iterator`] using the session's runtime.
     pub fn into_iter<B: BlockingRuntime>(
         self,
         runtime: &B,
     ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
-        let stream = self.with_handle(runtime.handle()).into_stream()?;
-        Ok(runtime.block_on_stream(|_| stream))
+        let stream = self.into_stream()?;
+        Ok(runtime.block_on_stream(stream))
     }
 }
 

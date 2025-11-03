@@ -27,7 +27,8 @@ use object_store::path::Path;
 use vortex::error::VortexExpect as _;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
-use vortex::metrics::VortexMetrics;
+use vortex::metrics::MetricsSessionExt;
+use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use super::cache::VortexFileCache;
@@ -40,6 +41,7 @@ use crate::convert::exprs::can_be_pushed_down;
 /// [`DataSourceExec`]: datafusion_datasource::source::DataSourceExec
 #[derive(Clone)]
 pub struct VortexSource {
+    pub(crate) session: VortexSession,
     pub(crate) file_cache: VortexFileCache,
     /// Combined predicate expression containing all filters from DataFusion query planning.
     /// Used with FilePruner to skip files based on statistics and partition values.
@@ -53,7 +55,6 @@ pub struct VortexSource {
     pub(crate) arrow_file_schema: Option<SchemaRef>,
     pub(crate) schema_adapter_factory: Option<Arc<dyn SchemaAdapterFactory>>,
     pub(crate) expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
-    pub(crate) metrics: VortexMetrics,
     _unused_df_metrics: ExecutionPlanMetricsSet,
     /// Shared layout readers, the source only lives as long as one scan.
     ///
@@ -62,10 +63,10 @@ pub struct VortexSource {
 }
 
 impl VortexSource {
-    pub(crate) fn new(file_cache: VortexFileCache, metrics: VortexMetrics) -> Self {
+    pub(crate) fn new(session: VortexSession, file_cache: VortexFileCache) -> Self {
         Self {
+            session,
             file_cache,
-            metrics,
             full_predicate: None,
             vortex_predicate: None,
             batch_size: None,
@@ -100,7 +101,8 @@ impl FileSource for VortexSource {
         partition: usize,
     ) -> Arc<dyn FileOpener> {
         let partition_metrics = self
-            .metrics
+            .session
+            .metrics()
             .child_with_tags([(PARTITION_LABEL, partition.to_string())].into_iter());
 
         let batch_size = self
@@ -135,6 +137,7 @@ impl FileSource for VortexSource {
         let projection = base_config.file_column_projection_indices().map(Arc::from);
 
         let opener = VortexOpener {
+            session: self.session.clone(),
             object_store,
             projection,
             filter: self.vortex_predicate.clone(),

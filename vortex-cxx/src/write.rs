@@ -1,29 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::LazyLock;
-
 use anyhow::Result;
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
-use tokio::runtime::Runtime;
 use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, VortexExpect};
-use vortex::file::VortexWriteOptions as WriteOptions;
+use vortex::error::VortexError;
+use vortex::file::{VortexWriteOptions as WriteOptions, WriteOptionsSessionExt};
 use vortex::io::VortexWrite;
-use vortex::io::runtime::tokio::TokioRuntime;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::stream::ArrayStream;
 
-/// The tokio runtime for the write-side.
-static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-    Runtime::new()
-        .map_err(VortexError::from)
-        .vortex_expect("Failed to create tokio runtime")
-});
+use crate::{RUNTIME, SESSION};
 
 pub(crate) struct VortexWriteOptions {
     inner: WriteOptions,
@@ -31,7 +23,7 @@ pub(crate) struct VortexWriteOptions {
 
 pub(crate) fn write_options_new() -> Box<VortexWriteOptions> {
     Box::new(VortexWriteOptions {
-        inner: WriteOptions::default().with_handle(TokioRuntime::current()),
+        inner: SESSION.write_options(),
     })
 }
 
@@ -66,7 +58,7 @@ pub(crate) unsafe fn write_array_stream(
     let vortex_stream = arrow_stream_to_vortex_stream(stream_reader)?;
 
     RUNTIME.block_on(async {
-        let mut file = tokio::fs::File::create(path).await?;
+        let mut file = async_fs::File::create(path).await?;
         options.inner.write(&mut file, vortex_stream).await?;
         file.shutdown().await?;
         Ok(())

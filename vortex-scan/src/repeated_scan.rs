@@ -14,8 +14,10 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
-use vortex_io::runtime::{BlockingRuntime, Handle};
+use vortex_io::runtime::BlockingRuntime;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReaderRef;
+use vortex_session::VortexSession;
 
 use crate::filter::FilterExpr;
 use crate::selection::Selection;
@@ -27,7 +29,7 @@ use crate::tasks::{TaskContext, split_exec};
 /// The method of this struct enable, possibly concurrent, scanning of multiple row ranges of this
 /// data source.
 pub struct RepeatedScan<A: 'static + Send> {
-    handle: Handle,
+    session: VortexSession,
     layout_reader: LayoutReaderRef,
     projection: ExprRef,
     filter: Option<ExprRef>,
@@ -56,7 +58,7 @@ impl RepeatedScan<ArrayRef> {
     ) -> VortexResult<impl ArrayIterator + 'static> {
         let dtype = self.dtype.clone();
         let stream = self.execute_stream(row_range)?;
-        let iter = runtime.block_on_stream(move |_h| stream);
+        let iter = runtime.block_on_stream(stream);
         Ok(ArrayIteratorAdapter::new(dtype, iter))
     }
 
@@ -74,7 +76,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
     /// Constructor just to allow `scan_builder` to create a `RepeatedScan`.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
-        handle: Handle,
+        session: VortexSession,
         layout_reader: LayoutReaderRef,
         projection: ExprRef,
         filter: Option<ExprRef>,
@@ -88,7 +90,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         dtype: DType,
     ) -> Self {
         Self {
-            handle,
+            session,
             layout_reader,
             projection,
             filter,
@@ -171,7 +173,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             .map(|n| n.get())
             .unwrap_or(1);
         let concurrency = self.concurrency * num_workers;
-        let handle = self.handle.clone();
+        let handle = self.session.handle();
 
         let stream =
             futures::stream::iter(self.execute(row_range)?).map(move |task| handle.spawn(task));

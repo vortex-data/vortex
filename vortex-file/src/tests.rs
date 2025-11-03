@@ -3,7 +3,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 use std::iter;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt, pin_mut};
@@ -16,17 +16,35 @@ use vortex_array::arrays::{
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, assert_arrays_eq};
+use vortex_array::{Array, ArrayRef, ArraySession, IntoArray, ToCanonical, assert_arrays_eq};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dict::{DictEncoding, DictVTable};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
 use vortex_expr::{PackExpr, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
+use vortex_io::session::RuntimeSession;
+use vortex_layout::session::LayoutSession;
+use vortex_metrics::VortexMetrics;
 use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
+use vortex_session::VortexSession;
 
-use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
+use crate::{
+    OpenOptionsSessionExt, V1_FOOTER_FBS_SIZE, VERSION, VortexFile, WriteOptionsSessionExt,
+};
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty()
+        .with::<VortexMetrics>()
+        .with::<ArraySession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+
+    crate::register_default_encodings(&session);
+
+    session
+});
 
 #[tokio::test]
 async fn test_eof_values() {
@@ -53,12 +71,14 @@ async fn test_read_simple() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, st.to_array_stream())
         .await
         .unwrap();
 
-    let stream = VortexOpenOptions::new()
+    let stream = SESSION
+        .open_options()
         .open_buffer(buf)
         .unwrap()
         .scan()
@@ -131,12 +151,14 @@ async fn test_round_trip_many_types() {
     .unwrap();
     let mut buf = ByteBufferMut::empty();
 
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, st.to_array_stream())
         .await
         .unwrap();
 
-    let chunks: Vec<_> = VortexOpenOptions::new()
+    let chunks: Vec<_> = SESSION
+        .open_options()
         .open_buffer(buf)
         .unwrap()
         .scan()
@@ -186,7 +208,8 @@ async fn test_read_simple_with_spawn() {
             .unwrap();
 
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, st.to_array_stream())
         .await
         .unwrap();
@@ -216,12 +239,13 @@ async fn test_read_projection() {
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
 
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, st.to_array_stream())
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
     let array = file
         .scan()
         .unwrap()
@@ -284,12 +308,14 @@ async fn unequal_batches() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, st.to_array_stream())
         .await
         .unwrap();
 
-    let stream = VortexOpenOptions::new()
+    let stream = SESSION
+        .open_options()
         .open_buffer(buf)
         .unwrap()
         .scan()
@@ -342,12 +368,14 @@ async fn write_chunked() {
         .unwrap()
         .into_array();
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, chunked_st.to_array_stream())
         .await
         .unwrap();
 
-    let stream = VortexOpenOptions::new()
+    let stream = SESSION
+        .open_options()
         .open_buffer(buf)
         .unwrap()
         .scan()
@@ -371,12 +399,13 @@ async fn test_empty_varbin_array_roundtrip() {
     let st = StructArray::from_fields(&[("a", empty)]).unwrap();
 
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, st.to_array_stream())
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     let result = file
         .scan()
@@ -410,12 +439,14 @@ async fn filter_string() {
     .unwrap()
     .into_array();
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, st.to_array_stream())
         .await
         .unwrap();
 
-    let result: Vec<_> = VortexOpenOptions::new()
+    let result: Vec<_> = SESSION
+        .open_options()
         .open_buffer(buf)
         .unwrap()
         .scan()
@@ -457,12 +488,14 @@ async fn filter_or() {
     .into_array();
 
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, st.to_array_stream())
         .await
         .unwrap();
 
-    let result: Vec<_> = VortexOpenOptions::new()
+    let result: Vec<_> = SESSION
+        .open_options()
         .open_buffer(buf)
         .unwrap()
         .scan()
@@ -519,12 +552,14 @@ async fn filter_and() {
     .into_array();
 
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, st.to_array_stream())
         .await
         .unwrap();
 
-    let result: Vec<_> = VortexOpenOptions::new()
+    let result: Vec<_> = SESSION
+        .open_options()
         .open_buffer(buf)
         .unwrap()
         .scan()
@@ -571,12 +606,13 @@ async fn test_with_indices_simple() {
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
 
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, expected_array.to_array_stream())
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     // test no indices
     let actual_kept_array = file
@@ -649,12 +685,13 @@ async fn test_with_indices_on_two_columns() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, st.to_array_stream())
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     let kept_indices = [0_u64, 3, 7];
     let array = file
@@ -704,12 +741,13 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
 
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, expected_array.to_array_stream())
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     let actual_kept_array = file
         .scan()
@@ -806,12 +844,13 @@ async fn filter_string_chunked() {
         .into_array();
 
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, array.to_array_stream())
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     let actual_array = file
         .scan()
@@ -893,12 +932,13 @@ async fn test_pruning_with_or() {
         .into_array();
 
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, array.to_array_stream())
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     let actual_array = file
         .scan()
@@ -965,12 +1005,13 @@ async fn test_repeated_projection() {
         .into_array();
 
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, single_column_array.to_array_stream())
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new().open_buffer(buf).unwrap();
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     let actual = file
         .scan()
@@ -1002,11 +1043,12 @@ async fn chunked_file() -> VortexResult<VortexFile> {
     .into_array();
 
     let mut writer = vec![];
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut writer, array.to_array_stream())
         .await?;
     let buffer: Bytes = writer.into();
-    VortexOpenOptions::new().open_buffer(buffer)
+    SESSION.open_options().open_buffer(buffer)
 }
 
 #[tokio::test]
@@ -1031,17 +1073,19 @@ async fn file_excluding_dtype() -> VortexResult<()> {
     let dtype = array.dtype().clone();
 
     let mut writer = vec![];
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .exclude_dtype()
         .write(&mut writer, array.to_array_stream())
         .await?;
     let buffer: Bytes = writer.into();
 
     // Fail to open without DType.
-    let vxf = VortexOpenOptions::new().open_buffer(buffer.clone());
+    let vxf = SESSION.open_options().open_buffer(buffer.clone());
     assert!(vxf.is_err(), "Opening without DType should fail");
 
-    let vxf = VortexOpenOptions::new()
+    let vxf = SESSION
+        .open_options()
         .with_dtype(dtype.clone())
         .open_buffer(buffer)?;
     assert_eq!(vxf.dtype(), &dtype);
@@ -1083,7 +1127,8 @@ async fn write_nullable_top_level_struct() {
     .into_array();
 
     let mut writer = vec![];
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut writer, array.to_array_stream())
         .await
         .unwrap();
@@ -1094,12 +1139,14 @@ async fn round_trip(
     f: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
 ) -> VortexResult<ArrayRef> {
     let mut writer = vec![];
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut writer, array.to_array_stream())
         .await?;
     let buffer: Bytes = writer.into();
 
-    let vxf = VortexOpenOptions::new()
+    let vxf = SESSION
+        .open_options()
         .with_dtype(array.dtype().clone())
         .open_buffer(buffer)?;
 
@@ -1177,11 +1224,12 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let mut buf = ByteBufferMut::empty();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, st.to_array_stream())
         .await?;
 
-    let file = VortexOpenOptions::new().open_buffer(buf)?;
+    let file = SESSION.open_options().open_buffer(buf)?;
     let stream = file.scan().unwrap().into_array_stream()?;
     let array = stream.read_all().await?;
 
@@ -1199,10 +1247,11 @@ async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
 
     let array = PrimitiveArray::from_iter(values).into_array();
     let mut buf = Vec::new();
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut buf, array.to_array_stream())
         .await?;
-    let file = VortexOpenOptions::new().open_buffer(buf)?;
+    let file = SESSION.open_options().open_buffer(buf)?;
     let read_array = file.scan()?.into_array_stream()?.read_all().await?;
 
     let dict = read_array
@@ -1224,14 +1273,14 @@ async fn test_writer_basic_push() -> VortexResult<()> {
     let dtype = st.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = VortexWriteOptions::default().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
 
     writer.push(st.clone()).await?;
     let summary = writer.finish().await?;
 
     assert_eq!(summary.row_count(), 4);
 
-    let file = VortexOpenOptions::new().open_buffer(buf)?;
+    let file = SESSION.open_options().open_buffer(buf)?;
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 4);
@@ -1252,7 +1301,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
     let dtype = chunk1.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = VortexWriteOptions::default().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
 
     writer.push(chunk1).await?;
     writer.push(chunk2).await?;
@@ -1261,7 +1310,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
     let summary = writer.finish().await?;
     assert_eq!(summary.row_count(), 9);
 
-    let file = VortexOpenOptions::new().open_buffer(buf)?;
+    let file = SESSION.open_options().open_buffer(buf)?;
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 9);
@@ -1285,14 +1334,14 @@ async fn test_writer_push_stream() -> VortexResult<()> {
     let sendable_stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype.clone(), stream));
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = VortexWriteOptions::default().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
 
     writer.push_stream(sendable_stream).await?;
 
     let summary = writer.finish().await?;
     assert_eq!(summary.row_count(), 6);
 
-    let file = VortexOpenOptions::new().open_buffer(buf)?;
+    let file = SESSION.open_options().open_buffer(buf)?;
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
@@ -1310,7 +1359,7 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
     let dtype = array.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = VortexWriteOptions::default().writer(&mut buf, dtype);
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype);
 
     assert_eq!(writer.bytes_written(), 0);
 
@@ -1344,7 +1393,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
     let dtype = empty.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = VortexWriteOptions::default().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
 
     writer.push(empty.clone()).await?;
     writer.push(non_empty).await?;
@@ -1353,7 +1402,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
     let summary = writer.finish().await?;
     assert_eq!(summary.row_count(), 2);
 
-    let file = VortexOpenOptions::new().open_buffer(buf)?;
+    let file = SESSION.open_options().open_buffer(buf)?;
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 2);
@@ -1379,7 +1428,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
     let sendable_stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype.clone(), stream));
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = VortexWriteOptions::default().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
 
     writer.push(chunk1).await?;
     writer.push_stream(sendable_stream).await?;
@@ -1388,7 +1437,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
     let summary = writer.finish().await?;
     assert_eq!(summary.row_count(), 6);
 
-    let file = VortexOpenOptions::new().open_buffer(buf)?;
+    let file = SESSION.open_options().open_buffer(buf)?;
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
@@ -1418,14 +1467,14 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     let dtype = chunk.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = VortexWriteOptions::default().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
 
     writer.push(chunk).await?;
     let footer = writer.finish().await?;
 
     assert_eq!(footer.row_count(), 3);
 
-    let file = VortexOpenOptions::new().open_buffer(buf)?;
+    let file = SESSION.open_options().open_buffer(buf)?;
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 3);
@@ -1454,7 +1503,8 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
         .into_array();
 
     let mut buf = ByteBufferMut::empty();
-    let mut writer = VortexWriteOptions::default()
+    let mut writer = SESSION
+        .write_options()
         .with_file_statistics(PRUNING_STATS.to_vec())
         .writer(&mut buf, array.dtype().clone());
 

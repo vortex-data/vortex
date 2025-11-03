@@ -7,6 +7,7 @@
 use std::clone::Clone;
 use std::fmt::Display;
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 use clap::ValueEnum;
 use itertools::Itertools;
@@ -42,11 +43,17 @@ pub mod utils;
 
 pub use datasets::{BenchmarkDataset, file};
 pub use engines::df;
+use vortex::VortexSessionDefault;
 pub use vortex::error::vortex_panic;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::session::VortexSession;
 
 // All benchmarks run with mimalloc for consistency.
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+pub static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::default().with_tokio());
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Target {

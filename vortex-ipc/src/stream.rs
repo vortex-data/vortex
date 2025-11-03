@@ -189,13 +189,14 @@ impl Stream for ArrayStreamIPCBytes {
 mod test {
     use futures::io::Cursor;
     use vortex_array::stream::{ArrayStream, ArrayStreamExt};
-    use vortex_array::{IntoArray as _, ToCanonical};
+    use vortex_array::{ArraySession, IntoArray as _, ToCanonical};
     use vortex_buffer::buffer;
 
     use super::*;
 
     #[tokio::test]
     async fn test_async_stream() {
+        let session = ArraySession::default();
         let array = buffer![1, 2, 3].into_array();
         let ipc_buffer = array
             .to_array_stream()
@@ -204,10 +205,9 @@ mod test {
             .await
             .unwrap();
 
-        let reader =
-            AsyncIPCReader::try_new(Cursor::new(ipc_buffer), ArrayRegistry::canonical_only())
-                .await
-                .unwrap();
+        let reader = AsyncIPCReader::try_new(Cursor::new(ipc_buffer), session.registry().clone())
+            .await
+            .unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
         let result = reader.read_all().await.unwrap().to_primitive();

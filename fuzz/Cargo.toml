@@ -21,6 +21,7 @@ cargo-fuzz = true
 itertools = { workspace = true }
 libfuzzer-sys = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
+vortex = { workspace = true }
 vortex-array = { workspace = true, features = ["arbitrary", "test-harness"] }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -32,6 +33,7 @@ vortex-io = { workspace = true }
 vortex-layout = { workspace = true, features = ["zstd"] }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
+vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
 [lints]

@@ -28,6 +28,7 @@ members = [
     "vortex-python",
     "vortex-scan",
     "vortex-scalar",
+    "vortex-session",
     "vortex-tui",
     "vortex-utils",
     "vortex-vector",
@@ -245,6 +246,7 @@ vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-featur
 vortex-scalar = { version = "0.1.0", path = "./vortex-scalar", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
+vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-tui = { version = "0.1.0", path = "./vortex-tui", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }

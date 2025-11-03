@@ -590,6 +590,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "enum-map"
+version = "2.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6866f3bfdf8207509a033af1a75a7b08abda06bbaaeae6669323fd5a097df2e9"
+dependencies = [
+ "enum-map-derive",
+]
+
+[[package]]
+name = "enum-map-derive"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f282cfdfe92516eb26c2af8589c274c7c17681f5ecc03c18255fe741c6aa64eb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2100,6 +2120,7 @@ dependencies = [
  "vortex-scalar",
  "vortex-scan",
  "vortex-sequence",
+ "vortex-session",
  "vortex-sparse",
  "vortex-utils",
  "vortex-zigzag",
@@ -2141,6 +2162,7 @@ dependencies = [
  "bitvec",
  "cfg-if",
  "enum-iterator",
+ "enum-map",
  "flatbuffers",
  "futures",
  "getrandom 0.3.3",
@@ -2161,13 +2183,17 @@ dependencies = [
  "static_assertions",
  "termtree",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",
+ "vortex-io",
  "vortex-mask",
  "vortex-metrics",
  "vortex-scalar",
+ "vortex-session",
  "vortex-utils",
+ "vortex-vector",
 ]
 
 [[package]]
@@ -2226,6 +2252,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-compute"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-schema",
+ "num-traits",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-vector",
+]
+
+[[package]]
 name = "vortex-datetime-parts"
 version = "0.1.0"
 dependencies = [
@@ -2275,6 +2316,7 @@ dependencies = [
 name = "vortex-dtype"
 version = "0.1.0"
 dependencies = [
+ "arrow-buffer",
  "arrow-schema",
  "flatbuffers",
  "half",
@@ -2324,6 +2366,7 @@ dependencies = [
  "vortex-mask",
  "vortex-proto",
  "vortex-scalar",
+ "vortex-session",
  "vortex-utils",
 ]
 
@@ -2383,6 +2426,7 @@ dependencies = [
  "vortex-scalar",
  "vortex-scan",
  "vortex-sequence",
+ "vortex-session",
  "vortex-sparse",
  "vortex-utils",
  "vortex-zigzag",
@@ -2417,6 +2461,7 @@ name = "vortex-io"
 version = "0.1.0"
 dependencies = [
  "async-compat",
+ "async-fs",
  "async-stream",
  "async-trait",
  "bytes",
@@ -2435,6 +2480,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-metrics",
+ "vortex-session",
  "wasm-bindgen-futures",
 ]
 
@@ -2493,6 +2539,7 @@ dependencies = [
  "vortex-pco",
  "vortex-scalar",
  "vortex-sequence",
+ "vortex-session",
  "vortex-utils",
  "vortex-zstd",
 ]
@@ -2512,6 +2559,7 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.3.3",
  "parking_lot",
+ "vortex-session",
  "witchcraft-metrics",
 ]
 
@@ -2519,6 +2567,7 @@ dependencies = [
 name = "vortex-pco"
 version = "0.1.0"
 dependencies = [
+ "itertools",
  "pco",
  "prost",
  "vortex-array",
@@ -2559,7 +2608,6 @@ name = "vortex-scalar"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
- "arrow-buffer",
  "bytes",
  "itertools",
  "num-traits",
@@ -2593,6 +2641,7 @@ dependencies = [
  "vortex-layout",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-session",
 ]
 
 [[package]]
@@ -2609,6 +2658,16 @@ dependencies = [
  "vortex-mask",
  "vortex-proto",
  "vortex-scalar",
+ "vortex-vector",
+]
+
+[[package]]
+name = "vortex-session"
+version = "0.1.0"
+dependencies = [
+ "dashmap",
+ "vortex-error",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -2635,9 +2694,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-vector"
+version = "0.1.0"
+dependencies = [
+ "static_assertions",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-mask",
+]
+
+[[package]]
 name = "vortex-zigzag"
 version = "0.1.0"
 dependencies = [
+ "itertools",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",

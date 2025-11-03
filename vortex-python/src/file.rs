@@ -12,8 +12,7 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, FieldNames, PType};
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, root, select};
-use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::io::runtime::BlockingRuntime;
+use vortex::file::{OpenOptionsSessionExt, VortexFile};
 use vortex::layout::segments::MokaSegmentCache;
 use vortex::scan::{ScanBuilder, SplitBy};
 use vortex::{ArrayRef, ToCanonical};
@@ -25,7 +24,7 @@ use crate::dtype::PyDType;
 use crate::expr::PyExpr;
 use crate::iter::PyArrayIterator;
 use crate::scan::PyRepeatedScan;
-use crate::{RUNTIME, install_module};
+use crate::{RUNTIME, SESSION, TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "file")?;
@@ -42,15 +41,15 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyo3(signature = (path, *, without_segment_cache = false))]
 pub fn open(py: Python, path: &str, without_segment_cache: bool) -> PyResult<PyVortexFile> {
     let vxf = py.detach(|| {
-        RUNTIME.block_on(|h| async move {
-            let mut options = VortexOpenOptions::new();
+        TOKIO_RUNTIME.block_on(async move {
+            let mut options = SESSION.open_options();
             if without_segment_cache {
                 options = options.without_segment_cache();
             } else {
                 // TODO(ngates): use a globally shared segment cache for all files
                 options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
             }
-            options.with_handle(h).open(path).await
+            options.open(path).await
         })
     })?;
 
@@ -169,7 +168,6 @@ impl PyVortexFile {
         let mut builder = self
             .vxf
             .scan()?
-            .with_handle(RUNTIME.handle())
             .with_some_filter(expr)
             .with_projection(projection.unwrap_or_else(root));
 

@@ -17,6 +17,7 @@ use vortex_datafusion::VortexFormat;
 #[cfg(feature = "lance")]
 use {crate::Format, lance::datafusion::LanceTableProvider, lance::dataset::Dataset};
 
+use crate::SESSION;
 use crate::datasets::BenchmarkDataset;
 
 pub async fn register_parquet_files(
@@ -85,7 +86,7 @@ pub async fn register_vortex_files(
                 &file_url,
                 glob.as_ref().map(|g| g.as_str()).unwrap_or("")
             );
-            let format = Arc::new(VortexFormat::default());
+            let format = Arc::new(VortexFormat::new(SESSION.clone()));
             let table_url = ListingTableUrl::try_new(file_url.clone(), glob)?;
             let config = ListingTableConfig::new(table_url).with_listing_options(
                 ListingOptions::new(format).with_session_config_options(session.state().config()),
@@ -133,7 +134,7 @@ pub async fn register_vortex_compact_files(
                 &file_url,
                 glob.as_ref().map(|g| g.as_str()).unwrap_or("")
             );
-            let format = Arc::new(VortexFormat::default());
+            let format = Arc::new(VortexFormat::new(SESSION.clone()));
             let table_url = ListingTableUrl::try_new(file_url.clone(), glob)?;
             let config = ListingTableConfig::new(table_url).with_listing_options(
                 ListingOptions::new(format).with_session_config_options(session.state().config()),

@@ -19,12 +19,11 @@ use url::Url;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
-use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::file::{OpenOptionsSessionExt, VortexFile, VortexOpenOptions};
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::{ArrayRef, ToCanonical};
 
-use crate::RUNTIME;
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
@@ -34,6 +33,7 @@ use crate::duckdb::{
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
 use crate::utils::object_store::s3_store;
+use crate::{RUNTIME, SESSION};
 
 pub struct VortexBindData {
     first_file: VortexFile,
@@ -245,8 +245,9 @@ impl TableFunction for VortexTableFunction {
 
         log::trace!("running scan with max_threads {max_threads}");
 
-        let (file_urls, _metadata) = RUNTIME
-            .block_on(|_h| Compat::new(expand_glob(file_glob_string.as_ref().as_string())))?;
+        let (file_urls, _metadata) = RUNTIME.block_on(Compat::new(expand_glob(
+            file_glob_string.as_ref().as_string(),
+        )))?;
 
         // The first file is skipped in `create_file_paths_queue`.
         let Some(first_file_url) = file_urls.first() else {
@@ -255,8 +256,8 @@ impl TableFunction for VortexTableFunction {
 
         let footer_cache = FooterCache::new(ctx.object_cache());
         let entry = footer_cache.entry(first_file_url.as_ref());
-        let first_file = RUNTIME.block_on(|h| async move {
-            let options = entry.apply_to_file(VortexOpenOptions::new().with_handle(h));
+        let first_file = RUNTIME.block_on(async move {
+            let options = entry.apply_to_file(SESSION.open_options());
             let file = open_file(first_file_url.clone(), options).await?;
             entry.put_if_absent(|| file.footer().clone());
             VortexResult::Ok(file)
@@ -355,7 +356,7 @@ impl TableFunction for VortexTableFunction {
                 let object_cache = object_cache;
 
                 handle
-                    .spawn_nested(move |handle| async move {
+                    .spawn(async move {
                         let vxf = if idx == 0 {
                             // The first path from `file_paths` is skipped as
                             // the first file was already opened during bind.
@@ -363,9 +364,7 @@ impl TableFunction for VortexTableFunction {
                         } else {
                             let cache = FooterCache::new(object_cache);
                             let entry = cache.entry(url.as_ref());
-                            let options = entry.apply_to_file(
-                                VortexOpenOptions::new().with_handle(handle.clone()),
-                            );
+                            let options = entry.apply_to_file(SESSION.open_options());
                             let file = open_file(url.clone(), options).await?;
                             entry.put_if_absent(|| file.footer().clone());
                             VortexResult::Ok(file)
@@ -379,7 +378,6 @@ impl TableFunction for VortexTableFunction {
 
                         let scan = vxf
                             .scan()?
-                            .with_handle(handle)
                             .with_some_filter(filter_expr)
                             .with_projection(projection_expr)
                             .with_ordered(false)

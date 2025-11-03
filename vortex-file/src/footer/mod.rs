@@ -25,12 +25,14 @@ use flatbuffers::root;
 use itertools::Itertools;
 pub use segment::*;
 use vortex_array::stats::StatsSet;
-use vortex_array::{ArrayContext, ArrayRegistry};
+use vortex_array::{ArrayContext, ArraySessionExt};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, footer as fb};
-use vortex_layout::{LayoutRef, LayoutRegistry, layout_from_flatbuffer};
+use vortex_layout::session::LayoutSessionExt;
+use vortex_layout::{LayoutContext, LayoutRef, layout_from_flatbuffer};
+use vortex_session::VortexSession;
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
@@ -38,6 +40,7 @@ pub struct Footer {
     root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
+    // The specific arrays used within the file, in the order they were registered.
     array_ctx: ArrayContext,
 }
 
@@ -62,8 +65,7 @@ impl Footer {
         layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
-        array_registry: &ArrayRegistry,
-        layout_registry: &LayoutRegistry,
+        session: VortexSession,
     ) -> VortexResult<Self> {
         let fb_footer = root::<fb::Footer>(&footer_bytes)?;
 
@@ -73,7 +75,8 @@ impl Footer {
             .iter()
             .flat_map(|e| e.iter())
             .map(|encoding| encoding.id());
-        let layout_ctx = layout_registry.new_context(layout_ids)?;
+        let layout_ctx =
+            LayoutContext::try_from_registry(session.layouts().registry(), layout_ids)?;
 
         // Create an ArrayContext from the registry.
         let array_specs = fb_footer.array_specs();
@@ -81,7 +84,7 @@ impl Footer {
             .iter()
             .flat_map(|e| e.iter())
             .map(|encoding| encoding.id());
-        let array_ctx = array_registry.new_context(array_ids)?;
+        let array_ctx = ArrayContext::try_from_registry(session.arrays().registry(), array_ids)?;
 
         let root_layout = layout_from_flatbuffer(layout_bytes, &dtype, &layout_ctx, &array_ctx)?;
 
@@ -136,7 +139,7 @@ impl Footer {
     }
 
     /// Create a deserializer for a Vortex file footer.
-    pub fn deserializer(eof_buffer: ByteBuffer) -> FooterDeserializer {
-        FooterDeserializer::new(eof_buffer)
+    pub fn deserializer(eof_buffer: ByteBuffer, session: VortexSession) -> FooterDeserializer {
+        FooterDeserializer::new(eof_buffer, session)
     }
 }

@@ -7,12 +7,15 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures::{StreamExt, pin_mut};
 use vortex::Array;
-use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
+
+use crate::SESSION;
 
 #[inline(never)]
 pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyhow::Result<u64> {
     let mut cursor = Cursor::new(buf);
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .write(&mut cursor, array.to_array_stream())
         .await?;
     Ok(cursor.position())
@@ -20,7 +23,7 @@ pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyh
 
 #[inline(never)]
 pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<usize> {
-    let scan = VortexOpenOptions::new().open_buffer(buf)?.scan()?;
+    let scan = SESSION.open_options().open_buffer(buf)?.scan()?;
     let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
 
     let stream = scan.into_record_batch_stream(schema)?;

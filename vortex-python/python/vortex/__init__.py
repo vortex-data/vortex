@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from . import _lib, arrays, dataset, expr, file, io, ray, scan
+from . import _lib, arrays, dataset, expr, file, io, ray, registry, scan
 from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     AlpArray,
     AlpRdArray,
@@ -56,7 +56,6 @@ from ._lib.dtype import (  # pyright: ignore[reportMissingModuleSource]
     utf8,
 )
 from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
-from ._lib.registry import Registry  # pyright: ignore[reportMissingModuleSource]
 from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
     BinaryScalar,
     BoolScalar,
@@ -85,6 +84,7 @@ __all__ = [
     "file",
     "scan",
     "io",
+    "registry",
     "ray",
     # --- Objects and Functions ---
     "array",
@@ -152,8 +152,7 @@ __all__ = [
     "StructScalar",
     "ListScalar",
     "ExtensionScalar",
-    # Registry + Serde
-    "Registry",
+    # Serde
     "ArrayContext",
     "ArrayParts",
     # File
@@ -164,6 +163,3 @@ __all__ = [
     # Scan
     "RepeatedScan",
 ]
-
-#: The default registry for Vortex
-registry = Registry()

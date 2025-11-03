@@ -6,35 +6,37 @@ use std::sync::Arc;
 
 use futures::Stream;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{ExprRef, root};
 use vortex_gpu::GpuVector;
-use vortex_io::runtime::{BlockingRuntime, Handle};
+use vortex_io::runtime::BlockingRuntime;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::gpu::GpuLayoutReaderRef;
+use vortex_session::VortexSession;
 
 use crate::gpu::GpuScan;
 use crate::gpu::gputask::TaskFuture;
 use crate::scan_builder::filter_and_projection_masks;
 
 pub struct GpuScanBuilder<A> {
-    handle: Option<Handle>,
+    session: VortexSession,
     layout_reader: GpuLayoutReaderRef,
     projection: ExprRef,
     map_fn: Arc<dyn Fn(Vec<GpuVector>) -> VortexResult<Vec<A>> + Send + Sync>,
 }
 
 impl GpuScanBuilder<GpuVector> {
-    pub fn new(layout_reader: GpuLayoutReaderRef) -> Self {
+    pub fn new(session: VortexSession, layout_reader: GpuLayoutReaderRef) -> Self {
         Self {
-            handle: Handle::find(),
+            session,
             layout_reader,
             projection: root(),
             map_fn: Arc::new(Ok),
         }
     }
 
-    /// Returns an [`ArrayStream`] with tasks spawned onto the scan's [`Handle`].
+    /// Returns an [`ArrayStream`] with tasks spawned onto the session's runtime handle.
     ///
     /// See [`ScanBuilder::into_stream`] for more details.
     pub fn into_array_stream(
@@ -48,18 +50,12 @@ impl GpuScanBuilder<GpuVector> {
         self,
         runtime: &B,
     ) -> VortexResult<impl Iterator<Item = VortexResult<GpuVector>> + 'static> {
-        let stream = self.with_handle(runtime.handle()).into_array_stream()?;
-        Ok(runtime.block_on_stream(|_| stream))
+        let stream = self.into_array_stream()?;
+        Ok(runtime.block_on_stream(stream))
     }
 }
 
 impl<A: 'static + Send> GpuScanBuilder<A> {
-    /// Provide a handle to the runtime on which to spawn tasks.
-    pub fn with_handle(mut self, handle: Handle) -> Self {
-        self.handle = Some(handle);
-        self
-    }
-
     pub fn with_projection(mut self, projection: ExprRef) -> Self {
         self.projection = projection;
         self
@@ -77,7 +73,7 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
     ) -> GpuScanBuilder<B> {
         let old_map_fn = self.map_fn;
         GpuScanBuilder {
-            handle: self.handle,
+            session: self.session,
             layout_reader: self.layout_reader,
             projection: self.projection,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
@@ -86,12 +82,8 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
 
     pub fn prepare(self) -> VortexResult<GpuScan<A>> {
         let dtype = self.dtype()?;
+        let handle = self.session.handle();
 
-        let Some(handle) = self.handle else {
-            vortex_bail!(
-                "A runtime handle must be provided to the scan builder using `with_handle`"
-            );
-        };
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
         let layout_reader = self.layout_reader;
@@ -125,19 +117,19 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
         self.prepare()?.execute()
     }
 
-    /// Returns a [`Stream`] with tasks spawned onto the scan's [`Handle`].
+    /// Returns a [`Stream`] with tasks spawned onto the session's runtime handle.
     pub fn into_stream(
         self,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         self.prepare()?.execute_stream()
     }
 
-    /// Returns an [`Iterator`] using the given blocking runtime.
+    /// Returns an [`Iterator`] using the handle's runtime.
     pub fn into_iter<B: BlockingRuntime>(
         self,
         runtime: &B,
     ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
-        let stream = self.with_handle(runtime.handle()).into_stream()?;
-        Ok(runtime.block_on_stream(|_| stream))
+        let stream = self.into_stream()?;
+        Ok(runtime.block_on_stream(stream))
     }
 }

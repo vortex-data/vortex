@@ -55,6 +55,7 @@ vortex-metrics = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
+vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 vortex-zstd = { workspace = true, optional = true }
 

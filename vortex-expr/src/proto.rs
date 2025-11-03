@@ -5,7 +5,7 @@ use itertools::Itertools;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_proto::expr as pb;
 
-use crate::registry::ExprRegistry;
+use crate::session::ExprRegistry;
 use crate::{ExprRef, VortexExpr};
 
 pub trait ExprSerializeProtoExt {
@@ -37,7 +37,7 @@ impl ExprSerializeProtoExt for dyn VortexExpr + '_ {
 pub fn deserialize_expr_proto(expr: &pb::Expr, registry: &ExprRegistry) -> VortexResult<ExprRef> {
     let expr_id = expr.id.as_str();
     let encoding = registry
-        .get(expr_id)
+        .find(expr_id)
         .ok_or_else(|| vortex_err!("unknown expression id: {}", expr_id))?;
 
     let children = expr
@@ -56,12 +56,12 @@ mod tests {
     use vortex_proto::expr as pb;
 
     use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
-    use crate::registry::ExprRegistryExt;
-    use crate::{ExprRef, ExprRegistry, and, between, eq, get_item, lit, or, root};
+    use crate::session::ExprSession;
+    use crate::{ExprRef, and, between, eq, get_item, lit, or, root};
 
     #[test]
     fn expression_serde() {
-        let registry = ExprRegistry::default();
+        let registry = ExprSession::default().registry().clone();
         let expr: ExprRef = or(
             and(
                 between(

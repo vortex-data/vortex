@@ -4,13 +4,13 @@
 use async_trait::async_trait;
 use tokio::fs::File;
 use vortex::ArrayRef;
-use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
 use vortex::stream::ArrayStreamExt;
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
-use crate::{IdempotentPath, idempotent_async};
+use crate::{IdempotentPath, SESSION, idempotent_async};
 
 /// Datasets which can be downloaded over HTTP in Parquet format.
 ///
@@ -57,7 +57,8 @@ impl Dataset for DownloadableDataset {
         let vortex = dir.join(format!("{}.vortex", self.name()));
         download_data(parquet.clone(), self.parquet_url()).await?;
         idempotent_async(&vortex, async |path| -> anyhow::Result<()> {
-            VortexWriteOptions::default()
+            SESSION
+                .write_options()
                 .write(
                     &mut File::create(path)
                         .await
@@ -70,7 +71,8 @@ impl Dataset for DownloadableDataset {
         })
         .await?;
 
-        Ok(VortexOpenOptions::new()
+        Ok(SESSION
+            .open_options()
             .open(vortex.as_path())
             .await?
             .scan()?

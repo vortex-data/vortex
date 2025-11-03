@@ -13,13 +13,13 @@ use futures::stream::TryStreamExt;
 use vortex::ArrayRef;
 use vortex::arrow::IntoArrowArray;
 use vortex::buffer::Buffer;
-use vortex::file::VortexOpenOptions;
+use vortex::file::OpenOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::scan::ScanBuilder;
 use vortex::scan::arrow::RecordBatchIteratorAdapter;
 
-use crate::RUNTIME;
 use crate::expr::Expr;
+use crate::{RUNTIME, SESSION};
 
 pub(crate) struct VortexFile {
     inner: vortex::file::VortexFile,
@@ -41,17 +41,13 @@ impl VortexFile {
 /// File operations - using blocking operations for simplicity
 /// TODO(xinyu): object store (see vortex-ffi)
 pub(crate) fn open_file(path: &str) -> Result<Box<VortexFile>> {
-    let file = RUNTIME.block_on(|h| {
-        VortexOpenOptions::new()
-            .with_handle(h)
-            .open(std::path::Path::new(path))
-    })?;
+    let file = RUNTIME.block_on(SESSION.open_options().open(std::path::Path::new(path)))?;
     Ok(Box::new(VortexFile { inner: file }))
 }
 
 pub(crate) fn open_file_from_buffer(data: &[u8]) -> Result<Box<VortexFile>> {
     let buffer = Buffer::from(data.to_vec());
-    let file = VortexOpenOptions::new().open_buffer(buffer)?;
+    let file = SESSION.open_options().open_buffer(buffer)?;
     Ok(Box::new(VortexFile { inner: file }))
 }
 
@@ -161,7 +157,6 @@ pub(crate) fn scan_builder_into_threadsafe_cloneable_reader(
 
     let stream = builder
         .inner
-        .with_handle(RUNTIME.handle())
         .map(move |b| {
             b.into_arrow(&data_type)
                 .map(|struct_array| RecordBatch::from(struct_array.as_struct()))
