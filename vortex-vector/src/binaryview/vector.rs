@@ -183,13 +183,9 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
 
         let buffers_mut = match Arc::try_unwrap(self.buffers) {
             Ok(buffers) => buffers.into_vec(),
-            Err(arc_buffers) => {
-                return Err(Self {
-                    views: views_mut.freeze(),
-                    validity: validity_mut.freeze(),
-                    buffers: arc_buffers,
-                    _marker: std::marker::PhantomData,
-                });
+            Err(buffers) => {
+                // Backup: collect a new Vec with clones of each buffer
+                buffers.iter().cloned().collect()
             }
         };
 
@@ -202,5 +198,32 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
                 buffers_mut,
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{StringVectorMut, VectorMutOps, VectorOps};
+
+    #[test]
+    fn test_try_into_mut() {
+        let mut shared_vec = StringVectorMut::with_capacity(5);
+        shared_vec.append_nulls(2);
+        shared_vec.append_values("an example value", 2);
+        shared_vec.append_values("another example value", 1);
+
+        let shared_vec = shared_vec.freeze();
+
+        // Making a copy aliases the vector, preventing us from converting it back into mutable
+        let shared_vec2 = shared_vec.clone();
+
+        // The Err variant is returned, because the aliasing borrow from shared_vec2 is blocking us
+        // from taking unique ownership of the memory.
+        let shared_vec = shared_vec.try_into_mut().unwrap_err();
+
+        // Dropping the aliasing borrow makes it possible to cast the unique reference to mut
+        drop(shared_vec2);
+
+        assert!(shared_vec.try_into_mut().is_ok());
     }
 }

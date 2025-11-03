@@ -119,7 +119,7 @@ impl Default for BinaryView {
 
 impl BinaryView {
     /// Maximum size of an inlined binary value.
-    const MAX_INLINED_SIZE: usize = 12;
+    pub const MAX_INLINED_SIZE: usize = 12;
 
     /// Create a view from a value, block and offset
     ///

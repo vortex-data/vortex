@@ -14,6 +14,8 @@ use crate::binaryview::vector::BinaryViewVector;
 use crate::binaryview::view::{BinaryView, validate_views};
 use crate::{VectorMutOps, VectorOps};
 
+// Default capacity for new string data buffers of 2MiB.
+const BUFFER_CAPACITY: usize = 2 * 1024 * 1024;
 /// Mutable variable-length binary vector.
 #[derive(Clone, Debug)]
 
@@ -45,6 +47,17 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
     pub fn new(views: BufferMut<BinaryView>, buffers: Vec<ByteBuffer>, validity: MaskMut) -> Self {
         Self::try_new(views, buffers, validity)
             .vortex_expect("Failed to create `BinaryViewVectorMut`")
+    }
+
+    /// Create a new empty [`BinaryViewVectorMut`], pre-allocated to hold the specified number
+    /// of items. This does not reserve any memory for string data itself, only for the binary views
+    /// and the validity bits.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self::new(
+            BufferMut::with_capacity(capacity),
+            Vec::new(),
+            MaskMut::with_capacity(capacity),
+        )
     }
 
     /// Tries to create a new [`BinaryViewVectorMut`] from its components.
@@ -99,6 +112,43 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
             }
         }
     }
+
+    /// Append a repeated sequence of binary data to a vector.
+    ///
+    /// ```
+    /// # use vortex_vector::{StringVectorMut, VectorMutOps};
+    /// let mut strings = StringVectorMut::with_capacity(4);
+    /// strings.append_values("inlined", 2);
+    /// strings.append_nulls(1);
+    /// strings.append_values("large not inlined", 1);
+    ///
+    /// let strings = strings.freeze();
+    ///
+    /// assert_eq!(
+    ///     [strings.get(0), strings.get(1), strings.get(2), strings.get(3)],
+    ///     [Some("inlined"), Some("inlined"), None, Some("large not inlined")],
+    /// );
+    /// ```
+    pub fn append_values(&mut self, value: &T::Slice, n: usize) {
+        let bytes = value.as_ref();
+        if bytes.len() <= BinaryView::MAX_INLINED_SIZE {
+            self.views.push_n(BinaryView::new_inlined(bytes), n);
+        } else {
+            let buffer_index =
+                u32::try_from(self.buffers.len()).vortex_expect("buffer count exceeds u32::MAX");
+
+            let buf = self
+                .open_buffer
+                .get_or_insert_with(|| ByteBufferMut::with_capacity(BUFFER_CAPACITY));
+            let offset = u32::try_from(buf.len()).vortex_expect("buffer length exceeds u32::MAX");
+            buf.extend_from_slice(value.as_ref());
+
+            self.views
+                .push_n(BinaryView::make_view(bytes, buffer_index, offset), n);
+        }
+
+        self.validity.append_n(true, n);
+    }
 }
 
 impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
@@ -123,33 +173,21 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
             self.buffers.push(open.freeze());
         }
 
-        // We build a lookup table to map BinaryView's from the `other` to have
-        // valid buffer indices in the current array.
-        let mut buf_index_lookup: Vec<u32> = Vec::with_capacity(other.buffers().len());
-        let mut new_buffers = Vec::new();
-        for buffer in other.buffers().iter() {
-            let ptr = buffer.as_ptr().addr();
-            let new_index: u32 = self
-                .buffers
-                .iter()
-                .position(|b| b.as_ptr().addr() == ptr)
-                .unwrap_or_else(|| self.buffers.len() + new_buffers.len())
-                .try_into()
-                .vortex_expect("buffer index must fit in u32");
+        let offset =
+            u32::try_from(self.buffers.len()).vortex_expect("buffer count exceeds u32::MAX");
 
-            if new_index as usize == new_buffers.len() {
-                // We need to append the buffer
-                new_buffers.push(buffer.clone());
+        self.buffers.extend(other.buffers().iter().cloned());
+
+        let new_views_iter = other.views().iter().copied().map(|mut v| {
+            if v.is_inlined() {
+                v
+            } else {
+                v.as_view_mut().buffer_index += offset;
+                v
             }
-
-            buf_index_lookup.push(new_index);
-        }
-
-        // rewrite the views using our lookup table
-        let new_views_iter = rewrite_views(other.views().iter().copied(), &buf_index_lookup);
-
-        self.buffers.extend(new_buffers);
+        });
         self.views.extend(new_views_iter);
+
         self.validity.append_mask(other.validity())
     }
 
@@ -182,28 +220,9 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
     }
 }
 
-/// Create a new iterator that yields views rewritten with a new buffer index.
-#[inline]
-fn rewrite_views(
-    views: impl Iterator<Item = BinaryView>,
-    buf_index_lookup: &[u32],
-) -> impl Iterator<Item = BinaryView> {
-    views.map(|mut view| {
-        if view.is_inlined() {
-            return view;
-        }
-        let view = view.as_view_mut();
-        let old_index = view.buffer_index;
-        let new_index = *buf_index_lookup
-            .get(old_index as usize)
-            .unwrap_or(&old_index);
-        view.buffer_index = new_index;
-        BinaryView { _ref: *view }
-    })
-}
-
 #[cfg(test)]
 mod tests {
+    use std::ops::Deref;
     use std::sync::Arc;
 
     use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
@@ -256,7 +275,7 @@ mod tests {
                 BinaryView::make_view(b"a really very quite long string 2", 0, 33),
                 BinaryView::make_view(b"a really very quite long string 1", 0, 0),
             ],
-            vec![buf0, buf1.clone()],
+            vec![buf0.clone(), buf1.clone()],
             MaskMut::new_true(6),
         );
 
@@ -267,7 +286,7 @@ mod tests {
                 0,
                 33
             )],
-            Arc::new(Box::new([buf1])),
+            Arc::new(Box::new([buf1.clone()])),
             Mask::new_true(1),
         );
 
@@ -299,7 +318,10 @@ mod tests {
             "a really very quite long string 4"
         );
 
-        assert_eq!(strings_finished.buffers().len(), 2);
+        assert_eq!(
+            strings_finished.buffers().deref().as_ref(),
+            &[buf0, buf1.clone(), buf1]
+        );
     }
 
     #[test]
