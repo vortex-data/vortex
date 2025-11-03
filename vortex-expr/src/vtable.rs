@@ -10,6 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::display::DisplayAs;
+use crate::v2::Expression;
 use crate::{
     AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VortexExpr,
 };
@@ -56,6 +57,13 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         children: Vec<ExprRef>,
     ) -> VortexResult<Self::Expr>;
+
+    /// Validate the metadata and children for the expression.
+    fn validate(
+        encoding: &Self::Encoding,
+        metadata: &Self::Metadata,
+        children: &[Expression],
+    ) -> VortexResult<()>;
 
     /// Evaluate the expression in the given scope.
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef>;
@@ -125,7 +133,7 @@ mod tests {
     use rstest::{fixture, rstest};
 
     use super::*;
-    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::proto::{deserialize_expr_proto, ExprSerializeProtoExt};
     use crate::session::{ExprRegistry, ExprSession};
     use crate::*;
 

@@ -6,8 +6,10 @@ use std::fmt::{Debug, Display, Formatter};
 
 use arcref::ArcRef;
 use vortex_array::DeserializeMetadata;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
+use crate::metadata::ExprMetadata;
+use crate::v2::Expression;
 use crate::{ExprRef, IntoExpr, VTable};
 
 pub type ExprId = ArcRef<str>;
@@ -27,6 +29,9 @@ pub trait ExprEncoding: 'static + Send + Sync + Debug + private::Sealed {
     ///
     /// Returns `None` if the expression is not serializable.
     fn build(&self, metadata: &[u8], children: Vec<ExprRef>) -> VortexResult<ExprRef>;
+
+    /// Validates the metadata and children for this expression encoding.
+    fn validate(&self, _metadata: &dyn ExprMetadata, _children: &[Expression]) -> VortexResult<()>;
 }
 
 #[repr(transparent)]
@@ -44,6 +49,29 @@ impl<V: VTable> ExprEncoding for ExprEncodingAdapter<V> {
     fn build(&self, metadata: &[u8], children: Vec<ExprRef>) -> VortexResult<ExprRef> {
         let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
         Ok(V::build(&self.0, &metadata, children)?.into_expr())
+    }
+
+    fn validate(&self, metadata: &dyn ExprMetadata, children: &[Expression]) -> VortexResult<()> {
+        let encoding = self.0.as_opt::<V>().ok_or_else(|| {
+            vortex_err!(
+                "Mismatched encoding ID {} for VTable {}",
+                self.id(),
+                std::any::type_name::<V>()
+            )
+        })?;
+
+        let metadata = metadata
+            .as_any()
+            .downcast_ref::<V::Metadata>()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Mismatched metadata type {} for VTable {}",
+                    metadata.as_any().type_id(),
+                    self.id()
+                )
+            })?;
+
+        V::validate(&encoding, metadata, children)
     }
 }
 

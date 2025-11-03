@@ -21,7 +21,6 @@ pub mod aliases;
 mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
-pub mod dyn_traits;
 mod encoding;
 mod exprs;
 mod field;
@@ -56,15 +55,17 @@ pub use scope_vars::*;
 pub use select::*;
 use vortex_array::{Array, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_utils::aliases::hash_set::HashSet;
 pub use vtable::*;
 
 pub mod display;
+mod metadata;
+mod v2;
 
 use crate::display::{DisplayAs, DisplayFormat};
-use crate::dyn_traits::DynEq;
 use crate::traversal::{NodeExt, ReferenceCollector};
+use vortex_utils::dyn_traits::DynEq;
 
 pub trait IntoExpr {
     /// Convert this type into an expression reference.

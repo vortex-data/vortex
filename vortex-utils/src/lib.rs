@@ -6,3 +6,5 @@
 #![deny(missing_docs)]
 
 pub mod aliases;
+#[cfg(feature = "dyn-traits")]
+pub mod dyn_traits;

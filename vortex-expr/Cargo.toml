@@ -39,7 +39,7 @@ vortex-mask = { workspace = true }
 vortex-proto = { workspace = true, features = ["expr"] }
 vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
-vortex-utils = { workspace = true }
+vortex-utils = { workspace = true, features = ["dyn-traits"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
