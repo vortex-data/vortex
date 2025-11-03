@@ -78,12 +78,7 @@ impl VortexWriteOptions {
 
 impl VortexWriteOptions {
     /// Drop into the blocking writer API using the given runtime.
-    pub fn blocking<B: BlockingRuntime + Default>(self) -> BlockingWrite<B> {
-        self.with_blocking(B::default())
-    }
-
-    /// Drop into the blocking writer API using the given runtime.
-    pub fn with_blocking<B: BlockingRuntime>(self, runtime: B) -> BlockingWrite<B> {
+    pub fn blocking<B: BlockingRuntime>(self, runtime: B) -> BlockingWrite<B> {
         BlockingWrite {
             options: self,
             runtime,

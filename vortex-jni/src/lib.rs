@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 
 use tokio::runtime::{Builder, Runtime};
 use vortex::error::VortexExpect;
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex::VortexSessionDefault;
@@ -32,7 +33,8 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
         .build()
         .vortex_expect("Failed to build Tokio runtime")
 });
-
+static RUNTIME: LazyLock<TokioRuntime> =
+    LazyLock::new(|| TokioRuntime::from(TOKIO_RUNTIME.handle().clone()));
 /// Shared Vortex session for the JNI instance.
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::default().with_tokio_handle(TOKIO_RUNTIME.handle().clone()));

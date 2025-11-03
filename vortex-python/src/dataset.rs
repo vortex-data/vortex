@@ -7,7 +7,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrow::{IntoPyArrow, ToPyArrow};
 use crate::expr::PyExpr;
 use crate::object_store_urls::object_store_from_url;
-use crate::{install_module, SESSION, TOKIO_RUNTIME};
+use crate::{install_module, RUNTIME, SESSION, TOKIO_RUNTIME};
 use arrow_array::RecordBatchReader;
 use arrow_schema::SchemaRef;
 use itertools::Itertools;
@@ -18,7 +18,7 @@ use vortex::dtype::{FieldName, FieldNames};
 use vortex::error::VortexResult;
 use vortex::expr::{root, select, ExprRef, SelectExpr};
 use vortex::file::{OpenOptionsSessionExt, VortexFile};
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::iter::ArrayIteratorExt;
 use vortex::scan::SplitBy;
 use vortex::{ArrayRef, ToCanonical};
@@ -57,7 +57,7 @@ pub fn read_array_from_reader(
         scan = scan.with_row_range(l..r);
     }
 
-    scan.into_array_iter()?.read_all()
+    scan.into_array_iter(&*RUNTIME)?.read_all()
 }
 
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRef> {
@@ -156,7 +156,7 @@ impl PyVortexDataset {
         // TODO(ngates): should we use multi-threaded read or not?
         let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
         let reader: Box<dyn RecordBatchReader + Send> =
-            Box::new(scan.into_record_batch_reader(schema)?);
+            Box::new(scan.into_record_batch_reader(schema, &*RUNTIME)?);
 
         reader.into_pyarrow(self_.py())
     }
@@ -189,7 +189,7 @@ impl PyVortexDataset {
 
         // TODO(ngates): should we use multi-threaded read or not?
         let n_rows: usize = scan
-            .into_array_iter()?
+            .into_array_iter(&*RUNTIME)?
             .map_ok(|array| array.len())
             .process_results(|iter| iter.sum())
             .map_err(|err| PyValueError::new_err(format!("vortex error: {}", err)))?;

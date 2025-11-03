@@ -19,13 +19,18 @@ mod sink;
 mod string;
 mod struct_fields;
 
-use std::ffi::{c_char, c_int, CStr};
-
 pub use log::vx_log_level;
+use std::ffi::{c_char, c_int, CStr};
+use std::sync::LazyLock;
+use vortex::io::runtime::current::CurrentThreadRuntime;
 
 #[cfg(all(feature = "mimalloc", not(miri)))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+/// A shared runtime for all FFI operations.
+// TODO(ngates): also create a CurrentThreadPool to manage background worker threads.
+static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
 
 pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
     let c_str = unsafe { CStr::from_ptr(ptr) };

@@ -14,13 +14,13 @@ use log::info;
 use parquet::arrow::async_writer::AsyncFileWriter;
 use url::Url;
 use vortex::compressor::CompactCompressor;
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::file::{WriteOptionsSessionExt, WriteStrategyBuilder};
 use vortex_datafusion::VortexFormat;
 
 use crate::benchmark_trait::Benchmark;
 use crate::conversions::parquet_to_vortex;
 use crate::engines::EngineCtx;
-use crate::{BenchmarkDataset, Format, Target, idempotent_async};
+use crate::{idempotent_async, BenchmarkDataset, Format, Target, SESSION};
 
 /// URL to the sample file
 const SAMPLE_URL: &str = "https://huggingface.co/datasets/HuggingFaceFW/fineweb/resolve/v1.4.0/sample/10BT/001_00000.parquet";
@@ -146,7 +146,8 @@ impl Benchmark for Fineweb {
                     info!("Converting FineWeb to Vortex with default compressor");
                     let array_stream = parquet_to_vortex(parquet)?;
                     let w = tokio::fs::File::create(vortex_path).await?;
-                    VortexWriteOptions::default()
+                    SESSION
+                        .write_options()
                         .write(w, array_stream)
                         .await
                         .map_err(|e| anyhow::anyhow!("Failed to write to VortexWriter: {e}"))
@@ -158,7 +159,8 @@ impl Benchmark for Fineweb {
                     info!("Converting FineWeb to Vortex with Compact compressor");
                     let array_stream = parquet_to_vortex(parquet)?;
                     let w = tokio::fs::File::create(vortex_path).await?;
-                    VortexWriteOptions::default()
+                    SESSION
+                        .write_options()
                         .with_strategy(
                             WriteStrategyBuilder::new()
                                 .with_compressor(CompactCompressor::default())
@@ -221,7 +223,9 @@ pub async fn register_table(
         .with_listing_options(
             ListingOptions::new(match format {
                 Format::Parquet => Arc::from(ParquetFormat::new()),
-                Format::OnDiskVortex | Format::VortexCompact => Arc::from(VortexFormat::default()),
+                Format::OnDiskVortex | Format::VortexCompact => {
+                    Arc::from(VortexFormat::new(SESSION.clone()))
+                }
                 _ => anyhow::bail!("unsupported format for `fineweb` bench: {}", format),
             })
             .with_session_config_options(session.state().config()),

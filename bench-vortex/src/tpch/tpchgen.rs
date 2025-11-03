@@ -6,10 +6,10 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use futures::{StreamExt, TryStreamExt, stream};
+use futures::{stream, StreamExt, TryStreamExt};
 use log::info;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
@@ -22,16 +22,16 @@ use tpchgen::generators::{
     PartSuppGenerator, RegionGenerator, SupplierGenerator,
 };
 use tpchgen_arrow::RecordBatchIterator;
-use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::VortexExpect;
-use vortex::file::VortexWriteOptions;
+use vortex::file::WriteOptionsSessionExt;
 use vortex::stream::ArrayStreamAdapter;
+use vortex::ArrayRef;
 
 use crate::utils::file_utils::idempotent_async;
-use crate::{CompactionStrategy, Format, IdempotentPath};
+use crate::{CompactionStrategy, Format, IdempotentPath, SESSION};
 
 type TableFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
@@ -388,7 +388,7 @@ impl VortexWriter {
 
             let mut file = TokioFile::create(&file_path).await?;
             compaction_strategy
-                .apply_options(VortexWriteOptions::default())
+                .apply_options(SESSION.write_options())
                 .write(&mut file, stream)
                 .await
                 .map_err(|e| anyhow!("Vortex write failed: {}", e))?;

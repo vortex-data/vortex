@@ -73,7 +73,8 @@ fn main() {
     let minimal_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vortex-jni/src/test/resources/minimal.vortex");
     let mut file = std::fs::File::create(&minimal_path).expect("opening Vortex file");
-    VortexWriteOptions::default()
+    SESSION
+        .write_options()
         .blocking::<SingleThreadRuntime>()
         .write(&mut file, rows.to_array_iterator())
         .expect("writing Vortex file");

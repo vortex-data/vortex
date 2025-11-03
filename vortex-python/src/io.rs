@@ -19,7 +19,6 @@ use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::file::{WriteOptionsSessionExt, WriteStrategyBuilder};
-use vortex::io::session::RuntimeSessionExt;
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{ArrayRef, Canonical, IntoArray};
 

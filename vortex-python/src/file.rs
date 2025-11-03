@@ -10,7 +10,7 @@ use crate::dtype::PyDType;
 use crate::expr::PyExpr;
 use crate::iter::PyArrayIterator;
 use crate::scan::PyRepeatedScan;
-use crate::{install_module, SESSION, TOKIO_RUNTIME};
+use crate::{install_module, RUNTIME, SESSION, TOKIO_RUNTIME};
 use arrow_array::RecordBatchReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -21,7 +21,6 @@ use vortex::dtype::{DType, FieldNames, PType};
 use vortex::error::VortexResult;
 use vortex::expr::{root, select, ExprRef};
 use vortex::file::{OpenOptionsSessionExt, VortexFile};
-use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::segments::MokaSegmentCache;
 use vortex::scan::{ScanBuilder, SplitBy};
 use vortex::{ArrayRef, ToCanonical};
@@ -87,7 +86,9 @@ impl PyVortexFile {
             batch_size,
         )?;
 
-        Ok(PyArrayIterator::new(Box::new(builder.into_array_iter()?)))
+        Ok(PyArrayIterator::new(Box::new(
+            builder.into_array_iter(&*RUNTIME)?,
+        )))
     }
 
     #[pyo3(signature = (projection = None, *, expr = None, indices = None, batch_size = None))]
@@ -133,7 +134,7 @@ impl PyVortexFile {
             }
 
             let schema = Arc::new(builder.dtype()?.to_arrow_schema()?);
-            builder.into_record_batch_reader(schema)
+            builder.into_record_batch_reader(schema, &*RUNTIME)
         })?;
 
         let rbr: Box<dyn RecordBatchReader + Send> = Box::new(reader);

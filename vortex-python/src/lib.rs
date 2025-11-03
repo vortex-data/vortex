@@ -27,6 +27,7 @@ use log::LevelFilter;
 use pyo3_log::{Caching, Logger};
 use tokio::runtime::Runtime;
 use vortex::error::{VortexError, VortexExpect as _};
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex::VortexSessionDefault;
@@ -36,7 +37,8 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
         .map_err(VortexError::from)
         .vortex_expect("tokio runtime must not fail to start")
 });
-
+static RUNTIME: LazyLock<TokioRuntime> =
+    LazyLock::new(|| TokioRuntime::new(TOKIO_RUNTIME.handle().clone()));
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::default().with_tokio_handle(TOKIO_RUNTIME.handle().clone()));
 

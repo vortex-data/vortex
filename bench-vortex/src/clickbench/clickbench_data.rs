@@ -15,25 +15,25 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
-use futures::{StreamExt, TryStreamExt, stream};
+use futures::{stream, StreamExt, TryStreamExt};
 use glob::Pattern;
 use log::trace;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use reqwest::IntoUrl;
 use reqwest::blocking::Response;
+use reqwest::IntoUrl;
 use serde::Serialize;
-use tokio::fs::{OpenOptions, create_dir_all};
-use tracing::{Instrument, info, warn};
+use tokio::fs::{create_dir_all, OpenOptions};
+use tracing::{info, warn, Instrument};
 use url::Url;
 use vortex::error::VortexExpect;
-use vortex::file::VortexWriteOptions;
+use vortex::file::WriteOptionsSessionExt;
 use vortex_datafusion::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
 #[cfg(feature = "lance")]
 use crate::utils;
 use crate::utils::file_utils::{idempotent, idempotent_async};
-use crate::{CompactionStrategy, Format};
+use crate::{CompactionStrategy, Format, SESSION};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -204,7 +204,7 @@ pub async fn convert_parquet_to_vortex(
                             .open(&vtx_file)
                             .await?;
 
-                        let write_options = compaction.apply_options(VortexWriteOptions::default());
+                        let write_options = compaction.apply_options(SESSION.write_options());
 
                         write_options.write(&mut f, array_stream).await?;
 
@@ -250,7 +250,7 @@ pub async fn register_vortex_files(
     glob_pattern: Option<Pattern>,
 ) -> anyhow::Result<()> {
     let vortex_path = input_path.join(&format!("{}/", Format::OnDiskVortex.name()))?;
-    let format = Arc::new(VortexFormat::default());
+    let format = Arc::new(VortexFormat::new(SESSION.clone()));
 
     info!(
         "Registering table from {vortex_path} with glob {:?}",
@@ -283,7 +283,7 @@ pub async fn register_vortex_compact_files(
     glob_pattern: Option<Pattern>,
 ) -> anyhow::Result<()> {
     let vortex_compact_path = input_path.join(&format!("{}/", Format::VortexCompact.name()))?;
-    let format = Arc::new(VortexFormat::default());
+    let format = Arc::new(VortexFormat::new(SESSION.clone()));
 
     info!(
         "Registering vortex-compact table from {vortex_compact_path} with glob {:?}",

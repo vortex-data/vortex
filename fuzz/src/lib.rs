@@ -10,8 +10,13 @@ mod file;
 
 pub use array::{sort_canonical_array, Action, CompressorStrategy, ExpectedValue, FuzzArrayAction};
 pub use file::FuzzFileAction;
+use std::clone::Clone;
 use std::sync::LazyLock;
 use vortex::VortexSessionDefault;
+use vortex_io::runtime::current::CurrentThreadRuntime;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
-pub static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+pub static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
+pub static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::default().with_current_thread_runtime(RUNTIME.clone()));

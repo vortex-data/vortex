@@ -29,6 +29,6 @@ box_wrapper!(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
     vx_session::new(Box::new(
-        VortexSession::default().with_tokio_handle(RUNTIME.handle().clone()),
+        VortexSession::default().with_current_thread_runtime(RUNTIME),
     ))
 }

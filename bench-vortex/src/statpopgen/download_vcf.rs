@@ -3,29 +3,29 @@
 
 use std::io;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use noodles_vcf::Record;
 use parquet::arrow::{AsyncArrowWriter, ParquetRecordBatchStreamBuilder};
 use reqwest::Client;
-use tokio::fs::{File, create_dir_all};
+use tokio::fs::{create_dir_all, File};
 use tokio::io::BufReader;
 use tokio_util::io::StreamReader;
 use tracing::info;
-use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::file::{WriteOptionsSessionExt, WriteStrategyBuilder};
 use vortex::stream::ArrayStreamAdapter;
+use vortex::ArrayRef;
 
 use super::StatPopGenBenchmark;
 use crate::statpopgen::builder::GnomADBuilder;
 use crate::statpopgen::schema::schema_from_vcf_header;
-use crate::{Format, idempotent_async};
+use crate::{idempotent_async, Format, SESSION};
 
 // DuckDB parallelizes parquet at row-group granularity. Each of our rows are quite big (~4000
 // genotypes each with tens of bytes of data).
@@ -175,7 +175,8 @@ impl StatPopGenBenchmark {
                 .wrap_stream(vortex_stream)
                 .boxed();
 
-            VortexWriteOptions::default()
+            SESSION
+                .write_options()
                 .with_strategy(strategy.build())
                 .write(
                     &mut File::create(output_path).await?,

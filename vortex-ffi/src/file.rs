@@ -167,7 +167,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
         let file = session.open_options();
-        let vxf = session
+        let vxf = RUNTIME
             .block_on(async move { file.open_object_store(&object_store, uri.path()).await })?;
 
         Ok(vx_file::new(Arc::new(vxf)))

@@ -16,7 +16,7 @@ use vortex_expr::{lit, root, Scope};
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
-use vortex_fuzz::{CompressorStrategy, FuzzFileAction, SESSION};
+use vortex_fuzz::{CompressorStrategy, FuzzFileAction, RUNTIME, SESSION};
 use vortex_layout::layouts::compact::CompactCompressor;
 use vortex_utils::aliases::hash_set::HashSet;
 use vortex_utils::aliases::DefaultHashBuilder;
@@ -61,7 +61,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
 
     let mut full_buff = ByteBufferMut::empty();
     let _footer = write_options
-        .blocking()
+        .blocking(&*RUNTIME)
         .write(&mut full_buff, array_data.to_array_iterator())
         .vortex_unwrap();
 
@@ -73,7 +73,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .vortex_unwrap()
         .with_projection(projection_expr.unwrap_or_else(|| root()))
         .with_some_filter(filter_expr)
-        .into_array_iter()
+        .into_array_iter(&*RUNTIME)
         .vortex_unwrap()
         .try_collect::<_, Vec<_>, _>()
         .vortex_unwrap();

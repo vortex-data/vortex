@@ -17,7 +17,7 @@ use vortex_datafusion::VortexFormat;
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::EngineCtx;
-use crate::{BenchmarkDataset, Format, Target};
+use crate::{BenchmarkDataset, Format, Target, SESSION};
 
 /// Statistical population genetics benchmark implementation.
 ///
@@ -157,8 +157,8 @@ pub async fn register_table(
                     ));
                 }
                 Format::Parquet => Arc::from(ParquetFormat::new()),
-                Format::OnDiskVortex => Arc::from(VortexFormat::default()),
-                Format::VortexCompact => Arc::from(VortexFormat::default()),
+                Format::OnDiskVortex => Arc::from(VortexFormat::new(SESSION.clone())),
+                Format::VortexCompact => Arc::from(VortexFormat::new(SESSION.clone())),
                 Format::OnDiskDuckDB => {
                     return Err(anyhow::anyhow!(
                         "DuckDB format should not be registered through DataFusion"

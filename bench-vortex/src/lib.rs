@@ -51,8 +51,8 @@ use vortex::VortexSessionDefault;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio_handle());
+pub static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::default().with_tokio());
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Target {

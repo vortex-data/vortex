@@ -6,9 +6,9 @@ use pyo3::prelude::*;
 use vortex::scan::RepeatedScan;
 use vortex::{Array, ArrayRef};
 
-use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::scalar::PyScalar;
+use crate::{install_module, RUNTIME};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "scan")?;
@@ -43,7 +43,7 @@ impl PyRepeatedScan {
         };
 
         Ok(PyArrayIterator::new(Box::new(
-            slf.get().scan.execute_array_iter(row_range)?,
+            slf.get().scan.execute_array_iter(row_range, &*RUNTIME)?,
         )))
     }
 
@@ -56,7 +56,11 @@ impl PyRepeatedScan {
             )));
         }
 
-        for batch in slf.get().scan.execute_array_iter(Some(index..index + 1))? {
+        for batch in slf
+            .get()
+            .scan
+            .execute_array_iter(Some(index..index + 1), &*RUNTIME)?
+        {
             let array = batch?;
             if array.is_empty() {
                 continue;
