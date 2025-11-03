@@ -82,7 +82,7 @@ impl VectorMutOps for VectorMut {
         match_each_vector_mut!(self, |v| { v.reserve(additional) })
     }
 
-    fn extend_from_vector(&mut self, other: &Self::Immutable) {
+    fn extend_from_vector(&mut self, other: &Vector) {
         match_vector_pair!(self, other, |a: VectorMut, b: Vector| {
             a.extend_from_vector(b)
         })
@@ -92,7 +92,7 @@ impl VectorMutOps for VectorMut {
         match_each_vector_mut!(self, |v| { v.append_nulls(n) })
     }
 
-    fn freeze(self) -> Self::Immutable {
+    fn freeze(self) -> Vector {
         match_each_vector_mut!(self, |v| { v.freeze().into() })
     }
 

@@ -83,7 +83,7 @@ impl VectorOps for BoolVector {
         &self.validity
     }
 
-    fn try_into_mut(self) -> Result<Self::Mutable, Self>
+    fn try_into_mut(self) -> Result<BoolVectorMut, Self>
     where
         Self: Sized,
     {

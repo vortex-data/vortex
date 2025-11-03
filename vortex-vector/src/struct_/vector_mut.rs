@@ -279,7 +279,7 @@ impl VectorMutOps for StructVectorMut {
         debug_assert_eq!(self.len, self.validity.len());
     }
 
-    fn freeze(self) -> Self::Immutable {
+    fn freeze(self) -> StructVector {
         let frozen_fields: Vec<Vector> = self
             .fields
             .into_iter()

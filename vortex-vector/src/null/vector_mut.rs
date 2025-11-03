@@ -39,7 +39,7 @@ impl VectorMutOps for NullVectorMut {
         // We do not allocate memory for `NullVector`, so this is a no-op.
     }
 
-    fn extend_from_vector(&mut self, other: &Self::Immutable) {
+    fn extend_from_vector(&mut self, other: &NullVector) {
         self.len += other.len;
     }
 
@@ -47,7 +47,7 @@ impl VectorMutOps for NullVectorMut {
         self.len += n;
     }
 
-    fn freeze(self) -> Self::Immutable {
+    fn freeze(self) -> NullVector {
         NullVector::new(self.len)
     }
 

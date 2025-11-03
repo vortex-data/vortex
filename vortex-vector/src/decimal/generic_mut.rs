@@ -31,7 +31,7 @@ impl<D: NativeDecimalType> VectorMutOps for DVectorMut<D> {
         self.validity.reserve(additional);
     }
 
-    fn extend_from_vector(&mut self, other: &Self::Immutable) {
+    fn extend_from_vector(&mut self, other: &DVector<D>) {
         self.elements.extend_from_slice(&other.elements);
         self.validity.append_mask(other.validity());
     }
@@ -41,7 +41,7 @@ impl<D: NativeDecimalType> VectorMutOps for DVectorMut<D> {
         self.validity.append_n(false, n);
     }
 
-    fn freeze(self) -> Self::Immutable {
+    fn freeze(self) -> DVector<D> {
         DVector {
             ps: self.ps,
             elements: self.elements.freeze(),

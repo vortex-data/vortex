@@ -58,7 +58,7 @@ impl VectorOps for Vector {
         match_each_vector!(self, |v| { v.validity() })
     }
 
-    fn try_into_mut(self) -> Result<Self::Mutable, Self>
+    fn try_into_mut(self) -> Result<VectorMut, Self>
     where
         Self: Sized,
     {

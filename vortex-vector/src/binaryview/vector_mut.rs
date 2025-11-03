@@ -166,7 +166,7 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
         self.validity.reserve(additional);
     }
 
-    fn extend_from_vector(&mut self, other: &Self::Immutable) {
+    fn extend_from_vector(&mut self, other: &BinaryViewVector<T>) {
         // Close any existing views into a new buffer
         if let Some(open) = self.open_buffer.take() {
             self.buffers.push(open.freeze());
@@ -195,7 +195,7 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
         self.validity.append_n(false, n);
     }
 
-    fn freeze(mut self) -> Self::Immutable {
+    fn freeze(mut self) -> BinaryViewVector<T> {
         // Freeze all components, close any in-progress views
         if let Some(open) = self.open_buffer.take() {
             self.buffers.push(open.freeze());

@@ -38,7 +38,7 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
     /// components.
     ///
     /// The caller must uphold all validation that would otherwise be validated by
-    /// the [safe constructor][Self::try_new].
+    /// the [safe constructor](Self::try_new).
     pub unsafe fn new_unchecked(
         views: Buffer<BinaryView>,
         buffers: Arc<Box<[ByteBuffer]>>,
@@ -60,8 +60,8 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
     ///
     /// # Errors
     ///
-    /// This function will panic if any of the validation checks performed by [`try_new`][Self::try_new]
-    /// fails.
+    /// This function will panic if any of the validation checks performed by
+    /// [`try_new`](Self::try_new) fails.
     pub fn new(views: Buffer<BinaryView>, buffers: Arc<Box<[ByteBuffer]>>, validity: Mask) -> Self {
         Self::try_new(views, buffers, validity).vortex_expect("Failed to create `BinaryViewVector`")
     }
@@ -153,7 +153,7 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
         &self.validity
     }
 
-    fn try_into_mut(self) -> Result<Self::Mutable, Self>
+    fn try_into_mut(self) -> Result<BinaryViewVectorMut<T>, Self>
     where
         Self: Sized,
     {

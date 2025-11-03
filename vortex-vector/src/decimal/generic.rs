@@ -97,7 +97,7 @@ impl<D: NativeDecimalType> VectorOps for DVector<D> {
         &self.validity
     }
 
-    fn try_into_mut(self) -> Result<Self::Mutable, Self>
+    fn try_into_mut(self) -> Result<DVectorMut<D>, Self>
     where
         Self: Sized,
     {

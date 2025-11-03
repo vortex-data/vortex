@@ -39,7 +39,7 @@ impl VectorMutOps for DecimalVectorMut {
         match_each_dvector_mut!(self, |d| { d.reserve(additional) })
     }
 
-    fn extend_from_vector(&mut self, other: &Self::Immutable) {
+    fn extend_from_vector(&mut self, other: &DecimalVector) {
         match (self, other) {
             (DecimalVectorMut::D8(s), DecimalVector::D8(o)) => s.extend_from_vector(o),
             (DecimalVectorMut::D16(s), DecimalVector::D16(o)) => s.extend_from_vector(o),
@@ -55,7 +55,7 @@ impl VectorMutOps for DecimalVectorMut {
         match_each_dvector_mut!(self, |d| { d.append_nulls(n) })
     }
 
-    fn freeze(self) -> Self::Immutable {
+    fn freeze(self) -> DecimalVector {
         match_each_dvector_mut!(self, |d| { d.freeze().into() })
     }
 

@@ -96,7 +96,7 @@ impl VectorMutOps for PrimitiveVectorMut {
         match_each_pvector_mut!(self, |v| { v.reserve(additional) })
     }
 
-    fn extend_from_vector(&mut self, other: &Self::Immutable) {
+    fn extend_from_vector(&mut self, other: &PrimitiveVector) {
         match (self, other) {
             (PrimitiveVectorMut::U8(a), PrimitiveVector::U8(b)) => a.extend_from_vector(b),
             (PrimitiveVectorMut::U16(a), PrimitiveVector::U16(b)) => a.extend_from_vector(b),
@@ -117,7 +117,7 @@ impl VectorMutOps for PrimitiveVectorMut {
         match_each_pvector_mut!(self, |v| { v.append_nulls(n) })
     }
 
-    fn freeze(self) -> Self::Immutable {
+    fn freeze(self) -> PrimitiveVector {
         match_each_pvector_mut!(self, |v| { v.freeze().into() })
     }
 

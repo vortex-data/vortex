@@ -36,7 +36,7 @@ impl VectorOps for DecimalVector {
         match_each_dvector!(self, |v| { v.validity() })
     }
 
-    fn try_into_mut(self) -> Result<Self::Mutable, Self>
+    fn try_into_mut(self) -> Result<DecimalVectorMut, Self>
     where
         Self: Sized,
     {
