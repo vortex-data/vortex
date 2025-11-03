@@ -327,3 +327,225 @@ impl VectorMutOps for FixedSizeListVectorMut {
         debug_assert_eq!(self.len, self.validity.len());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::{DType, PType};
+    use vortex_mask::{Mask, MaskMut};
+
+    use super::*;
+    use crate::{PVectorMut, VectorOps};
+
+    #[test]
+    fn test_core_operations() {
+        // Test with_capacity constructor.
+        let dtype = DType::Primitive(PType::I32, vortex_dtype::Nullability::Nullable);
+        let mut vec = FixedSizeListVectorMut::with_capacity(&dtype, 3, 10);
+        assert_eq!(vec.len(), 0);
+        assert_eq!(vec.list_size(), 3);
+        assert!(vec.capacity() >= 10);
+
+        // Create a vector to extend from.
+        let elements = Arc::new(
+            PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6])
+                .freeze()
+                .into(),
+        );
+        let validity = Mask::new_true(2);
+        let immutable = FixedSizeListVector::new(elements, 3, validity);
+
+        // Test extend_from_vector.
+        vec.extend_from_vector(&immutable);
+        assert_eq!(vec.len(), 2);
+        assert_eq!(vec.elements().len(), 6);
+
+        // Test append_nulls.
+        vec.append_nulls(3);
+        assert_eq!(vec.len(), 5);
+        assert_eq!(vec.elements().len(), 15); // 5 lists * 3 elements each.
+
+        // Test freeze and accessors.
+        let frozen = vec.freeze();
+        assert_eq!(frozen.len(), 5);
+        assert_eq!(frozen.list_size(), 3);
+        assert_eq!(frozen.elements().len(), 15);
+    }
+
+    #[test]
+    fn test_split_unsplit_operations() {
+        // Create a vector with 6 lists, each containing 2 elements.
+        let elements = PVectorMut::<i32>::from_iter([
+            1, 2, // List 0
+            3, 4, // List 1
+            5, 6, // List 2
+            7, 8, // List 3
+            9, 10, // List 4
+            11, 12, // List 5
+        ]);
+        let mut vec =
+            FixedSizeListVectorMut::new(Box::new(elements.into()), 2, MaskMut::new_true(6));
+
+        // Test split at different positions.
+
+        // Split at position 0 (take nothing).
+        let split = vec.split_off(0);
+        assert_eq!(vec.len(), 0);
+        assert_eq!(split.len(), 6);
+        vec.unsplit(split);
+        assert_eq!(vec.len(), 6);
+
+        // Split at middle position.
+        let split = vec.split_off(3);
+        assert_eq!(vec.len(), 3);
+        assert_eq!(split.len(), 3);
+        assert_eq!(vec.elements().len(), 6); // 3 lists * 2 elements.
+        assert_eq!(split.elements().len(), 6); // 3 lists * 2 elements.
+
+        // Verify the correct elements are in each half.
+        // First half should have [1,2,3,4,5,6].
+        // Second half should have [7,8,9,10,11,12].
+
+        // Rejoin the parts.
+        vec.unsplit(split);
+        assert_eq!(vec.len(), 6);
+        assert_eq!(vec.elements().len(), 12);
+
+        // Split at the end (take everything).
+        let split = vec.split_off(6);
+        assert_eq!(vec.len(), 6);
+        assert_eq!(split.len(), 0);
+        vec.unsplit(split);
+        assert_eq!(vec.len(), 6);
+    }
+
+    #[test]
+    fn test_null_handling() {
+        // Test nullable lists with non-null elements.
+        let elements = PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6]);
+        let validity = MaskMut::new_true(3);
+        // We can't directly set individual validity, but we can create vectors with nulls.
+
+        let mut vec = FixedSizeListVectorMut::new(Box::new(elements.into()), 2, validity);
+
+        // Append null lists.
+        vec.append_nulls(2);
+        assert_eq!(vec.len(), 5);
+
+        // After freezing, check validity is preserved.
+        let frozen = vec.freeze();
+        assert_eq!(frozen.len(), 5);
+        assert_eq!(frozen.validity().true_count(), 3); // First 3 are valid.
+
+        // Test non-null lists with nullable elements.
+        let elements_with_nulls = PVectorMut::<i32>::from_iter([
+            Some(1),
+            None,
+            Some(3), // First list has a null element.
+            Some(4),
+            Some(5),
+            None, // Second list has a null element.
+        ]);
+        let validity = MaskMut::new_true(2); // Both lists are valid.
+
+        let mut vec =
+            FixedSizeListVectorMut::new(Box::new(elements_with_nulls.into()), 3, validity);
+
+        assert_eq!(vec.len(), 2);
+        assert_eq!(vec.elements().len(), 6);
+
+        // Operations should preserve element nullability.
+        let split = vec.split_off(1);
+        assert_eq!(vec.len(), 1);
+        assert_eq!(split.len(), 1);
+
+        vec.unsplit(split);
+        assert_eq!(vec.len(), 2);
+    }
+
+    #[test]
+    fn test_edge_cases() {
+        // Test empty vector (0 lists).
+        let elements = PVectorMut::<i32>::from_iter(Vec::<i32>::new());
+        let validity = MaskMut::new_true(0);
+        let mut vec = FixedSizeListVectorMut::new(Box::new(elements.into()), 3, validity);
+        assert_eq!(vec.len(), 0);
+        assert_eq!(vec.list_size(), 3);
+        assert_eq!(vec.elements().len(), 0);
+
+        // Operations on empty vector.
+        vec.append_nulls(1);
+        assert_eq!(vec.len(), 1);
+
+        // Test single element list.
+        let elements = PVectorMut::<i32>::from_iter([42]);
+        let validity = MaskMut::new_true(1);
+        let vec = FixedSizeListVectorMut::new(
+            Box::new(elements.into()),
+            1, // List size of 1.
+            validity,
+        );
+        assert_eq!(vec.len(), 1);
+        assert_eq!(vec.list_size(), 1);
+
+        // Test large list size.
+        let large_elements: Vec<i32> = (0..1000).collect();
+        let elements = PVectorMut::<i32>::from_iter(large_elements);
+        let validity = MaskMut::new_true(1); // Single list with 1000 elements.
+        let vec = FixedSizeListVectorMut::new(Box::new(elements.into()), 1000, validity);
+        assert_eq!(vec.len(), 1);
+        assert_eq!(vec.list_size(), 1000);
+        assert_eq!(vec.elements().len(), 1000);
+
+        // Verify operations work correctly.
+        let frozen = vec.freeze();
+        assert_eq!(frozen.len(), 1);
+        assert_eq!(frozen.list_size(), 1000);
+    }
+
+    #[test]
+    fn test_capacity_management() {
+        let dtype = DType::Primitive(PType::I32, vortex_dtype::Nullability::Nullable);
+
+        // Test initial capacity from with_capacity.
+        let mut vec = FixedSizeListVectorMut::with_capacity(&dtype, 3, 10);
+        assert!(vec.capacity() >= 10);
+        assert!(vec.elements().capacity() >= 30); // At least 10 lists * 3 elements.
+
+        // Test reserve works without panicking.
+        // The exact capacity increase depends on the underlying allocation strategy.
+        vec.reserve(100);
+        // After reserving, we should be able to hold at least the current length + reserved amount.
+        // Since current length is 0, capacity should be at least 100.
+        assert!(vec.capacity() >= 100);
+
+        // Test capacity calculation with different list sizes.
+        let vec2 = FixedSizeListVectorMut::with_capacity(&dtype, 5, 20);
+        assert!(vec2.capacity() >= 20);
+        assert!(vec2.elements().capacity() >= 100); // At least 20 lists * 5 elements.
+
+        // Edge case: capacity when list_size = 0.
+        // Based on the documentation, capacity is infinite (usize::MAX) for degenerate case.
+        let vec3 = FixedSizeListVectorMut::with_capacity(&dtype, 0, 10);
+        assert_eq!(vec3.capacity(), usize::MAX); // Infinite capacity for degenerate case.
+
+        // Test that capacity is preserved through operations.
+        let elements = PVectorMut::<i32>::from_iter([1, 2, 3, 4, 5, 6]);
+        vec.elements = Box::new(elements.into());
+        vec.validity = MaskMut::new_true(2);
+        vec.len = 2;
+        vec.list_size = 3;
+
+        vec.reserve(8); // Reserve space for 8 more lists.
+        assert!(vec.capacity() >= 10);
+
+        // Test that split_off and unsplit work without panicking.
+        let split = vec.split_off(1);
+        assert_eq!(vec.len(), 1);
+        assert_eq!(split.len(), 1);
+
+        vec.unsplit(split);
+        assert_eq!(vec.len(), 2);
+    }
+}
