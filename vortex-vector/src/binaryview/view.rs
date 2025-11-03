@@ -284,7 +284,6 @@ where
     ValidateFn: Fn(&[u8]) -> bool,
 {
     let buffers = buffers.as_ref();
-    let views = views.as_ref();
     for (idx, &view) in views.iter().enumerate() {
         if !validity(idx) {
             continue;

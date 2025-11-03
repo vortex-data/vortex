@@ -29,6 +29,14 @@ pub trait BinaryViewType: Debug + Sized + private::Sealed {
 
     /// Returns the bytes as the native `Slice` type
     /// for this binary view vector.
+    ///
+    /// # Safety
+    ///
+    /// The caller must check beforehand that bytes return from the vector conform to the type
+    /// requirements of this binary type.
+    ///
+    /// Failure to do so can result in undefined behavior or incorrect results in downstream
+    /// vector operations.
     unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self::Slice;
 
     /// Downcast the provided object to a type-specific instance.
