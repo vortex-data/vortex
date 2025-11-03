@@ -127,24 +127,24 @@ macro_rules! impl_decimal {
                 const MAX_SCALE: i8 = Self::MAX_PRECISION as i8;
 
                 const MIN_BY_PRECISION: &'static [Self] = &{
-                    let mut mins = [$T::ZERO; Self::MAX_PRECISION as usize];
+                    let mut mins = [$T::ZERO; Self::MAX_PRECISION as usize + 1];
                     let mut p = $T::ONE;
                     let mut i = 0;
                     while i < Self::MAX_PRECISION as usize {
                         p = p * 10;
-                        mins[i] = -(p - 1);
+                        mins[i + 1] = -(p - 1);
                         i += 1;
                     }
                     mins
                 };
 
                 const MAX_BY_PRECISION: &'static [Self] = &{
-                    let mut maxs = [$T::ZERO; Self::MAX_PRECISION as usize];
+                    let mut maxs = [$T::ZERO; Self::MAX_PRECISION as usize + 1];
                     let mut p = $T::ONE;
                     let mut i = 0;
                     while i < Self::MAX_PRECISION as usize {
                         p = p * 10;
-                        maxs[i] = p - 1;
+                        maxs[i + 1] = p - 1;
                         i += 1;
                     }
                     maxs

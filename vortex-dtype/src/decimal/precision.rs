@@ -122,3 +122,18 @@ impl<D: NativeDecimalType> TryFrom<&DecimalDType> for PrecisionScale<D> {
         PrecisionScale::try_new(value.precision, value.scale)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::PrecisionScale;
+
+    #[test]
+    fn max_precision() {
+        let prec = PrecisionScale::<i8>::new(2, 1);
+        assert!(prec.is_valid(8));
+        assert!(prec.is_valid(99));
+        assert!(prec.is_valid(-9));
+        assert!(prec.is_valid(0));
+        assert!(prec.is_valid(-99))
+    }
+}

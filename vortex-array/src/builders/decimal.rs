@@ -284,8 +284,6 @@ impl Default for DecimalBuffer {
 #[cfg(test)]
 mod tests {
     use vortex_dtype::DecimalDType;
-    
-    
 
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
