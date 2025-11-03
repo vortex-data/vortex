@@ -4,6 +4,7 @@
 use std::any::type_name;
 use std::fmt::Display;
 use std::marker::PhantomData;
+use std::num::NonZero;
 
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
@@ -13,7 +14,7 @@ use crate::{DecimalDType, NativeDecimalType};
 /// by the native type `D`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PrecisionScale<D> {
-    precision: u8,
+    precision: NonZero<u8>,
     scale: i8,
     phantom: PhantomData<D>,
 }
@@ -42,13 +43,14 @@ impl<D: NativeDecimalType> PrecisionScale<D> {
 
     /// Try to create a new [`PrecisionScale`] with the given precision and scale.
     pub fn try_new(precision: u8, scale: i8) -> VortexResult<Self> {
-        if precision == 0 {
-            vortex_bail!(
+        let precision = NonZero::new(precision).ok_or_else(|| {
+            vortex_error::vortex_err!(
                 "precision cannot be 0, has to be between [1, {}]",
                 D::MAX_PRECISION
-            );
-        }
-        if precision > D::MAX_PRECISION {
+            )
+        })?;
+
+        if precision.get() > D::MAX_PRECISION {
             vortex_bail!(
                 "Precision {} is greater than max {}",
                 precision,
@@ -58,7 +60,7 @@ impl<D: NativeDecimalType> PrecisionScale<D> {
         if scale > D::MAX_SCALE {
             vortex_bail!("Scale {} is greater than max {}", scale, D::MAX_SCALE);
         }
-        if scale > 0 && scale as u8 > precision {
+        if scale > 0 && scale as u8 > precision.get() {
             vortex_bail!("Scale {} is greater than precision {}", scale, precision);
         }
         Ok(Self {
@@ -78,7 +80,8 @@ impl<D: NativeDecimalType> PrecisionScale<D> {
             Self::new(precision, scale)
         } else {
             Self {
-                precision,
+                // SAFETY: Caller guarantees precision is non-zero
+                precision: unsafe { NonZero::new_unchecked(precision) },
                 scale,
                 phantom: Default::default(),
             }
@@ -88,7 +91,7 @@ impl<D: NativeDecimalType> PrecisionScale<D> {
     /// The precision is the number of significant figures that the decimal tracks.
     #[inline(always)]
     pub fn precision(&self) -> u8 {
-        self.precision
+        self.precision.get()
     }
 
     /// The scale is the maximum number of digits relative to the decimal point.
@@ -100,14 +103,15 @@ impl<D: NativeDecimalType> PrecisionScale<D> {
     /// Validate whether a given value of type `D` fits within the precision and scale.
     #[inline]
     pub fn is_valid(&self, value: D) -> bool {
-        self.precision <= D::MAX_PRECISION
-            && value >= D::MIN_BY_PRECISION[self.precision as usize]
-            && value <= D::MAX_BY_PRECISION[self.precision as usize]
+        self.precision.get() <= D::MAX_PRECISION
+            && value >= D::MIN_BY_PRECISION[self.precision.get() as usize]
+            && value <= D::MAX_BY_PRECISION[self.precision.get() as usize]
     }
 }
 
 impl<D: NativeDecimalType> From<PrecisionScale<D>> for DecimalDType {
     fn from(value: PrecisionScale<D>) -> Self {
+        // SAFETY: precision is already NonZero<u8>, so we can use it directly
         DecimalDType {
             precision: value.precision,
             scale: value.scale,
@@ -119,6 +123,6 @@ impl<D: NativeDecimalType> TryFrom<&DecimalDType> for PrecisionScale<D> {
     type Error = vortex_error::VortexError;
 
     fn try_from(value: &DecimalDType) -> VortexResult<Self> {
-        PrecisionScale::try_new(value.precision, value.scale)
+        PrecisionScale::try_new(value.precision(), value.scale)
     }
 }

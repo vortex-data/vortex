@@ -6,6 +6,7 @@ mod precision;
 mod types;
 
 use std::fmt::{Display, Formatter};
+use std::num::NonZero;
 
 use num_traits::ToPrimitive;
 pub use precision::*;
@@ -23,7 +24,7 @@ const MAX_SCALE: i8 = <i256 as NativeDecimalType>::MAX_SCALE;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DecimalDType {
-    precision: u8,
+    precision: NonZero<u8>,
     scale: i8,
 }
 
@@ -34,13 +35,14 @@ impl DecimalDType {
     ///
     /// Returns an error if precision exceeds MAX_PRECISION or scale is outside [MIN_SCALE, MAX_SCALE].
     pub fn try_new(precision: u8, scale: i8) -> VortexResult<Self> {
-        if precision == 0 {
-            vortex_bail!(
+        let precision = NonZero::new(precision).ok_or_else(|| {
+            vortex_error::vortex_err!(
                 "decimal precision must be between 1 and {} (inclusive)",
                 MAX_PRECISION
-            );
-        }
-        if precision > MAX_PRECISION {
+            )
+        })?;
+
+        if precision.get() > MAX_PRECISION {
             vortex_bail!(
                 "decimal precision {} exceeds MAX_PRECISION {}",
                 precision,
@@ -52,7 +54,7 @@ impl DecimalDType {
             vortex_bail!("decimal scale {} exceeds MAX_SCALE {}", scale, MAX_SCALE);
         }
 
-        if scale > 0 && scale as u8 > precision {
+        if scale > 0 && scale as u8 > precision.get() {
             vortex_bail!(
                 "decimal scale {} is greater than precision {}",
                 scale,
@@ -76,7 +78,7 @@ impl DecimalDType {
 
     /// The precision is the number of significant figures that the decimal tracks.
     pub fn precision(&self) -> u8 {
-        self.precision
+        self.precision.get()
     }
 
     /// The scale is the maximum number of digits relative to the decimal point.
@@ -89,7 +91,7 @@ impl DecimalDType {
 
     /// Return the max number of bits required to fit a decimal with `precision` in.
     pub fn required_bit_width(&self) -> usize {
-        (self.precision as f32 * 10.0f32.log(2.0))
+        (self.precision.get() as f32 * 10.0f32.log(2.0))
             .ceil()
             .to_usize()
             .vortex_expect("too many bits required")
