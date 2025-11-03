@@ -662,8 +662,8 @@ void vx_file_free(const vx_file *ptr);
 /**
  * Open a file at the given path on the file system.
  */
-const vx_file *vx_file_open_reader(const vx_file_open_options *options,
-                                   const vx_session *session,
+const vx_file *vx_file_open_reader(const vx_session *session,
+                                   const vx_file_open_options *options,
                                    vx_error **error_out);
 
 void vx_file_write_array(const vx_session *session,

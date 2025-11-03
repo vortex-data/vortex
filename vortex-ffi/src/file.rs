@@ -141,8 +141,8 @@ impl vx_file_scan_options {
 /// Open a file at the given path on the file system.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_open_reader(
-    options: *const vx_file_open_options,
     session: *const vx_session,
+    options: *const vx_file_open_options,
     error_out: *mut *mut vx_error,
 ) -> *const vx_file {
     let session = vx_session::as_ref(session);

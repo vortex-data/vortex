@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
       .property_len = 0,
   };
 
-  const vx_file *file = vx_file_open_reader(&open_opts, session, &error);
+  const vx_file *file = vx_file_open_reader(session, &open_opts, &error);
   if (error != NULL) {
     fprintf(stderr, "Failed to open file: %s\n%s", uri, vx_string_ptr(vx_error_get_message(error)));
     vx_error_free(error);
@@ -51,7 +51,7 @@ int main(int argc, char *argv[]) {
 
   // Start scanning
   printf("\nScanning file...\n");
-  vx_array_iterator *scan = vx_file_scan(file, NULL, &error);
+  vx_array_iterator *scan = vx_file_scan(session, file, NULL, &error);
   if (error != NULL) {
     fprintf(stderr, "Failed to create file scan iterator\n");
     vx_error_free(error);
