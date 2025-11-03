@@ -11,7 +11,7 @@ use vortex_proto::expr as pb;
 
 use crate::v2::Expression;
 use crate::{
-    AnalysisExpr, ChildName, ExprId, ExprInstance, ExprRef, IntoExpr, StatsCatalog, VTable,
+    AnalysisExpr, Binary, ChildName, ExprId, ExprInstance, ExprRef, StatsCatalog, VTable,
     VTableFactory,
 };
 
@@ -117,19 +117,18 @@ impl ExprInstance<'_, Between> {
         &self.children()[2]
     }
 
-    pub fn to_binary_expr(&self) -> Expression {
+    pub fn to_binary_expr(&self) -> VortexResult<Expression> {
         let options = self.metadata();
         let arr = self.children()[0].clone();
         let lower = self.children()[1].clone();
         let upper = self.children()[2].clone();
 
-        let lhs = BinaryExpr::new(
-            lower,
+        let lhs = Binary.try_new(
             options.lower_strict.to_operator().into(),
-            arr.clone(),
-        );
-        let rhs = BinaryExpr::new(arr, options.upper_strict.to_operator().into(), upper);
-        BinaryExpr::new(lhs.into_expr(), crate::Operator::And, rhs.into_expr()).into_expr()
+            [lower, arr.clone()],
+        )?;
+        let rhs = Binary.try_new(options.upper_strict.to_operator().into(), [arr, upper])?;
+        Binary.try_new(crate::Operator::And, [lhs, rhs])
     }
 }
 

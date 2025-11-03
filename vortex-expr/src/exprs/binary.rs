@@ -6,13 +6,13 @@ use std::hash::Hash;
 use vortex_array::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
 use vortex_array::{compute, ArrayRef, DeserializeMetadata};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::display::DisplayAs;
 use crate::v2::Expression;
 use crate::{
-    lit, AnalysisExpr, AnalysisVTable, ChildName, ExprId, ExprInstance, ExprRef, IntoExpr,
-    Operator, StatsCatalog, VTable,
+    lit, AnalysisExpr, AnalysisVTable, ChildName, ExprId, ExprInstance, IntoExpr,
+    Operator, StatsCatalog, VTable, VTableFactory,
 };
 
 pub struct Binary;
@@ -78,11 +78,11 @@ impl VTable for Binary {
 }
 
 impl ExprInstance<'_, Binary> {
-    pub fn lhs(&self) -> &ExprRef {
+    pub fn lhs(&self) -> &Expression {
         &self.children()[0]
     }
 
-    pub fn rhs(&self) -> &ExprRef {
+    pub fn rhs(&self) -> &Expression {
         &self.children()[1]
     }
 
@@ -95,7 +95,7 @@ impl AnalysisVTable<Binary> for Binary {
     fn stat_falsification(
         expr: ExprInstance<Self>,
         catalog: &mut dyn StatsCatalog,
-    ) -> Option<ExprRef> {
+    ) -> Option<Expression> {
         // Wrap another predicate with an optional NaNCount check, if the stat is available.
         //
         // For example, regular pruning conversion for `A >= B` would be
@@ -152,73 +152,73 @@ impl AnalysisVTable<Binary> for Binary {
                 ))
             }
             Operator::NotEq => {
-                let min_lhs = self.lhs.min(catalog)?;
-                let max_lhs = self.lhs.max(catalog)?;
+                let min_lhs = expr.lhs().min(catalog)?;
+                let max_lhs = expr.lhs().max(catalog)?;
 
-                let min_rhs = self.rhs.min(catalog)?;
-                let max_rhs = self.rhs.max(catalog)?;
+                let min_rhs = expr.rhs().min(catalog)?;
+                let max_rhs = expr.rhs().max(catalog)?;
 
                 let min_max_check = and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs));
 
                 Some(with_nan_predicate(
-                    self.lhs(),
-                    self.rhs(),
+                    expr.lhs(),
+                    expr.rhs(),
                     min_max_check,
                     catalog,
                 ))
             }
             Operator::Gt => {
-                let min_max_check = lt_eq(self.lhs.max(catalog)?, self.rhs.min(catalog)?);
+                let min_max_check = lt_eq(expr.lhs().max(catalog)?, expr.rhs().min(catalog)?);
 
                 Some(with_nan_predicate(
-                    self.lhs(),
-                    self.rhs(),
+                    expr.lhs(),
+                    expr.rhs(),
                     min_max_check,
                     catalog,
                 ))
             }
             Operator::Gte => {
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = lt(self.lhs.max(catalog)?, self.rhs.min(catalog)?);
+                let min_max_check = lt(expr.lhs().max(catalog)?, expr.rhs().min(catalog)?);
 
                 Some(with_nan_predicate(
-                    self.lhs(),
-                    self.rhs(),
+                    expr.lhs(),
+                    expr.rhs(),
                     min_max_check,
                     catalog,
                 ))
             }
             Operator::Lt => {
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = gt_eq(self.lhs.min(catalog)?, self.rhs.max(catalog)?);
+                let min_max_check = gt_eq(expr.lhs().min(catalog)?, expr.rhs().max(catalog)?);
 
                 Some(with_nan_predicate(
-                    self.lhs(),
-                    self.rhs(),
+                    expr.lhs(),
+                    expr.rhs(),
                     min_max_check,
                     catalog,
                 ))
             }
             Operator::Lte => {
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = gt(self.lhs.min(catalog)?, self.rhs.max(catalog)?);
+                let min_max_check = gt(expr.lhs().min(catalog)?, expr.rhs().max(catalog)?);
 
                 Some(with_nan_predicate(
-                    self.lhs(),
-                    self.rhs(),
+                    expr.lhs(),
+                    expr.rhs(),
                     min_max_check,
                     catalog,
                 ))
             }
-            Operator::And => self
-                .lhs
+            Operator::And => expr
+                .lhs()
                 .stat_falsification(catalog)
                 .into_iter()
-                .chain(self.rhs.stat_falsification(catalog))
+                .chain(expr.rhs().stat_falsification(catalog))
                 .reduce(or),
             Operator::Or => Some(and(
-                self.lhs.stat_falsification(catalog)?,
-                self.rhs.stat_falsification(catalog)?,
+                expr.lhs().stat_falsification(catalog)?,
+                expr.rhs().stat_falsification(catalog)?,
             )),
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
         }
@@ -243,8 +243,10 @@ impl AnalysisVTable<Binary> for Binary {
 ///     BoolArray::from_iter(vec![false, false, true]).bit_buffer(),
 /// );
 /// ```
-pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new(lhs, Operator::Eq, rhs).into_expr()
+pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
+    Binary
+        .try_new(Operator::Eq, [lhs.clone(), rhs.clone()])
+        .vortex_expect("Failed to create Eq binary expression")
 }
 
 /// Create a new [`BinaryExpr`] using the [`NotEq`](crate::Operator::NotEq) operator.
@@ -265,8 +267,10 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///     BoolArray::from_iter(vec![true, true, false]).bit_buffer(),
 /// );
 /// ```
-pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new(lhs, Operator::NotEq, rhs).into_expr()
+pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
+    Binary
+        .try_new(Operator::NotEq, [lhs, rhs])
+        .vortex_expect("Failed to create NotEq binary expression")
 }
 
 /// Create a new [`BinaryExpr`] using the [`Gte`](crate::Operator::Gte) operator.
@@ -287,8 +291,10 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///     BoolArray::from_iter(vec![false, false, true]).bit_buffer(),
 /// );
 /// ```
-pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new(lhs, Operator::Gte, rhs).into_expr()
+pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
+    Binary
+        .try_new(Operator::Gte, [lhs, rhs])
+        .vortex_expect("Failed to create Gte binary expression")
 }
 
 /// Create a new [`BinaryExpr`] using the [`Gt`](crate::Operator::Gt) operator.
@@ -309,8 +315,10 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///     BoolArray::from_iter(vec![false, false, true]).bit_buffer(),
 /// );
 /// ```
-pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new(lhs, Operator::Gt, rhs).into_expr()
+pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
+    Binary
+        .try_new(Operator::Gt, [lhs, rhs])
+        .vortex_expect("Failed to create Gt binary expression")
 }
 
 /// Create a new [`BinaryExpr`] using the [`Lte`](crate::Operator::Lte) operator.
@@ -331,8 +339,10 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///     BoolArray::from_iter(vec![true, true, false]).bit_buffer(),
 /// );
 /// ```
-pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new(lhs, Operator::Lte, rhs).into_expr()
+pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
+    Binary
+        .try_new(Operator::Lte, [lhs, rhs])
+        .vortex_expect("Failed to create Lte binary expression")
 }
 
 /// Create a new [`BinaryExpr`] using the [`Lt`](crate::Operator::Lt) operator.
@@ -353,8 +363,10 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///     BoolArray::from_iter(vec![true, true, false]).bit_buffer(),
 /// );
 /// ```
-pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new(lhs, Operator::Lt, rhs).into_expr()
+pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
+    Binary
+        .try_new(Operator::Lt, [lhs, rhs])
+        .vortex_expect("Failed to create Lt binary expression")
 }
 
 /// Create a new [`BinaryExpr`] using the [`Or`](crate::Operator::Or) operator.
@@ -373,16 +385,18 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///     BoolArray::from_iter(vec![true, false, true]).bit_buffer(),
 /// );
 /// ```
-pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new(lhs, Operator::Or, rhs).into_expr()
+pub fn or(lhs: Expression, rhs: Expression) -> Expression {
+    Binary
+        .try_new(Operator::Or, [lhs, rhs])
+        .vortex_expect("Failed to create Or binary expression")
 }
 
 /// Collects a list of `or`ed values into a single vortex, expr
 /// [x, y, z] => x or (y or z)
-pub fn or_collect<I>(iter: I) -> Option<ExprRef>
+pub fn or_collect<I>(iter: I) -> Option<Expression>
 where
-    I: IntoIterator<Item = ExprRef>,
-    I::IntoIter: DoubleEndedIterator<Item = ExprRef>,
+    I: IntoIterator<Item = Expression>,
+    I::IntoIter: DoubleEndedIterator<Item = Expression>,
 {
     let mut iter = iter.into_iter();
     let first = iter.next_back()?;
@@ -405,16 +419,18 @@ where
 ///     BoolArray::from_iter(vec![true, false, true]).bit_buffer(),
 /// );
 /// ```
-pub fn and(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new(lhs, Operator::And, rhs).into_expr()
+pub fn and(lhs: Expression, rhs: Expression) -> Expression {
+    Binary
+        .try_new(Operator::And, [lhs, rhs])
+        .vortex_expect("Failed to create And binary expression")
 }
 
 /// Collects a list of `and`ed values into a single vortex, expr
 /// [x, y, z] => x and (y and z)
-pub fn and_collect<I>(iter: I) -> Option<ExprRef>
+pub fn and_collect<I>(iter: I) -> Option<Expression>
 where
-    I: IntoIterator<Item = ExprRef>,
-    I::IntoIter: DoubleEndedIterator<Item = ExprRef>,
+    I: IntoIterator<Item = Expression>,
+    I::IntoIter: DoubleEndedIterator<Item = Expression>,
 {
     let mut iter = iter.into_iter();
     let first = iter.next_back()?;
@@ -423,9 +439,9 @@ where
 
 /// Collects a list of `and`ed values into a single vortex, expr
 /// [x, y, z] => x and (y and z)
-pub fn and_collect_right<I>(iter: I) -> Option<ExprRef>
+pub fn and_collect_right<I>(iter: I) -> Option<Expression>
 where
-    I: IntoIterator<Item = ExprRef>,
+    I: IntoIterator<Item = Expression>,
 {
     let iter = iter.into_iter();
     iter.reduce(and)
@@ -453,8 +469,10 @@ where
 ///         .unwrap()
 /// );
 /// ```
-pub fn checked_add(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new(lhs, Operator::Add, rhs).into_expr()
+pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
+    Binary
+        .try_new(Operator::Add, [lhs, rhs])
+        .vortex_expect("Failed to create Add binary expression")
 }
 
 #[cfg(test)]
