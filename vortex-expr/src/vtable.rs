@@ -10,7 +10,8 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::display::DisplayAs;
-use crate::v2::Expression;
+use crate::metadata::ExprMetadata;
+use crate::v2::{Expression, ExpressionView};
 use crate::{
     AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VortexExpr,
 };
@@ -30,46 +31,80 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         + AnalysisExpr;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn ExprEncoding>;
     type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
+    type Metadata2: ExprMetadata;
 
     /// Returns the ID of the expr encoding.
     fn id(encoding: &Self::Encoding) -> ExprId;
 
     /// Returns the encoding for the expr.
-    fn encoding(expr: &Self::Expr) -> ExprEncodingRef;
+    fn encoding(expr: &Self::Expr) -> ExprEncodingRef {
+        todo!()
+    }
 
     /// Returns the serialize-able metadata for the expr, or `None` if serialization is not
     /// supported.
-    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata>;
+    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
+        todo!()
+    }
 
     /// Returns the children of the expr.
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef>;
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        todo!()
+    }
 
     /// Return a new instance of the expression with the children replaced.
     ///
     /// ## Preconditions
     ///
     /// The number of children will match the current number of children in the expression.
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr>;
+    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        todo!()
+    }
 
     /// Construct a new [`VortexExpr`] from the provided parts.
     fn build(
         encoding: &Self::Encoding,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         children: Vec<ExprRef>,
-    ) -> VortexResult<Self::Expr>;
+    ) -> VortexResult<Self::Expr> {
+        todo!()
+    }
 
     /// Validate the metadata and children for the expression.
-    fn validate(
-        encoding: &Self::Encoding,
-        metadata: &Self::Metadata,
-        children: &[Expression],
-    ) -> VortexResult<()>;
+    fn validate(expr: &ExpressionView<Self>) -> VortexResult<()>;
 
     /// Evaluate the expression in the given scope.
-    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef>;
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        todo!()
+    }
 
     /// Compute the return [`DType`] of the expression if evaluated in the given scope.
-    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType>;
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
+        todo!()
+    }
+
+    /// Deserialize the metadata for the expression.
+    fn deserialize_metadata(
+        encoding: &Self::Encoding,
+        metadata: &[u8],
+    ) -> VortexResult<Self::Metadata2>;
+
+    /// Compute the return [`DType`] of the expression if evaluated in the given scope.
+    fn return_dtype2(
+        expr: ExpressionView<Self>,
+        encoding: &Self::Encoding,
+        metadata: &Self::Metadata2,
+        children: &[Expression],
+        scope: &DType,
+    ) -> VortexResult<DType>;
+
+    /// Evaluate the expression in the given scope.
+    fn evaluate2(
+        encoding: &Self::Encoding,
+        metadata: &Self::Metadata2,
+        children: &[Expression],
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef>;
 }
 
 #[macro_export]
@@ -120,6 +155,13 @@ macro_rules! vtable {
                 type Target = dyn $crate::ExprEncoding;
 
                 fn deref(&self) -> &Self::Target {
+                    // We can unsafe cast ourselves to an ExprEncodingAdapter.
+                    unsafe { &*(self as *const [<$V ExprEncoding>] as *const $crate::ExprEncodingAdapter<[<$V VTable>]>) }
+                }
+            }
+
+            impl [<$V ExprEncoding>] {
+                pub const fn as_static_ref(&'static self) -> &'static dyn $crate::ExprEncoding {
                     // We can unsafe cast ourselves to an ExprEncodingAdapter.
                     unsafe { &*(self as *const [<$V ExprEncoding>] as *const $crate::ExprEncodingAdapter<[<$V VTable>]>) }
                 }

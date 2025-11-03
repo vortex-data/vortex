@@ -5,7 +5,8 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 
 use arcref::ArcRef;
-use vortex_array::DeserializeMetadata;
+use vortex_array::{Array, ArrayRef, DeserializeMetadata};
+use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::metadata::ExprMetadata;
@@ -32,6 +33,22 @@ pub trait ExprEncoding: 'static + Send + Sync + Debug + private::Sealed {
 
     /// Validates the metadata and children for this expression encoding.
     fn validate(&self, _metadata: &dyn ExprMetadata, _children: &[Expression]) -> VortexResult<()>;
+
+    /// Computes the return DType of the expression given the metadata and children's DTypes.
+    fn return_dtype(
+        &self,
+        metadata: &dyn ExprMetadata,
+        children: &[Expression],
+        scope: &DType,
+    ) -> VortexResult<DType>;
+
+    /// Evaluates the expression against the given scope array.
+    fn evaluate(
+        &self,
+        metadata: &dyn ExprMetadata,
+        children: &[Expression],
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef>;
 }
 
 #[repr(transparent)]
@@ -65,13 +82,60 @@ impl<V: VTable> ExprEncoding for ExprEncodingAdapter<V> {
             .downcast_ref::<V::Metadata>()
             .ok_or_else(|| {
                 vortex_err!(
-                    "Mismatched metadata type {} for VTable {}",
+                    "Mismatched metadata type {:?} for VTable {}",
                     metadata.as_any().type_id(),
                     self.id()
                 )
             })?;
 
         V::validate(&encoding, metadata, children)
+    }
+
+    fn return_dtype(
+        &self,
+        metadata: &dyn ExprMetadata,
+        children: &[Expression],
+        scope: &DType,
+    ) -> VortexResult<DType> {
+        let encoding = self.0.as_::<V>();
+        let metadata = metadata
+            .as_any()
+            .downcast_ref::<V::Metadata>()
+            .vortex_expect("mismatched metadata");
+        V::return_dtype2(encoding, metadata, children, scope)
+    }
+
+    fn evaluate(
+        &self,
+        metadata: &dyn ExprMetadata,
+        children: &[Expression],
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        let result = {
+            let encoding = self.0.as_::<V>();
+            let metadata = metadata
+                .as_any()
+                .downcast_ref::<V::Metadata>()
+                .vortex_expect("mismatched metadata");
+            V::evaluate2(encoding, metadata, children, scope)
+        }?;
+
+        #[cfg(debug_assertions)]
+        {
+            let expected_dtype = self.return_dtype(metadata, children, &scope.dtype())?;
+            assert_eq!(
+                &expected_dtype,
+                result.dtype(),
+                "Evaluated dtype does not match expected dtype"
+            );
+            assert_eq!(
+                result.len(),
+                scope.len(),
+                "Evaluated array length does not match scope length"
+            );
+        }
+
+        Ok(result)
     }
 }
 

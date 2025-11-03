@@ -5,6 +5,7 @@ use crate::display::{DisplayAs, DisplayFormat};
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
+use std::sync::{Arc, LazyLock};
 use vortex_array::{DeserializeMetadata, SerializeMetadata};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_utils::dyn_traits::{DynEq, DynHash};
@@ -32,6 +33,14 @@ impl Eq for dyn ExprMetadata + '_ {}
 /// Used when the expression is defined purely by its encoding ID.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EmptyMetadata;
+
+impl EmptyMetadata {
+    /// Create a new empty metadata instance.
+    pub fn new() -> Arc<Self> {
+        static INSTANCE: LazyLock<Arc<EmptyMetadata>> = LazyLock::new(|| Arc::new(EmptyMetadata));
+        INSTANCE.clone()
+    }
+}
 
 impl ExprMetadata for EmptyMetadata {
     fn as_any(&self) -> &dyn Any {

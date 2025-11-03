@@ -1,112 +1,71 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Debug;
-
-use vortex_array::compute::{BetweenOptions, StrictComparison, between as between_compute};
-use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
+use std::any::Any;
+use std::fmt::{Debug, Formatter};
+use vortex_array::compute::{between as between_compute, BetweenOptions, StrictComparison};
+use vortex_array::{ArrayRef, ArraySessionExt, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
+use crate::metadata::{EmptyMetadata, ExprMetadata};
+use crate::v2::{Expression, ExpressionView};
 use crate::{
-    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog,
-    VTable, vtable,
+    vtable, AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, StatsCatalog,
+    VTable,
 };
 
 vtable!(Between);
 
-#[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Clone, Debug, Hash, Eq)]
-pub struct BetweenExpr {
-    arr: ExprRef,
-    lower: ExprRef,
-    upper: ExprRef,
-    options: BetweenOptions,
-}
-
-impl PartialEq for BetweenExpr {
-    fn eq(&self, other: &Self) -> bool {
-        self.arr.eq(&other.arr)
-            && self.lower.eq(&other.lower)
-            && self.upper.eq(&other.upper)
-            && self.options == other.options
-    }
-}
-
+pub struct BetweenExpr;
 pub struct BetweenExprEncoding;
 
 impl VTable for BetweenVTable {
-    type Expr = BetweenExpr;
+    type Expr = ();
     type Encoding = BetweenExprEncoding;
     type Metadata = ProstMetadata<pb::BetweenOpts>;
+    type Metadata2 = BetweenOptions;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
         ExprId::new_ref("between")
     }
 
-    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(BetweenExprEncoding.as_ref())
+    fn validate(expr: ExpressionView<Self>) -> VortexResult<()> {
+        if expr.children().len() != 3 {
+            vortex_bail!(
+                "Between expression requires exactly 3 children, got {}",
+                expr.children().len()
+            );
+        }
+        Ok(())
     }
 
-    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(ProstMetadata(pb::BetweenOpts {
-            lower_strict: expr.options.lower_strict == StrictComparison::Strict,
-            upper_strict: expr.options.upper_strict == StrictComparison::Strict,
-        }))
-    }
-
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
-        vec![&expr.arr, &expr.lower, &expr.upper]
-    }
-
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        Ok(BetweenExpr::new(
-            children[0].clone(),
-            children[1].clone(),
-            children[2].clone(),
-            expr.options.clone(),
-        ))
-    }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
-    ) -> VortexResult<Self::Expr> {
-        Ok(BetweenExpr::new(
-            children[0].clone(),
-            children[1].clone(),
-            children[2].clone(),
-            BetweenOptions {
-                lower_strict: if metadata.lower_strict {
-                    StrictComparison::Strict
-                } else {
-                    StrictComparison::NonStrict
-                },
-                upper_strict: if metadata.upper_strict {
-                    StrictComparison::Strict
-                } else {
-                    StrictComparison::NonStrict
-                },
+    fn deserialize_metadata(
+        encoding: &Self::Encoding,
+        metadata: &[u8],
+    ) -> VortexResult<Self::Metadata2> {
+        let meta = ProstMetadata::<pb::BetweenOpts>::deserialize(metadata)?;
+        Ok(BetweenOptions {
+            lower_strict: if meta.lower_strict {
+                StrictComparison::Strict
+            } else {
+                StrictComparison::NonStrict
             },
-        ))
+            upper_strict: if meta.upper_strict {
+                StrictComparison::Strict
+            } else {
+                StrictComparison::NonStrict
+            },
+        })
     }
 
-    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        let arr_val = expr.arr.unchecked_evaluate(scope)?;
-        let lower_arr_val = expr.lower.unchecked_evaluate(scope)?;
-        let upper_arr_val = expr.upper.unchecked_evaluate(scope)?;
-
-        between_compute(&arr_val, &lower_arr_val, &upper_arr_val, &expr.options)
-    }
-
-    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
-        let arr_dt = expr.arr.return_dtype(scope)?;
-        let lower_dt = expr.lower.return_dtype(scope)?;
-        let upper_dt = expr.upper.return_dtype(scope)?;
+    fn return_dtype2(expr: ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
+        let arr_dt = expr.child().return_dtype(scope)?;
+        let lower_dt = expr.lower().return_dtype(scope)?;
+        let upper_dt = expr.upper().return_dtype(scope)?;
 
         if !arr_dt.eq_ignore_nullability(&lower_dt) {
             vortex_bail!(
@@ -127,69 +86,69 @@ impl VTable for BetweenVTable {
             arr_dt.nullability() | lower_dt.nullability() | upper_dt.nullability(),
         ))
     }
-}
 
-impl BetweenExpr {
-    pub fn new(arr: ExprRef, lower: ExprRef, upper: ExprRef, options: BetweenOptions) -> Self {
-        Self {
-            arr,
-            lower,
-            upper,
-            options,
-        }
-    }
-
-    pub fn new_expr(
-        arr: ExprRef,
-        lower: ExprRef,
-        upper: ExprRef,
-        options: BetweenOptions,
-    ) -> ExprRef {
-        Self::new(arr, lower, upper, options).into_expr()
-    }
-
-    pub fn to_binary_expr(&self) -> ExprRef {
-        let lhs = BinaryExpr::new(
-            self.lower.clone(),
-            self.options.lower_strict.to_operator().into(),
-            self.arr.clone(),
-        );
-        let rhs = BinaryExpr::new(
-            self.arr.clone(),
-            self.options.upper_strict.to_operator().into(),
-            self.upper.clone(),
-        );
-        BinaryExpr::new(lhs.into_expr(), crate::Operator::And, rhs.into_expr()).into_expr()
+    fn evaluate2(expr: ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        let arr = expr.child().evaluate(scope)?;
+        let lower = expr.lower().evaluate(scope)?;
+        let upper = expr.upper().evaluate(scope)?;
+        between_compute(&arr, &lower, &upper, expr.metadata())
     }
 }
 
-impl DisplayAs for BetweenExpr {
-    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl DisplayAs for BetweenOptions {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
         match df {
-            DisplayFormat::Compact => {
+            DisplayFormat::Compact | DisplayFormat::Tree => {
                 write!(
                     f,
-                    "({} {} {} {} {})",
-                    self.lower,
-                    self.options.lower_strict.to_operator(),
-                    self.arr,
-                    self.options.upper_strict.to_operator(),
-                    self.upper
+                    "BetweenOptions(lower_strict: {:?}, upper_strict: {:?})",
+                    self.lower_strict, self.upper_strict
                 )
-            }
-            DisplayFormat::Tree => {
-                write!(f, "Between")
             }
         }
     }
 
     fn child_names(&self) -> Option<Vec<String>> {
-        // Children are: arr, lower, upper (based on the order in the children() method)
         Some(vec![
             "array".to_string(),
-            format!("lower ({:?})", self.options.lower_strict),
-            format!("upper ({:?})", self.options.upper_strict),
+            "lower".to_string(),
+            "upper".to_string(),
         ])
+    }
+}
+
+impl ExprMetadata for BetweenOptions {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl ExpressionView<'_, BetweenVTable> {
+    pub fn child(&self) -> &Expression {
+        &self.children()[0]
+    }
+
+    pub fn lower(&self) -> &Expression {
+        &self.children()[1]
+    }
+
+    pub fn upper(&self) -> &Expression {
+        &self.children()[2]
+    }
+
+    pub fn to_binary_expr(&self) -> Expression {
+        let options = self.metadata();
+        let arr = self.children()[0].clone();
+        let lower = self.children()[1].clone();
+        let upper = self.children()[2].clone();
+
+        let lhs = BinaryExpr::new(
+            lower,
+            options.lower_strict.to_operator().into(),
+            arr.clone(),
+        );
+        let rhs = BinaryExpr::new(arr, options.upper_strict.to_operator().into(), upper);
+        BinaryExpr::new(lhs.into_expr(), crate::Operator::And, rhs.into_expr()).into_expr()
     }
 }
 
@@ -214,8 +173,20 @@ impl AnalysisExpr for BetweenExpr {
 /// };
 /// let expr = between(root(), lit(10), lit(20), opts);
 /// ```
-pub fn between(arr: ExprRef, lower: ExprRef, upper: ExprRef, options: BetweenOptions) -> ExprRef {
-    BetweenExpr::new(arr, lower, upper, options).into_expr()
+pub fn between(
+    arr: Expression,
+    lower: Expression,
+    upper: Expression,
+    options: BetweenOptions,
+) -> Expression {
+    static BETWEEN: ExprEncodingRef = ExprEncodingRef::new_ref(BetweenExprEncoding.as_static_ref());
+
+    Expression::try_new(
+        BETWEEN.clone(),
+        EmptyMetadata::new(),
+        vec![arr.clone(), lower.clone(), upper.clone()].into(),
+    )
+    .vortex_expect("Failed to create Between expression")
 }
 
 #[cfg(test)]
