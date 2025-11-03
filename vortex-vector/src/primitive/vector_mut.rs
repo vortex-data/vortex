@@ -60,9 +60,7 @@ impl PrimitiveVectorMut {
             PrimitiveVectorMut::F64(_) => PType::F64,
         }
     }
-}
 
-impl PrimitiveVectorMut {
     /// Create a new mutable primitive vector with the given primitive type and capacity.
     pub fn with_capacity(ptype: PType, capacity: usize) -> Self {
         match ptype {

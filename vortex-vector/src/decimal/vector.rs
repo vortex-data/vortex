@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of [`DecimalVector`].
+
 use vortex_dtype::{DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType, i256};
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;

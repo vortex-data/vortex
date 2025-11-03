@@ -11,7 +11,6 @@
 //! [`PVector`]s. There are several macros defined in this crate to make working with these
 //! primitive vector types easier.
 //!
-//! [`NativePType`]: vortex_dtype::NativePType
 //! [`f16`]: vortex_dtype::half::f16
 
 mod generic;

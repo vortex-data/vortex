@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definitions and implementations of decimal vector types.
+//!
+//! The types that hold data are [`DVector`] and [`DVectorMut`], which are generic over types `D`
+//! that implement [`NativeDecimalType`].
+//!
+//! [`DecimalVector`] and [`DecimalVectorMut`] are enums that wrap all of the different possible
+//! [`DVector`]s. There are several macros defined in this crate to make working with these
+//! primitive vector types easier.
+
 mod generic;
 pub use generic::DVector;
 

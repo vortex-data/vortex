@@ -57,8 +57,10 @@ impl VectorMut {
             DType::Struct(struct_fields, _) => {
                 StructVectorMut::with_capacity(struct_fields, capacity).into()
             }
-            DType::Decimal(..)
-            | DType::Utf8(_)
+            DType::Decimal(decimal_dtype, _) => {
+                DecimalVectorMut::with_capacity(decimal_dtype, capacity).into()
+            }
+            DType::Utf8(_)
             | DType::Binary(_)
             | DType::List(..)
             | DType::FixedSizeList(..)
@@ -207,9 +209,10 @@ impl VectorMut {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::{DecimalDType, Nullability, PType};
 
     use super::*;
+    use crate::decimal::DecimalVectorMut;
     use crate::{PVectorMut, VectorOps};
 
     #[test]
@@ -224,6 +227,85 @@ mod tests {
         let prim_vec =
             VectorMut::with_capacity(&DType::Primitive(PType::I32, Nullability::Nullable), 50);
         assert!(prim_vec.capacity() >= 50);
+    }
+
+    #[test]
+    fn test_with_capacity_decimal() {
+        // Test decimal vectors with different precisions that map to different internal types.
+        // Precision 1-2 uses i8, 3-4 uses i16, 5-9 uses i32, 10-18 uses i64,
+        // 19-38 uses i128, 39-76 uses i256.
+
+        // Test precision 4 (uses i16 internally).
+        let decimal_dtype = DType::Decimal(DecimalDType::new(4, 2), Nullability::Nullable);
+        let decimal_vec = VectorMut::with_capacity(&decimal_dtype, 50);
+
+        match decimal_vec {
+            VectorMut::Decimal(dec_vec) => {
+                assert_eq!(dec_vec.len(), 0, "New vector should be empty");
+                assert!(dec_vec.capacity() >= 50, "Capacity should be at least 50");
+
+                // Verify it's using D16 variant internally.
+                assert!(
+                    matches!(dec_vec, DecimalVectorMut::D16(_)),
+                    "Precision 4 should use D16 variant"
+                );
+            }
+            _ => panic!("Expected decimal vector for decimal dtype"),
+        }
+
+        // Test precision 9 (uses i32 internally).
+        let decimal_dtype = DType::Decimal(DecimalDType::new(9, 0), Nullability::NonNullable);
+        let decimal_vec = VectorMut::with_capacity(&decimal_dtype, 100);
+
+        match decimal_vec {
+            VectorMut::Decimal(dec_vec) => {
+                assert_eq!(dec_vec.len(), 0, "New vector should be empty");
+                assert!(dec_vec.capacity() >= 100, "Capacity should be at least 100");
+
+                // Verify it's using D32 variant internally.
+                assert!(
+                    matches!(dec_vec, DecimalVectorMut::D32(_)),
+                    "Precision 9 should use D32 variant"
+                );
+            }
+            _ => panic!("Expected decimal vector for decimal dtype"),
+        }
+
+        // Test precision 18 (uses i64 internally).
+        let decimal_dtype = DType::Decimal(DecimalDType::new(18, -2), Nullability::Nullable);
+        let decimal_vec = VectorMut::with_capacity(&decimal_dtype, 75);
+
+        match decimal_vec {
+            VectorMut::Decimal(dec_vec) => {
+                assert_eq!(dec_vec.len(), 0, "New vector should be empty");
+                assert!(dec_vec.capacity() >= 75, "Capacity should be at least 75");
+
+                // Verify it's using D64 variant internally.
+                assert!(
+                    matches!(dec_vec, DecimalVectorMut::D64(_)),
+                    "Precision 18 should use D64 variant"
+                );
+            }
+            _ => panic!("Expected decimal vector for decimal dtype"),
+        }
+
+        // Test precision 38 (uses i128 internally).
+        let decimal_dtype = DType::Decimal(DecimalDType::new(38, 10), Nullability::NonNullable);
+        let decimal_vec = VectorMut::with_capacity(&decimal_dtype, 25);
+
+        match decimal_vec {
+            VectorMut::Decimal(dec_vec) => {
+                assert_eq!(dec_vec.len(), 0, "New vector should be empty");
+                assert!(dec_vec.capacity() >= 25, "Capacity should be at least 25");
+
+                // Verify it's using D128 variant internally.
+                assert!(
+                    matches!(dec_vec, DecimalVectorMut::D128(_)),
+                    "Precision 38 should use D128 variant"
+                );
+            }
+            _ => panic!("Expected decimal vector for decimal dtype"),
+        }
     }
 
     #[test]

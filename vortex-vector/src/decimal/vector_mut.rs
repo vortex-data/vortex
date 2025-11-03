@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType, i256};
+//! Definition and implementation of [`DecimalVectorMut`].
+
+use vortex_dtype::{
+    DecimalDType, DecimalType, DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType, i256,
+};
 use vortex_error::vortex_panic;
 
 use crate::decimal::DVectorMut;
@@ -22,6 +26,34 @@ pub enum DecimalVectorMut {
     D128(DVectorMut<i128>),
     /// A decimal vector with 256-bit integer representation.
     D256(DVectorMut<i256>),
+}
+
+impl DecimalVectorMut {
+    /// Create a new mutable decimal vector with the given primitive type and capacity.
+    pub fn with_capacity(decimal_dtype: &DecimalDType, capacity: usize) -> Self {
+        let decimal_kind = DecimalType::smallest_decimal_value_type(decimal_dtype);
+
+        match decimal_kind {
+            DecimalType::I8 => {
+                DecimalVectorMut::D8(DVectorMut::<i8>::with_capacity(decimal_dtype, capacity))
+            }
+            DecimalType::I16 => {
+                DecimalVectorMut::D16(DVectorMut::<i16>::with_capacity(decimal_dtype, capacity))
+            }
+            DecimalType::I32 => {
+                DecimalVectorMut::D32(DVectorMut::<i32>::with_capacity(decimal_dtype, capacity))
+            }
+            DecimalType::I64 => {
+                DecimalVectorMut::D64(DVectorMut::<i64>::with_capacity(decimal_dtype, capacity))
+            }
+            DecimalType::I128 => {
+                DecimalVectorMut::D128(DVectorMut::<i128>::with_capacity(decimal_dtype, capacity))
+            }
+            DecimalType::I256 => {
+                DecimalVectorMut::D256(DVectorMut::<i256>::with_capacity(decimal_dtype, capacity))
+            }
+        }
+    }
 }
 
 impl VectorMutOps for DecimalVectorMut {
