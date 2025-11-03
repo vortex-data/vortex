@@ -18,17 +18,18 @@ impl IntoArrow<ArrayRef> for StructVector {
             .map(|field| field.clone().into_arrow())
             .collect::<VortexResult<Vec<ArrayRef>>>()?;
 
-        // We need to make up the field names since vectors are unnamed.
+        // We need to make up the field names since vectors are unnamed, so we just use the field
+        // indices.
         let fields = Fields::from(
             (0..arrow_fields.len())
                 .map(|i| Field::new(i.to_string(), arrow_fields[i].data_type().clone(), true))
                 .collect::<Vec<Field>>(),
         );
 
-        Ok(Arc::new(StructArray::new(
+        Ok(Arc::new(StructArray::try_new(
             fields,
             arrow_fields,
             validity.into_arrow()?,
-        )))
+        )?))
     }
 }
