@@ -11,11 +11,21 @@ use vortex_proto::expr as pb;
 
 use crate::v2::Expression;
 use crate::{
-    AnalysisExpr, ChildName, ExprId, ExprRef, ExpressionView, IntoExpr, StatsCatalog, VTable,
+    AnalysisExpr, ChildName, ExprId, ExprInstance, ExprRef, IntoExpr, StatsCatalog, VTable,
     VTableFactory,
 };
 
-/// A between expression.
+/// An optimized scalar expression to compute whether values fall between two bounds.
+///
+/// This expression takes three children:
+/// 1. The array of values to check.
+/// 2. The lower bound.
+/// 3. The upper bound.
+///
+/// The comparison strictness is controlled by the metadata.
+///
+/// NOTE: this expression will shortly be removed in favor of pipelined computation of two
+/// separate comparisons combined with a logical AND.
 pub struct Between;
 
 impl VTable for Between {
@@ -42,7 +52,7 @@ impl VTable for Between {
         })
     }
 
-    fn validate(expr: ExpressionView<Self>) -> VortexResult<()> {
+    fn validate(expr: ExprInstance<Self>) -> VortexResult<()> {
         if expr.children().len() != 3 {
             vortex_bail!(
                 "Between expression requires exactly 3 children, got {}",
@@ -52,7 +62,7 @@ impl VTable for Between {
         Ok(())
     }
 
-    fn child_name(_expr: ExpressionView<Self>, child_idx: usize) -> ChildName {
+    fn child_name(_expr: ExprInstance<Self>, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("array"),
             1 => ChildName::from("lower"),
@@ -61,7 +71,7 @@ impl VTable for Between {
         }
     }
 
-    fn return_dtype(expr: ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(expr: ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
         let arr_dt = expr.child().return_dtype(scope)?;
         let lower_dt = expr.lower().return_dtype(scope)?;
         let upper_dt = expr.upper().return_dtype(scope)?;
@@ -86,7 +96,7 @@ impl VTable for Between {
         ))
     }
 
-    fn evaluate(expr: ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(expr: ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let arr = expr.child().evaluate(scope)?;
         let lower = expr.lower().evaluate(scope)?;
         let upper = expr.upper().evaluate(scope)?;
@@ -94,7 +104,7 @@ impl VTable for Between {
     }
 }
 
-impl ExpressionView<'_, Between> {
+impl ExprInstance<'_, Between> {
     pub fn child(&self) -> &Expression {
         &self.children()[0]
     }

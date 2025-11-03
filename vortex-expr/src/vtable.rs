@@ -10,7 +10,6 @@ use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::metadata::ExprInstance;
 use crate::v2::Expression;
 use crate::{AnalysisVTable, ExprId, ScopeVar};
 
@@ -46,16 +45,16 @@ pub trait VTable: 'static + Sized + Send + Sync {
     }
 
     /// Validate the metadata and children for the expression.
-    fn validate(expr: &ExpressionView<Self>) -> VortexResult<()>;
+    fn validate(expr: &ExprInstance<Self>) -> VortexResult<()>;
 
     /// Returns the name of the nth child of the expr.
-    fn child_name(expr: &ExpressionView<Self>, child_idx: usize) -> ChildName;
+    fn child_name(expr: &ExprInstance<Self>, child_idx: usize) -> ChildName;
 
     /// Compute the return [`DType`] of the expression if evaluated in the given scope.
-    fn return_dtype(expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType>;
+    fn return_dtype(expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType>;
 
     /// Evaluate the expression in the given scope.
-    fn evaluate(expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn evaluate(expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 }
 
 /// Factory functions for static vtables.
@@ -77,13 +76,13 @@ pub type ChildName = ArcRef<str>;
 pub struct NotSupported;
 
 /// A typed view over an instance of a Vortex expression for a specific vtable.
-pub struct ExpressionView<'a, V: VTable> {
+pub struct ExprInstance<'a, V: VTable> {
     vtable: &'a V,
     instance: &'a V::Instance,
     children: &'a [Expression],
 }
 
-impl<'a, V: VTable> ExpressionView<'a, V> {
+impl<'a, V: VTable> ExprInstance<'a, V> {
     pub fn from_dyn(
         vtable: &dyn DynExprVTable,
         instance: &dyn Any,
@@ -120,7 +119,7 @@ impl<'a, V: VTable> ExpressionView<'a, V> {
     }
 }
 
-impl<'a, V: VTable> Deref for ExpressionView<'a, V> {
+impl<'a, V: VTable> Deref for ExprInstance<'a, V> {
     type Target = V::Instance;
 
     fn deref(&self) -> &Self::Target {
@@ -158,7 +157,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     }
 
     fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()> {
-        let view = ExpressionView::from_dyn(self, instance, children);
+        let view = ExprInstance::from_dyn(self, instance, children);
         V::validate(&view)
     }
 
@@ -168,7 +167,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         children: &[Expression],
         scope: &DType,
     ) -> VortexResult<DType> {
-        let view = ExpressionView::from_dyn(self, instance, children);
+        let view = ExprInstance::from_dyn(self, instance, children);
         V::return_dtype(&view, scope)
     }
 
@@ -178,7 +177,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         children: &[Expression],
         scope: &ArrayRef,
     ) -> VortexResult<ArrayRef> {
-        let view = ExpressionView::from_dyn(self, instance, children);
+        let view = ExprInstance::from_dyn(self, instance, children);
         V::evaluate(&view, scope)
     }
 }

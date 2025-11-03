@@ -9,31 +9,28 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::display::DisplayAs;
-use crate::v2::{Expression, ExpressionView};
+use crate::v2::Expression;
 use crate::{
-    lit, vtable, AnalysisExpr, AnalysisVTable, ChildName, ExprId, ExprRef, IntoExpr,
-    Operator, Scope, StatsCatalog, VTable,
+    lit, AnalysisExpr, AnalysisVTable, ChildName, ExprId, ExprInstance, ExprRef, IntoExpr,
+    Operator, StatsCatalog, VTable,
 };
 
-vtable!(Binary);
+pub struct Binary;
 
-pub struct BinaryExprEncoding;
-
-impl VTable for BinaryVTable {
-    type Encoding = BinaryExprEncoding;
-    type Metadata = Operator;
+impl VTable for Binary {
+    type Instance = Operator;
     type AnalysisVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ExprId {
-        ExprId::new_ref("binary")
+    fn id(_vtable: &Self) -> ExprId {
+        ExprId::new_ref("vortex.binary")
     }
 
-    fn validate(_expr: &ExpressionView<Self>) -> VortexResult<()> {
+    fn validate(_expr: &ExprInstance<Self>) -> VortexResult<()> {
         // TODO(ngates): check the dtypes.
         Ok(())
     }
 
-    fn child_name(_expr: ExpressionView<Self>, child_idx: usize) -> ChildName {
+    fn child_name(_expr: &ExprInstance<Self>, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("lhs"),
             1 => ChildName::from("rhs"),
@@ -41,7 +38,7 @@ impl VTable for BinaryVTable {
         }
     }
 
-    fn return_dtype(expr: ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
         let lhs = expr.lhs().return_dtype(scope)?;
         let rhs = expr.rhs().return_dtype(scope)?;
 
@@ -59,7 +56,7 @@ impl VTable for BinaryVTable {
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
-    fn evaluate(expr: ExpressionView<Self>, scope: &Scope) -> VortexResult<ArrayRef> {
+    fn evaluate(expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let lhs = expr.lhs().unchecked_evaluate(scope)?;
         let rhs = expr.rhs().unchecked_evaluate(scope)?;
 
@@ -80,7 +77,7 @@ impl VTable for BinaryVTable {
     }
 }
 
-impl ExpressionView<'_, BinaryVTable> {
+impl ExprInstance<'_, Binary> {
     pub fn lhs(&self) -> &ExprRef {
         &self.children()[0]
     }
@@ -94,9 +91,9 @@ impl ExpressionView<'_, BinaryVTable> {
     }
 }
 
-impl AnalysisVTable<BinaryVTable> for BinaryVTable {
+impl AnalysisVTable<Binary> for Binary {
     fn stat_falsification(
-        expr: ExpressionView<Self>,
+        expr: ExprInstance<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<ExprRef> {
         // Wrap another predicate with an optional NaNCount check, if the stat is available.

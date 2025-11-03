@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{ExprVTable, ExpressionView, ScopeVar, VTable};
+use crate::{display, ExprInstance, ExprVTable, ScopeVar, VTable};
 use std::any::Any;
+use std::fmt::Display;
 use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
@@ -69,8 +70,8 @@ impl Expression {
     /// # Panics
     ///
     /// Panics if the expression's encoding or metadata cannot be cast to the specified vtable.
-    pub fn as_view<V: VTable>(&self) -> ExpressionView<'_, V> {
-        ExpressionView::new(
+    pub fn as_view<V: VTable>(&self) -> ExprInstance<'_, V> {
+        ExprInstance::new(
             self.vtable
                 .as_dyn()
                 .as_any()
@@ -110,5 +111,59 @@ impl Expression {
         self.vtable
             .as_dyn()
             .evaluate(self.instance.as_ref(), self.children.as_ref(), scope)
+    }
+
+    /// Display the expression as a formatted tree structure.
+    ///
+    /// This provides a hierarchical view of the expression that shows the relationships
+    /// between parent and child expressions, making complex nested expressions easier
+    /// to understand and debug.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use vortex_dtype::{DType, Nullability, PType};
+    /// # use vortex_expr::{and, cast, eq, get_item, gt, lit, not, root, select, IntoExpr, LikeExpr};
+    /// // Build a complex nested expression
+    /// let complex_expr = select(
+    ///     ["result"],
+    ///     and(
+    ///         not(eq(get_item("status", root()), lit("inactive"))),
+    ///         and(
+    ///             LikeExpr::new(get_item("name", root()), lit("%admin%"), false, false).into_expr(),
+    ///             gt(
+    ///                 cast(get_item("score", root()), DType::Primitive(PType::F64, Nullability::NonNullable)),
+    ///                 lit(75.0)
+    ///             )
+    ///         )
+    ///     )
+    /// );
+    ///
+    /// println!("{}", complex_expr.display_tree());
+    /// ```
+    ///
+    /// This produces output like:
+    ///
+    /// ```text
+    /// Select(include): {result}
+    /// └── Binary(and)
+    ///     ├── lhs: Not
+    ///     │   └── Binary(=)
+    ///     │       ├── lhs: GetItem(status)
+    ///     │       │   └── Root
+    ///     │       └── rhs: Literal(value: "inactive", dtype: utf8)
+    ///     └── rhs: Binary(and)
+    ///         ├── lhs: Like
+    ///         │   ├── child: GetItem(name)
+    ///         │   │   └── Root
+    ///         │   └── pattern: Literal(value: "%admin%", dtype: utf8)
+    ///         └── rhs: Binary(>)
+    ///             ├── lhs: Cast(target: f64)
+    ///             │   └── GetItem(score)
+    ///             │       └── Root
+    ///             └── rhs: Literal(value: 75f64, dtype: f64)
+    /// ```
+    pub fn display_tree(&self) -> impl Display {
+        display::DisplayTreeExpr(self)
     }
 }

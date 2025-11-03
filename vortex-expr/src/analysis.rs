@@ -4,7 +4,7 @@
 use vortex_array::stats::Stat;
 use vortex_dtype::FieldPath;
 
-use crate::v2::ExpressionView;
+use crate::v2::ExprInstance;
 use crate::{ExprRef, NotSupported, VTable};
 
 /// A catalog of available stats that are associated with field paths.
@@ -40,7 +40,7 @@ pub trait AnalysisVTable<V: VTable> {
     /// Some expressions, in theory, have falsifications but this function does not support them
     /// such as `x < (y < z)` or `x LIKE "needle%"`.
     fn stat_falsification(
-        expr: ExpressionView<V>,
+        expr: ExprInstance<V>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<ExprRef> {
         None
