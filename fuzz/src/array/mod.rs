@@ -334,7 +334,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let num_indices = u.int_in_range(1..=5.min(current_array.len()))?;
                     let indices_vec = (0..num_indices)
                         .map(|_| {
-                            u.int_in_range(0usize..=(current_array.len() - 1))
+                            u.choose_index(current_array.len())
                                 .ok()
                                 .vortex_expect("cannot pick")
                         })
