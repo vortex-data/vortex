@@ -6,7 +6,7 @@ use std::fmt::Display;
 use std::marker::PhantomData;
 use std::num::NonZero;
 
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::{DecimalDType, NativeDecimalType};
 
@@ -44,7 +44,7 @@ impl<D: NativeDecimalType> PrecisionScale<D> {
     /// Try to create a new [`PrecisionScale`] with the given precision and scale.
     pub fn try_new(precision: u8, scale: i8) -> VortexResult<Self> {
         let precision = NonZero::new(precision).ok_or_else(|| {
-            vortex_error::vortex_err!(
+            vortex_err!(
                 "precision cannot be 0, has to be between [1, {}]",
                 D::MAX_PRECISION
             )

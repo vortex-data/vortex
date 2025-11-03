@@ -11,7 +11,7 @@ use std::num::NonZero;
 use num_traits::ToPrimitive;
 pub use precision::*;
 pub use types::*;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_panic, vortex_err};
 
 use crate::{DType, i256};
 
@@ -36,7 +36,7 @@ impl DecimalDType {
     /// Returns an error if precision exceeds MAX_PRECISION or scale is outside [MIN_SCALE, MAX_SCALE].
     pub fn try_new(precision: u8, scale: i8) -> VortexResult<Self> {
         let precision = NonZero::new(precision).ok_or_else(|| {
-            vortex_error::vortex_err!(
+            vortex_err!(
                 "decimal precision must be between 1 and {} (inclusive)",
                 MAX_PRECISION
             )
