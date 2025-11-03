@@ -500,7 +500,7 @@ mod tests {
     fn test_append_scalar_nulls() {
         // Elements must be nullable if we're going to append null lists
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 2, Nullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
 
         assert_eq!(builder.dtype().nullability(), Nullable);
         builder
