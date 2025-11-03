@@ -5,7 +5,6 @@ mod generic;
 pub use generic::DVector;
 
 mod generic_mut;
-mod generic_mut_impl;
 pub use generic_mut::DVectorMut;
 
 mod vector;
