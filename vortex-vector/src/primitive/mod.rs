@@ -18,13 +18,13 @@ mod generic;
 pub use generic::PVector;
 
 mod generic_mut;
+mod generic_mut_impl;
+mod iter;
 pub use generic_mut::PVectorMut;
 
 mod vector;
 pub use vector::PrimitiveVector;
 
-mod generic_mut_impl;
-mod iter;
 mod vector_mut;
 pub use vector_mut::PrimitiveVectorMut;
 

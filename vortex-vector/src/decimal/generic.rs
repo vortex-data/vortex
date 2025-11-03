@@ -19,11 +19,24 @@ pub struct DVector<D> {
 impl<D: NativeDecimalType> DVector<D> {
     /// Try to create a new decimal vector from the given elements and validity.
     ///
+    /// # Panics
+    ///
+    /// Panics if:
+    ///
+    /// - The lengths of the `elements` and `validity` do not match.
+    /// - Any of the elements are out of bounds for the given [`PrecisionScale`].
+    pub fn new(ps: PrecisionScale<D>, elements: Buffer<D>, validity: Mask) -> Self {
+        Self::try_new(ps, elements, validity).vortex_expect("Failed to create `DVector`")
+    }
+
+    /// Try to create a new decimal vector from the given elements and validity.
+    ///
     /// # Errors
     ///
-    /// Returns an error if the precision/scale is invalid, the lengths of the elements
-    /// and validity do not match, or any of the elements are out of bounds for the given
-    /// precision/scale.
+    /// Returns an error if:
+    ///
+    /// - The lengths of the `elements` and `validity` do not match.
+    /// - Any of the elements are out of bounds for the given [`PrecisionScale`].
     pub fn try_new(
         ps: PrecisionScale<D>,
         elements: Buffer<D>,
@@ -57,8 +70,10 @@ impl<D: NativeDecimalType> DVector<D> {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the precision/scale is valid, the lengths of the elements
-    /// and validity match, and all the elements are within bounds for the given precision/scale.
+    /// The caller must ensure:
+    ///
+    /// - The lengths of the elements and validity are equal.
+    /// - All elements are in bounds for the given [`PrecisionScale`].
     pub unsafe fn new_unchecked(
         ps: PrecisionScale<D>,
         elements: Buffer<D>,
@@ -75,14 +90,15 @@ impl<D: NativeDecimalType> DVector<D> {
         }
     }
 
+    /// Decomposes the decimal vector into its constituent parts ([`PrecisionScale`], decimal
+    /// buffer, and validity).
+    pub fn into_parts(self) -> (PrecisionScale<D>, Buffer<D>, Mask) {
+        (self.ps, self.elements, self.validity)
+    }
+
     /// Get the precision/scale of the decimal vector.
     pub fn precision_scale(&self) -> PrecisionScale<D> {
         self.ps
-    }
-
-    /// Decomposes the decimal vector into its constituent parts (precision/scale, buffer and validity).
-    pub fn into_parts(self) -> (PrecisionScale<D>, Buffer<D>, Mask) {
-        (self.ps, self.elements, self.validity)
     }
 }
 

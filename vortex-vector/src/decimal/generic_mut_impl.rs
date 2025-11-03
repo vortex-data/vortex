@@ -26,6 +26,7 @@ impl<D: NativeDecimalType> DVectorMut<D> {
         if !self.ps.is_valid(value) {
             vortex_bail!("Value {:?} is out of bounds for {}", value, self.ps,);
         }
+
         self.elements.push(value);
         self.validity.append_n(true, 1);
         Ok(())
@@ -33,7 +34,7 @@ impl<D: NativeDecimalType> DVectorMut<D> {
 
     /// Returns a mutable reference to the underlying elements buffer.
     ///
-    /// # SAFETY
+    /// # Safety
     ///
     /// Modifying the elements buffer directly may violate the precision/scale constraints.
     /// The caller must ensure that any modifications maintain these invariants.
