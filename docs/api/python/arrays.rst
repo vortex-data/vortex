@@ -139,8 +139,7 @@ Registry and Serde
 
 .. autodata:: vortex.registry
 
-.. autoclass:: vortex.Registry
-    :members:
+.. autofunction:: vortex.registry.register
 
 .. autoclass:: vortex.ArrayContext
     :members:

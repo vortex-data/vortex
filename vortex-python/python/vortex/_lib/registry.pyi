@@ -3,5 +3,4 @@
 
 from .arrays import Array
 
-
 def register(self, cls: type[Array]) -> None: ...
