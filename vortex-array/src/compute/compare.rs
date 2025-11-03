@@ -297,10 +297,19 @@ fn arrow_compare(
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
 
     let array = if left.dtype().is_nested() || right.dtype().is_nested() {
-        let lhs = Datum::try_new_array(&left.to_canonical().into_array())?;
-        let (lhs, _) = lhs.get();
         let rhs = Datum::try_new_array(&right.to_canonical().into_array())?;
         let (rhs, _) = rhs.get();
+
+        // prefer the rhs data type since this is usually used in assert_eq!(actual, expect).
+        let lhs = Datum::with_target_datatype(&left.to_canonical().into_array(), rhs.data_type())?;
+        let (lhs, _) = lhs.get();
+
+        assert!(
+            lhs.data_type().equals_datatype(rhs.data_type()),
+            "lhs data_type: {}, rhs data_type: {}",
+            lhs.data_type(),
+            rhs.data_type()
+        );
 
         let cmp = make_comparator(lhs, rhs, SortOptions::default())?;
         assert_eq!(lhs.len(), rhs.len());
