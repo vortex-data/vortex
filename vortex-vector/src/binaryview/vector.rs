@@ -105,13 +105,13 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
             return None;
         }
 
-        let view = self.views[index];
+        let view = &self.views[index];
         if view.is_inlined() {
-            // start = seek to the `index`-th BinaryView, plus 4 bytes for the leading u32 field
-            let start = index * size_of::<BinaryView>() + 4;
-            let length = view.as_view().size as usize;
-            let slice = &self.views().as_bytes()[start..start + length];
-            Some(T::from_bytes(slice))
+            let view = view.as_inlined();
+            // SAFETY: validation that the string data contained in this vector is performed
+            //  at construction time, either in the constructor for safe construction, or by
+            //  the caller (when using the unchecked constructor).
+            Some(unsafe { T::from_bytes_unchecked(&view.data[..view.size as usize]) })
         } else {
             // Get a pointer into the buffer range
             let view_ref = view.as_view();
@@ -119,7 +119,11 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
 
             let start = view_ref.offset as usize;
             let length = view_ref.size as usize;
-            Some(T::from_bytes(&buffer.as_bytes()[start..start + length]))
+
+            // SAFETY: validation that the string data contained in this vector is performed
+            //  at construction time, either in the constructor for safe construction, or by
+            //  the caller (when using the unchecked constructor).
+            Some(unsafe { T::from_bytes_unchecked(&buffer.as_bytes()[start..start + length]) })
         }
     }
 

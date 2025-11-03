@@ -29,7 +29,7 @@ pub trait BinaryViewType: Debug + Sized + private::Sealed {
 
     /// Returns the bytes as the native `Slice` type
     /// for this binary view vector.
-    fn from_bytes(bytes: &[u8]) -> &Self::Slice;
+    unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self::Slice;
 
     /// Downcast the provided object to a type-specific instance.
     fn downcast<V: BinaryViewDowncast>(visitor: V) -> V::Output<Self>;
@@ -49,7 +49,7 @@ impl BinaryViewType for StringType {
         std::str::from_utf8(bytes).is_ok()
     }
 
-    fn from_bytes(bytes: &[u8]) -> &Self::Slice {
+    unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self::Slice {
         // SAFETY: vectors should be checked at the boundary for upholding the UTF8 variant,
         //  or only be built from vectors that are known to satisfy the variant.
         unsafe { std::str::from_utf8_unchecked(bytes) }
@@ -75,7 +75,7 @@ impl BinaryViewType for BinaryType {
         true
     }
 
-    fn from_bytes(bytes: &[u8]) -> &Self::Slice {
+    unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self::Slice {
         bytes
     }
 

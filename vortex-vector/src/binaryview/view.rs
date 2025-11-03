@@ -220,11 +220,13 @@ impl BinaryView {
 
     /// Returns the inlined representation of the binary value.
     pub fn as_inlined(&self) -> &Inlined {
+        debug_assert!(self.is_inlined());
         unsafe { &self.inlined }
     }
 
     /// Returns the reference representation of the binary value.
     pub fn as_view(&self) -> &Ref {
+        debug_assert!(!self.is_inlined());
         unsafe { &self._ref }
     }
 
