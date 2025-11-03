@@ -81,8 +81,9 @@ pub fn slice_canonical_array(
             let list_size = fsl_array.list_size() as usize;
             let elements =
                 slice_canonical_array(fsl_array.elements(), start * list_size, stop * list_size)?;
+            let new_len = stop - start;
 
-            FixedSizeListArray::try_new(elements, fsl_array.list_size(), validity, array.len())
+            FixedSizeListArray::try_new(elements, fsl_array.list_size(), validity, new_len)
                 .map(|a| a.into_array())
         }
         DType::Decimal(decimal_dtype, _) => {
