@@ -16,3 +16,8 @@ pub fn smallest_decimal_value_type(decimal_dtype: &DecimalDType) -> DecimalType 
         p => unreachable!("precision larger than 76 is invalid found precision {p}"),
     }
 }
+
+/// True if `value_type` can represent every value of the type `dtype`.
+pub fn is_compatible_decimal_value_type(value_type: DecimalType, dtype: DecimalDType) -> bool {
+    value_type >= smallest_decimal_value_type(&dtype)
+}

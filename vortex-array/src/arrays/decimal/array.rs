@@ -5,13 +5,12 @@ use itertools::Itertools;
 use vortex_buffer::{BitBufferMut, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
     BigCast, DType, DecimalDType, DecimalType, IntegerPType, NativeDecimalType,
-    match_each_integer_ptype,
+    is_compatible_decimal_value_type, match_each_integer_ptype,
 };
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_scalar::match_each_decimal_value_type;
 
 use crate::ToCanonical;
-use crate::arrays::is_compatible_decimal_value_type;
 use crate::patches::Patches;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;

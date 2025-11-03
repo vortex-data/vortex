@@ -2,17 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::{Itertools, MinMaxResult};
-use vortex_dtype::{DecimalDType, smallest_decimal_value_type};
 use vortex_error::VortexExpect;
 use vortex_scalar::{DecimalType, i256};
 
 use crate::arrays::DecimalArray;
 use crate::vtable::ValidityHelper;
-
-/// True if `value_type` can represent every value of the type `dtype`.
-pub fn is_compatible_decimal_value_type(value_type: DecimalType, dtype: DecimalDType) -> bool {
-    value_type >= smallest_decimal_value_type(&dtype)
-}
 
 macro_rules! try_downcast {
     ($array:expr, from: $src:ty, to: $($dst:ty),*) => {{
