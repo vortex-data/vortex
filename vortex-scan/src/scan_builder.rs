@@ -96,7 +96,7 @@ impl ScanBuilder<ArrayRef> {
         let dtype = stream.dtype().clone();
         Ok(ArrayIteratorAdapter::new(
             dtype,
-            runtime.block_on_stream(|_| stream),
+            runtime.block_on_stream(stream),
         ))
     }
 }
@@ -276,7 +276,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         runtime: &B,
     ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
         let stream = self.into_stream()?;
-        Ok(runtime.block_on_stream(|_h| stream))
+        Ok(runtime.block_on_stream(stream))
     }
 }
 

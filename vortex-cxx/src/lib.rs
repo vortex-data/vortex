@@ -8,7 +8,6 @@ mod read;
 mod scalar;
 mod write;
 
-use std::clone::Clone;
 use std::sync::LazyLock;
 
 use dtype::*;
@@ -16,6 +15,7 @@ use expr::*;
 use read::*;
 use scalar::*;
 use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex::VortexSessionDefault;
@@ -28,9 +28,8 @@ use write::*;
 //  this runtime.
 pub(crate) static RUNTIME: LazyLock<CurrentThreadRuntime> =
     LazyLock::new(CurrentThreadRuntime::new);
-
 pub(crate) static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_current_thread_runtime(RUNTIME.clone()));
+    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
 
 #[cxx::bridge(namespace = "vortex::ffi")]
 mod ffi {

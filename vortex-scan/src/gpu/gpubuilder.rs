@@ -49,7 +49,7 @@ impl GpuScanBuilder<GpuVector> {
         runtime: &B,
     ) -> VortexResult<impl Iterator<Item = VortexResult<GpuVector>> + 'static> {
         let stream = self.with_handle(runtime.handle()).into_array_stream()?;
-        Ok(runtime.block_on_stream(|_| stream))
+        Ok(runtime.block_on_stream(stream))
     }
 }
 
@@ -125,6 +125,6 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
     /// Returns an [`Iterator`] using the handle's runtime.
     pub fn into_iter(self) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
         let stream = self.into_stream()?;
-        Ok(self.session.block_on_stream(|_| stream))
+        Ok(self.session.block_on_stream(stream))
     }
 }

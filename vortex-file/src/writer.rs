@@ -335,7 +335,7 @@ impl<B: BlockingRuntime> BlockingWrite<B> {
         write: W,
         iter: impl ArrayIterator + Send + 'static,
     ) -> VortexResult<WriteSummary> {
-        self.runtime.block_on(|_| async move {
+        self.runtime.block_on(async move {
             self.options
                 .write(BlockingWriteAdapter(write), iter.into_array_stream())
                 .await
@@ -362,7 +362,7 @@ pub struct BlockingWriter<'w, B: BlockingRuntime> {
 
 impl<B: BlockingRuntime> BlockingWriter<'_, B> {
     pub fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
-        self.runtime.block_on(|_| self.writer.push(chunk))
+        self.runtime.block_on(self.writer.push(chunk))
     }
 
     pub fn bytes_written(&self) -> u64 {
@@ -374,7 +374,7 @@ impl<B: BlockingRuntime> BlockingWriter<'_, B> {
     }
 
     pub fn finish(self) -> VortexResult<WriteSummary> {
-        self.runtime.block_on(|_| self.writer.finish())
+        self.runtime.block_on(self.writer.finish())
     }
 }
 

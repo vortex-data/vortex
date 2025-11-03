@@ -15,7 +15,7 @@ use crate::array_iterator::vx_array_iterator;
 use crate::dtype::vx_dtype;
 use crate::error::{try_or_default, vx_error};
 use crate::session::vx_session;
-use crate::{arc_wrapper, to_string_vec};
+use crate::{arc_wrapper, to_string_vec, RUNTIME};
 use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
@@ -29,7 +29,7 @@ use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::session::{ExprRegistry, ExprSessionExt};
 use vortex::expr::ExprRef;
 use vortex::file::{OpenOptionsSessionExt, VortexFile, WriteOptionsSessionExt};
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::iter::ArrayIteratorAdapter;
 use vortex::proto::expr::Expr;
 use vortex::scan::{ScanBuilder, SplitBy};
@@ -190,10 +190,10 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
             .map_err(|e| vortex_err!("invalid utf-8: {e}"))?;
 
         let options = session.write_options();
-        session.block_on(async move {
+        RUNTIME.block_on(async move {
             options
                 .write(
-                    &mut tokio::fs::File::create(path).await?,
+                    &mut async_fs::File::create(path).await?,
                     array.to_array_stream(),
                 )
                 .await?;
@@ -289,7 +289,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
 
         let stream = scan_builder.into_array_stream()?;
         let iter =
-            ArrayIteratorAdapter::new(stream.dtype().clone(), session.block_on_stream(stream));
+            ArrayIteratorAdapter::new(stream.dtype().clone(), RUNTIME.block_on_stream(stream));
 
         Ok(vx_array_iterator::new(Box::new(iter)))
     })

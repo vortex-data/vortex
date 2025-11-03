@@ -169,7 +169,7 @@ fn test_scan_function_registration() {
 
 #[test]
 fn test_vortex_scan_strings() {
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
         write_single_column_vortex_file("strings", strings).await
     });
@@ -185,7 +185,7 @@ fn test_vortex_scan_strings() {
 
 #[test]
 fn test_vortex_scan_strings_contains() {
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
         write_single_column_vortex_file("strings", strings).await
     });
@@ -200,7 +200,7 @@ fn test_vortex_scan_strings_contains() {
 
 #[test]
 fn test_vortex_scan_integers() {
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         let numbers = buffer![1i32, 42, 100, -5, 0];
         write_single_column_vortex_file("number", numbers).await
     });
@@ -211,7 +211,7 @@ fn test_vortex_scan_integers() {
 
 #[test]
 fn test_vortex_scan_integers_in_list() {
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         let numbers = buffer![1i32, 42, 100, -5, 0];
         write_single_column_vortex_file("number", numbers).await
     });
@@ -225,7 +225,7 @@ fn test_vortex_scan_integers_in_list() {
 
 #[test]
 fn test_vortex_scan_integers_between() {
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         let numbers = buffer![1i32, 42, 100, -5, 0];
         write_single_column_vortex_file("number", numbers).await
     });
@@ -239,7 +239,7 @@ fn test_vortex_scan_integers_between() {
 
 #[test]
 fn test_vortex_scan_floats() {
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         let values = buffer![1.5f64, -2.5, 0.0, 42.42];
         write_single_column_vortex_file("value", values).await
     });
@@ -253,7 +253,7 @@ fn test_vortex_scan_floats() {
 
 #[test]
 fn test_vortex_scan_constant() {
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         let constant = ConstantArray::new(Scalar::from(42i32), 100);
         write_single_column_vortex_file("constant", constant).await
     });
@@ -267,7 +267,7 @@ fn test_vortex_scan_constant() {
 
 #[test]
 fn test_vortex_scan_booleans() {
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         let flags = vec![true, false, true, true, false];
         let flags_array = BoolArray::from_bit_buffer(flags.into(), Validity::NonNullable);
         write_single_column_vortex_file("flag", flags_array).await
@@ -282,7 +282,7 @@ fn test_vortex_scan_booleans() {
 
 #[test]
 fn test_vortex_multi_column() {
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         let f1 = BoolArray::from_bit_buffer(
             vec![true, false, true, true, false].into(),
             Validity::NonNullable,
@@ -305,7 +305,7 @@ fn test_vortex_multi_column() {
 
 #[test]
 fn test_vortex_scan_multiple_files() {
-    let (tempdir, _file1, _file2) = RUNTIME.block_on(|_| async {
+    let (tempdir, _file1, _file2) = RUNTIME.block_on(async {
         let tempdir = tempfile::tempdir().unwrap();
 
         let file1 = write_vortex_file_to_dir(tempdir.path(), "numbers", buffer![1i32, 2, 3]).await;
@@ -386,7 +386,7 @@ fn test_write_timestamps() {
 fn test_vortex_scan_fixed_size_list_utf8() {
     // Test a simple FixedSizeList of Utf8 strings to ensure proper materialization.
 
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         // Create a large number of strings to stress test.
         let strings: Vec<&str> = (0..24)
             .map(|i| match i % 6 {
@@ -438,7 +438,7 @@ fn test_vortex_scan_nested_fixed_size_list_utf8() {
 
     // Test FixedSizeList of FixedSizeList of Utf8 to ensure proper materialization.
 
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         // Create a large number of strings to stress test.
         let strings: Vec<&str> = (0..24)
             .map(|i| match i % 6 {
@@ -495,7 +495,7 @@ fn test_vortex_scan_nested_fixed_size_list_utf8() {
 fn test_vortex_scan_list_of_ints() {
     // Test a simple List of integers.
 
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         // Create integers that will be grouped into lists.
         let integers = PrimitiveArray::from_iter([
             10i32, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
@@ -547,7 +547,7 @@ fn test_vortex_scan_list_of_ints() {
 fn test_vortex_scan_list_of_utf8() {
     // Test a simple List of UTF8 strings.
 
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         // Create UTF8 strings that will be grouped into lists.
         let strings = VarBinViewArray::from_iter_str(vec![
             "apple",
@@ -612,7 +612,7 @@ fn test_vortex_scan_ultra_deep_nesting() {
     // Test ultra-deep nesting: Multiple levels of FSL and List combinations with UTF8.
     // FSL[List[FSL[List[FSL[UTF8]]]]]
 
-    let file = RUNTIME.block_on(|_| async {
+    let file = RUNTIME.block_on(async {
         // Level 1: Create base UTF8 strings - need a lot for deep nesting.
         let strings = VarBinViewArray::from_iter_str(
             (0..360)

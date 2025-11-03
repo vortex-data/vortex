@@ -1,21 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::box_wrapper;
-use std::sync::LazyLock;
-use tokio::runtime;
-use tokio::runtime::Runtime;
-use vortex::error::VortexExpect;
+use crate::{box_wrapper, RUNTIME};
+use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex::VortexSessionDefault;
-
-static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-    runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .vortex_expect("Cannot start runtime")
-});
 
 box_wrapper!(
     /// A handle to a Vortex session.
@@ -29,6 +19,6 @@ box_wrapper!(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
     vx_session::new(Box::new(
-        VortexSession::default().with_current_thread_runtime(RUNTIME),
+        VortexSession::default().with_handle(RUNTIME.handle()),
     ))
 }

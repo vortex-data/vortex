@@ -1,21 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{c_char, CStr};
-
 use crate::array::vx_array;
 use crate::dtype::vx_dtype;
 use crate::error::{try_or_default, vx_error};
 use crate::session::vx_session;
-use mpsc::Sender;
-use tokio::fs::File;
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
+use crate::RUNTIME;
+use futures::channel::mpsc;
+use futures::channel::mpsc::Sender;
+use futures::{SinkExt, TryStreamExt};
+use std::ffi::{c_char, CStr};
 use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex::file::{WriteOptionsSessionExt, WriteSummary};
-use vortex::io::runtime::Task;
+use vortex::io::runtime::{BlockingRuntime, Task};
 use vortex::io::session::RuntimeSessionExt;
-use vortex::session::VortexSession;
 use vortex::stream::ArrayStreamAdapter;
 use vortex::ArrayRef;
 
@@ -34,7 +32,6 @@ use vortex::ArrayRef;
 /// perform operations on it at a time, and coordination is required to ensure `close` is
 /// called exactly once after all `push` operations are complete.
 pub struct vx_array_sink {
-    session: VortexSession,
     sink: Sender<VortexResult<ArrayRef>>,
     writer: Task<VortexResult<WriteSummary>>,
 }
@@ -61,22 +58,14 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
         let file_dtype = vx_dtype::as_ref(dtype);
         // The channel size 32 was chosen arbitrarily.
         let (sink, rx) = mpsc::channel(32);
-        let array_stream = ArrayStreamAdapter::new(file_dtype.clone(), ReceiverStream::new(rx));
+        let array_stream = ArrayStreamAdapter::new(file_dtype.clone(), rx.into_stream());
 
-        let session2 = session.clone();
         let writer = session.handle().spawn(async move {
-            let mut file = File::create(path).await?;
-            session2
-                .write_options()
-                .write(&mut file, array_stream)
-                .await
+            let mut file = async_fs::File::create(path).await?;
+            session.write_options().write(&mut file, array_stream).await
         });
 
-        Ok(Box::into_raw(Box::new(vx_array_sink {
-            session: session.clone(),
-            sink,
-            writer,
-        })))
+        Ok(Box::into_raw(Box::new(vx_array_sink { sink, writer })))
     })
 }
 
@@ -88,10 +77,10 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
     error_out: *mut *mut vx_error,
 ) {
     let array = vx_array::as_ref(array);
-    let sink = unsafe { sink.as_ref().vortex_expect("null array stream") };
+    let sink = unsafe { sink.as_mut().vortex_expect("null array stream") };
     try_or_default(error_out, || {
-        sink.sink
-            .blocking_send(Ok(array.clone()))
+        RUNTIME
+            .block_on(sink.sink.send(Ok(array.clone())))
             .map_err(|e| vortex_err!("send error {}", e.to_string()))
     })
 }
@@ -104,14 +93,10 @@ pub unsafe extern "C-unwind" fn vx_array_sink_close(
     error_out: *mut *mut vx_error,
 ) {
     try_or_default(error_out, || {
-        let vx_array_sink {
-            session,
-            sink,
-            writer,
-        } = *unsafe { Box::from_raw(sink) };
+        let vx_array_sink { sink, writer } = *unsafe { Box::from_raw(sink) };
         drop(sink);
 
-        session.block_on(async {
+        RUNTIME.block_on(async {
             let _footer = writer.await?;
             VortexResult::Ok(())
         })?;

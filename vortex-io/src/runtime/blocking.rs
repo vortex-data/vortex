@@ -17,15 +17,13 @@ pub trait BlockingRuntime {
     ///
     /// The future is provided a [`Handle`] to the runtime so that it may spawn additional tasks
     /// to be executed concurrently.
-    fn block_on<F, Fut, R>(&self, f: F) -> R
+    fn block_on<Fut, R>(&self, fut: Fut) -> R
     where
-        F: FnOnce(Handle) -> Fut,
         Fut: Future<Output = R>;
 
     /// Returns an iterator wrapper around a stream, blocking the current thread for each item.
-    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
+    fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
     where
-        F: FnOnce(Handle) -> S,
         S: Stream<Item = R> + Send + 'a,
         R: Send + 'a;
 }

@@ -9,7 +9,6 @@ use datafusion::datasource::listing::{
 use datafusion::prelude::SessionContext;
 use tempfile::tempdir;
 use tokio::fs::OpenOptions;
-use tokio::runtime::Handle;
 use vortex::arrays::{ChunkedArray, StructArray, VarBinArray};
 use vortex::buffer::buffer;
 use vortex::error::vortex_err;
@@ -22,7 +21,7 @@ use vortex_datafusion::VortexFormat;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let session = VortexSession::default().with_tokio_handle(Handle::current());
+    let session = VortexSession::default().with_tokio();
 
     let temp_dir = tempdir()?;
     let strings = ChunkedArray::from_iter([

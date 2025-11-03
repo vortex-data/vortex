@@ -20,6 +20,8 @@ categories = { workspace = true }
 all-features = true
 
 [dependencies]
+async-fs = { workspace = true }
+futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 mimalloc = { workspace = true, optional = true }
@@ -29,8 +31,6 @@ parking_lot = { workspace = true }
 paste = { workspace = true }
 prost = { workspace = true }
 simplelog = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
-tokio-stream = { workspace = true }
 url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["object_store"] }
 

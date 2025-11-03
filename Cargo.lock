@@ -8919,7 +8919,9 @@ dependencies = [
 name = "vortex-ffi"
 version = "0.1.0"
 dependencies = [
+ "async-fs",
  "cbindgen",
+ "futures",
  "itertools 0.14.0",
  "log",
  "mimalloc",
@@ -8930,8 +8932,6 @@ dependencies = [
  "prost 0.14.1",
  "simplelog",
  "tempfile",
- "tokio",
- "tokio-stream",
  "url",
  "vortex",
 ]

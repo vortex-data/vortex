@@ -40,7 +40,7 @@ impl VortexFile {
 /// File operations - using blocking operations for simplicity
 /// TODO(xinyu): object store (see vortex-ffi)
 pub(crate) fn open_file(path: &str) -> Result<Box<VortexFile>> {
-    let file = RUNTIME.block_on(|_| SESSION.open_options().open(std::path::Path::new(path)))?;
+    let file = RUNTIME.block_on(SESSION.open_options().open(std::path::Path::new(path)))?;
     Ok(Box::new(VortexFile { inner: file }))
 }
 

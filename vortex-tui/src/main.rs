@@ -12,7 +12,6 @@ use browse::exec_tui;
 use clap::{CommandFactory, Parser};
 use std::path::PathBuf;
 use std::sync::LazyLock;
-use tokio::runtime::Handle;
 use tree::{exec_tree, TreeArgs};
 use vortex::error::VortexExpect;
 use vortex::io::session::RuntimeSessionExt;
@@ -52,7 +51,7 @@ impl Commands {
 }
 
 pub(crate) static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio_handle(Handle::current()));
+    LazyLock::new(|| VortexSession::default().with_tokio());
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

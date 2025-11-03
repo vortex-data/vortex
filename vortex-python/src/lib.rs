@@ -28,6 +28,7 @@ use pyo3_log::{Caching, Logger};
 use tokio::runtime::Runtime;
 use vortex::error::{VortexError, VortexExpect as _};
 use vortex::io::runtime::tokio::TokioRuntime;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex::VortexSessionDefault;
@@ -40,7 +41,7 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 static RUNTIME: LazyLock<TokioRuntime> =
     LazyLock::new(|| TokioRuntime::new(TOKIO_RUNTIME.handle().clone()));
 static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio_handle(TOKIO_RUNTIME.handle().clone()));
+    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
 
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
 #[pymodule]

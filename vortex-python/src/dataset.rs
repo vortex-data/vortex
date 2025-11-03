@@ -18,7 +18,6 @@ use vortex::dtype::{FieldName, FieldNames};
 use vortex::error::VortexResult;
 use vortex::expr::{root, select, ExprRef, SelectExpr};
 use vortex::file::{OpenOptionsSessionExt, VortexFile};
-use vortex::io::runtime::BlockingRuntime;
 use vortex::iter::ArrayIteratorExt;
 use vortex::scan::SplitBy;
 use vortex::{ArrayRef, ToCanonical};

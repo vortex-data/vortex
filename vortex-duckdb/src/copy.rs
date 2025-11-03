@@ -76,7 +76,7 @@ impl CopyFunction for VortexCopyFunction {
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
         let chunk = data_chunk_to_arrow(bind_data.fields.names(), chunk);
-        RUNTIME.block_on(|_h| async {
+        RUNTIME.block_on(async {
             init_global
                 .sink
                 .as_mut()
@@ -93,7 +93,7 @@ impl CopyFunction for VortexCopyFunction {
         _bind_data: &Self::BindData,
         init_global: &mut Self::GlobalState,
     ) -> VortexResult<()> {
-        RUNTIME.block_on(|_h| async {
+        RUNTIME.block_on(async {
             if let Some(sink) = init_global.sink.take() {
                 drop(sink)
             }

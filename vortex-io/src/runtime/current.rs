@@ -92,23 +92,21 @@ impl BlockingRuntime for CurrentThreadRuntime {
         Handle::new(Arc::downgrade(&executor))
     }
 
-    fn block_on<F, Fut, R>(&self, f: F) -> R
+    fn block_on<Fut, R>(&self, fut: Fut) -> R
     where
-        F: FnOnce(Handle) -> Fut,
         Fut: Future<Output = R>,
     {
-        block_on(self.executor.run(f(self.handle())))
+        block_on(self.executor.run(fut))
     }
 
-    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
+    fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
     where
-        F: FnOnce(Handle) -> S,
         S: Stream<Item = R> + Send + 'a,
         R: Send + 'a,
     {
         CurrentThreadIterator {
             executor: self.executor.clone(),
-            stream: f(self.handle()).boxed(),
+            stream: stream.boxed(),
         }
     }
 }
@@ -198,8 +196,8 @@ mod tests {
 
     #[test]
     fn test_block_on_stream_single_thread() {
-        let mut iter = CurrentThreadRuntime::new()
-            .block_on_stream(|_h| stream::iter(vec![1, 2, 3, 4, 5]).boxed());
+        let mut iter =
+            CurrentThreadRuntime::new().block_on_stream(stream::iter(vec![1, 2, 3, 4, 5]).boxed());
 
         assert_eq!(iter.next(), Some(1));
         assert_eq!(iter.next(), Some(2));
@@ -320,8 +318,10 @@ mod tests {
 
     #[test]
     fn test_block_on_stream_async_work() {
-        let iter = CurrentThreadRuntime::new().block_on_stream(|h| {
-            stream::unfold((h, 0), |(h, state)| async move {
+        let runtime = CurrentThreadRuntime::new();
+        let handle = runtime.handle();
+        let iter = runtime.block_on_stream({
+            stream::unfold((handle, 0), |(h, state)| async move {
                 if state < 10 {
                     let value = h
                         .spawn(async move { futures::future::ready(state * 2).await })
@@ -342,7 +342,7 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
 
-        let mut iter = CurrentThreadRuntime::new().block_on_stream(|_h| {
+        let mut iter = CurrentThreadRuntime::new().block_on_stream({
             stream::unfold(0, move |state| {
                 let c = c.clone();
                 async move {

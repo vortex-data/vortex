@@ -57,7 +57,7 @@ impl RepeatedScan<ArrayRef> {
     ) -> VortexResult<impl ArrayIterator + 'static> {
         let dtype = self.dtype.clone();
         let stream = self.execute_stream(row_range)?;
-        let iter = runtime.block_on_stream(|_| stream);
+        let iter = runtime.block_on_stream(stream);
         Ok(ArrayIteratorAdapter::new(dtype, iter))
     }
 

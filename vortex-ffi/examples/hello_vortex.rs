@@ -16,20 +16,20 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::LazyLock;
 
-use tokio::fs::File as TokioFile;
-use tokio::runtime::Runtime;
 use vortex::arrays::{ChunkedArray, StructArray};
 use vortex::buffer::Buffer;
 use vortex::error::{vortex_err, VortexResult};
 use vortex::file::WriteOptionsSessionExt;
+use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::io::VortexWrite;
 use vortex::session::VortexSession;
 use vortex::{Array, ArrayRef, IntoArray, VortexSessionDefault};
 
-static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| Runtime::new().unwrap());
+static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
 static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio_handle(RUNTIME.handle().clone()));
+    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
 
 const BIN_NAME: &str = "hello_vortex";
 
@@ -133,7 +133,7 @@ pub fn main() -> VortexResult<()> {
 }
 
 async fn write_vortex_file(path: impl AsRef<Path>) -> VortexResult<()> {
-    let mut file = TokioFile::create(path).await?;
+    let mut file = async_fs::File::create(path).await?;
 
     let chunk1 = chunk((0..1000).collect(), (0..1000).map(|x| x as f32).collect());
     let chunk2 = chunk(

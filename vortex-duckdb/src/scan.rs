@@ -243,8 +243,9 @@ impl TableFunction for VortexTableFunction {
 
         log::trace!("running scan with max_threads {max_threads}");
 
-        let (file_urls, _metadata) = RUNTIME
-            .block_on(|_h| Compat::new(expand_glob(file_glob_string.as_ref().as_string())))?;
+        let (file_urls, _metadata) = RUNTIME.block_on(Compat::new(expand_glob(
+            file_glob_string.as_ref().as_string(),
+        )))?;
 
         // The first file is skipped in `create_file_paths_queue`.
         let Some(first_file_url) = file_urls.first() else {
@@ -253,7 +254,7 @@ impl TableFunction for VortexTableFunction {
 
         let footer_cache = FooterCache::new(ctx.object_cache());
         let entry = footer_cache.entry(first_file_url.as_ref());
-        let first_file = RUNTIME.block_on(|_h| async move {
+        let first_file = RUNTIME.block_on(async move {
             let options = entry.apply_to_file(SESSION.open_options());
             let file = open_file(first_file_url.clone(), options).await?;
             entry.put_if_absent(|| file.footer().clone());
