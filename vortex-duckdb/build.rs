@@ -3,6 +3,7 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
@@ -44,7 +45,10 @@ fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> 
     let archive_path = duckdb_dir.join(&archive_name);
 
     // Recreate the duckdb directory
-    drop(fs::remove_dir_all(&duckdb_dir));
+    match fs::remove_dir_all(&duckdb_dir) {
+        Err(err) if err.kind() == ErrorKind::NotFound => (),
+        otherwise => otherwise?,
+    }
     fs::create_dir_all(&duckdb_dir)?;
 
     if !archive_path.exists() {
@@ -192,7 +196,10 @@ fn build_duckdb(duckdb_source_root: &Path) -> Result<PathBuf, Box<dyn std::error
     let target_dir = manifest_dir.parent().unwrap().join("target");
     let duckdb_library_dir = target_dir.join("duckdb-lib");
 
-    drop(fs::remove_dir_all(&duckdb_library_dir));
+    match fs::remove_dir_all(&duckdb_library_dir) {
+        Err(err) if err.kind() == ErrorKind::NotFound => (),
+        otherwise => otherwise?,
+    }
     fs::create_dir_all(&duckdb_library_dir)?;
 
     // Copy .dylib and .so files (macOS and Linux).
