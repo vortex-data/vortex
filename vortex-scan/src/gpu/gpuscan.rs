@@ -35,7 +35,7 @@ impl GpuScan<ArrayRef> {
     ) -> VortexResult<impl ArrayIterator + 'static> {
         let dtype = self.dtype.clone();
         let stream = self.execute_stream()?;
-        let iter = runtime.block_on_stream(move |_h| stream);
+        let iter = runtime.block_on_stream(stream);
         Ok(ArrayIteratorAdapter::new(dtype, iter))
     }
 

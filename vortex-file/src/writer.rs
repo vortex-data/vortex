@@ -56,6 +56,17 @@ pub trait WriteOptionsSessionExt: SessionExt {
 impl<S: SessionExt> WriteOptionsSessionExt for S {}
 
 impl VortexWriteOptions {
+    /// Create a new [`VortexWriteOptions`] with the given session.
+    pub fn new(session: VortexSession) -> Self {
+        VortexWriteOptions {
+            session,
+            strategy: WriteStrategyBuilder::new().build(),
+            exclude_dtype: false,
+            file_statistics: PRUNING_STATS.to_vec(),
+            max_variable_length_statistics_size: 64,
+        }
+    }
+
     /// Replace the default layout strategy with the provided one.
     pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
         self.strategy = strategy;

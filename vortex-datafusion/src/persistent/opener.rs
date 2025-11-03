@@ -415,7 +415,7 @@ mod tests {
 
     use super::*;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::default());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
     #[rstest]
     #[case(0..100, 100, 100, 0..100)]
