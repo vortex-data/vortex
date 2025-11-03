@@ -79,7 +79,7 @@ impl ScanBuilder<ArrayRef> {
         }
     }
 
-    /// Returns an [`ArrayStream`] with tasks spawned onto the scan's [`Handle`].
+    /// Returns an [`ArrayStream`] with tasks spawned onto the session's runtime handle.
     ///
     /// See [`ScanBuilder::into_stream`] for more details.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + Send + 'static> {
@@ -264,7 +264,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self.prepare()?.execute(None)
     }
 
-    /// Returns a [`Stream`] with tasks spawned onto the scan's [`Handle`].
+    /// Returns a [`Stream`] with tasks spawned onto the session's runtime handle.
     pub fn into_stream(
         self,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {

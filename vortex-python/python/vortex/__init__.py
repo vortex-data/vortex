@@ -56,7 +56,6 @@ from ._lib.dtype import (  # pyright: ignore[reportMissingModuleSource]
     utf8,
 )
 from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
-from ._lib.registry import Registry  # pyright: ignore[reportMissingModuleSource]
 from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
     BinaryScalar,
     BoolScalar,
@@ -152,8 +151,7 @@ __all__ = [
     "StructScalar",
     "ListScalar",
     "ExtensionScalar",
-    # Registry + Serde
-    "Registry",
+    # Serde
     "ArrayContext",
     "ArrayParts",
     # File
@@ -164,6 +162,3 @@ __all__ = [
     # Scan
     "RepeatedScan",
 ]
-
-#: The default registry for Vortex
-registry = Registry()

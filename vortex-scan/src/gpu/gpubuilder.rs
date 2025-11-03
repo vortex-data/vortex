@@ -10,7 +10,8 @@ use vortex_error::VortexResult;
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{ExprRef, root};
 use vortex_gpu::GpuVector;
-use vortex_io::runtime::{BlockingRuntime, Handle};
+use vortex_io::runtime::BlockingRuntime;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::gpu::GpuLayoutReaderRef;
 use vortex_session::VortexSession;
 
@@ -35,7 +36,7 @@ impl GpuScanBuilder<GpuVector> {
         }
     }
 
-    /// Returns an [`ArrayStream`] with tasks spawned onto the scan's [`Handle`].
+    /// Returns an [`ArrayStream`] with tasks spawned onto the session's runtime handle.
     ///
     /// See [`ScanBuilder::into_stream`] for more details.
     pub fn into_array_stream(
@@ -49,7 +50,7 @@ impl GpuScanBuilder<GpuVector> {
         self,
         runtime: &B,
     ) -> VortexResult<impl Iterator<Item = VortexResult<GpuVector>> + 'static> {
-        let stream = self.with_handle(runtime.handle()).into_array_stream()?;
+        let stream = self.into_array_stream()?;
         Ok(runtime.block_on_stream(stream))
     }
 }
@@ -72,7 +73,7 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
     ) -> GpuScanBuilder<B> {
         let old_map_fn = self.map_fn;
         GpuScanBuilder {
-            handle: self.handle,
+            session: self.session,
             layout_reader: self.layout_reader,
             projection: self.projection,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
@@ -116,7 +117,7 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
         self.prepare()?.execute()
     }
 
-    /// Returns a [`Stream`] with tasks spawned onto the scan's [`Handle`].
+    /// Returns a [`Stream`] with tasks spawned onto the session's runtime handle.
     pub fn into_stream(
         self,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
@@ -124,8 +125,11 @@ impl<A: 'static + Send> GpuScanBuilder<A> {
     }
 
     /// Returns an [`Iterator`] using the handle's runtime.
-    pub fn into_iter(self) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
+    pub fn into_iter<B: BlockingRuntime>(
+        self,
+        runtime: &B,
+    ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
         let stream = self.into_stream()?;
-        Ok(self.session.block_on_stream(stream))
+        Ok(runtime.block_on_stream(stream))
     }
 }
