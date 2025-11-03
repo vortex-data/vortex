@@ -31,7 +31,7 @@ At the time of writing, the following individuals serve as Committers (non-votin
 
 ### Maintainers
 
-At the time of writing, the following individuals serve as Maintainers (voting TSC members) on the project:
+At the time of writing, the following individuals serve as Committers & Maintainers (voting TSC members) on the project:
 
 1. Andrew Duffy
 2. Carlo Curino
