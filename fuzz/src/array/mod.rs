@@ -381,8 +381,8 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
             [Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt].into()
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            // Utf8/Binary supports everything except Sum
-            // Actions: Compress, Slice, Take, SearchSorted, Filter, Compare, Cast, MinMax, FillNull, Mask, ScalarAt
+            // Utf8/Binary supports everything except Sum and FillNull
+            // Actions: Compress, Slice, Take, SearchSorted, Filter, Compare, Cast, MinMax, Mask, ScalarAt
             [
                 Compress,
                 Slice,
@@ -392,7 +392,6 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
                 Compare,
                 Cast,
                 MinMax,
-                FillNull,
                 Mask,
                 ScalarAt,
             ]

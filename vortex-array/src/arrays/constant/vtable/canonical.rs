@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use vortex_buffer::{BitBuffer, Buffer, buffer};
-use vortex_dtype::{DType, Nullability, match_each_native_ptype};
+use vortex_dtype::{DType, DecimalType, Nullability, match_each_native_ptype};
 use vortex_error::VortexExpect;
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, StructScalar,
@@ -16,7 +16,7 @@ use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
     BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray,
-    NullArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
+    NullArray, StructArray, VarBinViewArray,
 };
 use crate::builders::builder_with_capacity;
 use crate::validity::Validity;
@@ -66,7 +66,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 })
             }
             DType::Decimal(decimal_type, ..) => {
-                let size = smallest_decimal_value_type(decimal_type);
+                let size = DecimalType::smallest_decimal_value_type(decimal_type);
                 let decimal = scalar.as_decimal();
                 let Some(value) = decimal.decimal_value() else {
                     let all_null = match_each_decimal_value_type!(size, |D| {

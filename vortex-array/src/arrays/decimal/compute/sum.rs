@@ -3,13 +3,13 @@
 
 use arrow_schema::DECIMAL256_MAX_PRECISION;
 use num_traits::AsPrimitive;
-use vortex_dtype::DecimalDType;
 use vortex_dtype::Nullability::Nullable;
+use vortex_dtype::{DecimalDType, DecimalType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::{DecimalValue, Scalar, match_each_decimal_value_type};
 
-use crate::arrays::{DecimalArray, DecimalVTable, smallest_decimal_value_type};
+use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
 use crate::register_kernel;
 
@@ -54,7 +54,7 @@ impl SumKernel for DecimalVTable {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
             }
             Mask::AllTrue(_) => {
-                let values_type = smallest_decimal_value_type(&return_dtype);
+                let values_type = DecimalType::smallest_decimal_value_type(&return_dtype);
                 match_each_decimal_value_type!(array.values_type(), |I| {
                     match_each_decimal_value_type!(values_type, |O| {
                         Ok(Scalar::decimal(
@@ -66,7 +66,7 @@ impl SumKernel for DecimalVTable {
                 })
             }
             Mask::Values(mask_values) => {
-                let values_type = smallest_decimal_value_type(&return_dtype);
+                let values_type = DecimalType::smallest_decimal_value_type(&return_dtype);
                 match_each_decimal_value_type!(array.values_type(), |I| {
                     match_each_decimal_value_type!(values_type, |O| {
                         Ok(Scalar::decimal(

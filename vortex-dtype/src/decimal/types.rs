@@ -10,7 +10,7 @@ use paste::paste;
 use crate::decimal::max_precision::{
     MAX_DECIMAL256_FOR_EACH_PRECISION, MIN_DECIMAL256_FOR_EACH_PRECISION,
 };
-use crate::{BigCast, i256};
+use crate::{BigCast, DecimalDType, i256};
 
 /// Type of the decimal values.
 ///
@@ -33,6 +33,27 @@ pub enum DecimalType {
     I128 = 4,
     /// 256-bit decimal value type.
     I256 = 5,
+}
+
+impl DecimalType {
+    /// Maps a `DecimalDType` (precision) into the smallest `DecimalType` that can represent it.
+    pub fn smallest_decimal_value_type(decimal_dtype: &DecimalDType) -> DecimalType {
+        match decimal_dtype.precision() {
+            1..=2 => DecimalType::I8,
+            3..=4 => DecimalType::I16,
+            5..=9 => DecimalType::I32,
+            10..=18 => DecimalType::I64,
+            19..=38 => DecimalType::I128,
+            39..=76 => DecimalType::I256,
+            0 => unreachable!("precision must be greater than 0"),
+            p => unreachable!("precision larger than 76 is invalid found precision {p}"),
+        }
+    }
+
+    /// True if `Self` can represent every value of the type `DecimalDType`.
+    pub fn is_compatible_decimal_value_type(self, dtype: DecimalDType) -> bool {
+        self >= Self::smallest_decimal_value_type(&dtype)
+    }
 }
 
 /// Type of decimal scalar values.
@@ -61,8 +82,11 @@ pub trait NativeDecimalType:
     const MAX_SCALE: i8;
 
     /// The minimum value for each precision supported by this decimal type.
+    /// This is an array of length `MAX_PRECISION + 1` where the `i`th element is the minimum value
+    /// for a precision of `i` (including precision 0).
     const MIN_BY_PRECISION: &'static [Self];
     /// The maximum value for each precision supported by this decimal type.
+    /// similar to `MIN_BY_PRECISION`.
     const MAX_BY_PRECISION: &'static [Self];
 
     /// Downcast the provided object to a type-specific instance.
@@ -127,24 +151,24 @@ macro_rules! impl_decimal {
                 const MAX_SCALE: i8 = Self::MAX_PRECISION as i8;
 
                 const MIN_BY_PRECISION: &'static [Self] = &{
-                    let mut mins = [$T::ZERO; Self::MAX_PRECISION as usize];
+                    let mut mins = [$T::ZERO; Self::MAX_PRECISION as usize + 1];
                     let mut p = $T::ONE;
                     let mut i = 0;
                     while i < Self::MAX_PRECISION as usize {
                         p = p * 10;
-                        mins[i] = -(p - 1);
+                        mins[i + 1] = -(p - 1);
                         i += 1;
                     }
                     mins
                 };
 
                 const MAX_BY_PRECISION: &'static [Self] = &{
-                    let mut maxs = [$T::ZERO; Self::MAX_PRECISION as usize];
+                    let mut maxs = [$T::ZERO; Self::MAX_PRECISION as usize + 1];
                     let mut p = $T::ONE;
                     let mut i = 0;
                     while i < Self::MAX_PRECISION as usize {
                         p = p * 10;
-                        maxs[i] = p - 1;
+                        maxs[i + 1] = p - 1;
                         i += 1;
                     }
                     maxs

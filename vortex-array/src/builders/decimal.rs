@@ -5,7 +5,9 @@ use std::any::Any;
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{BigCast, DType, DecimalDType, NativeDecimalType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
+use vortex_error::{
+    VortexExpect, VortexResult, VortexUnwrap, vortex_ensure, vortex_err, vortex_panic,
+};
 use vortex_mask::Mask;
 use vortex_scalar::{
     DecimalValue, Scalar, i256, match_each_decimal_value, match_each_decimal_value_type,
@@ -208,7 +210,18 @@ impl ArrayBuilder for DecimalBuilder {
 impl DecimalBuffer {
     fn push<V: NativeDecimalType>(&mut self, value: V) {
         delegate_fn!(self, |T, buffer| {
-            buffer.push(<T as BigCast>::from(value).vortex_expect("decimal conversion failure"))
+            buffer.push(
+                <T as BigCast>::from(value)
+                    .ok_or_else(|| {
+                        vortex_err!(
+                            "decimal conversion failure {:?}, type: {:?} to {:?}",
+                            value,
+                            V::DECIMAL_TYPE,
+                            T::DECIMAL_TYPE,
+                        )
+                    })
+                    .vortex_unwrap(),
+            )
         });
     }
 

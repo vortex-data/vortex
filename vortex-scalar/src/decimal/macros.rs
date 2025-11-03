@@ -105,7 +105,6 @@ macro_rules! match_each_decimal_value_type {
                 type $enc = $crate::i256;
                 $body
             }
-            ty => unreachable!("unknown decimal value type {:?}", ty),
         }
     }};
 }

@@ -12,9 +12,11 @@ use std::sync::Arc;
 use arbitrary::{Result, Unstructured};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, DecimalDType, NativeDecimalType, PType, i256};
+use vortex_dtype::{DType, DecimalDType, NativeDecimalType, PType};
 
-use crate::{DecimalValue, InnerScalarValue, PValue, Scalar, ScalarValue};
+use crate::{
+    DecimalValue, InnerScalarValue, PValue, Scalar, ScalarValue, match_each_decimal_value_type,
+};
 
 /// Generate an arbitrary scalar value of the given data type.
 pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
@@ -82,19 +84,14 @@ fn random_pvalue(u: &mut Unstructured, ptype: &PType) -> Result<PValue> {
 /// Generate an arbitrary decimal scalar confined to the given bounds of precision and scale.
 pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Result<ScalarValue> {
     let precision = decimal_type.precision();
-    if precision <= i128::MAX_PRECISION {
-        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I128(
-            u.int_in_range(
-                i128::MIN_BY_PRECISION[precision as usize]
-                    ..=i128::MAX_BY_PRECISION[precision as usize],
-            )?,
-        ))))
-    } else {
-        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I256(
-            u.int_in_range(
-                i256::MIN_BY_PRECISION[precision as usize]
-                    ..=i256::MAX_BY_PRECISION[precision as usize],
-            )?,
-        ))))
-    }
+    let value = match_each_decimal_value_type!(
+        DecimalType::smallest_decimal_value_type(decimal_type),
+        |D| {
+            DecimalValue::from(u.int_in_range(
+                D::MIN_BY_PRECISION[precision as usize]..=D::MAX_BY_PRECISION[precision as usize],
+            )?)
+        }
+    );
+
+    Ok(ScalarValue(InnerScalarValue::Decimal(value)))
 }
