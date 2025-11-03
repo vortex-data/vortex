@@ -35,7 +35,6 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Failed to open file: %s\n%s", uri, vx_string_ptr(vx_error_get_message(error)));
     vx_error_free(error);
     vx_session_free(session);
-    vx_try_shutdown_runtime();
     return -1;
   }
 
@@ -58,7 +57,6 @@ int main(int argc, char *argv[]) {
     vx_error_free(error);
     vx_file_free(file);
     vx_session_free(session);
-    vx_try_shutdown_runtime();
     return -1;
   }
 
@@ -108,14 +106,11 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Error during scan operation\n");
     vx_error_free(error);
     vx_session_free(session);
-    vx_try_shutdown_runtime();
     return -1;
   }
 
   printf("Scanning completed successfully\n");
   vx_session_free(session);
 
-  // Attempt to shutdown the shared runtime for clean exit
-  vx_try_shutdown_runtime();
   return 0;
 }

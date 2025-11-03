@@ -4,7 +4,7 @@
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 
 use crate::arrays::{
     BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray,

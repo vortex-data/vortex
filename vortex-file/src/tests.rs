@@ -35,11 +35,15 @@ use crate::{
 };
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    VortexSession::empty()
+    let session = VortexSession::empty()
         .with::<VortexMetrics>()
         .with::<ArraySession>()
         .with::<LayoutSession>()
-        .with::<RuntimeSession>()
+        .with::<RuntimeSession>();
+
+    crate::register_default_encodings(&session);
+
+    session
 });
 
 #[tokio::test]
