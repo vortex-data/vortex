@@ -50,7 +50,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             VarBinViewArray::new(
                 array.views().clone(),
                 array.buffers().clone(),
-                array.dtype().as_nullable(),
+                array.dtype().with_nullability(new_validity.nullability()),
                 new_validity,
             )
             .into_array()
