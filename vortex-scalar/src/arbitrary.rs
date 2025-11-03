@@ -92,20 +92,4 @@ pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Resu
     });
 
     Ok(ScalarValue(InnerScalarValue::Decimal(value)))
-
-    // if precision <= i128::MAX_PRECISION {
-    //     Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I128(
-    //         u.int_in_range(
-    //             i128::MIN_BY_PRECISION[precision as usize]
-    //                 ..=i128::MAX_BY_PRECISION[precision as usize],
-    //         )?,
-    //     ))))
-    // } else {
-    //     Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I256(
-    //         u.int_in_range(
-    //             i256::MIN_BY_PRECISION[precision as usize]
-    //                 ..=i256::MAX_BY_PRECISION[precision as usize],
-    //         )?,
-    //     ))))
-    // }
 }
