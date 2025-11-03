@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
-use vortex_error::VortexExpect;
 
 use crate::{
     DType, DecimalDType, FieldName, FieldNames, NativeDecimalType, Nullability, PType,
