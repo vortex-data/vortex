@@ -380,12 +380,6 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Attempt to shutdown the shared tokio runtime if no sessions are active.
- * May block indefinitely if the runtime is still running tasks.
- */
-void vx_try_shutdown_runtime(void);
-
-/**
  * Clone a borrowed [`vx_array`], returning an owned [`vx_array`].
  *
  *
@@ -672,7 +666,10 @@ const vx_file *vx_file_open_reader(const vx_file_open_options *options,
                                    const vx_session *session,
                                    vx_error **error_out);
 
-void vx_file_write_array(const char *path, const vx_array *array, vx_error **error_out);
+void vx_file_write_array(const vx_session *session,
+                         const char *path,
+                         const vx_array *array,
+                         vx_error **error_out);
 
 uint64_t vx_file_row_count(const vx_file *file);
 
@@ -687,7 +684,8 @@ const vx_dtype *vx_file_dtype(const vx_file *file);
 /**
  * Can we prune the whole file using file stats and an expression
  */
-bool vx_file_can_prune(const vx_file *file,
+bool vx_file_can_prune(const vx_session *session,
+                       const vx_file *file,
                        const char *filter_expression,
                        unsigned int filter_expression_len,
                        vx_error **error_out);
@@ -695,7 +693,8 @@ bool vx_file_can_prune(const vx_file *file,
 /**
  * Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
  */
-vx_array_iterator *vx_file_scan(const vx_file *file,
+vx_array_iterator *vx_file_scan(const vx_session *session,
+                                const vx_file *file,
                                 const vx_file_scan_options *opts,
                                 vx_error **error_out);
 
@@ -722,7 +721,8 @@ vx_session *vx_session_new(void);
  * Opens a writable array stream, where sink is used to push values into the stream.
  * To close the stream close the sink with `vx_array_sink_close`.
  */
-vx_array_sink *vx_array_sink_open_file(const char *path,
+vx_array_sink *vx_array_sink_open_file(const vx_session *session,
+                                       const char *path,
                                        const vx_dtype *dtype,
                                        vx_error **error_out);
 
