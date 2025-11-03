@@ -4,7 +4,7 @@
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexResult};
 
 use crate::arrays::{
     BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray,
@@ -72,9 +72,7 @@ use crate::{Array, ArrayRef, IntoArray};
 /// # For Developers
 ///
 /// If you add another variant to this enum, make sure to update [`Array::is_canonical`],
-/// [`ArrayRegistry::canonical_only`], and the fuzzer in `fuzz/fuzz_targets/array_ops.rs`.
-///
-/// [`ArrayRegistry::canonical_only`]: crate::ArrayRegistry::canonical_only
+/// and the fuzzer in `fuzz/fuzz_targets/array_ops.rs`.
 #[derive(Debug, Clone)]
 pub enum Canonical {
     Null(NullArray),
