@@ -54,7 +54,7 @@ pub use scope::*;
 pub use scope_vars::*;
 pub use select::*;
 use vortex_array::{Array, ArrayRef, SerializeMetadata};
-use vortex_dtype::{DType, FieldName, FieldPath};
+use vortex_dtype::{DType, FieldName};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_utils::aliases::hash_set::HashSet;
 pub use vtable::*;
@@ -230,117 +230,6 @@ impl VortexExprExt for ExprRef {
         self.accept(&mut collector).vortex_unwrap();
         collector.into_fields()
     }
-}
-
-#[derive(Clone)]
-#[repr(transparent)]
-pub struct ExprAdapter<V: VTable>(V::Expr);
-
-impl<V: VTable> VortexExpr for ExprAdapter<V> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn to_expr(&self) -> ExprRef {
-        Arc::new(ExprAdapter::<V>(self.0.clone()))
-    }
-
-    fn encoding(&self) -> ExprEncodingRef {
-        V::encoding(&self.0)
-    }
-
-    fn metadata(&self) -> Option<Vec<u8>> {
-        V::metadata(&self.0).map(|m| m.serialize())
-    }
-
-    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
-        V::evaluate(&self.0, ctx)
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        V::children(&self.0)
-    }
-
-    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-        if self.children().len() != children.len() {
-            vortex_bail!(
-                "Expected {} children, got {}",
-                self.children().len(),
-                children.len()
-            );
-        }
-        Ok(V::with_children(&self.0, children)?.to_expr())
-    }
-
-    fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
-        V::return_dtype(&self.0, scope)
-    }
-}
-
-impl<V: VTable> Debug for ExprAdapter<V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&self.0, f)
-    }
-}
-
-impl<V: VTable> Display for ExprAdapter<V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(&self.0, DisplayFormat::Compact, f)
-    }
-}
-
-impl<V: VTable> DisplayAs for ExprAdapter<V> {
-    fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
-        DisplayAs::fmt_as(&self.0, df, f)
-    }
-
-    fn child_names(&self) -> Option<Vec<String>> {
-        DisplayAs::child_names(&self.0)
-    }
-}
-
-impl<V: VTable> PartialEq for ExprAdapter<V> {
-    fn eq(&self, other: &Self) -> bool {
-        PartialEq::eq(&self.0, &other.0)
-    }
-}
-
-impl<V: VTable> Eq for ExprAdapter<V> {}
-
-impl<V: VTable> Hash for ExprAdapter<V> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        Hash::hash(&self.0, state);
-    }
-}
-
-impl<V: VTable> AnalysisExpr for ExprAdapter<V> {
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
-        <V::Expr as AnalysisExpr>::stat_falsification(&self.0, catalog)
-    }
-
-    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
-        <V::Expr as AnalysisExpr>::max(&self.0, catalog)
-    }
-
-    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
-        <V::Expr as AnalysisExpr>::min(&self.0, catalog)
-    }
-
-    fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
-        <V::Expr as AnalysisExpr>::nan_count(&self.0, catalog)
-    }
-
-    fn field_path(&self) -> Option<FieldPath> {
-        <V::Expr as AnalysisExpr>::field_path(&self.0)
-    }
-}
-
-mod private {
-    use super::*;
-
-    pub trait Sealed {}
-
-    impl<V: VTable> Sealed for ExprAdapter<V> {}
 }
 
 /// Splits top level and operations into separate expressions.

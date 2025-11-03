@@ -9,7 +9,7 @@ use vortex_array::{Array, ArrayRef, DeserializeMetadata};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
-use crate::metadata::ExprMetadata;
+use crate::metadata::ExprInstance;
 use crate::v2::Expression;
 use crate::{ExprRef, IntoExpr, VTable};
 
@@ -32,12 +32,12 @@ pub trait ExprEncoding: 'static + Send + Sync + Debug + private::Sealed {
     fn build(&self, metadata: &[u8], children: Vec<ExprRef>) -> VortexResult<ExprRef>;
 
     /// Validates the metadata and children for this expression encoding.
-    fn validate(&self, _metadata: &dyn ExprMetadata, _children: &[Expression]) -> VortexResult<()>;
+    fn validate(&self, _metadata: &dyn ExprInstance, _children: &[Expression]) -> VortexResult<()>;
 
     /// Computes the return DType of the expression given the metadata and children's DTypes.
     fn return_dtype(
         &self,
-        metadata: &dyn ExprMetadata,
+        metadata: &dyn ExprInstance,
         children: &[Expression],
         scope: &DType,
     ) -> VortexResult<DType>;
@@ -45,7 +45,7 @@ pub trait ExprEncoding: 'static + Send + Sync + Debug + private::Sealed {
     /// Evaluates the expression against the given scope array.
     fn evaluate(
         &self,
-        metadata: &dyn ExprMetadata,
+        metadata: &dyn ExprInstance,
         children: &[Expression],
         scope: &ArrayRef,
     ) -> VortexResult<ArrayRef>;
@@ -68,7 +68,7 @@ impl<V: VTable> ExprEncoding for ExprEncodingAdapter<V> {
         Ok(V::build(&self.0, &metadata, children)?.into_expr())
     }
 
-    fn validate(&self, metadata: &dyn ExprMetadata, children: &[Expression]) -> VortexResult<()> {
+    fn validate(&self, metadata: &dyn ExprInstance, children: &[Expression]) -> VortexResult<()> {
         let encoding = self.0.as_opt::<V>().ok_or_else(|| {
             vortex_err!(
                 "Mismatched encoding ID {} for VTable {}",
@@ -93,7 +93,7 @@ impl<V: VTable> ExprEncoding for ExprEncodingAdapter<V> {
 
     fn return_dtype(
         &self,
-        metadata: &dyn ExprMetadata,
+        metadata: &dyn ExprInstance,
         children: &[Expression],
         scope: &DType,
     ) -> VortexResult<DType> {
@@ -107,7 +107,7 @@ impl<V: VTable> ExprEncoding for ExprEncodingAdapter<V> {
 
     fn evaluate(
         &self,
-        metadata: &dyn ExprMetadata,
+        metadata: &dyn ExprInstance,
         children: &[Expression],
         scope: &ArrayRef,
     ) -> VortexResult<ArrayRef> {

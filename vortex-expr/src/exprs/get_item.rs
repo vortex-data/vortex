@@ -9,14 +9,11 @@ use vortex_array::compute::mask;
 use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, ToCanonical};
 use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
-use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, root,
-    vtable,
-};
+use crate::{root, vtable, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable};
 
 vtable!(GetItem);
 
@@ -35,10 +32,13 @@ impl PartialEq for GetItemExpr {
 
 pub struct GetItemExprEncoding;
 
+pub struct GetItemMetadata {
+    pub path: String,
+}
+
 impl VTable for GetItemVTable {
-    type Expr = GetItemExpr;
     type Encoding = GetItemExprEncoding;
-    type Metadata = ProstMetadata<pb::GetItemOpts>;
+    type Metadata = GetItemMetadata;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
         ExprId::new_ref("get_item")
@@ -106,6 +106,16 @@ impl VTable for GetItemVTable {
                     expr.field()
                 )
             })
+    }
+
+    type AnalysisVTable = ;
+
+    fn validate(expr: &ExpressionView<Self>) -> VortexResult<()> {
+        todo!()
+    }
+
+    fn child_name(expr: ExpressionView<Self>, _n: usize) -> ChildName {
+        todo!()
     }
 }
 
@@ -201,7 +211,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::get_item::get_item;
-    use crate::{Scope, root};
+    use crate::{root, Scope};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

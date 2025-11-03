@@ -1,173 +1,218 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Debug;
-use std::hash::Hash;
+use arcref::ArcRef;
+use std::any::Any;
+use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
-
-use vortex_array::{ArrayRef, DeserializeMetadata, SerializeMetadata};
+use std::sync::Arc;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
-use crate::display::DisplayAs;
-use crate::metadata::ExprMetadata;
-use crate::v2::{Expression, ExpressionView};
-use crate::{
-    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VortexExpr,
-};
+use crate::metadata::ExprInstance;
+use crate::v2::Expression;
+use crate::{AnalysisVTable, ExprId, ScopeVar};
 
-pub trait VTable: 'static + Sized + Send + Sync + Debug {
-    type Expr: 'static
-        + Send
-        + Sync
-        + Clone
-        + Debug
-        + DisplayAs
-        + PartialEq
-        + Eq
-        + Hash
-        + Deref<Target = dyn VortexExpr>
-        + IntoExpr
-        + AnalysisExpr;
-    type Encoding: 'static + Send + Sync + Deref<Target = dyn ExprEncoding>;
-    type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
-    type Metadata2: ExprMetadata;
+/// The vtable trait for a Vortex expression.
+///
+/// This trait defines the interface for expression vtables, including methods for
+/// serialization, deserialization, validation, child naming, return type computation,
+/// and evaluation.
+///
+/// This trait is non-object safe and allows the implementer to make use of associated types
+/// for improved type safety, while allowing Vortex to enforce runtime checks on the inputs and
+/// outputs of each function.
+pub trait VTable: 'static + Sized + Send + Sync {
+    type Instance: 'static + Send + Sync;
+    type AnalysisVTable: AnalysisVTable<Self>;
 
-    /// Returns the ID of the expr encoding.
-    fn id(encoding: &Self::Encoding) -> ExprId;
+    /// Returns the ID of the expr vtable.
+    fn id(vtable: &Self) -> ExprId;
 
-    /// Returns the encoding for the expr.
-    fn encoding(expr: &Self::Expr) -> ExprEncodingRef {
-        todo!()
-    }
-
-    /// Returns the serialize-able metadata for the expr, or `None` if serialization is not
-    /// supported.
-    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        todo!()
-    }
-
-    /// Returns the children of the expr.
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
-        todo!()
-    }
-
-    /// Return a new instance of the expression with the children replaced.
+    /// Serialize the metadata for the expression.
     ///
-    /// ## Preconditions
-    ///
-    /// The number of children will match the current number of children in the expression.
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        todo!()
+    /// Should return `Ok(None)` if the expression is not serializable, and `Ok(vec![])` if it is
+    /// serializable but has no metadata.
+    fn serialize(_vtable: &Self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+        Ok(None)
     }
 
-    /// Construct a new [`VortexExpr`] from the provided parts.
-    fn build(
-        encoding: &Self::Encoding,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
-    ) -> VortexResult<Self::Expr> {
-        todo!()
+    /// Deserialize an instance of this expression.
+    ///
+    /// Returns `Ok(None)` if the expression is not serializable.
+    fn deserialize(_vtable: &Self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+        Ok(None)
     }
 
     /// Validate the metadata and children for the expression.
     fn validate(expr: &ExpressionView<Self>) -> VortexResult<()>;
 
+    /// Returns the name of the nth child of the expr.
+    fn child_name(expr: &ExpressionView<Self>, child_idx: usize) -> ChildName;
+
+    /// Compute the return [`DType`] of the expression if evaluated in the given scope.
+    fn return_dtype(expr: &ExpressionView<Self>, scope: &DType) -> VortexResult<DType>;
+
     /// Evaluate the expression in the given scope.
-    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        todo!()
+    fn evaluate(expr: &ExpressionView<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+}
+
+/// Factory functions for static vtables.
+pub trait VTableFactory: VTable {
+    fn try_new(
+        self: &'static Self,
+        instance: Self::Instance,
+        children: impl Into<Arc<[Expression]>>,
+    ) -> VortexResult<Expression> {
+        Expression::try_new(ExprVTable::from_static(self), Arc::new(instance), children)
+    }
+}
+impl<V: VTable> VTableFactory for V {}
+
+/// A reference to the name of a child expression.
+pub type ChildName = ArcRef<str>;
+
+/// A placeholder vtable implementation for unsupported optional functionality of an expression.
+pub struct NotSupported;
+
+/// A typed view over an instance of a Vortex expression for a specific vtable.
+pub struct ExpressionView<'a, V: VTable> {
+    vtable: &'a V,
+    instance: &'a V::Instance,
+    children: &'a [Expression],
+}
+
+impl<'a, V: VTable> ExpressionView<'a, V> {
+    pub fn from_dyn(
+        vtable: &dyn DynExprVTable,
+        instance: &dyn Any,
+        children: &'a [Expression],
+    ) -> Self {
+        let vtable = vtable
+            .as_any()
+            .downcast_ref::<V>()
+            .vortex_expect("Failed to downcast expression vtable to expected type");
+        let instance = instance
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        Self {
+            vtable,
+            instance,
+            children,
+        }
     }
 
-    /// Compute the return [`DType`] of the expression if evaluated in the given scope.
-    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
-        todo!()
+    pub fn new(vtable: &'a V, instance: &'a V::Instance, children: &'a [Expression]) -> Self {
+        Self {
+            vtable,
+            instance,
+            children,
+        }
     }
 
-    /// Deserialize the metadata for the expression.
-    fn deserialize_metadata(
-        encoding: &Self::Encoding,
-        metadata: &[u8],
-    ) -> VortexResult<Self::Metadata2>;
+    pub fn vtable(&self) -> &'a V {
+        self.vtable
+    }
 
-    /// Compute the return [`DType`] of the expression if evaluated in the given scope.
-    fn return_dtype2(
-        expr: ExpressionView<Self>,
-        encoding: &Self::Encoding,
-        metadata: &Self::Metadata2,
+    pub fn children(&self) -> &'a [Expression] {
+        self.children
+    }
+}
+
+impl<'a, V: VTable> Deref for ExpressionView<'a, V> {
+    type Target = V::Instance;
+
+    fn deref(&self) -> &Self::Target {
+        self.instance
+    }
+}
+
+/// An object-safe trait for dynamic dispatch of Vortex expression vtables.
+///
+/// This trait is automatically implemented via the [`VTableAdapter`] for any type that
+/// implements [`VTable`], and lifts the associated types into dynamic trait objects.
+pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
+    fn id(&self) -> ExprId;
+    fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()>;
+    fn return_dtype(
+        &self,
+        instance: &dyn Any,
         children: &[Expression],
         scope: &DType,
     ) -> VortexResult<DType>;
-
-    /// Evaluate the expression in the given scope.
-    fn evaluate2(
-        encoding: &Self::Encoding,
-        metadata: &Self::Metadata2,
+    fn evaluate(
+        &self,
+        instance: &dyn Any,
         children: &[Expression],
         scope: &ArrayRef,
     ) -> VortexResult<ArrayRef>;
 }
 
-#[macro_export]
-macro_rules! vtable {
-    ($V:ident) => {
-        $crate::aliases::paste::paste! {
-            #[derive(Debug)]
-            pub struct [<$V VTable>];
+#[repr(transparent)]
+pub struct VTableAdapter<V>(V);
 
-            impl AsRef<dyn $crate::VortexExpr> for [<$V Expr>] {
-                fn as_ref(&self) -> &dyn $crate::VortexExpr {
-                    // We can unsafe cast ourselves to a ExprAdapter.
-                    unsafe { &*(self as *const [<$V Expr>] as *const $crate::ExprAdapter<[<$V VTable>]>) }
-                }
-            }
+impl<V: VTable> DynExprVTable for VTableAdapter<V> {
+    fn id(&self) -> ExprId {
+        V::id(&self.0)
+    }
 
-            impl std::ops::Deref for [<$V Expr>] {
-                type Target = dyn $crate::VortexExpr;
+    fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()> {
+        let view = ExpressionView::from_dyn(self, instance, children);
+        V::validate(&view)
+    }
 
-                fn deref(&self) -> &Self::Target {
-                    // We can unsafe cast ourselves to an ExprAdapter.
-                    unsafe { &*(self as *const [<$V Expr>] as *const $crate::ExprAdapter<[<$V VTable>]>) }
-                }
-            }
+    fn return_dtype(
+        &self,
+        instance: &dyn Any,
+        children: &[Expression],
+        scope: &DType,
+    ) -> VortexResult<DType> {
+        let view = ExpressionView::from_dyn(self, instance, children);
+        V::return_dtype(&view, scope)
+    }
 
-            impl $crate::IntoExpr for [<$V Expr>] {
-                fn into_expr(self) -> $crate::ExprRef {
-                    // We can unsafe transmute ourselves to an ExprAdapter.
-                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Expr>], $crate::ExprAdapter::<[<$V VTable>]>>(self) })
-                }
-            }
+    fn evaluate(
+        &self,
+        instance: &dyn Any,
+        children: &[Expression],
+        scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        let view = ExpressionView::from_dyn(self, instance, children);
+        V::evaluate(&view, scope)
+    }
+}
 
-            impl From<[<$V Expr>]> for $crate::ExprRef {
-                fn from(value: [<$V Expr>]) -> $crate::ExprRef {
-                    use $crate::IntoExpr;
-                    value.into_expr()
-                }
-            }
+mod private {
+    use crate::{VTable, VTableAdapter};
 
-            impl AsRef<dyn $crate::ExprEncoding> for [<$V ExprEncoding>] {
-                fn as_ref(&self) -> &dyn $crate::ExprEncoding {
-                    // We can unsafe cast ourselves to an ExprEncodingAdapter.
-                    unsafe { &*(self as *const [<$V ExprEncoding>] as *const $crate::ExprEncodingAdapter<[<$V VTable>]>) }
-                }
-            }
+    pub trait Sealed {}
+    impl<V: VTable> Sealed for VTableAdapter<V> {}
+}
 
-            impl std::ops::Deref for [<$V ExprEncoding>] {
-                type Target = dyn $crate::ExprEncoding;
+/// A Vortex expression vtable, used to deserialize or instantiate expressions dynamically.
+#[derive(Clone)]
+pub struct ExprVTable(ArcRef<dyn DynExprVTable>);
 
-                fn deref(&self) -> &Self::Target {
-                    // We can unsafe cast ourselves to an ExprEncodingAdapter.
-                    unsafe { &*(self as *const [<$V ExprEncoding>] as *const $crate::ExprEncodingAdapter<[<$V VTable>]>) }
-                }
-            }
+impl ExprVTable {
+    /// Only the vortex-expr crate can actually invoke the vtable methods.
+    /// All other users must go via session extensions.
+    pub(crate) fn as_dyn(&self) -> &dyn DynExprVTable {
+        self.0.as_ref()
+    }
 
-            impl [<$V ExprEncoding>] {
-                pub const fn as_static_ref(&'static self) -> &'static dyn $crate::ExprEncoding {
-                    // We can unsafe cast ourselves to an ExprEncodingAdapter.
-                    unsafe { &*(self as *const [<$V ExprEncoding>] as *const $crate::ExprEncodingAdapter<[<$V VTable>]>) }
-                }
-            }
-        }
-    };
+    /// Creates a new [`ExprVTable`] from a static reference to a vtable.
+    pub const fn from_static<V: VTable>(vtable: &V) -> Self {
+        // SAFETY: We can safely cast the vtable to a VTableAdapter since it has the same layout.
+        let adapted = unsafe { &*(vtable as *const V as *const VTableAdapter<V>) };
+        Self(ArcRef::from(adapted))
+    }
+}
+
+impl Debug for ExprVTable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.id())
+    }
 }
 
 #[cfg(test)]
@@ -232,7 +277,7 @@ mod tests {
     #[case(not(and(eq(col("status"), lit("active")), gt(col("age"), lit(18)))))]
     fn text_expr_serde_round_trip(
         registry: &ExprRegistry,
-        #[case] expr: ExprRef,
+        #[case] expr: Expression,
     ) -> anyhow::Result<()> {
         let serialized_pb = expr.serialize_proto()?;
         let deserialized_expr = deserialize_expr_proto(&serialized_pb, registry)?;

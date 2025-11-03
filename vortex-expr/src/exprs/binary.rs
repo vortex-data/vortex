@@ -4,83 +4,66 @@
 use std::hash::Hash;
 
 use vortex_array::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
-use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, compute};
+use vortex_array::{compute, ArrayRef, DeserializeMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
-use vortex_proto::expr as pb;
+use vortex_error::{vortex_bail, VortexResult};
 
-use crate::display::{DisplayAs, DisplayFormat};
+use crate::display::DisplayAs;
+use crate::v2::{Expression, ExpressionView};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, StatsCatalog,
-    VTable, lit, vtable,
+    lit, vtable, AnalysisExpr, AnalysisVTable, ChildName, ExprId, ExprRef, IntoExpr,
+    Operator, Scope, StatsCatalog, VTable,
 };
 
 vtable!(Binary);
 
-#[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Debug, Clone, Hash, Eq)]
-pub struct BinaryExpr {
-    lhs: ExprRef,
-    operator: Operator,
-    rhs: ExprRef,
-}
-
-impl PartialEq for BinaryExpr {
-    fn eq(&self, other: &Self) -> bool {
-        self.lhs.eq(&other.lhs) && self.operator == other.operator && self.rhs.eq(&other.rhs)
-    }
-}
-
 pub struct BinaryExprEncoding;
 
 impl VTable for BinaryVTable {
-    type Expr = BinaryExpr;
     type Encoding = BinaryExprEncoding;
-    type Metadata = ProstMetadata<pb::BinaryOpts>;
+    type Metadata = Operator;
+    type AnalysisVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
         ExprId::new_ref("binary")
     }
 
-    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(BinaryExprEncoding.as_ref())
+    fn validate(_expr: &ExpressionView<Self>) -> VortexResult<()> {
+        // TODO(ngates): check the dtypes.
+        Ok(())
     }
 
-    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(ProstMetadata(pb::BinaryOpts {
-            op: expr.operator.into(),
-        }))
+    fn child_name(_expr: ExpressionView<Self>, child_idx: usize) -> ChildName {
+        match child_idx {
+            0 => ChildName::from("lhs"),
+            1 => ChildName::from("rhs"),
+            _ => unreachable!("BinaryExpr has only two children"),
+        }
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
-        vec![expr.lhs(), expr.rhs()]
+    fn return_dtype(expr: ExpressionView<Self>, scope: &DType) -> VortexResult<DType> {
+        let lhs = expr.lhs().return_dtype(scope)?;
+        let rhs = expr.rhs().return_dtype(scope)?;
+
+        if expr.operator().is_arithmetic() {
+            if lhs.is_primitive() && lhs.eq_ignore_nullability(&rhs) {
+                return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
+            }
+            vortex_bail!(
+                "incompatible types for arithmetic operation: {} {}",
+                lhs,
+                rhs
+            );
+        }
+
+        Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        Ok(BinaryExpr::new(
-            children[0].clone(),
-            expr.op(),
-            children[1].clone(),
-        ))
-    }
+    fn evaluate(expr: ExpressionView<Self>, scope: &Scope) -> VortexResult<ArrayRef> {
+        let lhs = expr.lhs().unchecked_evaluate(scope)?;
+        let rhs = expr.rhs().unchecked_evaluate(scope)?;
 
-    fn build(
-        _encoding: &Self::Encoding,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
-    ) -> VortexResult<Self::Expr> {
-        Ok(BinaryExpr::new(
-            children[0].clone(),
-            metadata.op().into(),
-            children[1].clone(),
-        ))
-    }
-
-    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        let lhs = expr.lhs.unchecked_evaluate(scope)?;
-        let rhs = expr.rhs.unchecked_evaluate(scope)?;
-
-        match expr.operator {
+        match expr.operator() {
             Operator::Eq => compare(&lhs, &rhs, compute::Operator::Eq),
             Operator::NotEq => compare(&lhs, &rhs, compute::Operator::NotEq),
             Operator::Lt => compare(&lhs, &rhs, compute::Operator::Lt),
@@ -95,67 +78,27 @@ impl VTable for BinaryVTable {
             Operator::Div => div(&lhs, &rhs),
         }
     }
-
-    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
-        let lhs = expr.lhs.return_dtype(scope)?;
-        let rhs = expr.rhs.return_dtype(scope)?;
-
-        if expr.operator.is_arithmetic() {
-            if lhs.is_primitive() && lhs.eq_ignore_nullability(&rhs) {
-                return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
-            }
-            vortex_bail!(
-                "incompatible types for arithmetic operation: {} {}",
-                lhs,
-                rhs
-            );
-        }
-
-        Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
-    }
 }
 
-impl BinaryExpr {
-    pub fn new(lhs: ExprRef, operator: Operator, rhs: ExprRef) -> Self {
-        Self { lhs, operator, rhs }
-    }
-
-    pub fn new_expr(lhs: ExprRef, operator: Operator, rhs: ExprRef) -> ExprRef {
-        Self::new(lhs, operator, rhs).into_expr()
-    }
-
+impl ExpressionView<'_, BinaryVTable> {
     pub fn lhs(&self) -> &ExprRef {
-        &self.lhs
+        &self.children()[0]
     }
 
     pub fn rhs(&self) -> &ExprRef {
-        &self.rhs
+        &self.children()[1]
     }
 
-    pub fn op(&self) -> Operator {
-        self.operator
-    }
-}
-
-impl DisplayAs for BinaryExpr {
-    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match df {
-            DisplayFormat::Compact => {
-                write!(f, "({} {} {})", self.lhs, self.operator, self.rhs)
-            }
-            DisplayFormat::Tree => {
-                write!(f, "Binary({})", self.operator)
-            }
-        }
-    }
-
-    fn child_names(&self) -> Option<Vec<String>> {
-        Some(vec!["lhs".to_string(), "rhs".to_string()])
+    pub fn operator(&self) -> Operator {
+        *self.metadata()
     }
 }
 
-impl AnalysisExpr for BinaryExpr {
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+impl AnalysisVTable<BinaryVTable> for BinaryVTable {
+    fn stat_falsification(
+        expr: ExpressionView<Self>,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<ExprRef> {
         // Wrap another predicate with an optional NaNCount check, if the stat is available.
         //
         // For example, regular pruning conversion for `A >= B` would be
@@ -171,11 +114,11 @@ impl AnalysisExpr for BinaryExpr {
         // have a nan_count statistic defined.
         #[inline]
         fn with_nan_predicate(
-            lhs: &ExprRef,
-            rhs: &ExprRef,
-            value_predicate: ExprRef,
+            lhs: &Expression,
+            rhs: &Expression,
+            value_predicate: Expression,
             catalog: &mut dyn StatsCatalog,
-        ) -> ExprRef {
+        ) -> Expression {
             let nan_predicate = lhs
                 .nan_count(catalog)
                 .into_iter()
@@ -190,13 +133,13 @@ impl AnalysisExpr for BinaryExpr {
             }
         }
 
-        match self.operator {
+        match expr.operator() {
             Operator::Eq => {
-                let min_lhs = self.lhs.min(catalog);
-                let max_lhs = self.lhs.max(catalog);
+                let min_lhs = expr.lhs().min(catalog);
+                let max_lhs = expr.lhs().max(catalog);
 
-                let min_rhs = self.rhs.min(catalog);
-                let max_rhs = self.rhs.max(catalog);
+                let min_rhs = expr.rhs().min(catalog);
+                let max_rhs = expr.rhs().max(catalog);
 
                 let left = min_lhs.zip(max_rhs).map(|(a, b)| gt(a, b));
                 let right = min_rhs.zip(max_lhs).map(|(a, b)| gt(a, b));
@@ -205,8 +148,8 @@ impl AnalysisExpr for BinaryExpr {
 
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
                 Some(with_nan_predicate(
-                    self.lhs(),
-                    self.rhs(),
+                    expr.lhs(),
+                    expr.rhs(),
                     min_max_check,
                     catalog,
                 ))
@@ -524,8 +467,8 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
 
     use crate::{
-        VortexExpr, and, and_collect, and_collect_right, col, eq, gt, gt_eq, lit, lt, lt_eq,
-        not_eq, or, test_harness,
+        and, and_collect, and_collect_right, col, eq, gt, gt_eq, lit, lt, lt_eq, not_eq,
+        or, test_harness, VortexExpr,
     };
 
     #[test]

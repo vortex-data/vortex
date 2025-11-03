@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::metadata::ExprMetadata;
-use crate::{ExprEncodingRef, VTable};
+use crate::{ExprVTable, ExpressionView, ScopeVar, VTable};
+use std::any::Any;
 use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
@@ -14,8 +14,11 @@ use vortex_error::{VortexExpect, VortexResult};
 /// expression consists of an encoding (vtable), heap-allocated metadata, and child expressions.
 #[derive(Clone, Debug)]
 pub struct Expression {
-    encoding: ExprEncodingRef,
-    metadata: Arc<dyn ExprMetadata>,
+    /// The vtable for this expression.
+    vtable: ExprVTable,
+    /// The instance data for this expression.
+    instance: Arc<dyn Any>,
+    /// Any children of this expression.
     children: Arc<[Expression]>,
 }
 
@@ -27,15 +30,17 @@ impl Expression {
     /// Returns an error if the provided `encoding` is not compatible with the
     /// `metadata` and `children` or the encoding's own validation logic fails.
     pub fn try_new(
-        encoding: ExprEncodingRef,
-        metadata: Arc<dyn ExprMetadata>,
+        vtable: ExprVTable,
+        instance: Arc<dyn Any>,
         children: Arc<[Expression]>,
     ) -> VortexResult<Self> {
         // Validate that the encoding is compatible with the metadata and children.
-        encoding.validate(metadata.as_ref(), children.as_ref())?;
+        vtable
+            .as_dyn()
+            .validate(instance.as_ref(), children.as_ref())?;
         Ok(Self {
-            encoding,
-            metadata,
+            vtable,
+            instance,
             children,
         })
     }
@@ -48,13 +53,13 @@ impl Expression {
     /// `metadata` and `children`. Failure to do so may lead to undefined behavior
     ///  when the expression is used.
     pub unsafe fn new_unchecked(
-        encoding: ExprEncodingRef,
-        metadata: Arc<dyn ExprMetadata>,
+        vtable: ExprVTable,
+        instance: Arc<dyn Any>,
         children: Arc<[Expression]>,
     ) -> Self {
         Self {
-            encoding,
-            metadata,
+            vtable,
+            instance,
             children,
         }
     }
@@ -65,15 +70,18 @@ impl Expression {
     ///
     /// Panics if the expression's encoding or metadata cannot be cast to the specified vtable.
     pub fn as_view<V: VTable>(&self) -> ExpressionView<'_, V> {
-        ExpressionView {
-            encoding: self.encoding.as_::<V>(),
-            metadata: self
-                .metadata
+        ExpressionView::new(
+            self.vtable
+                .as_dyn()
                 .as_any()
-                .downcast_ref::<V::Metadata2>()
-                .vortex_expect("Failed to downcast expression metadata to expected type"),
-            children: &self.children,
-        }
+                .downcast_ref::<V>()
+                .vortex_expect("Failed to downcast expression vtable to expected type"),
+            self.instance
+                .as_any()
+                .downcast_ref::<V::Instance>()
+                .vortex_expect("Failed to downcast expression instance to expected type"),
+            &self.children,
+        )
     }
 
     /// Returns the children of this expression.
@@ -83,40 +91,24 @@ impl Expression {
 
     /// Replace the children of this expression with the provided new children.
     pub fn with_children(mut self, children: Arc<[Expression]>) -> VortexResult<Self> {
-        self.encoding.validate(self.metadata.as_ref(), &children)?;
+        self.vtable
+            .as_dyn()
+            .validate(self.instance.as_ref(), &children)?;
         self.children = children;
         Ok(self)
     }
 
     /// Computes the return dtype of this expression given the input dtype.
     pub fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
-        self.encoding
-            .return_dtype(self.metadata.as_ref(), self.children.as_ref(), scope)
+        self.vtable
+            .as_dyn()
+            .return_dtype(self.instance.as_ref(), self.children.as_ref(), scope)
     }
 
     /// Evaluates the expression in the given scope.
     pub fn evaluate(&self, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        self.encoding
-            .evaluate(self.metadata.as_ref(), self.children.as_ref(), scope)
-    }
-}
-
-pub struct ExpressionView<'a, V: VTable> {
-    encoding: &'a V::Encoding,
-    metadata: &'a V::Metadata2,
-    children: &'a [Expression],
-}
-
-impl<'a, V: VTable> ExpressionView<'a, V> {
-    pub fn encoding(&self) -> &'a V::Encoding {
-        self.encoding
-    }
-
-    pub fn metadata(&self) -> &'a V::Metadata2 {
-        self.metadata
-    }
-
-    pub fn children(&self) -> &'a [Expression] {
-        self.children
+        self.vtable
+            .as_dyn()
+            .evaluate(self.instance.as_ref(), self.children.as_ref(), scope)
     }
 }
