@@ -4,6 +4,7 @@
 use arcref::ArcRef;
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
+use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 use vortex_array::ArrayRef;
@@ -11,7 +12,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::v2::Expression;
-use crate::{AnalysisVTable, ExprId, ScopeVar};
+use crate::{AnalysisVTable, ExprId};
 
 /// The vtable trait for a Vortex expression.
 ///
@@ -22,39 +23,47 @@ use crate::{AnalysisVTable, ExprId, ScopeVar};
 /// This trait is non-object safe and allows the implementer to make use of associated types
 /// for improved type safety, while allowing Vortex to enforce runtime checks on the inputs and
 /// outputs of each function.
+///
+/// The [`VTable`] trait should be implemented for a struct that holds global data across
+/// all instances of the expression. In almost all cases, this struct will be an empty unit
+/// struct, since most expressions do not require any global state.
 pub trait VTable: 'static + Sized + Send + Sync {
-    type Instance: 'static + Send + Sync;
+    /// Instance data for this expression.
+    type Instance: 'static + Send + Sync + Debug + PartialEq + Eq + Hash;
+
+    // TODO(ngates): inline this? Not sure we really want to spread this stuff around, although
+    //  it does make testing setup cleaner.
     type AnalysisVTable: AnalysisVTable<Self>;
 
     /// Returns the ID of the expr vtable.
-    fn id(vtable: &Self) -> ExprId;
+    fn id(&self) -> ExprId;
 
     /// Serialize the metadata for the expression.
     ///
     /// Should return `Ok(None)` if the expression is not serializable, and `Ok(vec![])` if it is
     /// serializable but has no metadata.
-    fn serialize(_vtable: &Self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
         Ok(None)
     }
 
     /// Deserialize an instance of this expression.
     ///
     /// Returns `Ok(None)` if the expression is not serializable.
-    fn deserialize(_vtable: &Self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
         Ok(None)
     }
 
     /// Validate the metadata and children for the expression.
-    fn validate(expr: &ExprInstance<Self>) -> VortexResult<()>;
+    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()>;
 
     /// Returns the name of the nth child of the expr.
-    fn child_name(expr: &ExprInstance<Self>, child_idx: usize) -> ChildName;
+    fn child_name(&self, child_idx: usize) -> ChildName;
 
     /// Compute the return [`DType`] of the expression if evaluated in the given scope.
-    fn return_dtype(expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType>;
+    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType>;
 
     /// Evaluate the expression in the given scope.
-    fn evaluate(expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 }
 
 /// Factory functions for static vtables.
@@ -77,41 +86,20 @@ pub struct NotSupported;
 
 /// A typed view over an instance of a Vortex expression for a specific vtable.
 pub struct ExprInstance<'a, V: VTable> {
-    vtable: &'a V,
     instance: &'a V::Instance,
     children: &'a [Expression],
 }
 
 impl<'a, V: VTable> ExprInstance<'a, V> {
-    pub fn from_dyn(
-        vtable: &dyn DynExprVTable,
-        instance: &dyn Any,
-        children: &'a [Expression],
-    ) -> Self {
-        let vtable = vtable
-            .as_any()
-            .downcast_ref::<V>()
-            .vortex_expect("Failed to downcast expression vtable to expected type");
+    pub fn from_dyn(instance: &dyn Any, children: &'a [Expression]) -> Self {
         let instance = instance
             .downcast_ref::<V::Instance>()
             .vortex_expect("Failed to downcast expression instance to expected type");
-        Self {
-            vtable,
-            instance,
-            children,
-        }
+        Self { instance, children }
     }
 
-    pub fn new(vtable: &'a V, instance: &'a V::Instance, children: &'a [Expression]) -> Self {
-        Self {
-            vtable,
-            instance,
-            children,
-        }
-    }
-
-    pub fn vtable(&self) -> &'a V {
-        self.vtable
+    pub fn new(instance: &'a V::Instance, children: &'a [Expression]) -> Self {
+        Self { instance, children }
     }
 
     pub fn children(&self) -> &'a [Expression] {
@@ -157,8 +145,8 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     }
 
     fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()> {
-        let view = ExprInstance::from_dyn(self, instance, children);
-        V::validate(&view)
+        let view = ExprInstance::from_dyn(instance, children);
+        V::validate(&self.0, &view)
     }
 
     fn return_dtype(
@@ -167,8 +155,8 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         children: &[Expression],
         scope: &DType,
     ) -> VortexResult<DType> {
-        let view = ExprInstance::from_dyn(self, instance, children);
-        V::return_dtype(&view, scope)
+        let view = ExprInstance::from_dyn(instance, children);
+        V::return_dtype(&self.0, &view, scope)
     }
 
     fn evaluate(
@@ -177,8 +165,8 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         children: &[Expression],
         scope: &ArrayRef,
     ) -> VortexResult<ArrayRef> {
-        let view = ExprInstance::from_dyn(self, instance, children);
-        V::evaluate(&view, scope)
+        let view = ExprInstance::from_dyn(instance, children);
+        V::evaluate(&self.0, &view, scope)
     }
 }
 

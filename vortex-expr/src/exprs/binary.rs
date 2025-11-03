@@ -21,16 +21,16 @@ impl VTable for Binary {
     type Instance = Operator;
     type AnalysisVTable = Self;
 
-    fn id(_vtable: &Self) -> ExprId {
-        ExprId::new_ref("vortex.binary")
+    fn id(&self) -> ExprId {
+        ExprId::from("vortex.binary")
     }
 
-    fn validate(_expr: &ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, _expr: &ExprInstance<Self>) -> VortexResult<()> {
         // TODO(ngates): check the dtypes.
         Ok(())
     }
 
-    fn child_name(_expr: &ExprInstance<Self>, child_idx: usize) -> ChildName {
+    fn child_name(&self, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("lhs"),
             1 => ChildName::from("rhs"),
@@ -38,7 +38,7 @@ impl VTable for Binary {
         }
     }
 
-    fn return_dtype(expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
         let lhs = expr.lhs().return_dtype(scope)?;
         let rhs = expr.rhs().return_dtype(scope)?;
 
@@ -56,7 +56,7 @@ impl VTable for Binary {
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
-    fn evaluate(expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let lhs = expr.lhs().unchecked_evaluate(scope)?;
         let rhs = expr.rhs().unchecked_evaluate(scope)?;
 

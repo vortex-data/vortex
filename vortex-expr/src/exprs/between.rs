@@ -2,12 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Deref;
-use vortex_array::compute::{between as between_compute, BetweenOptions, StrictComparison};
-use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
+use vortex_array::compute::{between as between_compute, BetweenOptions};
+use vortex_array::{ArrayRef, DeserializeMetadata};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_proto::expr as pb;
 
 use crate::v2::Expression;
 use crate::{
@@ -29,30 +28,14 @@ use crate::{
 pub struct Between;
 
 impl VTable for Between {
-    type Instance = BetweenOptions; // We could wrap this up, I suppose
+    type Instance = BetweenOptions;
     type AnalysisVTable = Self;
 
-    fn id(_vtable: &Self) -> ExprId {
+    fn id(&self) -> ExprId {
         ExprId::from("vortex.between")
     }
 
-    fn deserialize(_vtable: &Self, metadata: &[u8]) -> VortexResult<Self::Instance> {
-        let meta = ProstMetadata::<pb::BetweenOpts>::deserialize(metadata)?;
-        Ok(BetweenOptions {
-            lower_strict: if meta.lower_strict {
-                StrictComparison::Strict
-            } else {
-                StrictComparison::NonStrict
-            },
-            upper_strict: if meta.upper_strict {
-                StrictComparison::Strict
-            } else {
-                StrictComparison::NonStrict
-            },
-        })
-    }
-
-    fn validate(expr: ExprInstance<Self>) -> VortexResult<()> {
+    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
         if expr.children().len() != 3 {
             vortex_bail!(
                 "Between expression requires exactly 3 children, got {}",
@@ -62,7 +45,7 @@ impl VTable for Between {
         Ok(())
     }
 
-    fn child_name(_expr: ExprInstance<Self>, child_idx: usize) -> ChildName {
+    fn child_name(&self, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("array"),
             1 => ChildName::from("lower"),
@@ -71,7 +54,7 @@ impl VTable for Between {
         }
     }
 
-    fn return_dtype(expr: ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
         let arr_dt = expr.child().return_dtype(scope)?;
         let lower_dt = expr.lower().return_dtype(scope)?;
         let upper_dt = expr.upper().return_dtype(scope)?;
@@ -96,7 +79,7 @@ impl VTable for Between {
         ))
     }
 
-    fn evaluate(expr: ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let arr = expr.child().evaluate(scope)?;
         let lower = expr.lower().evaluate(scope)?;
         let upper = expr.upper().evaluate(scope)?;

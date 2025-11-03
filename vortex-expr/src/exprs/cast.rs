@@ -1,124 +1,58 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Deref;
 use vortex_array::compute::cast as compute_cast;
-use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_proto::expr as pb;
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::v2::Expression;
+use crate::{ChildName, ExprId, ExprInstance, NotSupported, VTable, VTableFactory};
 
-vtable!(Cast);
+/// A cast expression that converts values to a target data type.
+pub struct Cast;
 
-#[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Debug, Clone, Hash, Eq)]
-pub struct CastExpr {
-    target: DType,
-    child: ExprRef,
-}
+impl VTable for Cast {
+    type Instance = DType;
+    type AnalysisVTable = NotSupported;
 
-impl PartialEq for CastExpr {
-    fn eq(&self, other: &Self) -> bool {
-        self.target == other.target && self.child.eq(&other.child)
-    }
-}
-
-pub struct CastExprEncoding;
-
-impl VTable for CastVTable {
-    type Expr = CastExpr;
-    type Encoding = CastExprEncoding;
-    type Metadata = ProstMetadata<pb::CastOpts>;
-
-    fn id(_encoding: &Self::Encoding) -> ExprId {
-        ExprId::new_ref("cast")
+    fn id(&self) -> ExprId {
+        ExprId::from("vortex.cast")
     }
 
-    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(CastExprEncoding.as_ref())
-    }
-
-    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(ProstMetadata(pb::CastOpts {
-            target: Some((&expr.target).into()),
-        }))
-    }
-
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
-        vec![&expr.child]
-    }
-
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        Ok(CastExpr {
-            target: expr.target.clone(),
-            child: children[0].clone(),
-        })
-    }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
-    ) -> VortexResult<Self::Expr> {
-        if children.len() != 1 {
+    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+        if expr.children().len() != 1 {
             vortex_bail!(
-                "Cast expression must have exactly 1 child, got {}",
-                children.len()
+                "Cast expression requires exactly 1 child, got {}",
+                expr.children().len()
             );
         }
-        let target: DType = metadata
-            .target
-            .as_ref()
-            .ok_or_else(|| vortex_err!("missing target dtype in CastOpts"))?
-            .try_into()?;
-        Ok(CastExpr {
-            target,
-            child: children[0].clone(),
-        })
+        Ok(())
     }
 
-    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        let array = expr.child.evaluate(scope)?;
-        compute_cast(&array, &expr.target).map_err(|e| {
+    fn child_name(&self, child_idx: usize) -> ChildName {
+        match child_idx {
+            0 => ChildName::from("input"),
+            _ => unreachable!("Invalid child index {} for Cast expression", child_idx),
+        }
+    }
+
+    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+        Ok(expr.deref().clone())
+    }
+
+    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        let array = expr.children()[0].evaluate(scope)?;
+        compute_cast(&array, expr.deref()).map_err(|e| {
             e.with_context(format!(
                 "Failed to cast array of dtype {} to {}",
                 array.dtype(),
-                expr.target
+                expr.deref()
             ))
         })
     }
-
-    fn return_dtype(expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
-        Ok(expr.target.clone())
-    }
 }
-
-impl CastExpr {
-    pub fn new(child: ExprRef, target: DType) -> Self {
-        Self { target, child }
-    }
-
-    pub fn new_expr(child: ExprRef, target: DType) -> ExprRef {
-        Self::new(child, target).into_expr()
-    }
-}
-
-impl DisplayAs for CastExpr {
-    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match df {
-            DisplayFormat::Compact => {
-                write!(f, "cast({}, {})", self.child, self.target)
-            }
-            DisplayFormat::Tree => {
-                write!(f, "Cast(target: {})", self.target)
-            }
-        }
-    }
-}
-
-impl AnalysisExpr for CastExpr {}
 
 /// Creates an expression that casts values to a target data type.
 ///
@@ -129,18 +63,19 @@ impl AnalysisExpr for CastExpr {}
 /// # use vortex_expr::{cast, root};
 /// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
 /// ```
-pub fn cast(child: ExprRef, target: DType) -> ExprRef {
-    CastExpr::new(child, target).into_expr()
+pub fn cast(child: Expression, target: DType) -> Expression {
+    Cast.try_new(target, [child])
+        .vortex_expect("Failed to create Cast expression")
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::IntoArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::{ExprRef, Scope, cast, get_item, root, test_harness};
+    use crate::{cast, get_item, root, test_harness, Expression, Scope};
 
     #[test]
     fn dtype() {
@@ -168,7 +103,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr: ExprRef = cast(
+        let expr: Expression = cast(
             get_item("a", root()),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
