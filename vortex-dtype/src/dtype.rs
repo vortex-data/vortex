@@ -334,10 +334,28 @@ impl DType {
         }
     }
 
+    /// Owned version of [Self::as_decimal_opt].
+    pub fn into_decimal_opt(self) -> Option<DecimalDType> {
+        if let Decimal(decimal, _) = self {
+            Some(decimal)
+        } else {
+            None
+        }
+    }
+
     /// Get the inner element dtype if `self` is a [`DType::List`], otherwise returns `None`.
     ///
     /// Note that this does _not_ return `Some` if `self` is a [`DType::FixedSizeList`].
     pub fn as_list_element_opt(&self) -> Option<&Arc<DType>> {
+        if let List(edt, _) = self {
+            Some(edt)
+        } else {
+            None
+        }
+    }
+
+    /// Owned version of [Self::as_list_element_opt].
+    pub fn into_list_element_opt(self) -> Option<Arc<DType>> {
         if let List(edt, _) = self {
             Some(edt)
         } else {
@@ -357,9 +375,29 @@ impl DType {
         }
     }
 
+    /// Owned version of [Self::as_fixed_size_list_element_opt].
+    pub fn into_fixed_size_list_element_opt(self) -> Option<Arc<DType>> {
+        if let FixedSizeList(edt, ..) = self {
+            Some(edt)
+        } else {
+            None
+        }
+    }
+
     /// Get the inner element dtype if `self` is **either** a [`DType::List`] or a
     /// [`DType::FixedSizeList`], otherwise returns `None`
     pub fn as_any_size_list_element_opt(&self) -> Option<&Arc<DType>> {
+        if let FixedSizeList(edt, ..) = self {
+            Some(edt)
+        } else if let List(edt, ..) = self {
+            Some(edt)
+        } else {
+            None
+        }
+    }
+
+    /// Owned version of [Self::as_any_size_list_element_opt].
+    pub fn into_any_size_list_element_opt(self) -> Option<Arc<DType>> {
         if let FixedSizeList(edt, ..) = self {
             Some(edt)
         } else if let List(edt, ..) = self {
@@ -381,8 +419,25 @@ impl DType {
         vortex_panic!("DType is not a Struct")
     }
 
+    /// Owned version of [Self::as_struct_fields].
+    pub fn into_struct_fields(self) -> StructFields {
+        if let Struct(f, _) = self {
+            return f;
+        }
+        vortex_panic!("DType is not a Struct")
+    }
+
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
     pub fn as_struct_fields_opt(&self) -> Option<&StructFields> {
+        if let Struct(f, _) = self {
+            Some(f)
+        } else {
+            None
+        }
+    }
+
+    /// Owned version of [Self::as_struct_fields_opt].
+    pub fn into_struct_fields_opt(self) -> Option<StructFields> {
         if let Struct(f, _) = self {
             Some(f)
         } else {
