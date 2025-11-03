@@ -5,13 +5,17 @@ use std::sync::Arc;
 
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
+use parking_lot::Mutex;
 use smol::block_on;
+use smol::channel::{Sender, unbounded};
+use vortex_error::VortexExpect;
 
-pub use crate::runtime::pool::CurrentThreadWorkerPool;
 use crate::runtime::{BlockingRuntime, Executor, Handle};
 
-/// A current thread runtime allows callers to much more explicitly drive Vortex futures than with
-/// a Tokio runtime.
+/// An async execution runtime that is broadly useful for driving Vortex scan and write operations.
+///
+/// This runtime is adaptive, upon construction it starts in current-thread mode, but can adaptively
+/// be configured to execute multithreaded by setting the target number of worker threads.
 ///
 /// The current thread runtime will do no work unless `block_on` is called. In other words, the
 /// default behavior is single-threaded with code running on the thread that called `block_on`.
@@ -20,29 +24,134 @@ use crate::runtime::{BlockingRuntime, Executor, Handle};
 /// to drive work on that thread. Each thread shares the same underlying executor with the same
 /// set of tasks, allowing work to be driven in parallel.
 ///
-/// For automatic driving of work, a [`CurrentThreadWorkerPool`] can be created from the runtime
-/// by calling [`new_pool`](CurrentThreadRuntime::new_pool). The returned pool can be configured
-/// with the desired number of worker threads that will drive work on behalf of the runtime.
+/// Examples:
+///
+/// ```
+/// # use std::sync::{Arc, Mutex};
+/// # use smol::block_on;
+/// # use vortex_io::runtime::DefaultRuntime;
+/// # use vortex_io::runtime::BlockingRuntime;
+/// # use std::collections::HashSet;
+/// // Create a new runtime with current-thread execution.
+/// let rt = DefaultRuntime::current_thread();
+///
+/// // We can block the runtime to force tasks to execute while blocking the current thread.
+/// let value = rt.block_on(move |_| async move { "hello world".to_string() });
+/// assert_eq!(value.as_str(), "hello world");
+///
+/// // We can adjust the number of worker threads, and spawn more tasks which will all be
+/// // polled in parallel in the background.
+/// rt.set_workers(2);
+///
+/// // Spawn some tasks.
+/// let results = Arc::new(Mutex::new(HashSet::new()));
+///
+/// for id in 0..10 {
+///     let result_clone = results.clone();
+///     rt.handle().spawn(async move {
+///         // Push a new result for the task.
+///         result_clone.lock()
+///             .unwrap()
+///             .insert(format!("hello world - {id}"));
+///     }).detach();
+/// }
+///
+/// // The above tasks should complete, even though we didn't call block_on, because we're now
+/// // operating with background workers.
+/// loop {
+///     let count = { results.lock().unwrap().len() };
+///     if count == 10 {
+///         break;
+///     }
+///     // yield so worker threads can do their thing.
+///     std::thread::yield_now();
+/// }
+/// ```
 #[derive(Clone, Default)]
-pub struct CurrentThreadRuntime {
+pub struct DefaultRuntime {
+    /// The underlying handle to an `async_executor::Executor`, which tracks all task queues
+    /// that are concurrently being updated and stolen by worker threads.
     executor: Arc<smol::Executor<'static>>,
+    /// A list of information necessary to clean up worker threads.
+    workers: Arc<Mutex<Workers>>,
 }
 
-impl CurrentThreadRuntime {
-    /// Create a new current thread runtime.
-    pub fn new() -> Self {
+#[derive(Default)]
+struct Workers {
+    shutdown_handles: Vec<Sender<()>>,
+}
+
+impl DefaultRuntime {
+    /// Create the runtime as a current-thread executor runtime.
+    ///
+    /// In this mode, futures spawned onto the runtime will not polled until the `block_on`
+    /// method is called, at which point the thread which called `block_on` will poll any pending
+    /// tasks necessary to resolve the future.
+    pub fn current_thread() -> Self {
         Self::default()
     }
 
-    /// Create a new worker pool for driving the runtime in the background.
+    /// Create a new runtime with multithreaded execution.
     ///
-    /// This pool can be used to offload work from the current thread to a set of worker threads
-    /// that will drive the runtime's executor.
+    /// In this mode, any futures spawned onto the runtime will be polled eagerly by `num_workers`
+    /// background threads.
     ///
-    /// By default, the pool has no worker threads; the caller must set the desired number of
-    /// worker threads using the `set_workers` method on the returned pool.
-    pub fn new_pool(&self) -> CurrentThreadWorkerPool {
-        CurrentThreadWorkerPool::new(self.executor.clone())
+    /// A multithreaded runtime can be scaled back down to a [`current_thread`][Self::current_thread]
+    /// runtime by calling `set_workers(0)`.
+    pub fn multithread(num_workers: usize) -> Self {
+        let this = Self::default();
+        this.set_workers(num_workers);
+        this
+    }
+
+    /// Update the number of workers available to run work.
+    ///
+    /// By default, this runtime will operate with current-thread execution, meaning all spawned
+    /// futures will be polled on whichever thread calls the `block_on` method.
+    ///
+    /// By setting the number of workers here, callers can allow for background threads to eagerly
+    /// poll several of the tasks. This means that we get access to some of these threads instead.
+    pub fn set_workers(&self, num_workers: usize) {
+        let mut workers = self.workers.lock();
+
+        if num_workers < workers.shutdown_handles.len() {
+            // Drop the shutdown handle for each extraneous runtime. This will cause the spawned
+            // thread to complete as expected.
+            workers.shutdown_handles.drain(num_workers..).for_each(drop);
+        } else {
+            let mut shutdown_signals =
+                Vec::with_capacity(num_workers - workers.shutdown_handles.len());
+            for worker_id in workers.shutdown_handles.len()..num_workers {
+                let (signal, shutdown) = unbounded::<()>();
+                let exec = self.executor.clone();
+                std::thread::Builder::new()
+                    .name(format!("vortex-runtime-worker-{}", worker_id))
+                    .spawn(move || {
+                        // NOTE: we explicitly discard the result of executing the recv future,
+                        // because it will return an error when the sender end is closed, which is
+                        // the normal shutdown flow for the runtime.
+                        let _err = block_on(exec.run(shutdown.recv()));
+                    })
+                    .vortex_expect("spawning new worker threads should succeed on all platforms");
+
+                // Push the shutdown handle only if the thread spawned successfully.
+                // If any thread does not spawn successfully, we will unwind, which will drop `shutdown_signals`
+                // and cause any intermediate spawned threads to die when their recv returns with error.
+                shutdown_signals.push(signal);
+            }
+
+            // Only push the new shutdown handlers after all threads spawned successfully.
+            workers.shutdown_handles.extend(shutdown_signals);
+        }
+    }
+
+    /// Set the number of background worker threads based on the number of available cores,
+    /// minus one to allow for a single driver core.
+    pub fn set_workers_to_available_cores(&self) {
+        let n = std::thread::available_parallelism()
+            .map(|n| n.get().saturating_sub(1).max(1))
+            .unwrap_or(1);
+        self.set_workers(n);
     }
 
     /// Returns an iterator wrapper around a stream, blocking the current thread for each item.
@@ -84,8 +193,8 @@ impl CurrentThreadRuntime {
     }
 }
 
-impl BlockingRuntime for CurrentThreadRuntime {
-    type BlockingIterator<'a, R: 'a> = CurrentThreadIterator<'a, R>;
+impl BlockingRuntime for DefaultRuntime {
+    type BlockingIterator<'a, R: 'a> = BlockingIter<'a, R>;
 
     fn handle(&self) -> Handle {
         let executor: Arc<dyn Executor> = self.executor.clone();
@@ -100,26 +209,27 @@ impl BlockingRuntime for CurrentThreadRuntime {
         block_on(self.executor.run(f(self.handle())))
     }
 
-    fn block_on_stream<'a, F, S, R>(&self, f: F) -> Self::BlockingIterator<'a, R>
+    fn block_on_stream<'a, F, S, R>(&self, f: F) -> BlockingIter<'a, R>
     where
         F: FnOnce(Handle) -> S,
         S: Stream<Item = R> + Send + 'a,
         R: Send + 'a,
     {
-        CurrentThreadIterator {
+        BlockingIter {
             executor: self.executor.clone(),
             stream: f(self.handle()).boxed(),
         }
     }
 }
 
-/// An iterator that wraps up a stream to drive it using the current thread execution.
-pub struct CurrentThreadIterator<'a, T> {
+/// An iterator wrapping a stream, that calls `block_on` to fetch the next element by blocking
+/// the calling thread.
+pub struct BlockingIter<'a, T> {
     executor: Arc<smol::Executor<'static>>,
     stream: BoxStream<'a, T>,
 }
 
-impl<T> Iterator for CurrentThreadIterator<'_, T> {
+impl<T> Iterator for BlockingIter<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -166,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_worker_thread() {
-        let runtime = CurrentThreadRuntime::new();
+        let runtime = DefaultRuntime::current_thread();
 
         // We spawn a future that sets a value on a separate thread.
         let value = Arc::new(AtomicUsize::new(0));
@@ -182,11 +292,13 @@ mod tests {
         assert_eq!(value.load(Ordering::SeqCst), 0);
 
         // An empty pool still does nothing.
-        let pool = runtime.new_pool();
+        runtime.set_workers(0);
         assert_eq!(value.load(Ordering::SeqCst), 0);
 
         // Adding a worker thread should drive the executor.
-        pool.set_workers(1);
+        runtime.set_workers(1);
+
+        // We need something to call block_on to make this shit work as expected.
         for _ in 0..10 {
             if value.load(Ordering::SeqCst) == 42 {
                 break;
@@ -198,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_block_on_stream_single_thread() {
-        let mut iter = CurrentThreadRuntime::new()
+        let mut iter = DefaultRuntime::current_thread()
             .block_on_stream(|_h| stream::iter(vec![1, 2, 3, 4, 5]).boxed());
 
         assert_eq!(iter.next(), Some(1));
@@ -216,7 +328,7 @@ mod tests {
         let items_per_thread = 25;
         let total_items = 100;
 
-        let iter = CurrentThreadRuntime::new()
+        let iter = DefaultRuntime::current_thread()
             .block_on_stream_thread_safe(|_h| stream::iter(0..total_items).boxed());
 
         let barrier = Arc::new(Barrier::new(num_threads));
@@ -262,7 +374,7 @@ mod tests {
         let num_items = 50;
         let num_threads = 3;
 
-        let iter = CurrentThreadRuntime::new().block_on_stream_thread_safe(|h| {
+        let iter = DefaultRuntime::current_thread().block_on_stream_thread_safe(|h| {
             stream::unfold(0, move |state| {
                 let h = h.clone();
                 async move {
@@ -320,7 +432,7 @@ mod tests {
 
     #[test]
     fn test_block_on_stream_async_work() {
-        let iter = CurrentThreadRuntime::new().block_on_stream(|h| {
+        let iter = DefaultRuntime::current_thread().block_on_stream(|h| {
             stream::unfold((h, 0), |(h, state)| async move {
                 if state < 10 {
                     let value = h
@@ -342,7 +454,7 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
 
-        let mut iter = CurrentThreadRuntime::new().block_on_stream(|_h| {
+        let mut iter = DefaultRuntime::current_thread().block_on_stream(|_h| {
             stream::unfold(0, move |state| {
                 let c = c.clone();
                 async move {
@@ -371,7 +483,7 @@ mod tests {
     #[test]
     fn test_block_on_stream_interleaved_access() {
         let barrier = Arc::new(Barrier::new(2));
-        let iter = CurrentThreadRuntime::new()
+        let iter = DefaultRuntime::current_thread()
             .block_on_stream_thread_safe(|_h| stream::iter(0..20).boxed());
 
         let iter1 = iter.clone();
@@ -426,7 +538,7 @@ mod tests {
         let num_threads = 10;
         let num_items = 1000;
 
-        let iter = CurrentThreadRuntime::new()
+        let iter = DefaultRuntime::current_thread()
             .block_on_stream_thread_safe(|_h| stream::iter(0..num_items).boxed());
 
         let received = Arc::new(Mutex::new(Vec::new()));

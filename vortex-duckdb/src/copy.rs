@@ -13,7 +13,6 @@ use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::{DType, StructFields};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::file::{VortexWriteOptions, WriteSummary};
-use vortex::io::runtime::current::CurrentThreadWorkerPool;
 use vortex::io::runtime::{BlockingRuntime, Task};
 use vortex::stream::ArrayStreamAdapter;
 
@@ -37,11 +36,6 @@ pub struct BindData {
 pub struct GlobalState {
     write_task: Mutex<Option<Task<VortexResult<WriteSummary>>>>,
     sink: Option<Sender<VortexResult<ArrayRef>>>,
-    // Pool of background workers helping to drive the write task.
-    // Note that this is optional and without it, we would only drive the task when DuckDB calls
-    // into us, and we call `RUNTIME.block_on`.
-    #[allow(dead_code)]
-    worker_pool: CurrentThreadWorkerPool,
 }
 
 impl CopyFunction for VortexCopyFunction {
@@ -121,11 +115,9 @@ impl CopyFunction for VortexCopyFunction {
                 .await
         });
 
-        let worker_pool = RUNTIME.new_pool();
-        worker_pool.set_workers_to_available_parallelism();
+        RUNTIME.set_workers_to_available_cores();
 
         Ok(GlobalState {
-            worker_pool,
             write_task: Mutex::new(Some(writer)),
             sink: Some(sink),
         })

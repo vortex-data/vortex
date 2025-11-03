@@ -7,7 +7,7 @@ use std::ffi::{CStr, c_char};
 use std::sync::LazyLock;
 
 use vortex::error::{VortexExpect, VortexResult};
-use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::runtime::default::DefaultRuntime;
 
 use crate::copy::VortexCopyFunction;
 use crate::duckdb::Config;
@@ -31,7 +31,7 @@ mod copy;
 mod e2e_test;
 
 // A global runtime for Vortex operations within DuckDB.
-static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
+static RUNTIME: LazyLock<DefaultRuntime> = LazyLock::new(DefaultRuntime::current_thread);
 
 /// Register Vortex extension configuration options with DuckDB.
 /// This must be called before `register_table_functions` to take effect.

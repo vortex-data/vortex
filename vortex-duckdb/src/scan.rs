@@ -21,7 +21,7 @@ use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::runtime::current::ThreadSafeIterator;
+use vortex::io::runtime::default::ThreadSafeIterator;
 use vortex::{ArrayRef, ToCanonical};
 
 use crate::RUNTIME;
