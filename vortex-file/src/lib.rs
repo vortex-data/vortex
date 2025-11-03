@@ -176,5 +176,7 @@ pub fn register_default_encodings(session: &VortexSession) {
         EncodingRef::new_ref(SequenceEncoding.as_ref()),
         EncodingRef::new_ref(SparseEncoding.as_ref()),
         EncodingRef::new_ref(ZigZagEncoding.as_ref()),
+        #[cfg(feature = "zstd")]
+        EncodingRef::new_ref(vortex_zstd::ZstdEncoding.as_ref()),
     ]);
 }
