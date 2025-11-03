@@ -83,12 +83,8 @@ macro_rules! delegate_fn {
 
 impl DecimalBuilder {
     /// Creates a new `DecimalBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
-    pub fn new<T: NativeDecimalType>(precision: u8, scale: i8, nullability: Nullability) -> Self {
-        Self::with_capacity::<T>(
-            DEFAULT_BUILDER_CAPACITY,
-            DecimalDType::new(precision, scale),
-            nullability,
-        )
+    pub fn new<T: NativeDecimalType>(decimal: DecimalDType, nullability: Nullability) -> Self {
+        Self::with_capacity::<T>(DEFAULT_BUILDER_CAPACITY, decimal, nullability)
     }
 
     /// Creates a new `DecimalBuilder` with the given `capacity`.
@@ -293,13 +289,13 @@ mod tests {
     fn test_mixed_extend() {
         let values = 42i8;
 
-        let mut i8s = DecimalBuilder::new::<i8>(2, 1, false.into());
+        let mut i8s = DecimalBuilder::new::<i8>(DecimalDType::new(2, 1), false.into());
         for v in 0..values {
             i8s.append_value(v);
         }
         let i8s = i8s.finish();
 
-        let mut i128s = DecimalBuilder::new::<i128>(2, 1, false.into());
+        let mut i128s = DecimalBuilder::new::<i128>(DecimalDType::new(2, 1), false.into());
         i128s.extend_from_array(&i8s);
         let i128s = i128s.finish();
 
@@ -313,7 +309,7 @@ mod tests {
         use vortex_scalar::Scalar;
 
         // Simply test that the builder accepts its own finish output via scalar.
-        let mut builder = DecimalBuilder::new::<i64>(10, 2, true.into());
+        let mut builder = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());
         builder.append_value(1234i64);
         builder.append_value(5678i64);
         builder.append_null();
@@ -326,7 +322,7 @@ mod tests {
         assert_arrays_eq!(&array, &expected);
 
         // Test by taking a scalar from the array and appending it to a new builder.
-        let mut builder2 = DecimalBuilder::new::<i64>(10, 2, true.into());
+        let mut builder2 = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());
         for i in 0..array.len() {
             let scalar = array.scalar_at(i);
             builder2.append_scalar(&scalar).unwrap();
@@ -336,7 +332,7 @@ mod tests {
         assert_arrays_eq!(&array2, &array);
 
         // Test wrong dtype error.
-        let mut builder = DecimalBuilder::new::<i64>(10, 2, false.into());
+        let mut builder = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), false.into());
         let wrong_scalar = Scalar::from(true);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
     }

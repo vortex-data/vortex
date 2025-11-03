@@ -782,7 +782,7 @@ mod tests {
     #[case(0i128)]
     #[case(vortex_scalar::i256::ZERO)]
     fn to_arrow_decimal128<T: NativeDecimalType>(#[case] _decimal_type: T) {
-        let mut decimal = DecimalBuilder::new::<T>(2, 1, false.into());
+        let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
         decimal.append_value(10);
         decimal.append_value(11);
         decimal.append_value(12);
@@ -809,7 +809,7 @@ mod tests {
     fn to_arrow_decimal32<T: NativeDecimalType>(#[case] _decimal_type: T) {
         use arrow_array::Decimal32Array;
 
-        let mut decimal = DecimalBuilder::new::<T>(2, 1, false.into());
+        let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
         decimal.append_value(10);
         decimal.append_value(11);
         decimal.append_value(12);
@@ -836,7 +836,7 @@ mod tests {
     fn to_arrow_decimal64<T: NativeDecimalType>(#[case] _decimal_type: T) {
         use arrow_array::Decimal64Array;
 
-        let mut decimal = DecimalBuilder::new::<T>(2, 1, false.into());
+        let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
         decimal.append_value(10);
         decimal.append_value(11);
         decimal.append_value(12);
@@ -861,7 +861,7 @@ mod tests {
     #[case(0i128)]
     #[case(vortex_scalar::i256::ZERO)]
     fn to_arrow_decimal256<T: NativeDecimalType>(#[case] _decimal_type: T) {
-        let mut decimal = DecimalBuilder::new::<T>(2, 1, false.into());
+        let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
         decimal.append_value(10);
         decimal.append_value(11);
         decimal.append_value(12);
