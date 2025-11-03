@@ -71,6 +71,10 @@ impl FixedSizeListBuilder {
     ///
     /// [`ListArray`]: crate::arrays::ListArray
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
+        if value.is_null() {
+            self.append_null();
+            return Ok(());
+        }
         if value.len() != self.list_size() as usize {
             vortex_bail!(
                 "Tried to append a `ListScalar` with length {} to a `FixedSizeListScalar` \
@@ -490,6 +494,28 @@ mod tests {
         for i in 0..3 {
             assert!(!fsl_array.validity().is_valid(i));
         }
+    }
+
+    #[test]
+    fn test_append_scalar_nulls() {
+        // Elements must be nullable if we're going to append null lists
+        let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
+        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 2, Nullable, 0);
+
+        assert_eq!(builder.dtype().nullability(), Nullable);
+        builder
+            .append_scalar(&Scalar::null(builder.dtype().clone()))
+            .unwrap();
+        assert_eq!(builder.len(), 1);
+
+        let fsl = builder.finish();
+        assert_eq!(fsl.len(), 1);
+
+        let fsl_array = fsl.to_fixed_size_list();
+        assert_eq!(fsl_array.list_size(), 2);
+
+        // Check that all lists are null.
+        assert!(!fsl_array.validity().is_valid(0));
     }
 
     #[test]
