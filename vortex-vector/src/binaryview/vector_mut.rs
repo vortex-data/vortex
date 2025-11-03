@@ -87,12 +87,16 @@ impl<T: BinaryViewType> BinaryViewVectorMut<T> {
         validity: MaskMut,
         buffers: Vec<ByteBuffer>,
     ) -> Self {
-        Self {
-            views,
-            buffers,
-            validity,
-            open_buffer: None,
-            _marker: std::marker::PhantomData,
+        if cfg!(debug_assertions) {
+            Self::new(views, buffers, validity)
+        } else {
+            Self {
+                views,
+                buffers,
+                validity,
+                open_buffer: None,
+                _marker: std::marker::PhantomData,
+            }
         }
     }
 }

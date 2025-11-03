@@ -44,11 +44,15 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
         buffers: Arc<Box<[ByteBuffer]>>,
         validity: Mask,
     ) -> Self {
-        Self {
-            views,
-            validity,
-            buffers,
-            _marker: std::marker::PhantomData,
+        if cfg!(debug_assertions) {
+            Self::new(views, buffers, validity)
+        } else {
+            Self {
+                views,
+                validity,
+                buffers,
+                _marker: std::marker::PhantomData,
+            }
         }
     }
 
