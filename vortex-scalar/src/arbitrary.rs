@@ -12,7 +12,7 @@ use std::sync::Arc;
 use arbitrary::{Result, Unstructured};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, DecimalDType, NativeDecimalType, PType, smallest_decimal_value_type};
+use vortex_dtype::{DType, DecimalDType, NativeDecimalType, PType};
 
 use crate::{
     DecimalValue, InnerScalarValue, PValue, Scalar, ScalarValue, match_each_decimal_value_type,
@@ -84,11 +84,14 @@ fn random_pvalue(u: &mut Unstructured, ptype: &PType) -> Result<PValue> {
 /// Generate an arbitrary decimal scalar confined to the given bounds of precision and scale.
 pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Result<ScalarValue> {
     let precision = decimal_type.precision();
-    let value = match_each_decimal_value_type!(smallest_decimal_value_type(decimal_type), |D| {
-        DecimalValue::from(u.int_in_range(
-            D::MIN_BY_PRECISION[precision as usize]..=D::MAX_BY_PRECISION[precision as usize],
-        )?)
-    });
+    let value = match_each_decimal_value_type!(
+        DecimalType::smallest_decimal_value_type(decimal_type),
+        |D| {
+            DecimalValue::from(u.int_in_range(
+                D::MIN_BY_PRECISION[precision as usize]..=D::MAX_BY_PRECISION[precision as usize],
+            )?)
+        }
+    );
 
     Ok(ScalarValue(InnerScalarValue::Decimal(value)))
 }

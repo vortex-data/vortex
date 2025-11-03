@@ -19,8 +19,8 @@ use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
 use vortex_array::{Array, Canonical, ToCanonical};
 use vortex_buffer::{BitBuffer, Buffer, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
-    DType, DecimalDType, IntegerPType, NativeDecimalType, NativePType, Nullability, StructFields,
-    match_each_integer_ptype, match_each_native_ptype, smallest_decimal_value_type,
+    DType, DecimalDType, DecimalType, IntegerPType, NativeDecimalType, NativePType, Nullability,
+    StructFields, match_each_integer_ptype, match_each_native_ptype,
 };
 use vortex_error::{VortexError, VortexExpect, vortex_panic};
 use vortex_scalar::{
@@ -58,7 +58,8 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
                 array.len(),
             ),
             DType::Decimal(decimal_dtype, nullability) => {
-                let canonical_decimal_value_type = smallest_decimal_value_type(decimal_dtype);
+                let canonical_decimal_value_type =
+                    DecimalType::smallest_decimal_value_type(decimal_dtype);
                 let fill_value = array.fill_scalar().as_decimal();
                 match_each_decimal_value_type!(canonical_decimal_value_type, |D| {
                     canonicalize_sparse_decimal::<D>(

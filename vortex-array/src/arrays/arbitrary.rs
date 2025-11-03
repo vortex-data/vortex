@@ -6,9 +6,7 @@ use std::sync::Arc;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
 use vortex_buffer::{BitBuffer, Buffer};
-use vortex_dtype::{
-    DType, IntegerPType, NativePType, Nullability, PType, smallest_decimal_value_type,
-};
+use vortex_dtype::{DType, IntegerPType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::{Scalar, match_each_decimal_value_type};
@@ -97,17 +95,20 @@ fn random_array_chunk(
         },
         DType::Decimal(decimal, n) => {
             let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
-            match_each_decimal_value_type!(smallest_decimal_value_type(decimal), |DVT| {
-                let mut builder =
-                    DecimalBuilder::new::<DVT>(decimal.precision(), decimal.scale(), *n);
-                for _i in 0..elem_len {
-                    let random_decimal = random_scalar(u, &DType::Decimal(*decimal, *n))?;
-                    builder.append_scalar(&random_decimal).vortex_expect(
-                        "was somehow unable to append a decimal to a decimal builder",
-                    );
+            match_each_decimal_value_type!(
+                DecimalType::smallest_decimal_value_type(decimal),
+                |DVT| {
+                    let mut builder =
+                        DecimalBuilder::new::<DVT>(decimal.precision(), decimal.scale(), *n);
+                    for _i in 0..elem_len {
+                        let random_decimal = random_scalar(u, &DType::Decimal(*decimal, *n))?;
+                        builder.append_scalar(&random_decimal).vortex_expect(
+                            "was somehow unable to append a decimal to a decimal builder",
+                        );
+                    }
+                    Ok(builder.finish())
                 }
-                Ok(builder.finish())
-            })
+            )
         }
         DType::Utf8(n) => random_string(u, *n, chunk_len),
         DType::Binary(n) => random_bytes(u, *n, chunk_len),

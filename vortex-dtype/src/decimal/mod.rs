@@ -3,14 +3,12 @@
 
 mod max_precision;
 mod precision;
-mod smallest_type;
 mod types;
 
 use std::fmt::{Display, Formatter};
 
 use num_traits::ToPrimitive;
 pub use precision::*;
-pub use smallest_type::*;
 pub use types::*;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
