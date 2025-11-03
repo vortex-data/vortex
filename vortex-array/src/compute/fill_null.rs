@@ -108,6 +108,7 @@ impl ComputeFnVTable for FillNull {
             return Ok(fill_null(canonical_arr.as_ref(), fill_value)?.into());
         }
 
+        // TODO(joe): update fuzzer when fixed
         vortex_bail!("fill null not implemented for DType {}", array.dtype())
     }
 
