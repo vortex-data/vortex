@@ -156,7 +156,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
             }
         }
         let n_buffers_recursive = array.nbuffers_recursive();
-        if u16::try_from(n_buffers_recursive).is_err() {
+        if n_buffers_recursive > u16::MAX as usize {
             vortex_bail!(
                 "Array and all descendent arrays can have at most u16::MAX buffers: {}",
                 n_buffers_recursive
