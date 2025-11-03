@@ -21,6 +21,7 @@ pub(crate) use cast::*;
 pub(crate) use compare::*;
 pub(crate) use fill_null::*;
 pub(crate) use filter::*;
+use itertools::Itertools;
 use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Unstructured};
 pub(crate) use mask::*;
@@ -331,14 +332,14 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     let num_indices = u.int_in_range(1..=5.min(current_array.len()))?;
-                    let mut indices = HashSet::with_capacity(num_indices);
-
-                    while indices.len() < num_indices {
-                        let idx = u.choose_index(current_array.len())?;
-                        indices.insert(idx);
-                    }
-
-                    let indices_vec: Vec<usize> = indices.into_iter().collect();
+                    let indices_vec = (0..num_indices)
+                        .map(|_| {
+                            u.int_in_range(0usize..=(current_array.len() - 1))
+                                .ok()
+                                .vortex_expect("cannot pick")
+                        })
+                        .unique()
+                        .collect::<Vec<_>>();
 
                     // Compute expected scalars using the baseline implementation
                     let expected_scalars: Vec<Scalar> = indices_vec
