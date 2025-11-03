@@ -29,7 +29,8 @@ use crate::footer::FileStatistics;
 use crate::segments::writer::BufferedSegmentSink;
 use crate::{Footer, MAGIC_BYTES, WriteStrategyBuilder};
 
-/// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
+/// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink
+/// that implements [`VortexWrite`].
 ///
 /// Unless overridden, the default [write strategy][crate::WriteStrategyBuilder] will be used with no
 /// additional configuration.
