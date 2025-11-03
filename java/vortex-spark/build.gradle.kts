@@ -26,7 +26,7 @@ testing {
             useJUnitJupiter()
 
             dependencies {
-                implementation("org.junit.jupiter:junit-jupiter:5.14.0")
+                implementation("org.junit.jupiter:junit-jupiter:5.14.1")
                 implementation("org.apache.spark:spark-core_2.12")
                 implementation("org.apache.spark:spark-sql_2.12")
                 runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
