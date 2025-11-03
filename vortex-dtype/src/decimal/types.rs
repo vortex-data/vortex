@@ -61,8 +61,11 @@ pub trait NativeDecimalType:
     const MAX_SCALE: i8;
 
     /// The minimum value for each precision supported by this decimal type.
+    /// This is an array of length `MAX_PRECISION + 1` where the `i`th element is the minimum value
+    /// for a precision of `i` (including precision 0).
     const MIN_BY_PRECISION: &'static [Self];
     /// The maximum value for each precision supported by this decimal type.
+    /// similar to `MIN_BY_PRECISION`.
     const MAX_BY_PRECISION: &'static [Self];
 
     /// Downcast the provided object to a type-specific instance.
