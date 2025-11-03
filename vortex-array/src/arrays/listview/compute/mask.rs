@@ -19,8 +19,8 @@ impl MaskKernel for ListViewVTable {
                 array.offsets().clone(),
                 array.sizes().clone(),
                 array.validity().mask(mask),
-                array.is_zero_copy_to_list(),
             )
+            .with_zero_copy_to_list(array.is_zero_copy_to_list())
         }
         .into_array())
     }

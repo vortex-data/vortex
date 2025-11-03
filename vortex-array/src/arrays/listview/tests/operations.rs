@@ -120,9 +120,8 @@ fn test_slice_with_nulls() {
         Validity::Array(BoolArray::from_iter(vec![true, false, true, false]).into_array());
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements, offsets, sizes, validity, true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, validity)
+            .with_zero_copy_to_list(true)
     }
     .into_array();
 
@@ -156,13 +155,8 @@ fn test_slice_edge_cases(
     let sizes = buffer![2i32, 2, 2].into_array();
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements,
-            offsets,
-            sizes,
-            Validity::NonNullable,
-            true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
     }
     .into_array();
 
@@ -211,13 +205,8 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
     };
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements,
-            offsets,
-            sizes,
-            Validity::NonNullable,
-            true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
     }
     .to_array();
 
@@ -252,9 +241,8 @@ fn test_cast_with_nulls() {
     let validity = Validity::Array(BoolArray::from_iter(vec![true, false]).into_array());
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements, offsets, sizes, validity, true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, validity)
+            .with_zero_copy_to_list(true)
     }
     .to_array();
 
@@ -329,13 +317,8 @@ fn test_cast_large_dataset() {
     let sizes = buffer![4u32; 20].into_array();
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements,
-            offsets,
-            sizes,
-            Validity::NonNullable,
-            true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
     }
     .to_array();
 
@@ -421,13 +404,8 @@ fn test_constant_with_constant_elements() {
     let sizes = buffer![2i32, 2, 2].into_array();
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements,
-            offsets,
-            sizes,
-            Validity::NonNullable,
-            true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
     }
     .into_array();
 
@@ -451,8 +429,8 @@ fn test_constant_with_nulls() {
             offsets.clone(),
             sizes.clone(),
             validity_mixed,
-            true, // Is zero-copy to list.
         )
+        .with_zero_copy_to_list(true)
     }
     .into_array();
     assert_eq!(is_constant(&listview_mixed).unwrap(), Some(false));
@@ -465,8 +443,8 @@ fn test_constant_with_nulls() {
             offsets.clone(),
             sizes.clone(),
             validity_all_null,
-            true, // Is zero-copy to list.
         )
+        .with_zero_copy_to_list(true)
     }
     .into_array();
     assert_eq!(is_constant(&listview_all_null).unwrap(), Some(true));
@@ -508,13 +486,8 @@ fn test_mask_preserves_structure() {
     let sizes = buffer![2u32, 2, 2, 2].into_array();
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements,
-            offsets,
-            sizes,
-            Validity::NonNullable,
-            true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
     }
     .to_array();
 
@@ -552,9 +525,8 @@ fn test_mask_with_existing_nulls() {
     let validity = Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array());
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements, offsets, sizes, validity, true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, validity)
+            .with_zero_copy_to_list(true)
     }
     .to_array();
 

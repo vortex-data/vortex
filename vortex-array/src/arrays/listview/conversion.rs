@@ -43,14 +43,15 @@ pub fn list_view_from_list(list: ListArray) -> ListViewArray {
 
     // SAFETY: Since everything came from an existing valid `ListArray`, and the `sizes` were
     // derived from valid and in-order `offsets`, we know these fields are valid.
+    // We also just came directly from a `ListArray`, so we know this is zero-copyable.
     unsafe {
         ListViewArray::new_unchecked(
             list.elements().clone(),
             adjusted_offsets,
             sizes,
             list.validity().clone(),
-            true, // We just came directly from a `ListArray`, so we know this is zero-copyable.
         )
+        .with_zero_copy_to_list(true)
     }
 }
 
@@ -217,8 +218,8 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> ArrayRef {
                             listview.offsets().clone(),
                             listview.sizes().clone(),
                             listview.validity().clone(),
-                            listview.is_zero_copy_to_list(),
                         )
+                        .with_zero_copy_to_list(listview.is_zero_copy_to_list())
                     }
                 } else {
                     listview
@@ -537,8 +538,8 @@ mod tests {
                 inner_offsets,
                 inner_sizes,
                 Validity::NonNullable,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         };
 
         let outer_offsets = buffer![0u32, 1].into_array();
@@ -549,8 +550,8 @@ mod tests {
                 outer_offsets,
                 outer_sizes,
                 Validity::NonNullable,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         };
 
         let result = recursive_list_from_list_view(outer_listview.clone().into_array());
@@ -589,8 +590,8 @@ mod tests {
                 lv1_offsets,
                 lv1_sizes,
                 Validity::NonNullable,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         };
 
         let lv2_elements = buffer![3i32, 4].into_array();
@@ -602,8 +603,8 @@ mod tests {
                 lv2_offsets,
                 lv2_sizes,
                 Validity::NonNullable,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         };
 
         let dtype = lv1.dtype().clone();
@@ -631,8 +632,8 @@ mod tests {
                 innermost_offsets,
                 innermost_sizes,
                 Validity::NonNullable,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         };
 
         let struct_array = StructArray::try_new(
@@ -651,8 +652,8 @@ mod tests {
                 outer_offsets,
                 outer_sizes,
                 Validity::NonNullable,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         };
 
         let result = recursive_list_from_list_view(outer_listview.clone().into_array());

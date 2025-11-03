@@ -932,13 +932,8 @@ mod test {
         let offsets = buffer![0u32, 1, 2, 3].into_array();
         let sizes = buffer![1u32, 1, 1, 1].into_array();
         let lists = unsafe {
-            ListViewArray::new_unchecked(
-                elements,
-                offsets,
-                sizes,
-                Validity::AllValid,
-                true, // Is zero-copy to list.
-            )
+            ListViewArray::new_unchecked(elements, offsets, sizes, Validity::AllValid)
+                .with_zero_copy_to_list(true)
         }
         .into_array();
 
@@ -986,13 +981,8 @@ mod test {
         let offsets = buffer![0u32, 1, 2, 3, 4, 5, 6, 7].into_array();
         let sizes = buffer![1u32, 1, 1, 1, 1, 1, 1, 1].into_array();
         let lists = unsafe {
-            ListViewArray::new_unchecked(
-                elements,
-                offsets,
-                sizes,
-                Validity::AllValid,
-                true, // Is zero-copy to list.
-            )
+            ListViewArray::new_unchecked(elements, offsets, sizes, Validity::AllValid)
+                .with_zero_copy_to_list(true)
         }
         .into_array();
 
@@ -1037,13 +1027,8 @@ mod test {
         let offsets = buffer![0u32, 1, 2, 3].into_array();
         let sizes = buffer![1u32, 1, 1, 1].into_array();
         let lists = unsafe {
-            ListViewArray::new_unchecked(
-                elements,
-                offsets,
-                sizes,
-                Validity::AllValid,
-                true, // Is zero-copy to list.
-            )
+            ListViewArray::new_unchecked(elements, offsets, sizes, Validity::AllValid)
+                .with_zero_copy_to_list(true)
         }
         .into_array();
 
@@ -1406,13 +1391,8 @@ mod test {
         let sizes = buffer![3u32, 2, 4].into_array();
 
         let list_view = unsafe {
-            ListViewArray::new_unchecked(
-                elements.clone(),
-                offsets,
-                sizes,
-                Validity::AllValid,
-                true, // Is zero-copy to list.
-            )
+            ListViewArray::new_unchecked(elements.clone(), offsets, sizes, Validity::AllValid)
+                .with_zero_copy_to_list(true)
         };
 
         let list_dtype = list_view.dtype().clone();
@@ -1489,13 +1469,8 @@ mod test {
         let sizes = buffer![2u32, 3, 1, 2, 2].into_array();
 
         let full_listview = unsafe {
-            ListViewArray::new_unchecked(
-                elements,
-                offsets,
-                sizes,
-                Validity::AllValid,
-                true, // Is zero-copy to list.
-            )
+            ListViewArray::new_unchecked(elements, offsets, sizes, Validity::AllValid)
+                .with_zero_copy_to_list(true)
         }
         .into_array();
 

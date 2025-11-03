@@ -145,14 +145,15 @@ impl CompactCompressor {
                 // SAFETY: Since compression does not change the logical values of arrays, this is
                 // effectively the same array but represented differently, so all invariants that
                 // were previously upheld by the valid `ListViewArray` are still upheld.
+                // If the original was zero-copyable to list, compression maintains that property.
                 unsafe {
                     ListViewArray::new_unchecked(
                         compressed_elems,
                         compressed_offsets,
                         compressed_sizes,
                         listview.validity().clone(),
-                        listview.is_zero_copy_to_list(),
                     )
+                    .with_zero_copy_to_list(listview.is_zero_copy_to_list())
                 }
                 .into_array()
             }

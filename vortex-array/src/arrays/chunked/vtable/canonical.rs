@@ -163,16 +163,17 @@ fn swizzle_list_chunks(
     let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable).into_array();
     let sizes = PrimitiveArray::new(sizes.freeze(), Validity::NonNullable).into_array();
 
-    // Since we made sure that all chunk were zero-copyable to list above, we know that the final
-    // output is also zero-copyable to a list.
-    let is_zctl = true;
-
     // SAFETY:
     // - `offsets` and `sizes` are non-nullable u64 arrays of the same length
     // - Each `offset[i] + size[i]` list view is within bounds of elements array because it came
     //   from valid chunks
     // - Validity came from the outer chunked array so it must have the same length
-    unsafe { ListViewArray::new_unchecked(chunked_elements, offsets, sizes, validity, is_zctl) }
+    // - Since we made sure that all chunks were zero-copyable to a list above, we know that the
+    //   final concatenated output is also zero-copyable to a list.
+    unsafe {
+        ListViewArray::new_unchecked(chunked_elements, offsets, sizes, validity)
+            .with_zero_copy_to_list(true)
+    }
 }
 
 #[cfg(test)]

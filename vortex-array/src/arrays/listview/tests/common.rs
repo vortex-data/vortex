@@ -15,13 +15,8 @@ pub fn create_basic_listview() -> ListViewArray {
     let offsets = buffer![0u32, 3, 5, 7].into_array();
     let sizes = buffer![3u32, 2, 2, 3].into_array();
     unsafe {
-        ListViewArray::new_unchecked(
-            elements,
-            offsets,
-            sizes,
-            Validity::NonNullable,
-            true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
     }
 }
 
@@ -32,9 +27,8 @@ pub fn create_nullable_listview() -> ListViewArray {
     let sizes = buffer![2u32, 2, 1].into_array();
     let validity = Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array());
     unsafe {
-        ListViewArray::new_unchecked(
-            elements, offsets, sizes, validity, true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, validity)
+            .with_zero_copy_to_list(true)
     }
 }
 
@@ -44,13 +38,8 @@ pub fn create_empty_lists_listview() -> ListViewArray {
     let offsets = buffer![0u32, 0, 0, 0].into_array();
     let sizes = buffer![0u32, 0, 0, 0].into_array();
     unsafe {
-        ListViewArray::new_unchecked(
-            elements,
-            offsets,
-            sizes,
-            Validity::NonNullable,
-            true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
     }
 }
 

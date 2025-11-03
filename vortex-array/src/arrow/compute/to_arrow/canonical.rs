@@ -891,8 +891,8 @@ mod tests {
                 offsets.into_array(),
                 sizes.into_array(),
                 Validity::AllValid,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         };
 
         // Convert to Arrow List with i32 offsets.
@@ -948,8 +948,8 @@ mod tests {
                 offsets.into_array(),
                 sizes.into_array(),
                 Validity::AllValid,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         };
 
         // Convert to Arrow LargeList with i64 offsets.
@@ -1036,8 +1036,8 @@ mod tests {
                 offsets.into_array(),
                 sizes.into_array(),
                 validity,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         };
 
         // Convert to Arrow LargeListView with i64 offsets.

@@ -78,13 +78,8 @@ pub fn slice_canonical_array(
             // only causes there to be leading and trailing garbage data, which is still
             // zero-copyable to a `ListArray`.
             Ok(unsafe {
-                ListViewArray::new_unchecked(
-                    elements,
-                    offsets,
-                    sizes,
-                    validity,
-                    list_array.is_zero_copy_to_list(),
-                )
+                ListViewArray::new_unchecked(elements, offsets, sizes, validity)
+                    .with_zero_copy_to_list(list_array.is_zero_copy_to_list())
             }
             .into_array())
         }

@@ -55,14 +55,7 @@ impl FilterKernel for ListViewVTable {
         // - Offsets and sizes have the same length (both filtered by `selection_mask`).
         // - Validity matches the filtered array's nullability.
         let new_array = unsafe {
-            ListViewArray::new_unchecked(
-                elements.clone(),
-                new_offsets,
-                new_sizes,
-                new_validity,
-                // Filters will create gaps of unused elements.
-                false,
-            )
+            ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
         };
 
         // TODO(connor)[ListView]: Ideally, we would only rebuild after all `take`s and `filter`

@@ -66,8 +66,8 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
                     array.offsets().clone(),
                     array.sizes().clone(),
                     new_validity,
-                    array.is_zero_copy_to_list(),
                 )
+                .with_zero_copy_to_list(array.is_zero_copy_to_list())
             }
             .into_array()
         }
@@ -249,13 +249,8 @@ mod tests {
         let offsets = PrimitiveArray::from_iter([0i32, 2, 4]).into_array();
         let sizes = PrimitiveArray::from_iter([2i32, 2, 2]).into_array();
         let array = unsafe {
-            ListViewArray::new_unchecked(
-                elements,
-                offsets,
-                sizes,
-                Nullability::NonNullable.into(),
-                true, // Is zero-copy to list.
-            )
+            ListViewArray::new_unchecked(elements, offsets, sizes, Nullability::NonNullable.into())
+                .with_zero_copy_to_list(true)
         };
 
         let mask = Mask::from_iter([false, true, false]);

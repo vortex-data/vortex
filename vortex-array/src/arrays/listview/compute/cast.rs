@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 use crate::arrays::{ListViewArray, ListViewVTable};
 use crate::compute::{self, CastKernel, CastKernelAdapter};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, register_kernel};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for ListViewVTable {
     fn cast(&self, array: &ListViewArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -31,10 +31,10 @@ impl CastKernel for ListViewVTable {
                     array.offsets().clone(),
                     array.sizes().clone(),
                     validity,
-                    array.is_zero_copy_to_list(),
                 )
+                .with_zero_copy_to_list(array.is_zero_copy_to_list())
             }
-            .to_array(),
+            .into_array(),
         ))
     }
 }

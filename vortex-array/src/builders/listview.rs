@@ -165,7 +165,10 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         //   `extend_from_array_unchecked`), we checked that `offset + size` does not overflow.
         // - We constructed everything in a way that builds the `ListViewArray` similar to the shape
         //   of a `ListArray`, so we know the resulting array is zero-copyable to a `ListArray`.
-        unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity, true) }
+        unsafe {
+            ListViewArray::new_unchecked(elements, offsets, sizes, validity)
+                .with_zero_copy_to_list(true)
+        }
     }
 
     /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of

@@ -158,8 +158,8 @@ mod tests {
                 Buffer::<u32>::empty().into_array(),
                 Buffer::<u32>::empty().into_array(),
                 Validity::AllValid,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         }
         .into_array();
 
@@ -188,8 +188,8 @@ mod tests {
                 buffer![1u8, 2, 3].into_array(),
                 buffer![1u8, 1, 1].into_array(),
                 Validity::AllValid,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         }
         .into_array();
 
@@ -224,8 +224,8 @@ mod tests {
                 buffer![0u8, 0, 3, 4].into_array(),
                 buffer![0u8, 3, 1, 0].into_array(),
                 Validity::from_iter([true, true, false, true]),
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         }
         .into_array();
 

@@ -22,9 +22,8 @@ fn test_nullable_listview_comprehensive() {
     let validity = Validity::from_iter([true, false, true]);
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements, offsets, sizes, validity, true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, validity)
+            .with_zero_copy_to_list(true)
     };
 
     assert_eq!(listview.len(), 3);
@@ -84,12 +83,7 @@ fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity:
     let offsets = buffer![0i32, 2, 4].into_array();
     let sizes = buffer![2i32, 2, 2].into_array();
 
-    let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements, offsets, sizes, validity,
-            false, // Don't bother checking this in this test.
-        )
-    };
+    let listview = unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) };
 
     for (i, &expected) in expected_validity.iter().enumerate() {
         assert_eq!(listview.is_valid(i), expected);
@@ -107,13 +101,8 @@ fn test_nullable_elements() {
     let sizes = buffer![2i32, 2, 2].into_array();
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements,
-            offsets,
-            sizes,
-            Validity::AllValid,
-            true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements, offsets, sizes, Validity::AllValid)
+            .with_zero_copy_to_list(true)
     };
 
     // First list: [Some(1), None].

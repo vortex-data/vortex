@@ -45,8 +45,8 @@ fn test_listview_of_listview_with_overlapping() {
             outer_offsets,
             outer_sizes,
             Validity::NonNullable,
-            true, // Is zero-copy to list.,
         )
+        .with_zero_copy_to_list(true)
     };
 
     assert_eq!(outer_listview.len(), 2);

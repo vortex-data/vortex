@@ -111,6 +111,8 @@ impl ListViewArray {
     fn rebuild_trim_elements(&self) -> ListViewArray {
         let start = if self.is_zero_copy_to_list() {
             // If offsets are sorted, then the minimum offset is the first offset.
+            // Note that even if the first view is null, offsets must always be valid, so it is
+            // completely fine for us to use this as a lower-bounded start of the `elements`.
             self.offset_at(0)
         } else {
             self.offsets().statistics().compute_min().vortex_expect(
@@ -152,15 +154,16 @@ impl ListViewArray {
 
         // SAFETY: The only thing we changed was the elements (which we verify through mins and
         // maxes that all adjusted offsets + sizes are within the correct bounds), so the parameters
-        // are valid.
+        // are valid. And if the original array was zero-copyable to list, trimming elements doesn't
+        // change that property.
         unsafe {
             ListViewArray::new_unchecked(
                 sliced_elements,
                 adjusted_offsets,
                 self.sizes().clone(),
                 self.validity().clone(),
-                self.is_zero_copy_to_list(),
             )
+            .with_zero_copy_to_list(self.is_zero_copy_to_list())
         }
     }
 

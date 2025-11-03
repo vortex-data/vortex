@@ -71,8 +71,8 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///         offsets,
 ///         sizes,
 ///         Validity::NonNullable,
-///         true, // Is zero-copy to list.
 ///     )
+///     .with_zero_copy_to_list(true)
 /// };
 ///
 /// let matches = compute::list_contains(
@@ -606,8 +606,8 @@ mod tests {
                 offsets,
                 sizes,
                 Validity::NonNullable,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         };
 
         // Test with a non-null search value
@@ -635,8 +635,8 @@ mod tests {
                 offsets,
                 sizes,
                 Validity::NonNullable,
-                true, // Is zero-copy to list.
             )
+            .with_zero_copy_to_list(true)
         };
 
         // Test searching for a null value

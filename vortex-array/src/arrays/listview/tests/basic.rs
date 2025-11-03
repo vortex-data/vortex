@@ -23,13 +23,8 @@ fn test_basic_listview_comprehensive() {
     let sizes = buffer![3i32, 2, 4].into_array();
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements.into_array(),
-            offsets,
-            sizes,
-            Validity::NonNullable,
-            true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements.into_array(), offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
     };
 
     assert_eq!(listview.len(), 3);
@@ -107,13 +102,8 @@ fn test_empty_listview() {
     let sizes = buffer![0i32; 0].into_array();
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements.into_array(),
-            offsets,
-            sizes,
-            Validity::NonNullable,
-            true, // Is zero-copy to list.
-        )
+        ListViewArray::new_unchecked(elements.into_array(), offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
     };
 
     assert_eq!(listview.len(), 0);
@@ -179,13 +169,8 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
     let is_zctl = !const_offsets;
 
     let listview = unsafe {
-        ListViewArray::new_unchecked(
-            elements.into_array(),
-            offsets,
-            sizes,
-            Validity::NonNullable,
-            is_zctl,
-        )
+        ListViewArray::new_unchecked(elements.into_array(), offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(is_zctl)
     };
     assert_eq!(listview.len(), 3);
 
@@ -377,4 +362,29 @@ fn test_validate_u64_overflow() {
         err.to_string().contains("overflow"),
         "Unexpected error: {err}"
     );
+}
+
+#[test]
+fn test_verify_is_zero_copy_to_list() {
+    // Create a ListView that IS zero-copyable to List.
+    // Logical lists: [[1,2], [3,4], [5]]
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+    let offsets = buffer![0i32, 2, 4].into_array(); // Sorted, no gaps
+    let sizes = buffer![2i32, 2, 1].into_array(); // No overlaps
+
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+
+    // Should return true since offsets are sorted and no overlaps exist.
+    assert!(listview.verify_is_zero_copy_to_list());
+
+    // Create a ListView that is NOT zero-copyable to List due to overlapping views.
+    // Logical lists: [[1,2], [2,3,4], [3,4]]
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+    let offsets = buffer![0i32, 1, 2].into_array(); // Sorted but overlapping
+    let sizes = buffer![2i32, 3, 2].into_array(); // These cause overlaps
+
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+
+    // Should return false due to overlapping list views.
+    assert!(!listview.verify_is_zero_copy_to_list());
 }

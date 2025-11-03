@@ -30,8 +30,8 @@ impl OperationsVTable<ListViewVTable> for ListViewVTable {
                 array.offsets().slice(start..end),
                 array.sizes().slice(start..end),
                 array.validity().slice(start..end),
-                array.is_zero_copy_to_list(),
             )
+            .with_zero_copy_to_list(array.is_zero_copy_to_list())
         }
         .into_array()
     }

@@ -137,7 +137,7 @@ impl ListViewArray {
         sizes: ArrayRef,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Self::validate(&elements, &offsets, &sizes, &validity, false)?;
+        Self::validate(&elements, &offsets, &sizes, &validity)?;
 
         Ok(Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
@@ -152,10 +152,8 @@ impl ListViewArray {
 
     /// Creates a new [`ListViewArray`] without validation.
     ///
-    /// Note that this constructor is slightly different from [`new()`] and [`try_new()`] in that it
-    /// also takes an `is_zctl` flag. This is an optimization flag that allows conversion to a
-    /// [`ListArray`] more efficient. The caller must ensure that the flag is correct when passing
-    /// it to this unsafe constructor.
+    /// This unsafe function does not check the validity of the data. Prefer calling [`new()`] or
+    /// [`try_new()`] over this function, as they will check the validity of the data.
     ///
     /// [`ListArray`]: crate::arrays::ListArray
     /// [`new()`]: Self::new
@@ -171,17 +169,14 @@ impl ListViewArray {
     /// - For each `i`, `offsets[i] + sizes[i]` must not overflow and must be `<= elements.len()`
     ///   (even if the corresponding view is defined as null by the validity array).
     /// - If validity is an array, its length must equal `offsets.len()`.
-    /// - If the `is_zctl` flag is true, then the [`ListViewArray`] is zero-copyable to a
-    ///   [`ListArray`].
     pub unsafe fn new_unchecked(
         elements: ArrayRef,
         offsets: ArrayRef,
         sizes: ArrayRef,
         validity: Validity,
-        is_zctl: bool,
     ) -> Self {
         if cfg!(debug_assertions) {
-            Self::validate(&elements, &offsets, &sizes, &validity, is_zctl)
+            Self::validate(&elements, &offsets, &sizes, &validity)
                 .vortex_expect("Failed to crate `ListViewArray`");
         }
 
@@ -191,7 +186,7 @@ impl ListViewArray {
             offsets,
             sizes,
             validity,
-            is_zero_copy_to_list: is_zctl,
+            is_zero_copy_to_list: false,
             stats_set: Default::default(),
         }
     }
@@ -202,7 +197,6 @@ impl ListViewArray {
         offsets: &dyn Array,
         sizes: &dyn Array,
         validity: &Validity,
-        is_zctl: bool,
     ) -> VortexResult<()> {
         // Check that offsets and sizes are integer arrays and non-nullable.
         vortex_ensure!(
@@ -265,12 +259,63 @@ impl ListViewArray {
             })
         });
 
-        // Validate the zero-copy to `ListArray` flag.
-        if is_zctl {
-            validate_zctl(elements, offsets_primitive, sizes_primitive)?;
-        }
-
         Ok(())
+    }
+
+    /// Sets whether this [`ListViewArray`] is zero-copyable to a [`ListArray`].
+    ///
+    /// This is an optimization flag that enables more efficient conversion to [`ListArray`] without
+    /// needing to copy or reorganize the data.
+    ///
+    /// [`ListArray`]: crate::arrays::ListArray
+    ///
+    /// # Safety
+    ///
+    /// When setting `is_zctl` to `true`, the caller must ensure that the [`ListViewArray`] is
+    /// actually zero-copyable to a [`ListArray`]. This means:
+    ///
+    /// - Offsets must be sorted (but not strictly sorted, zero-length lists are allowed).
+    /// - No gaps in elements between first and last referenced elements.
+    /// - No overlapping list views (each element referenced at most once).
+    ///
+    /// Note that leading and trailing unreferenced elements **ARE** allowed.
+    pub unsafe fn with_zero_copy_to_list(mut self, is_zctl: bool) -> Self {
+        if cfg!(debug_assertions) && is_zctl {
+            validate_zctl(
+                &self.elements,
+                self.offsets.to_primitive(),
+                self.sizes.to_primitive(),
+            )
+            .vortex_expect("Failed to validate zero-copy to list flag");
+        }
+        self.is_zero_copy_to_list = is_zctl;
+        self
+    }
+
+    /// Verifies that the `ListViewArray` is zero-copyable to a [`ListArray`].
+    ///
+    /// This will run an expensive validation of the `ListViewArray`'s components. It will check the
+    /// following things:
+    ///
+    /// - Offsets must be sorted (but not strictly sorted, zero-length lists are allowed).
+    /// - No gaps in elements between first and last referenced elements.
+    /// - No overlapping list views (each element referenced at most once).
+    ///
+    /// Note that leading and trailing unreferenced elements **ARE** allowed.
+    ///
+    /// This method should really only be called if the caller knows that the `ListViewArray` will
+    /// be converted into a [`ListArray`] in the future, and the caller wants to set the
+    /// optimization flag to `true` with the unsafe [`with_zero_copy_to_list`] method.
+    ///
+    /// [`ListArray`]: crate::arrays::ListArray
+    /// [`with_zero_copy_to_list`]: Self::with_zero_copy_to_list
+    pub fn verify_is_zero_copy_to_list(&self) -> bool {
+        validate_zctl(
+            &self.elements,
+            self.offsets.to_primitive(),
+            self.sizes.to_primitive(),
+        )
+        .is_ok()
     }
 
     /// Returns the offset at the given index.
