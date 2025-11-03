@@ -11,7 +11,9 @@ use std::num::NonZero;
 use num_traits::ToPrimitive;
 pub use precision::*;
 pub use types::*;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_panic, vortex_err};
+use vortex_error::{
+    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+};
 
 use crate::{DType, i256};
 
