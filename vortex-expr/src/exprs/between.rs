@@ -1,23 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
-use async_trait::async_trait;
-use futures::try_join;
-use itertools::Itertools;
 use vortex_array::compute::{BetweenOptions, StrictComparison, between as between_compute};
-use vortex_array::operator::{
-    BatchBindCtx, BatchExecution, BatchExecutionRef, BatchOperator, LengthBounds, Operator,
-    OperatorEq, OperatorHash, OperatorId, OperatorRef,
-};
-use vortex_array::{Array, ArrayRef, Canonical, DeserializeMetadata, IntoArray, ProstMetadata};
+use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
@@ -137,23 +127,6 @@ impl VTable for BetweenVTable {
             arr_dt.nullability() | lower_dt.nullability() | upper_dt.nullability(),
         ))
     }
-
-    fn operator(expr: &Self::Expr, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
-        let Some(arr) = expr.arr.operator(scope)? else {
-            return Ok(None);
-        };
-        let Some(lower) = expr.lower.operator(scope)? else {
-            return Ok(None);
-        };
-        let Some(upper) = expr.upper.operator(scope)? else {
-            return Ok(None);
-        };
-        Ok(Some(Arc::new(BetweenOperator {
-            children: [arr, lower, upper],
-            dtype: expr.return_dtype(scope.dtype())?,
-            options: expr.options.clone(),
-        })))
-    }
 }
 
 impl BetweenExpr {
@@ -244,119 +217,6 @@ impl AnalysisExpr for BetweenExpr {
 pub fn between(arr: ExprRef, lower: ExprRef, upper: ExprRef, options: BetweenOptions) -> ExprRef {
     BetweenExpr::new(arr, lower, upper, options).into_expr()
 }
-
-#[derive(Debug)]
-pub struct BetweenOperator {
-    children: [OperatorRef; 3],
-    dtype: DType,
-    options: BetweenOptions,
-}
-
-impl OperatorHash for BetweenOperator {
-    fn operator_hash<H: Hasher>(&self, state: &mut H) {
-        for child in &self.children {
-            child.operator_hash(state);
-        }
-        self.dtype.hash(state);
-        self.options.hash(state);
-    }
-}
-
-impl OperatorEq for BetweenOperator {
-    fn operator_eq(&self, other: &Self) -> bool {
-        self.children.len() == other.children.len()
-            && self
-                .children
-                .iter()
-                .zip(other.children.iter())
-                .all(|(a, b)| a.operator_eq(b))
-            && self.dtype == other.dtype
-            && self.options == other.options
-    }
-}
-
-impl Operator for BetweenOperator {
-    fn id(&self) -> OperatorId {
-        OperatorId::from("vortex.between")
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    fn bounds(&self) -> LengthBounds {
-        self.children[0].bounds()
-    }
-
-    fn children(&self) -> &[OperatorRef] {
-        &self.children
-    }
-
-    fn with_children(self: Arc<Self>, children: Vec<OperatorRef>) -> VortexResult<OperatorRef> {
-        let (arr, lower, upper) = children
-            .into_iter()
-            .tuples()
-            .next()
-            .vortex_expect("expected 3 children");
-
-        Ok(Arc::new(BetweenOperator {
-            children: [arr, lower, upper],
-            dtype: self.dtype.clone(),
-            options: self.options.clone(),
-        }))
-    }
-
-    fn is_selection_target(&self, _child_idx: usize) -> Option<bool> {
-        // All children are position preserving.
-        Some(true)
-    }
-}
-
-impl BatchOperator for BetweenOperator {
-    fn bind(&self, ctx: &mut dyn BatchBindCtx) -> VortexResult<BatchExecutionRef> {
-        let arr = ctx.child(0)?;
-        let lower = ctx.child(1)?;
-        let upper = ctx.child(2)?;
-        Ok(Box::new(BetweenExecution {
-            arr,
-            lower,
-            upper,
-            options: self.options.clone(),
-        }))
-    }
-}
-
-struct BetweenExecution {
-    arr: BatchExecutionRef,
-    lower: BatchExecutionRef,
-    upper: BatchExecutionRef,
-    options: BetweenOptions,
-}
-
-#[async_trait]
-impl BatchExecution for BetweenExecution {
-    async fn execute(self: Box<Self>) -> VortexResult<Canonical> {
-        let (arr, lower, upper) = try_join!(
-            self.arr.execute(),
-            self.lower.execute(),
-            self.upper.execute()
-        )?;
-        let result = between_compute(
-            arr.into_array().as_ref(),
-            lower.into_array().as_ref(),
-            upper.into_array().as_ref(),
-            &self.options,
-        )?;
-        Ok(result.to_canonical())
-    }
-}
-
-// TODO(ngates): we need scalar variants for batch execution. Although really it should be
-//  pipelined?
 
 #[cfg(test)]
 mod tests {

@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_array::arrays::ConstantArray;
-use vortex_array::operator::OperatorRef;
 use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::{DType, match_each_float_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
@@ -77,14 +74,6 @@ impl VTable for LiteralVTable {
 
     fn return_dtype(expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
         Ok(expr.value.dtype().clone())
-    }
-
-    fn operator(expr: &Self::Expr, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
-        let Some(len) = scope.bounds().maybe_len() else {
-            // Cannot return unsized operator.
-            return Ok(None);
-        };
-        Ok(Some(Arc::new(ConstantArray::new(expr.value.clone(), len))))
     }
 }
 

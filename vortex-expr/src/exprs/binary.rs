@@ -2,11 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::sync::Arc;
 
 use vortex_array::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
-use vortex_array::operator::OperatorRef;
-use vortex_array::operator::compare::CompareOperator;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, compute};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -115,19 +112,6 @@ impl VTable for BinaryVTable {
         }
 
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
-    }
-
-    fn operator(expr: &BinaryExpr, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
-        let Some(lhs) = expr.lhs.operator(scope)? else {
-            return Ok(None);
-        };
-        let Some(rhs) = expr.rhs.operator(scope)? else {
-            return Ok(None);
-        };
-        let Ok(op): VortexResult<compute::Operator> = expr.operator.try_into() else {
-            return Ok(None);
-        };
-        Ok(Some(Arc::new(CompareOperator::try_new(lhs, rhs, op)?)))
     }
 }
 
