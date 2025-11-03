@@ -52,6 +52,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<ExprSession>()
             .with::<RuntimeSession>();
 
+        #[cfg(feature = "files")]
         file::register_default_encodings(&session);
 
         session
