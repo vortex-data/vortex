@@ -8679,12 +8679,12 @@ dependencies = [
  "anyhow",
  "arrow-array",
  "arrow-schema",
+ "async-fs",
  "cxx",
  "cxx-build",
  "futures",
  "paste",
  "take_mut",
- "tokio",
  "vortex",
 ]
 

@@ -24,12 +24,12 @@ crate-type = ["staticlib"]
 anyhow = { workspace = true }
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-schema = { workspace = true }
+async-fs = { workspace = true }
 cxx = "1.0"
 futures = { workspace = true }
 paste = { workspace = true }
 take_mut = { workspace = true }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
-vortex = { workspace = true, features = ["tokio"] }
+vortex = { workspace = true }
 
 [build-dependencies]
 cxx-build = "1.0"
