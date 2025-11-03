@@ -49,3 +49,51 @@ impl MinMaxKernel for BoolVTable {
 }
 
 register_kernel!(MinMaxKernelAdapter(BoolVTable).lift());
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::{DType, Nullability};
+    use vortex_scalar::Scalar;
+
+    use crate::arrays::BoolArray;
+    use crate::compute::{MinMaxResult, min_max};
+
+    #[test]
+    fn test_min_max_nulls() {
+        let dtype = DType::Bool(Nullability::Nullable);
+        assert_eq!(
+            min_max(BoolArray::from_iter(vec![Some(true), Some(true), None, None]).as_ref())
+                .unwrap(),
+            Some(MinMaxResult {
+                min: Scalar::new(dtype.clone(), true.into()),
+                max: Scalar::new(dtype.clone(), true.into()),
+            })
+        );
+
+        assert_eq!(
+            min_max(BoolArray::from_iter(vec![None, Some(true), Some(true)]).as_ref()).unwrap(),
+            Some(MinMaxResult {
+                min: Scalar::new(dtype.clone(), true.into()),
+                max: Scalar::new(dtype.clone(), true.into()),
+            })
+        );
+
+        assert_eq!(
+            min_max(BoolArray::from_iter(vec![None, Some(true), Some(true), None]).as_ref())
+                .unwrap(),
+            Some(MinMaxResult {
+                min: Scalar::new(dtype.clone(), true.into()),
+                max: Scalar::new(dtype.clone(), true.into()),
+            })
+        );
+
+        assert_eq!(
+            min_max(BoolArray::from_iter(vec![Some(false), Some(false), None, None]).as_ref())
+                .unwrap(),
+            Some(MinMaxResult {
+                min: Scalar::new(dtype.clone(), false.into()),
+                max: Scalar::new(dtype, false.into()),
+            })
+        );
+    }
+}
