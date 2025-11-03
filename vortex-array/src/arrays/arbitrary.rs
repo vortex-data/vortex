@@ -6,13 +6,15 @@ use std::sync::Arc;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
 use vortex_buffer::{BitBuffer, Buffer};
-use vortex_dtype::{DType, IntegerPType, NativePType, Nullability, PType};
+use vortex_dtype::{
+    DType, IntegerPType, NativePType, Nullability, PType, smallest_decimal_value_type,
+};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
-use crate::arrays::{VarBinArray, VarBinViewArray, smallest_decimal_value_type};
+use crate::arrays::{VarBinArray, VarBinViewArray};
 use crate::builders::{ArrayBuilder, DecimalBuilder, FixedSizeListBuilder, ListViewBuilder};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};

@@ -30,12 +30,11 @@
 
 use std::any::Any;
 
-use vortex_dtype::{DType, match_each_native_ptype};
+use vortex_dtype::{DType, match_each_native_ptype, smallest_decimal_value_type};
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
-use crate::arrays::smallest_decimal_value_type;
 use crate::canonical::Canonical;
 use crate::{Array, ArrayRef};
 

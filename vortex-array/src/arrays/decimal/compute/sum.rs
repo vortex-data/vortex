@@ -3,13 +3,13 @@
 
 use arrow_schema::DECIMAL256_MAX_PRECISION;
 use num_traits::AsPrimitive;
-use vortex_dtype::DecimalDType;
 use vortex_dtype::Nullability::Nullable;
+use vortex_dtype::{DecimalDType, smallest_decimal_value_type};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::{DecimalValue, Scalar, match_each_decimal_value_type};
 
-use crate::arrays::{DecimalArray, DecimalVTable, smallest_decimal_value_type};
+use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
 use crate::register_kernel;
 

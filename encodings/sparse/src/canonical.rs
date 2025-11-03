@@ -8,7 +8,7 @@ use num_traits::NumCast;
 use vortex_array::arrays::binary_view::BinaryView;
 use vortex_array::arrays::{
     BoolArray, ConstantArray, FixedSizeListArray, ListViewArray, NullArray, PrimitiveArray,
-    StructArray, VarBinViewArray, smallest_decimal_value_type,
+    StructArray, VarBinViewArray,
 };
 use vortex_array::builders::{
     ArrayBuilder, DecimalBuilder, ListViewBuilder, builder_with_capacity,
@@ -20,7 +20,7 @@ use vortex_array::{Array, Canonical, ToCanonical};
 use vortex_buffer::{BitBuffer, Buffer, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
     DType, DecimalDType, IntegerPType, NativeDecimalType, NativePType, Nullability, StructFields,
-    match_each_integer_ptype, match_each_native_ptype,
+    match_each_integer_ptype, match_each_native_ptype, smallest_decimal_value_type,
 };
 use vortex_error::{VortexError, VortexExpect, vortex_panic};
 use vortex_scalar::{

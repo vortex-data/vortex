@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use vortex_buffer::{BitBuffer, Buffer, buffer};
-use vortex_dtype::{DType, Nullability, match_each_native_ptype};
+use vortex_dtype::{DType, Nullability, match_each_native_ptype, smallest_decimal_value_type};
 use vortex_error::VortexExpect;
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, StructScalar,
@@ -16,7 +16,7 @@ use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
     BoolArray, ConstantVTable, DecimalArray, ExtensionArray, FixedSizeListArray, ListViewArray,
-    NullArray, StructArray, VarBinViewArray, smallest_decimal_value_type,
+    NullArray, StructArray, VarBinViewArray,
 };
 use crate::builders::builder_with_capacity;
 use crate::validity::Validity;
