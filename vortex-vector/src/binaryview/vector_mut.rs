@@ -146,10 +146,10 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
         }
 
         // rewrite the views using our lookup table
-        let new_views = rewrite_views(other.views().iter().copied(), &buf_index_lookup);
+        let new_views_iter = rewrite_views(other.views().iter().copied(), &buf_index_lookup);
 
         self.buffers.extend(new_buffers);
-        self.views.extend(new_views);
+        self.views.extend(new_views_iter);
         self.validity.append_mask(other.validity())
     }
 

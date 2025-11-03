@@ -274,7 +274,7 @@ impl fmt::Debug for BinaryView {
 /// 2. Points at a valid range of owned buffer memory, and the bytes stored there conform to
 ///    the type constraints as defined by the `validator`.
 pub(super) fn validate_views<ValidateFn, IsValidFn>(
-    views: impl AsRef<[BinaryView]>,
+    views: &[BinaryView],
     buffers: impl AsRef<[ByteBuffer]>,
     validity: IsValidFn,
     validator: ValidateFn,
