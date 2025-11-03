@@ -3,8 +3,6 @@
 
 use std::sync::Arc;
 
-use crate::expr::Expr;
-use crate::{RUNTIME, SESSION};
 use anyhow::Result;
 use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowSchema;
@@ -12,13 +10,16 @@ use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, DataType, Schema, SchemaRef};
 use futures::stream::TryStreamExt;
+use vortex::ArrayRef;
 use vortex::arrow::IntoArrowArray;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::scan::arrow::RecordBatchIteratorAdapter;
 use vortex::scan::ScanBuilder;
-use vortex::ArrayRef;
+use vortex::scan::arrow::RecordBatchIteratorAdapter;
+
+use crate::expr::Expr;
+use crate::{RUNTIME, SESSION};
 
 pub(crate) struct VortexFile {
     inner: vortex::file::VortexFile,

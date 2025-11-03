@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
@@ -17,18 +17,18 @@ use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
-use object_store::path::Path;
 use object_store::ObjectStore;
+use object_store::path::Path;
 use tokio_stream::wrappers::ReceiverStream;
+use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::{ObjectStoreWriter, VortexWrite};
 use vortex::session::VortexSession;
 use vortex::stream::ArrayStreamAdapter;
-use vortex::ArrayRef;
 
 pub struct VortexSink {
     config: FileSinkConfig,
@@ -190,7 +190,7 @@ mod tests {
     use tempfile::TempDir;
     use walkdir::WalkDir;
 
-    use crate::persistent::{register_vortex_format_factory, VortexFormatFactory};
+    use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
 
     #[tokio::test]
     async fn test_insert_into() {

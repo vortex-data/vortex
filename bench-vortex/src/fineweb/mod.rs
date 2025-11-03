@@ -20,7 +20,7 @@ use vortex_datafusion::VortexFormat;
 use crate::benchmark_trait::Benchmark;
 use crate::conversions::parquet_to_vortex;
 use crate::engines::EngineCtx;
-use crate::{idempotent_async, BenchmarkDataset, Format, Target, SESSION};
+use crate::{BenchmarkDataset, Format, SESSION, Target, idempotent_async};
 
 /// URL to the sample file
 const SAMPLE_URL: &str = "https://huggingface.co/datasets/HuggingFaceFW/fineweb/resolve/v1.4.0/sample/10BT/001_00000.parquet";

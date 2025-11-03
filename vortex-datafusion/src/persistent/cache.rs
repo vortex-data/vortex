@@ -11,7 +11,7 @@ use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
-use vortex::error::{vortex_err, VortexError, VortexResult};
+use vortex::error::{VortexError, VortexResult, vortex_err};
 use vortex::file::{Footer, OpenOptionsSessionExt, SegmentSpec, VortexFile};
 use vortex::layout::segments::{SegmentCache, SegmentId};
 use vortex::metrics::MetricsSessionExt;

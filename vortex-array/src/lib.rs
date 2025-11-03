@@ -12,11 +12,6 @@
 //! Every data type recognized by Vortex also has a canonical physical encoding format, which
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 
-use crate::arrays::{
-    BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
-    FixedSizeListEncoding, ListEncoding, ListViewEncoding, MaskedEncoding, NullEncoding,
-    PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
-};
 pub use array::*;
 pub use canonical::*;
 pub use context::*;
@@ -26,6 +21,12 @@ pub use mask_future::*;
 pub use metadata::*;
 use vortex_session::registry::Registry;
 use vortex_session::{Ref, SessionExt};
+
+use crate::arrays::{
+    BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
+    FixedSizeListEncoding, ListEncoding, ListViewEncoding, MaskedEncoding, NullEncoding,
+    PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
+};
 
 pub mod accessor;
 #[doc(hidden)]

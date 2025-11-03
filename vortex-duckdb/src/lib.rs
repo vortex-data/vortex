@@ -3,18 +3,20 @@
 
 #![allow(clippy::missing_safety_doc)]
 
+use std::ffi::{CStr, c_char};
+use std::sync::LazyLock;
+
+use vortex::VortexSessionDefault;
+use vortex::error::{VortexExpect, VortexResult};
+use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::session::VortexSession;
+
 use crate::copy::VortexCopyFunction;
 use crate::duckdb::Config;
 pub use crate::duckdb::{Connection, Database, LogicalType, Value};
 use crate::scan::VortexTableFunction;
-use std::ffi::{c_char, CStr};
-use std::sync::LazyLock;
-use vortex::error::{VortexExpect, VortexResult};
-use vortex::io::runtime::current::CurrentThreadRuntime;
-use vortex::io::runtime::BlockingRuntime;
-use vortex::io::session::RuntimeSessionExt;
-use vortex::session::VortexSession;
-use vortex::VortexSessionDefault;
 
 mod convert;
 pub mod duckdb;

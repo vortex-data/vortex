@@ -4,11 +4,11 @@
 use std::env;
 use std::sync::LazyLock;
 
-use flatbuffers::{root_with_opts, FlatBufferBuilder, VerifierOptions, WIPOffset};
+use flatbuffers::{FlatBufferBuilder, VerifierOptions, WIPOffset, root_with_opts};
 use vortex_array::ArrayContext;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{layout, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
 
 use crate::children::ViewedLayoutChildren;
 use crate::segments::SegmentId;

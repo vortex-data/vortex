@@ -8,7 +8,7 @@ use vortex_array::serde::{ArrayParts, SerializeOptions};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{
-    assert_arrays_eq, ArrayContext, ArraySession, EncodingRef, IntoArray, ToCanonical,
+    ArrayContext, ArraySession, EncodingRef, IntoArray, ToCanonical, assert_arrays_eq,
 };
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, Nullability, PType};

@@ -12,8 +12,8 @@ use datafusion_common::config::ConfigField;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
 use datafusion_common::{
-    config_namespace, not_impl_err, ColumnStatistics, DataFusionError, GetExt, Result as DFResult,
-    Statistics,
+    ColumnStatistics, DataFusionError, GetExt, Result as DFResult, Statistics, config_namespace,
+    not_impl_err,
 };
 use datafusion_common_runtime::SpawnedTask;
 use datafusion_datasource::file::FileSource;
@@ -26,23 +26,23 @@ use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::LexRequirement;
 use datafusion_physical_plan::ExecutionPlan;
-use futures::{stream, FutureExt, StreamExt as _, TryStreamExt as _};
+use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::{DType, Nullability, PType};
-use vortex::error::{vortex_err, VortexExpect, VortexResult};
+use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
 use vortex::stats::{Stat, StatsSet};
-use vortex::{stats, VortexSessionDefault};
+use vortex::{VortexSessionDefault, stats};
 
 use super::cache::VortexFileCache;
 use super::sink::VortexSink;
 use super::source::VortexSource;
-use crate::convert::TryToDataFusion;
 use crate::PrecisionExt as _;
+use crate::convert::TryToDataFusion;
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 pub struct VortexFormat {

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::runtime::tokio::TokioRuntime;
-use crate::runtime::Handle;
 use std::fmt::Debug;
+
 use vortex_error::VortexExpect;
 use vortex_session::SessionExt;
+
+use crate::runtime::Handle;
+use crate::runtime::tokio::TokioRuntime;
 
 /// Session state for Vortex async runtimes.
 pub struct RuntimeSession {

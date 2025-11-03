@@ -4,28 +4,29 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::selection::Selection;
-use crate::split_by::SplitBy;
-use crate::splits::{attempt_split_ranges, Splits};
-use crate::RepeatedScan;
-use futures::future::BoxFuture;
 use futures::Stream;
+use futures::future::BoxFuture;
 use itertools::Itertools;
+use vortex_array::ArrayRef;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::ArrayRef;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed;
-use vortex_expr::{root, ExprRef};
+use vortex_expr::{ExprRef, root};
 use vortex_io::runtime::BlockingRuntime;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
 use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
+
+use crate::RepeatedScan;
+use crate::selection::Selection;
+use crate::split_by::SplitBy;
+use crate::splits::{Splits, attempt_split_ranges};
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {

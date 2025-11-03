@@ -17,7 +17,7 @@ use vortex_datafusion::VortexFormat;
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::EngineCtx;
-use crate::{BenchmarkDataset, Format, Target, SESSION};
+use crate::{BenchmarkDataset, Format, SESSION, Target};
 
 /// Statistical population genetics benchmark implementation.
 ///

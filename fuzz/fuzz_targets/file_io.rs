@@ -5,21 +5,19 @@
 #![allow(clippy::result_large_err)]
 
 use itertools::Itertools;
-use libfuzzer_sys::{fuzz_target, Corpus};
+use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::compute::{compare, filter, Operator};
+use vortex_array::compute::{Operator, compare, filter};
 use vortex_array::{Array, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::{DType, StructFields};
-use vortex_error::{vortex_panic, VortexExpect, VortexUnwrap};
-use vortex_expr::{lit, root, Scope};
-use vortex_file::OpenOptionsSessionExt;
-use vortex_file::WriteOptionsSessionExt;
-use vortex_file::WriteStrategyBuilder;
+use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
+use vortex_expr::{Scope, lit, root};
+use vortex_file::{OpenOptionsSessionExt, WriteOptionsSessionExt, WriteStrategyBuilder};
 use vortex_fuzz::{CompressorStrategy, FuzzFileAction, RUNTIME, SESSION};
 use vortex_layout::layouts::compact::CompactCompressor;
-use vortex_utils::aliases::hash_set::HashSet;
 use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_set::HashSet;
 
 fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let FuzzFileAction {

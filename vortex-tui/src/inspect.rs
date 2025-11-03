@@ -7,16 +7,17 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::SESSION;
 use flatbuffers::root;
 use itertools::Itertools;
 use vortex::buffer::{Alignment, ByteBuffer};
-use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::file::{
-    Footer, OpenOptionsSessionExt, EOF_SIZE, MAGIC_BYTES, MAX_POSTSCRIPT_SIZE, VERSION,
+    EOF_SIZE, Footer, MAGIC_BYTES, MAX_POSTSCRIPT_SIZE, OpenOptionsSessionExt, VERSION,
 };
 use vortex::flatbuffers::footer as fb;
 use vortex::layout::LayoutRef;
+
+use crate::SESSION;
 
 #[derive(Debug, clap::Parser)]
 pub struct InspectArgs {

@@ -4,16 +4,16 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
+use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JLongArray, JObject, JObjectArray, JString, ReleaseMode};
 use jni::sys::{jlong, jobject};
-use jni::JNIEnv;
-use object_store::path::Path;
 use object_store::ObjectStore;
+use object_store::path::Path;
 use prost::Message;
 use url::Url;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::session::ExprSessionExt;
 use vortex::expr::{root, select};

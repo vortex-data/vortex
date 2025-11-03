@@ -3,30 +3,31 @@
 
 use std::io;
 use std::io::Write;
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
-use crate::counting::CountingVortexWrite;
-use crate::footer::FileStatistics;
-use crate::segments::writer::BufferedSegmentSink;
-use crate::{Footer, WriteStrategyBuilder, MAGIC_BYTES};
-use futures::future::{ready, Fuse, LocalBoxFuture};
-use futures::{pin_mut, select, FutureExt, StreamExt, TryStreamExt};
+use futures::future::{Fuse, LocalBoxFuture, ready};
+use futures::{FutureExt, StreamExt, TryStreamExt, pin_mut, select};
 use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-use vortex_array::stats::{Stat, PRUNING_STATS};
+use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt, SendableArrayStream};
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_io::{IoBuf, VortexWrite};
+use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
-use vortex_layout::LayoutStrategy;
 use vortex_session::{SessionExt, VortexSession};
+
+use crate::counting::CountingVortexWrite;
+use crate::footer::FileStatistics;
+use crate::segments::writer::BufferedSegmentSink;
+use crate::{Footer, MAGIC_BYTES, WriteStrategyBuilder};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -78,7 +79,7 @@ impl VortexWriteOptions {
 
 impl VortexWriteOptions {
     /// Drop into the blocking writer API using the given runtime.
-    pub fn blocking<B: BlockingRuntime>(self, runtime: B) -> BlockingWrite<B> {
+    pub fn blocking<B: BlockingRuntime>(self, runtime: &B) -> BlockingWrite<'_, B> {
         BlockingWrite {
             options: self,
             runtime,
@@ -323,12 +324,12 @@ impl Writer<'_> {
 }
 
 /// A blocking API for writing Vortex files.
-pub struct BlockingWrite<B: BlockingRuntime> {
+pub struct BlockingWrite<'rt, B: BlockingRuntime> {
     options: VortexWriteOptions,
-    runtime: B,
+    runtime: &'rt B,
 }
 
-impl<B: BlockingRuntime> BlockingWrite<B> {
+impl<'rt, B: BlockingRuntime> BlockingWrite<'rt, B> {
     /// Write a Vortex file into the given `Write` sink.
     pub fn write<W: Write + Unpin>(
         self,
@@ -346,7 +347,7 @@ impl<B: BlockingRuntime> BlockingWrite<B> {
         self,
         write: W,
         dtype: DType,
-    ) -> BlockingWriter<'w, B> {
+    ) -> BlockingWriter<'rt, 'w, B> {
         BlockingWriter {
             writer: self.options.writer(BlockingWriteAdapter(write), dtype),
             runtime: self.runtime,
@@ -355,12 +356,12 @@ impl<B: BlockingRuntime> BlockingWrite<B> {
 }
 
 /// A blocking adapter around a [`Writer`], allowing incremental writing of arrays to a Vortex file.
-pub struct BlockingWriter<'w, B: BlockingRuntime> {
-    runtime: B,
+pub struct BlockingWriter<'rt, 'w, B: BlockingRuntime> {
+    runtime: &'rt B,
     writer: Writer<'w>,
 }
 
-impl<B: BlockingRuntime> BlockingWriter<'_, B> {
+impl<B: BlockingRuntime> BlockingWriter<'_, '_, B> {
     pub fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
         self.runtime.block_on(self.writer.push(chunk))
     }

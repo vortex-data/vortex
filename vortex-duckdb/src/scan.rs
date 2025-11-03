@@ -1,6 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::max;
+use std::ffi::CString;
+use std::fmt;
+use std::fmt::{Debug, Formatter};
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::task::{Context, Poll};
+
+use async_compat::Compat;
+use futures::stream::{BoxStream, SelectAll};
+use futures::{FutureExt, Stream, StreamExt, stream};
+use itertools::Itertools;
+use num_traits::AsPrimitive;
+use url::Url;
+use vortex::dtype::FieldNames;
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
+use vortex::file::{OpenOptionsSessionExt, VortexFile, VortexOpenOptions};
+use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::current::ThreadSafeIterator;
+use vortex::{ArrayRef, ToCanonical};
+
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
@@ -11,27 +34,6 @@ use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
 use crate::utils::object_store::s3_store;
 use crate::{RUNTIME, SESSION};
-use async_compat::Compat;
-use futures::stream::{BoxStream, SelectAll};
-use futures::{stream, FutureExt, Stream, StreamExt};
-use itertools::Itertools;
-use num_traits::AsPrimitive;
-use std::cmp::max;
-use std::ffi::CString;
-use std::fmt;
-use std::fmt::{Debug, Formatter};
-use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use url::Url;
-use vortex::dtype::FieldNames;
-use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex::expr::{and, and_collect, col, lit, root, select, ExprRef};
-use vortex::file::{OpenOptionsSessionExt, VortexFile, VortexOpenOptions};
-use vortex::io::runtime::current::ThreadSafeIterator;
-use vortex::io::runtime::BlockingRuntime;
-use vortex::{ArrayRef, ToCanonical};
 
 pub struct VortexBindData {
     first_file: VortexFile,

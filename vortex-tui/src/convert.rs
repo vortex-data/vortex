@@ -3,21 +3,22 @@
 
 use std::path::PathBuf;
 
-use crate::SESSION;
 use clap::{Parser, ValueEnum};
 use futures::StreamExt;
 use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};
 use vortex::file::{WriteOptionsSessionExt, WriteStrategyBuilder};
 use vortex::stream::ArrayStreamAdapter;
-use vortex::ArrayRef;
+
+use crate::SESSION;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Strategy {

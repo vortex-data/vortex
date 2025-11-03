@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_session::registry::Registry;
+use vortex_session::{Ref, SessionExt};
+
 use crate::{
     BetweenExprEncoding, BinaryExprEncoding, CastExprEncoding, ExprEncodingRef,
     GetItemExprEncoding, IsNullExprEncoding, LikeExprEncoding, ListContainsExprEncoding,
     LiteralExprEncoding, MergeExprEncoding, NotExprEncoding, PackExprEncoding, RootExprEncoding,
     SelectExprEncoding,
 };
-use vortex_session::registry::Registry;
-use vortex_session::{Ref, SessionExt};
 
 /// Registry of expression encodings.
 pub type ExprRegistry = Registry<ExprEncodingRef>;

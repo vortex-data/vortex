@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::array::vx_array;
-use crate::dtype::vx_dtype;
-use crate::error::{try_or_default, vx_error};
-use crate::session::vx_session;
-use crate::RUNTIME;
+use std::ffi::{CStr, c_char};
+
 use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
 use futures::{SinkExt, TryStreamExt};
-use std::ffi::{c_char, CStr};
-use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex::ArrayRef;
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::file::{WriteOptionsSessionExt, WriteSummary};
 use vortex::io::runtime::{BlockingRuntime, Task};
 use vortex::io::session::RuntimeSessionExt;
 use vortex::stream::ArrayStreamAdapter;
-use vortex::ArrayRef;
+
+use crate::RUNTIME;
+use crate::array::vx_array;
+use crate::dtype::vx_dtype;
+use crate::error::{try_or_default, vx_error};
+use crate::session::vx_session;
 
 #[allow(non_camel_case_types)]
 /// The `sink` interface is used to collect array chunks and place them into a resource
@@ -111,11 +113,11 @@ mod tests {
     use std::sync::Arc;
 
     use tempfile::NamedTempFile;
+    use vortex::IntoArray;
     use vortex::arrays::PrimitiveArray;
     use vortex::buffer::buffer;
     use vortex::dtype::DType;
     use vortex::validity::Validity;
-    use vortex::IntoArray;
 
     use super::*;
     use crate::array::{vx_array, vx_array_free};

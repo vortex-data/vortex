@@ -17,8 +17,8 @@ use vortex_datafusion::VortexFormat;
 #[cfg(feature = "lance")]
 use {crate::Format, lance::datafusion::LanceTableProvider, lance::dataset::Dataset};
 
-use crate::datasets::BenchmarkDataset;
 use crate::SESSION;
+use crate::datasets::BenchmarkDataset;
 
 pub async fn register_parquet_files(
     session: &SessionContext,

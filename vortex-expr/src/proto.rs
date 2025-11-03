@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_proto::expr as pb;
 
 use crate::session::ExprRegistry;
@@ -51,13 +51,13 @@ pub fn deserialize_expr_proto(expr: &pb::Expr, registry: &ExprRegistry) -> Vorte
 
 #[cfg(test)]
 mod tests {
-    use crate::session::ExprSession;
     use prost::Message;
     use vortex_array::compute::{BetweenOptions, StrictComparison};
     use vortex_proto::expr as pb;
 
-    use crate::proto::{deserialize_expr_proto, ExprSerializeProtoExt};
-    use crate::{and, between, eq, get_item, lit, or, root, ExprRef};
+    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::session::ExprSession;
+    use crate::{ExprRef, and, between, eq, get_item, lit, or, root};
 
     #[test]
     fn expression_serde() {

@@ -3,14 +3,14 @@
 
 use async_trait::async_trait;
 use tokio::fs::File;
+use vortex::ArrayRef;
 use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
 use vortex::stream::ArrayStreamExt;
-use vortex::ArrayRef;
 
 use crate::conversions::parquet_to_vortex;
-use crate::datasets::data_downloads::download_data;
 use crate::datasets::Dataset;
-use crate::{idempotent_async, IdempotentPath, SESSION};
+use crate::datasets::data_downloads::download_data;
+use crate::{IdempotentPath, SESSION, idempotent_async};
 
 /// Datasets which can be downloaded over HTTP in Parquet format.
 ///

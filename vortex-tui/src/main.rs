@@ -7,16 +7,18 @@ mod convert;
 mod inspect;
 mod tree;
 
-use crate::inspect::InspectArgs;
-use browse::exec_tui;
-use clap::{CommandFactory, Parser};
 use std::path::PathBuf;
 use std::sync::LazyLock;
-use tree::{exec_tree, TreeArgs};
+
+use browse::exec_tui;
+use clap::{CommandFactory, Parser};
+use tree::{TreeArgs, exec_tree};
+use vortex::VortexSessionDefault;
 use vortex::error::VortexExpect;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
-use vortex::VortexSessionDefault;
+
+use crate::inspect::InspectArgs;
 
 #[derive(clap::Parser)]
 struct Cli {

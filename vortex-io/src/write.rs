@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future::{ready, Future};
+use std::future::{Future, ready};
 use std::io::{self, Cursor, Write};
 
 use futures::{AsyncWrite, AsyncWriteExt};

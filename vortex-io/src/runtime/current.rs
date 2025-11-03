@@ -157,7 +157,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use futures::{stream, StreamExt};
+    use futures::{StreamExt, stream};
     use parking_lot::Mutex;
 
     use super::*;

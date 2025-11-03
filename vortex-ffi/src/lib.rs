@@ -19,9 +19,10 @@ mod sink;
 mod string;
 mod struct_fields;
 
-pub use log::vx_log_level;
-use std::ffi::{c_char, c_int, CStr};
+use std::ffi::{CStr, c_char, c_int};
 use std::sync::LazyLock;
+
+pub use log::vx_log_level;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 
 #[cfg(all(feature = "mimalloc", not(miri)))]

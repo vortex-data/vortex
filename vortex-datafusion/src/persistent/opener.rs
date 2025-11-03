@@ -12,15 +12,16 @@ use datafusion_datasource::file_stream::{FileOpenFuture, FileOpener};
 use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
 use datafusion_datasource::{FileRange, PartitionedFile};
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
-use datafusion_physical_expr::{split_conjunction, PhysicalExprRef};
+use datafusion_physical_expr::{PhysicalExprRef, split_conjunction};
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::metrics::Count;
 use datafusion_pruning::FilePruner;
-use futures::{stream, FutureExt, StreamExt, TryStreamExt};
-use object_store::path::Path;
+use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
+use object_store::path::Path;
 use tracing::Instrument;
+use vortex::ArrayRef;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
 use vortex::expr::{root, select};
@@ -28,7 +29,6 @@ use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
 use vortex::session::VortexSession;
-use vortex::ArrayRef;
 use vortex_utils::aliases::dash_map::{DashMap, Entry};
 
 use super::cache::VortexFileCache;
@@ -389,7 +389,8 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::sync::LazyLock;
+
     use arrow_schema::Fields;
     use chrono::Utc;
     use datafusion::arrow::array::{RecordBatch, StringArray, StructArray};
@@ -403,15 +404,16 @@ mod tests {
     use datafusion::scalar::ScalarValue;
     use insta::assert_snapshot;
     use itertools::Itertools;
-    use object_store::memory::InMemory;
     use object_store::ObjectMeta;
+    use object_store::memory::InMemory;
     use rstest::rstest;
-    use std::sync::LazyLock;
+    use vortex::VortexSessionDefault;
     use vortex::arrow::FromArrowArray;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::{ObjectStoreWriter, VortexWrite};
     use vortex::session::VortexSession;
-    use vortex::VortexSessionDefault;
+
+    use super::*;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::default());
 

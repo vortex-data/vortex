@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::footer::postscript::{Postscript, PostscriptSegment};
-use crate::footer::FileStatistics;
-use crate::{Footer, EOF_SIZE, MAGIC_BYTES, VERSION};
 use flatbuffers::root;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{dtype as fbd, FlatBuffer, ReadFlatBuffer};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
 use vortex_session::VortexSession;
+
+use crate::footer::FileStatistics;
+use crate::footer::postscript::{Postscript, PostscriptSegment};
+use crate::{EOF_SIZE, Footer, MAGIC_BYTES, VERSION};
 
 /// Deserialize a footer from the end of a Vortex file or created from a
 /// [`crate::footer::FooterSerializer`].

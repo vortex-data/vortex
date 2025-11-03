@@ -5,12 +5,12 @@ use std::clone::Clone;
 use std::sync::LazyLock;
 
 use tokio::runtime::{Builder, Runtime};
+use vortex::VortexSessionDefault;
 use vortex::error::VortexExpect;
-use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
-use vortex::VortexSessionDefault;
 
 macro_rules! throw_runtime {
     ($($tt:tt)*) => {

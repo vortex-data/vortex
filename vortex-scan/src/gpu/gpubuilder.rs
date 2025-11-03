@@ -4,18 +4,19 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::gpu::gputask::TaskFuture;
-use crate::gpu::GpuScan;
-use crate::scan_builder::filter_and_projection_masks;
 use futures::Stream;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::transform::simplify_typed;
-use vortex_expr::{root, ExprRef};
+use vortex_expr::{ExprRef, root};
 use vortex_gpu::GpuVector;
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_layout::gpu::GpuLayoutReaderRef;
 use vortex_session::VortexSession;
+
+use crate::gpu::GpuScan;
+use crate::gpu::gputask::TaskFuture;
+use crate::scan_builder::filter_and_projection_masks;
 
 pub struct GpuScanBuilder<A> {
     session: VortexSession,

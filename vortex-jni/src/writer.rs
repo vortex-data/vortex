@@ -3,21 +3,18 @@
 
 use std::io::Cursor;
 
-use crate::errors::{try_or_throw, JNIError};
-use crate::object_store::make_object_store;
-use crate::{SESSION, TOKIO_RUNTIME};
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::StreamReader;
-use futures::channel::mpsc;
 use futures::SinkExt;
-use jni::objects::{JByteArray, JClass, JObject, JString};
-use jni::sys::{jboolean, jlong, JNI_FALSE, JNI_TRUE};
+use futures::channel::mpsc;
 use jni::JNIEnv;
+use jni::objects::{JByteArray, JClass, JObject, JString};
+use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jlong};
 use object_store::path::Path;
 use url::Url;
 use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
-use vortex::error::{vortex_bail, vortex_err, VortexResult};
+use vortex::error::{VortexResult, vortex_bail, vortex_err};
 use vortex::file::{WriteOptionsSessionExt, WriteSummary};
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
@@ -25,6 +22,10 @@ use vortex::io::{ObjectStoreWriter, VortexWrite};
 use vortex::stream::ArrayStreamAdapter;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef};
+
+use crate::errors::{JNIError, try_or_throw};
+use crate::object_store::make_object_store;
+use crate::{SESSION, TOKIO_RUNTIME};
 
 /// Native writer around a file writer.
 pub struct NativeWriter {

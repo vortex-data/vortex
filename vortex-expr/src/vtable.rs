@@ -127,12 +127,11 @@ macro_rules! vtable {
 
 #[cfg(test)]
 mod tests {
-    use crate::session::ExprRegistry;
     use rstest::{fixture, rstest};
 
     use super::*;
-    use crate::proto::{deserialize_expr_proto, ExprSerializeProtoExt};
-    use crate::session::ExprSession;
+    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::session::{ExprRegistry, ExprSession};
     use crate::*;
 
     #[fixture]

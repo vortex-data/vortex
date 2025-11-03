@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_session::registry::Registry;
+use vortex_session::{Ref, SessionExt};
+
+use crate::LayoutEncodingRef;
 use crate::layouts::chunked::ChunkedLayoutEncoding;
 use crate::layouts::dict::DictLayoutEncoding;
 use crate::layouts::flat::FlatLayoutEncoding;
 use crate::layouts::struct_::StructLayoutEncoding;
 use crate::layouts::zoned::ZonedLayoutEncoding;
-use crate::LayoutEncodingRef;
-use vortex_session::registry::Registry;
-use vortex_session::{Ref, SessionExt};
 
 pub type LayoutRegistry = Registry<LayoutEncodingRef>;
 

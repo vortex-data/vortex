@@ -7,7 +7,7 @@ use vortex_array::{Canonical, DeserializeMetadata, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_proto::scalar::ScalarValue;
 use vortex_scalar::Scalar;
 

@@ -47,7 +47,7 @@ mod tests {
     use datafusion_physical_plan::display::DisplayableExecutionPlan;
     use insta::assert_snapshot;
     use rstest::rstest;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
     use tokio::fs::OpenOptions;
     use vortex::arrays::{ChunkedArray, StructArray, VarBinArray};
     use vortex::buffer::buffer;
@@ -57,8 +57,8 @@ mod tests {
     use vortex::validity::Validity;
     use vortex::{IntoArray, VortexSessionDefault};
 
-    use crate::persistent::{register_vortex_format_factory, VortexFormat};
     use crate::VortexFormatFactory;
+    use crate::persistent::{VortexFormat, register_vortex_format_factory};
 
     #[rstest]
     #[case(Some(1))]

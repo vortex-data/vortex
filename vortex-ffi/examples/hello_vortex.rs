@@ -18,12 +18,12 @@ use std::sync::LazyLock;
 
 use vortex::arrays::{ChunkedArray, StructArray};
 use vortex::buffer::Buffer;
-use vortex::error::{vortex_err, VortexResult};
+use vortex::error::{VortexResult, vortex_err};
 use vortex::file::WriteOptionsSessionExt;
-use vortex::io::runtime::current::CurrentThreadRuntime;
-use vortex::io::runtime::BlockingRuntime;
-use vortex::io::session::RuntimeSessionExt;
 use vortex::io::VortexWrite;
+use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex::{Array, ArrayRef, IntoArray, VortexSessionDefault};
 

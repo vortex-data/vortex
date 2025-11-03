@@ -7,6 +7,7 @@
 use std::fmt::Display;
 use std::ops::Deref;
 use std::sync::Arc;
+
 use vortex_utils::aliases::dash_map::DashMap;
 
 /// A registry of items that are keyed by a string identifier.

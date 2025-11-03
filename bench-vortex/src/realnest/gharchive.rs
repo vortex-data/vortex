@@ -25,7 +25,7 @@ use vortex_datafusion::VortexFormat;
 use crate::benchmark_trait::Benchmark;
 use crate::conversions::parquet_to_vortex;
 use crate::engines::EngineCtx;
-use crate::{idempotent, idempotent_async, BenchmarkDataset, Format, Target, SESSION};
+use crate::{BenchmarkDataset, Format, SESSION, Target, idempotent, idempotent_async};
 
 /// Template URL for raw JSON dataset
 fn raw_json_url(hour: usize) -> String {

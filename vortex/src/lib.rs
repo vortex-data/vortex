@@ -93,8 +93,6 @@ impl VortexSessionDefault for VortexSession {
 /// get too verbose if we include _everything_.
 #[cfg(test)]
 mod test {
-    use crate as vortex;
-    use crate::VortexSessionDefault;
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stream::ArrayStreamExt;
@@ -107,6 +105,9 @@ mod test {
     use vortex_file::{OpenOptionsSessionExt, WriteOptionsSessionExt, WriteStrategyBuilder};
     use vortex_layout::layouts::compact::CompactCompressor;
     use vortex_session::VortexSession;
+
+    use crate as vortex;
+    use crate::VortexSessionDefault;
 
     #[test]
     fn convert() -> anyhow::Result<()> {

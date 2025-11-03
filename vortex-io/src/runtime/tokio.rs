@@ -148,8 +148,8 @@ impl<T> Iterator for TokioBlockingIterator<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures::FutureExt;
     use tokio::runtime::Runtime as TokioRt;

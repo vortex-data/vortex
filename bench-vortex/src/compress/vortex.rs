@@ -4,11 +4,12 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
-use crate::SESSION;
 use bytes::Bytes;
-use futures::{pin_mut, StreamExt};
-use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
+use futures::{StreamExt, pin_mut};
 use vortex::Array;
+use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
+
+use crate::SESSION;
 
 #[inline(never)]
 pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyhow::Result<u64> {

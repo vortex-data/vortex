@@ -12,7 +12,7 @@ use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
@@ -289,7 +289,7 @@ mod test {
 
     use futures::stream;
     use rstest::{fixture, rstest};
-    use vortex_array::{assert_arrays_eq, ArrayContext, IntoArray, MaskFuture};
+    use vortex_array::{ArrayContext, IntoArray, MaskFuture, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};

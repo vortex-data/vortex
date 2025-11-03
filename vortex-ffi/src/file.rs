@@ -3,19 +3,12 @@
 
 //! FFI interface for Vortex File I/O.
 
-use std::ffi::{c_char, c_int, c_uint, c_ulong, CStr};
+use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::ops::Range;
 use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
-use vortex::stream::ArrayStream;
 
-use crate::array::vx_array;
-use crate::array_iterator::vx_array_iterator;
-use crate::dtype::vx_dtype;
-use crate::error::{try_or_default, vx_error};
-use crate::session::vx_session;
-use crate::{arc_wrapper, to_string_vec, RUNTIME};
 use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
@@ -24,16 +17,24 @@ use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
-use vortex::error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex::expr::ExprRef;
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::session::{ExprRegistry, ExprSessionExt};
-use vortex::expr::ExprRef;
 use vortex::file::{OpenOptionsSessionExt, VortexFile, WriteOptionsSessionExt};
 use vortex::io::runtime::BlockingRuntime;
 use vortex::iter::ArrayIteratorAdapter;
 use vortex::proto::expr::Expr;
 use vortex::scan::{ScanBuilder, SplitBy};
 use vortex::session::VortexSession;
+use vortex::stream::ArrayStream;
+
+use crate::array::vx_array;
+use crate::array_iterator::vx_array_iterator;
+use crate::dtype::vx_dtype;
+use crate::error::{try_or_default, vx_error};
+use crate::session::vx_session;
+use crate::{RUNTIME, arc_wrapper, to_string_vec};
 
 arc_wrapper!(
     /// A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.

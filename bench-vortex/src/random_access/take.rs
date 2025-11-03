@@ -4,7 +4,6 @@
 use std::iter;
 use std::path::Path;
 
-use crate::SESSION;
 use arrow_array::types::Int64Type;
 use arrow_array::{PrimitiveArray, RecordBatch};
 use arrow_select::concat::concat_batches;
@@ -13,9 +12,9 @@ use futures::stream;
 use itertools::Itertools;
 #[cfg(feature = "lance")]
 use lance::dataset::{Dataset, ProjectionRequest};
+use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
-use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
 use vortex::buffer::Buffer;
@@ -23,6 +22,8 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, IntoArray};
+
+use crate::SESSION;
 
 pub async fn take_vortex_tokio(
     path: &Path,

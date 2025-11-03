@@ -23,7 +23,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
 use crate::segments::{FileSegmentSource, InitialReadSegmentCache};
-use crate::{DeserializeStep, VortexFile, EOF_SIZE, MAX_POSTSCRIPT_SIZE};
+use crate::{DeserializeStep, EOF_SIZE, MAX_POSTSCRIPT_SIZE, VortexFile};
 
 const INITIAL_READ_SIZE: usize = 1 << 20; // 1 MB
 

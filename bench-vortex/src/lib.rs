@@ -4,16 +4,17 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
-use clap::ValueEnum;
-use itertools::Itertools;
-use serde::Serialize;
 use std::clone::Clone;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::LazyLock;
+
+use clap::ValueEnum;
+use itertools::Itertools;
+use serde::Serialize;
 pub use utils::file_utils::*;
 pub use utils::logging::*;
-use vortex::error::{vortex_err, VortexUnwrap};
+use vortex::error::{VortexUnwrap, vortex_err};
 use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
 use vortex::layout::layouts::compact::CompactCompressor;
 
@@ -40,12 +41,12 @@ pub mod tpcds;
 pub mod tpch;
 pub mod utils;
 
-pub use datasets::{file, BenchmarkDataset};
+pub use datasets::{BenchmarkDataset, file};
 pub use engines::df;
+use vortex::VortexSessionDefault;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
-use vortex::VortexSessionDefault;
 
 // All benchmarks run with mimalloc for consistency.
 #[global_allocator]

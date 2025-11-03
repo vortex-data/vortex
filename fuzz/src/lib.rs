@@ -8,12 +8,13 @@ mod array;
 pub mod error;
 mod file;
 
-pub use array::{sort_canonical_array, Action, CompressorStrategy, ExpectedValue, FuzzArrayAction};
-pub use file::FuzzFileAction;
 use std::sync::LazyLock;
+
+pub use array::{Action, CompressorStrategy, ExpectedValue, FuzzArrayAction, sort_canonical_array};
+pub use file::FuzzFileAction;
 use vortex::VortexSessionDefault;
-use vortex_io::runtime::current::CurrentThreadRuntime;
 use vortex_io::runtime::BlockingRuntime;
+use vortex_io::runtime::current::CurrentThreadRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 

@@ -3,10 +3,11 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::SESSION;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::stream::ArrayStreamExt;
+
+use crate::SESSION;
 
 #[derive(Debug, clap::Parser)]
 pub struct TreeArgs {

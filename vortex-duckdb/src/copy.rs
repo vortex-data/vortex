@@ -8,20 +8,19 @@ use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
 use futures::{SinkExt, TryStreamExt};
 use parking_lot::Mutex;
+use vortex::ArrayRef;
 use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::{DType, StructFields};
-use vortex::error::{vortex_err, VortexExpect, VortexResult};
+use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::file::{WriteOptionsSessionExt, WriteSummary};
 use vortex::io::runtime::current::CurrentThreadWorkerPool;
 use vortex::io::runtime::{BlockingRuntime, Task};
 use vortex::io::session::RuntimeSessionExt;
 use vortex::stream::ArrayStreamAdapter;
-use vortex::ArrayRef;
 
 use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
 use crate::duckdb::{CopyFunction, DataChunk, LogicalType};
-use crate::RUNTIME;
-use crate::SESSION;
+use crate::{RUNTIME, SESSION};
 
 #[derive(Debug)]
 pub struct VortexCopyFunction;

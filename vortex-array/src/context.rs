@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::EncodingRef;
-use itertools::Itertools;
-use parking_lot::RwLock;
 use std::fmt::Display;
 use std::sync::Arc;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+
+use itertools::Itertools;
+use parking_lot::RwLock;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_session::registry::Registry;
+
+use crate::EncodingRef;
 
 pub type ArrayContext = VTableContext<EncodingRef>;
 

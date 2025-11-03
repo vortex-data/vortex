@@ -3,17 +3,13 @@
 
 use std::path::PathBuf;
 
-use crate::conversions::parquet_to_vortex;
-use crate::datasets::data_downloads::download_data;
-use crate::datasets::Dataset;
-use crate::{idempotent_async, CompactionStrategy, IdempotentPath, SESSION};
 use anyhow::Result;
 use async_trait::async_trait;
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
+use vortex::ArrayRef;
 use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
 use vortex::stream::ArrayStreamExt;
-use vortex::ArrayRef;
 #[cfg(feature = "lance")]
 use {
     lance::dataset::{Dataset as LanceDataset, WriteParams},
@@ -21,6 +17,11 @@ use {
     parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder,
     std::fs::File,
 };
+
+use crate::conversions::parquet_to_vortex;
+use crate::datasets::Dataset;
+use crate::datasets::data_downloads::download_data;
+use crate::{CompactionStrategy, IdempotentPath, SESSION, idempotent_async};
 
 pub struct TaxiData;
 

@@ -16,8 +16,8 @@ use vortex::layout::segments::{SegmentId, SegmentSource};
 use vortex::layout::{LayoutRef, VTable};
 use vortex::serde::ArrayParts;
 
-use crate::browse::ui::SegmentGridState;
 use crate::SESSION;
+use crate::browse::ui::SegmentGridState;
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
 pub enum Tab {

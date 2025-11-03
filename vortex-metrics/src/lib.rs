@@ -14,9 +14,8 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use witchcraft_metrics::{MetricRegistry, Metrics, MetricsIter};
-
 pub use session::*;
+use witchcraft_metrics::{MetricRegistry, Metrics, MetricsIter};
 
 /// A metric registry for various performance metrics.
 #[derive(Default, Clone)]

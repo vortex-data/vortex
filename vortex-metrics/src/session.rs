@@ -3,8 +3,9 @@
 
 //! Session extension for accessing metrics.
 
-use crate::VortexMetrics;
 use vortex_session::SessionExt;
+
+use crate::VortexMetrics;
 
 /// Extension trait for accessing session metrics.
 pub trait MetricsSessionExt: SessionExt {

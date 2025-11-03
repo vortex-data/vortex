@@ -28,10 +28,10 @@ use vortex_array::stats::StatsSet;
 use vortex_array::{ArrayContext, ArraySessionExt};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
-use vortex_flatbuffers::{footer as fb, FlatBuffer};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_flatbuffers::{FlatBuffer, footer as fb};
 use vortex_layout::session::LayoutSessionExt;
-use vortex_layout::{layout_from_flatbuffer, LayoutContext, LayoutRef};
+use vortex_layout::{LayoutContext, LayoutRef, layout_from_flatbuffer};
 use vortex_session::VortexSession;
 
 /// Captures the layout information of a Vortex file.
