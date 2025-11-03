@@ -16,12 +16,11 @@ use crate::{VectorMutOps, VectorOps};
 
 // Default capacity for new string data buffers of 2MiB.
 const BUFFER_CAPACITY: usize = 2 * 1024 * 1024;
-/// Mutable variable-length binary vector.
-#[derive(Clone, Debug)]
 
 /// A mutable vector of binary view data.
 ///
 /// The immutable equivalent of this type is [`BinaryViewVector`].
+#[derive(Clone, Debug)]
 pub struct BinaryViewVectorMut<T: BinaryViewType> {
     /// Views into the binary data.
     views: BufferMut<BinaryView>,
