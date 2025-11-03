@@ -55,7 +55,6 @@ pub use root::*;
 pub use scope::*;
 pub use scope_vars::*;
 pub use select::*;
-use vortex_array::operator::OperatorRef;
 use vortex_array::{Array, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
@@ -112,8 +111,6 @@ pub trait VortexExpr:
     /// Compute the type of the array returned by
     /// [`VortexExpr::evaluate`](./trait.VortexExpr.html#method.evaluate).
     fn return_dtype(&self, scope: &DType) -> VortexResult<DType>;
-
-    fn operator(&self, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>>;
 }
 
 dyn_hash::hash_trait_object!(VortexExpr);
@@ -277,10 +274,6 @@ impl<V: VTable> VortexExpr for ExprAdapter<V> {
 
     fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
         V::return_dtype(&self.0, scope)
-    }
-
-    fn operator(&self, scope: &OperatorRef) -> VortexResult<Option<OperatorRef>> {
-        V::operator(&self.0, scope)
     }
 }
 
