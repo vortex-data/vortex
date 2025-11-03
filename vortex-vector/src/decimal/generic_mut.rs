@@ -134,7 +134,7 @@ impl<D: NativeDecimalType> DVectorMut<D> {
         &mut self.elements
     }
 
-    /// Gets a nullable element at the given index, **WITHOUT** bounds checking.
+    /// Gets a nullable element at the given index, panicking on out-of-bounds.
     ///
     /// If the element at the given index is null, returns `None`. Otherwise, returns `Some(x)`,
     /// where `x: D`.
