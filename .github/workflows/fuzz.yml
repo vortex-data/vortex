@@ -8,7 +8,7 @@ on:
 jobs:
   io_fuzz:
     name: "IO Fuzz"
-    timeout-minutes: 180
+    timeout-minutes: 230  # almost 4 hours
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8g.large
@@ -67,7 +67,7 @@ jobs:
 
   ops_fuzz:
     name: "Array Operations Fuzz"
-    timeout-minutes: 180
+    timeout-minutes: 230  # almost 4 hours
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8g.large
