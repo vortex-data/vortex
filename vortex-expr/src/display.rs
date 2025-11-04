@@ -2,28 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::Expression;
+use std::fmt::{Display, Formatter};
 
 pub enum DisplayFormat {
     Compact,
     Tree,
 }
 
-/// Configurable display trait for expressions.
-pub trait DisplayAs {
-    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result;
-
-    fn child_names(&self) -> Option<Vec<String>> {
-        None
-    }
-}
-
 pub struct DisplayTreeExpr<'a>(pub &'a Expression);
 
-impl std::fmt::Display for DisplayTreeExpr<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for DisplayTreeExpr<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
         fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
-            let node_name = expr.id().to_string();
+            let node_name = format!("{}({})", expr.id().to_string(), expr.fmt_metadata());
 
             // Get child names for display purposes
             let child_names = (0..expr.children().len()).map(|i| expr.child_name(i));
@@ -43,6 +35,15 @@ impl std::fmt::Display for DisplayTreeExpr<'_> {
         }
 
         write!(f, "{}", make_tree(self.0)?)
+    }
+}
+
+struct ExpressionDebug<'a>(&'a Expression);
+impl Display for ExpressionDebug<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}(", self.0.id())?;
+        self.0.fmt_instance_data(f)?;
+        write!(f, ")")
     }
 }
 

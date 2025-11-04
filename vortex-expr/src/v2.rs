@@ -189,6 +189,13 @@ impl Expression {
         self.vtable.as_dyn().fmt_compact(self, f)
     }
 
+    /// Format the instance data of the expression as a debug string.
+    pub fn fmt_instance_data(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.vtable
+            .as_dyn()
+            .fmt_instance_data(self.data().as_ref(), f)
+    }
+
     /// Display the expression as a formatted tree structure.
     ///
     /// This provides a hierarchical view of the expression that shows the relationships

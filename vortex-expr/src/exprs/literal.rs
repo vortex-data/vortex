@@ -3,7 +3,6 @@
 
 use prost::Message;
 use std::fmt::Formatter;
-use std::ops::Deref;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{match_each_float_ptype, DType};
@@ -57,7 +56,7 @@ impl VTable for Literal {
     }
 
     fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", expr.deref())
+        write!(f, "{}", expr.data())
     }
 
     fn return_dtype(&self, expr: &ExprInstance<Self>, _scope: &DType) -> VortexResult<DType> {

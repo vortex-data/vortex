@@ -178,6 +178,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn child_name(&self, instance: &dyn Any, child_idx: usize) -> ChildName;
     fn validate(&self, expression: &Expression) -> VortexResult<()>;
     fn fmt_compact(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result;
+    fn fmt_instance_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result;
     fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
@@ -237,6 +238,13 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     fn fmt_compact(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result {
         let expr = ExprInstance::new(expression);
         V::fmt_compact(&self.0, &expr, f)
+    }
+
+    fn fmt_instance_data(&self, instance: &dyn Any, f: &mut Formatter<'_>) -> fmt::Result {
+        let instance = instance
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        write!(f, "{:?}", instance)
     }
 
     fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType> {
