@@ -63,7 +63,7 @@ public final class Not implements Expression {
 
     @Override
     public String id() {
-        return "not";
+        return "vortex.not";
     }
 
     @Override

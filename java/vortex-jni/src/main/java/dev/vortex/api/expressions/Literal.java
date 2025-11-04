@@ -72,7 +72,7 @@ public abstract class Literal<T> implements Expression {
 
     @Override
     public String id() {
-        return "literal";
+        return "vortex.literal";
     }
 
     @Override

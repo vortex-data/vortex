@@ -19,7 +19,7 @@ use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
 ///
 /// # Examples
 ///
-/// ```
+/// ```rust
 /// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{root, Pack, PackOptions, Scope, VortexExpr};
@@ -43,7 +43,6 @@ use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
 /// assert_eq!(x_copy.scalar_at(1), Scalar::from(110));
 /// assert_eq!(x_copy.scalar_at(2), Scalar::from(200));
 /// ```
-///
 pub struct Pack;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

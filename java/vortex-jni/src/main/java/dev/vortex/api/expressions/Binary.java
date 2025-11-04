@@ -172,7 +172,7 @@ public final class Binary implements Expression {
 
     @Override
     public String id() {
-        return "binary";
+        return "vortex.binary";
     }
 
     @Override
