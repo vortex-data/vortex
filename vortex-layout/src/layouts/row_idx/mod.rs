@@ -8,20 +8,20 @@ use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use Nullability::NonNullable;
 pub use expr::*;
-use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::FutureExt;
 use vortex_array::compute::filter;
 use vortex_array::{ArrayRef, IntoArray, MaskFuture};
 use vortex_dtype::{DType, FieldMask, FieldName, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::transform::{PartitionedExpr, partition, replace};
-use vortex_expr::{ExactExpr, ExprRef, Scope, is_root, root};
+use vortex_expr::transform::{partition, replace, PartitionedExpr};
+use vortex_expr::{is_root, root, ExactExpr, Expression, Scope};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
 use vortex_utils::aliases::dash_map::DashMap;
+use Nullability::NonNullable;
 
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::{ArrayFuture, LayoutReader};
@@ -44,13 +44,13 @@ impl RowIdxLayoutReader {
         }
     }
 
-    fn partition_expr(&self, expr: &ExprRef) -> Partitioning {
+    fn partition_expr(&self, expr: &Expression) -> Partitioning {
         self.partition_cache
             .entry(ExactExpr(expr.clone()))
             .or_insert_with(|| {
                 // Partition the expression into row idx and child expressions.
                 let mut partitioned = partition(expr.clone(), self.dtype(), |expr| {
-                    if expr.is::<RowIdxVTable>() {
+                    if expr.is::<RowIdx>() {
                         vec![Partition::RowIdx]
                     } else if is_root(expr) {
                         vec![Partition::Child]
@@ -86,9 +86,9 @@ impl RowIdxLayoutReader {
 #[derive(Clone)]
 enum Partitioning {
     // An expression that only references the row index (e.g., `row_idx == 5`).
-    RowIdx(ExprRef),
+    RowIdx(Expression),
     // An expression that does not reference the row index.
-    Child(ExprRef),
+    Child(Expression),
     // Contains both the RowIdx and Child expressions, (e.g., `row_idx < child.some_field`).
     Partitioned(Arc<PartitionedExpr<Partition>>),
 }
@@ -145,7 +145,7 @@ impl LayoutReader for RowIdxLayoutReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         Ok(match &self.partition_expr(expr) {
@@ -160,7 +160,7 @@ impl LayoutReader for RowIdxLayoutReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         match &self.partition_expr(expr) {
@@ -189,7 +189,7 @@ impl LayoutReader for RowIdxLayoutReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         match &self.partition_expr(expr) {
@@ -226,7 +226,7 @@ fn idx_array(row_offset: u64, row_range: &Range<u64>) -> SequenceArray {
 fn row_idx_mask_future(
     row_offset: u64,
     row_range: &Range<u64>,
-    expr: &ExprRef,
+    expr: &Expression,
     mask: MaskFuture,
 ) -> MaskFuture {
     let row_range = row_range.clone();
@@ -243,7 +243,7 @@ fn row_idx_mask_future(
 fn row_idx_array_future(
     row_offset: u64,
     row_range: &Range<u64>,
-    expr: &ExprRef,
+    expr: &Expression,
     mask: MaskFuture,
 ) -> ArrayFuture {
     let row_range = row_range.clone();
@@ -262,12 +262,12 @@ mod tests {
 
     use itertools::Itertools;
     use vortex_array::{ArrayContext, IntoArray as _, MaskFuture, ToCanonical};
-    use vortex_buffer::{BitBuffer, buffer};
+    use vortex_buffer::{buffer, BitBuffer};
     use vortex_expr::{eq, gt, lit, or, root};
     use vortex_io::runtime::single::block_on;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
+    use crate::layouts::row_idx::{row_idx, RowIdxLayoutReader};
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
     use crate::{LayoutReader, LayoutStrategy};

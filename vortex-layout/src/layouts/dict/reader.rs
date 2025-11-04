@@ -12,7 +12,7 @@ use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_expr::{Expression, Scope, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -31,7 +31,7 @@ pub struct DictReader {
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: DashMap<ExprRef, SharedArrayFuture>,
+    values_evals: DashMap<Expression, SharedArrayFuture>,
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
@@ -82,7 +82,7 @@ impl DictReader {
             .clone()
     }
 
-    fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture {
+    fn values_eval(&self, expr: Expression) -> SharedArrayFuture {
         self.values_evals
             .entry(expr.clone())
             .or_insert_with(|| {
@@ -120,7 +120,7 @@ impl LayoutReader for DictReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &ExprRef,
+        _expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // NOTE: we can get the values here, convert expression to the codes domain, and push down
@@ -133,7 +133,7 @@ impl LayoutReader for DictReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         let values_eval = self.values_eval(expr.clone());
@@ -180,7 +180,7 @@ impl LayoutReader for DictReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let values_eval = self.values_eval(root());

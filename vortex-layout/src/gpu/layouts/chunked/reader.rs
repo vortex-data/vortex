@@ -11,7 +11,7 @@ use futures::{FutureExt, TryStreamExt};
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
-use vortex_expr::ExprRef;
+use vortex_expr::Expression;
 
 use crate::gpu::children::LazyGpuReaderChildren;
 use crate::layouts::chunked::ChunkedLayout;
@@ -134,7 +134,7 @@ impl GpuLayoutReader for GpuChunkedLayoutReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
     ) -> VortexResult<GpuArrayFuture> {
         let mut chunk_evals = FuturesOrdered::new();
 

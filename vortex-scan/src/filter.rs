@@ -7,10 +7,10 @@ use bit_vec::BitVec;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
-use vortex_error::{VortexExpect, vortex_err, vortex_panic};
-use vortex_expr::ExprRef;
-use vortex_expr::dynamic::DynamicExprUpdates;
+use vortex_error::{vortex_err, vortex_panic, VortexExpect};
 use vortex_expr::forms::conjuncts;
+use vortex_expr::DynamicExprUpdates;
+use vortex_expr::Expression;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -20,7 +20,7 @@ const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 /// conjunctions in an attempt to minimize the work done.
 pub struct FilterExpr {
     /// The conjuncts involved in the filter expression.
-    conjuncts: Vec<ExprRef>,
+    conjuncts: Vec<Expression>,
     /// A histogram for the selectivity of each conjunct.
     conjunct_selectivity: Vec<RwLock<DDSketch>>,
     /// Dynamic expression trackers for each conjunct, incase they contain dynamic expressions.
@@ -32,7 +32,7 @@ pub struct FilterExpr {
 }
 
 impl FilterExpr {
-    pub fn new(expr: ExprRef) -> Self {
+    pub fn new(expr: Expression) -> Self {
         let conjuncts = conjuncts(&expr);
         let num_conjuncts = conjuncts.len();
 
@@ -53,7 +53,7 @@ impl FilterExpr {
 
     /// The conjuncts that make up this filter expression.
     #[inline]
-    pub fn conjuncts(&self) -> &[ExprRef] {
+    pub fn conjuncts(&self) -> &[Expression] {
         &self.conjuncts
     }
 

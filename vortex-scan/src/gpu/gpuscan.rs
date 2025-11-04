@@ -6,22 +6,22 @@ use std::sync::Arc;
 
 use futures::{Stream, TryStreamExt};
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_expr::ExprRef;
+use vortex_expr::Expression;
 use vortex_gpu::GpuVector;
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_layout::GpuLayoutReaderRef;
 
-use crate::gpu::gputask::{GpuTaskContext, TaskFuture, gpu_split_exec};
+use crate::gpu::gputask::{gpu_split_exec, GpuTaskContext, TaskFuture};
 
 pub struct GpuScan<A: 'static + Send> {
     handle: Handle,
     layout_reader: GpuLayoutReaderRef,
-    projection: ExprRef,
+    projection: Expression,
     splits: BTreeSet<u64>,
     map_fn: Arc<dyn Fn(Vec<GpuVector>) -> VortexResult<Vec<A>> + Send + Sync>,
     /// The dtype of the projected arrays.
@@ -50,7 +50,7 @@ impl<A: 'static + Send> GpuScan<A> {
     pub(super) fn new(
         handle: Handle,
         layout_reader: GpuLayoutReaderRef,
-        projection: ExprRef,
+        projection: Expression,
         splits: BTreeSet<u64>,
         map_fn: Arc<dyn Fn(Vec<GpuVector>) -> VortexResult<Vec<A>> + Send + Sync>,
         dtype: DType,

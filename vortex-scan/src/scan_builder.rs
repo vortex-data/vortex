@@ -16,7 +16,7 @@ use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::{Expression, root};
 use vortex_io::runtime::BlockingRuntime;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
@@ -32,8 +32,8 @@ use crate::splits::{Splits, attempt_split_ranges};
 pub struct ScanBuilder<A> {
     session: VortexSession,
     layout_reader: LayoutReaderRef,
-    projection: ExprRef,
-    filter: Option<ExprRef>,
+    projection: Expression,
+    filter: Option<Expression>,
     /// Whether the scan needs to return splits in the order they appear in the file.
     ordered: bool,
     /// Optionally read a subset of the rows in the file.
@@ -103,17 +103,17 @@ impl ScanBuilder<ArrayRef> {
 }
 
 impl<A: 'static + Send> ScanBuilder<A> {
-    pub fn with_filter(mut self, filter: ExprRef) -> Self {
+    pub fn with_filter(mut self, filter: Expression) -> Self {
         self.filter = Some(filter);
         self
     }
 
-    pub fn with_some_filter(mut self, filter: Option<ExprRef>) -> Self {
+    pub fn with_some_filter(mut self, filter: Option<Expression>) -> Self {
         self.filter = filter;
         self
     }
 
-    pub fn with_projection(mut self, projection: ExprRef) -> Self {
+    pub fn with_projection(mut self, projection: Expression) -> Self {
         self.projection = projection;
         self
     }
@@ -285,8 +285,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
 ///
 /// Projection and filter must be pre-simplified.
 pub(crate) fn filter_and_projection_masks(
-    projection: &ExprRef,
-    filter: Option<&ExprRef>,
+    projection: &Expression,
+    filter: Option<&Expression>,
     dtype: &DType,
 ) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
     let Some(struct_dtype) = dtype.as_struct_fields_opt() else {

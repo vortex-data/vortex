@@ -11,7 +11,7 @@ use once_cell::sync::OnceCell;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_expr::ExprRef;
+use vortex_expr::Expression;
 use vortex_mask::Mask;
 
 use crate::children::LayoutChildren;
@@ -46,7 +46,7 @@ pub trait LayoutReader: 'static + Send + Sync {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture>;
 
@@ -62,7 +62,7 @@ pub trait LayoutReader: 'static + Send + Sync {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture>;
 
@@ -78,7 +78,7 @@ pub trait LayoutReader: 'static + Send + Sync {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture>;
 }

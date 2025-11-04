@@ -15,7 +15,7 @@ use vortex_array::stats::StatsSet;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, Scope};
+use vortex_expr::{Expression, Scope};
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
@@ -114,7 +114,7 @@ impl VortexFile {
     }
 
     /// Returns true if the expression will never match any rows in the file.
-    pub fn can_prune(&self, filter: &ExprRef) -> VortexResult<bool> {
+    pub fn can_prune(&self, filter: &Expression) -> VortexResult<bool> {
         let Some((stats, fields)) = self
             .footer
             .statistics()

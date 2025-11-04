@@ -131,6 +131,26 @@ impl VTable for DynamicComparison {
     }
 }
 
+pub fn dynamic(
+    operator: Operator,
+    rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
+    rhs_dtype: DType,
+    default: bool,
+    lhs: Expression,
+) -> Expression {
+    DynamicComparison.new(
+        DynamicComparisonExpr {
+            operator,
+            rhs: Arc::new(Rhs {
+                value: Arc::new(rhs_value),
+                dtype: rhs_dtype,
+            }),
+            default,
+        },
+        [lhs],
+    )
+}
+
 #[derive(Clone, Debug)]
 pub struct DynamicComparisonExpr {
     operator: Operator,

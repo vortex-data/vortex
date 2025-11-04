@@ -6,38 +6,38 @@ use std::ffi::CString;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use async_compat::Compat;
 use futures::stream::{BoxStream, SelectAll};
-use futures::{FutureExt, Stream, StreamExt, stream};
+use futures::{stream, FutureExt, Stream, StreamExt};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
 use vortex::dtype::FieldNames;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
+use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex::expr::{and, and_collect, col, lit, root, select, Expression};
 use vortex::file::{OpenOptionsSessionExt, VortexFile, VortexOpenOptions};
-use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
-    BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, ExtractedValue,
-    LogicalType, TableFunction, TableInitInput, VirtualColumnsResult,
+    BindInput, BindResult, Cardinality, ClientContext, DataChunk, ExtractedValue, LogicalType,
+    TableFunction, TableInitInput, VirtualColumnsResult,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
 use crate::utils::object_store::s3_store;
-use crate::{RUNTIME, SESSION};
+use crate::{duckdb, RUNTIME, SESSION};
 
 pub struct VortexBindData {
     first_file: VortexFile,
-    filter_exprs: Vec<ExprRef>,
+    filter_exprs: Vec<Expression>,
     file_urls: Vec<Url>,
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
@@ -109,7 +109,7 @@ fn extract_schema_from_vortex_file(
 }
 
 /// Creates a projection expression based on the table initialization input.
-fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> ExprRef {
+fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> Expression {
     let projection_ids = init.projection_ids().unwrap_or(&[]);
     let column_ids = init.column_ids();
 
@@ -137,7 +137,7 @@ fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> ExprRe
 fn extract_table_filter_expr(
     init: &TableInitInput<VortexTableFunction>,
     column_ids: &[u64],
-) -> VortexResult<Option<ExprRef>> {
+) -> VortexResult<Option<Expression>> {
     let table_filter_expr = init
         .table_filter_set()
         .and_then(|filter| {
@@ -417,7 +417,7 @@ impl TableFunction for VortexTableFunction {
 
     fn pushdown_complex_filter(
         bind_data: &mut Self::BindData,
-        expr: &Expression,
+        expr: &duckdb::Expression,
     ) -> VortexResult<bool> {
         let Some(expr) = try_from_bound_expression(expr)? else {
             return Ok(false);

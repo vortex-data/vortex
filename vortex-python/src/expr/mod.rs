@@ -7,7 +7,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::{DType, Nullability, PType};
-use vortex::expr::{BinaryExpr, ExprRef, GetItemExpr, IntoExpr, NotExpr, Operator, and, lit};
+use vortex::expr::{and, lit, not, Binary, Expression, GetItem, Operator, VTableExt};
 
 use crate::dtype::PyDType;
 use crate::install_module;
@@ -36,17 +36,17 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyclass(name = "Expr", module = "vortex", frozen)]
 #[derive(Clone)]
 pub struct PyExpr {
-    inner: ExprRef,
+    inner: Expression,
 }
 
-impl From<ExprRef> for PyExpr {
-    fn from(value: ExprRef) -> Self {
+impl From<Expression> for PyExpr {
+    fn from(value: Expression) -> Self {
         Self { inner: value }
     }
 }
 
 impl Deref for PyExpr {
-    type Target = ExprRef;
+    type Target = Expression;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -54,11 +54,11 @@ impl Deref for PyExpr {
 }
 
 impl PyExpr {
-    pub fn inner(&self) -> &ExprRef {
+    pub fn inner(&self) -> &Expression {
         &self.inner
     }
 
-    pub fn into_inner(self) -> ExprRef {
+    pub fn into_inner(self) -> Expression {
         self.inner
     }
 }
@@ -71,7 +71,7 @@ fn py_binary_operator<'py>(
     Bound::new(
         left.py(),
         PyExpr {
-            inner: BinaryExpr::new_expr(left.inner.clone(), operator, right.borrow().inner.clone()),
+            inner: Binary.new(operator, [left.inner.clone(), right.borrow().inner.clone()]),
         },
     )
 }
@@ -260,7 +260,7 @@ pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'p
 
 pub fn get_item(field: String, child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: GetItemExpr::new(field, child.inner).into_expr(),
+        inner: GetItem.new(field.into(), [child.inner]),
     })
 }
 
@@ -287,7 +287,7 @@ pub fn get_item(field: String, child: PyExpr) -> PyResult<PyExpr> {
 #[pyfunction]
 pub fn not_(child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: NotExpr::new_expr(child.inner),
+        inner: not(child.inner),
     })
 }
 

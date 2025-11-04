@@ -174,7 +174,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn as_any(&self) -> &dyn Any;
     fn id(&self) -> ExprId;
     fn serialize(&self, instance: &dyn Any) -> VortexResult<Option<Vec<u8>>>;
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any>>>;
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any + Send + Sync>>>;
     fn child_name(&self, instance: &dyn Any, child_idx: usize) -> ChildName;
     fn validate(&self, expression: &Expression) -> VortexResult<()>;
     fn fmt_compact(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result;
@@ -219,8 +219,9 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::serialize(&self.0, instance)
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any>>> {
-        Ok(V::deserialize(&self.0, metadata)?.map(|data| Arc::new(data) as Arc<dyn Any>))
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any + Send + Sync>>> {
+        Ok(V::deserialize(&self.0, metadata)?
+            .map(|data| Arc::new(data) as Arc<dyn Any + Send + Sync>))
     }
 
     fn child_name(&self, instance: &dyn Any, child_idx: usize) -> ChildName {
@@ -358,13 +359,13 @@ impl ExprVTable {
         metadata: &[u8],
         children: Arc<[Expression]>,
     ) -> VortexResult<Expression> {
-        let instance = self.as_dyn().deserialize(metadata)?.ok_or_else(|| {
+        let instance_data = self.as_dyn().deserialize(metadata)?.ok_or_else(|| {
             vortex_err!(
                 "Expression vtable {} is not deserializable",
                 self.as_dyn().id()
             )
         })?;
-        Expression::try_new(self.clone(), instance, children)
+        Expression::try_new(self.clone(), instance_data, children)
     }
 }
 

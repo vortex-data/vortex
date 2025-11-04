@@ -18,7 +18,7 @@ use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::ExprRef;
+use vortex::expr::Expression;
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::session::{ExprRegistry, ExprSessionExt};
 use vortex::file::{OpenOptionsSessionExt, VortexFile, WriteOptionsSessionExt};
@@ -93,7 +93,7 @@ fn extract_expression(
     registry: &ExprRegistry,
     expression: *const c_char,
     expression_len: c_uint,
-) -> VortexResult<Option<ExprRef>> {
+) -> VortexResult<Option<Expression>> {
     Ok((!expression.is_null() && expression_len > 0).then_some({
         let bytes =
             unsafe { slice::from_raw_parts(expression as *const u8, expression_len as usize) };
@@ -210,8 +210,8 @@ pub unsafe extern "C-unwind" fn vx_file_row_count(file: *const vx_file) -> u64 {
 
 #[derive(Default, Debug)]
 struct ScanOptions {
-    projection_expr: Option<ExprRef>,
-    filter_expr: Option<ExprRef>,
+    projection_expr: Option<Expression>,
+    filter_expr: Option<Expression>,
     split_by: Option<SplitBy>,
     row_range: Option<Range<u64>>,
     row_offset: u64,

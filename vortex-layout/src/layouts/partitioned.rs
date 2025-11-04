@@ -13,7 +13,7 @@ use vortex_array::{IntoArray, MaskFuture};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::transform::PartitionedExpr;
-use vortex_expr::{ExprRef, Scope};
+use vortex_expr::{Expression, Scope};
 
 use crate::ArrayFuture;
 
@@ -21,14 +21,14 @@ pub trait PartitionedExprEval<P> {
     fn into_mask_future(
         self: Arc<Self>,
         mask: MaskFuture,
-        mask_fn: impl Fn(&P, &ExprRef, MaskFuture) -> VortexResult<MaskFuture>,
-        array_fn: impl Fn(&P, &ExprRef, MaskFuture) -> VortexResult<ArrayFuture>,
+        mask_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<MaskFuture>,
+        array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
     ) -> VortexResult<MaskFuture>;
 
     fn into_array_future(
         self: Arc<Self>,
         mask: MaskFuture,
-        array_fn: impl Fn(&P, &ExprRef, MaskFuture) -> VortexResult<ArrayFuture>,
+        array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
     ) -> VortexResult<ArrayFuture>;
 }
 
@@ -36,8 +36,8 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
     fn into_mask_future(
         self: Arc<Self>,
         mask: MaskFuture,
-        mask_fn: impl Fn(&P, &ExprRef, MaskFuture) -> VortexResult<MaskFuture>,
-        array_fn: impl Fn(&P, &ExprRef, MaskFuture) -> VortexResult<ArrayFuture>,
+        mask_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<MaskFuture>,
+        array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
     ) -> VortexResult<MaskFuture> {
         // Construct evaluations for each child.
         let field_evals: Vec<_> = self
@@ -94,7 +94,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
     fn into_array_future(
         self: Arc<Self>,
         mask: MaskFuture,
-        array_fn: impl Fn(&P, &ExprRef, MaskFuture) -> VortexResult<ArrayFuture>,
+        array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
     ) -> VortexResult<ArrayFuture> {
         // Construct evaluations for each child.
         let field_evals: Vec<_> = self

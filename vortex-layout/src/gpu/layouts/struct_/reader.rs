@@ -15,7 +15,7 @@ use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
     PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
 };
-use vortex_expr::{ExactExpr, ExprRef, col, root};
+use vortex_expr::{ExactExpr, Expression, col, root};
 use vortex_gpu::{GpuStructVector, GpuVector};
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -33,7 +33,7 @@ pub struct GpuStructReader {
 
     /// A `pack` expression that holds each individual field of the root DType. This expansion
     /// ensures we can correctly partition expressions over the fields of the struct.
-    expanded_root_expr: ExprRef,
+    expanded_root_expr: Expression,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
@@ -109,7 +109,7 @@ impl GpuStructReader {
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
-    fn partition_expr(&self, expr: ExprRef) -> Partitioned {
+    fn partition_expr(&self, expr: Expression) -> Partitioned {
         self.partitioned_expr_cache
             .entry(ExactExpr(expr.clone()))
             .or_insert_with(|| {
@@ -164,7 +164,7 @@ impl GpuStructReader {
 /// some cost and just delegate to the child reader directly.
 #[derive(Clone)]
 enum Partitioned {
-    Single(FieldName, ExprRef),
+    Single(FieldName, Expression),
     Multi(Arc<PartitionedExpr<FieldName>>),
 }
 
@@ -199,7 +199,7 @@ impl GpuLayoutReader for GpuStructReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
     ) -> VortexResult<GpuArrayFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let len = usize::try_from(row_range.end - row_range.start)

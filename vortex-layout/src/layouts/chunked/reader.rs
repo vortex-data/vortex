@@ -13,7 +13,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::{ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
-use vortex_expr::ExprRef;
+use vortex_expr::Expression;
 use vortex_mask::Mask;
 
 use crate::layouts::chunked::ChunkedLayout;
@@ -185,7 +185,7 @@ impl LayoutReader for ChunkedReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         let mut chunk_evals = vec![];
@@ -222,7 +222,7 @@ impl LayoutReader for ChunkedReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         let mut chunk_evals = vec![];
@@ -254,7 +254,7 @@ impl LayoutReader for ChunkedReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let dtype = expr.return_dtype(self.dtype())?;

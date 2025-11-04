@@ -11,7 +11,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::dtype::{FieldName, FieldNames};
 use vortex::error::VortexResult;
-use vortex::expr::{ExprRef, SelectExpr, root, select};
+use vortex::expr::{root, select, Expression};
 use vortex::file::{OpenOptionsSessionExt, VortexFile};
 use vortex::iter::ArrayIteratorExt;
 use vortex::scan::SplitBy;
@@ -21,7 +21,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrow::{IntoPyArrow, ToPyArrow};
 use crate::expr::PyExpr;
 use crate::object_store_urls::object_store_from_url;
-use crate::{RUNTIME, SESSION, TOKIO_RUNTIME, install_module};
+use crate::{install_module, RUNTIME, SESSION, TOKIO_RUNTIME};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
@@ -37,8 +37,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 pub fn read_array_from_reader(
     vortex_file: &VortexFile,
-    projection: ExprRef,
-    filter: Option<ExprRef>,
+    projection: Expression,
+    filter: Option<Expression>,
     indices: Option<ArrayRef>,
     row_range: Option<(u64, u64)>,
 ) -> VortexResult<ArrayRef> {
@@ -60,7 +60,7 @@ pub fn read_array_from_reader(
     scan.into_array_iter(&*RUNTIME)?.read_all()
 }
 
-fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRef> {
+fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Expression> {
     fn field_from_pyany(field: &Bound<PyAny>) -> PyResult<FieldName> {
         if field.clone().is_instance_of::<PyString>() {
             Ok(FieldName::from(field.downcast::<PyString>()?.to_str()?))
@@ -74,17 +74,16 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRe
     Ok(match columns {
         None => root(),
         Some(columns) => {
-            let fields = columns
+            let fields: Vec<_> = columns
                 .iter()
                 .map(field_from_pyany)
                 .collect::<PyResult<_>>()?;
-
-            SelectExpr::include_expr(fields, root())
+            select(FieldNames::from(fields), root())
         }
     })
 }
 
-fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<ExprRef> {
+fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<Expression> {
     row_filter.map(|x| x.borrow().inner().clone())
 }
 

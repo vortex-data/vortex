@@ -13,7 +13,7 @@ use vortex_array::ArrayRef;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexResult};
-use vortex_expr::ExprRef;
+use vortex_expr::Expression;
 use vortex_gpu::GpuVector;
 
 pub type GpuLayoutReaderRef = Arc<dyn GpuLayoutReader>;
@@ -46,6 +46,6 @@ pub trait GpuLayoutReader: 'static + Send + Sync {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
     ) -> VortexResult<GpuArrayFuture>;
 }

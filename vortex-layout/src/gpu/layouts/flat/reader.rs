@@ -11,7 +11,7 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexResult, VortexUnwrap as _};
-use vortex_expr::ExprRef;
+use vortex_expr::Expression;
 use vortex_gpu::create_run_jit_kernel;
 
 use crate::layouts::flat::FlatLayout;
@@ -88,7 +88,7 @@ impl GpuLayoutReader for GpuFlatReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
     ) -> VortexResult<GpuArrayFuture> {
         assert_eq!(
             row_range.clone(),

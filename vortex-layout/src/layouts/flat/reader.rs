@@ -12,7 +12,7 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::{Array, ArrayRef, MaskFuture};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, is_root};
+use vortex_expr::{Expression, Scope, is_root};
 use vortex_mask::Mask;
 
 use crate::LayoutReader;
@@ -94,7 +94,7 @@ impl LayoutReader for FlatReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &ExprRef,
+        _expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         Ok(MaskFuture::ready(mask))
@@ -103,7 +103,7 @@ impl LayoutReader for FlatReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         let row_range = usize::try_from(row_range.start)
@@ -163,7 +163,7 @@ impl LayoutReader for FlatReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let row_range = usize::try_from(row_range.start)

@@ -13,20 +13,20 @@ use vortex_array::{ArrayRef, MaskFuture, ToCanonical};
 use vortex_buffer::BitBufferMut;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
-use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::DynamicExprUpdates;
+use vortex_expr::{root, Expression};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SegmentSource;
 use crate::{LayoutReader, LayoutReaderRef, LazyReaderChildren};
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
-type PredicateCache = Arc<OnceLock<Option<ExprRef>>>;
+type PredicateCache = Arc<OnceLock<Option<Expression>>>;
 
 pub struct ZonedReader {
     layout: ZonedLayout,
@@ -34,14 +34,14 @@ pub struct ZonedReader {
     lazy_children: LazyReaderChildren,
 
     /// A cache of expr -> optional pruning result (applying the pruning expr to the zone map)
-    pruning_result: LazyLock<DashMap<ExprRef, Option<SharedPruningResult>>>,
+    pruning_result: LazyLock<DashMap<Expression, Option<SharedPruningResult>>>,
 
     /// Shared zone map
     zone_map: OnceLock<SharedZoneMap>,
 
     /// A cache of expr -> optional pruning predicate.
     /// This also uses the present_stats from the `ZonedLayout`
-    pruning_predicates: LazyLock<Arc<DashMap<ExprRef, PredicateCache>>>,
+    pruning_predicates: LazyLock<Arc<DashMap<Expression, PredicateCache>>>,
 }
 
 impl ZonedReader {
@@ -78,7 +78,7 @@ impl ZonedReader {
     }
 
     /// Get or create the pruning predicate for a given expression.
-    fn pruning_predicate(&self, expr: ExprRef) -> Option<ExprRef> {
+    fn pruning_predicate(&self, expr: Expression) -> Option<Expression> {
         self.pruning_predicates
             .entry(expr.clone())
             .or_default()
@@ -128,7 +128,7 @@ impl ZonedReader {
     }
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
-    fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
+    fn pruning_mask_future(&self, expr: Expression) -> Option<SharedPruningResult> {
         self.pruning_result
             .entry(expr.clone())
             .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
@@ -204,7 +204,7 @@ impl LayoutReader for ZonedReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         log::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
@@ -276,7 +276,7 @@ impl LayoutReader for ZonedReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         self.data_child()?.filter_evaluation(row_range, expr, mask)
@@ -285,7 +285,7 @@ impl LayoutReader for ZonedReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
@@ -299,7 +299,7 @@ impl LayoutReader for ZonedReader {
 /// it each time the dynamic expressions are updated.
 struct PruningResult {
     zone_map: ZoneMap,
-    predicate: ExprRef,
+    predicate: Expression,
     dynamic_updates: Option<DynamicExprUpdates>,
     latest_result: RwLock<(u64, Mask)>,
 }
@@ -353,7 +353,7 @@ mod test {
 
     use rstest::{fixture, rstest};
     use vortex_array::arrays::ChunkedArray;
-    use vortex_array::{ArrayContext, IntoArray, MaskFuture, assert_arrays_eq};
+    use vortex_array::{assert_arrays_eq, ArrayContext, IntoArray, MaskFuture};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;

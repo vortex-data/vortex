@@ -4,23 +4,23 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex::compute::{BetweenOptions, StrictComparison};
+use vortex::compute::{BetweenOptions, LikeOptions, StrictComparison};
 use vortex::dtype::Nullability;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex::expr::{
-    BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, Operator, and_collect, col, is_null,
-    list_contains, lit, not, or_collect,
+    and_collect, col, is_null, list_contains, lit, not, or_collect, Between, Binary, Expression,
+    Like, Literal, Operator, VTableExt,
 };
 use vortex::scalar::Scalar;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-use crate::duckdb::{Expression, ExpressionClass};
+use crate::duckdb;
 
 const DUCKDB_FUNCTION_NAME_CONTAINS: &str = "contains";
 
-fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
+fn like_pattern_str(value: &duckdb::Expression) -> VortexResult<Option<String>> {
     match value.as_class().vortex_expect("unknown class") {
-        ExpressionClass::BoundConstant(constant) => {
+        duckdb::ExpressionClass::BoundConstant(constant) => {
             Ok(Some(format!("%{}%", constant.value.as_string().as_str())))
         }
         _ => Ok(None),
@@ -28,18 +28,18 @@ fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
 }
 
 #[allow(clippy::cognitive_complexity)]
-pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<ExprRef>> {
+pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Option<Expression>> {
     let Some(value) = value.as_class() else {
         log::debug!("no expression class id {:?}", value.as_class_id());
         return Ok(None);
     };
     Ok(Some(match value {
-        ExpressionClass::BoundColumnRef(col_ref) => col(col_ref
+        duckdb::ExpressionClass::BoundColumnRef(col_ref) => col(col_ref
             .name
             .to_str()
             .map_err(|e| vortex_err!("invalid utf-8: {e}"))?),
-        ExpressionClass::BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
-        ExpressionClass::BoundComparison(compare) => {
+        duckdb::ExpressionClass::BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
+        duckdb::ExpressionClass::BoundComparison(compare) => {
             let operator: Operator = compare.op.try_into()?;
 
             let Some(left) = try_from_bound_expression(&compare.left)? else {
@@ -49,9 +49,9 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 return Ok(None);
             };
 
-            BinaryExpr::new_expr(left, operator, right)
+            Binary.new(operator, [left, right])
         }
-        ExpressionClass::BoundBetween(between) => {
+        duckdb::ExpressionClass::BoundBetween(between) => {
             let Some(array) = try_from_bound_expression(&between.input)? else {
                 return Ok(None);
             };
@@ -61,10 +61,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
             let Some(upper) = try_from_bound_expression(&between.upper)? else {
                 return Ok(None);
             };
-            BetweenExpr::new_expr(
-                array,
-                lower,
-                upper,
+            Between.new(
                 BetweenOptions {
                     lower_strict: if between.lower_inclusive {
                         StrictComparison::NonStrict
@@ -77,9 +74,10 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                         StrictComparison::Strict
                     },
                 },
+                [array, lower, upper],
             )
         }
-        ExpressionClass::BoundOperator(operator) => match operator.op {
+        duckdb::ExpressionClass::BoundOperator(operator) => match operator.op {
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
@@ -113,11 +111,12 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                             return Ok(None);
                         };
                         Ok(Some(
-                            LiteralExpr::maybe_from(&value)
+                            value
+                                .as_opt::<Literal>()
                                 .ok_or_else(|| {
                                     vortex_err!("cannot have a non literal in a in_list")
                                 })?
-                                .value()
+                                .data()
                                 .clone(),
                         ))
                     })
@@ -134,7 +133,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
             }
             _ => todo!("operator {:?}", operator.op),
         },
-        ExpressionClass::BoundFunction(func) => match func.scalar_function.name() {
+        duckdb::ExpressionClass::BoundFunction(func) => match func.scalar_function.name() {
             DUCKDB_FUNCTION_NAME_CONTAINS => {
                 let children = func.children().collect_vec();
                 assert_eq!(children.len(), 2);
@@ -144,15 +143,15 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 let Some(pattern_lit) = like_pattern_str(&children[1])? else {
                     vortex_bail!("expected pattern to be bound string")
                 };
-                let pattern = LiteralExpr::new_expr(pattern_lit);
-                LikeExpr::new_expr(value, pattern, false, false)
+                let pattern = lit(pattern_lit);
+                Like.new(LikeOptions::default(), [value, pattern])
             }
             _ => {
                 log::debug!("bound function {}", func.scalar_function.name());
                 return Ok(None);
             }
         },
-        ExpressionClass::BoundConjunction(conj) => {
+        duckdb::ExpressionClass::BoundConjunction(conj) => {
             let Some(children) = conj
                 .children()
                 .map(|c| try_from_bound_expression(&c))

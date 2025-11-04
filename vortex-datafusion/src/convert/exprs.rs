@@ -6,16 +6,17 @@ use std::sync::Arc;
 use arrow_schema::{DataType, Schema};
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
-use datafusion_physical_expr::{PhysicalExpr, PhysicalExprRef, ScalarFunctionExpr};
-use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
+use datafusion_physical_expr::{PhysicalExpr, ScalarFunctionExpr};
+use datafusion_physical_expr_common::physical_expr::{is_dynamic_physical_expr, PhysicalExprRef};
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
+use vortex::compute::LikeOptions;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::{DType, Nullability};
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::error::{vortex_bail, vortex_err, VortexResult};
 use vortex::expr::{
-    BinaryExpr, ExprRef, LikeExpr, Operator, and, cast, get_item, is_null, list_contains, lit, not,
-    root,
+    and, cast, get_item, is_null, list_contains, lit, not, root, Binary, Expression,
+    Like, Operator, VTableExt,
 };
 use vortex::scalar::Scalar;
 
@@ -24,10 +25,10 @@ use crate::convert::{FromDataFusion, TryFromDataFusion};
 /// Tries to convert the expressions into a vortex conjunction. Will return Ok(None) iff the input conjunction is empty.
 pub(crate) fn make_vortex_predicate(
     predicate: &[&Arc<dyn PhysicalExpr>],
-) -> VortexResult<Option<ExprRef>> {
+) -> VortexResult<Option<Expression>> {
     let exprs = predicate
         .iter()
-        .map(|e| ExprRef::try_from_df(e.as_ref()))
+        .map(|e| Expression::try_from_df(e.as_ref()))
         .collect::<VortexResult<Vec<_>>>()?;
 
     Ok(exprs.into_iter().reduce(and))
@@ -35,14 +36,14 @@ pub(crate) fn make_vortex_predicate(
 
 // TODO(joe): Don't return an error when we have an unsupported node, bubble up "TRUE" as in keep
 //  for that node, up to any `and` or `or` node.
-impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
+impl TryFromDataFusion<dyn PhysicalExpr> for Expression {
     fn try_from_df(df: &dyn PhysicalExpr) -> VortexResult<Self> {
         if let Some(binary_expr) = df.as_any().downcast_ref::<df_expr::BinaryExpr>() {
-            let left = ExprRef::try_from_df(binary_expr.left().as_ref())?;
-            let right = ExprRef::try_from_df(binary_expr.right().as_ref())?;
+            let left = Expression::try_from_df(binary_expr.left().as_ref())?;
+            let right = Expression::try_from_df(binary_expr.right().as_ref())?;
             let operator = Operator::try_from_df(binary_expr.op())?;
 
-            return Ok(BinaryExpr::new_expr(left, operator, right));
+            return Ok(Binary.new(operator, [left, right]));
         }
 
         if let Some(col_expr) = df.as_any().downcast_ref::<df_expr::Column>() {
@@ -50,13 +51,14 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
         }
 
         if let Some(like) = df.as_any().downcast_ref::<df_expr::LikeExpr>() {
-            let child = ExprRef::try_from_df(like.expr().as_ref())?;
-            let pattern = ExprRef::try_from_df(like.pattern().as_ref())?;
-            return Ok(LikeExpr::new_expr(
-                child,
-                pattern,
-                like.negated(),
-                like.case_insensitive(),
+            let child = Expression::try_from_df(like.expr().as_ref())?;
+            let pattern = Expression::try_from_df(like.pattern().as_ref())?;
+            return Ok(Like.new(
+                LikeOptions {
+                    negated: like.negated(),
+                    case_insensitive: like.case_insensitive(),
+                },
+                [child, pattern],
             ));
         }
 
@@ -67,22 +69,22 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
 
         if let Some(cast_expr) = df.as_any().downcast_ref::<df_expr::CastExpr>() {
             let cast_dtype = DType::from_arrow((cast_expr.cast_type(), Nullability::Nullable));
-            let child = ExprRef::try_from_df(cast_expr.expr().as_ref())?;
+            let child = Expression::try_from_df(cast_expr.expr().as_ref())?;
             return Ok(cast(child, cast_dtype));
         }
 
         if let Some(is_null_expr) = df.as_any().downcast_ref::<df_expr::IsNullExpr>() {
-            let arg = ExprRef::try_from_df(is_null_expr.arg().as_ref())?;
+            let arg = Expression::try_from_df(is_null_expr.arg().as_ref())?;
             return Ok(is_null(arg));
         }
 
         if let Some(is_not_null_expr) = df.as_any().downcast_ref::<df_expr::IsNotNullExpr>() {
-            let arg = ExprRef::try_from_df(is_not_null_expr.arg().as_ref())?;
+            let arg = Expression::try_from_df(is_not_null_expr.arg().as_ref())?;
             return Ok(not(is_null(arg)));
         }
 
         if let Some(in_list) = df.as_any().downcast_ref::<df_expr::InListExpr>() {
-            let value = ExprRef::try_from_df(in_list.expr().as_ref())?;
+            let value = Expression::try_from_df(in_list.expr().as_ref())?;
             let list_elements: Vec<_> = in_list
                 .list()
                 .iter()
@@ -114,7 +116,7 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
 }
 
 /// Attempts to convert a DataFusion ScalarFunctionExpr to a Vortex expression.
-fn try_convert_scalar_function(scalar_fn: &ScalarFunctionExpr) -> VortexResult<ExprRef> {
+fn try_convert_scalar_function(scalar_fn: &ScalarFunctionExpr) -> VortexResult<Expression> {
     if let Some(get_field_fn) = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn) {
         let source_expr = get_field_fn
             .args()
@@ -135,7 +137,7 @@ fn try_convert_scalar_function(scalar_fn: &ScalarFunctionExpr) -> VortexResult<E
             .ok_or_else(|| vortex_err!("get_field field name must be a UTF-8 string"))?;
         return Ok(get_item(
             field_name.to_string(),
-            ExprRef::try_from_df(source_expr)?,
+            Expression::try_from_df(source_expr)?,
         ));
     }
 
@@ -281,14 +283,14 @@ mod tests {
 
     use arrow_schema::{DataType, Field, Fields, Schema, TimeUnit as ArrowTimeUnit};
     use datafusion::functions::core::getfield::GetFieldFunc;
-    use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
+    use datafusion_common::ScalarValue;
     use datafusion_expr::{Operator as DFOperator, ScalarUDF};
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_plan::expressions as df_expr;
     use insta::assert_snapshot;
     use rstest::rstest;
-    use vortex::expr::{ExprRef, Operator};
+    use vortex::expr::{Expression, Operator};
 
     use super::*;
 
@@ -374,7 +376,7 @@ mod tests {
     #[test]
     fn test_expr_from_df_column() {
         let col_expr = df_expr::Column::new("test_column", 0);
-        let result = ExprRef::try_from_df(&col_expr).unwrap();
+        let result = Expression::try_from_df(&col_expr).unwrap();
 
         assert_snapshot!(result.display_tree().to_string(), @r"
         GetItem(test_column)
@@ -385,7 +387,7 @@ mod tests {
     #[test]
     fn test_expr_from_df_literal() {
         let literal_expr = df_expr::Literal::new(ScalarValue::Int32(Some(42)));
-        let result = ExprRef::try_from_df(&literal_expr).unwrap();
+        let result = Expression::try_from_df(&literal_expr).unwrap();
 
         assert_snapshot!(result.display_tree().to_string(), @"Literal(value: 42i32, dtype: i32)");
     }
@@ -397,7 +399,7 @@ mod tests {
             Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(42)))) as Arc<dyn PhysicalExpr>;
         let binary_expr = df_expr::BinaryExpr::new(left, DFOperator::Eq, right);
 
-        let result = ExprRef::try_from_df(&binary_expr).unwrap();
+        let result = Expression::try_from_df(&binary_expr).unwrap();
 
         assert_snapshot!(result.display_tree().to_string(), @r"
         Binary(=)
@@ -419,7 +421,7 @@ mod tests {
         )))) as Arc<dyn PhysicalExpr>;
         let like_expr = df_expr::LikeExpr::new(negated, case_insensitive, expr, pattern);
 
-        let result = ExprRef::try_from_df(&like_expr).unwrap();
+        let result = Expression::try_from_df(&like_expr).unwrap();
 
         insta::allow_duplicates! {
             assert_snapshot!(result.display_tree().to_string(), @r#"
@@ -597,7 +599,7 @@ mod tests {
             Arc::new(Field::new("field1", DataType::Utf8, true)),
             Arc::new(ConfigOptions::new()),
         );
-        let result = ExprRef::try_from_df(&get_field_expr).unwrap();
+        let result = Expression::try_from_df(&get_field_expr).unwrap();
         assert_snapshot!(result.display_tree().to_string(), @r"
         GetItem(field1)
         └── GetItem(my_struct)

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_error::VortexResult;
-use vortex_expr::ExprRef;
+use vortex_expr::Expression;
 use vortex_gpu::GpuVector;
 use vortex_layout::GpuLayoutReader;
 
@@ -33,7 +33,7 @@ pub(super) struct GpuTaskContext<A> {
     /// The layout reader.
     pub(super) reader: Arc<dyn GpuLayoutReader>,
     /// The projection expression to apply to gather the scanned rows.
-    pub(super) projection: ExprRef,
+    pub(super) projection: Expression,
     /// Function that maps into an A.
     pub(super) mapper: Arc<dyn Fn(Vec<GpuVector>) -> VortexResult<Vec<A>> + Send + Sync>,
 }

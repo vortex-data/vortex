@@ -2,12 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::dtype::FieldName;
-use vortex::expr::ExprRef;
+use vortex::expr::Expression;
 
 use crate::scalar::Scalar;
 
 pub(crate) struct Expr {
-    pub(crate) inner: ExprRef,
+    pub(crate) inner: Expression,
 }
 
 pub(crate) fn literal(scalar: Box<Scalar>) -> Box<Expr> {

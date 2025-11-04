@@ -11,12 +11,12 @@ use vortex_array::arrays::StructArray;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, MaskFuture, ToCanonical};
 use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
-    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
+    partition, replace, replace_root_fields, simplify_typed, PartitionedExpr,
 };
-use vortex_expr::{ExactExpr, ExprRef, MergeVTable, PackVTable, col, root};
+use vortex_expr::{col, root, ExactExpr, Expression, Merge, Pack};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -33,7 +33,7 @@ pub struct StructReader {
 
     /// A `pack` expression that holds each individual field of the root DType. This expansion
     /// ensures we can correctly partition expressions over the fields of the struct.
-    expanded_root_expr: ExprRef,
+    expanded_root_expr: Expression,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
@@ -127,7 +127,7 @@ impl StructReader {
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
-    fn partition_expr(&self, expr: ExprRef) -> Partitioned {
+    fn partition_expr(&self, expr: Expression) -> Partitioned {
         self.partitioned_expr_cache
             .entry(ExactExpr(expr.clone()))
             .or_insert_with(|| {
@@ -183,7 +183,7 @@ impl StructReader {
 #[derive(Clone)]
 enum Partitioned {
     /// An expression which only operates over a single field
-    Single(FieldName, ExprRef),
+    Single(FieldName, Expression),
     /// An expression which operates over multiple fields
     Multi(Arc<PartitionedExpr<FieldName>>),
 }
@@ -224,7 +224,7 @@ impl LayoutReader for StructReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
@@ -243,7 +243,7 @@ impl LayoutReader for StructReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
@@ -268,7 +268,7 @@ impl LayoutReader for StructReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &ExprRef,
+        expr: &Expression,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let validity_fut = self
@@ -281,7 +281,7 @@ impl LayoutReader for StructReader {
             Partitioned::Single(name, partition) => (
                 self.field_reader(name)?
                     .projection_evaluation(row_range, partition, mask_fut)?,
-                partition.is::<PackVTable>() || partition.is::<MergeVTable>(),
+                partition.is::<Pack>() || partition.is::<Merge>(),
             ),
 
             Partitioned::Multi(partitioned) => (
@@ -291,7 +291,7 @@ impl LayoutReader for StructReader {
                         self.field_reader(name)?
                             .projection_evaluation(row_range, expr, mask)
                     })?,
-                partitioned.root.is::<PackVTable>() || partitioned.root.is::<MergeVTable>(),
+                partitioned.root.is::<Pack>() || partitioned.root.is::<Merge>(),
             ),
         };
 

@@ -6,7 +6,7 @@ use std::iter;
 use std::sync::{Arc, LazyLock};
 
 use bytes::Bytes;
-use futures::{StreamExt, TryStreamExt, pin_mut};
+use futures::{pin_mut, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
@@ -16,13 +16,15 @@ use vortex_array::arrays::{
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ArraySession, IntoArray, ToCanonical, assert_arrays_eq};
-use vortex_buffer::{Buffer, ByteBufferMut, buffer};
+use vortex_array::{assert_arrays_eq, Array, ArrayRef, ArraySession, IntoArray, ToCanonical};
+use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dict::{DictEncoding, DictVTable};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
-use vortex_expr::{PackExpr, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
+use vortex_expr::{
+    and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select, Pack, PackOptions, VTableExt,
+};
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_metrics::VortexMetrics;
@@ -31,7 +33,7 @@ use vortex_scan::ScanBuilder;
 use vortex_session::VortexSession;
 
 use crate::{
-    OpenOptionsSessionExt, V1_FOOTER_FBS_SIZE, VERSION, VortexFile, WriteOptionsSessionExt,
+    OpenOptionsSessionExt, VortexFile, WriteOptionsSessionExt, V1_FOOTER_FBS_SIZE, VERSION,
 };
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -1195,11 +1197,13 @@ async fn scan_empty_fields() -> VortexResult<()> {
     let array = (0..10000).collect::<PrimitiveArray>();
 
     let result = round_trip(array.as_ref(), |scan| {
-        Ok(scan.with_projection(PackExpr::try_new_expr(
-            Default::default(),
-            vec![],
-            Nullability::Nullable,
-        )?))
+        Ok(scan.with_projection(Pack.new(
+            PackOptions {
+                names: Default::default(),
+                nullability: Nullability::Nullable,
+            },
+            [],
+        )))
     })
     .await?;
 

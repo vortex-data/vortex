@@ -20,8 +20,8 @@ pub struct Pack;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PackOptions {
-    names: FieldNames,
-    nullability: Nullability,
+    pub names: FieldNames,
+    pub nullability: Nullability,
 }
 
 impl VTable for Pack {

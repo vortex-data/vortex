@@ -11,7 +11,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, Nullability, PType, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_expr::{ExprRef, Scope};
+use vortex_expr::{Expression, Scope};
 use vortex_mask::Mask;
 
 use crate::layouts::zoned::builder::{
@@ -137,7 +137,7 @@ impl ZoneMap {
     /// expression that can be evaluated on a zone map.
     ///
     /// All zones where the predicate evaluates to `true` can be skipped entirely.
-    pub fn prune(&self, predicate: &ExprRef) -> VortexResult<Mask> {
+    pub fn prune(&self, predicate: &Expression) -> VortexResult<Mask> {
         predicate
             .evaluate(&Scope::new(self.array.to_array()))?
             .try_to_mask_fill_null_false()

@@ -6,10 +6,10 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex::compute::Operator;
 use vortex::dtype::{DType, Nullability};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{vortex_bail, VortexExpect, VortexResult};
 use vortex::expr::{
-    BinaryExpr, ExprRef, IntoExpr, and_collect, get_item, is_null, list_contains, lit, not,
-    or_collect,
+    and_collect, get_item, is_null, list_contains, lit, not, or_collect, Binary, Expression,
+    VTableExt,
 };
 use vortex::scalar::Scalar;
 
@@ -18,13 +18,14 @@ use crate::duckdb::{TableFilter, TableFilterClass};
 
 pub fn try_from_table_filter(
     value: &TableFilter,
-    col: &ExprRef,
+    col: &Expression,
     scope_dtype: &DType,
-) -> VortexResult<Option<ExprRef>> {
+) -> VortexResult<Option<Expression>> {
     Ok(Some(match value.as_class() {
         TableFilterClass::ConstantComparison(const_) => {
             let scalar: Scalar = const_.value.try_into()?;
-            BinaryExpr::new_expr(col.clone(), const_.operator.try_into()?, lit(scalar))
+
+            Binary.new(const_.operator.try_into()?, [col.clone(), lit(scalar)])
         }
         TableFilterClass::ConjunctionAnd(conj_and) => {
             let Some(children) = conj_and
@@ -90,8 +91,7 @@ pub fn try_from_table_filter(
             };
             let data = dynamic.data;
 
-            vortex::expr::dynamic::DynamicComparisonExpr::new(
-                col.clone(),
+            vortex::expr::dynamic(
                 op,
                 move || {
                     let value = data.latest()?;
@@ -101,8 +101,8 @@ pub fn try_from_table_filter(
                 },
                 col.return_dtype(scope_dtype)?,
                 true, // If there is no value, we say that all rows pass the dynamic filter.
+                col.clone(),
             )
-            .into_expr()
         }
         TableFilterClass::Expression(expr) => {
             // TODO(ngates): figure out which column ID DuckDB is using for the expression.

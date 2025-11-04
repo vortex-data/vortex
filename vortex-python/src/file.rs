@@ -11,7 +11,7 @@ use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, FieldNames, PType};
 use vortex::error::VortexResult;
-use vortex::expr::{ExprRef, root, select};
+use vortex::expr::{Expression, root, select};
 use vortex::file::{OpenOptionsSessionExt, VortexFile};
 use vortex::layout::segments::MokaSegmentCache;
 use vortex::scan::{ScanBuilder, SplitBy};
@@ -160,8 +160,8 @@ impl PyVortexFile {
 impl PyVortexFile {
     fn scan_builder(
         &self,
-        projection: Option<ExprRef>,
-        expr: Option<ExprRef>,
+        projection: Option<Expression>,
+        expr: Option<Expression>,
         indices: Option<ArrayRef>,
         batch_size: Option<usize>,
     ) -> VortexResult<ScanBuilder<ArrayRef>> {
@@ -186,7 +186,7 @@ impl PyVortexFile {
     }
 }
 
-pub struct PyIntoProjection(ExprRef);
+pub struct PyIntoProjection(Expression);
 
 impl<'py> FromPyObject<'py> for PyIntoProjection {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

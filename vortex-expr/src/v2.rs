@@ -21,7 +21,7 @@ pub struct Expression {
     /// The vtable for this expression.
     vtable: ExprVTable,
     /// The instance data for this expression.
-    data: Arc<dyn Any>,
+    data: Arc<dyn Any + Send + Sync>,
     /// Any children of this expression.
     children: Arc<[Expression]>,
 }
@@ -35,12 +35,12 @@ impl Expression {
     /// `metadata` and `children` or the encoding's own validation logic fails.
     pub fn try_new(
         vtable: ExprVTable,
-        instance: Arc<dyn Any>,
+        data: Arc<dyn Any + Send + Sync>,
         children: Arc<[Expression]>,
     ) -> VortexResult<Self> {
         let this = Self {
             vtable,
-            data: instance,
+            data,
             children,
         };
         // Validate that the encoding is compatible with the metadata and children.
@@ -57,12 +57,12 @@ impl Expression {
     ///  when the expression is used.
     pub unsafe fn new_unchecked(
         vtable: ExprVTable,
-        instance: Arc<dyn Any>,
+        data: Arc<dyn Any + Send + Sync>,
         children: Arc<[Expression]>,
     ) -> Self {
         Self {
             vtable,
-            data: instance,
+            data,
             children,
         }
     }
@@ -92,7 +92,7 @@ impl Expression {
     }
 
     /// Returns the opaque data of the expression.
-    pub fn data(&self) -> &Arc<dyn Any> {
+    pub fn data(&self) -> &Arc<dyn Any + Send + Sync> {
         &self.data
     }
 

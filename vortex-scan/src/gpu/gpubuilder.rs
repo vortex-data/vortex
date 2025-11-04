@@ -8,7 +8,7 @@ use futures::Stream;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::transform::simplify_typed;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::{Expression, root};
 use vortex_gpu::GpuVector;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
@@ -22,7 +22,7 @@ use crate::scan_builder::filter_and_projection_masks;
 pub struct GpuScanBuilder<A> {
     session: VortexSession,
     layout_reader: GpuLayoutReaderRef,
-    projection: ExprRef,
+    projection: Expression,
     map_fn: Arc<dyn Fn(Vec<GpuVector>) -> VortexResult<Vec<A>> + Send + Sync>,
 }
 
@@ -56,7 +56,7 @@ impl GpuScanBuilder<GpuVector> {
 }
 
 impl<A: 'static + Send> GpuScanBuilder<A> {
-    pub fn with_projection(mut self, projection: ExprRef) -> Self {
+    pub fn with_projection(mut self, projection: Expression) -> Self {
         self.projection = projection;
         self
     }
