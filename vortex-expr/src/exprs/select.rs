@@ -172,15 +172,15 @@ impl ExprInstance<'_, Select> {
     ///
     /// For example:
     /// ```rust
-    /// # use vortex_expr::root;
-    /// # use vortex_expr::{FieldSelection, SelectExpr};
+    /// # use vortex_expr::{root, Select};
+    /// # use vortex_expr::{FieldSelection, select, select_exclude};
     /// # use vortex_dtype::FieldNames;
     /// let field_names = FieldNames::from(["a", "b", "c"]);
-    /// let include = SelectExpr::new(FieldSelection::Include(["a"].into()), root());
-    /// let exclude = SelectExpr::new(FieldSelection::Exclude(["b", "c"].into()), root());
+    /// let include = select(["a"], root());
+    /// let exclude = select_exclude(["b", "c"], root());
     /// assert_eq!(
-    ///     &include.as_include(&field_names).unwrap(),
-    ///     &exclude.as_include(&field_names).unwrap()
+    ///     &include.as_::<Select>().as_include(&field_names).unwrap(),
+    ///     &exclude.as_::<Select>().as_include(&field_names).unwrap(),
     /// );
     /// ```
     pub fn as_include(&self, field_names: &FieldNames) -> VortexResult<Expression> {

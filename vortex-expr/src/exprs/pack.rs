@@ -22,15 +22,17 @@ use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
 /// ```
 /// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_buffer::buffer;
-/// use vortex_expr::{root, PackExpr, Scope, VortexExpr};
+/// use vortex_expr::{root, Pack, PackOptions, Scope, VortexExpr};
 /// use vortex_scalar::Scalar;
 /// use vortex_dtype::Nullability;
 ///
-/// let example = PackExpr::try_new(
-///     ["x", "x copy", "second x copy"].into(),
-///     vec![root(), root(), root()],
-///     Nullability::NonNullable,
-/// ).unwrap();
+/// let example = Pack.new(
+///     PackOptions {
+///         names: ["x", "x copy", "second x copy"].into(),
+///         nullability: Nullability::NonNullable,
+///     }
+///     [root(), root(), root()],
+/// );
 /// let packed = example.evaluate(&Scope::new(buffer![100, 110, 200].into_array())).unwrap();
 /// let x_copy = packed
 ///     .to_struct()

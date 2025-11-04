@@ -198,15 +198,16 @@ impl Expression {
     /// # Example
     ///
     /// ```rust
-    /// # use vortex_dtype::{DType, Nullability, PType};
-    /// # use vortex_expr::{and, cast, eq, get_item, gt, lit, not, root, select, IntoExpr, LikeExpr};
+    /// # use vortex_array::compute::LikeOptions;
+    /// use vortex_dtype::{DType, Nullability, PType};
+    /// # use vortex_expr::{and, cast, eq, get_item, gt, lit, not, root, select, Like};
     /// // Build a complex nested expression
     /// let complex_expr = select(
     ///     ["result"],
     ///     and(
     ///         not(eq(get_item("status", root()), lit("inactive"))),
     ///         and(
-    ///             LikeExpr::new(get_item("name", root()), lit("%admin%"), false, false).into_expr(),
+    ///             Like.new(LikeOptions::default(), [get_item("name", root()), lit("%admin%")]),
     ///             gt(
     ///                 cast(get_item("score", root()), DType::Primitive(PType::F64, Nullability::NonNullable)),
     ///                 lit(75.0)

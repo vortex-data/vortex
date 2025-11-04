@@ -114,13 +114,13 @@ impl VTable for Literal {
 /// ```
 /// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_dtype::Nullability;
-/// use vortex_expr::{lit, LiteralVTable};
+/// use vortex_expr::{lit, Literal};
 /// use vortex_scalar::Scalar;
 ///
 /// let number = lit(34i32);
 ///
-/// let literal = number.as_::<LiteralVTable>();
-/// assert_eq!(literal.value(), &Scalar::primitive(34i32, Nullability::NonNullable));
+/// let literal = number.as_::<Literal>();
+/// assert_eq!(literal.data(), &Scalar::primitive(34i32, Nullability::NonNullable));
 /// ```
 pub fn lit(value: impl Into<Scalar>) -> Expression {
     Literal.new(value.into(), [])

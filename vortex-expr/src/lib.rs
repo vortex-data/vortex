@@ -10,14 +10,17 @@
 //! [Postgres]: https://www.postgresql.org/docs/current/sql-expressions.html
 //! [Apache Datafusion]: https://github.com/apache/datafusion/tree/5fac581efbaffd0e6a9edf931182517524526afd/datafusion/expr
 
+use crate::traversal::{NodeExt, ReferenceCollector};
 use arcref::ArcRef;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+
 pub mod aliases;
 mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
-pub mod exprs;
+pub mod display;
+mod exprs;
 mod field;
 pub mod forms;
 pub mod proto;
@@ -27,21 +30,19 @@ mod scope_vars;
 pub mod session;
 pub mod transform;
 pub mod traversal;
+mod v2;
 mod vtable;
 
 pub use analysis::*;
+pub use exprs::*;
 pub use scope::*;
 pub use scope_vars::*;
 pub use v2::*;
+pub use vtable::*;
+
 use vortex_dtype::{DType, FieldName};
 use vortex_error::VortexUnwrap;
 use vortex_utils::aliases::hash_set::HashSet;
-pub use vtable::*;
-
-pub mod display;
-mod v2;
-
-use crate::traversal::{NodeExt, ReferenceCollector};
 
 pub type ExprId = ArcRef<str>;
 
@@ -67,8 +68,8 @@ pub fn split_conjunction(expr: &Expression) -> Vec<Expression> {
 }
 
 fn split_inner(expr: &Expression, exprs: &mut Vec<Expression>) {
-    match expr.as_opt::<exprs::binary::Binary>() {
-        Some(bexp) if bexp.operator() == exprs::operators::Operator::And => {
+    match expr.as_opt::<Binary>() {
+        Some(bexp) if bexp.operator() == Operator::And => {
             split_inner(bexp.lhs(), exprs);
             split_inner(bexp.rhs(), exprs);
         }
