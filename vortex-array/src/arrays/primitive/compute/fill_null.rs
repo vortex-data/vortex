@@ -3,13 +3,12 @@
 
 use std::ops::Not;
 
-use vortex_buffer::BufferMut;
-use vortex_dtype::{Nullability, match_each_native_ptype};
+use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::{ConstantArray, PrimitiveVTable};
+use crate::arrays::PrimitiveVTable;
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -17,25 +16,13 @@ use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FillNullKernel for PrimitiveVTable {
     fn fill_null(&self, array: &PrimitiveArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
-        let result_validity = match fill_value.dtype().nullability() {
-            Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::AllValid,
-        };
+        let result_validity = Validity::from(fill_value.dtype().nullability());
 
         Ok(match array.validity() {
-            Validity::NonNullable | Validity::AllValid => {
-                match_each_native_ptype!(array.ptype(), |T| {
-                    PrimitiveArray::new::<T>(array.buffer(), result_validity).into_array()
-                })
-            }
-            Validity::AllInvalid => {
-                ConstantArray::new(fill_value.clone(), array.len()).into_array()
-            }
             Validity::Array(is_valid) => {
-                // TODO(danking): when we take PrimitiveArray by value, we should mutate in-place
                 let is_invalid = is_valid.to_bool().bit_buffer().not();
                 match_each_native_ptype!(array.ptype(), |T| {
-                    let mut buffer = BufferMut::copy_from(array.as_slice::<T>());
+                    let mut buffer = array.buffer::<T>().into_mut();
                     let fill_value = fill_value
                         .as_primitive()
                         .typed_value::<T>()
@@ -46,6 +33,7 @@ impl FillNullKernel for PrimitiveVTable {
                     PrimitiveArray::new(buffer.freeze(), result_validity).into_array()
                 })
             }
+            _ => unreachable!("checked in entry point"),
         })
     }
 }

@@ -8,6 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
+use crate::arrays::ConstantArray;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
@@ -87,6 +88,12 @@ impl ComputeFnVTable for FillNull {
 
         if !array.dtype().is_nullable() || array.all_valid() {
             return Ok(cast(array, fill_value.dtype())?.into());
+        }
+
+        if array.all_invalid() {
+            return Ok(ConstantArray::new(fill_value.clone(), array.len())
+                .into_array()
+                .into());
         }
 
         if fill_value.is_null() {
