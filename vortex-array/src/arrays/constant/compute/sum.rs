@@ -108,7 +108,8 @@ register_kernel!(SumKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, DecimalDType, Nullability, PType};
+    use vortex_dtype::Nullability::Nullable;
+    use vortex_dtype::{DType, DecimalDType, Nullability, PType, i256};
     use vortex_scalar::{DecimalValue, Scalar};
 
     use crate::arrays::ConstantArray;
@@ -132,13 +133,10 @@ mod tests {
 
     #[test]
     fn test_sum_nullable_value() {
-        let array = ConstantArray::new(
-            Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable)),
-            10,
-        )
-        .into_array();
+        let array = ConstantArray::new(Scalar::null(DType::Primitive(PType::U32, Nullable)), 10)
+            .into_array();
         let result = sum(&array).unwrap();
-        assert!(result.is_null());
+        assert_eq!(result, Scalar::primitive(0u64, Nullable));
     }
 
     #[test]
@@ -157,10 +155,9 @@ mod tests {
 
     #[test]
     fn test_sum_bool_null() {
-        let array =
-            ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 10).into_array();
+        let array = ConstantArray::new(Scalar::null(DType::Bool(Nullable)), 10).into_array();
         let result = sum(&array).unwrap();
-        assert!(result.is_null());
+        assert_eq!(result, Scalar::primitive(0u64, Nullable));
     }
 
     #[test]
@@ -180,7 +177,7 @@ mod tests {
 
         assert_eq!(
             result.as_decimal().decimal_value(),
-            Some(DecimalValue::I256(vortex_scalar::i256::from_i128(500)))
+            Some(DecimalValue::I256(i256::from_i128(500)))
         );
         assert_eq!(result.dtype(), &Stat::Sum.dtype(array.dtype()).unwrap());
     }
@@ -188,14 +185,18 @@ mod tests {
     #[test]
     fn test_sum_decimal_null() {
         let decimal_dtype = DecimalDType::new(10, 2);
-        let array = ConstantArray::new(
-            Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable)),
-            10,
-        )
-        .into_array();
+        let array = ConstantArray::new(Scalar::null(DType::Decimal(decimal_dtype, Nullable)), 10)
+            .into_array();
 
         let result = sum(&array).unwrap();
-        assert!(result.is_null());
+        assert_eq!(
+            result,
+            Scalar::decimal(
+                DecimalValue::I256(i256::ZERO),
+                DecimalDType::new(20, 2),
+                Nullable
+            )
+        );
     }
 
     #[test]
@@ -214,9 +215,7 @@ mod tests {
         let result = sum(&array).unwrap();
         assert_eq!(
             result.as_decimal().decimal_value(),
-            Some(DecimalValue::I256(vortex_scalar::i256::from_i128(
-                99_999_999_900
-            )))
+            Some(DecimalValue::I256(i256::from_i128(99_999_999_900)))
         );
     }
 }

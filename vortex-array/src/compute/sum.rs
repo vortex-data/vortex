@@ -169,20 +169,14 @@ mod test {
     fn sum_all_invalid() {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]);
         let result = sum(array.as_ref()).unwrap();
-        assert_eq!(
-            result,
-            Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable))
-        );
+        assert_eq!(result, Scalar::primitive(0i64, Nullability::Nullable));
     }
 
     #[test]
     fn sum_all_invalid_float() {
         let array = PrimitiveArray::from_option_iter::<f32, _>([None, None, None]);
         let result = sum(array.as_ref()).unwrap();
-        assert_eq!(
-            result,
-            Scalar::null(DType::Primitive(PType::F64, Nullability::Nullable))
-        );
+        assert_eq!(result, Scalar::primitive(0f64, Nullability::Nullable));
     }
 
     #[test]
