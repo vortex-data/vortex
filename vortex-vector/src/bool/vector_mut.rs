@@ -84,6 +84,10 @@ impl VectorMutOps for BoolVectorMut {
         self.bits.len()
     }
 
+    fn validity(&self) -> &MaskMut {
+        &self.validity
+    }
+
     fn capacity(&self) -> usize {
         self.bits.capacity()
     }

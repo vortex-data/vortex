@@ -8,6 +8,7 @@
 
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
+use vortex_mask::MaskMut;
 
 use crate::binaryview::{BinaryVectorMut, StringVectorMut};
 use crate::bool::BoolVectorMut;
@@ -88,6 +89,10 @@ impl VectorMutOps for VectorMut {
 
     fn len(&self) -> usize {
         match_each_vector_mut!(self, |v| { v.len() })
+    }
+
+    fn validity(&self) -> &MaskMut {
+        match_each_vector_mut!(self, |v| { v.validity() })
     }
 
     fn capacity(&self) -> usize {

@@ -4,7 +4,7 @@
 //! Definition and implementation of [`VectorOps`] and [`VectorMutOps`] for [`Vector`] and
 //! [`VectorMut`], respectively.
 
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskMut};
 
 use crate::{Vector, VectorMut, private};
 
@@ -55,6 +55,13 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns the validity mask of the vector, where `true` represents a _valid_ element and
+    /// `false` represents a `null` element.
+    ///
+    /// Note that while this returns a [`MaskMut`] (which is typically an owned type), the caller is
+    /// only allowed to inspect it via the shared reference.
+    fn validity(&self) -> &MaskMut;
 
     /// Returns the total number of elements the vector can hold without reallocating.
     fn capacity(&self) -> usize;

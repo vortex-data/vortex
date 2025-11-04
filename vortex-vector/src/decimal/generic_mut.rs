@@ -192,6 +192,10 @@ impl<D: NativeDecimalType> VectorMutOps for DVectorMut<D> {
         self.elements.len()
     }
 
+    fn validity(&self) -> &MaskMut {
+        &self.validity
+    }
+
     fn capacity(&self) -> usize {
         self.elements.capacity()
     }

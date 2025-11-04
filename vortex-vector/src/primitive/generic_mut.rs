@@ -86,6 +86,10 @@ impl<T: NativePType> VectorMutOps for PVectorMut<T> {
         self.elements.len()
     }
 
+    fn validity(&self) -> &MaskMut {
+        &self.validity
+    }
+
     fn capacity(&self) -> usize {
         self.elements.capacity()
     }

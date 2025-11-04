@@ -158,6 +158,10 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
         self.views.len()
     }
 
+    fn validity(&self) -> &MaskMut {
+        &self.validity
+    }
+
     fn capacity(&self) -> usize {
         self.views.capacity()
     }

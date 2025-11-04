@@ -5,7 +5,6 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_mask::MaskMut;
 
 use crate::VectorMutOps;
 use crate::primitive::PVectorMut;
@@ -104,12 +103,6 @@ impl<T: NativePType> PVectorMut<T> {
     #[inline]
     pub fn elements(&self) -> &BufferMut<T> {
         &self.elements
-    }
-
-    /// Returns the validity of the [`PVectorMut`].
-    #[inline]
-    pub fn validity(&self) -> &MaskMut {
-        &self.validity
     }
 
     /// Resizes the `Vec` in-place so that `len` is equal to `new_len`.
