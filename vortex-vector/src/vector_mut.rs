@@ -66,10 +66,9 @@ impl VectorMut {
             DType::Decimal(decimal_dtype, _) => {
                 DecimalVectorMut::with_capacity(decimal_dtype, capacity).into()
             }
-            DType::Utf8(_)
-            | DType::Binary(_)
-            | DType::List(..)
-            | DType::Extension(_) => vortex_panic!("Unsupported dtype for VectorMut"),
+            DType::Utf8(_) | DType::Binary(_) | DType::List(..) | DType::Extension(_) => {
+                vortex_panic!("Unsupported dtype for VectorMut")
+            }
         }
     }
 }
