@@ -120,7 +120,8 @@ pub trait BinaryViewTypeUpcast {
 
 /// Private module to seal the `BinaryViewType` trait.
 mod private {
-    /// Sealed trait to prevent external implementations of [`VarBinType`].
+    /// Sealed trait to prevent external implementations of
+    /// [`BinaryViewType`](super::BinaryViewType).
     pub trait Sealed {}
 
     impl Sealed for super::StringType {}

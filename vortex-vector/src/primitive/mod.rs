@@ -11,6 +11,8 @@
 //! [`PVector`]s. There are several macros defined in this crate to make working with these
 //! primitive vector types easier.
 //!
+//! See the documentation for [`PVectorMut`] for more information.
+//!
 //! [`f16`]: vortex_dtype::half::f16
 
 mod generic;
