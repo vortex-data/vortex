@@ -1,113 +1,73 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
+use std::fmt::Formatter;
 
 use vortex_array::compute::invert;
-use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::display::{DisplayAs, DisplayFormat};
-use crate::{vtable, AnalysisExpr, ExprEncodingRef, ExprId, Expression, IntoExpr, Scope, VTable};
+use crate::VTableExt;
+use crate::{AnalysisExpr, ChildName, ExprId, ExprInstance, Expression, Scope, VTable};
 
-vtable!(Not);
+/// Expression that logically inverts boolean values.
+pub struct Not;
 
-#[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Clone, Debug, Hash, Eq)]
-pub struct NotExpr {
-    child: Expression,
-}
+impl VTable for Not {
+    type Instance = ();
 
-impl PartialEq for NotExpr {
-    fn eq(&self, other: &Self) -> bool {
-        self.child.eq(&other.child)
-    }
-}
-
-pub struct NotExprEncoding;
-
-impl VTable for NotVTable {
-    type Expr = NotExpr;
-    type Encoding = NotExprEncoding;
-    type Metadata = EmptyMetadata;
-
-    fn id(_encoding: &Self::Encoding) -> ExprId {
-        ExprId::new_ref("not")
+    fn id(&self) -> ExprId {
+        ExprId::new_ref("vortex.not")
     }
 
-    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(NotExprEncoding.as_ref())
+    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
     }
 
-    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+        Ok(Some(()))
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&Expression> {
-        vec![&expr.child]
-    }
-
-    fn with_children(_expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
-        Ok(NotExpr::new(children[0].clone()))
-    }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<Expression>,
-    ) -> VortexResult<Self::Expr> {
-        if children.len() != 1 {
+    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+        if expr.children().len() != 1 {
             vortex_bail!(
                 "Not expression expects exactly one child, got {}",
-                children.len()
+                expr.children().len()
             );
         }
-        Ok(NotExpr::new(children[0].clone()))
+        Ok(())
     }
 
-    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        let child_result = expr.child.unchecked_evaluate(scope)?;
+    fn child_name(&self, child_idx: usize) -> ChildName {
+        match child_idx {
+            0 => ChildName::from("input"),
+            _ => unreachable!("Invalid child index {} for Not expression", child_idx),
+        }
+    }
+
+    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "~(")?;
+        expr.child(0).fmt_compact(f)?;
+        write!(f, ")")
+    }
+
+    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+        let child_dtype = expr.child(0).return_dtype(scope)?;
+        if !matches!(child_dtype, DType::Bool(_)) {
+            vortex_bail!(
+                "Not expression expects a boolean child, got: {}",
+                child_dtype
+            );
+        }
+        Ok(child_dtype)
+    }
+
+    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        let child_result = expr.child(0).evaluate(scope)?;
         invert(&child_result)
     }
-
-    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
-        let child = expr.child.return_dtype(scope)?;
-        if !matches!(child, DType::Bool(_)) {
-            vortex_bail!("Not expression expects a boolean child, got: {}", child);
-        }
-        Ok(child)
-    }
 }
-
-impl NotExpr {
-    pub fn new(child: Expression) -> Self {
-        Self { child }
-    }
-
-    pub fn new_expr(child: Expression) -> Expression {
-        Self::new(child).into_expr()
-    }
-
-    pub fn child(&self) -> &Expression {
-        &self.child
-    }
-}
-
-impl DisplayAs for NotExpr {
-    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match df {
-            DisplayFormat::Compact => {
-                write!(f, "(!{})", self.child)
-            }
-            DisplayFormat::Tree => {
-                write!(f, "Not")
-            }
-        }
-    }
-}
-
-impl AnalysisExpr for NotExpr {}
 
 /// Creates an expression that logically inverts boolean values.
 ///
@@ -118,7 +78,7 @@ impl AnalysisExpr for NotExpr {}
 /// let expr = not(root());
 /// ```
 pub fn not(operand: Expression) -> Expression {
-    NotExpr::new(operand).into_expr()
+    Not.new((), vec![operand])
 }
 
 #[cfg(test)]

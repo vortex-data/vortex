@@ -32,10 +32,6 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Instance data for this expression.
     type Instance: 'static + Send + Sync + Debug + PartialEq + Eq + Hash;
 
-    // TODO(ngates): inline this? Not sure we really want to spread this stuff around, although
-    //  it does make testing setup cleaner.
-    type AnalysisVTable: AnalysisVTable<Self>;
-
     /// Returns the ID of the expr vtable.
     fn id(&self) -> ExprId;
 

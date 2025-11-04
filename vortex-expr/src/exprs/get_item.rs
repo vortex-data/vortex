@@ -1,92 +1,77 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
-use std::hash::Hash;
+use crate::{
+    root, AnalysisExpr, ChildName, ExprId, ExprInstance, Expression, Scope, StatsCatalog,
+    VTable, VTableExt,
+};
+use prost::Message;
+use std::fmt::Formatter;
 use std::ops::Not;
-
 use vortex_array::compute::mask;
 use vortex_array::stats::Stat;
-use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, ToCanonical};
+use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 
-use crate::display::{DisplayAs, DisplayFormat};
-use crate::{root, vtable, AnalysisExpr, ExprEncodingRef, ExprId, Expression, IntoExpr, Scope, StatsCatalog, VTable};
+pub struct GetItem;
 
-vtable!(GetItem);
+impl VTable for GetItem {
+    type Instance = FieldName;
 
-#[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Debug, Clone, Hash, Eq)]
-pub struct GetItemExpr {
-    field: FieldName,
-    child: Expression,
-}
-
-impl PartialEq for GetItemExpr {
-    fn eq(&self, other: &Self) -> bool {
-        self.field == other.field && self.child.eq(&other.child)
-    }
-}
-
-pub struct GetItemExprEncoding;
-
-pub struct GetItemMetadata {
-    pub path: String,
-}
-
-impl VTable for GetItemVTable {
-    type Encoding = GetItemExprEncoding;
-    type Metadata = GetItemMetadata;
-
-    fn id(_encoding: &Self::Encoding) -> ExprId {
-        ExprId::new_ref("get_item")
+    fn id(&self) -> ExprId {
+        ExprId::from("vortex.get_item")
     }
 
-    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(GetItemExprEncoding.as_ref())
+    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(
+            pb::GetItemOpts {
+                path: instance.to_string(),
+            }
+            .encode_to_vec(),
+        ))
     }
 
-    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(ProstMetadata(pb::GetItemOpts {
-            path: expr.field.to_string(),
-        }))
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+        let opts = pb::GetItemOpts::decode(metadata)?;
+        Ok(Some(FieldName::from(opts.path)))
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&Expression> {
-        vec![&expr.child]
-    }
-
-    fn with_children(expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
-        Ok(GetItemExpr {
-            field: expr.field.clone(),
-            child: children[0].clone(),
-        })
-    }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<Expression>,
-    ) -> VortexResult<Self::Expr> {
-        if children.len() != 1 {
+    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+        if expr.children().len() != 1 {
             vortex_bail!(
-                "GetItem expression must have exactly 1 child, got {}",
-                children.len()
+                "GetItem expression requires exactly 1 child, got {}",
+                expr.children().len()
             );
         }
-
-        let field = FieldName::from(metadata.path.clone());
-        Ok(GetItemExpr {
-            field,
-            child: children[0].clone(),
-        })
+        Ok(())
     }
 
-    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        let input = expr.child.unchecked_evaluate(scope)?.to_struct();
-        let field = input.field_by_name(expr.field()).cloned()?;
+    fn child_name(&self, child_idx: usize) -> ChildName {
+        match child_idx {
+            0 => ChildName::from("input"),
+            _ => unreachable!("Invalid child index {} for GetItem expression", child_idx),
+        }
+    }
+
+    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        expr.children()[0].fmt_compact(f)?;
+        write!(f, ".{}", &*expr)
+    }
+
+    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+        let input = expr.children()[0].return_dtype(scope)?;
+        input
+            .as_struct_fields_opt()
+            .and_then(|st| st.field(**expr))
+            .map(|f| f.union_nullability(input.nullability()))
+            .ok_or_else(|| vortex_err!("Couldn't find the {} field in the input scope", &*expr))
+    }
+
+    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        let input = expr.children()[0].evaluate(scope)?.to_struct();
+        let field = input.field_by_name(&**expr).cloned()?;
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),
@@ -94,53 +79,24 @@ impl VTable for GetItemVTable {
         }
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
-        let input = expr.child.return_dtype(scope)?;
-        input
-            .as_struct_fields_opt()
-            .and_then(|st| st.field(expr.field()))
-            .map(|f| f.union_nullability(input.nullability()))
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Couldn't find the {} field in the input scope",
-                    expr.field()
-                )
-            })
+    fn max(&self, expr: &ExprInstance<Self>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        catalog.stats_ref(&FieldPath::from_name(&*expr), Stat::Max)
     }
 
-    type AnalysisVTable = ;
-
-    fn validate(expr: &ExpressionView<Self>) -> VortexResult<()> {
-        todo!()
+    fn min(&self, expr: &ExprInstance<Self>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        catalog.stats_ref(&FieldPath::from_name(&*expr), Stat::Min)
     }
 
-    fn child_name(expr: ExpressionView<Self>, _n: usize) -> ChildName {
-        todo!()
-    }
-}
-
-impl GetItemExpr {
-    pub fn new(field: impl Into<FieldName>, child: Expression) -> Self {
-        Self {
-            field: field.into(),
-            child,
-        }
+    fn nan_count(
+        &self,
+        expr: &ExprInstance<Self>,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        catalog.stats_ref(&FieldPath::from_name(&*expr), Stat::NaNCount)
     }
 
-    pub fn new_expr(field: impl Into<FieldName>, child: Expression) -> Expression {
-        Self::new(field, child).into_expr()
-    }
-
-    pub fn field(&self) -> &FieldName {
-        &self.field
-    }
-
-    pub fn child(&self) -> &Expression {
-        &self.child
-    }
-
-    pub fn is(expr: &Expression) -> bool {
-        expr.is::<GetItemVTable>()
+    fn field_path(&self, expr: &ExprInstance<Self>) -> Option<FieldPath> {
+        expr.children()[0].field_path().map(|fp| fp.push(&*expr))
     }
 }
 
@@ -153,7 +109,7 @@ impl GetItemExpr {
 /// let expr = col("name");
 /// ```
 pub fn col(field: impl Into<FieldName>) -> Expression {
-    GetItemExpr::new(field, root()).into_expr()
+    GetItem.new(field.into(), vec![root()])
 }
 
 /// Creates an expression that extracts a named field from a struct expression.
@@ -165,39 +121,7 @@ pub fn col(field: impl Into<FieldName>) -> Expression {
 /// let expr = get_item("user_id", root());
 /// ```
 pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
-    GetItemExpr::new(field, child).into_expr()
-}
-
-impl DisplayAs for GetItemExpr {
-    fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
-        match df {
-            DisplayFormat::Compact => {
-                write!(f, "{}.{}", self.child, &self.field)
-            }
-            DisplayFormat::Tree => {
-                write!(f, "GetItem({})", self.field)
-            }
-        }
-    }
-}
-impl AnalysisExpr for GetItemExpr {
-    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        catalog.stats_ref(&self.field_path()?, Stat::Max)
-    }
-
-    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        catalog.stats_ref(&self.field_path()?, Stat::Min)
-    }
-
-    fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        catalog.stats_ref(&self.field_path()?, Stat::NaNCount)
-    }
-
-    fn field_path(&self) -> Option<FieldPath> {
-        self.child()
-            .field_path()
-            .map(|fp| fp.push(self.field.clone()))
-    }
+    GetItem.new(field.into(), vec![child])
 }
 
 #[cfg(test)]
