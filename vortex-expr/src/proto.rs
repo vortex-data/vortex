@@ -87,7 +87,7 @@ mod tests {
             eq(lit(1), root()),
         );
 
-        let s_expr = expr.as_ref().serialize_proto().unwrap();
+        let s_expr = (&expr).serialize_proto().unwrap();
         let buf = s_expr.encode_to_vec();
         let s_expr = pb::Expr::decode(buf.as_slice()).unwrap();
         let deser_expr = deserialize_expr_proto(&s_expr, &registry).unwrap();

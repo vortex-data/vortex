@@ -180,7 +180,7 @@ mod tests {
     use super::merge;
     use crate::exprs::get_item::get_item;
     use crate::exprs::root::root;
-    use crate::Scope;
+    use crate::{Expression, Scope};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
@@ -325,7 +325,7 @@ mod tests {
 
     #[test]
     pub fn test_empty_merge() {
-        let expr = MergeExpr::new(Vec::new());
+        let expr = merge(Vec::<Expression>::new());
 
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_order() {
-        let expr = MergeExpr::new(vec![get_item("0", root()), get_item("1", root())]);
+        let expr = merge(vec![get_item("0", root()), get_item("1", root())]);
 
         let test_array = StructArray::from_fields(&[
             (
@@ -430,7 +430,7 @@ mod tests {
         let expr = merge([get_item("struct1", root()), get_item("struct2", root())]);
         assert_eq!(expr.to_string(), "merge[error]($.struct1, $.struct2)");
 
-        let expr2 = MergeExpr::new(vec![get_item("a", root())]);
+        let expr2 = merge(vec![get_item("a", root())]);
         assert_eq!(expr2.to_string(), "merge[error]($.a)");
     }
 }

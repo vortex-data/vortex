@@ -48,6 +48,7 @@ impl std::fmt::Display for DisplayTreeExpr<'_> {
 
 #[cfg(test)]
 mod tests {
+    use crate::exprs::pack::pack;
     use crate::exprs::select::select_exclude;
     use vortex_array::compute::{BetweenOptions, StrictComparison};
     use vortex_dtype::{DType, Nullability, PType};

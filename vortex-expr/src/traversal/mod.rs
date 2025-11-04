@@ -517,7 +517,10 @@ impl Node for Expression {
 mod tests {
     use crate::exprs::binary::and;
     use crate::exprs::binary::Binary;
+    use crate::exprs::binary::{eq, not_eq};
     use crate::exprs::get_item::GetItem;
+    use crate::exprs::literal::Literal;
+    use crate::exprs::operators::Operator;
     use vortex_error::VortexResult;
     use vortex_utils::aliases::hash_set::HashSet;
 
@@ -615,11 +618,11 @@ mod tests {
     fn expr_skip_test() {
         let col1: Expression = col("col1");
         let col2: Expression = col("col2");
-        let expr1 = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
+        let expr1 = eq(col1.clone(), col2.clone());
         let col3: Expression = col("col3");
         let col4: Expression = col("col4");
-        let expr2 = BinaryExpr::new_expr(col3.clone(), Operator::NotEq, col4.clone());
-        let expr = BinaryExpr::new_expr(expr1, Operator::And, expr2);
+        let expr2 = not_eq(col3.clone(), col4.clone());
+        let expr = and(expr1, expr2);
 
         let mut nodes = Vec::new();
         pre_order_visit_down(&expr, |node: &Expression| {
@@ -643,11 +646,11 @@ mod tests {
     fn expr_stop_test() {
         let col1: Expression = col("col1");
         let col2: Expression = col("col2");
-        let expr1 = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
+        let expr1 = eq(col1.clone(), col2.clone());
         let col3: Expression = col("col3");
         let col4: Expression = col("col4");
-        let expr2 = BinaryExpr::new_expr(col3.clone(), Operator::NotEq, col4.clone());
-        let expr = BinaryExpr::new_expr(expr1, Operator::And, expr2);
+        let expr2 = not_eq(col3.clone(), col4.clone());
+        let expr = and(expr1, expr2);
 
         let mut nodes = Vec::new();
         pre_order_visit_down(&expr, |node: &Expression| {

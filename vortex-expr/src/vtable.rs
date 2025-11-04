@@ -454,7 +454,7 @@ mod tests {
         registry: &ExprRegistry,
         #[case] expr: Expression,
     ) -> anyhow::Result<()> {
-        let serialized_pb = expr.as_ref().serialize_proto()?;
+        let serialized_pb = (&expr).serialize_proto()?;
         let deserialized_expr = deserialize_expr_proto(&serialized_pb, registry)?;
 
         assert_eq!(&expr, &deserialized_expr);

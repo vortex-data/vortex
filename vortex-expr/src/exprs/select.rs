@@ -250,7 +250,7 @@ impl Display for FieldSelection {
 
 #[cfg(test)]
 mod tests {
-    use crate::exprs::select::FieldSelection;
+    use crate::exprs::select::Select;
     use vortex_array::arrays::StructArray;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
@@ -341,11 +341,19 @@ mod tests {
     #[test]
     fn test_as_include_names() {
         let field_names = FieldNames::from(["a", "b", "c"]);
-        let include = select(FieldSelection::Include(["a"].into()), root());
-        let exclude = select(FieldSelection::Exclude(["b", "c"].into()), root());
+        let include = select(["a"], root());
+        let exclude = select_exclude(["b", "c"], root());
         assert_eq!(
-            &include.as_include(&field_names).unwrap(),
-            &exclude.as_include(&field_names).unwrap()
+            &include
+                .as_::<Select>()
+                .data()
+                .as_include_names(&field_names)
+                .unwrap(),
+            &exclude
+                .as_::<Select>()
+                .data()
+                .as_include_names(&field_names)
+                .unwrap()
         );
     }
 }

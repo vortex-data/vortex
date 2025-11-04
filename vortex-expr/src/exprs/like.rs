@@ -138,6 +138,8 @@ pub fn not_ilike(child: Expression, pattern: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
+    use crate::exprs::like::like;
+    use crate::exprs::like::not_ilike;
     use vortex_array::arrays::BoolArray;
     use vortex_array::ToCanonical;
     use vortex_dtype::{DType, Nullability};

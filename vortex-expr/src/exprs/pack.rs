@@ -45,13 +45,13 @@ use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
 pub struct Pack;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct PackInstance {
+pub struct PackOptions {
     names: FieldNames,
     nullability: Nullability,
 }
 
 impl VTable for Pack {
-    type Instance = PackInstance;
+    type Instance = PackOptions;
 
     fn id(&self) -> ExprId {
         ExprId::new_ref("vortex.pack")
@@ -74,7 +74,7 @@ impl VTable for Pack {
             .iter()
             .map(|name| FieldName::from(name.as_str()))
             .collect();
-        Ok(Some(PackInstance {
+        Ok(Some(PackOptions {
             names,
             nullability: opts.nullable.into(),
         }))
@@ -191,7 +191,7 @@ pub fn pack(
         .map(|(name, value)| (name.into(), value))
         .unzip();
     Pack.new(
-        PackInstance {
+        PackOptions {
             names: names.into(),
             nullability,
         },
@@ -206,12 +206,12 @@ mod tests {
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_dtype::{FieldNames, Nullability};
+    use vortex_dtype::Nullability;
     use vortex_error::{vortex_bail, VortexResult};
 
-    use super::pack;
+    use super::{pack, Pack, PackOptions};
     use crate::exprs::get_item::col;
-    use crate::Scope;
+    use crate::{Scope, VTableExt};
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
@@ -238,8 +238,13 @@ mod tests {
 
     #[test]
     pub fn test_empty_pack() {
-        let expr =
-            PackExpr::try_new(FieldNames::default(), Vec::new(), Nullability::NonNullable).unwrap();
+        let expr = Pack.new(
+            PackOptions {
+                names: Default::default(),
+                nullability: Default::default(),
+            },
+            [],
+        );
 
         let test_array = test_array();
         let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
@@ -249,12 +254,13 @@ mod tests {
 
     #[test]
     pub fn test_simple_pack() {
-        let expr = PackExpr::try_new(
-            ["one", "two", "three"].into(),
-            vec![col("a"), col("b"), col("a")],
-            Nullability::NonNullable,
-        )
-        .unwrap();
+        let expr = Pack.new(
+            PackOptions {
+                names: ["one", "two", "three"].into(),
+                nullability: Nullability::NonNullable,
+            },
+            [col("a"), col("b"), col("a")],
+        );
 
         let actual_array = expr
             .evaluate(&Scope::new(test_array()))
@@ -286,22 +292,23 @@ mod tests {
 
     #[test]
     pub fn test_nested_pack() {
-        let expr = PackExpr::try_new(
-            ["one", "two", "three"].into(),
-            vec![
+        let expr = Pack.new(
+            PackOptions {
+                names: ["one", "two", "three"].into(),
+                nullability: Nullability::NonNullable,
+            },
+            [
                 col("a"),
-                PackExpr::try_new(
-                    ["two_one", "two_two"].into(),
-                    vec![col("b"), col("b")],
-                    Nullability::NonNullable,
-                )
-                .unwrap()
-                .into_expr(),
+                Pack.new(
+                    PackOptions {
+                        names: ["two_one", "two_two"].into(),
+                        nullability: Nullability::NonNullable,
+                    },
+                    [col("b"), col("b")],
+                ),
                 col("a"),
             ],
-            Nullability::NonNullable,
-        )
-        .unwrap();
+        );
 
         let actual_array = expr
             .evaluate(&Scope::new(test_array()))
@@ -338,12 +345,13 @@ mod tests {
 
     #[test]
     pub fn test_pack_nullable() {
-        let expr = PackExpr::try_new(
-            ["one", "two", "three"].into(),
-            vec![col("a"), col("b"), col("a")],
-            Nullability::Nullable,
-        )
-        .unwrap();
+        let expr = Pack.new(
+            PackOptions {
+                names: ["one", "two", "three"].into(),
+                nullability: Nullability::Nullable,
+            },
+            [col("a"), col("b"), col("a")],
+        );
 
         let actual_array = expr
             .evaluate(&Scope::new(test_array()))
@@ -362,12 +370,13 @@ mod tests {
         );
         assert_eq!(expr.to_string(), "pack(id: $.user_id, name: $.username)");
 
-        let expr2 = PackExpr::try_new(
-            ["x", "y"].into(),
-            vec![col("a"), col("b")],
-            Nullability::Nullable,
-        )
-        .unwrap();
+        let expr2 = Pack.new(
+            PackOptions {
+                names: ["x", "y"].into(),
+                nullability: Nullability::Nullable,
+            },
+            [col("a"), col("b")],
+        );
         assert_eq!(expr2.to_string(), "pack(x: $.a, y: $.b)?");
     }
 }
