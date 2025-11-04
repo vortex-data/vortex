@@ -207,6 +207,8 @@ impl Scalar {
     /// - `Struct`: A struct where each field has a zero value, which is determined by the field
     ///   [`DType`]
     /// - `Extension`: The zero value of the storage [`DType`]
+    ///
+    /// This is similar to `default_value` except in its handling of nullability.
     pub fn zero_value(dtype: DType) -> Self {
         match dtype {
             DType::Null => Self::null(dtype),
