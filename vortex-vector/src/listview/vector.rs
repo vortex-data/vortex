@@ -5,13 +5,13 @@
 
 use std::sync::Arc;
 
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
 use super::ListViewVectorMut;
-use crate::Vector;
 use crate::ops::{VectorMutOps, VectorOps};
 use crate::primitive::PrimitiveVector;
+use crate::{Vector, match_each_integer_pvector};
 
 /// A vector of variable-width lists.
 ///
@@ -35,9 +35,13 @@ pub struct ListViewVector {
     pub(super) elements: Arc<Vector>,
 
     /// Offsets for each list into the elements vector.
+    ///
+    /// Offsets are always integers, and always non-negative (even if the type is signed).
     pub(super) offsets: PrimitiveVector,
 
     /// Sizes (lengths) of each list.
+    ///
+    /// Sizes are always integers, and always non-negative (even if the type is signed).
     pub(super) sizes: PrimitiveVector,
 
     /// The validity mask (where `true` represents a list is **not** null).
@@ -57,7 +61,15 @@ impl ListViewVector {
     ///
     /// # Panics
     ///
-    /// TODO
+    /// Panics if:
+    ///
+    /// - `offsets` or `sizes` contain nulls values.
+    /// - `offsets`, `sizes`, and `validity` do not all have the same length
+    /// - The `sizes` integer width is not less than or equal to the `offsets` integer width (this
+    ///   would cause overflow)
+    /// - For any `i`, `offsets[i] + sizes[i]` causes an overflow or is greater than
+    ///   `elements.len()` (even if the corresponding view is defined as null by the validity
+    ///   array).
     pub fn new(
         elements: Arc<Vector>,
         offsets: PrimitiveVector,
@@ -72,21 +84,74 @@ impl ListViewVector {
     ///
     /// # Errors
     ///
-    /// TODO
+    /// Returns an error if:
+    ///
+    /// - `offsets` or `sizes` contain nulls values.
+    /// - `offsets`, `sizes`, and `validity` do not all have the same length
+    /// - The `sizes` integer width is not less than or equal to the `offsets` integer width (this
+    ///   would cause overflow)
+    /// - For any `i`, `offsets[i] + sizes[i]` causes an overflow or is greater than
+    ///   `elements.len()` (even if the corresponding view is defined as null by the validity
+    ///   array).
     pub fn try_new(
-        _elements: Arc<Vector>,
-        _offsets: PrimitiveVector,
-        _sizes: PrimitiveVector,
-        _validity: Mask,
+        elements: Arc<Vector>,
+        offsets: PrimitiveVector,
+        sizes: PrimitiveVector,
+        validity: Mask,
     ) -> VortexResult<Self> {
-        todo!()
+        let len = validity.len();
+
+        vortex_ensure!(
+            offsets.len() == len,
+            "Offsets length {} does not match validity length {len}",
+            offsets.len(),
+        );
+        vortex_ensure!(
+            sizes.len() == len,
+            "Sizes length {} does not match validity length {len}",
+            sizes.len(),
+        );
+
+        vortex_ensure!(
+            offsets.validity().all_true(),
+            "Offsets vector must not contain null values"
+        );
+        vortex_ensure!(
+            sizes.validity().all_true(),
+            "Sizes vector must not contain null values"
+        );
+
+        let offsets_width = offsets.ptype().byte_width();
+        let sizes_width = sizes.ptype().byte_width();
+        vortex_ensure!(
+            sizes_width <= offsets_width,
+            "Sizes integer width {sizes_width} must be \
+                    <= offsets integer width {offsets_width} to prevent overflow",
+        );
+
+        // Check that each `offsets[i] + sizes[i] <= elements.len()`.
+        validate_views_bound(elements.len(), &offsets, &sizes)?;
+
+        Ok(Self {
+            elements,
+            offsets,
+            sizes,
+            validity,
+            len,
+        })
     }
 
     /// Creates a new [`ListViewVector`] without validation.
     ///
     /// # Safety
     ///
-    /// TODO
+    /// The caller must ensure all of the following invariants are satisfied:
+    ///
+    /// - `offsets` and `sizes` must be non-nullable integer vectors.
+    /// - `offsets`, `sizes`, and `validity` must have the same length.
+    /// - Size integer width must be smaller than or equal to offset type (to prevent overflow).
+    /// - For each `i`, `offsets[i] + sizes[i]` must not overflow and must be `<= elements.len()`
+    ///   (even if the corresponding view is defined as null by the validity array).
     pub unsafe fn new_unchecked(
         elements: Arc<Vector>,
         offsets: PrimitiveVector,
@@ -209,4 +274,31 @@ impl VectorOps for ListViewVector {
             }),
         }
     }
+}
+
+// TODO(connor): It would be better to separate everything inside the macros into its own function,
+// but that would require adding another macro that sets a type `$type` to be used by the caller.
+/// Checks that all views are `<= elements_len`.
+#[allow(clippy::cognitive_complexity, clippy::cast_possible_truncation)]
+fn validate_views_bound(
+    elements_len: usize,
+    offsets: &PrimitiveVector,
+    sizes: &PrimitiveVector,
+) -> VortexResult<()> {
+    let len = offsets.len();
+
+    match_each_integer_pvector!(&offsets, |offsets_vector| {
+        match_each_integer_pvector!(&sizes, |sizes_vector| {
+            let offsets_slice = offsets_vector.as_ref();
+            let sizes_slice = sizes_vector.as_ref();
+
+            for i in 0..len {
+                let offset = offsets_slice[i] as usize;
+                let size = sizes_slice[i] as usize;
+                vortex_ensure!(offset + size <= elements_len);
+            }
+        });
+    });
+
+    Ok(())
 }
