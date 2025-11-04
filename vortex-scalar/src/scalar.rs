@@ -189,6 +189,54 @@ impl Scalar {
         }
     }
 
+    /// Creates a "zero"-value scalar value for the given data type.
+    ///
+    /// For nullable types the zero value is the underlying `DType`'s zero value.
+    ///
+    /// # Zero Values
+    ///
+    /// Here is the list of zero values for each [`DType`] (when the [`DType`] is non-nullable):
+    /// - `Bool`: `false`
+    /// - `Primitive`: `0`
+    /// - `Decimal`: `0`
+    /// - `Utf8`: `""`
+    /// - `Binary`: An empty buffer
+    /// - `List`: An empty list
+    /// - `FixedSizeList`: A list (with correct size) of zero values, which is determined by the
+    ///   element [`DType`]
+    /// - `Struct`: A struct where each field has a zero value, which is determined by the field
+    ///   [`DType`]
+    /// - `Extension`: The zero value of the storage [`DType`]
+    pub fn zero_value(dtype: DType) -> Self {
+        match dtype {
+            DType::Null => Self::null(dtype),
+            DType::Bool(nullability) => Self::bool(false, nullability),
+            DType::Primitive(pt, nullability) => {
+                Self::primitive_value(PValue::zero(pt), pt, nullability)
+            }
+            DType::Decimal(dt, nullability) => {
+                Self::decimal(DecimalValue::from(0), dt, nullability)
+            }
+            DType::Utf8(nullability) => Self::utf8("", nullability),
+            DType::Binary(nullability) => Self::binary(Buffer::empty(), nullability),
+            DType::List(edt, nullability) => Self::list(edt, vec![], nullability),
+            DType::FixedSizeList(edt, size, nullability) => {
+                let elements = (0..size)
+                    .map(|_| Scalar::zero_value(edt.as_ref().clone()))
+                    .collect();
+                Self::fixed_size_list(edt, elements, nullability)
+            }
+            DType::Struct(sf, nullability) => {
+                let fields: Vec<_> = sf.fields().map(Scalar::zero_value).collect();
+                Self::struct_(DType::Struct(sf, nullability), fields)
+            }
+            DType::Extension(dt) => {
+                let scalar = Self::zero_value(dt.storage_dtype().clone());
+                Self::extension(dt, scalar)
+            }
+        }
+    }
+
     /// Creates a "default" scalar value for the given data type.
     ///
     /// For nullable types, returns null. For non-nullable types, returns an appropriate zero/empty
