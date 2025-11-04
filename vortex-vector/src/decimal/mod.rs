@@ -16,7 +16,8 @@
 //!
 //! ```
 //! use vortex_dtype::{DecimalDType, PrecisionScale};
-//! use vortex_vector::{DVectorMut, VectorMutOps};
+//! use vortex_vector::decimal::{DVectorMut};
+//! use vortex_vector::VectorMutOps;
 //!
 //! // Create a decimal vector with precision=9, scale=2 (e.g., up to 9999999.99).
 //! let decimal_dtype = DecimalDType::new(9, 2);
@@ -50,7 +51,8 @@
 //! use vortex_buffer::BufferMut;
 //! use vortex_dtype::{DecimalDType, PrecisionScale};
 //! use vortex_mask::MaskMut;
-//! use vortex_vector::{DVectorMut, VectorMutOps};
+//! use vortex_vector::decimal::DVectorMut;
+//! use vortex_vector::VectorMutOps;
 //!
 //! // Create a decimal vector with nulls.
 //! let decimal_dtype = DecimalDType::new(5, 2);  // Up to 999.99.
@@ -79,7 +81,8 @@
 //!
 //! ```
 //! use vortex_dtype::DecimalDType;
-//! use vortex_vector::{DVectorMut, VectorMutOps};
+//! use vortex_vector::decimal::DVectorMut;
+//! use vortex_vector::VectorMutOps;
 //!
 //! // Create two decimal vectors with scale=3 (3 decimal places).
 //! let decimal_dtype = DecimalDType::new(10, 3);
@@ -114,7 +117,8 @@
 //!
 //! ```
 //! use vortex_dtype::DecimalDType;
-//! use vortex_vector::{DVectorMut, VectorMutOps, VectorOps};
+//! use vortex_vector::decimal::DVectorMut;
+//! use vortex_vector::{VectorMutOps, VectorOps};
 //!
 //! // Create a mutable decimal vector.
 //! let decimal_dtype = DecimalDType::new(18, 6);  // High precision with 6 decimal places.

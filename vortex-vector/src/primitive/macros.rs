@@ -17,7 +17,8 @@
 /// # Examples
 ///
 /// ```
-/// use vortex_vector::{PrimitiveVector, PVectorMut, VectorOps, VectorMutOps, match_each_pvector};
+/// use vortex_vector::primitive::{PrimitiveVector, PVectorMut};
+/// use vortex_vector::{VectorOps, VectorMutOps, match_each_pvector};
 ///
 /// fn get_primitive_len(vector: &PrimitiveVector) -> usize {
 ///     match_each_pvector!(vector, |v| { v.len() })
@@ -69,7 +70,8 @@ macro_rules! match_each_pvector {
 /// # Examples
 ///
 /// ```
-/// use vortex_vector::{PrimitiveVectorMut, PVectorMut, VectorMutOps, match_each_pvector_mut};
+/// use vortex_vector::primitive::{PrimitiveVectorMut, PVectorMut};
+/// use vortex_vector::{VectorMutOps, match_each_pvector_mut};
 ///
 /// fn reserve_primitive_space(vector: &mut PrimitiveVectorMut, additional: usize) {
 ///     match_each_pvector_mut!(vector, |v| { v.reserve(additional) })

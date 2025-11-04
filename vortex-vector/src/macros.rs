@@ -12,9 +12,10 @@
 /// # Examples
 ///
 /// ```
-/// use vortex_vector::{
-///     Vector, BoolVectorMut, NullVector, VectorOps, VectorMutOps, match_each_vector
-/// };
+/// use vortex_vector::Vector;
+/// use vortex_vector::bool::BoolVectorMut;
+/// use vortex_vector::null::NullVector;
+/// use vortex_vector::{VectorOps, VectorMutOps, match_each_vector};
 ///
 /// fn get_vector_length(vector: &Vector) -> usize {
 ///     match_each_vector!(vector, |v| { v.len() })
@@ -59,9 +60,10 @@ macro_rules! match_each_vector {
 /// # Examples
 ///
 /// ```
-/// use vortex_vector::{
-///     VectorMut, BoolVectorMut, NullVectorMut, VectorMutOps, match_each_vector_mut
-/// };
+/// use vortex_vector::VectorMut;
+/// use vortex_vector::bool::BoolVectorMut;
+/// use vortex_vector::null::NullVectorMut;
+/// use vortex_vector::{VectorMutOps, match_each_vector_mut};
 ///
 /// fn reserve_space(vector: &mut VectorMut, additional: usize) {
 ///     match_each_vector_mut!(vector, |v| { v.reserve(additional) })
@@ -140,9 +142,8 @@ macro_rules! __match_vector_pair_arms {
 /// # Examples
 ///
 /// ```
-/// use vortex_vector::{
-///     BoolVector, BoolVectorMut, Vector, VectorMut, VectorMutOps, match_vector_pair
-/// };
+/// use vortex_vector::{Vector, VectorMut, VectorMutOps, match_vector_pair};
+/// use vortex_vector::bool::{BoolVector, BoolVectorMut};
 ///
 /// fn extend_vector(left: &mut VectorMut, right: &Vector) {
 ///     match_vector_pair!(left, right, |a: VectorMut, b: Vector| {
@@ -160,9 +161,8 @@ macro_rules! __match_vector_pair_arms {
 /// Note that the vectors can also be owned:
 ///
 /// ```
-/// use vortex_vector::{
-///     BoolVector, BoolVectorMut, Vector, VectorMut, VectorMutOps, match_vector_pair
-/// };
+/// use vortex_vector::{Vector, VectorMut, VectorMutOps, match_vector_pair};
+/// use vortex_vector::bool::{BoolVector, BoolVectorMut};
 ///
 /// fn extend_vector_owned(mut dest: VectorMut, src: Vector) -> VectorMut {
 ///     match_vector_pair!(&mut dest, src, |a: VectorMut, b: Vector| {

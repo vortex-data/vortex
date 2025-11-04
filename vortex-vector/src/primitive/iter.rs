@@ -16,7 +16,8 @@ impl<T: NativePType> Extend<Option<T>> for PVectorMut<T> {
     /// # Examples
     ///
     /// ```
-    /// use vortex_vector::{PVectorMut, VectorMutOps, VectorOps};
+    /// use vortex_vector::primitive::PVectorMut;
+    /// use vortex_vector::{VectorMutOps, VectorOps};
     ///
     /// let mut vec = PVectorMut::from_iter([Some(1i32), None]);
     /// vec.extend([Some(3), None, Some(5)]);
@@ -93,7 +94,8 @@ impl<T: NativePType> FromIterator<T> for PVectorMut<T> {
     /// # Examples
     ///
     /// ```
-    /// use vortex_vector::{PVectorMut, VectorMutOps};
+    /// use vortex_vector::primitive::PVectorMut;
+    /// use vortex_vector::VectorMutOps;
     ///
     /// let mut vec = PVectorMut::from_iter([1i32, 2, 3, 4]);
     /// assert_eq!(vec.len(), 4);
@@ -158,7 +160,7 @@ impl<T: NativePType> IntoIterator for PVectorMut<T> {
     /// # Examples
     ///
     /// ```
-    /// use vortex_vector::PVectorMut;
+    /// use vortex_vector::primitive::PVectorMut;
     ///
     /// let vec = PVectorMut::<i32>::from_iter([Some(1), None, Some(3), Some(4)]);
     /// let collected: Vec<_> = vec.into_iter().collect();

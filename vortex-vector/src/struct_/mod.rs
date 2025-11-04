@@ -8,9 +8,11 @@
 //! ## Creating a [`StructVector`] and [`StructVectorMut`]
 //!
 //! ```
-//! use vortex_vector::{
-//!     BoolVectorMut, NullVectorMut, PVectorMut, StructVectorMut, VectorMut, VectorMutOps,
-//! };
+//! use vortex_vector::bool::BoolVectorMut;
+//! use vortex_vector::null::NullVectorMut;
+//! use vortex_vector::primitive::PVectorMut;
+//! use vortex_vector::struct_::StructVectorMut;
+//! use vortex_vector::{VectorMut, VectorMutOps};
 //! use vortex_mask::MaskMut;
 //!
 //! // Create a struct with three fields: nulls, booleans, and integers.
@@ -30,9 +32,11 @@
 //! [`unsplit()`]: crate::VectorMutOps::unsplit
 //!
 //! ```
-//! use vortex_vector::{
-//!     BoolVectorMut, NullVectorMut, PVectorMut, StructVectorMut, VectorMut, VectorMutOps,
-//! };
+//! use vortex_vector::bool::BoolVectorMut;
+//! use vortex_vector::null::NullVectorMut;
+//! use vortex_vector::primitive::PVectorMut;
+//! use vortex_vector::struct_::StructVectorMut;
+//! use vortex_vector::{VectorMut, VectorMutOps};
 //! use vortex_mask::MaskMut;
 //!
 //! let fields = Box::new([
@@ -56,9 +60,11 @@
 //! ## Accessing field values
 //!
 //! ```
-//! use vortex_vector::{
-//!     BoolVectorMut, NullVectorMut, PVectorMut, StructVectorMut, VectorMut, VectorMutOps,
-//! };
+//! use vortex_vector::bool::BoolVectorMut;
+//! use vortex_vector::null::NullVectorMut;
+//! use vortex_vector::primitive::PVectorMut;
+//! use vortex_vector::struct_::StructVectorMut;
+//! use vortex_vector::{VectorMut, VectorMutOps};
 //! use vortex_mask::MaskMut;
 //! use vortex_dtype::PTypeDowncast;
 //!
