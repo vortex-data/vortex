@@ -9,7 +9,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::VTableExt;
-use crate::{AnalysisExpr, ChildName, ExprId, ExprInstance, Expression, Scope, VTable};
+use crate::{ChildName, ExprId, ExprInstance, Expression, VTable};
 
 /// Expression that logically inverts boolean values.
 pub struct Not;

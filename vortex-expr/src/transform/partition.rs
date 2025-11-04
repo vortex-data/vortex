@@ -8,12 +8,15 @@ use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::exprs::get_item::get_item;
+use crate::exprs::pack::pack;
+use crate::exprs::root::root;
 use crate::transform::annotations::{
     descendent_annotations, Annotation, AnnotationFn, Annotations,
 };
 use crate::transform::simplify_typed::simplify_typed;
 use crate::traversal::{NodeExt, NodeRewriter, Transformed, TraversalOrder};
-use crate::{get_item, pack, root, Expression};
+use crate::Expression;
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions

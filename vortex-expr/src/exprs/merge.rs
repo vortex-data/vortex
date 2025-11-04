@@ -1,23 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
-use std::hash::Hash;
-
 use itertools::Itertools as _;
+use std::fmt::Formatter;
+use std::hash::Hash;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{
-    Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray as _, ToCanonical,
-};
+use vortex_array::{Array, ArrayRef, IntoArray as _, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::display::{DisplayAs, DisplayFormat};
-use crate::{vtable, AnalysisExpr, ExprEncodingRef, ExprId, Expression, IntoExpr, Scope, VTable};
-
-vtable!(Merge);
+use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
 
 /// Merge zero or more expressions that ALL return structs.
 ///
@@ -25,138 +19,42 @@ vtable!(Merge);
 ///
 /// NOTE: Fields are not recursively merged, i.e. the later field REPLACES the earlier field.
 /// This makes struct fields behaviour consistent with other dtypes.
-#[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MergeExpr {
-    values: Vec<Expression>,
-    duplicate_handling: DuplicateHandling,
-}
+pub struct Merge;
 
-impl MergeExpr {
-    pub fn duplicate_handling(&self) -> DuplicateHandling {
-        self.duplicate_handling
-    }
-}
+impl VTable for Merge {
+    type Instance = DuplicateHandling;
 
-/// What to do when merged structs share a field name.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum DuplicateHandling {
-    /// If two structs share a field name, take the value from the right-most struct.
-    RightMost,
-    /// If two structs share a field name, error.
-    #[default]
-    Error,
-}
-
-impl Display for DuplicateHandling {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DuplicateHandling::Error => write!(f, "error"),
-            DuplicateHandling::RightMost => write!(f, "right-most"),
-        }
-    }
-}
-
-pub struct MergeExprEncoding;
-
-impl VTable for MergeVTable {
-    type Expr = MergeExpr;
-    type Encoding = MergeExprEncoding;
-    type Metadata = EmptyMetadata;
-
-    fn id(_encoding: &Self::Encoding) -> ExprId {
-        ExprId::new_ref("merge")
+    fn id(&self) -> ExprId {
+        ExprId::new_ref("vortex.merge")
     }
 
-    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(MergeExprEncoding.as_ref())
+    fn validate(&self, _expr: &ExprInstance<Self>) -> VortexResult<()> {
+        Ok(())
     }
 
-    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+        ChildName::from(format!("{}", child_idx))
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&Expression> {
-        expr.values.iter().collect()
-    }
-
-    fn with_children(expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
-        Ok(MergeExpr {
-            values: children,
-            duplicate_handling: expr.duplicate_handling,
-        })
-    }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<Expression>,
-    ) -> VortexResult<Self::Expr> {
-        if children.is_empty() {
-            vortex_bail!(
-                "Merge expression must have at least one child, got: {:?}",
-                children
-            );
-        }
-        Ok(MergeExpr {
-            values: children,
-            duplicate_handling: DuplicateHandling::default(),
-        })
-    }
-
-    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        // Collect fields in order of appearance. Later fields overwrite earlier fields.
-        let mut field_names = Vec::new();
-        let mut arrays = Vec::new();
-        let mut duplicate_names = HashSet::<_>::new();
-
-        for expr in expr.values.iter() {
-            // TODO(marko): When nullable, we need to merge struct validity into field validity.
-            let array = expr.unchecked_evaluate(scope)?;
-            if array.dtype().is_nullable() {
-                vortex_bail!("merge expects non-nullable input");
-            }
-            if !array.dtype().is_struct() {
-                vortex_bail!("merge expects struct input");
-            }
-            let array = array.to_struct();
-
-            for (field_name, array) in array.names().iter().zip_eq(array.fields().iter().cloned()) {
-                // Update or insert field.
-                if let Some(idx) = field_names.iter().position(|name| name == field_name) {
-                    duplicate_names.insert(field_name.clone());
-                    arrays[idx] = array;
-                } else {
-                    field_names.push(field_name.clone());
-                    arrays.push(array);
-                }
+    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "merge(")?;
+        for (i, child) in expr.children().iter().enumerate() {
+            child.fmt_compact(f)?;
+            if i + 1 < expr.children().len() {
+                write!(f, ", ")?;
             }
         }
-
-        if expr.duplicate_handling == DuplicateHandling::Error && !duplicate_names.is_empty() {
-            vortex_bail!(
-                "merge: duplicate fields in children: {}",
-                duplicate_names.into_iter().format(", ")
-            )
-        }
-
-        // TODO(DK): When children are allowed to be nullable, this needs to change.
-        let validity = Validity::NonNullable;
-        let len = scope.len();
-        Ok(
-            StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
-                .into_array(),
-        )
+        write!(f, ")")
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
         let mut merge_nullability = Nullability::NonNullable;
         let mut duplicate_names = HashSet::<_>::new();
 
-        for expr in expr.values.iter() {
-            let dtype = expr.return_dtype(scope)?;
+        for child in expr.children() {
+            let dtype = child.return_dtype(scope)?;
             let Some(fields) = dtype.as_struct_fields_opt() else {
                 vortex_bail!("merge expects struct input");
             };
@@ -177,7 +75,7 @@ impl VTable for MergeVTable {
             }
         }
 
-        if expr.duplicate_handling == DuplicateHandling::Error && !duplicate_names.is_empty() {
+        if **expr == DuplicateHandling::Error && !duplicate_names.is_empty() {
             vortex_bail!(
                 "merge: duplicate fields in children: {}",
                 duplicate_names.into_iter().format(", ")
@@ -189,33 +87,61 @@ impl VTable for MergeVTable {
             merge_nullability,
         ))
     }
+
+    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        // Collect fields in order of appearance. Later fields overwrite earlier fields.
+        let mut field_names = Vec::new();
+        let mut arrays = Vec::new();
+        let mut duplicate_names = HashSet::<_>::new();
+
+        for child in expr.children() {
+            // TODO(marko): When nullable, we need to merge struct validity into field validity.
+            let array = child.evaluate(scope)?;
+            if array.dtype().is_nullable() {
+                vortex_bail!("merge expects non-nullable input");
+            }
+            if !array.dtype().is_struct() {
+                vortex_bail!("merge expects struct input");
+            }
+            let array = array.to_struct();
+
+            for (field_name, array) in array.names().iter().zip_eq(array.fields().iter().cloned()) {
+                // Update or insert field.
+                if let Some(idx) = field_names.iter().position(|name| name == field_name) {
+                    duplicate_names.insert(field_name.clone());
+                    arrays[idx] = array;
+                } else {
+                    field_names.push(field_name.clone());
+                    arrays.push(array);
+                }
+            }
+        }
+
+        if **expr == DuplicateHandling::Error && !duplicate_names.is_empty() {
+            vortex_bail!(
+                "merge: duplicate fields in children: {}",
+                duplicate_names.into_iter().format(", ")
+            )
+        }
+
+        // TODO(DK): When children are allowed to be nullable, this needs to change.
+        let validity = Validity::NonNullable;
+        let len = scope.len();
+        Ok(
+            StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
+                .into_array(),
+        )
+    }
 }
 
-impl MergeExpr {
-    pub fn new(values: Vec<Expression>) -> Self {
-        MergeExpr {
-            values,
-            duplicate_handling: DuplicateHandling::default(),
-        }
-    }
-
-    pub fn new_expr(values: Vec<Expression>) -> Expression {
-        Self::new(values).into_expr()
-    }
-
-    pub fn new_opts(values: Vec<Expression>, duplicate_handling: DuplicateHandling) -> Self {
-        MergeExpr {
-            values,
-            duplicate_handling,
-        }
-    }
-
-    pub fn new_expr_opts(
-        values: Vec<Expression>,
-        duplicate_handling: DuplicateHandling,
-    ) -> Expression {
-        Self::new_opts(values, duplicate_handling).into_expr()
-    }
+/// What to do when merged structs share a field name.
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum DuplicateHandling {
+    /// If two structs share a field name, take the value from the right-most struct.
+    RightMost,
+    /// If two structs share a field name, error.
+    #[default]
+    Error,
 }
 
 /// Creates an expression that merges struct expressions into a single struct.
@@ -230,7 +156,7 @@ impl MergeExpr {
 /// ```
 pub fn merge(elements: impl IntoIterator<Item = impl Into<Expression>>) -> Expression {
     let values = elements.into_iter().map(|value| value.into()).collect_vec();
-    MergeExpr::new(values).into_expr()
+    Merge.new(DuplicateHandling::default(), values)
 }
 
 pub fn merge_opts(
@@ -238,28 +164,8 @@ pub fn merge_opts(
     duplicate_handling: DuplicateHandling,
 ) -> Expression {
     let values = elements.into_iter().map(|value| value.into()).collect_vec();
-    MergeExpr::new_opts(values, duplicate_handling).into_expr()
+    Merge.new(duplicate_handling, values)
 }
-
-impl DisplayAs for MergeExpr {
-    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match df {
-            DisplayFormat::Compact => {
-                write!(
-                    f,
-                    "merge[{}]({})",
-                    self.duplicate_handling,
-                    self.values.iter().format(", "),
-                )
-            }
-            DisplayFormat::Tree => {
-                write!(f, "Merge")
-            }
-        }
-    }
-}
-
-impl AnalysisExpr for MergeExpr {}
 
 #[cfg(test)]
 mod tests {

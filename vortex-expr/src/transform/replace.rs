@@ -4,8 +4,11 @@
 use vortex_dtype::{Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::exprs::get_item::col;
+use crate::exprs::pack::pack;
+use crate::exprs::root::root;
 use crate::traversal::{NodeExt, Transformed};
-use crate::{col, pack, root, Expression};
+use crate::Expression;
 
 /// Replaces all occurrences of `needle` in the expression `expr` with `replacement`.
 pub fn replace(expr: Expression, needle: &Expression, replacement: Expression) -> Expression {

@@ -11,10 +11,9 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
-use crate::{
-    eq, lit, AnalysisExpr, ChildName, ExprId, ExprInstance, Expression, Scope,
-    StatsCatalog, VTable, VTableExt,
-};
+use crate::exprs::binary::eq;
+use crate::exprs::literal::lit;
+use crate::{ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt};
 
 /// Expression that checks for null values.
 pub struct IsNull;
@@ -62,7 +61,7 @@ impl VTable for IsNull {
     }
 
     fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        let array = expr.child(0).unchecked_evaluate(scope)?;
+        let array = expr.child(0).evaluate(scope)?;
         match array.validity_mask() {
             Mask::AllTrue(len) => Ok(ConstantArray::new(false, len).into_array()),
             Mask::AllFalse(len) => Ok(ConstantArray::new(true, len).into_array()),

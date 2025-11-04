@@ -3,10 +3,12 @@
 
 use vortex_error::VortexResult;
 
+use crate::exprs::get_item::GetItem;
+use crate::exprs::pack::Pack;
 use crate::transform::match_between::find_between;
-// use crate::transform::match_between::find_between;
 use crate::traversal::{NodeExt, Transformed};
-use crate::{Expression, GetItemVTable, PackVTable};
+// use crate::transform::match_between::find_between;
+use crate::Expression;
 
 /// Simplifies an expression into an equivalent expression which is faster and easier to analyze.
 ///
@@ -20,8 +22,8 @@ pub fn simplify(e: Expression) -> VortexResult<Expression> {
 
 fn simplify_transformer(node: Expression) -> VortexResult<Transformed<Expression>> {
     // pack(l_1: e_1, ..., l_i: e_i, ..., l_n: e_n).get_item(l_i) = e_i where 0 <= i <= n
-    if let Some(get_item) = node.as_opt::<GetItemVTable>()
-        && let Some(pack) = get_item.child().as_opt::<PackVTable>()
+    if let Some(get_item) = node.as_opt::<GetItem>()
+        && let Some(pack) = get_item.child(0).as_opt::<Pack>()
     {
         let expr = pack.field(get_item.field())?;
         return Ok(Transformed::yes(expr));

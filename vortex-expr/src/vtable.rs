@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::v2::Expression;
+use crate::v2::{ExprInstance, Expression};
 use crate::{AnalysisExpr, ExprId, StatsCatalog};
 use arcref::ArcRef;
 use std::any::Any;
 use std::fmt;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::Arc;
@@ -164,43 +164,6 @@ pub type ChildName = ArcRef<str>;
 /// A placeholder vtable implementation for unsupported optional functionality of an expression.
 pub struct NotSupported;
 
-/// A typed expr over an instance of a Vortex expression for a specific vtable.
-pub struct ExprInstance<'a, V: VTable> {
-    instance: &'a V::Instance,
-    // FIXME(ngates): this is tough, because in theory we shouldn't known about ExprNode in general?
-    //  e.g. if we hold the expression in an Array, we don't want to have ExprNode dependencies.
-    children: &'a [Expression],
-}
-
-impl<'a, V: VTable> ExprInstance<'a, V> {
-    pub fn from_dyn(instance: &dyn Any, children: &'a [Expression]) -> Self {
-        let instance = instance
-            .downcast_ref::<V::Instance>()
-            .vortex_expect("Failed to downcast expression instance to expected type");
-        Self { instance, children }
-    }
-
-    pub fn new(instance: &'a V::Instance, children: &'a [Expression]) -> Self {
-        Self { instance, children }
-    }
-
-    pub fn children(&self) -> &'a [Expression] {
-        self.children
-    }
-
-    pub fn child(&self, idx: usize) -> &Expression {
-        &self.children[idx]
-    }
-}
-
-impl<'a, V: VTable> Deref for ExprInstance<'a, V> {
-    type Target = V::Instance;
-
-    fn deref(&self) -> &Self::Target {
-        self.instance
-    }
-}
-
 /// An object-safe trait for dynamic dispatch of Vortex expression vtables.
 ///
 /// This trait is automatically implemented via the [`VTableAdapter`] for any type that
@@ -208,6 +171,7 @@ impl<'a, V: VTable> Deref for ExprInstance<'a, V> {
 pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn id(&self) -> ExprId;
     fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()>;
+    fn serialize(&self, instance: &dyn Any) -> VortexResult<Option<Vec<u8>>>;
     fn fmt_compact(
         &self,
         instance: &dyn Any,
@@ -268,6 +232,14 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()> {
         let expr = ExprInstance::from_dyn(instance, children);
         V::validate(&self.0, &expr)
+    }
+
+    fn serialize(&self, instance: &dyn Any) -> VortexResult<Option<Vec<u8>>> {
+        let instance = instance
+            .as_any()
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        V::serialize(&self.0, instance)
     }
 
     fn fmt_compact(
@@ -389,6 +361,12 @@ impl ExprVTable {
         // SAFETY: We can safely cast the vtable to a VTableAdapter since it has the same layout.
         let adapted = unsafe { &*(vtable as *const V as *const VTableAdapter<V>) };
         Self(ArcRef::from(adapted))
+    }
+}
+
+impl Display for ExprVTable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_dyn().id())
     }
 }
 

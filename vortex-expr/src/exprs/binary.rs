@@ -2,17 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::{Formatter, Pointer};
-use std::hash::Hash;
 
 use vortex_array::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
-use vortex_array::{compute, ArrayRef, DeserializeMetadata};
+use vortex_array::{compute, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::display::DisplayAs;
+use crate::exprs::literal::lit;
 use crate::v2::Expression;
 use crate::{
-    lit, AnalysisExpr, ChildName, ExprId, ExprInstance, Operator, StatsCatalog, VTable, VTableExt,
+    AnalysisExpr, ChildName, ExprId, ExprInstance, Operator, StatsCatalog, VTable, VTableExt,
 };
 
 pub struct Binary;
@@ -64,8 +63,8 @@ impl VTable for Binary {
     }
 
     fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        let lhs = expr.lhs().unchecked_evaluate(scope)?;
-        let rhs = expr.rhs().unchecked_evaluate(scope)?;
+        let lhs = expr.lhs().evaluate(scope)?;
+        let rhs = expr.rhs().evaluate(scope)?;
 
         match expr.operator() {
             Operator::Eq => compare(&lhs, &rhs, compute::Operator::Eq),
@@ -82,25 +81,10 @@ impl VTable for Binary {
             Operator::Div => div(&lhs, &rhs),
         }
     }
-}
 
-impl ExprInstance<'_, Binary> {
-    pub fn lhs(&self) -> &Expression {
-        &self.children()[0]
-    }
-
-    pub fn rhs(&self) -> &Expression {
-        &self.children()[1]
-    }
-
-    pub fn operator(&self) -> Operator {
-        *self.metadata()
-    }
-}
-
-impl AnalysisVTable<Binary> for Binary {
     fn stat_falsification(
-        expr: ExprInstance<Self>,
+        &self,
+        expr: &ExprInstance<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         // Wrap another predicate with an optional NaNCount check, if the stat is available.
@@ -229,6 +213,20 @@ impl AnalysisVTable<Binary> for Binary {
             )),
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
         }
+    }
+}
+
+impl ExprInstance<'_, Binary> {
+    pub fn lhs(&self) -> &Expression {
+        &self.children()[0]
+    }
+
+    pub fn rhs(&self) -> &Expression {
+        &self.children()[1]
+    }
+
+    pub fn operator(&self) -> Operator {
+        *self.data()
     }
 }
 

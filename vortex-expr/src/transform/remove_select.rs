@@ -3,8 +3,11 @@
 
 use vortex_error::{vortex_err, VortexResult};
 
+use crate::exprs::get_item::get_item;
+use crate::exprs::pack::pack;
+use crate::exprs::select::Select;
 use crate::traversal::{NodeExt, Transformed};
-use crate::{get_item, pack, DType, Expression, SelectVTable};
+use crate::{DType, Expression};
 
 /// Replaces [crate::SelectExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_select(e: Expression, ctx: &DType) -> VortexResult<Expression> {
@@ -16,7 +19,7 @@ fn remove_select_transformer(
     node: Expression,
     ctx: &DType,
 ) -> VortexResult<Transformed<Expression>> {
-    match node.as_opt::<SelectVTable>() {
+    match node.as_opt::<Select>() {
         None => Ok(Transformed::no(node)),
         Some(select) => {
             let child = select.child();
@@ -32,12 +35,12 @@ fn remove_select_transformer(
 
             let expr = pack(
                 select
-                    .selection()
+                    .data()
                     .as_include_names(child_dtype.names())
                     .map_err(|e| {
                         e.with_context(format!(
                             "Select fields {:?} must be a subset of child fields {:?}",
-                            select.selection(),
+                            select.data(),
                             child_dtype.names()
                         ))
                     })?

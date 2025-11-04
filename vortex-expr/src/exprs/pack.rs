@@ -13,7 +13,7 @@ use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_proto::expr as pb;
 
-use crate::{AnalysisExpr, ChildName, ExprId, ExprInstance, Expression, Scope, VTable, VTableExt};
+use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
 
 /// Pack zero or more expressions into a structure with named fields.
 ///
@@ -81,7 +81,7 @@ impl VTable for Pack {
     }
 
     fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
-        let instance = expr.instance();
+        let instance = expr.data();
         if expr.children().len() != instance.names.len() {
             vortex_bail!(
                 "Pack expression expects {} children, got {}",
@@ -105,14 +105,14 @@ impl VTable for Pack {
 
     fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "pack(")?;
-        for (i, (name, child)) in expr.names.iter().zip(expr.children()).enumerate() {
+        for (i, (name, child)) in expr.data().names.iter().zip(expr.children()).enumerate() {
             write!(f, "{}: ", name)?;
             child.fmt_compact(f)?;
-            if i + 1 < expr.names.len() {
+            if i + 1 < expr.data().names.len() {
                 write!(f, ", ")?;
             }
         }
-        write!(f, "){}", expr.nullability)
+        write!(f, "){}", expr.data().nullability)
     }
 
     fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
@@ -122,8 +122,8 @@ impl VTable for Pack {
             .map(|child| child.return_dtype(scope))
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(DType::Struct(
-            StructFields::new(expr.names.clone(), value_dtypes),
-            expr.nullability,
+            StructFields::new(expr.data().names.clone(), value_dtypes),
+            expr.data().nullability,
         ))
     }
 
@@ -132,18 +132,21 @@ impl VTable for Pack {
         let value_arrays = expr
             .children()
             .iter()
-            .zip_eq(expr.names.iter())
+            .zip_eq(expr.data().names.iter())
             .map(|(child_expr, name)| {
                 child_expr
                     .unchecked_evaluate(scope)
                     .map_err(|e| e.with_context(format!("Can't evaluate '{name}'")))
             })
             .process_results(|it| it.collect::<Vec<_>>())?;
-        let validity = match expr.nullability {
+        let validity = match expr.data().nullability {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
         };
-        Ok(StructArray::try_new(expr.names.clone(), value_arrays, len, validity)?.into_array())
+        Ok(
+            StructArray::try_new(expr.data().names.clone(), value_arrays, len, validity)?
+                .into_array(),
+        )
     }
 }
 

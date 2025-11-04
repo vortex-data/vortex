@@ -3,11 +3,11 @@
 
 use vortex_array::compute::{BetweenOptions, StrictComparison};
 
+use crate::exprs::binary::{and, Binary};
+use crate::exprs::get_item::GetItem;
+use crate::exprs::literal::{lit, Literal};
 use crate::forms::conjuncts;
-use crate::{
-    and, lit, BetweenExpr, BinaryExpr, BinaryVTable, Expression, GetItemVTable,
-    IntoExpr, LiteralVTable, Operator,
-};
+use crate::{Expression, Operator, VTableExt};
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
@@ -44,8 +44,7 @@ pub fn find_between(expr: Expression) -> Expression {
 }
 
 fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
-    let (Some(lhs), Some(rhs)) = (lhs.as_opt::<BinaryVTable>(), rhs.as_opt::<BinaryVTable>())
-    else {
+    let (Some(lhs), Some(rhs)) = (lhs.as_opt::<Binary>(), rhs.as_opt::<Binary>()) else {
         return None;
     };
 
@@ -55,21 +54,21 @@ fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
     }
 
     // First, get both halves to have GetItem on the left
-    let lhs = match (
-        lhs.lhs().is::<GetItemVTable>(),
-        lhs.rhs().is::<GetItemVTable>(),
-    ) {
+    let lhs = match (lhs.lhs().is::<GetItem>(), lhs.rhs().is::<GetItem>()) {
         (true, false) => lhs.clone(),
-        (false, true) => BinaryExpr::new(lhs.rhs().clone(), lhs.op().swap()?, lhs.lhs().clone()),
+        (false, true) => Binary.new(
+            lhs.operator().swap()?,
+            [lhs.rhs().clone(), lhs.lhs().clone()],
+        ),
         _ => return None,
     };
 
-    let rhs = match (
-        rhs.lhs().is::<GetItemVTable>(),
-        rhs.rhs().is::<GetItemVTable>(),
-    ) {
+    let rhs = match (rhs.lhs().is::<GetItem>(), rhs.rhs().is::<GetItem>()) {
         (true, false) => rhs.clone(),
-        (false, true) => BinaryExpr::new(rhs.rhs().clone(), rhs.op().swap()?, rhs.lhs().clone()),
+        (false, true) => Binary.new(
+            rhs.operator().swap()?,
+            [rhs.rhs().clone(), rhs.lhs().clone()],
+        ),
         _ => return None,
     };
 
@@ -87,8 +86,8 @@ fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
         _ => return None,
     };
 
-    let lower_lit = lower.rhs().as_opt::<LiteralVTable>()?.to_expr();
-    let upper_lit = upper.rhs().as_opt::<LiteralVTable>()?.to_expr();
+    let lower_lit = lower.rhs().as_opt::<Literal>()?.to_expr();
+    let upper_lit = upper.rhs().as_opt::<Literal>()?.to_expr();
 
     let lower_strict = is_strict_comparison(lower.op())?;
     let upper_strict = is_strict_comparison(upper.op())?;

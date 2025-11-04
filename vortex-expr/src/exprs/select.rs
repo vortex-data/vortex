@@ -13,7 +13,7 @@ use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 
 use crate::field::DisplayFieldNames;
 use crate::v2::Expression;
-use crate::{ChildName, ExprId, ExprInstance, Scope, VTable, VTableExt};
+use crate::{ChildName, ExprId, ExprInstance, VTable, VTableExt};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -86,8 +86,8 @@ impl VTable for Select {
         }
     }
 
-    fn fmt_compact(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &*self {
+    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match expr.data() {
             FieldSelection::Include(fields) => {
                 write!(f, "select({{{}}})", DisplayFieldNames(fields))
             }

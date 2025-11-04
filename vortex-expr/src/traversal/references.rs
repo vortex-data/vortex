@@ -5,8 +5,10 @@ use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::exprs::get_item::GetItem;
+use crate::exprs::select::Select;
 use crate::traversal::{NodeVisitor, TraversalOrder};
-use crate::{Expression, GetItemVTable, SelectVTable};
+use crate::Expression;
 
 #[derive(Default)]
 pub struct ReferenceCollector {
@@ -33,12 +35,11 @@ impl NodeVisitor<'_> for ReferenceCollector {
     type NodeTy = Expression;
 
     fn visit_up(&mut self, node: &Expression) -> VortexResult<TraversalOrder> {
-        if let Some(get_item) = node.as_opt::<GetItemVTable>() {
-            self.fields.insert(get_item.field().clone());
+        if let Some(get_item) = node.as_opt::<GetItem>() {
+            self.fields.insert(get_item.data().clone());
         }
-        if let Some(sel) = node.as_opt::<SelectVTable>() {
-            self.fields
-                .extend(sel.selection().field_names().iter().cloned());
+        if let Some(sel) = node.as_opt::<Select>() {
+            self.fields.extend(sel.data().field_names().iter().cloned());
         }
         Ok(TraversalOrder::Continue)
     }

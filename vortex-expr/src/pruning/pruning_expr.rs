@@ -9,7 +9,9 @@ use vortex_dtype::{Field, FieldName, FieldPath, FieldPathSet};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::relation::Relation;
-use crate::{get_item, root, Expression, StatsCatalog};
+use crate::exprs::get_item::get_item;
+use crate::exprs::root::root;
+use crate::{Expression, StatsCatalog};
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
 

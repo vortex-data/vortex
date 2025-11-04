@@ -5,8 +5,11 @@ use vortex_dtype::{FieldName, StructFields};
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::exprs::get_item::GetItem;
+use crate::exprs::root::Root;
+use crate::exprs::select::Select;
 use crate::transform::annotations::{descendent_annotations, AnnotationFn, Annotations};
-use crate::{is_root, Expression, GetItemVTable, SelectVTable};
+use crate::Expression;
 
 pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
 
@@ -14,15 +17,15 @@ pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
 pub fn annotate_scope_access(scope: &StructFields) -> impl AnnotationFn<Annotation = FieldName> {
     move |expr: &Expression| {
         assert!(
-            !expr.is::<SelectVTable>(),
+            !expr.is::<Select>(),
             "cannot analyse select, simplify the expression"
         );
 
-        if let Some(get_item) = expr.as_opt::<GetItemVTable>() {
-            if is_root(get_item.child()) {
-                return vec![get_item.field().clone()];
+        if let Some(get_item) = expr.as_opt::<GetItem>() {
+            if get_item.child(0).is::<Root>() {
+                return vec![get_item.data().clone()];
             }
-        } else if is_root(expr) {
+        } else if expr.is::<Root>() {
             return scope.names().iter().cloned().collect();
         }
 

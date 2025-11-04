@@ -5,8 +5,11 @@ use itertools::Itertools as _;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::exprs::get_item::get_item;
+use crate::exprs::merge::{DuplicateHandling, Merge};
+use crate::exprs::pack::pack;
 use crate::traversal::{NodeExt, Transformed};
-use crate::{get_item, pack, DType, DuplicateHandling, Expression, MergeVTable};
+use crate::{DType, Expression};
 
 /// Replaces [crate::MergeExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_merge(e: Expression, ctx: &DType) -> VortexResult<Expression> {
@@ -15,7 +18,7 @@ pub(crate) fn remove_merge(e: Expression, ctx: &DType) -> VortexResult<Expressio
 }
 
 fn merge_transform(node: Expression, ctx: &DType) -> VortexResult<Transformed<Expression>> {
-    match node.as_opt::<MergeVTable>() {
+    match node.as_opt::<Merge>() {
         None => Ok(Transformed::no(node)),
         Some(merge) => {
             let merge_dtype = merge.return_dtype(ctx)?;
@@ -47,9 +50,7 @@ fn merge_transform(node: Expression, ctx: &DType) -> VortexResult<Transformed<Ex
                     }
                 }
 
-                if merge.duplicate_handling() == DuplicateHandling::Error
-                    && !duplicate_names.is_empty()
-                {
+                if merge.data() == DuplicateHandling::Error && !duplicate_names.is_empty() {
                     vortex_bail!(
                         "merge: duplicate fields in children: {}",
                         duplicate_names.into_iter().format(", ")

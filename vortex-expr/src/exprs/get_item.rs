@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{
-    root, AnalysisExpr, ChildName, ExprId, ExprInstance, Expression, Scope, StatsCatalog,
-    VTable, VTableExt,
-};
+use crate::exprs::root::root;
+use crate::{ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt};
 use prost::Message;
 use std::fmt::Formatter;
 use std::ops::Not;
@@ -57,21 +55,23 @@ impl VTable for GetItem {
 
     fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         expr.children()[0].fmt_compact(f)?;
-        write!(f, ".{}", &*expr)
+        write!(f, ".{}", expr.data())
     }
 
     fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
         let input = expr.children()[0].return_dtype(scope)?;
         input
             .as_struct_fields_opt()
-            .and_then(|st| st.field(**expr))
+            .and_then(|st| st.field(expr.data()))
             .map(|f| f.union_nullability(input.nullability()))
-            .ok_or_else(|| vortex_err!("Couldn't find the {} field in the input scope", &*expr))
+            .ok_or_else(|| {
+                vortex_err!("Couldn't find the {} field in the input scope", expr.data())
+            })
     }
 
     fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let input = expr.children()[0].evaluate(scope)?.to_struct();
-        let field = input.field_by_name(&**expr).cloned()?;
+        let field = input.field_by_name(expr.data()).cloned()?;
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),
@@ -84,7 +84,7 @@ impl VTable for GetItem {
     }
 
     fn min(&self, expr: &ExprInstance<Self>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(&*expr), Stat::Min)
+        catalog.stats_ref(&FieldPath::from_name(expr.data()), Stat::Min)
     }
 
     fn nan_count(
@@ -92,11 +92,13 @@ impl VTable for GetItem {
         expr: &ExprInstance<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(&*expr), Stat::NaNCount)
+        catalog.stats_ref(&FieldPath::from_name(expr.data()), Stat::NaNCount)
     }
 
     fn field_path(&self, expr: &ExprInstance<Self>) -> Option<FieldPath> {
-        expr.children()[0].field_path().map(|fp| fp.push(&*expr))
+        expr.children()[0]
+            .field_path()
+            .map(|fp| fp.push(expr.data()))
     }
 }
 

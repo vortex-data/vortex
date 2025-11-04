@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
-use std::ops::Deref;
 use vortex_array::compute::{between as between_compute, BetweenOptions};
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
@@ -10,9 +9,7 @@ use vortex_dtype::DType::Bool;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::v2::Expression;
-use crate::{
-    AnalysisExpr, Binary, ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt,
-};
+use crate::{Binary, ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt};
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
 ///
@@ -54,7 +51,7 @@ impl VTable for Between {
     }
 
     fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let options = expr.metadata();
+        let options = expr.data();
         let lower_op = if options.lower_strict.is_strict() {
             "<"
         } else {
@@ -105,7 +102,17 @@ impl VTable for Between {
         let arr = expr.child().evaluate(scope)?;
         let lower = expr.lower().evaluate(scope)?;
         let upper = expr.upper().evaluate(scope)?;
-        between_compute(&arr, &lower, &upper, expr.deref())
+        between_compute(&arr, &lower, &upper, expr.data())
+    }
+
+    fn stat_falsification(
+        &self,
+        expr: &ExprInstance<Self>,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        expr.to_binary_expr()
+            .vortex_expect("Failed to convert to expression")
+            .stat_falsification(catalog)
     }
 }
 
@@ -123,7 +130,7 @@ impl ExprInstance<'_, Between> {
     }
 
     pub fn to_binary_expr(&self) -> VortexResult<Expression> {
-        let options = self.metadata();
+        let options = self.data();
         let arr = self.children()[0].clone();
         let lower = self.children()[1].clone();
         let upper = self.children()[2].clone();
@@ -134,12 +141,6 @@ impl ExprInstance<'_, Between> {
         )?;
         let rhs = Binary.try_new(options.upper_strict.to_operator().into(), [arr, upper])?;
         Binary.try_new(crate::Operator::And, [lhs, rhs])
-    }
-}
-
-impl AnalysisExpr for Between {
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        self.to_binary_expr().stat_falsification(catalog)
     }
 }
 

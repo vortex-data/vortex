@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::Expression;
+
 pub enum DisplayFormat {
     Compact,
     Tree,
@@ -15,12 +17,12 @@ pub trait DisplayAs {
     }
 }
 
-pub struct DisplayTreeExpr<'a>(pub &'a dyn crate::VortexExpr);
+pub struct DisplayTreeExpr<'a>(pub &'a Expression);
 
 impl std::fmt::Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
-        fn make_tree(expr: &dyn crate::VortexExpr) -> Result<Tree<String>, std::fmt::Error> {
+        fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
             let node_name = TreeNodeDisplay(expr).to_string();
 
             // Get child names for display purposes
@@ -53,7 +55,7 @@ impl std::fmt::Display for DisplayTreeExpr<'_> {
     }
 }
 
-struct TreeNodeDisplay<'a>(&'a dyn crate::VortexExpr);
+struct TreeNodeDisplay<'a>(&'a Expression);
 
 impl<'a> std::fmt::Display for TreeNodeDisplay<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

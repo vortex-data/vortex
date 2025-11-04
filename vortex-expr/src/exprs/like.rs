@@ -9,8 +9,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_proto::expr as pb;
 
-use crate::display::DisplayAs;
-use crate::{AnalysisExpr, ChildName, ExprId, ExprInstance, Scope, VTable};
+use crate::{ChildName, ExprId, ExprInstance, VTable};
 
 /// Expression that performs SQL LIKE pattern matching.
 pub struct Like;
@@ -60,10 +59,10 @@ impl VTable for Like {
 
     fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         expr.child(0).fmt_compact(f)?;
-        if expr.negated {
+        if expr.data().negated {
             write!(f, " not")?;
         }
-        if expr.metadata().case_insensitive {
+        if expr.data().case_insensitive {
             write!(f, " ilike ")?;
         } else {
             write!(f, " like ")?;
@@ -91,9 +90,9 @@ impl VTable for Like {
     }
 
     fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        let child = expr.child().unchecked_evaluate(scope)?;
-        let pattern = expr.pattern().unchecked_evaluate(scope)?;
-        like(&child, &pattern, *expr)
+        let child = expr.child(0).evaluate(scope)?;
+        let pattern = expr.child(1).evaluate(scope)?;
+        like(&child, &pattern, *expr.data())
     }
 }
 

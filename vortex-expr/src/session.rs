@@ -4,17 +4,25 @@
 use vortex_session::registry::Registry;
 use vortex_session::{Ref, SessionExt};
 
-use crate::{
-    BetweenExprEncoding, BinaryExprEncoding, CastExprEncoding, ExprEncodingRef,
-    GetItemExprEncoding, IsNullExprEncoding, LikeExprEncoding, ListContainsExprEncoding,
-    LiteralExprEncoding, MergeExprEncoding, NotExprEncoding, PackExprEncoding, RootExprEncoding,
-    SelectExprEncoding,
-};
+use crate::exprs::between::Between;
+use crate::exprs::binary::Binary;
+use crate::exprs::cast::Cast;
+use crate::exprs::get_item::GetItem;
+use crate::exprs::is_null::IsNull;
+use crate::exprs::like::Like;
+use crate::exprs::list_contains::ListContains;
+use crate::exprs::literal::Literal;
+use crate::exprs::merge::Merge;
+use crate::exprs::not::Not;
+use crate::exprs::pack::Pack;
+use crate::exprs::root::Root;
+use crate::exprs::select::Select;
+use crate::ExprVTable;
 
-/// Registry of expression encodings.
-pub type ExprRegistry = Registry<ExprEncodingRef>;
+/// Registry of expression vtables.
+pub type ExprRegistry = Registry<ExprVTable>;
 
-/// Session state for expression encodings.
+/// Session state for expression vtables.
 #[derive(Debug)]
 pub struct ExprSession {
     registry: ExprRegistry,
@@ -25,13 +33,13 @@ impl ExprSession {
         &self.registry
     }
 
-    /// Register an expression encoding in the session, replacing any existing encoding with the same ID.
-    pub fn register(&self, expr: ExprEncodingRef) {
+    /// Register an expression vtable in the session, replacing any existing vtable with the same ID.
+    pub fn register(&self, expr: ExprVTable) {
         self.registry.register(expr)
     }
 
-    /// Register expression encodings in the session, replacing any existing encodings with the same IDs.
-    pub fn register_many(&self, exprs: impl IntoIterator<Item = ExprEncodingRef>) {
+    /// Register expression vtables in the session, replacing any existing vtables with the same IDs.
+    pub fn register_many(&self, exprs: impl IntoIterator<Item = ExprVTable>) {
         self.registry.register_many(exprs);
     }
 }
@@ -42,19 +50,19 @@ impl Default for ExprSession {
 
         // Register built-in expressions here if needed.
         expressions.register_many([
-            ExprEncodingRef::new_ref(BetweenExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(BinaryExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(CastExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(GetItemExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(IsNullExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(LikeExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(ListContainsExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(LiteralExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(MergeExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(NotExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(PackExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(RootExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(SelectExprEncoding.as_ref()),
+            ExprVTable::from_static(&Between),
+            ExprVTable::from_static(&Binary),
+            ExprVTable::from_static(&Cast),
+            ExprVTable::from_static(&GetItem),
+            ExprVTable::from_static(&IsNull),
+            ExprVTable::from_static(&Like),
+            ExprVTable::from_static(&ListContains),
+            ExprVTable::from_static(&Literal),
+            ExprVTable::from_static(&Merge),
+            ExprVTable::from_static(&Not),
+            ExprVTable::from_static(&Pack),
+            ExprVTable::from_static(&Root),
+            ExprVTable::from_static(&Select),
         ]);
 
         Self {
@@ -65,7 +73,7 @@ impl Default for ExprSession {
 
 /// Extension trait for accessing expression session data.
 pub trait ExprSessionExt: SessionExt {
-    /// Returns the expression encoding registry.
+    /// Returns the expression vtable registry.
     fn expressions(&self) -> Ref<'_, ExprSession> {
         self.get::<ExprSession>()
     }

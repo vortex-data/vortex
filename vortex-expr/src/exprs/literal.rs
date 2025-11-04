@@ -11,9 +11,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
-use crate::{
-    AnalysisExpr, ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt,
-};
+use crate::{ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt};
 
 /// Expression that represents a literal scalar value.
 pub struct Literal;
@@ -25,10 +23,10 @@ impl VTable for Literal {
         ExprId::new_ref("vortex.literal")
     }
 
-    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::LiteralOpts {
-                value: Some((&_instance).into()),
+                value: Some(instance.clone().into()),
             }
             .encode_to_vec(),
         ))

@@ -8,9 +8,10 @@ use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
+use crate::exprs::binary::{and, gt, lt, or};
+use crate::exprs::literal::{lit, Literal};
 use crate::{
-    and, gt, lit, lt, or, AnalysisExpr, ChildName, ExprId,
-    ExprInstance, Expression, Literal, StatsCatalog, VTable, VTableExt,
+    AnalysisExpr, ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt,
 };
 
 pub struct ListContains;
@@ -86,7 +87,7 @@ impl VTable for ListContains {
         // If the list is constant when we can compare each element to the value
         if min == max {
             let list_ = min
-                .as_view_opt::<Literal>()
+                .as_opt::<Literal>()
                 .and_then(|l| l.as_list_opt())
                 .and_then(|l| l.elements())?;
             if list_.is_empty() {

@@ -57,9 +57,7 @@ impl VTable for Root {
     fn evaluate(&self, _expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         Ok(scope.clone())
     }
-}
 
-impl AnalysisVTable<Root> for Root {
     fn max(&self, expr: &ExprInstance<Root>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         catalog.stats_ref(&self.field_path(expr)?, Stat::Max)
     }
