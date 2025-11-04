@@ -11,18 +11,21 @@ use arrow_array::types::{
 };
 use arrow_array::{
     Array, BooleanArray, Date32Array, Decimal128Array, FixedSizeListArray, GenericListViewArray,
-    PrimitiveArray, StringArray, StructArray, Time64MicrosecondArray, Time64NanosecondArray,
+    PrimitiveArray, StringArray, Time64MicrosecondArray, Time64NanosecondArray,
     TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
     TimestampSecondArray,
 };
 use arrow_buffer::buffer::BooleanBuffer;
+use arrow_schema::Field;
 use num_traits::AsPrimitive;
 use vortex::ArrayRef;
+use vortex::arrays::StructArray;
 use vortex::arrow::FromArrowArray;
 use vortex::buffer::BufferMut;
 use vortex::dtype::{DType, DecimalDType, FieldNames, Nullability};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::scalar::DecimalType;
+use vortex::validity::Validity;
 
 use crate::convert::dtype::FromLogicalType;
 use crate::cpp::{
@@ -332,7 +335,7 @@ pub fn flat_vector_to_arrow_array(
                 len * array_elem_size as usize,
             )?;
             Ok(Arc::new(FixedSizeListArray::try_new(
-                Arc::new(arrow_schema::Field::new(
+                Arc::new(Field::new(
                     "element",
                     DType::from_logical_type(array_child_type, Nullability::Nullable)?
                         .to_arrow_dtype()?,
@@ -363,7 +366,7 @@ pub fn flat_vector_to_arrow_array(
             }
 
             Ok(Arc::new(GenericListViewArray::try_new(
-                Arc::new(arrow_schema::Field::new(
+                Arc::new(Field::new(
                     "element",
                     DType::from_logical_type(array_child_type, Nullability::Nullable)?
                         .to_arrow_dtype()?,
@@ -381,8 +384,8 @@ pub fn flat_vector_to_arrow_array(
                     flat_vector_to_arrow_array(&mut vector.struct_vector_get_child(idx), len)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(Arc::new(StructArray::try_new(
-                DType::from_logical_type(vector.logical_type(), Nullability::Nullable)?
+            Ok(Arc::new(arrow_array::StructArray::try_new(
+                DType::from_logical_type(vector.logical_type(), Nullability::NonNullable)?
                     .to_arrow_schema()?
                     .fields,
                 children,
@@ -397,28 +400,37 @@ pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> Vorte
     let len = chunk.len();
 
     let columns = (0..chunk.column_count())
-        .zip(field_names.iter())
-        .map(|(i, name)| {
+        .map(|i| {
             let mut vector = chunk.get_vector(i);
             vector.flatten(len);
             flat_vector_to_arrow_array(&mut vector, len.as_())
                 .map(|array_data| {
                     let chunk_len: usize = chunk.len().as_();
                     assert_eq!(array_data.len(), chunk_len);
-                    (name, ArrayRef::from_arrow(array_data.as_ref(), true))
+                    ArrayRef::from_arrow(array_data.as_ref(), true)
                 })
                 .map_err(|e| vortex_err!("duckdb to arrow conversion failure {e}"))
         })
-        .collect::<VortexResult<Vec<_>>>()?;
-    vortex::arrays::StructArray::try_from_iter(columns).map(|a| a.to_array())
+        .collect::<VortexResult<Arc<_>>>()?;
+    StructArray::try_new(
+        field_names.clone(),
+        columns,
+        len.as_(),
+        Validity::NonNullable,
+    )
+    .map(|a| a.to_array())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CString;
+
+    use arrow_array::cast::AsArray;
     use arrow_array::{
         BooleanArray, Int32Array, TimestampMicrosecondArray, TimestampMillisecondArray,
         TimestampSecondArray,
     };
+    use vortex::error::VortexUnwrap;
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
@@ -675,5 +687,76 @@ mod tests {
         assert!(arrow_array.is_valid(2));
         assert_eq!(arrow_array.value(0), 1);
         assert_eq!(arrow_array.value(2), 3);
+    }
+
+    #[test]
+    fn test_fixed_sized_list() {
+        let values = vec![1i32, 2, 3, 4];
+        let len = values.len();
+
+        let logical_type =
+            LogicalType::array_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER), 4)
+                .vortex_unwrap();
+        let mut vector = Vector::with_capacity(logical_type, len);
+
+        // Populate with data
+        unsafe {
+            let mut child = vector.array_vector_get_child();
+            let slice = child.as_slice_mut::<i32>(len);
+            slice.copy_from_slice(&values);
+        }
+
+        // Test conversion
+        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
+        let arrow_array = result.as_fixed_size_list();
+
+        assert_eq!(arrow_array.len(), len);
+        assert_eq!(
+            arrow_array.value(0).as_primitive::<Int32Type>(),
+            &Int32Array::from_iter([1, 2, 3, 4])
+        );
+    }
+
+    #[test]
+    fn test_struct() {
+        let values1 = vec![1i32, 2, 3, 4];
+        let values2 = vec![5i32, 6, 7, 8];
+        let len = values1.len();
+
+        let logical_type = LogicalType::struct_type(
+            [
+                LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+                LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+            ],
+            [CString::new("a").unwrap(), CString::new("b").unwrap()],
+        )
+        .vortex_unwrap();
+        let mut vector = Vector::with_capacity(logical_type, len);
+
+        // Populate with data
+        for (i, values) in
+            (0..vector.logical_type().struct_type_child_count()).zip([values1, values2])
+        {
+            unsafe {
+                let mut child = vector.struct_vector_get_child(i);
+                let slice = child.as_slice_mut::<i32>(len);
+                slice.copy_from_slice(&values);
+            }
+        }
+
+        // Test conversion
+        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
+        let arrow_array = result.as_struct();
+
+        assert_eq!(arrow_array.len(), len);
+        assert_eq!(arrow_array.fields().len(), 2);
+        assert_eq!(
+            arrow_array.column(0).as_primitive::<Int32Type>(),
+            &Int32Array::from_iter([1, 2, 3, 4])
+        );
+        assert_eq!(
+            arrow_array.column(1).as_primitive::<Int32Type>(),
+            &Int32Array::from_iter([5, 6, 7, 8])
+        );
     }
 }
