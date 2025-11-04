@@ -14,7 +14,7 @@ fn tokio_spawn(b: Bencher, work_ms: u64) {
     let handle = rt.handle().clone();
     b.bench_local(|| {
         // Spawn 1000 tasks that all do 1MS of CPU-blocking work.
-        let join_handles: Vec<_> = (0..1000)
+        let join_handles: Vec<_> = (0..100)
             .map(|_| handle.spawn(async move { thread::sleep(Duration::from_millis(work_ms)) }))
             .collect();
 
@@ -30,7 +30,7 @@ fn tokio_spawn_blocking(b: Bencher, work_ms: u64) {
     b.bench_local(|| {
         let work_ms = work_ms;
         // Spawn 1000 tasks that all do 1MS of CPU-blocking work.
-        let join_handles: Vec<_> = (0..1000)
+        let join_handles: Vec<_> = (0..100)
             .map(|_| handle.spawn_blocking(move || thread::sleep(Duration::from_millis(work_ms))))
             .collect();
 
@@ -46,7 +46,7 @@ fn tokio_unblock(b: Bencher, work_ms: u64) {
     b.bench_local(|| {
         // Spawn 1000 tasks that all do 1MS of CPU-blocking work.
         let work_ms = work_ms;
-        let join_handles: Vec<_> = (0..1000)
+        let join_handles: Vec<_> = (0..100)
             .map(|_| {
                 handle.spawn(blocking::unblock(move || {
                     thread::sleep(Duration::from_millis(work_ms.clone()))
@@ -65,7 +65,7 @@ fn smol_unblock(b: Bencher, work_ms: u64) {
     b.bench_local(|| {
         // Spawn 1000 tasks that all do 1MS of CPU-blocking work.
         let work_ms = work_ms;
-        let mut join_handles = Vec::with_capacity(1000);
+        let mut join_handles = Vec::with_capacity(100);
         exec.spawn_many(
             (0..1000).map(|_| {
                 blocking::unblock(move || thread::sleep(Duration::from_millis(work_ms.clone())))
