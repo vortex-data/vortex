@@ -9,6 +9,8 @@
 //! [`DecimalVector`] and [`DecimalVectorMut`] are enums that wrap all of the different possible
 //! [`DVector`]s. There are several macros defined in this crate to make working with these
 //! primitive vector types easier.
+//!
+//! See the documentation for [`DVectorMut`] for more information.
 
 mod generic;
 pub use generic::DVector;
