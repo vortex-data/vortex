@@ -158,7 +158,7 @@ pub fn sum_impl(
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use crate::IntoArray as _;
