@@ -8,11 +8,11 @@ use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::{vtable, AnalysisExpr, ExprEncodingRef, ExprId, Expression, IntoExpr, Scope, VTable};
 
 vtable!(Pack);
 
@@ -47,7 +47,7 @@ vtable!(Pack);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PackExpr {
     names: FieldNames,
-    values: Vec<ExprRef>,
+    values: Vec<Expression>,
     nullability: Nullability,
 }
 
@@ -73,18 +73,18 @@ impl VTable for PackVTable {
         }))
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+    fn children(expr: &Self::Expr) -> Vec<&Expression> {
         expr.values.iter().collect()
     }
 
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+    fn with_children(expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
         PackExpr::try_new(expr.names.clone(), children, expr.nullability)
     }
 
     fn build(
         _encoding: &Self::Encoding,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
+        children: Vec<Expression>,
     ) -> VortexResult<Self::Expr> {
         if children.len() != metadata.paths.len() {
             vortex_bail!(
@@ -136,7 +136,7 @@ impl VTable for PackVTable {
 impl PackExpr {
     pub fn try_new(
         names: FieldNames,
-        values: Vec<ExprRef>,
+        values: Vec<Expression>,
         nullability: Nullability,
     ) -> VortexResult<Self> {
         if names.len() != values.len() {
@@ -151,9 +151,9 @@ impl PackExpr {
 
     pub fn try_new_expr(
         names: FieldNames,
-        values: Vec<ExprRef>,
+        values: Vec<Expression>,
         nullability: Nullability,
-    ) -> VortexResult<ExprRef> {
+    ) -> VortexResult<Expression> {
         Self::try_new(names, values, nullability).map(|v| v.into_expr())
     }
 
@@ -161,7 +161,7 @@ impl PackExpr {
         &self.names
     }
 
-    pub fn field(&self, field_name: &FieldName) -> VortexResult<ExprRef> {
+    pub fn field(&self, field_name: &FieldName) -> VortexResult<Expression> {
         let idx = self
             .names
             .iter()
@@ -193,9 +193,9 @@ impl PackExpr {
 /// let expr = pack([("id", col("user_id")), ("constant", lit(42))], Nullability::NonNullable);
 /// ```
 pub fn pack(
-    elements: impl IntoIterator<Item = (impl Into<FieldName>, ExprRef)>,
+    elements: impl IntoIterator<Item = (impl Into<FieldName>, Expression)>,
     nullability: Nullability,
-) -> ExprRef {
+) -> Expression {
     let (names, values): (Vec<_>, Vec<_>) = elements
         .into_iter()
         .map(|(name, value)| (name.into(), value))
@@ -240,9 +240,9 @@ mod tests {
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{FieldNames, Nullability};
-    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_error::{vortex_bail, VortexResult};
 
-    use crate::{IntoExpr, PackExpr, Scope, col, pack};
+    use crate::{col, pack, IntoExpr, PackExpr, Scope};
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[

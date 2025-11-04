@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! A collection of transformations that can be applied to a [`crate::ExprRef`].
+//! A collection of transformations that can be applied to a [`crate::Expression`].
 pub mod annotations;
 pub mod immediate_access;
 pub(crate) mod match_between;

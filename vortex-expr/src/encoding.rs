@@ -11,7 +11,7 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::metadata::ExprInstance;
 use crate::v2::Expression;
-use crate::{ExprRef, IntoExpr, VTable};
+use crate::{Expression, IntoExpr, VTable};
 
 pub type ExprId = ArcRef<str>;
 pub type ExprEncodingRef = ArcRef<dyn ExprEncoding>;
@@ -29,7 +29,7 @@ pub trait ExprEncoding: 'static + Send + Sync + Debug + private::Sealed {
     /// Deserializes an expression from its serialized form.
     ///
     /// Returns `None` if the expression is not serializable.
-    fn build(&self, metadata: &[u8], children: Vec<ExprRef>) -> VortexResult<ExprRef>;
+    fn build(&self, metadata: &[u8], children: Vec<Expression>) -> VortexResult<Expression>;
 
     /// Validates the metadata and children for this expression encoding.
     fn validate(&self, _metadata: &dyn ExprInstance, _children: &[Expression]) -> VortexResult<()>;
@@ -63,7 +63,7 @@ impl<V: VTable> ExprEncoding for ExprEncodingAdapter<V> {
         V::id(&self.0)
     }
 
-    fn build(&self, metadata: &[u8], children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+    fn build(&self, metadata: &[u8], children: Vec<Expression>) -> VortexResult<Expression> {
         let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
         Ok(V::build(&self.0, &metadata, children)?.into_expr())
     }

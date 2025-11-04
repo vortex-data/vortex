@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Formatter;
 use std::ops::Deref;
 use vortex_array::compute::{between as between_compute, BetweenOptions};
-use vortex_array::{ArrayRef, DeserializeMetadata};
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::v2::Expression;
 use crate::{
-    AnalysisExpr, Binary, ChildName, ExprId, ExprInstance, ExprRef, StatsCatalog, VTable,
-    VTableExt,
+    AnalysisExpr, Binary, ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt,
 };
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
@@ -52,6 +52,29 @@ impl VTable for Between {
             2 => ChildName::from("upper"),
             _ => unreachable!("Invalid child index {} for Between expression", child_idx),
         }
+    }
+
+    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let options = expr.metadata();
+        let lower_op = if options.lower_strict.is_strict() {
+            "<"
+        } else {
+            "<="
+        };
+        let upper_op = if options.upper_strict.is_strict() {
+            "<"
+        } else {
+            "<="
+        };
+        write!(
+            f,
+            "({} {} {} {} {})",
+            expr.lower(),
+            lower_op,
+            expr.child(),
+            upper_op,
+            expr.upper()
+        )
     }
 
     fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
@@ -116,7 +139,7 @@ impl ExprInstance<'_, Between> {
 }
 
 impl AnalysisExpr for Between {
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         self.to_binary_expr().stat_falsification(catalog)
     }
 }

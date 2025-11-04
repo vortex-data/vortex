@@ -18,8 +18,8 @@ pub use references::ReferenceCollector;
 pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
 
-use crate::ExprRef;
 use crate::traversal::fold::NodeFolderContextWrapper;
+use crate::Expression;
 
 /// Signal to control a traversal's flow
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -458,7 +458,7 @@ impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeContainer<'a, T> for Vec<C> {
     }
 }
 
-impl<'a> NodeContainer<'a, Self> for ExprRef {
+impl<'a> NodeContainer<'a, Self> for Expression {
     fn apply_elements<F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
         &'a self,
         mut f: F,
@@ -474,7 +474,7 @@ impl<'a> NodeContainer<'a, Self> for ExprRef {
     }
 }
 
-impl Node for ExprRef {
+impl Node for Expression {
     fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
         &'a self,
         mut f: F,
@@ -515,40 +515,38 @@ impl Node for ExprRef {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_error::VortexResult;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::traversal::visitor::pre_order_visit_down;
     use crate::traversal::{NodeExt, NodeRewriter, NodeVisitor, Transformed, TraversalOrder};
     use crate::{
-        BinaryExpr, BinaryVTable, ExprRef, GetItemVTable, IntoExpr, LiteralExpr, LiteralVTable,
-        Operator, VortexExpr, col, is_root, root,
+        col, is_root, root, BinaryExpr, BinaryVTable, Expression, GetItemVTable,
+        IntoExpr, LiteralExpr, LiteralVTable, Operator, VortexExpr,
     };
 
     #[derive(Default)]
-    pub struct ExprLitCollector<'a>(pub Vec<&'a ExprRef>);
+    pub struct ExprLitCollector<'a>(pub Vec<&'a Expression>);
 
     impl<'a> NodeVisitor<'a> for ExprLitCollector<'a> {
-        type NodeTy = ExprRef;
+        type NodeTy = Expression;
 
-        fn visit_down(&mut self, node: &'a ExprRef) -> VortexResult<TraversalOrder> {
+        fn visit_down(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
             if node.is::<LiteralVTable>() {
                 self.0.push(node)
             }
             Ok(TraversalOrder::Continue)
         }
 
-        fn visit_up(&mut self, _node: &'a ExprRef) -> VortexResult<TraversalOrder> {
+        fn visit_up(&mut self, _node: &'a Expression) -> VortexResult<TraversalOrder> {
             Ok(TraversalOrder::Continue)
         }
     }
 
     fn expr_col_to_lit_transform(
-        node: ExprRef,
+        node: Expression,
         idx: &mut i32,
-    ) -> VortexResult<Transformed<ExprRef>> {
+    ) -> VortexResult<Transformed<Expression>> {
         if node.is::<GetItemVTable>() {
             let lit_id = *idx;
             *idx += 1;
@@ -562,7 +560,7 @@ mod tests {
     pub struct SkipDownRewriter;
 
     impl NodeRewriter for SkipDownRewriter {
-        type NodeTy = ExprRef;
+        type NodeTy = Expression;
 
         fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
             Ok(Transformed {
@@ -579,7 +577,7 @@ mod tests {
 
     #[test]
     fn expr_deep_visitor_test() {
-        let col1: Arc<dyn VortexExpr> = col("col1");
+        let col1: Expression = col("col1");
         let lit1 = LiteralExpr::new(1).into_expr();
         let expr = BinaryExpr::new(col1.clone(), Operator::Eq, lit1.clone()).into_expr();
         let lit2 = LiteralExpr::new(2).into_expr();
@@ -591,8 +589,8 @@ mod tests {
 
     #[test]
     fn expr_deep_mut_visitor_test() {
-        let col1: Arc<dyn VortexExpr> = col("col1");
-        let col2: Arc<dyn VortexExpr> = col("col2");
+        let col1: Expression = col("col1");
+        let col2: Expression = col("col2");
         let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
         let lit2 = LiteralExpr::new_expr(2);
         let expr = BinaryExpr::new_expr(expr, Operator::And, lit2);
@@ -612,16 +610,16 @@ mod tests {
 
     #[test]
     fn expr_skip_test() {
-        let col1: Arc<dyn VortexExpr> = col("col1");
-        let col2: Arc<dyn VortexExpr> = col("col2");
+        let col1: Expression = col("col1");
+        let col2: Expression = col("col2");
         let expr1 = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
-        let col3: Arc<dyn VortexExpr> = col("col3");
-        let col4: Arc<dyn VortexExpr> = col("col4");
+        let col3: Expression = col("col3");
+        let col4: Expression = col("col4");
         let expr2 = BinaryExpr::new_expr(col3.clone(), Operator::NotEq, col4.clone());
         let expr = BinaryExpr::new_expr(expr1, Operator::And, expr2);
 
         let mut nodes = Vec::new();
-        pre_order_visit_down(&expr, |node: &ExprRef| {
+        pre_order_visit_down(&expr, |node: &Expression| {
             if node.is::<GetItemVTable>() {
                 nodes.push(node)
             }
@@ -634,22 +632,22 @@ mod tests {
         })
         .unwrap();
 
-        let nodes: HashSet<ExprRef> = HashSet::from_iter(nodes.into_iter().cloned());
+        let nodes: HashSet<Expression> = HashSet::from_iter(nodes.into_iter().cloned());
         assert_eq!(nodes, HashSet::from_iter([col("col3"), col("col4")]));
     }
 
     #[test]
     fn expr_stop_test() {
-        let col1: Arc<dyn VortexExpr> = col("col1");
-        let col2: Arc<dyn VortexExpr> = col("col2");
+        let col1: Expression = col("col1");
+        let col2: Expression = col("col2");
         let expr1 = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
-        let col3: Arc<dyn VortexExpr> = col("col3");
-        let col4: Arc<dyn VortexExpr> = col("col4");
+        let col3: Expression = col("col3");
+        let col4: Expression = col("col4");
         let expr2 = BinaryExpr::new_expr(col3.clone(), Operator::NotEq, col4.clone());
         let expr = BinaryExpr::new_expr(expr1, Operator::And, expr2);
 
         let mut nodes = Vec::new();
-        pre_order_visit_down(&expr, |node: &ExprRef| {
+        pre_order_visit_down(&expr, |node: &Expression| {
             if node.is::<GetItemVTable>() {
                 nodes.push(node)
             }

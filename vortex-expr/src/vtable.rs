@@ -3,6 +3,7 @@
 
 use arcref::ArcRef;
 use std::any::Any;
+use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::ops::Deref;
@@ -59,6 +60,13 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Returns the name of the nth child of the expr.
     fn child_name(&self, child_idx: usize) -> ChildName;
 
+    /// Format this expression in nice human-readable format
+    ///
+    /// Specifically, this format is designed to be readable by humans, at the
+    /// expense of details. Use `Display` or `Debug` for more detailed
+    /// representation.
+    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> fmt::Result;
+
     /// Compute the return [`DType`] of the expression if evaluated in the given scope.
     fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType>;
 
@@ -87,6 +95,8 @@ pub struct NotSupported;
 /// A typed view over an instance of a Vortex expression for a specific vtable.
 pub struct ExprInstance<'a, V: VTable> {
     instance: &'a V::Instance,
+    // FIXME(ngates): this is tough, because in theory we shouldn't known about ExprNode in general?
+    //  e.g. if we hold the expression in an Array, we don't want to have ExprNode dependencies.
     children: &'a [Expression],
 }
 
@@ -122,6 +132,12 @@ impl<'a, V: VTable> Deref for ExprInstance<'a, V> {
 pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn id(&self) -> ExprId;
     fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()>;
+    fn fmt_compact(
+        &self,
+        instance: &dyn Any,
+        children: &[Expression],
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result;
     fn return_dtype(
         &self,
         instance: &dyn Any,
@@ -147,6 +163,16 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()> {
         let view = ExprInstance::from_dyn(instance, children);
         V::validate(&self.0, &view)
+    }
+
+    fn fmt_compact(
+        &self,
+        instance: &dyn Any,
+        children: &[Expression],
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        let view = ExprInstance::from_dyn(instance, children);
+        V::fmt_compact(&self.0, &view, f)
     }
 
     fn return_dtype(
@@ -197,8 +223,8 @@ impl ExprVTable {
 }
 
 impl Debug for ExprVTable {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.id())
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_dyn().id())
     }
 }
 

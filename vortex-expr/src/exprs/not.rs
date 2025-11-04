@@ -6,17 +6,17 @@ use std::hash::Hash;
 use vortex_array::compute::invert;
 use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::{vtable, AnalysisExpr, ExprEncodingRef, ExprId, Expression, IntoExpr, Scope, VTable};
 
 vtable!(Not);
 
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Debug, Hash, Eq)]
 pub struct NotExpr {
-    child: ExprRef,
+    child: Expression,
 }
 
 impl PartialEq for NotExpr {
@@ -44,18 +44,18 @@ impl VTable for NotVTable {
         Some(EmptyMetadata)
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+    fn children(expr: &Self::Expr) -> Vec<&Expression> {
         vec![&expr.child]
     }
 
-    fn with_children(_expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+    fn with_children(_expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
         Ok(NotExpr::new(children[0].clone()))
     }
 
     fn build(
         _encoding: &Self::Encoding,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
+        children: Vec<Expression>,
     ) -> VortexResult<Self::Expr> {
         if children.len() != 1 {
             vortex_bail!(
@@ -81,15 +81,15 @@ impl VTable for NotVTable {
 }
 
 impl NotExpr {
-    pub fn new(child: ExprRef) -> Self {
+    pub fn new(child: Expression) -> Self {
         Self { child }
     }
 
-    pub fn new_expr(child: ExprRef) -> ExprRef {
+    pub fn new_expr(child: Expression) -> Expression {
         Self::new(child).into_expr()
     }
 
-    pub fn child(&self) -> &ExprRef {
+    pub fn child(&self) -> &Expression {
         &self.child
     }
 }
@@ -117,17 +117,17 @@ impl AnalysisExpr for NotExpr {}
 /// # use vortex_expr::{not, root};
 /// let expr = not(root());
 /// ```
-pub fn not(operand: ExprRef) -> ExprRef {
+pub fn not(operand: Expression) -> Expression {
     NotExpr::new(operand).into_expr()
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::ToCanonical;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{Scope, col, get_item, not, root, test_harness};
+    use crate::{col, get_item, not, root, test_harness, Scope};
 
     #[test]
     fn invert_booleans() {

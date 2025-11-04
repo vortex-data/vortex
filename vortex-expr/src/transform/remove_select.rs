@@ -1,18 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexResult};
 
 use crate::traversal::{NodeExt, Transformed};
-use crate::{DType, ExprRef, SelectVTable, get_item, pack};
+use crate::{get_item, pack, DType, Expression, SelectVTable};
 
 /// Replaces [crate::SelectExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
-pub(crate) fn remove_select(e: ExprRef, ctx: &DType) -> VortexResult<ExprRef> {
+pub(crate) fn remove_select(e: Expression, ctx: &DType) -> VortexResult<Expression> {
     e.transform_up(|node| remove_select_transformer(node, ctx))
         .map(|e| e.into_inner())
 }
 
-fn remove_select_transformer(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprRef>> {
+fn remove_select_transformer(
+    node: Expression,
+    ctx: &DType,
+) -> VortexResult<Transformed<Expression>> {
     match node.as_opt::<SelectVTable>() {
         None => Ok(Transformed::no(node)),
         Some(select) => {
@@ -50,13 +53,12 @@ fn remove_select_transformer(node: ExprRef, ctx: &DType) -> VortexResult<Transfo
 
 #[cfg(test)]
 mod tests {
-
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
 
     use crate::transform::remove_select::remove_select;
-    use crate::{PackVTable, root, select};
+    use crate::{root, select, PackVTable};
 
     #[test]
     fn test_remove_select() {

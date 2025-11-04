@@ -3,14 +3,15 @@
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
-use vortex_dtype::{DType, match_each_float_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{match_each_float_ptype, DType};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
+    vtable, AnalysisExpr, ExprEncodingRef, ExprId, Expression, IntoExpr, Scope, StatsCatalog,
+    VTable,
 };
 
 vtable!(Literal);
@@ -41,18 +42,18 @@ impl VTable for LiteralVTable {
         }))
     }
 
-    fn children(_expr: &Self::Expr) -> Vec<&ExprRef> {
+    fn children(_expr: &Self::Expr) -> Vec<&Expression> {
         vec![]
     }
 
-    fn with_children(expr: &Self::Expr, _children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+    fn with_children(expr: &Self::Expr, _children: Vec<Expression>) -> VortexResult<Self::Expr> {
         Ok(expr.clone())
     }
 
     fn build(
         _encoding: &Self::Encoding,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
+        children: Vec<Expression>,
     ) -> VortexResult<Self::Expr> {
         if !children.is_empty() {
             vortex_bail!(
@@ -84,7 +85,7 @@ impl LiteralExpr {
         }
     }
 
-    pub fn new_expr(value: impl Into<Scalar>) -> ExprRef {
+    pub fn new_expr(value: impl Into<Scalar>) -> Expression {
         Self::new(value).into_expr()
     }
 
@@ -92,7 +93,7 @@ impl LiteralExpr {
         &self.value
     }
 
-    pub fn maybe_from(expr: &ExprRef) -> Option<&LiteralExpr> {
+    pub fn maybe_from(expr: &Expression) -> Option<&LiteralExpr> {
         expr.as_opt::<LiteralVTable>()
     }
 }
@@ -116,15 +117,15 @@ impl DisplayAs for LiteralExpr {
 }
 
 impl AnalysisExpr for LiteralExpr {
-    fn max(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn max(&self, _catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         Some(lit(self.value.clone()))
     }
 
-    fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         Some(lit(self.value.clone()))
     }
 
-    fn nan_count(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn nan_count(&self, _catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         // The NaNCount for a non-float literal is not defined.
         // For floating point types, the NaNCount is 1 for lit(NaN), and 0 otherwise.
         let value = self.value.as_primitive_opt()?;
@@ -158,7 +159,7 @@ impl AnalysisExpr for LiteralExpr {
 /// let literal = number.as_::<LiteralVTable>();
 /// assert_eq!(literal.value(), &Scalar::primitive(34i32, Nullability::NonNullable));
 /// ```
-pub fn lit(value: impl Into<Scalar>) -> ExprRef {
+pub fn lit(value: impl Into<Scalar>) -> Expression {
     LiteralExpr::new(value.into()).into_expr()
 }
 

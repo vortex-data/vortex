@@ -7,33 +7,33 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::ExprRef;
 use crate::traversal::{NodeExt, NodeVisitor, TraversalOrder};
+use crate::Expression;
 
 pub trait Annotation: Clone + Hash + Eq {}
 
 impl<A> Annotation for A where A: Clone + Hash + Eq {}
 
-pub trait AnnotationFn: Fn(&ExprRef) -> Vec<Self::Annotation> {
+pub trait AnnotationFn: Fn(&Expression) -> Vec<Self::Annotation> {
     type Annotation: Annotation;
 }
 
 impl<A, F> AnnotationFn for F
 where
     A: Annotation,
-    F: Fn(&ExprRef) -> Vec<A>,
+    F: Fn(&Expression) -> Vec<A>,
 {
     type Annotation = A;
 }
 
-pub type Annotations<'a, A> = HashMap<&'a ExprRef, HashSet<A>>;
+pub type Annotations<'a, A> = HashMap<&'a Expression, HashSet<A>>;
 
 /// Walk the expression tree and annotate each expression with zero or more annotations.
 ///
 /// Returns a map of each expression to all annotations that any of its descendent (child)
 /// expressions are annotated with.
 pub fn descendent_annotations<A: AnnotationFn>(
-    expr: &ExprRef,
+    expr: &Expression,
     annotate: A,
 ) -> Annotations<'_, A::Annotation> {
     let mut visitor = AnnotationVisitor {
@@ -50,7 +50,7 @@ struct AnnotationVisitor<'a, A: AnnotationFn> {
 }
 
 impl<'a, A: AnnotationFn> NodeVisitor<'a> for AnnotationVisitor<'a, A> {
-    type NodeTy = ExprRef;
+    type NodeTy = Expression;
 
     fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
         let annotations = (self.annotate)(node);
@@ -66,7 +66,7 @@ impl<'a, A: AnnotationFn> NodeVisitor<'a> for AnnotationVisitor<'a, A> {
         }
     }
 
-    fn visit_up(&mut self, node: &'a ExprRef) -> VortexResult<TraversalOrder> {
+    fn visit_up(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
         let child_annotations = node
             .children()
             .iter()

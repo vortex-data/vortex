@@ -3,7 +3,8 @@
 
 use crate::{display, ExprInstance, ExprVTable, ScopeVar, VTable};
 use std::any::Any;
-use std::fmt::Display;
+use std::fmt;
+use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
@@ -65,6 +66,11 @@ impl Expression {
         }
     }
 
+    /// Returns if the expression is an instance of the given vtable.
+    pub fn is<V: VTable>(&self) -> bool {
+        self.vtable.as_dyn().as_any().is::<V>()
+    }
+
     /// Returns a typed view of this expression for the given vtable.
     ///
     /// # Panics
@@ -72,17 +78,25 @@ impl Expression {
     /// Panics if the expression's encoding or metadata cannot be cast to the specified vtable.
     pub fn as_view<V: VTable>(&self) -> ExprInstance<'_, V> {
         ExprInstance::new(
-            self.vtable
-                .as_dyn()
-                .as_any()
-                .downcast_ref::<V>()
-                .vortex_expect("Failed to downcast expression vtable to expected type"),
             self.instance
                 .as_any()
                 .downcast_ref::<V::Instance>()
                 .vortex_expect("Failed to downcast expression instance to expected type"),
             &self.children,
         )
+    }
+
+    /// Returns a typed view of this expression for the given vtable, if the types match.
+    pub fn as_view_opt<V: VTable>(&self) -> Option<ExprInstance<'_, V>> {
+        self.vtable.as_dyn().as_any().downcast_ref::<V>().map(|_v| {
+            ExprInstance::new(
+                self.instance
+                    .as_any()
+                    .downcast_ref::<V::Instance>()
+                    .vortex_expect("Failed to downcast expression instance to expected type"),
+                &self.children,
+            )
+        })
     }
 
     /// Returns the children of this expression.
@@ -111,6 +125,11 @@ impl Expression {
         self.vtable
             .as_dyn()
             .evaluate(self.instance.as_ref(), self.children.as_ref(), scope)
+    }
+
+    /// Format the expression as a compact string.
+    pub fn fmt_compact(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.vtable.as_dyn().fmt_compact(self.as_view_dyn(), f)
     }
 
     /// Display the expression as a formatted tree structure.

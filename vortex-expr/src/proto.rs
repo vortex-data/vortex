@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::session::ExprRegistry;
-use crate::{ExprRef, VortexExpr};
+use crate::{Expression, VortexExpr};
 
 pub trait ExprSerializeProtoExt {
     /// Serialize the expression to its protobuf representation.
@@ -33,8 +33,11 @@ impl ExprSerializeProtoExt for dyn VortexExpr + '_ {
     }
 }
 
-/// Deserialize a [`ExprRef`] from the protobuf representation.
-pub fn deserialize_expr_proto(expr: &pb::Expr, registry: &ExprRegistry) -> VortexResult<ExprRef> {
+/// Deserialize a [`Expression`] from the protobuf representation.
+pub fn deserialize_expr_proto(
+    expr: &pb::Expr,
+    registry: &ExprRegistry,
+) -> VortexResult<Expression> {
     let expr_id = expr.id.as_str();
     let encoding = registry
         .find(expr_id)
@@ -55,14 +58,14 @@ mod tests {
     use vortex_array::compute::{BetweenOptions, StrictComparison};
     use vortex_proto::expr as pb;
 
-    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::proto::{deserialize_expr_proto, ExprSerializeProtoExt};
     use crate::session::ExprSession;
-    use crate::{ExprRef, and, between, eq, get_item, lit, or, root};
+    use crate::{and, between, eq, get_item, lit, or, root, Expression};
 
     #[test]
     fn expression_serde() {
         let registry = ExprSession::default().registry().clone();
-        let expr: ExprRef = or(
+        let expr: Expression = or(
             and(
                 between(
                     lit(1),

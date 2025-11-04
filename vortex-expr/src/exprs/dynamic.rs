@@ -7,17 +7,18 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{Operator, compare};
+use vortex_array::compute::{compare, Operator};
 use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::traversal::{NodeExt, NodeVisitor, TraversalOrder};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
+    vtable, AnalysisExpr, ExprEncodingRef, ExprId, Expression, IntoExpr, Scope, StatsCatalog,
+    VTable,
 };
 
 vtable!(DynamicComparison);
@@ -27,7 +28,7 @@ vtable!(DynamicComparison);
 /// operation and is able to progressively tighten the bounds of the filter.
 #[derive(Clone, Debug)]
 pub struct DynamicComparisonExpr {
-    lhs: ExprRef,
+    lhs: Expression,
     operator: Operator,
     rhs: Arc<Rhs>,
     // Default value for the dynamic comparison.
@@ -92,11 +93,11 @@ impl VTable for DynamicComparisonVTable {
         None
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+    fn children(expr: &Self::Expr) -> Vec<&Expression> {
         vec![&expr.lhs]
     }
 
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+    fn with_children(expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
         Ok(DynamicComparisonExpr {
             lhs: children[0].clone(),
             operator: expr.operator,
@@ -108,7 +109,7 @@ impl VTable for DynamicComparisonVTable {
     fn build(
         _encoding: &Self::Encoding,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        _children: Vec<ExprRef>,
+        _children: Vec<Expression>,
     ) -> VortexResult<Self::Expr> {
         vortex_bail!("DynamicComparison expression does not support building from metadata");
     }
@@ -149,7 +150,7 @@ impl VTable for DynamicComparisonVTable {
 
 impl DynamicComparisonExpr {
     pub fn new(
-        rhs: ExprRef,
+        rhs: Expression,
         operator: Operator,
         rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
         rhs_dtype: DType,
@@ -189,7 +190,7 @@ impl DisplayAs for DynamicComparisonExpr {
 }
 
 impl AnalysisExpr for DynamicComparisonExpr {
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         match self.operator {
             Operator::Gt => Some(
                 DynamicComparisonExpr {
@@ -240,12 +241,12 @@ pub struct DynamicExprUpdates {
 }
 
 impl DynamicExprUpdates {
-    pub fn new(expr: &ExprRef) -> Option<Self> {
+    pub fn new(expr: &Expression) -> Option<Self> {
         #[derive(Default)]
         struct Visitor(Vec<DynamicComparisonExpr>);
 
         impl NodeVisitor<'_> for Visitor {
-            type NodeTy = ExprRef;
+            type NodeTy = Expression;
 
             fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<TraversalOrder> {
                 if let Some(dynamic) = node.as_opt::<DynamicComparisonVTable>() {

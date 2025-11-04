@@ -5,13 +5,13 @@ use vortex_array::compute::{BetweenOptions, StrictComparison};
 
 use crate::forms::conjuncts;
 use crate::{
-    BetweenExpr, BinaryExpr, BinaryVTable, ExprRef, GetItemVTable, IntoExpr, LiteralVTable,
-    Operator, and, lit,
+    and, lit, BetweenExpr, BinaryExpr, BinaryVTable, Expression, GetItemVTable,
+    IntoExpr, LiteralVTable, Operator,
 };
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
-pub fn find_between(expr: ExprRef) -> ExprRef {
+pub fn find_between(expr: Expression) -> Expression {
     // We search all pairs of cnfs to find any pair of expressions can be converted into a between
     // expression.
     let mut conjuncts = conjuncts(&expr);
@@ -43,7 +43,7 @@ pub fn find_between(expr: ExprRef) -> ExprRef {
     rest.into_iter().reduce(and).unwrap_or_else(|| lit(true))
 }
 
-fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
+fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
     let (Some(lhs), Some(rhs)) = (lhs.as_opt::<BinaryVTable>(), rhs.as_opt::<BinaryVTable>())
     else {
         return None;

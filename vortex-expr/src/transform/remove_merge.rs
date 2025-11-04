@@ -2,19 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{NodeExt, Transformed};
-use crate::{DType, DuplicateHandling, ExprRef, MergeVTable, get_item, pack};
+use crate::{get_item, pack, DType, DuplicateHandling, Expression, MergeVTable};
 
 /// Replaces [crate::MergeExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
-pub(crate) fn remove_merge(e: ExprRef, ctx: &DType) -> VortexResult<ExprRef> {
+pub(crate) fn remove_merge(e: Expression, ctx: &DType) -> VortexResult<Expression> {
     e.transform_up(|node| merge_transform(node, ctx))
         .map(|t| t.into_inner())
 }
 
-fn merge_transform(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprRef>> {
+fn merge_transform(node: Expression, ctx: &DType) -> VortexResult<Transformed<Expression>> {
     match node.as_opt::<MergeVTable>() {
         None => Ok(Transformed::no(node)),
         Some(merge) => {
@@ -75,7 +75,7 @@ mod tests {
     use vortex_dtype::PType::{I32, I64, U32, U64};
 
     use crate::transform::remove_merge::remove_merge;
-    use crate::{DuplicateHandling, PackVTable, get_item, merge_opts, root};
+    use crate::{get_item, merge_opts, root, DuplicateHandling, PackVTable};
 
     #[test]
     fn test_remove_merge() {

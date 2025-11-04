@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::{Formatter, Pointer};
 use std::hash::Hash;
 
 use vortex_array::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
@@ -11,8 +12,8 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use crate::display::DisplayAs;
 use crate::v2::Expression;
 use crate::{
-    lit, AnalysisExpr, AnalysisVTable, ChildName, ExprId, ExprInstance, IntoExpr,
-    Operator, StatsCatalog, VTable, VTableExt,
+    lit, AnalysisExpr, AnalysisVTable, ChildName, ExprId, ExprInstance, Operator, StatsCatalog,
+    VTable, VTableExt,
 };
 
 pub struct Binary;
@@ -36,6 +37,14 @@ impl VTable for Binary {
             1 => ChildName::from("rhs"),
             _ => unreachable!("BinaryExpr has only two children"),
         }
+    }
+
+    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "(")?;
+        expr.lhs().fmt(f)?;
+        write!(f, " {} ", expr.operator())?;
+        expr.rhs().fmt(f)?;
+        write!(f, ")")
     }
 
     fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
@@ -477,8 +486,6 @@ pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_dtype::{DType, Nullability};
 
     use crate::{
@@ -507,8 +514,8 @@ mod tests {
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
-        let bool1: Arc<dyn VortexExpr> = col("bool1");
-        let bool2: Arc<dyn VortexExpr> = col("bool2");
+        let bool1: Expression = col("bool1");
+        let bool2: Expression = col("bool2");
         assert_eq!(
             and(bool1.clone(), bool2.clone())
                 .return_dtype(&dtype)
@@ -522,8 +529,8 @@ mod tests {
             DType::Bool(Nullability::NonNullable)
         );
 
-        let col1: Arc<dyn VortexExpr> = col("col1");
-        let col2: Arc<dyn VortexExpr> = col("col2");
+        let col1: Expression = col("col1");
+        let col2: Expression = col("col2");
 
         assert_eq!(
             eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),

@@ -13,7 +13,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
-use crate::{root, vtable, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable};
+use crate::{root, vtable, AnalysisExpr, ExprEncodingRef, ExprId, Expression, IntoExpr, Scope, StatsCatalog, VTable};
 
 vtable!(GetItem);
 
@@ -21,7 +21,7 @@ vtable!(GetItem);
 #[derive(Debug, Clone, Hash, Eq)]
 pub struct GetItemExpr {
     field: FieldName,
-    child: ExprRef,
+    child: Expression,
 }
 
 impl PartialEq for GetItemExpr {
@@ -54,11 +54,11 @@ impl VTable for GetItemVTable {
         }))
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+    fn children(expr: &Self::Expr) -> Vec<&Expression> {
         vec![&expr.child]
     }
 
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+    fn with_children(expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
         Ok(GetItemExpr {
             field: expr.field.clone(),
             child: children[0].clone(),
@@ -68,7 +68,7 @@ impl VTable for GetItemVTable {
     fn build(
         _encoding: &Self::Encoding,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
+        children: Vec<Expression>,
     ) -> VortexResult<Self::Expr> {
         if children.len() != 1 {
             vortex_bail!(
@@ -120,14 +120,14 @@ impl VTable for GetItemVTable {
 }
 
 impl GetItemExpr {
-    pub fn new(field: impl Into<FieldName>, child: ExprRef) -> Self {
+    pub fn new(field: impl Into<FieldName>, child: Expression) -> Self {
         Self {
             field: field.into(),
             child,
         }
     }
 
-    pub fn new_expr(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
+    pub fn new_expr(field: impl Into<FieldName>, child: Expression) -> Expression {
         Self::new(field, child).into_expr()
     }
 
@@ -135,11 +135,11 @@ impl GetItemExpr {
         &self.field
     }
 
-    pub fn child(&self) -> &ExprRef {
+    pub fn child(&self) -> &Expression {
         &self.child
     }
 
-    pub fn is(expr: &ExprRef) -> bool {
+    pub fn is(expr: &Expression) -> bool {
         expr.is::<GetItemVTable>()
     }
 }
@@ -152,7 +152,7 @@ impl GetItemExpr {
 /// # use vortex_expr::col;
 /// let expr = col("name");
 /// ```
-pub fn col(field: impl Into<FieldName>) -> ExprRef {
+pub fn col(field: impl Into<FieldName>) -> Expression {
     GetItemExpr::new(field, root()).into_expr()
 }
 
@@ -164,7 +164,7 @@ pub fn col(field: impl Into<FieldName>) -> ExprRef {
 /// # use vortex_expr::{get_item, root};
 /// let expr = get_item("user_id", root());
 /// ```
-pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
+pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
     GetItemExpr::new(field, child).into_expr()
 }
 
@@ -181,15 +181,15 @@ impl DisplayAs for GetItemExpr {
     }
 }
 impl AnalysisExpr for GetItemExpr {
-    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         catalog.stats_ref(&self.field_path()?, Stat::Max)
     }
 
-    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         catalog.stats_ref(&self.field_path()?, Stat::Min)
     }
 
-    fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         catalog.stats_ref(&self.field_path()?, Stat::NaNCount)
     }
 

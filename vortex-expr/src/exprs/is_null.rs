@@ -7,13 +7,13 @@ use vortex_array::arrays::{BoolArray, ConstantArray};
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, eq, lit,
-    vtable,
+    eq, lit, vtable, AnalysisExpr, ExprEncodingRef, ExprId, Expression, IntoExpr, Scope,
+    StatsCatalog, VTable,
 };
 
 vtable!(IsNull);
@@ -21,7 +21,7 @@ vtable!(IsNull);
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Debug, Hash, Eq)]
 pub struct IsNullExpr {
-    child: ExprRef,
+    child: Expression,
 }
 
 impl PartialEq for IsNullExpr {
@@ -49,18 +49,18 @@ impl VTable for IsNullVTable {
         Some(EmptyMetadata)
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+    fn children(expr: &Self::Expr) -> Vec<&Expression> {
         vec![&expr.child]
     }
 
-    fn with_children(_expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+    fn with_children(_expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
         Ok(IsNullExpr::new(children[0].clone()))
     }
 
     fn build(
         _encoding: &Self::Encoding,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
+        children: Vec<Expression>,
     ) -> VortexResult<Self::Expr> {
         if children.len() != 1 {
             vortex_bail!("IsNull expects exactly one child, got {}", children.len());
@@ -83,11 +83,11 @@ impl VTable for IsNullVTable {
 }
 
 impl IsNullExpr {
-    pub fn new(child: ExprRef) -> Self {
+    pub fn new(child: Expression) -> Self {
         Self { child }
     }
 
-    pub fn new_expr(child: ExprRef) -> ExprRef {
+    pub fn new_expr(child: Expression) -> Expression {
         Self::new(child).into_expr()
     }
 }
@@ -106,7 +106,7 @@ impl DisplayAs for IsNullExpr {
 }
 
 impl AnalysisExpr for IsNullExpr {
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         let field_path = self.child.field_path()?;
         let null_count_expr = catalog.stats_ref(&field_path, Stat::NullCount)?;
         Some(eq(null_count_expr, lit(0u64)))
@@ -121,15 +121,15 @@ impl AnalysisExpr for IsNullExpr {
 /// # use vortex_expr::{is_null, root};
 /// let expr = is_null(root());
 /// ```
-pub fn is_null(child: ExprRef) -> ExprRef {
+pub fn is_null(child: Expression) -> Expression {
     IsNullExpr::new(child).into_expr()
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::IntoArray;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::stats::Stat;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability};
     use vortex_scalar::Scalar;
@@ -137,7 +137,7 @@ mod tests {
 
     use crate::is_null::is_null;
     use crate::pruning::checked_pruning_expr;
-    use crate::{HashSet, Scope, col, eq, get_item, lit, root, test_harness};
+    use crate::{col, eq, get_item, lit, root, test_harness, HashSet, Scope};
 
     #[test]
     fn dtype() {

@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{NodeVisitor, TraversalOrder};
-use crate::{ExprRef, GetItemVTable, SelectVTable};
+use crate::{Expression, GetItemVTable, SelectVTable};
 
 #[derive(Default)]
 pub struct ReferenceCollector {
@@ -30,9 +30,9 @@ impl ReferenceCollector {
 }
 
 impl NodeVisitor<'_> for ReferenceCollector {
-    type NodeTy = ExprRef;
+    type NodeTy = Expression;
 
-    fn visit_up(&mut self, node: &ExprRef) -> VortexResult<TraversalOrder> {
+    fn visit_up(&mut self, node: &Expression) -> VortexResult<TraversalOrder> {
         if let Some(get_item) = node.as_opt::<GetItemVTable>() {
             self.fields.insert(get_item.field().clone());
         }

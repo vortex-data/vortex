@@ -6,19 +6,19 @@ use vortex_error::VortexResult;
 use crate::transform::match_between::find_between;
 // use crate::transform::match_between::find_between;
 use crate::traversal::{NodeExt, Transformed};
-use crate::{ExprRef, GetItemVTable, PackVTable};
+use crate::{Expression, GetItemVTable, PackVTable};
 
 /// Simplifies an expression into an equivalent expression which is faster and easier to analyze.
 ///
 /// If the scope dtype is known, see `simplify_typed` for a simplifier which uses dtype.
-pub fn simplify(e: ExprRef) -> VortexResult<ExprRef> {
+pub fn simplify(e: Expression) -> VortexResult<Expression> {
     let e = e
         .transform_up(simplify_transformer)
         .map(|e| e.into_inner())?;
     Ok(find_between(e.clone()))
 }
 
-fn simplify_transformer(node: ExprRef) -> VortexResult<Transformed<ExprRef>> {
+fn simplify_transformer(node: Expression) -> VortexResult<Transformed<Expression>> {
     // pack(l_1: e_1, ..., l_i: e_i, ..., l_n: e_n).get_item(l_i) = e_i where 0 <= i <= n
     if let Some(get_item) = node.as_opt::<GetItemVTable>()
         && let Some(pack) = get_item.child().as_opt::<PackVTable>()

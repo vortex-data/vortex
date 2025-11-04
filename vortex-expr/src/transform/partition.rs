@@ -9,11 +9,11 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::transform::annotations::{
-    Annotation, AnnotationFn, Annotations, descendent_annotations,
+    descendent_annotations, Annotation, AnnotationFn, Annotations,
 };
 use crate::transform::simplify_typed::simplify_typed;
 use crate::traversal::{NodeExt, NodeRewriter, Transformed, TraversalOrder};
-use crate::{ExprRef, get_item, pack, root};
+use crate::{get_item, pack, root, Expression};
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -27,7 +27,7 @@ use crate::{ExprRef, get_item, pack, root};
 ///
 /// See <https://github.com/vortex-data/vortex/issues/1907>.
 pub fn partition<A: AnnotationFn>(
-    expr: ExprRef,
+    expr: Expression,
     scope: &DType,
     annotate_fn: A,
 ) -> VortexResult<PartitionedExpr<A::Annotation>>
@@ -89,9 +89,9 @@ where
 #[derive(Debug)]
 pub struct PartitionedExpr<A> {
     /// The root expression used to re-assemble the results.
-    pub root: ExprRef,
+    pub root: Expression,
     /// The partition expressions themselves.
-    pub partitions: Box<[ExprRef]>,
+    pub partitions: Box<[Expression]>,
     /// The field name of each partition as referenced in the root expression.
     pub partition_names: FieldNames,
     /// The return dtype of each partition expression.
@@ -121,7 +121,7 @@ where
 {
     /// Return the partition for a given field, if it exists.
     // FIXME(ngates): this should return an iterator since an annotation may have multiple partitions.
-    pub fn find_partition(&self, id: &A) -> Option<&ExprRef> {
+    pub fn find_partition(&self, id: &A) -> Option<&Expression> {
         let id = FieldName::from(id.clone());
         self.partition_names
             .iter()
@@ -133,7 +133,7 @@ where
 #[derive(Debug)]
 struct StructFieldExpressionSplitter<'a, A: Annotation> {
     annotations: &'a Annotations<'a, A>,
-    sub_expressions: HashMap<A, Vec<ExprRef>>,
+    sub_expressions: HashMap<A, Vec<Expression>>,
 }
 
 impl<'a, A: Annotation + Display> StructFieldExpressionSplitter<'a, A> {
@@ -155,7 +155,7 @@ impl<A: Annotation + Display> NodeRewriter for StructFieldExpressionSplitter<'_,
 where
     FieldName: From<A>,
 {
-    type NodeTy = ExprRef;
+    type NodeTy = Expression;
 
     fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
         match self.annotations.get(&node) {

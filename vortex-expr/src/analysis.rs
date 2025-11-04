@@ -5,7 +5,7 @@ use vortex_array::stats::Stat;
 use vortex_dtype::FieldPath;
 
 use crate::v2::ExprInstance;
-use crate::{ExprRef, NotSupported, VTable};
+use crate::{Expression, NotSupported, VTable};
 
 /// A catalog of available stats that are associated with field paths.
 pub trait StatsCatalog {
@@ -15,7 +15,7 @@ pub trait StatsCatalog {
     /// This is likely to be a column expression, or a literal.
     ///
     /// Returns `None` if the stat is not available for the field path.
-    fn stats_ref(&mut self, _field_path: &FieldPath, _stat: Stat) -> Option<ExprRef> {
+    fn stats_ref(&mut self, _field_path: &FieldPath, _stat: Stat) -> Option<Expression> {
         None
     }
 }
@@ -40,9 +40,10 @@ pub trait AnalysisVTable<V: VTable> {
     /// Some expressions, in theory, have falsifications but this function does not support them
     /// such as `x < (y < z)` or `x LIKE "needle%"`.
     fn stat_falsification(
-        expr: ExprInstance<V>,
+        &self,
+        expr: &ExprInstance<V>,
         catalog: &mut dyn StatsCatalog,
-    ) -> Option<ExprRef> {
+    ) -> Option<Expression> {
         None
     }
 
@@ -53,25 +54,29 @@ pub trait AnalysisVTable<V: VTable> {
     /// The returned expression evaluates to null if the maximum value is unknown. In that case, you
     /// _must not_ assume the array is empty _nor_ may you assume the array only contains non-null
     /// values.
-    fn max(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn max(&self, expr: &ExprInstance<V>, _catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         None
     }
 
     /// An expression for the lower non-null bound of this expression, if available.
     ///
     /// See [AnalysisExpr::max] for important details.
-    fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn min(&self, expr: &ExprInstance<V>, _catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         None
     }
 
     /// An expression for the NaN count for a column, if available.
     ///
     /// This method returns `None` if the NaNCount stat is unknown.
-    fn nan_count(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn nan_count(
+        &self,
+        expr: &ExprInstance<V>,
+        _catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
         None
     }
 
-    fn field_path(&self) -> Option<FieldPath> {
+    fn field_path(&self, expr: &ExprInstance<V>) -> Option<FieldPath> {
         None
     }
 }
@@ -99,7 +104,7 @@ pub trait AnalysisExpr {
     ///
     /// Some expressions, in theory, have falsifications but this function does not support them
     /// such as `x < (y < z)` or `x LIKE "needle%"`.
-    fn stat_falsification(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsification(&self, _catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         None
     }
 
@@ -110,21 +115,21 @@ pub trait AnalysisExpr {
     /// The returned expression evaluates to null if the maximum value is unknown. In that case, you
     /// _must not_ assume the array is empty _nor_ may you assume the array only contains non-null
     /// values.
-    fn max(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn max(&self, _catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         None
     }
 
     /// An expression for the lower non-null bound of this expression, if available.
     ///
     /// See [AnalysisExpr::max] for important details.
-    fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         None
     }
 
     /// An expression for the NaN count for a column, if available.
     ///
     /// This method returns `None` if the NaNCount stat is unknown.
-    fn nan_count(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn nan_count(&self, _catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         None
     }
 

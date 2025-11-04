@@ -1,99 +1,85 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Formatter;
 use vortex_array::stats::Stat;
-use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::display::{DisplayAs, DisplayFormat};
+use crate::v2::Expression;
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
+    AnalysisVTable, ChildName, ExprId, ExprInstance, NotSupported, StatsCatalog, VTable, VTableExt,
 };
 
-vtable!(Root);
-
 /// An expression that returns the full scope of the expression evaluation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RootExpr;
+// TODO(ngates): rename to "Scope"
+pub struct Root;
 
-pub struct RootExprEncoding;
+impl VTable for Root {
+    type Instance = ();
+    type AnalysisVTable = NotSupported;
 
-impl VTable for RootVTable {
-    type Expr = RootExpr;
-    type Encoding = RootExprEncoding;
-    type Metadata = EmptyMetadata;
-
-    fn id(_encoding: &Self::Encoding) -> ExprId {
-        ExprId::new_ref("root")
+    fn id(&self) -> ExprId {
+        ExprId::from("vortex.root")
     }
 
-    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(RootExprEncoding.as_ref())
+    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
     }
 
-    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+        Ok(Some(()))
     }
 
-    fn children(_expr: &Self::Expr) -> Vec<&ExprRef> {
-        vec![]
-    }
-
-    fn with_children(expr: &Self::Expr, _children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        Ok(expr.clone())
-    }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
-    ) -> VortexResult<Self::Expr> {
-        if !children.is_empty() {
+    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+        if !expr.children().is_empty() {
             vortex_bail!(
-                "Root expression does not have children, got: {:?}",
-                children
+                "Root expression does not have children, got {}",
+                expr.children().len()
             );
         }
-        Ok(RootExpr)
+        Ok(())
     }
 
-    fn evaluate(_expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        Ok(scope.root().clone())
+    fn child_name(&self, child_idx: usize) -> ChildName {
+        unreachable!(
+            "Root expression does not have children, got index {}",
+            child_idx
+        )
     }
 
-    fn return_dtype(_expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
+    fn fmt_compact(&self, _expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "$")
+    }
+
+    fn return_dtype(&self, _expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+        Ok(scope.clone())
+    }
+
+    fn evaluate(&self, _expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         Ok(scope.clone())
     }
 }
 
-impl DisplayAs for RootExpr {
-    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match df {
-            DisplayFormat::Compact => {
-                write!(f, "$")
-            }
-            DisplayFormat::Tree => {
-                write!(f, "Root")
-            }
-        }
-    }
-}
-
-impl AnalysisExpr for RootExpr {
-    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
-        catalog.stats_ref(&self.field_path()?, Stat::Max)
+impl AnalysisVTable<Root> for Root {
+    fn max(&self, expr: &ExprInstance<Root>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        catalog.stats_ref(&self.field_path(expr)?, Stat::Max)
     }
 
-    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
-        catalog.stats_ref(&self.field_path()?, Stat::Min)
+    fn min(&self, expr: &ExprInstance<Root>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        catalog.stats_ref(&self.field_path(expr)?, Stat::Min)
     }
 
-    fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
-        catalog.stats_ref(&self.field_path()?, Stat::NaNCount)
+    fn nan_count(
+        &self,
+        expr: &ExprInstance<Root>,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        catalog.stats_ref(&self.field_path(expr)?, Stat::NaNCount)
     }
 
-    fn field_path(&self) -> Option<FieldPath> {
+    fn field_path(&self, _expr: &ExprInstance<Root>) -> Option<FieldPath> {
         Some(FieldPath::root())
     }
 }
@@ -102,11 +88,12 @@ impl AnalysisExpr for RootExpr {
 ///
 /// Returns the entire input array as passed to the expression evaluator.
 /// This is commonly used as the starting point for field access and other operations.
-pub fn root() -> ExprRef {
-    RootExpr.into_expr()
+pub fn root() -> Expression {
+    Root.try_new((), vec![])
+        .vortex_expect("Failed to create Root expression")
 }
 
 /// Return whether the expression is a root expression.
-pub fn is_root(expr: &ExprRef) -> bool {
-    expr.is::<RootVTable>()
+pub fn is_root(expr: &Expression) -> bool {
+    expr.is::<Root>()
 }

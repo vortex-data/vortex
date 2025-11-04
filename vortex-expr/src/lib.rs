@@ -11,7 +11,7 @@
 //! [Apache Datafusion]: https://github.com/apache/datafusion/tree/5fac581efbaffd0e6a9edf931182517524526afd/datafusion/expr
 
 use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -53,177 +53,24 @@ pub use root::*;
 pub use scope::*;
 pub use scope_vars::*;
 pub use select::*;
-use vortex_array::{Array, ArrayRef, SerializeMetadata};
+use vortex_array::SerializeMetadata;
 use vortex_dtype::{DType, FieldName};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::VortexUnwrap;
 use vortex_utils::aliases::hash_set::HashSet;
 pub use vtable::*;
 
 pub mod display;
-mod metadata;
 mod v2;
 
-use crate::display::{DisplayAs, DisplayFormat};
 use crate::traversal::{NodeExt, ReferenceCollector};
-use vortex_utils::dyn_traits::DynEq;
-
-pub trait IntoExpr {
-    /// Convert this type into an expression reference.
-    fn into_expr(self) -> ExprRef;
-}
-
-pub type ExprRef = Arc<dyn VortexExpr>;
-
-/// Represents logical operation on [`ArrayRef`]s
-pub trait VortexExpr:
-    'static + Send + Sync + Debug + DisplayAs + DynEq + DynHash + AnalysisExpr + private::Sealed
-{
-    /// Convert expression reference to reference of [`Any`] type
-    fn as_any(&self) -> &dyn Any;
-
-    /// Convert the expression to an [`ExprRef`].
-    fn to_expr(&self) -> ExprRef;
-
-    /// Return the encoding of the expression.
-    fn encoding(&self) -> ExprEncodingRef;
-
-    /// Serialize the metadata of this expression into a bytes vector.
-    ///
-    /// Returns `None` if the expression does not support serialization.
-    fn metadata(&self) -> Option<Vec<u8>> {
-        None
-    }
-
-    /// Compute result of expression on given batch producing a new batch
-    ///
-    /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
-    /// the [VortexExpr::return_dtype] method. Use instead the
-    /// [`VortexExpr::evaluate`](./trait.VortexExpr.html#method.evaluate).
-    /// function which includes such an assertion.
-    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef>;
-
-    /// Returns the children of this expression.
-    fn children(&self) -> Vec<&ExprRef>;
-
-    /// Returns a new instance of this expression with the children replaced.
-    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef>;
-
-    /// Compute the type of the array returned by
-    /// [`VortexExpr::evaluate`](./trait.VortexExpr.html#method.evaluate).
-    fn return_dtype(&self, scope: &DType) -> VortexResult<DType>;
-}
-
-dyn_hash::hash_trait_object!(VortexExpr);
-
-impl PartialEq for dyn VortexExpr {
-    fn eq(&self, other: &Self) -> bool {
-        self.dyn_eq(other.as_any())
-    }
-}
-
-impl Eq for dyn VortexExpr {}
-
-impl dyn VortexExpr + '_ {
-    pub fn id(&self) -> ExprId {
-        self.encoding().id()
-    }
-
-    pub fn is<V: VTable>(&self) -> bool {
-        self.as_opt::<V>().is_some()
-    }
-
-    pub fn as_<V: VTable>(&self) -> &V::Expr {
-        self.as_opt::<V>()
-            .vortex_expect("Expr is not of the expected type")
-    }
-
-    pub fn as_opt<V: VTable>(&self) -> Option<&V::Expr> {
-        VortexExpr::as_any(self)
-            .downcast_ref::<ExprAdapter<V>>()
-            .map(|e| &e.0)
-    }
-
-    /// Compute result of expression on given batch producing a new batch
-    pub fn evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        let result = self.unchecked_evaluate(scope)?;
-        assert_eq!(
-            result.dtype(),
-            &self.return_dtype(scope.dtype())?,
-            "Expression {} returned dtype {} but declared return_dtype of {}",
-            &self,
-            result.dtype(),
-            self.return_dtype(scope.dtype())?,
-        );
-        Ok(result)
-    }
-
-    /// Display the expression as a formatted tree structure.
-    ///
-    /// This provides a hierarchical view of the expression that shows the relationships
-    /// between parent and child expressions, making complex nested expressions easier
-    /// to understand and debug.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # use vortex_dtype::{DType, Nullability, PType};
-    /// # use vortex_expr::{and, cast, eq, get_item, gt, lit, not, root, select, IntoExpr, LikeExpr};
-    /// // Build a complex nested expression
-    /// let complex_expr = select(
-    ///     ["result"],
-    ///     and(
-    ///         not(eq(get_item("status", root()), lit("inactive"))),
-    ///         and(
-    ///             LikeExpr::new(get_item("name", root()), lit("%admin%"), false, false).into_expr(),
-    ///             gt(
-    ///                 cast(get_item("score", root()), DType::Primitive(PType::F64, Nullability::NonNullable)),
-    ///                 lit(75.0)
-    ///             )
-    ///         )
-    ///     )
-    /// );
-    ///
-    /// println!("{}", complex_expr.display_tree());
-    /// ```
-    ///
-    /// This produces output like:
-    ///
-    /// ```text
-    /// Select(include): {result}
-    /// └── Binary(and)
-    ///     ├── lhs: Not
-    ///     │   └── Binary(=)
-    ///     │       ├── lhs: GetItem(status)
-    ///     │       │   └── Root
-    ///     │       └── rhs: Literal(value: "inactive", dtype: utf8)
-    ///     └── rhs: Binary(and)
-    ///         ├── lhs: Like
-    ///         │   ├── child: GetItem(name)
-    ///         │   │   └── Root
-    ///         │   └── pattern: Literal(value: "%admin%", dtype: utf8)
-    ///         └── rhs: Binary(>)
-    ///             ├── lhs: Cast(target: f64)
-    ///             │   └── GetItem(score)
-    ///             │       └── Root
-    ///             └── rhs: Literal(value: 75f64, dtype: f64)
-    /// ```
-    pub fn display_tree(&self) -> impl Display {
-        display::DisplayTreeExpr(self)
-    }
-}
-
-impl Display for dyn VortexExpr + '_ {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(self, DisplayFormat::Compact, f)
-    }
-}
+use crate::v2::Expression;
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
     fn field_references(&self) -> HashSet<FieldName>;
 }
 
-impl VortexExprExt for ExprRef {
+impl VortexExprExt for Expression {
     fn field_references(&self) -> HashSet<FieldName> {
         let mut collector = ReferenceCollector::new();
         // The collector is infallible, so we can unwrap the result
@@ -233,15 +80,15 @@ impl VortexExprExt for ExprRef {
 }
 
 /// Splits top level and operations into separate expressions.
-pub fn split_conjunction(expr: &ExprRef) -> Vec<ExprRef> {
+pub fn split_conjunction(expr: &Expression) -> Vec<Expression> {
     let mut conjunctions = vec![];
     split_inner(expr, &mut conjunctions);
     conjunctions
 }
 
-fn split_inner(expr: &ExprRef, exprs: &mut Vec<ExprRef>) {
-    match expr.as_opt::<BinaryVTable>() {
-        Some(bexp) if bexp.op() == Operator::And => {
+fn split_inner(expr: &Expression, exprs: &mut Vec<Expression>) {
+    match expr.as_view_opt::<Binary>() {
+        Some(bexp) if bexp.operator() == Operator::And => {
             split_inner(bexp.lhs(), exprs);
             split_inner(bexp.rhs(), exprs);
         }
@@ -253,7 +100,7 @@ fn split_inner(expr: &ExprRef, exprs: &mut Vec<ExprRef>) {
 
 /// An expression wrapper that performs pointer equality.
 #[derive(Clone)]
-pub struct ExactExpr(pub ExprRef);
+pub struct ExactExpr(pub Expression);
 
 impl PartialEq for ExactExpr {
     fn eq(&self, other: &Self) -> bool {
@@ -320,8 +167,8 @@ mod tests {
         assert_eq!(col("a").to_string(), "$.a");
         assert_eq!(root().to_string(), "$");
 
-        let col1: Arc<dyn VortexExpr> = col("col1");
-        let col2: Arc<dyn VortexExpr> = col("col2");
+        let col1: Expression = col("col1");
+        let col2: Expression = col("col2");
         assert_eq!(
             and(col1.clone(), col2.clone()).to_string(),
             "($.col1 and $.col2)"

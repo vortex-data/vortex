@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use prost::Message;
+use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use vortex_array::compute::cast as compute_cast;
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_proto::expr as pb;
 
 use crate::v2::Expression;
 use crate::{ChildName, ExprId, ExprInstance, NotSupported, VTable, VTableExt};
@@ -19,6 +22,24 @@ impl VTable for Cast {
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.cast")
+    }
+
+    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(
+            pb::CastOpts {
+                target: Some(instance.into()),
+            }
+            .encode_to_vec(),
+        ))
+    }
+
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+        Ok(Some(
+            pb::CastOpts::decode(metadata)?
+                .target
+                .ok_or_else(|| vortex_err!("Missing target dtype in Cast expression"))?
+                .try_into()?,
+        ))
     }
 
     fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
@@ -36,6 +57,13 @@ impl VTable for Cast {
             0 => ChildName::from("input"),
             _ => unreachable!("Invalid child index {} for Cast expression", child_idx),
         }
+    }
+
+    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CAST(")?;
+        expr.children()[0].fmt_compact(f)?;
+        write!(f, " AS {:?}", expr.deref())?;
+        write!(f, ")")
     }
 
     fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {

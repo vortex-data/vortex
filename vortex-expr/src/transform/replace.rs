@@ -5,17 +5,17 @@ use vortex_dtype::{Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::traversal::{NodeExt, Transformed};
-use crate::{ExprRef, col, pack, root};
+use crate::{col, pack, root, Expression};
 
 /// Replaces all occurrences of `needle` in the expression `expr` with `replacement`.
-pub fn replace(expr: ExprRef, needle: &ExprRef, replacement: ExprRef) -> ExprRef {
+pub fn replace(expr: Expression, needle: &Expression, replacement: Expression) -> Expression {
     expr.transform_up(|node| replace_transformer(node, needle, &replacement))
         .vortex_expect("ReplaceVisitor should not fail")
         .into_inner()
 }
 
 /// Expand the `root` expression with a pack of the given struct fields.
-pub fn replace_root_fields(expr: ExprRef, fields: &StructFields) -> ExprRef {
+pub fn replace_root_fields(expr: Expression, fields: &StructFields) -> Expression {
     replace(
         expr,
         &root(),
@@ -30,10 +30,10 @@ pub fn replace_root_fields(expr: ExprRef, fields: &StructFields) -> ExprRef {
 }
 
 fn replace_transformer(
-    node: ExprRef,
-    needle: &ExprRef,
-    replacement: &ExprRef,
-) -> VortexResult<Transformed<ExprRef>> {
+    node: Expression,
+    needle: &Expression,
+    replacement: &Expression,
+) -> VortexResult<Transformed<Expression>> {
     if &node == needle {
         Ok(Transformed::yes(replacement.clone()))
     } else {

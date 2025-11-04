@@ -145,12 +145,12 @@ mod tests {
     use super::*;
     use crate::traversal::NodeExt;
     use crate::{
-        BinaryVTable, ExprRef, LiteralVTable, Operator, checked_add, gt, lit, vortex_bail,
+        checked_add, gt, lit, vortex_bail, BinaryVTable, Expression, LiteralVTable, Operator,
     };
 
     struct AddFold;
     impl NodeFolder for AddFold {
-        type NodeTy = ExprRef;
+        type NodeTy = Expression;
         type Result = i32;
 
         fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<FoldDown<Self::Result>> {

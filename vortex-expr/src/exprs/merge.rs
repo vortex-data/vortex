@@ -11,11 +11,11 @@ use vortex_array::{
     Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray as _, ToCanonical,
 };
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::{vtable, AnalysisExpr, ExprEncodingRef, ExprId, Expression, IntoExpr, Scope, VTable};
 
 vtable!(Merge);
 
@@ -28,7 +28,7 @@ vtable!(Merge);
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MergeExpr {
-    values: Vec<ExprRef>,
+    values: Vec<Expression>,
     duplicate_handling: DuplicateHandling,
 }
 
@@ -76,11 +76,11 @@ impl VTable for MergeVTable {
         Some(EmptyMetadata)
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+    fn children(expr: &Self::Expr) -> Vec<&Expression> {
         expr.values.iter().collect()
     }
 
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+    fn with_children(expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
         Ok(MergeExpr {
             values: children,
             duplicate_handling: expr.duplicate_handling,
@@ -90,7 +90,7 @@ impl VTable for MergeVTable {
     fn build(
         _encoding: &Self::Encoding,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
+        children: Vec<Expression>,
     ) -> VortexResult<Self::Expr> {
         if children.is_empty() {
             vortex_bail!(
@@ -192,25 +192,28 @@ impl VTable for MergeVTable {
 }
 
 impl MergeExpr {
-    pub fn new(values: Vec<ExprRef>) -> Self {
+    pub fn new(values: Vec<Expression>) -> Self {
         MergeExpr {
             values,
             duplicate_handling: DuplicateHandling::default(),
         }
     }
 
-    pub fn new_expr(values: Vec<ExprRef>) -> ExprRef {
+    pub fn new_expr(values: Vec<Expression>) -> Expression {
         Self::new(values).into_expr()
     }
 
-    pub fn new_opts(values: Vec<ExprRef>, duplicate_handling: DuplicateHandling) -> Self {
+    pub fn new_opts(values: Vec<Expression>, duplicate_handling: DuplicateHandling) -> Self {
         MergeExpr {
             values,
             duplicate_handling,
         }
     }
 
-    pub fn new_expr_opts(values: Vec<ExprRef>, duplicate_handling: DuplicateHandling) -> ExprRef {
+    pub fn new_expr_opts(
+        values: Vec<Expression>,
+        duplicate_handling: DuplicateHandling,
+    ) -> Expression {
         Self::new_opts(values, duplicate_handling).into_expr()
     }
 }
@@ -225,15 +228,15 @@ impl MergeExpr {
 /// # use vortex_expr::{merge, get_item, root};
 /// let expr = merge([get_item("a", root()), get_item("b", root())]);
 /// ```
-pub fn merge(elements: impl IntoIterator<Item = impl Into<ExprRef>>) -> ExprRef {
+pub fn merge(elements: impl IntoIterator<Item = impl Into<Expression>>) -> Expression {
     let values = elements.into_iter().map(|value| value.into()).collect_vec();
     MergeExpr::new(values).into_expr()
 }
 
 pub fn merge_opts(
-    elements: impl IntoIterator<Item = impl Into<ExprRef>>,
+    elements: impl IntoIterator<Item = impl Into<Expression>>,
     duplicate_handling: DuplicateHandling,
-) -> ExprRef {
+) -> Expression {
     let values = elements.into_iter().map(|value| value.into()).collect_vec();
     MergeExpr::new_opts(values, duplicate_handling).into_expr()
 }
@@ -263,9 +266,9 @@ mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_error::{vortex_bail, VortexResult};
 
-    use crate::{DuplicateHandling, MergeExpr, Scope, get_item, merge, root};
+    use crate::{get_item, merge, root, DuplicateHandling, MergeExpr, Scope};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();

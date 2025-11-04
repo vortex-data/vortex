@@ -3,22 +3,22 @@
 
 use std::hash::Hash;
 
-use vortex_array::compute::{LikeOptions, like};
+use vortex_array::compute::{like, LikeOptions};
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::{vtable, AnalysisExpr, ExprEncodingRef, ExprId, Expression, IntoExpr, Scope, VTable};
 
 vtable!(Like);
 
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Debug, Hash, Eq)]
 pub struct LikeExpr {
-    child: ExprRef,
-    pattern: ExprRef,
+    child: Expression,
+    pattern: Expression,
     negated: bool,
     case_insensitive: bool,
 }
@@ -54,11 +54,11 @@ impl VTable for LikeVTable {
         }))
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+    fn children(expr: &Self::Expr) -> Vec<&Expression> {
         vec![&expr.child, &expr.pattern]
     }
 
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+    fn with_children(expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
         Ok(LikeExpr::new(
             children[0].clone(),
             children[1].clone(),
@@ -70,7 +70,7 @@ impl VTable for LikeVTable {
     fn build(
         _encoding: &Self::Encoding,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
+        children: Vec<Expression>,
     ) -> VortexResult<Self::Expr> {
         if children.len() != 2 {
             vortex_bail!(
@@ -110,7 +110,12 @@ impl VTable for LikeVTable {
 }
 
 impl LikeExpr {
-    pub fn new(child: ExprRef, pattern: ExprRef, negated: bool, case_insensitive: bool) -> Self {
+    pub fn new(
+        child: Expression,
+        pattern: Expression,
+        negated: bool,
+        case_insensitive: bool,
+    ) -> Self {
         Self {
             child,
             pattern,
@@ -120,19 +125,19 @@ impl LikeExpr {
     }
 
     pub fn new_expr(
-        child: ExprRef,
-        pattern: ExprRef,
+        child: Expression,
+        pattern: Expression,
         negated: bool,
         case_insensitive: bool,
-    ) -> ExprRef {
+    ) -> Expression {
         Self::new(child, pattern, negated, case_insensitive).into_expr()
     }
 
-    pub fn child(&self) -> &ExprRef {
+    pub fn child(&self) -> &Expression {
         &self.child
     }
 
-    pub fn pattern(&self) -> &ExprRef {
+    pub fn pattern(&self) -> &Expression {
         &self.pattern
     }
 
@@ -166,11 +171,11 @@ impl AnalysisExpr for LikeExpr {}
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::ToCanonical;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{LikeExpr, Scope, get_item, lit, not, root};
+    use crate::{get_item, lit, not, root, LikeExpr, Scope};
 
     #[test]
     fn invert_booleans() {

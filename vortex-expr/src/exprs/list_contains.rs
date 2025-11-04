@@ -7,12 +7,12 @@ use std::hash::Hash;
 use vortex_array::compute::list_contains as compute_list_contains;
 use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, LiteralVTable, Scope, StatsCatalog,
-    VTable, and, gt, lit, lt, or, vtable,
+    and, gt, lit, lt, or, vtable, AnalysisExpr,
+    ExprEncodingRef, ExprId, Expression, IntoExpr, LiteralVTable, Scope, StatsCatalog, VTable,
 };
 
 vtable!(ListContains);
@@ -20,8 +20,8 @@ vtable!(ListContains);
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Debug, Clone, Hash, Eq)]
 pub struct ListContainsExpr {
-    list: ExprRef,
-    value: ExprRef,
+    list: Expression,
+    value: Expression,
 }
 
 impl PartialEq for ListContainsExpr {
@@ -49,11 +49,11 @@ impl VTable for ListContainsVTable {
         Some(EmptyMetadata)
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+    fn children(expr: &Self::Expr) -> Vec<&Expression> {
         vec![&expr.list, &expr.value]
     }
 
-    fn with_children(_expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+    fn with_children(_expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
         Ok(ListContainsExpr::new(
             children[0].clone(),
             children[1].clone(),
@@ -63,7 +63,7 @@ impl VTable for ListContainsVTable {
     fn build(
         _encoding: &Self::Encoding,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<ExprRef>,
+        children: Vec<Expression>,
     ) -> VortexResult<Self::Expr> {
         if children.len() != 2 {
             vortex_bail!(
@@ -93,15 +93,15 @@ impl VTable for ListContainsVTable {
 }
 
 impl ListContainsExpr {
-    pub fn new(list: ExprRef, value: ExprRef) -> Self {
+    pub fn new(list: Expression, value: Expression) -> Self {
         Self { list, value }
     }
 
-    pub fn new_expr(list: ExprRef, value: ExprRef) -> ExprRef {
+    pub fn new_expr(list: Expression, value: Expression) -> Expression {
         Self::new(list, value).into_expr()
     }
 
-    pub fn value(&self) -> &ExprRef {
+    pub fn value(&self) -> &Expression {
         &self.value
     }
 }
@@ -114,7 +114,7 @@ impl ListContainsExpr {
 /// # use vortex_expr::{list_contains, lit, root};
 /// let expr = list_contains(root(), lit(42));
 /// ```
-pub fn list_contains(list: ExprRef, value: ExprRef) -> ExprRef {
+pub fn list_contains(list: Expression, value: Expression) -> Expression {
     ListContainsExpr::new(list, value).into_expr()
 }
 
@@ -139,7 +139,7 @@ impl AnalysisExpr for ListContainsExpr {
     // falsification(contains([1,2,5], x)) =>
     //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
 
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
         let min = self.list.min(catalog)?;
         let max = self.list.max(catalog)?;
         // If the list is constant when we can compare each element to the value
@@ -184,7 +184,7 @@ mod tests {
 
     use crate::list_contains::list_contains;
     use crate::pruning::checked_pruning_expr;
-    use crate::{Arc, HashSet, Scope, and, col, get_item, gt, lit, lt, or, root};
+    use crate::{and, col, get_item, gt, lit, lt, or, root, Arc, HashSet, Scope};
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
