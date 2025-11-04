@@ -10,6 +10,8 @@
 //! within the flat elements array. This allows for efficient access to individual lists without
 //! copying data.  This is similar to Apache Arrow's `ListView` type.
 
+// TODO(connor): More docs and examples.
+
 mod vector;
 pub use vector::ListViewVector;
 

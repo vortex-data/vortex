@@ -11,8 +11,8 @@ use vortex_mask::MaskMut;
 
 use super::ListViewVector;
 use crate::ops::VectorMutOps;
-use crate::primitive::PrimitiveVectorMut;
-use crate::{VectorMut, match_each_integer_pvector_mut};
+use crate::primitive::{PrimitiveVector, PrimitiveVectorMut};
+use crate::{VectorMut, VectorOps, match_each_integer_pvector, match_each_integer_pvector_mut};
 
 /// A mutable vector of variable-width lists.
 ///
@@ -131,7 +131,7 @@ impl ListViewVectorMut {
         );
 
         // Check that each `offsets[i] + sizes[i] <= elements.len()`.
-        validate_views_bound(elements.len(), &offsets, &sizes)?;
+        validate_views_bound(elements.len() as u64, &offsets, &sizes)?;
 
         Ok(Self {
             elements,
@@ -237,12 +237,72 @@ impl VectorMutOps for ListViewVectorMut {
         self.validity.reserve(additional);
     }
 
-    fn extend_from_vector(&mut self, _other: &ListViewVector) {
-        todo!()
+    /// This will also panic if we try to extend the `ListViewVector` beyond the maximum offset
+    /// representable by the type of the `offsets` primitive vector.
+    fn extend_from_vector(&mut self, other: &ListViewVector) {
+        // Extend the elements with the other's elements.
+        let old_elements_len = self.elements.len() as u64;
+        self.elements.extend_from_vector(&other.elements);
+        let new_elements_len = self.elements.len() as u64;
+
+        // Then extend the sizes with the other's sizes (these do not need any adjustment).
+        self.sizes.extend_from_vector(&other.sizes);
+
+        // We need this assertion to ensure that the casts below are infallible.
+        assert!(
+            new_elements_len < self.offsets.ptype().max_value_as_u64(),
+            "the elements length {new_elements_len} is not representable by the offsets type {}",
+            self.offsets.ptype()
+        );
+
+        // Finally, extend the offsets after adding the old `elements` length to each.
+        adjust_and_extend_offsets(&mut self.offsets, &other.offsets, old_elements_len);
+
+        self.validity.append_mask(&other.validity);
+        self.len += other.len;
+        debug_assert_eq!(self.len, self.validity.len());
     }
 
-    fn append_nulls(&mut self, _n: usize) {
-        todo!("Need to figure out what the 'value' of nulls are for list view vectors")
+    fn append_nulls(&mut self, n: usize) {
+        // To support easier copying to Arrow `List`s, we point the null views towards the ends of
+        // the `elements` vector (with size 0) to hopefully keep offsets sorted if they were already
+        // sorted.
+        let elements_len = self.elements.len();
+
+        debug_assert!(
+            (elements_len as u64) < self.offsets.ptype().max_value_as_u64(),
+            "the elements length {elements_len} is somehow not representable by the offsets type {}",
+            self.offsets.ptype()
+        );
+
+        self.offsets.reserve(n);
+        self.sizes.reserve(n);
+
+        match_each_integer_pvector_mut!(&mut self.offsets, |offsets_vec| {
+            for _ in 0..n {
+                // SAFETY: We just reserved capacity for `n` elements above, and the cast must
+                // succeed because the elements length must be representable by the offset type.
+                #[allow(clippy::cast_possible_truncation)]
+                unsafe {
+                    offsets_vec.push_unchecked(elements_len as _)
+                };
+            }
+        });
+
+        match_each_integer_pvector_mut!(&mut self.sizes, |sizes_vec| {
+            for _ in 0..n {
+                // SAFETY: We just reserved capacity for `n` elements above, and `0` is
+                // representable by all integer types.
+                #[allow(clippy::cast_possible_truncation)]
+                unsafe {
+                    sizes_vec.push_unchecked(0 as _)
+                };
+            }
+        });
+
+        self.validity.append_n(false, n);
+        self.len += n;
+        debug_assert_eq!(self.len, self.validity.len());
     }
 
     fn freeze(self) -> ListViewVector {
@@ -267,9 +327,9 @@ impl VectorMutOps for ListViewVectorMut {
 // TODO(connor): It would be better to separate everything inside the macros into its own function,
 // but that would require adding another macro that sets a type `$type` to be used by the caller.
 /// Checks that all views are `<= elements_len`.
-#[allow(clippy::cognitive_complexity, clippy::cast_possible_truncation)]
+#[allow(clippy::cognitive_complexity)]
 fn validate_views_bound(
-    elements_len: usize,
+    elements_len: u64,
     offsets: &PrimitiveVectorMut,
     sizes: &PrimitiveVectorMut,
 ) -> VortexResult<()> {
@@ -280,13 +340,50 @@ fn validate_views_bound(
             let offsets_slice = offsets_vector.as_ref();
             let sizes_slice = sizes_vector.as_ref();
 
+            #[allow(clippy::unnecessary_cast)]
             for i in 0..len {
-                let offset = offsets_slice[i] as usize;
-                let size = sizes_slice[i] as usize;
+                let offset = offsets_slice[i] as u64;
+                let size = sizes_slice[i] as u64;
                 vortex_ensure!(offset + size <= elements_len);
             }
         });
     });
 
     Ok(())
+}
+
+// TODO(connor): It would be better to separate everything inside the macros into its own function,
+// but that would require adding another macro that sets a type `$type` to be used by the caller.
+/// Checks that all views are `<= elements_len`.
+#[allow(clippy::cognitive_complexity)]
+fn adjust_and_extend_offsets(
+    our_offsets: &mut PrimitiveVectorMut,
+    other: &PrimitiveVector,
+    old_elements_len: u64,
+) {
+    our_offsets.reserve(other.len());
+
+    // Adjust each offset from `other` by adding the current elements length to each of the
+    // incoming offsets.
+    match_each_integer_pvector_mut!(our_offsets, |self_offsets| {
+        match_each_integer_pvector!(other, |other_offsets| {
+            let other_offsets_slice = other_offsets.as_ref();
+
+            // Append each offset from `other`, adjusted by the elements_offset.
+            for i in 0..other.len() {
+                // All offset types are representable via a `u64` since we also ensure offsets
+                // are always non-negative.
+                #[allow(clippy::unnecessary_cast)]
+                let adjusted_offset = other_offsets_slice[i] as u64 + old_elements_len;
+
+                // SAFETY: We just reserved capacity for `other.len()` elements above, and we
+                // also know the cast is fine because we verified above that the maximum
+                // possible offset is representable by the offset type.
+                #[allow(clippy::cast_possible_truncation)]
+                unsafe {
+                    self_offsets.push_unchecked(adjusted_offset as _);
+                }
+            }
+        });
+    });
 }
