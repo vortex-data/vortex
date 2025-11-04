@@ -46,6 +46,7 @@ macro_rules! match_each_vector {
             $crate::Vector::Primitive($vec) => $body,
             $crate::Vector::String($vec) => $body,
             $crate::Vector::Binary($vec) => $body,
+            $crate::Vector::List($vec) => $body,
             $crate::Vector::FixedSizeList($vec) => $body,
             $crate::Vector::Struct($vec) => $body,
         }
@@ -94,6 +95,7 @@ macro_rules! match_each_vector_mut {
             $crate::VectorMut::Primitive($vec) => $body,
             $crate::VectorMut::String($vec) => $body,
             $crate::VectorMut::Binary($vec) => $body,
+            $crate::VectorMut::List($vec) => $body,
             $crate::VectorMut::FixedSizeList($vec) => $body,
             $crate::VectorMut::Struct($vec) => $body,
         }
@@ -116,9 +118,11 @@ macro_rules! __match_vector_pair_arms {
         match ($left, $right) {
             ($crate::$enum_left::Null($a), $crate::$enum_right::Null($b)) => $body,
             ($crate::$enum_left::Bool($a), $crate::$enum_right::Bool($b)) => $body,
+            ($crate::$enum_left::Decimal($a), $crate::$enum_right::Decimal($b)) => $body,
             ($crate::$enum_left::Primitive($a), $crate::$enum_right::Primitive($b)) => $body,
             ($crate::$enum_left::String($a), $crate::$enum_right::String($b)) => $body,
             ($crate::$enum_left::Binary($a), $crate::$enum_right::Binary($b)) => $body,
+            ($crate::$enum_left::List($a), $crate::$enum_right::List($b)) => $body,
             ($crate::$enum_left::FixedSizeList($a), $crate::$enum_right::FixedSizeList($b)) => {
                 $body
             }

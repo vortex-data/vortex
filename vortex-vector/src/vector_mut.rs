@@ -14,6 +14,7 @@ use crate::binaryview::{BinaryVectorMut, StringVectorMut};
 use crate::bool::BoolVectorMut;
 use crate::decimal::DecimalVectorMut;
 use crate::fixed_size_list::FixedSizeListVectorMut;
+use crate::listview::ListViewVectorMut;
 use crate::null::NullVectorMut;
 use crate::primitive::PrimitiveVectorMut;
 use crate::struct_::StructVectorMut;
@@ -52,6 +53,8 @@ pub enum VectorMut {
     String(StringVectorMut),
     /// Mutable Binary vectors.
     Binary(BinaryVectorMut),
+    /// Mutable vectors of Lists with variable sizes.
+    List(ListViewVectorMut),
     /// Mutable vectors of Lists with fixed sizes.
     FixedSizeList(FixedSizeListVectorMut),
     /// Mutable vectors of Struct elements.
@@ -79,7 +82,7 @@ impl VectorMut {
             DType::Utf8(..) => StringVectorMut::with_capacity(capacity).into(),
             DType::Binary(..) => BinaryVectorMut::with_capacity(capacity).into(),
             DType::Extension(ext) => VectorMut::with_capacity(ext.storage_dtype(), capacity),
-            DType::List(..) => todo!("vector mut with capacity"),
+            DType::List(..) => ListViewVectorMut::with_capacity(dtype, capacity).into(),
         }
     }
 }
@@ -167,6 +170,14 @@ impl VectorMut {
         vortex_panic!("Expected BinaryVectorMut, got {self:?}");
     }
 
+    /// Returns a reference to the inner [`ListViewVectorMut`] if `self` is of that variant.
+    pub fn as_list(&self) -> &ListViewVectorMut {
+        if let VectorMut::List(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected ListViewVectorMut, got {self:?}");
+    }
+
     /// Returns a reference to the inner [`FixedSizeListVectorMut`] if `self` is of that variant.
     pub fn as_fixed_size_list(&self) -> &FixedSizeListVectorMut {
         if let VectorMut::FixedSizeList(v) = self {
@@ -223,6 +234,14 @@ impl VectorMut {
             return v;
         }
         vortex_panic!("Expected BinaryVectorMut, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`ListViewVectorMut`] if `self` is of that variant.
+    pub fn into_list(self) -> ListViewVectorMut {
+        if let VectorMut::List(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected ListViewVectorMut, got {self:?}");
     }
 
     /// Consumes `self` and returns the inner [`FixedSizeListVectorMut`] if `self` is of that

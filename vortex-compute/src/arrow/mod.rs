@@ -9,6 +9,7 @@ mod binaryview;
 mod bool;
 mod decimal;
 mod fixed_size_list;
+mod list;
 mod mask;
 mod null;
 mod primitive;

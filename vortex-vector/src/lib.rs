@@ -14,6 +14,7 @@ pub mod binaryview;
 pub mod bool;
 pub mod decimal;
 pub mod fixed_size_list;
+pub mod listview;
 pub mod null;
 pub mod primitive;
 pub mod struct_;

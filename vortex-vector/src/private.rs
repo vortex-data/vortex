@@ -14,6 +14,7 @@ use crate::binaryview::{BinaryViewType, BinaryViewVector, BinaryViewVectorMut};
 use crate::bool::{BoolVector, BoolVectorMut};
 use crate::decimal::{DVector, DVectorMut, DecimalVector, DecimalVectorMut};
 use crate::fixed_size_list::{FixedSizeListVector, FixedSizeListVectorMut};
+use crate::listview::{ListViewVector, ListViewVectorMut};
 use crate::null::{NullVector, NullVectorMut};
 use crate::primitive::{PVector, PVectorMut, PrimitiveVector, PrimitiveVectorMut};
 use crate::struct_::{StructVector, StructVectorMut};
@@ -46,6 +47,9 @@ impl<T: BinaryViewType> Sealed for BinaryViewVectorMut<T> {}
 
 impl Sealed for FixedSizeListVector {}
 impl Sealed for FixedSizeListVectorMut {}
+
+impl Sealed for ListViewVector {}
+impl Sealed for ListViewVectorMut {}
 
 impl Sealed for StructVector {}
 impl Sealed for StructVectorMut {}

@@ -12,6 +12,7 @@ use crate::binaryview::{BinaryVector, StringVector};
 use crate::bool::BoolVector;
 use crate::decimal::DecimalVector;
 use crate::fixed_size_list::FixedSizeListVector;
+use crate::listview::ListViewVector;
 use crate::null::NullVector;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructVector;
@@ -50,8 +51,8 @@ pub enum Vector {
     String(StringVector),
     /// Binary vectors
     Binary(BinaryVector),
-    // List
-    // List(ListVector),
+    /// Vectors of Lists with variable sizes.
+    List(ListViewVector),
     /// Vectors of Lists with fixed sizes.
     FixedSizeList(FixedSizeListVector),
     /// Vectors of Struct elements.
@@ -120,6 +121,14 @@ impl Vector {
         vortex_panic!("Expected BinaryVector, got {self:?}");
     }
 
+    /// Returns a reference to the inner [`ListViewVector`] if `self` is of that variant.
+    pub fn as_list(&self) -> &ListViewVector {
+        if let Vector::List(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected ListViewVector, got {self:?}");
+    }
+
     /// Returns a reference to the inner [`FixedSizeListVector`] if `self` is of that variant.
     pub fn as_fixed_size_list(&self) -> &FixedSizeListVector {
         if let Vector::FixedSizeList(v) = self {
@@ -176,6 +185,14 @@ impl Vector {
             return v;
         }
         vortex_panic!("Expected BinaryVector, got {self:?}");
+    }
+
+    /// Consumes `self` and returns the inner [`ListViewVector`] if `self` is of that variant.
+    pub fn into_list(self) -> ListViewVector {
+        if let Vector::List(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected ListViewVector, got {self:?}");
     }
 
     /// Consumes `self` and returns the inner [`FixedSizeListVector`] if `self` is of that

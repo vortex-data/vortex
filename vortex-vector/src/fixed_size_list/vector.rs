@@ -149,22 +149,24 @@ impl VectorOps for FixedSizeListVector {
         &self.validity
     }
 
-    fn try_into_mut(self) -> Result<Self::Mutable, Self>
+    fn try_into_mut(self) -> Result<FixedSizeListVectorMut, Self>
     where
         Self: Sized,
     {
         let len = self.len;
         let list_size = self.list_size;
 
+        // Try to unwrap the `Arc`.
         let elements = match Arc::try_unwrap(self.elements) {
             Ok(elements) => elements,
-            Err(elements) => return Err(FixedSizeListVector { elements, ..self }),
+            Err(elements) => return Err(Self { elements, ..self }),
         };
 
+        // Try to make validity mutable.
         let validity = match self.validity.try_into_mut() {
             Ok(validity) => validity,
             Err(validity) => {
-                return Err(FixedSizeListVector {
+                return Err(Self {
                     elements: Arc::new(elements),
                     list_size,
                     validity,
@@ -173,6 +175,7 @@ impl VectorOps for FixedSizeListVector {
             }
         };
 
+        // Try to make the elements mutable.
         match elements.try_into_mut() {
             Ok(mutable_elements) => Ok(FixedSizeListVectorMut {
                 elements: Box::new(mutable_elements),
@@ -180,7 +183,7 @@ impl VectorOps for FixedSizeListVector {
                 validity,
                 len,
             }),
-            Err(elements) => Err(FixedSizeListVector {
+            Err(elements) => Err(Self {
                 elements: Arc::new(elements),
                 list_size,
                 validity: validity.freeze(),
