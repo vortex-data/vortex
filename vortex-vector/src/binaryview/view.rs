@@ -8,7 +8,8 @@ use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
 use static_assertions::{assert_eq_align, assert_eq_size};
-use vortex_error::VortexUnwrap;
+use vortex_buffer::ByteBuffer;
+use vortex_error::{VortexResult, VortexUnwrap, vortex_ensure, vortex_err};
 
 /// A view over a variable-length binary value.
 ///
@@ -19,13 +20,13 @@ use vortex_error::VortexUnwrap;
 pub union BinaryView {
     /// Numeric representation. This is logically `u128`, but we split it into the high and low
     /// bits to preserve the alignment.
-    le_bytes: [u8; 16],
+    pub(crate) le_bytes: [u8; 16],
 
     /// Inlined representation: strings <= 12 bytes
-    inlined: Inlined,
+    pub(crate) inlined: Inlined,
 
     /// Reference type: strings > 12 bytes.
-    _ref: Ref,
+    pub(crate) _ref: Ref,
 }
 
 assert_eq_align!(BinaryView, u128);
@@ -118,7 +119,7 @@ impl Default for BinaryView {
 
 impl BinaryView {
     /// Maximum size of an inlined binary value.
-    const MAX_INLINED_SIZE: usize = 12;
+    pub const MAX_INLINED_SIZE: usize = 12;
 
     /// Create a view from a value, block and offset
     ///
@@ -183,7 +184,7 @@ impl BinaryView {
     /// Create a new empty view
     #[inline]
     pub fn empty_view() -> Self {
-        Self::new_inlined(&[])
+        Self { le_bytes: [0; 16] }
     }
 
     /// Create a new inlined binary view
@@ -219,12 +220,19 @@ impl BinaryView {
 
     /// Returns the inlined representation of the binary value.
     pub fn as_inlined(&self) -> &Inlined {
+        debug_assert!(self.is_inlined());
         unsafe { &self.inlined }
     }
 
     /// Returns the reference representation of the binary value.
     pub fn as_view(&self) -> &Ref {
+        debug_assert!(!self.is_inlined());
         unsafe { &self._ref }
+    }
+
+    /// Returns a mutable reference to the reference representation of the binary value.
+    pub fn as_view_mut(&mut self) -> &mut Ref {
+        unsafe { &mut self._ref }
     }
 
     /// Returns the binary view as u128 representation.
@@ -258,4 +266,73 @@ impl fmt::Debug for BinaryView {
         }
         s.finish()
     }
+}
+
+/// Validate that all views either
+///
+/// 1. Contain valid inline data that conforms to type constraints as defined by the `validator`
+/// 2. Points at a valid range of owned buffer memory, and the bytes stored there conform to
+///    the type constraints as defined by the `validator`.
+pub(super) fn validate_views<ValidateFn, IsValidFn>(
+    views: &[BinaryView],
+    buffers: impl AsRef<[ByteBuffer]>,
+    validity: IsValidFn,
+    validator: ValidateFn,
+) -> VortexResult<()>
+where
+    IsValidFn: Fn(usize) -> bool,
+    ValidateFn: Fn(&[u8]) -> bool,
+{
+    let buffers = buffers.as_ref();
+    for (idx, &view) in views.iter().enumerate() {
+        if !validity(idx) {
+            continue;
+        }
+
+        if view.is_inlined() {
+            // Validate the inline bytestring
+            let bytes = &unsafe { view.inlined }.data[..view.len() as usize];
+            vortex_ensure!(
+                validator(bytes),
+                "view at index {idx}: inlined bytes failed utf-8 validation"
+            );
+        } else {
+            // Validate the view pointer
+            let view = view.as_view();
+            let buf_index = view.buffer_index as usize;
+            let start_offset = view.offset as usize;
+            let end_offset = start_offset.saturating_add(view.size as usize);
+
+            let buf = buffers.get(buf_index).ok_or_else(||
+                vortex_err!("view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewArray with {} buffers",
+                        buffers.len()))?;
+
+            vortex_ensure!(
+                start_offset < buf.len(),
+                "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
+                buf.len(),
+            );
+
+            vortex_ensure!(
+                end_offset <= buf.len(),
+                "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
+                buf.len(),
+            );
+
+            // Make sure the prefix data matches the buffer data.
+            let bytes = &buf[start_offset..end_offset];
+            vortex_ensure!(
+                view.prefix == bytes[..4],
+                "VarBinView prefix does not match full string"
+            );
+
+            // Validate the full string
+            vortex_ensure!(
+                validator(bytes),
+                "view at index {idx}: outlined bytes fails utf-8 validation"
+            );
+        }
+    }
+
+    Ok(())
 }

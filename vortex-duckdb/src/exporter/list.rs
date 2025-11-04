@@ -152,13 +152,15 @@ mod tests {
     #[test]
     #[ignore = "TODO(connor)[4809]: Exporters do not correctly handle empty vectors"]
     fn test_export_empty_list() {
-        let list = ListViewArray::try_new(
-            Buffer::<u32>::empty().into_array(),
-            Buffer::<u32>::empty().into_array(),
-            Buffer::<u32>::empty().into_array(),
-            Validity::AllValid,
-        )
-        .unwrap()
+        let list = unsafe {
+            ListViewArray::new_unchecked(
+                Buffer::<u32>::empty().into_array(),
+                Buffer::<u32>::empty().into_array(),
+                Buffer::<u32>::empty().into_array(),
+                Validity::AllValid,
+            )
+            .with_zero_copy_to_list(true)
+        }
         .into_array();
 
         let list_type = LogicalType::list_type(LogicalType::int32()).vortex_unwrap();
@@ -180,13 +182,15 @@ mod tests {
 
     #[test]
     fn test_export_non_empty_list_with_preceding_and_trailing_garbage() {
-        let list = ListViewArray::try_new(
-            buffer![0, 1, 2, 3, 4, 5].into_array(),
-            buffer![1u8, 2, 3].into_array(),
-            buffer![1u8, 1, 1].into_array(),
-            Validity::AllValid,
-        )
-        .unwrap()
+        let list = unsafe {
+            ListViewArray::new_unchecked(
+                buffer![0, 1, 2, 3, 4, 5].into_array(),
+                buffer![1u8, 2, 3].into_array(),
+                buffer![1u8, 1, 1].into_array(),
+                Validity::AllValid,
+            )
+            .with_zero_copy_to_list(true)
+        }
         .into_array();
 
         let list_type = LogicalType::list_type(LogicalType::int32()).vortex_unwrap();
@@ -208,19 +212,21 @@ mod tests {
 
     #[test]
     fn test_export_non_empty_list_of_strings() {
-        let list = ListViewArray::try_new(
-            <VarBinArray as FromIterator<_>>::from_iter([
-                Some("abc"),
-                Some("def"),
-                None,
-                Some("ghi"),
-            ])
-            .into_array(),
-            buffer![0u8, 0, 3, 4].into_array(),
-            buffer![0u8, 3, 1, 0].into_array(),
-            Validity::from_iter([true, true, false, true]),
-        )
-        .unwrap()
+        let list = unsafe {
+            ListViewArray::new_unchecked(
+                <VarBinArray as FromIterator<_>>::from_iter([
+                    Some("abc"),
+                    Some("def"),
+                    None,
+                    Some("ghi"),
+                ])
+                .into_array(),
+                buffer![0u8, 0, 3, 4].into_array(),
+                buffer![0u8, 3, 1, 0].into_array(),
+                Validity::from_iter([true, true, false, true]),
+            )
+            .with_zero_copy_to_list(true)
+        }
         .into_array();
 
         let list_type = LogicalType::list_type(LogicalType::varchar()).vortex_unwrap();

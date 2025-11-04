@@ -9,7 +9,8 @@
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 
-use crate::varbin::{BinaryVectorMut, StringVectorMut};
+use crate::binaryview::{BinaryVectorMut, StringVectorMut};
+use crate::fixed_size_list::FixedSizeListVectorMut;
 use crate::{
     BoolVectorMut, DecimalVectorMut, NullVectorMut, PrimitiveVectorMut, StructVectorMut, Vector,
     VectorMutOps, match_each_vector_mut, match_vector_pair,
@@ -41,6 +42,8 @@ pub enum VectorMut {
     String(StringVectorMut),
     /// Mutable Binary vectors.
     Binary(BinaryVectorMut),
+    /// Mutable vectors of Lists with fixed sizes.
+    FixedSizeList(FixedSizeListVectorMut),
     /// Mutable vectors of Struct elements.
     Struct(StructVectorMut),
 }
@@ -54,15 +57,19 @@ impl VectorMut {
             DType::Primitive(ptype, _) => {
                 PrimitiveVectorMut::with_capacity(*ptype, capacity).into()
             }
+            DType::FixedSizeList(elem_dtype, list_size, _) => {
+                FixedSizeListVectorMut::with_capacity(elem_dtype, *list_size, capacity).into()
+            }
             DType::Struct(struct_fields, _) => {
                 StructVectorMut::with_capacity(struct_fields, capacity).into()
             }
-            DType::Decimal(..)
-            | DType::Utf8(_)
-            | DType::Binary(_)
-            | DType::List(..)
-            | DType::FixedSizeList(..)
-            | DType::Extension(_) => vortex_panic!("Unsupported dtype for VectorMut"),
+            DType::Decimal(decimal_dtype, _) => {
+                DecimalVectorMut::with_capacity(decimal_dtype, capacity).into()
+            }
+            DType::Utf8(..) => StringVectorMut::with_capacity(capacity).into(),
+            DType::Binary(..) => BinaryVectorMut::with_capacity(capacity).into(),
+            DType::Extension(ext) => VectorMut::with_capacity(ext.storage_dtype(), capacity),
+            DType::List(..) => todo!("vector mut with capacity"),
         }
     }
 }
@@ -82,7 +89,7 @@ impl VectorMutOps for VectorMut {
         match_each_vector_mut!(self, |v| { v.reserve(additional) })
     }
 
-    fn extend_from_vector(&mut self, other: &Self::Immutable) {
+    fn extend_from_vector(&mut self, other: &Vector) {
         match_vector_pair!(self, other, |a: VectorMut, b: Vector| {
             a.extend_from_vector(b)
         })
@@ -92,7 +99,7 @@ impl VectorMutOps for VectorMut {
         match_each_vector_mut!(self, |v| { v.append_nulls(n) })
     }
 
-    fn freeze(self) -> Self::Immutable {
+    fn freeze(self) -> Vector {
         match_each_vector_mut!(self, |v| { v.freeze().into() })
     }
 
@@ -146,6 +153,14 @@ impl VectorMut {
         vortex_panic!("Expected BinaryVectorMut, got {self:?}");
     }
 
+    /// Returns a reference to the inner [`FixedSizeListVectorMut`] if `self` is of that variant.
+    pub fn as_fixed_size_list(&self) -> &FixedSizeListVectorMut {
+        if let VectorMut::FixedSizeList(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected FixedSizeListVectorMut, got {self:?}");
+    }
+
     /// Returns a reference to the inner [`StructVectorMut`] if `self` is of that variant.
     pub fn as_struct(&self) -> &StructVectorMut {
         if let VectorMut::Struct(v) = self {
@@ -196,6 +211,15 @@ impl VectorMut {
         vortex_panic!("Expected BinaryVectorMut, got {self:?}");
     }
 
+    /// Consumes `self` and returns the inner [`FixedSizeListVectorMut`] if `self` is of that
+    /// variant.
+    pub fn into_fixed_size_list(self) -> FixedSizeListVectorMut {
+        if let VectorMut::FixedSizeList(v) = self {
+            return v;
+        }
+        vortex_panic!("Expected FixedSizeListVectorMut, got {self:?}");
+    }
+
     /// Consumes `self` and returns the inner [`StructVectorMut`] if `self` is of that variant.
     pub fn into_struct(self) -> StructVectorMut {
         if let VectorMut::Struct(v) = self {
@@ -207,9 +231,10 @@ impl VectorMut {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::{DecimalDType, Nullability, PType};
 
     use super::*;
+    use crate::decimal::DecimalVectorMut;
     use crate::{PVectorMut, VectorOps};
 
     #[test]
@@ -224,6 +249,85 @@ mod tests {
         let prim_vec =
             VectorMut::with_capacity(&DType::Primitive(PType::I32, Nullability::Nullable), 50);
         assert!(prim_vec.capacity() >= 50);
+    }
+
+    #[test]
+    fn test_with_capacity_decimal() {
+        // Test decimal vectors with different precisions that map to different internal types.
+        // Precision 1-2 uses i8, 3-4 uses i16, 5-9 uses i32, 10-18 uses i64,
+        // 19-38 uses i128, 39-76 uses i256.
+
+        // Test precision 4 (uses i16 internally).
+        let decimal_dtype = DType::Decimal(DecimalDType::new(4, 2), Nullability::Nullable);
+        let decimal_vec = VectorMut::with_capacity(&decimal_dtype, 50);
+
+        match decimal_vec {
+            VectorMut::Decimal(dec_vec) => {
+                assert_eq!(dec_vec.len(), 0, "New vector should be empty");
+                assert!(dec_vec.capacity() >= 50, "Capacity should be at least 50");
+
+                // Verify it's using D16 variant internally.
+                assert!(
+                    matches!(dec_vec, DecimalVectorMut::D16(_)),
+                    "Precision 4 should use D16 variant"
+                );
+            }
+            _ => panic!("Expected decimal vector for decimal dtype"),
+        }
+
+        // Test precision 9 (uses i32 internally).
+        let decimal_dtype = DType::Decimal(DecimalDType::new(9, 0), Nullability::NonNullable);
+        let decimal_vec = VectorMut::with_capacity(&decimal_dtype, 100);
+
+        match decimal_vec {
+            VectorMut::Decimal(dec_vec) => {
+                assert_eq!(dec_vec.len(), 0, "New vector should be empty");
+                assert!(dec_vec.capacity() >= 100, "Capacity should be at least 100");
+
+                // Verify it's using D32 variant internally.
+                assert!(
+                    matches!(dec_vec, DecimalVectorMut::D32(_)),
+                    "Precision 9 should use D32 variant"
+                );
+            }
+            _ => panic!("Expected decimal vector for decimal dtype"),
+        }
+
+        // Test precision 18 (uses i64 internally).
+        let decimal_dtype = DType::Decimal(DecimalDType::new(18, -2), Nullability::Nullable);
+        let decimal_vec = VectorMut::with_capacity(&decimal_dtype, 75);
+
+        match decimal_vec {
+            VectorMut::Decimal(dec_vec) => {
+                assert_eq!(dec_vec.len(), 0, "New vector should be empty");
+                assert!(dec_vec.capacity() >= 75, "Capacity should be at least 75");
+
+                // Verify it's using D64 variant internally.
+                assert!(
+                    matches!(dec_vec, DecimalVectorMut::D64(_)),
+                    "Precision 18 should use D64 variant"
+                );
+            }
+            _ => panic!("Expected decimal vector for decimal dtype"),
+        }
+
+        // Test precision 38 (uses i128 internally).
+        let decimal_dtype = DType::Decimal(DecimalDType::new(38, 10), Nullability::NonNullable);
+        let decimal_vec = VectorMut::with_capacity(&decimal_dtype, 25);
+
+        match decimal_vec {
+            VectorMut::Decimal(dec_vec) => {
+                assert_eq!(dec_vec.len(), 0, "New vector should be empty");
+                assert!(dec_vec.capacity() >= 25, "Capacity should be at least 25");
+
+                // Verify it's using D128 variant internally.
+                assert!(
+                    matches!(dec_vec, DecimalVectorMut::D128(_)),
+                    "Precision 38 should use D128 variant"
+                );
+            }
+            _ => panic!("Expected decimal vector for decimal dtype"),
+        }
     }
 
     #[test]

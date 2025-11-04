@@ -36,9 +36,8 @@ fn test_take_preserves_unreferenced_elements() {
     let offsets = buffer![5u32, 2, 8, 0, 1].into_array();
     let sizes = buffer![3u32, 2, 2, 2, 4].into_array();
 
-    let listview = ListViewArray::try_new(elements.clone(), offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .to_array();
+    let listview =
+        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
 
     // Take only 2 lists.
     let indices = buffer![1u32, 3].into_array();
@@ -68,9 +67,8 @@ fn test_take_with_gaps() {
     let offsets = buffer![0u32, 6, 10, 1, 7].into_array();
     let sizes = buffer![3u32, 3, 2, 2, 2].into_array();
 
-    let listview = ListViewArray::try_new(elements.clone(), offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .to_array();
+    let listview =
+        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
 
     let indices = buffer![1u32, 3, 4, 2].into_array();
     let result = take(&listview, &indices).unwrap();
@@ -100,13 +98,12 @@ fn test_take_constant_arrays() {
     let constant_offsets = ConstantArray::new(2u32, 4).into_array();
     let varying_sizes = buffer![1u32, 2, 3, 4].into_array();
 
-    let const_offset_list = ListViewArray::try_new(
+    let const_offset_list = ListViewArray::new(
         elements.clone(),
         constant_offsets,
         varying_sizes,
         Validity::NonNullable,
     )
-    .unwrap()
     .to_array();
 
     let indices = buffer![3u32, 0, 2].into_array();
@@ -125,13 +122,12 @@ fn test_take_constant_arrays() {
     let both_constant_offsets = ConstantArray::new(1u32, 3).into_array();
     let both_constant_sizes = ConstantArray::new(3u32, 3).into_array();
 
-    let both_const_list = ListViewArray::try_new(
+    let both_const_list = ListViewArray::new(
         elements,
         both_constant_offsets,
         both_constant_sizes,
         Validity::NonNullable,
     )
-    .unwrap()
     .to_array();
 
     let indices2 = buffer![2u32, 0].into_array();
@@ -156,9 +152,8 @@ fn test_take_extreme_offsets() {
     let offsets = buffer![0u32, 4999, 9995, 2500, 7500].into_array();
     let sizes = buffer![5u32, 2, 5, 3, 4].into_array();
 
-    let listview = ListViewArray::try_new(elements.clone(), offsets, sizes, Validity::NonNullable)
-        .unwrap()
-        .to_array();
+    let listview =
+        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
 
     // Take only 2 lists, demonstrating we keep all 10000 elements.
     let indices = buffer![1u32, 4].into_array();

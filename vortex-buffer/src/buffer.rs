@@ -226,6 +226,12 @@ impl<T> Buffer<T> {
         unsafe { std::slice::from_raw_parts(self.bytes.as_ptr().cast(), self.length) }
     }
 
+    /// Return a view over the buffer as an opaque byte slice.
+    #[inline(always)]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.bytes.as_ref()
+    }
+
     /// Returns an iterator over the buffer of elements of type T.
     pub fn iter(&self) -> Iter<'_, T> {
         Iter {
@@ -319,7 +325,7 @@ impl<T> Buffer<T> {
 
     /// Returns a slice of self that is equivalent to the given subset.
     ///
-    /// When processing the buffer you will often end up with &\[T\] that is a subset
+    /// When processing the buffer you will often end up with `&[T]` that is a subset
     /// of the underlying buffer. This function turns the slice into a slice of the buffer
     /// it has been taken from.
     ///
@@ -332,7 +338,7 @@ impl<T> Buffer<T> {
 
     /// Returns a slice of self that is equivalent to the given subset.
     ///
-    /// When processing the buffer you will often end up with &\[T\] that is a subset
+    /// When processing the buffer you will often end up with `&[T]` that is a subset
     /// of the underlying buffer. This function turns the slice into a slice of the buffer
     /// it has been taken from.
     ///

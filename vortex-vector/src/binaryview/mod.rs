@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Definition and implementation of variable-length binary types.
+//!
+//! All types are specializations of the [`BinaryViewVector`] type, which is represented internally
+//! by `BinaryView`s. `BinaryView`s are identical to the `BinaryView` type defined by the Arrow
+//! [specification](https://arrow.apache.org/docs/format/Columnar.html#variable-size-binary-view-layout),
+//! which are inspired by "German" strings.
+
 pub use types::*;
 pub use vector::*;
 pub use vector_mut::*;
@@ -14,16 +21,16 @@ mod vector_mut;
 mod view;
 
 /// Type alias for non-utf8 variable-length binary vectors.
-pub type BinaryVector = VarBinVector<BinaryType>;
+pub type BinaryVector = BinaryViewVector<BinaryType>;
 /// Type alias for mutable non-utf8 variable-length binary vectors.
-pub type BinaryVectorMut = VarBinVectorMut<BinaryType>;
+pub type BinaryVectorMut = BinaryViewVectorMut<BinaryType>;
 /// Type alias for UTF-8 variable-length string vectors.
-pub type StringVector = VarBinVector<StringType>;
+pub type StringVector = BinaryViewVector<StringType>;
 /// Type alias for mutable UTF-8 variable-length string vectors.
-pub type StringVectorMut = VarBinVectorMut<StringType>;
+pub type StringVectorMut = BinaryViewVectorMut<StringType>;
 
-impl VarBinTypeDowncast for Vector {
-    type Output<T: VarBinType> = VarBinVector<T>;
+impl BinaryViewDowncast for Vector {
+    type Output<T: BinaryViewType> = BinaryViewVector<T>;
 
     fn into_binary(self) -> Self::Output<BinaryType> {
         if let Vector::Binary(v) = self {
@@ -40,8 +47,8 @@ impl VarBinTypeDowncast for Vector {
     }
 }
 
-impl VarBinTypeUpcast for Vector {
-    type Input<T: VarBinType> = VarBinVector<T>;
+impl BinaryViewTypeUpcast for Vector {
+    type Input<T: BinaryViewType> = BinaryViewVector<T>;
 
     fn from_binary(input: Self::Input<BinaryType>) -> Self {
         Vector::Binary(input)
@@ -52,8 +59,8 @@ impl VarBinTypeUpcast for Vector {
     }
 }
 
-impl VarBinTypeDowncast for VectorMut {
-    type Output<T: VarBinType> = VarBinVectorMut<T>;
+impl BinaryViewDowncast for VectorMut {
+    type Output<T: BinaryViewType> = BinaryViewVectorMut<T>;
 
     fn into_binary(self) -> Self::Output<BinaryType> {
         if let VectorMut::Binary(v) = self {
@@ -70,8 +77,8 @@ impl VarBinTypeDowncast for VectorMut {
     }
 }
 
-impl VarBinTypeUpcast for VectorMut {
-    type Input<T: VarBinType> = VarBinVectorMut<T>;
+impl BinaryViewTypeUpcast for VectorMut {
+    type Input<T: BinaryViewType> = BinaryViewVectorMut<T>;
 
     fn from_binary(input: Self::Input<BinaryType>) -> Self {
         VectorMut::Binary(input)

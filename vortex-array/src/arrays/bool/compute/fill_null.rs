@@ -4,7 +4,7 @@
 use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolVTable, ConstantArray};
+use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -18,14 +18,6 @@ impl FillNullKernel for BoolVTable {
             .ok_or_else(|| vortex_err!("Fill value must be non null"))?;
 
         Ok(match array.validity() {
-            Validity::NonNullable | Validity::AllValid => BoolArray::from_bit_buffer(
-                array.bit_buffer().clone(),
-                fill_value.dtype().nullability().into(),
-            )
-            .into_array(),
-            Validity::AllInvalid => {
-                ConstantArray::new(fill_value.clone(), array.len()).into_array()
-            }
             Validity::Array(v) => {
                 let bool_buffer = if fill {
                     array.bit_buffer() | &!v.to_bool().bit_buffer()
@@ -35,6 +27,7 @@ impl FillNullKernel for BoolVTable {
                 BoolArray::from_bit_buffer(bool_buffer, fill_value.dtype().nullability().into())
                     .into_array()
             }
+            _ => unreachable!("checked in entry point"),
         })
     }
 }

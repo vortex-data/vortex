@@ -338,6 +338,14 @@ impl BitAnd for &BitBuffer {
     }
 }
 
+impl BitAnd<BitBuffer> for &BitBuffer {
+    type Output = BitBuffer;
+
+    fn bitand(self, rhs: BitBuffer) -> Self::Output {
+        self.bitand(&rhs)
+    }
+}
+
 impl BitAnd<&BitBuffer> for BitBuffer {
     type Output = BitBuffer;
 

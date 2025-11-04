@@ -6,12 +6,12 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use vortex_array::compute::cast as compute_cast;
 use vortex_array::ArrayRef;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::v2::Expression;
-use crate::{ChildName, ExprId, ExprInstance, NotSupported, VTable, VTableExt};
+use crate::{ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt};
 
 /// A cast expression that converts values to a target data type.
 pub struct Cast;
@@ -59,9 +59,9 @@ impl VTable for Cast {
     }
 
     fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CAST(")?;
+        write!(f, "cast(")?;
         expr.children()[0].fmt_compact(f)?;
-        write!(f, " AS {:?}", expr.deref())?;
+        write!(f, " as {:?}", expr.deref())?;
         write!(f, ")")
     }
 
@@ -78,6 +78,26 @@ impl VTable for Cast {
                 expr.deref()
             ))
         })
+    }
+
+    fn max(&self, expr: &ExprInstance<Self>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        expr.children()[0].max(catalog)
+    }
+
+    fn min(&self, expr: &ExprInstance<Self>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        expr.children()[0].min(catalog)
+    }
+
+    fn nan_count(
+        &self,
+        expr: &ExprInstance<Self>,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        expr.children()[0].nan_count(catalog)
+    }
+
+    fn field_path(&self, expr: &ExprInstance<Self>) -> Option<FieldPath> {
+        expr.children()[0].field_path()
     }
 }
 

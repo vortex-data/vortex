@@ -33,9 +33,16 @@ impl VarBinViewArray {
     }
 
     fn should_compact(&self) -> bool {
+        let nbuffers = self.nbuffers();
+
         // If the array is entirely inlined strings, do not attempt to compact.
-        if self.nbuffers() == 0 {
+        if nbuffers == 0 {
             return false;
+        }
+
+        // These will fail to write, so in most cases we want to compact this.
+        if nbuffers > u16::MAX as usize {
+            return true;
         }
 
         let bytes_referenced: u64 = self.count_referenced_bytes();
@@ -43,7 +50,7 @@ impl VarBinViewArray {
 
         // If there is any wasted space, we want to repack.
         // This is very aggressive.
-        bytes_referenced < buffer_total_bytes
+        bytes_referenced < buffer_total_bytes || buffer_total_bytes == 0
     }
 
     // count the number of bytes addressed by the views, not including null

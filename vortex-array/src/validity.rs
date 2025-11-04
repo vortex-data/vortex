@@ -4,7 +4,7 @@
 //! Array validity and nullability behavior, used by arrays and compute functions.
 
 use std::fmt::Debug;
-use std::ops::{BitAnd, Not, Range};
+use std::ops::{BitAnd, Range};
 
 use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, Nullability};
@@ -180,16 +180,15 @@ impl Validity {
     pub fn mask(&self, mask: &Mask) -> Self {
         match mask.bit_buffer() {
             AllOr::All => Validity::AllInvalid,
-            AllOr::None => self.clone(),
+            AllOr::None => self.clone().into_nullable(),
             AllOr::Some(make_invalid) => match self {
                 Validity::NonNullable | Validity::AllValid => {
-                    Validity::Array(BoolArray::from(make_invalid.not()).into_array())
+                    Validity::Array(BoolArray::from(!make_invalid).into_array())
                 }
                 Validity::AllInvalid => Validity::AllInvalid,
                 Validity::Array(is_valid) => {
                     let is_valid = is_valid.to_bool();
-                    let keep_valid = make_invalid.not();
-                    Validity::from(is_valid.bit_buffer() & &keep_valid)
+                    Validity::from(is_valid.bit_buffer() & !make_invalid)
                 }
             },
         }
@@ -551,5 +550,13 @@ mod tests {
         #[case] expected: Validity,
     ) {
         assert_eq!(validity.take(&indices).unwrap(), expected);
+    }
+
+    #[test]
+    fn mask_non_nullable() {
+        assert_eq!(
+            Validity::AllValid,
+            Validity::NonNullable.mask(&Mask::AllFalse(2))
+        )
     }
 }

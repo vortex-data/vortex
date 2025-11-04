@@ -95,20 +95,23 @@ fn mask_slices(
         .iter()
         .zip_eq(chunked_filters)
         .map(|(chunk, chunk_filter)| -> VortexResult<ArrayRef> {
-            Ok(match chunk_filter {
+            match chunk_filter {
                 ChunkFilter::All => {
                     // entire chunk is masked out
-                    ConstantArray::new(Scalar::null(new_dtype.clone()), chunk.len()).into_array()
+                    Ok(
+                        ConstantArray::new(Scalar::null(new_dtype.clone()), chunk.len())
+                            .into_array(),
+                    )
                 }
                 ChunkFilter::None => {
                     // entire chunk is not affected by mask
-                    chunk.clone()
+                    cast(chunk, new_dtype)
                 }
                 ChunkFilter::Slices(slices) => {
                     // Slices of indices that must be set to null
-                    mask(chunk, &Mask::from_slices(chunk.len(), slices))?
+                    mask(chunk, &Mask::from_slices(chunk.len(), slices))
                 }
-            })
+            }
         })
         .process_results(|iter| iter.collect::<Vec<_>>())
 }

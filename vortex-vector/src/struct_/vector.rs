@@ -132,7 +132,7 @@ impl VectorOps for StructVector {
         &self.validity
     }
 
-    fn try_into_mut(self) -> Result<Self::Mutable, Self>
+    fn try_into_mut(self) -> Result<StructVectorMut, Self>
     where
         Self: Sized,
     {

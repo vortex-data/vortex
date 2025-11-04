@@ -12,6 +12,9 @@ use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 /// Creates a [`ListViewArray`] from a [`ListArray`] by computing `sizes` from `offsets`.
+///
+/// The output [`ListViewArray`] will be zero-copyable back to a [`ListArray`], and additionally it
+/// will not have any leading or trailing garbage data.
 pub fn list_view_from_list(list: ListArray) -> ListViewArray {
     // If the list is empty, create an empty `ListViewArray` with the same offset `DType` as the
     // input.
@@ -19,22 +22,28 @@ pub fn list_view_from_list(list: ListArray) -> ListViewArray {
         return Canonical::empty(list.dtype()).into_listview();
     }
 
-    let len = list.len();
+    // We reset the offsets here because mostly for convenience, and also because callers of this
+    // function might not expect the output `ListViewArray` to have a bunch of leading and trailing
+    // garbage data when they turn it back into a `ListArray`.
+    let list = list
+        .reset_offsets(false)
+        .vortex_expect("TODO(connor)[ListView]: This can't fail");
 
-    // Get the `offsets` array directly from the `ListArray` (preserving its type).
     let list_offsets = list.offsets().clone();
 
-    // We need to slice the `offsets` to remove the last element (`ListArray` has n+1 offsets).
-    let adjusted_offsets = list_offsets.slice(0..len);
-
-    // Create sizes array by computing differences between consecutive offsets.
-    // Use the same dtype as the offsets array to ensure compatibility.
+    // Create `sizes` array by computing differences between consecutive offsets.
+    // We use the same `DType` for the sizes as the `offsets` array to ensure compatibility.
     let sizes = match_each_integer_ptype!(list_offsets.dtype().as_ptype(), |O| {
         build_sizes_from_offsets::<O>(&list)
     });
 
+    // We need to slice the `offsets` to remove the last element (`ListArray` has `n + 1` offsets).
+    debug_assert_eq!(list_offsets.len(), list.len() + 1);
+    let adjusted_offsets = list_offsets.slice(0..list.len());
+
     // SAFETY: Since everything came from an existing valid `ListArray`, and the `sizes` were
     // derived from valid and in-order `offsets`, we know these fields are valid.
+    // We also just came directly from a `ListArray`, so we know this is zero-copyable.
     unsafe {
         ListViewArray::new_unchecked(
             list.elements().clone(),
@@ -42,6 +51,7 @@ pub fn list_view_from_list(list: ListArray) -> ListViewArray {
             sizes,
             list.validity().clone(),
         )
+        .with_zero_copy_to_list(true)
     }
 }
 
@@ -52,8 +62,11 @@ fn build_sizes_from_offsets<O: IntegerPType>(list: &ListArray) -> ArrayRef {
 
     // Create `UninitRange` for direct memory access.
     let mut sizes_range = sizes_builder.uninit_range(len);
+
     let offsets = list.offsets().to_primitive();
     let offsets_slice = offsets.as_slice::<O>();
+    debug_assert_eq!(len + 1, offsets_slice.len());
+    debug_assert!(offsets_slice.is_sorted());
 
     // Compute sizes as the difference between consecutive offsets.
     for i in 0..len {
@@ -69,8 +82,41 @@ fn build_sizes_from_offsets<O: IntegerPType>(list: &ListArray) -> ArrayRef {
     sizes_builder.finish_into_primitive().into_array()
 }
 
-/// Creates a [`ListArray`] from a [`ListViewArray`].
+// TODO(connor)[ListView]: Note that it is not exactly zero-copy because we have to add a single
+// offset at the end, but it is fast enough.
+/// Creates a [`ListArray`] from a [`ListViewArray`]. The resulting [`ListArray`] will not have any
+/// leading or trailing garbage data.
+///
+/// If [`ListViewArray::is_zero_copy_to_list`] is `true`, then this operation is fast
+///
+/// Otherwise, this function fall back to the (very) expensive path and will rebuild the
+/// [`ListArray`] from scratch.
 pub fn list_from_list_view(list_view: ListViewArray) -> ListArray {
+    // Fast path if the array is zero-copyable to a `ListArray`.
+    if list_view.is_zero_copy_to_list() {
+        let list_offsets = match_each_integer_ptype!(list_view.offsets().dtype().as_ptype(), |O| {
+            // SAFETY: We checked that the array is zero-copyable to `ListArray`, so the safety
+            // contract is upheld.
+            unsafe { build_list_offsets_from_list_view::<O>(&list_view) }
+        });
+
+        // SAFETY: Because the shape of the `ListViewArray` is zero-copyable to a `ListArray`, we
+        // can simply reuse all of the data (besides the offsets).
+        let new_array = unsafe {
+            ListArray::new_unchecked(
+                list_view.elements().clone(),
+                list_offsets,
+                list_view.validity().clone(),
+            )
+        };
+
+        let new_array = new_array
+            .reset_offsets(false)
+            .vortex_expect("TODO(connor)[ListView]: This can't fail");
+
+        return new_array;
+    }
+
     let elements_dtype = list_view
         .dtype()
         .as_list_element_opt()
@@ -98,6 +144,54 @@ pub fn list_from_list_view(list_view: ListViewArray) -> ListArray {
     })
 }
 
+// TODO(connor)[ListView]: We can optimize this by always keeping extra memory in `ListViewArray`
+// offsets for an `n+1`th offset.
+/// Builds a [`ListArray`] offsets array from a [`ListViewArray`] by constructing `n+1` offsets.
+/// The last offset is computed as `last_offset + last_size`.
+///
+/// # Safety
+///
+/// The [`ListViewArray`] must have offsets that are sorted, and every size must be equal to the gap
+/// between `offset[i]` and `offset[i + 1]`.
+unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
+    list_view: &ListViewArray,
+) -> ArrayRef {
+    let len = list_view.len();
+    let mut offsets_builder =
+        PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, len + 1);
+
+    // Create uninit range for direct memory access.
+    let mut offsets_range = offsets_builder.uninit_range(len + 1);
+
+    let offsets = list_view.offsets().to_primitive();
+    let offsets_slice = offsets.as_slice::<O>();
+
+    // Copy the existing n offsets.
+    offsets_range.copy_from_slice(0, offsets_slice);
+
+    // Append the final offset (last offset + last size).
+    let final_offset = if len != 0 {
+        let last_offset = offsets_slice[len - 1];
+
+        let last_size = list_view.size_at(len - 1);
+        let last_size =
+            O::from_usize(last_size).vortex_expect("size somehow did not fit into offsets");
+
+        last_offset + last_size
+    } else {
+        O::zero()
+    };
+
+    offsets_range.set_value(len, final_offset);
+
+    // SAFETY: We have initialized all values in the range.
+    unsafe {
+        offsets_range.finish();
+    }
+
+    offsets_builder.finish_into_primitive().into_array()
+}
+
 /// Recursively converts all [`ListViewArray`]s to [`ListArray`]s in a nested array structure.
 ///
 /// The conversion happens bottom-up, processing children before parents.
@@ -111,17 +205,22 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> ArrayRef {
     match canonical {
         Canonical::List(listview) => {
             let converted_elements = recursive_list_from_list_view(listview.elements().clone());
+            debug_assert_eq!(converted_elements.len(), listview.elements().len());
 
             // Avoid cloning if elements didn't change.
             let listview_with_converted_elements =
                 if !Arc::ptr_eq(&converted_elements, listview.elements()) {
-                    ListViewArray::try_new(
-                        converted_elements,
-                        listview.offsets().clone(),
-                        listview.sizes().clone(),
-                        listview.validity().clone(),
-                    )
-                    .vortex_expect("ListView reconstruction should not fail with valid components")
+                    // SAFETY: We are effectively just replacing the child elements array, which
+                    // must have the same length, so all invariants are maintained.
+                    unsafe {
+                        ListViewArray::new_unchecked(
+                            converted_elements,
+                            listview.offsets().clone(),
+                            listview.sizes().clone(),
+                            listview.validity().clone(),
+                        )
+                        .with_zero_copy_to_list(listview.is_zero_copy_to_list())
+                    }
                 } else {
                     listview
                 };
@@ -433,23 +532,27 @@ mod tests {
         let inner_elements = buffer![1i32, 2, 3].into_array();
         let inner_offsets = buffer![0u32, 2].into_array();
         let inner_sizes = buffer![2u32, 1].into_array();
-        let inner_listview = ListViewArray::try_new(
-            inner_elements,
-            inner_offsets,
-            inner_sizes,
-            Validity::NonNullable,
-        )
-        .unwrap();
+        let inner_listview = unsafe {
+            ListViewArray::new_unchecked(
+                inner_elements,
+                inner_offsets,
+                inner_sizes,
+                Validity::NonNullable,
+            )
+            .with_zero_copy_to_list(true)
+        };
 
         let outer_offsets = buffer![0u32, 1].into_array();
         let outer_sizes = buffer![1u32, 1].into_array();
-        let outer_listview = ListViewArray::try_new(
-            inner_listview.into_array(),
-            outer_offsets,
-            outer_sizes,
-            Validity::NonNullable,
-        )
-        .unwrap();
+        let outer_listview = unsafe {
+            ListViewArray::new_unchecked(
+                inner_listview.into_array(),
+                outer_offsets,
+                outer_sizes,
+                Validity::NonNullable,
+            )
+            .with_zero_copy_to_list(true)
+        };
 
         let result = recursive_list_from_list_view(outer_listview.clone().into_array());
 
@@ -481,16 +584,28 @@ mod tests {
         let lv1_elements = buffer![1i32, 2].into_array();
         let lv1_offsets = buffer![0u32].into_array();
         let lv1_sizes = buffer![2u32].into_array();
-        let lv1 =
-            ListViewArray::try_new(lv1_elements, lv1_offsets, lv1_sizes, Validity::NonNullable)
-                .unwrap();
+        let lv1 = unsafe {
+            ListViewArray::new_unchecked(
+                lv1_elements,
+                lv1_offsets,
+                lv1_sizes,
+                Validity::NonNullable,
+            )
+            .with_zero_copy_to_list(true)
+        };
 
         let lv2_elements = buffer![3i32, 4].into_array();
         let lv2_offsets = buffer![0u32].into_array();
         let lv2_sizes = buffer![2u32].into_array();
-        let lv2 =
-            ListViewArray::try_new(lv2_elements, lv2_offsets, lv2_sizes, Validity::NonNullable)
-                .unwrap();
+        let lv2 = unsafe {
+            ListViewArray::new_unchecked(
+                lv2_elements,
+                lv2_offsets,
+                lv2_sizes,
+                Validity::NonNullable,
+            )
+            .with_zero_copy_to_list(true)
+        };
 
         let dtype = lv1.dtype().clone();
         let chunked_listviews =
@@ -511,13 +626,15 @@ mod tests {
         let innermost_elements = buffer![1i32, 2, 3].into_array();
         let innermost_offsets = buffer![0u32, 2].into_array();
         let innermost_sizes = buffer![2u32, 1].into_array();
-        let innermost_listview = ListViewArray::try_new(
-            innermost_elements,
-            innermost_offsets,
-            innermost_sizes,
-            Validity::NonNullable,
-        )
-        .unwrap();
+        let innermost_listview = unsafe {
+            ListViewArray::new_unchecked(
+                innermost_elements,
+                innermost_offsets,
+                innermost_sizes,
+                Validity::NonNullable,
+            )
+            .with_zero_copy_to_list(true)
+        };
 
         let struct_array = StructArray::try_new(
             FieldNames::from(["inner_lists"]),
@@ -529,13 +646,15 @@ mod tests {
 
         let outer_offsets = buffer![0u32, 1].into_array();
         let outer_sizes = buffer![1u32, 1].into_array();
-        let outer_listview = ListViewArray::try_new(
-            struct_array.into_array(),
-            outer_offsets,
-            outer_sizes,
-            Validity::NonNullable,
-        )
-        .unwrap();
+        let outer_listview = unsafe {
+            ListViewArray::new_unchecked(
+                struct_array.into_array(),
+                outer_offsets,
+                outer_sizes,
+                Validity::NonNullable,
+            )
+            .with_zero_copy_to_list(true)
+        };
 
         let result = recursive_list_from_list_view(outer_listview.clone().into_array());
 

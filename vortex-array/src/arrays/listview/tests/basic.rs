@@ -17,11 +17,15 @@ use crate::{Array, IntoArray};
 #[test]
 fn test_basic_listview_comprehensive() {
     // Comprehensive test for basic ListView functionality including scalar_at.
+    // Logical lists: [[1,2,3], [4,5], [6,7,8,9]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
     let offsets = buffer![0i32, 3, 5].into_array();
     let sizes = buffer![3i32, 2, 4].into_array();
 
-    let listview = ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
+    let listview = unsafe {
+        ListViewArray::new_unchecked(elements.into_array(), offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
+    };
 
     assert_eq!(listview.len(), 3);
     assert!(!listview.is_empty());
@@ -67,8 +71,9 @@ fn test_basic_listview_comprehensive() {
 #[test]
 fn test_out_of_order_offsets() {
     // ListView-specific: Tests that offsets can be non-sequential and out-of-order.
+    // Logical lists: [[7,8,9], [1,2,3], [4,5,6]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
-    let offsets = buffer![6i32, 0, 3].into_array(); // Out-of-order: [7,8,9], [1,2,3], [4,5,6].
+    let offsets = buffer![6i32, 0, 3].into_array(); // Out-of-order offsets.
     let sizes = buffer![3i32, 3, 3].into_array();
 
     let listview = ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
@@ -91,13 +96,15 @@ fn test_out_of_order_offsets() {
 #[test]
 fn test_empty_listview() {
     // Test empty ListView array (0 lists).
+    // Logical lists: [] (empty ListView)
     let elements = buffer![1i32].into_array(); // Dummy element.
     let offsets = buffer![0i32; 0].into_array();
     let sizes = buffer![0i32; 0].into_array();
 
-    let listview =
-        ListViewArray::try_new(elements.into_array(), offsets, sizes, Validity::NonNullable)
-            .unwrap();
+    let listview = unsafe {
+        ListViewArray::new_unchecked(elements.into_array(), offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
+    };
 
     assert_eq!(listview.len(), 0);
     assert!(listview.is_empty());
@@ -106,6 +113,7 @@ fn test_empty_listview() {
 #[test]
 fn test_from_list_array() {
     // Test conversion from ListArray to ListViewArray.
+    // Logical lists: [[1,2], null, [5,6,7]]
     let offsets = buffer![0i64, 2, 4, 7].into_array();
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7].into_array();
     let validity = Validity::from_iter([true, false, true]);
@@ -156,7 +164,14 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
         buffer![3i32, 2, 1].into_array()
     };
 
-    let listview = ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
+    // Determine if the array is zero-copy to list based on test case.
+    // The array is NOT zero-copy when there are overlaps (const_offsets case).
+    let is_zctl = !const_offsets;
+
+    let listview = unsafe {
+        ListViewArray::new_unchecked(elements.into_array(), offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(is_zctl)
+    };
     assert_eq!(listview.len(), 3);
 
     if const_sizes && const_offsets {
@@ -328,8 +343,7 @@ fn test_validate_different_int_types() {
     let offsets = buffer![0u64, 2, 1].into_array();
     let sizes = buffer![2u32, 1, 2].into_array();
 
-    let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable);
-    assert!(result.is_ok());
+    let _listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
 }
 
 #[test]
@@ -348,4 +362,29 @@ fn test_validate_u64_overflow() {
         err.to_string().contains("overflow"),
         "Unexpected error: {err}"
     );
+}
+
+#[test]
+fn test_verify_is_zero_copy_to_list() {
+    // Create a ListView that IS zero-copyable to List.
+    // Logical lists: [[1,2], [3,4], [5]]
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+    let offsets = buffer![0i32, 2, 4].into_array(); // Sorted, no gaps
+    let sizes = buffer![2i32, 2, 1].into_array(); // No overlaps
+
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+
+    // Should return true since offsets are sorted and no overlaps exist.
+    assert!(listview.verify_is_zero_copy_to_list());
+
+    // Create a ListView that is NOT zero-copyable to List due to overlapping views.
+    // Logical lists: [[1,2], [2,3,4], [3,4]]
+    let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+    let offsets = buffer![0i32, 1, 2].into_array(); // Sorted but overlapping
+    let sizes = buffer![2i32, 3, 2].into_array(); // These cause overlaps
+
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+
+    // Should return false due to overlapping list views.
+    assert!(!listview.verify_is_zero_copy_to_list());
 }

@@ -10,19 +10,21 @@
 #![deny(clippy::missing_panics_doc)]
 #![deny(clippy::missing_safety_doc)]
 
+mod binaryview;
 mod bool;
 mod decimal;
+mod fixed_size_list;
 mod null;
 mod primitive;
 mod struct_;
-mod varbin;
 
+pub use binaryview::*;
 pub use bool::*;
 pub use decimal::*;
+pub use fixed_size_list::*;
 pub use null::*;
 pub use primitive::*;
 pub use struct_::*;
-pub use varbin::*;
 
 mod ops;
 mod vector;

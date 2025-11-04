@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use vortex_dtype::{DType, match_each_integer_ptype, match_each_native_ptype};
+use vortex_dtype::{DType, NativePType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
 
 use crate::arrays::{ListVTable, PrimitiveVTable};
@@ -191,8 +191,11 @@ impl ListArray {
 
                 vortex_ensure!(
                     max_offset
-                        <= P::try_from(elements.len())
-                            .vortex_expect("Offsets type must be able to fit elements length"),
+                        <= P::try_from(elements.len()).vortex_expect(&format!(
+                            "Offsets type {} must be able to fit elements length {}",
+                            <P as NativePType>::PTYPE,
+                            elements.len()
+                        )),
                     "Max offset {max_offset} is beyond the length of the elements array {}",
                     elements.len()
                 );
@@ -265,6 +268,11 @@ impl ListArray {
     pub fn elements(&self) -> &ArrayRef {
         &self.elements
     }
+
+    // TODO(connor)[ListView]: Create 2 functions `reset_offsets` and `recursive_reset_offsets`,
+    // where `reset_offsets` is infallible.
+    // Also, `reset_offsets` can be made more efficient by replacing `sub_scalar` with a match on
+    // the offset type and manual subtraction and fast path where `offsets[0] == 0`.
 
     /// Create a copy of this array by adjusting `offsets` to start at `0` and removing elements not
     /// referenced by the `offsets`.

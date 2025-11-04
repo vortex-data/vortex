@@ -10,7 +10,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{
     DType, DecimalDType, NativeDecimalType, NativePType, Nullability, match_each_native_ptype,
 };
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::match_each_decimal_value_type;
 
 pub fn take_canonical_array_non_nullable_indices(
@@ -31,11 +31,7 @@ pub fn take_canonical_array(
     array: &dyn Array,
     indices: &[Option<usize>],
 ) -> VortexResult<ArrayRef> {
-    let nullable = if indices.contains(&None) {
-        Nullability::Nullable
-    } else {
-        Nullability::NonNullable
-    };
+    let nullable: Nullability = indices.contains(&None).into();
 
     let validity = if array.dtype().is_nullable() || nullable == Nullability::Nullable {
         let validity_idx = array.validity_mask().to_bit_buffer();
@@ -116,10 +112,18 @@ pub fn take_canonical_array(
             .map(|a| a.into_array())
         }
         DType::List(..) | DType::FixedSizeList(..) => {
-            let mut builder = builder_with_capacity(array.dtype(), indices_slice_non_opt.len());
+            let mut builder = builder_with_capacity(
+                &array.dtype().union_nullability(nullable),
+                indices_slice_non_opt.len(),
+            );
             for idx in indices {
                 if let Some(idx) = idx {
-                    builder.append_scalar(&array.scalar_at(*idx))?;
+                    builder.append_scalar(
+                        &array
+                            .scalar_at(*idx)
+                            .cast(&array.dtype().union_nullability(nullable))
+                            .vortex_expect("cannot cast scalar nullability"),
+                    )?;
                 } else {
                     builder.append_null()
                 }

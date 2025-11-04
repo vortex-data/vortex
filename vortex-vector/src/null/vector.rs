@@ -43,7 +43,7 @@ impl VectorOps for NullVector {
         &self.validity
     }
 
-    fn try_into_mut(self) -> Result<Self::Mutable, Self>
+    fn try_into_mut(self) -> Result<NullVectorMut, Self>
     where
         Self: Sized,
     {

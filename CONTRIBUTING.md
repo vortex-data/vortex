@@ -2,22 +2,47 @@
 
 Welcome, and thank you for your interest in contributing to Vortex! We are  delighted to receive all forms of community contributions (issues, pull requests, questions).
 
-We ask that you read the guidelines below in order to
-make the process as streamlined as possible.
+We ask that you read the guidelines below in order to make the process as streamlined as possible.
 
 ## Governance
 
 Vortex is an independent open-source project and not controlled by any single company. The Vortex Project is a sub-project of the Linux Foundation Projects. As such, the governance is subject to the terms of the [Technical Charter](https://vortex.dev/charter.pdf).
 
 ## Project Roles
+
 * Contributor: anyone who contributes intellectual property to the common endeavor of the project under the project license.
-* Committer: a subset of Contributors, who collectively determine the project's technical direction. Committers have permissions to review & merge code contributions.
-* Maintainer: a subset of Committers, who are additionally responsible for appointing new Committers.
+* Committer: a subset of Contributors, who collectively determine the project's technical direction. Committers have permissions to review & merge code contributions. Unless they are also Maintainers, Committers are non-voting members of the Technical Steering Committee (TSC).
+* Maintainer: a subset of Committers, who are also *voting* members of the Technical Steering Committee (TSC). In practice, Maintainers' primary responsibility is to manage membership of the Committers/Maintainers group over time and ensure the long-term health of the project.
+
+### Committers
+
+At the time of writing, the following individuals serve as Committers (non-voting TSC members) on the project:
+
+1. Adam Gutglick
+2. Alexander Droste
+3. Andy Pavlo
+4. Connor Tsui
+5. Daniel King
+6. Dmitrii Blaginin
+7. Joseph Isaacs
+8. Marko Bakovic
+9. Onur Satici
+10. Xinyu Zeng
+
+### Maintainers
+
+At the time of writing, the following individuals serve as Committers & Maintainers (voting TSC members) on the project:
+
+1. Andrew Duffy
+2. Carlo Curino
+3. Nicholas Gates
+4. Robert Kruszewski
+5. Wes McKinney
+6. Will Manning (chair)
 
 ## Coding style
 
-Our CI process enforces an extensive set of linter (e.g., `clippy`) rules, as well as language-specific formatters (e.g., `cargo fmt`). Beyond that,
-we document additional style guidelines in [STYLE.md](STYLE.md).
+Our CI process enforces an extensive set of linter (e.g., `clippy`) rules, as well as language-specific formatters (e.g., `cargo fmt`). Beyond that, we document additional style guidelines in [STYLE.md](STYLE.md).
 
 ## Reporting Issues
 

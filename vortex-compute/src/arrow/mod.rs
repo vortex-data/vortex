@@ -5,13 +5,14 @@
 
 use vortex_error::VortexResult;
 
+mod binaryview;
 mod bool;
 mod decimal;
+mod fixed_size_list;
 mod mask;
 mod null;
 mod primitive;
 mod struct_;
-mod varbin;
 mod vector;
 
 /// Trait for converting Vortex vector types into Arrow types.

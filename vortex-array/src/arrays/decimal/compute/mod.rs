@@ -3,6 +3,7 @@
 
 mod between;
 mod cast;
+mod fill_null;
 mod filter;
 mod is_constant;
 mod is_sorted;

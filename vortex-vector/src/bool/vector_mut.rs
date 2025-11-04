@@ -152,7 +152,7 @@ impl VectorMutOps for BoolVectorMut {
         self.validity.append_n(false, n);
     }
 
-    fn freeze(self) -> Self::Immutable {
+    fn freeze(self) -> BoolVector {
         BoolVector {
             bits: self.bits.freeze(),
             validity: self.validity.freeze(),

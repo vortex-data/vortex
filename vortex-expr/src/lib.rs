@@ -38,7 +38,6 @@ pub use analysis::*;
 pub use between::*;
 pub use binary::*;
 pub use cast::*;
-pub use concat::*;
 pub use encoding::*;
 pub use get_item::*;
 pub use is_null::*;

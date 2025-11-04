@@ -10,22 +10,28 @@ use arrow_array::types::{
     UInt32Type, UInt64Type,
 };
 use arrow_array::{
-    Array, BooleanArray, Date32Array, Decimal128Array, PrimitiveArray, StringArray,
-    Time64MicrosecondArray, TimestampMicrosecondArray, TimestampMillisecondArray,
-    TimestampNanosecondArray, TimestampSecondArray,
+    Array, BooleanArray, Date32Array, Decimal128Array, FixedSizeListArray, GenericListViewArray,
+    PrimitiveArray, StringArray, Time64MicrosecondArray, Time64NanosecondArray,
+    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
+    TimestampSecondArray,
 };
 use arrow_buffer::buffer::BooleanBuffer;
+use arrow_schema::Field;
 use num_traits::AsPrimitive;
 use vortex::ArrayRef;
 use vortex::arrays::StructArray;
 use vortex::arrow::FromArrowArray;
-use vortex::dtype::{DecimalDType, FieldNames};
-use vortex::error::{VortexResult, vortex_err};
+use vortex::buffer::BufferMut;
+use vortex::dtype::{DType, DecimalDType, FieldNames, Nullability};
+use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::scalar::DecimalType;
+use vortex::validity::Validity;
 
+use crate::convert::dtype::FromLogicalType;
 use crate::cpp::{
-    DUCKDB_TYPE, duckdb_date, duckdb_string_t, duckdb_string_t_data, duckdb_string_t_length,
-    duckdb_time, duckdb_timestamp, duckdb_timestamp_ms, duckdb_timestamp_s,
+    DUCKDB_TYPE, duckdb_date, duckdb_list_entry, duckdb_string_t, duckdb_string_t_data,
+    duckdb_string_t_length, duckdb_time, duckdb_time_ns, duckdb_timestamp, duckdb_timestamp_ms,
+    duckdb_timestamp_s,
 };
 use crate::duckdb::{DataChunk, Vector};
 use crate::exporter::precision_to_duckdb_storage_size;
@@ -187,6 +193,16 @@ pub fn flat_vector_to_arrow_array(
                 ),
             ))
         }
+        DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS => {
+            let data = vector.as_slice_with_len::<duckdb_time_ns>(len);
+
+            Ok(Arc::new(
+                Time64NanosecondArray::from_iter_values_with_nulls(
+                    data.iter().map(|duckdb_time_ns { nanos }| *nanos),
+                    vector.validity_ref(data.len()).to_null_buffer(),
+                ),
+            ))
+        }
         DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT => {
             let data = vector.as_slice_with_len::<i16>(len);
 
@@ -311,6 +327,84 @@ pub fn flat_vector_to_arrow_array(
 
             Ok(Arc::new(decimal_array))
         }
+        DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => {
+            let array_elem_size = vector.logical_type().array_type_array_size();
+            let array_child_type = vector.logical_type().array_child_type();
+            let data_arrow = flat_vector_to_arrow_array(
+                &mut vector.array_vector_get_child(),
+                len * array_elem_size as usize,
+            )?;
+            Ok(Arc::new(FixedSizeListArray::try_new(
+                Arc::new(Field::new(
+                    "element",
+                    DType::from_logical_type(array_child_type, Nullability::Nullable)?
+                        .to_arrow_dtype()?,
+                    true,
+                )),
+                array_elem_size as i32,
+                data_arrow,
+                vector.validity_ref(len).to_null_buffer(),
+            )?))
+        }
+        DUCKDB_TYPE::DUCKDB_TYPE_LIST => {
+            let array_child_type = vector.logical_type().list_child_type();
+
+            let mut offsets = BufferMut::with_capacity(len);
+            let mut lengths = BufferMut::with_capacity(len);
+            for duckdb_list_entry { offset, length } in
+                vector.as_slice_with_len::<duckdb_list_entry>(len)
+            {
+                unsafe {
+                    offsets.push_unchecked(
+                        i64::try_from(*offset).vortex_expect("offset must fit i64"),
+                    );
+                    lengths.push_unchecked(
+                        i64::try_from(*length).vortex_expect("length must fit i64"),
+                    );
+                }
+            }
+            let offsets = offsets.freeze();
+            let lengths = lengths.freeze();
+            let arrow_child = flat_vector_to_arrow_array(
+                &mut vector.list_vector_get_child(),
+                usize::try_from(offsets[len - 1] + lengths[len - 1])
+                    .vortex_expect("last offset and length sum must fit in usize "),
+            )?;
+
+            Ok(Arc::new(GenericListViewArray::try_new(
+                Arc::new(Field::new(
+                    "element",
+                    DType::from_logical_type(array_child_type, Nullability::Nullable)?
+                        .to_arrow_dtype()?,
+                    true,
+                )),
+                offsets.into_arrow_scalar_buffer(),
+                lengths.into_arrow_scalar_buffer(),
+                arrow_child,
+                vector.validity_ref(len).to_null_buffer(),
+            )?))
+        }
+        DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => {
+            let children = (0..vector.logical_type().struct_type_child_count())
+                .map(|idx| {
+                    flat_vector_to_arrow_array(&mut vector.struct_vector_get_child(idx), len)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if children.is_empty() {
+                Ok(Arc::new(arrow_array::StructArray::new_empty_fields(
+                    len,
+                    vector.validity_ref(len).to_null_buffer(),
+                )))
+            } else {
+                Ok(Arc::new(arrow_array::StructArray::try_new(
+                    DType::from_logical_type(vector.logical_type(), Nullability::NonNullable)?
+                        .to_arrow_schema()?
+                        .fields,
+                    children,
+                    vector.validity_ref(len).to_null_buffer(),
+                )?))
+            }
+        }
         _ => todo!("missing impl for {type_id:?}"),
     }
 }
@@ -319,28 +413,37 @@ pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> Vorte
     let len = chunk.len();
 
     let columns = (0..chunk.column_count())
-        .zip(field_names.iter())
-        .map(|(i, name)| {
+        .map(|i| {
             let mut vector = chunk.get_vector(i);
             vector.flatten(len);
             flat_vector_to_arrow_array(&mut vector, len.as_())
                 .map(|array_data| {
                     let chunk_len: usize = chunk.len().as_();
                     assert_eq!(array_data.len(), chunk_len);
-                    (name, ArrayRef::from_arrow(array_data.as_ref(), true))
+                    ArrayRef::from_arrow(array_data.as_ref(), true)
                 })
                 .map_err(|e| vortex_err!("duckdb to arrow conversion failure {e}"))
         })
-        .collect::<VortexResult<Vec<_>>>()?;
-    StructArray::try_from_iter(columns).map(|a| a.to_array())
+        .collect::<VortexResult<Arc<_>>>()?;
+    StructArray::try_new(
+        field_names.clone(),
+        columns,
+        len.as_(),
+        Validity::NonNullable,
+    )
+    .map(|a| a.to_array())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CString;
+
+    use arrow_array::cast::AsArray;
     use arrow_array::{
         BooleanArray, Int32Array, TimestampMicrosecondArray, TimestampMillisecondArray,
         TimestampSecondArray,
     };
+    use vortex::error::VortexUnwrap;
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
@@ -597,5 +700,123 @@ mod tests {
         assert!(arrow_array.is_valid(2));
         assert_eq!(arrow_array.value(0), 1);
         assert_eq!(arrow_array.value(2), 3);
+    }
+
+    #[test]
+    fn test_list() {
+        let values = vec![1i32, 2, 3, 4];
+        let len = 1;
+
+        let logical_type =
+            LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
+                .vortex_unwrap();
+        let mut vector = Vector::with_capacity(logical_type, len);
+
+        // Populate with data
+        unsafe {
+            let entries = vector.as_slice_mut::<duckdb_list_entry>(len);
+            entries[0] = duckdb_list_entry {
+                offset: 0,
+                length: values.len() as u64,
+            };
+            let mut child = vector.list_vector_get_child();
+            let slice = child.as_slice_mut::<i32>(values.len());
+            slice.copy_from_slice(&values);
+        }
+
+        // Test conversion
+        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
+        let arrow_array = result.as_list_view::<i64>();
+
+        assert_eq!(arrow_array.len(), len);
+        assert_eq!(
+            arrow_array.value(0).as_primitive::<Int32Type>(),
+            &Int32Array::from_iter([1, 2, 3, 4])
+        );
+    }
+
+    #[test]
+    fn test_fixed_sized_list() {
+        let values = vec![1i32, 2, 3, 4];
+        let len = 1;
+
+        let logical_type =
+            LogicalType::array_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER), 4)
+                .vortex_unwrap();
+        let mut vector = Vector::with_capacity(logical_type, len);
+
+        // Populate with data
+        unsafe {
+            let mut child = vector.array_vector_get_child();
+            let slice = child.as_slice_mut::<i32>(values.len());
+            slice.copy_from_slice(&values);
+        }
+
+        // Test conversion
+        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
+        let arrow_array = result.as_fixed_size_list();
+
+        assert_eq!(arrow_array.len(), len);
+        assert_eq!(
+            arrow_array.value(0).as_primitive::<Int32Type>(),
+            &Int32Array::from_iter([1, 2, 3, 4])
+        );
+    }
+
+    #[test]
+    fn test_empty_struct() {
+        let len = 4;
+        let logical_type = LogicalType::struct_type([], []).vortex_unwrap();
+        let mut vector = Vector::with_capacity(logical_type, len);
+
+        // Test conversion
+        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
+        let arrow_array = result.as_struct();
+
+        assert_eq!(arrow_array.len(), len);
+        assert_eq!(arrow_array.fields().len(), 0);
+    }
+
+    #[test]
+    fn test_struct() {
+        let values1 = vec![1i32, 2, 3, 4];
+        let values2 = vec![5i32, 6, 7, 8];
+        let len = values1.len();
+
+        let logical_type = LogicalType::struct_type(
+            [
+                LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+                LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+            ],
+            [CString::new("a").unwrap(), CString::new("b").unwrap()],
+        )
+        .vortex_unwrap();
+        let mut vector = Vector::with_capacity(logical_type, len);
+
+        // Populate with data
+        for (i, values) in
+            (0..vector.logical_type().struct_type_child_count()).zip([values1, values2])
+        {
+            unsafe {
+                let mut child = vector.struct_vector_get_child(i);
+                let slice = child.as_slice_mut::<i32>(len);
+                slice.copy_from_slice(&values);
+            }
+        }
+
+        // Test conversion
+        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
+        let arrow_array = result.as_struct();
+
+        assert_eq!(arrow_array.len(), len);
+        assert_eq!(arrow_array.fields().len(), 2);
+        assert_eq!(
+            arrow_array.column(0).as_primitive::<Int32Type>(),
+            &Int32Array::from_iter([1, 2, 3, 4])
+        );
+        assert_eq!(
+            arrow_array.column(1).as_primitive::<Int32Type>(),
+            &Int32Array::from_iter([5, 6, 7, 8])
+        );
     }
 }

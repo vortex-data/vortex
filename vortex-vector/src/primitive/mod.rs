@@ -11,20 +11,21 @@
 //! [`PVector`]s. There are several macros defined in this crate to make working with these
 //! primitive vector types easier.
 //!
-//! [`NativePType`]: vortex_dtype::NativePType
+//! See the documentation for [`PVectorMut`] for more information.
+//!
 //! [`f16`]: vortex_dtype::half::f16
 
 mod generic;
 pub use generic::PVector;
 
 mod generic_mut;
+mod generic_mut_impl;
+mod iter;
 pub use generic_mut::PVectorMut;
 
 mod vector;
 pub use vector::PrimitiveVector;
 
-mod generic_mut_impl;
-mod iter;
 mod vector_mut;
 pub use vector_mut::PrimitiveVectorMut;
 
