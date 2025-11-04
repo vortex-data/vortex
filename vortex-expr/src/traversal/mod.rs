@@ -327,14 +327,14 @@ pub trait NodeRefContainer<'a, T: 'a>: Sized {
     ) -> VortexResult<TraversalOrder>;
 }
 
-impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeRefContainer<'a, T> for Vec<&'a C> {
+impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeRefContainer<'a, T> for &'a [C] {
     fn apply_ref_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
         &self,
         mut f: F,
     ) -> VortexResult<TraversalOrder> {
         let mut order = TraversalOrder::Continue;
 
-        for c in self {
+        for c in *self {
             order = c.apply_elements(&mut f)?;
             match order {
                 TraversalOrder::Continue | TraversalOrder::Skip => {}
@@ -479,7 +479,7 @@ impl Node for Expression {
         &'a self,
         mut f: F,
     ) -> VortexResult<TraversalOrder> {
-        self.children().apply_ref_elements(&mut f)
+        self.children().as_ref().apply_ref_elements(&mut f)
     }
 
     fn map_children<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
@@ -495,7 +495,7 @@ impl Node for Expression {
 
         if transformed.changed {
             Ok(Transformed {
-                value: self.with_children(transformed.value)?,
+                value: self.with_children(transformed.value.into())?,
                 order: transformed.order,
                 changed: true,
             })

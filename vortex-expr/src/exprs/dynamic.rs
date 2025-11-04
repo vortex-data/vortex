@@ -14,9 +14,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::traversal::{NodeExt, NodeVisitor, TraversalOrder};
-use crate::{
-    AnalysisExpr, ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt,
-};
+use crate::{ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt};
 
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT

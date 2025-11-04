@@ -2,18 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::v2::{ExprInstance, Expression};
-use crate::{AnalysisExpr, ExprId, StatsCatalog};
+use crate::{ExprId, StatsCatalog};
 use arcref::ArcRef;
 use std::any::Any;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
 use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_session::SessionVar;
 
 /// The vtable trait for a Vortex expression.
 ///
@@ -89,8 +87,8 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// such as `x < (y < z)` or `x LIKE "needle%"`.
     fn stat_falsification(
         &self,
-        expr: &ExprInstance<Self>,
-        catalog: &mut dyn StatsCatalog,
+        _expr: &ExprInstance<Self>,
+        _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         None
     }
@@ -104,7 +102,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// values.
     fn max(
         &self,
-        expr: &ExprInstance<Self>,
+        _expr: &ExprInstance<Self>,
         _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         None
@@ -115,7 +113,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// See [AnalysisExpr::max] for important details.
     fn min(
         &self,
-        expr: &ExprInstance<Self>,
+        _expr: &ExprInstance<Self>,
         _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         None
@@ -126,13 +124,13 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// This method returns `None` if the NaNCount stat is unknown.
     fn nan_count(
         &self,
-        expr: &ExprInstance<Self>,
+        _expr: &ExprInstance<Self>,
         _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         None
     }
 
-    fn field_path(&self, expr: &ExprInstance<Self>) -> Option<FieldPath> {
+    fn field_path(&self, _expr: &ExprInstance<Self>) -> Option<FieldPath> {
         None
     }
 }
@@ -173,54 +171,29 @@ pub struct NotSupported;
 /// This trait is automatically implemented via the [`VTableAdapter`] for any type that
 /// implements [`VTable`], and lifts the associated types into dynamic trait objects.
 pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
+    fn as_any(&self) -> &dyn Any;
     fn id(&self) -> ExprId;
-    fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()>;
     fn serialize(&self, instance: &dyn Any) -> VortexResult<Option<Vec<u8>>>;
     fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any>>>;
-    fn fmt_compact(
-        &self,
-        instance: &dyn Any,
-        children: &[Expression],
-        f: &mut Formatter<'_>,
-    ) -> fmt::Result;
-    fn return_dtype(
-        &self,
-        instance: &dyn Any,
-        children: &[Expression],
-        scope: &DType,
-    ) -> VortexResult<DType>;
-    fn evaluate(
-        &self,
-        instance: &dyn Any,
-        children: &[Expression],
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef>;
+    fn child_name(&self, instance: &dyn Any, child_idx: usize) -> ChildName;
+    fn validate(&self, expression: &Expression) -> VortexResult<()>;
+    fn fmt_compact(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result;
+    fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType>;
+    fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
 
     fn stat_falsification(
         &self,
-        instance: &dyn Any,
-        children: &[Expression],
+        expression: &Expression,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression>;
-    fn max(
-        &self,
-        instance: &dyn Any,
-        children: &[Expression],
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression>;
-    fn min(
-        &self,
-        instance: &dyn Any,
-        children: &[Expression],
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression>;
+    fn max(&self, expression: &Expression, catalog: &mut dyn StatsCatalog) -> Option<Expression>;
+    fn min(&self, expression: &Expression, catalog: &mut dyn StatsCatalog) -> Option<Expression>;
     fn nan_count(
         &self,
-        instance: &dyn Any,
-        children: &[Expression],
+        expression: &Expression,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression>;
-    fn field_path(&self, instance: &dyn Any, children: &[Expression]) -> Option<FieldPath>;
+    fn field_path(&self, expression: &Expression) -> Option<FieldPath>;
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool;
     fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher);
@@ -230,120 +203,100 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
 pub struct VTableAdapter<V>(V);
 
 impl<V: VTable> DynExprVTable for VTableAdapter<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn id(&self) -> ExprId {
         V::id(&self.0)
     }
 
-    fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()> {
-        let expr = ExprInstance::try_new(instance, children);
-        V::validate(&self.0, &expr)
-    }
-
     fn serialize(&self, instance: &dyn Any) -> VortexResult<Option<Vec<u8>>> {
         let instance = instance
-            .as_any()
             .downcast_ref::<V::Instance>()
             .vortex_expect("Failed to downcast expression instance to expected type");
         V::serialize(&self.0, instance)
     }
 
     fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any>>> {
-        Ok(V::deserialize(&self.0, metadata)?.map(|data| Arc::new(data)))
+        Ok(V::deserialize(&self.0, metadata)?.map(|data| Arc::new(data) as Arc<dyn Any>))
     }
 
-    fn fmt_compact(
-        &self,
-        instance: &dyn Any,
-        children: &[Expression],
-        f: &mut Formatter<'_>,
-    ) -> fmt::Result {
-        let expr = ExprInstance::from_dyn(instance, children);
+    fn child_name(&self, instance: &dyn Any, child_idx: usize) -> ChildName {
+        let instance = instance
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        V::child_name(&self.0, instance, child_idx)
+    }
+
+    fn validate(&self, expression: &Expression) -> VortexResult<()> {
+        let expr = ExprInstance::new(expression);
+        V::validate(&self.0, &expr)
+    }
+
+    fn fmt_compact(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result {
+        let expr = ExprInstance::new(expression);
         V::fmt_compact(&self.0, &expr, f)
     }
 
-    fn return_dtype(
-        &self,
-        instance: &dyn Any,
-        children: &[Expression],
-        scope: &DType,
-    ) -> VortexResult<DType> {
-        let expr = ExprInstance::from_dyn(instance, children);
+    fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType> {
+        let expr = ExprInstance::new(expression);
         V::return_dtype(&self.0, &expr, scope)
     }
 
-    fn evaluate(
-        &self,
-        instance: &dyn Any,
-        children: &[Expression],
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let expr = ExprInstance::from_dyn(instance, children);
+    fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        let expr = ExprInstance::new(expression);
         V::evaluate(&self.0, &expr, scope)
     }
 
     fn stat_falsification(
         &self,
-        instance: &dyn Any,
-        children: &[Expression],
+        expression: &Expression,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        let expr = ExprInstance::from_dyn(instance, children);
+        let expr = ExprInstance::new(expression);
         V::stat_falsification(&self.0, &expr, catalog)
     }
 
-    fn max(
-        &self,
-        instance: &dyn Any,
-        children: &[Expression],
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        let expr = ExprInstance::from_dyn(instance, children);
+    fn max(&self, expression: &Expression, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        let expr = ExprInstance::new(expression);
         V::max(&self.0, &expr, catalog)
     }
 
-    fn min(
-        &self,
-        instance: &dyn Any,
-        children: &[Expression],
-        catalog: &mut dyn StatsCatalog,
-    ) -> Option<Expression> {
-        let expr = ExprInstance::from_dyn(instance, children);
+    fn min(&self, expression: &Expression, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        let expr = ExprInstance::new(expression);
         V::min(&self.0, &expr, catalog)
     }
 
     fn nan_count(
         &self,
-        instance: &dyn Any,
-        children: &[Expression],
+        expression: &Expression,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        let expr = ExprInstance::from_dyn(instance, children);
+        let expr = ExprInstance::new(expression);
         V::nan_count(&self.0, &expr, catalog)
     }
 
-    fn field_path(&self, instance: &dyn Any, children: &[Expression]) -> Option<FieldPath> {
-        let expr = ExprInstance::from_dyn(instance, children);
+    fn field_path(&self, expression: &Expression) -> Option<FieldPath> {
+        let expr = ExprInstance::new(expression);
         V::field_path(&self.0, &expr)
     }
 
     fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool {
         let this_instance = instance
-            .as_any()
             .downcast_ref::<V::Instance>()
             .vortex_expect("Failed to downcast expression instance to expected type");
         let other_instance = other
-            .as_any()
             .downcast_ref::<V::Instance>()
             .vortex_expect("Failed to downcast expression instance to expected type");
         this_instance == other_instance
     }
 
-    fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher) {
+    fn dyn_hash(&self, instance: &dyn Any, mut state: &mut dyn Hasher) {
         let this_instance = instance
-            .as_any()
             .downcast_ref::<V::Instance>()
             .vortex_expect("Failed to downcast expression instance to expected type");
-        this_instance.hash(state);
+        this_instance.hash(&mut state);
     }
 }
 
@@ -366,10 +319,29 @@ impl ExprVTable {
     }
 
     /// Creates a new [`ExprVTable`] from a static reference to a vtable.
-    pub const fn from_static<V: VTable>(vtable: &V) -> Self {
+    pub const fn from_static<V: VTable>(vtable: &'static V) -> Self {
         // SAFETY: We can safely cast the vtable to a VTableAdapter since it has the same layout.
-        let adapted = unsafe { &*(vtable as *const V as *const VTableAdapter<V>) };
-        Self(ArcRef::from(adapted))
+        let adapted: &'static VTableAdapter<V> =
+            unsafe { &*(vtable as *const V as *const VTableAdapter<V>) };
+        Self(ArcRef::new_ref(adapted as &'static dyn DynExprVTable))
+    }
+
+    /// Returns the ID of this vtable.
+    pub fn id(&self) -> ExprId {
+        self.0.id()
+    }
+
+    /// Returns whether this vtable is of a given type.
+    pub fn is<V: VTable>(&self) -> bool {
+        self.0.as_any().is::<VTableAdapter<V>>()
+    }
+
+    /// Returns the typed VTable for this expression.
+    pub fn as_opt<V: VTable>(&self) -> Option<&V> {
+        self.0
+            .as_any()
+            .downcast_ref::<VTableAdapter<V>>()
+            .map(|adapter| &adapter.0)
     }
 
     /// Deserialize an instance of this expression vtable from metadata.
@@ -412,9 +384,9 @@ mod tests {
     use rstest::{fixture, rstest};
 
     use super::*;
+    use crate::exprs::root::root;
     use crate::proto::{deserialize_expr_proto, ExprSerializeProtoExt};
     use crate::session::{ExprRegistry, ExprSession};
-    use crate::*;
 
     #[fixture]
     #[once]

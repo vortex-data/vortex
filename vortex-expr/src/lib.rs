@@ -86,15 +86,14 @@ pub struct ExactExpr(pub Expression);
 
 impl PartialEq for ExactExpr {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+        self.0.id() == other.0.id() && Arc::ptr_eq(self.0.data(), other.0.data())
     }
 }
-
 impl Eq for ExactExpr {}
 
 impl Hash for ExactExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        Arc::as_ptr(&self.0).hash(state)
+        self.0.hash(state);
     }
 }
 

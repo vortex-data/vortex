@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{display, AnalysisExpr, ExprId, ExprVTable, ScopeVar, StatsCatalog, VTable};
+use crate::{display, ChildName, ExprId, ExprVTable, StatsCatalog, VTable};
 use std::any::{type_name, Any};
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -11,7 +11,6 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_session::SessionVar;
 
 /// A node in a Vortex expression tree.
 ///
@@ -39,15 +38,14 @@ impl Expression {
         instance: Arc<dyn Any>,
         children: Arc<[Expression]>,
     ) -> VortexResult<Self> {
-        // Validate that the encoding is compatible with the metadata and children.
-        vtable
-            .as_dyn()
-            .validate(instance.as_ref(), children.as_ref())?;
-        Ok(Self {
+        let this = Self {
             vtable,
             data: instance,
             children,
-        })
+        };
+        // Validate that the encoding is compatible with the metadata and children.
+        this.vtable.as_dyn().validate(&this)?;
+        Ok(this)
     }
 
     /// Creates a new expression with the given encoding, metadata, and children.
@@ -71,7 +69,7 @@ impl Expression {
 
     /// Returns if the expression is an instance of the given vtable.
     pub fn is<V: VTable>(&self) -> bool {
-        self.vtable.as_dyn().as_any().is::<V>()
+        self.vtable.is::<V>()
     }
 
     /// Returns a typed view of this expression for the given vtable.
@@ -93,6 +91,11 @@ impl Expression {
         self.vtable.as_dyn().id()
     }
 
+    /// Returns the opaque data of the expression.
+    pub fn data(&self) -> &Arc<dyn Any> {
+        &self.data
+    }
+
     /// Returns the children of this expression.
     pub fn children(&self) -> &Arc<[Expression]> {
         &self.children
@@ -103,12 +106,15 @@ impl Expression {
         &self.children[n]
     }
 
+    /// Returns the name of the n'th child of this expression.
+    pub fn child_name(&self, n: usize) -> ChildName {
+        self.vtable.as_dyn().child_name(self, n)
+    }
+
     /// Replace the children of this expression with the provided new children.
     pub fn with_children(mut self, children: Arc<[Expression]>) -> VortexResult<Self> {
-        self.vtable
-            .as_dyn()
-            .validate(self.data.as_ref(), &children)?;
         self.children = children;
+        self.vtable.as_dyn().validate(&self)?;
         Ok(self)
     }
 
@@ -119,16 +125,12 @@ impl Expression {
 
     /// Computes the return dtype of this expression given the input dtype.
     pub fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
-        self.vtable
-            .as_dyn()
-            .return_dtype(self.data.as_ref(), self.children.as_ref(), scope)
+        self.vtable.as_dyn().return_dtype(self, scope)
     }
 
     /// Evaluates the expression in the given scope.
     pub fn evaluate(&self, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        self.vtable
-            .as_dyn()
-            .evaluate(self.data.as_ref(), self.children.as_ref(), scope)
+        self.vtable.as_dyn().evaluate(self, scope)
     }
 
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.
@@ -150,11 +152,7 @@ impl Expression {
     /// Some expressions, in theory, have falsifications but this function does not support them
     /// such as `x < (y < z)` or `x LIKE "needle%"`.
     pub fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        self.vtable.as_dyn().stat_falsification(
-            self.data.as_ref(),
-            self.children().as_ref(),
-            catalog,
-        )
+        self.vtable.as_dyn().stat_falsification(self, catalog)
     }
 
     /// An expression for the upper non-null bound of this expression, if available.
@@ -165,40 +163,30 @@ impl Expression {
     /// _must not_ assume the array is empty _nor_ may you assume the array only contains non-null
     /// values.
     pub fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        self.vtable
-            .as_dyn()
-            .max(self.data.as_ref(), self.children.as_ref(), catalog)
+        self.vtable.as_dyn().max(self, catalog)
     }
 
     /// An expression for the lower non-null bound of this expression, if available.
     ///
     /// See [AnalysisExpr::max] for important details.
     pub fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        self.vtable
-            .as_dyn()
-            .min(self.data.as_ref(), self.children.as_ref(), catalog)
+        self.vtable.as_dyn().min(self, catalog)
     }
 
     /// An expression for the NaN count for a column, if available.
     ///
     /// This method returns `None` if the NaNCount stat is unknown.
     pub fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        self.vtable
-            .as_dyn()
-            .nan_count(self.data.as_ref(), self.children.as_ref(), catalog)
+        self.vtable.as_dyn().nan_count(self, catalog)
     }
 
     pub fn field_path(&self) -> Option<FieldPath> {
-        self.vtable
-            .as_dyn()
-            .field_path(self.data.as_ref(), self.children.as_ref())
+        self.vtable.as_dyn().field_path(self)
     }
 
     /// Format the expression as a compact string.
     pub fn fmt_compact(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.vtable
-            .as_dyn()
-            .fmt_compact(self.data.as_ref(), self.children.as_ref(), f)
+        self.vtable.as_dyn().fmt_compact(self, f)
     }
 
     /// Display the expression as a formatted tree structure.
@@ -289,23 +277,21 @@ pub struct ExprInstance<'a, V: VTable> {
 }
 
 impl<'a, V: VTable> ExprInstance<'a, V> {
+    pub fn new(expression: &'a Expression) -> Self {
+        Self::try_new(expression).vortex_expect("Failed to downcast expression")
+    }
+
     pub fn try_new(expression: &'a Expression) -> VortexResult<Self> {
-        expression
-            .vtable
-            .as_dyn()
-            .as_any()
-            .downcast_ref::<V>()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Failed to downcast {} to {}",
-                    expression.vtable.as_dyn().id(),
-                    type_name::<V>()
-                )
-            })?;
+        expression.vtable.as_opt::<V>().ok_or_else(|| {
+            vortex_err!(
+                "Failed to downcast {} to {}",
+                expression.vtable.id(),
+                type_name::<V>()
+            )
+        })?;
 
         let data = expression
             .data
-            .as_any()
             .downcast_ref::<V::Instance>()
             .ok_or_else(|| {
                 vortex_err!(

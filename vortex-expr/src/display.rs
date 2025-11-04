@@ -23,43 +23,26 @@ impl std::fmt::Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
         fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
-            let node_name = TreeNodeDisplay(expr).to_string();
+            let node_name = expr.id().to_string();
 
             // Get child names for display purposes
-            let child_names = DisplayAs::child_names(expr);
+            let child_names = (0..expr.children().len()).map(|i| expr.child_name(i));
             let children = expr.children();
 
-            let child_trees: Result<Vec<Tree<String>>, _> = if let Some(names) = child_names
-                && names.len() == children.len()
-            {
-                children
-                    .iter()
-                    .zip(names.iter())
-                    .map(|(child, name)| {
-                        let child_tree = make_tree(child.as_ref())?;
-                        Ok(Tree::new(format!("{}: {}", name, child_tree.root))
-                            .with_leaves(child_tree.leaves))
-                    })
-                    .collect()
-            } else {
-                children
-                    .iter()
-                    .map(|child| make_tree(child.as_ref()))
-                    .collect()
-            };
+            let child_trees: Result<Vec<Tree<String>>, _> = children
+                .iter()
+                .zip(child_names)
+                .map(|(child, name)| {
+                    let child_tree = make_tree(child)?;
+                    Ok(Tree::new(format!("{}: {}", name, child_tree.root))
+                        .with_leaves(child_tree.leaves))
+                })
+                .collect();
 
             Ok(Tree::new(node_name).with_leaves(child_trees?))
         }
 
         write!(f, "{}", make_tree(self.0)?)
-    }
-}
-
-struct TreeNodeDisplay<'a>(&'a Expression);
-
-impl<'a> std::fmt::Display for TreeNodeDisplay<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt_as(DisplayFormat::Tree, f)
     }
 }
 

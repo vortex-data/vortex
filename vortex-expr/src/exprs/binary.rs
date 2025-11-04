@@ -10,9 +10,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::exprs::literal::lit;
 use crate::v2::Expression;
-use crate::{
-    AnalysisExpr, ChildName, ExprId, ExprInstance, Operator, StatsCatalog, VTable, VTableExt,
-};
+use crate::{ChildName, ExprId, ExprInstance, Operator, StatsCatalog, VTable, VTableExt};
 
 pub struct Binary;
 

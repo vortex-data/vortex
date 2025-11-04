@@ -4,7 +4,7 @@
 use vortex_array::stats::Stat;
 use vortex_dtype::FieldPath;
 
-use crate::{Expression, VTable};
+use crate::Expression;
 
 /// A catalog of available stats that are associated with field paths.
 pub trait StatsCatalog {

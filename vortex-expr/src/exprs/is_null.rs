@@ -56,7 +56,7 @@ impl VTable for IsNull {
         write!(f, ")")
     }
 
-    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, _expr: &ExprInstance<Self>, _scope: &DType) -> VortexResult<DType> {
         Ok(DType::Bool(Nullability::NonNullable))
     }
 
