@@ -5,6 +5,7 @@ use crate::{display, AnalysisExpr, ExprInstance, ExprVTable, ScopeVar, StatsCata
 use std::any::Any;
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
@@ -249,5 +250,25 @@ impl Expression {
     /// ```
     pub fn display_tree(&self) -> impl Display {
         display::DisplayTreeExpr(self)
+    }
+}
+
+impl PartialEq for Expression {
+    fn eq(&self, other: &Self) -> bool {
+        self.vtable.as_dyn().id() == other.vtable.as_dyn().id()
+            && self
+                .vtable
+                .as_dyn()
+                .dyn_eq(self.instance.as_ref(), other.instance.as_ref())
+            && self.children.eq(&other.children)
+    }
+}
+impl Eq for Expression {}
+
+impl Hash for Expression {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.vtable.as_dyn().id().hash(state);
+        self.vtable.as_dyn().dyn_hash(self.instance.as_ref(), state);
+        self.children.hash(state);
     }
 }

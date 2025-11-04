@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::v2::Expression;
+use crate::{AnalysisExpr, ExprId, StatsCatalog};
 use arcref::ArcRef;
 use std::any::Any;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexExpect, VortexResult};
-
-use crate::v2::Expression;
-use crate::{AnalysisExpr, AnalysisVTable, ExprId, StatsCatalog};
+use vortex_session::SessionVar;
 
 /// The vtable trait for a Vortex expression.
 ///
@@ -54,7 +54,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()>;
 
     /// Returns the name of the nth child of the expr.
-    fn child_name(&self, child_idx: usize) -> ChildName;
+    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName;
 
     /// Format this expression in nice human-readable format
     ///
@@ -187,6 +187,10 @@ impl<'a, V: VTable> ExprInstance<'a, V> {
     pub fn children(&self) -> &'a [Expression] {
         self.children
     }
+
+    pub fn child(&self, idx: usize) -> &Expression {
+        &self.children[idx]
+    }
 }
 
 impl<'a, V: VTable> Deref for ExprInstance<'a, V> {
@@ -248,6 +252,9 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression>;
     fn field_path(&self, instance: &dyn Any, children: &[Expression]) -> Option<FieldPath>;
+
+    fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool;
+    fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher);
 }
 
 #[repr(transparent)]
@@ -336,6 +343,26 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     fn field_path(&self, instance: &dyn Any, children: &[Expression]) -> Option<FieldPath> {
         let expr = ExprInstance::from_dyn(instance, children);
         V::field_path(&self.0, &expr)
+    }
+
+    fn dyn_eq(&self, instance: &dyn Any, other: &dyn Any) -> bool {
+        let this_instance = instance
+            .as_any()
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        let other_instance = other
+            .as_any()
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        this_instance == other_instance
+    }
+
+    fn dyn_hash(&self, instance: &dyn Any, state: &mut dyn Hasher) {
+        let this_instance = instance
+            .as_any()
+            .downcast_ref::<V::Instance>()
+            .vortex_expect("Failed to downcast expression instance to expected type");
+        this_instance.hash(state);
     }
 }
 

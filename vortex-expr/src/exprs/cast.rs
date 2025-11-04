@@ -51,7 +51,7 @@ impl VTable for Cast {
         Ok(())
     }
 
-    fn child_name(&self, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("input"),
             _ => unreachable!("Invalid child index {} for Cast expression", child_idx),

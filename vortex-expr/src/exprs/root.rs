@@ -8,9 +8,7 @@ use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::v2::Expression;
-use crate::{
-     ChildName, ExprId, ExprInstance, NotSupported, StatsCatalog, VTable, VTableExt,
-};
+use crate::{ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt};
 
 /// An expression that returns the full scope of the expression evaluation.
 // TODO(ngates): rename to "Scope"
@@ -41,7 +39,7 @@ impl VTable for Root {
         Ok(())
     }
 
-    fn child_name(&self, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
         unreachable!(
             "Root expression does not have children, got index {}",
             child_idx

@@ -1,159 +1,100 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Formatter};
-use std::hash::Hash;
+use std::fmt::Formatter;
 
 use vortex_array::compute::list_contains as compute_list_contains;
-use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    and, gt, lit, lt, or, vtable, AnalysisExpr,
-    ExprEncodingRef, ExprId, Expression, IntoExpr, LiteralVTable, Scope, StatsCatalog, VTable,
+    and, gt, lit, lt, or, AnalysisExpr, ChildName, ExprId,
+    ExprInstance, Expression, Literal, StatsCatalog, VTable, VTableExt,
 };
 
-vtable!(ListContains);
+pub struct ListContains;
 
-#[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Debug, Clone, Hash, Eq)]
-pub struct ListContainsExpr {
-    list: Expression,
-    value: Expression,
-}
+impl VTable for ListContains {
+    type Instance = ();
 
-impl PartialEq for ListContainsExpr {
-    fn eq(&self, other: &Self) -> bool {
-        self.list.eq(&other.list) && self.value.eq(&other.value)
-    }
-}
-
-pub struct ListContainsExprEncoding;
-
-impl VTable for ListContainsVTable {
-    type Expr = ListContainsExpr;
-    type Encoding = ListContainsExprEncoding;
-    type Metadata = EmptyMetadata;
-
-    fn id(_encoding: &Self::Encoding) -> ExprId {
-        ExprId::new_ref("list_contains")
+    fn id(&self) -> ExprId {
+        ExprId::from("vortex.list.contains")
     }
 
-    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(ListContainsExprEncoding.as_ref())
-    }
-
-    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
-    }
-
-    fn children(expr: &Self::Expr) -> Vec<&Expression> {
-        vec![&expr.list, &expr.value]
-    }
-
-    fn with_children(_expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
-        Ok(ListContainsExpr::new(
-            children[0].clone(),
-            children[1].clone(),
-        ))
-    }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<Expression>,
-    ) -> VortexResult<Self::Expr> {
-        if children.len() != 2 {
+    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+        if expr.children().len() != 2 {
             vortex_bail!(
-                "ListContains expression must have exactly 2 children, got {}",
-                children.len()
+                "ListContains expression requires exactly 2 children, got {}",
+                expr.children().len()
             );
         }
-        Ok(ListContainsExpr::new(
-            children[0].clone(),
-            children[1].clone(),
-        ))
+        Ok(())
     }
 
-    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        compute_list_contains(
-            expr.list.evaluate(scope)?.as_ref(),
-            expr.value.evaluate(scope)?.as_ref(),
-        )
-    }
-
-    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
-        Ok(DType::Bool(
-            expr.list.return_dtype(scope)?.nullability()
-                | expr.value.return_dtype(scope)?.nullability(),
-        ))
-    }
-}
-
-impl ListContainsExpr {
-    pub fn new(list: Expression, value: Expression) -> Self {
-        Self { list, value }
-    }
-
-    pub fn new_expr(list: Expression, value: Expression) -> Expression {
-        Self::new(list, value).into_expr()
-    }
-
-    pub fn value(&self) -> &Expression {
-        &self.value
-    }
-}
-
-/// Creates an expression that checks if a value is contained in a list.
-///
-/// Returns a boolean array indicating whether the value appears in each list.
-///
-/// ```rust
-/// # use vortex_expr::{list_contains, lit, root};
-/// let expr = list_contains(root(), lit(42));
-/// ```
-pub fn list_contains(list: Expression, value: Expression) -> Expression {
-    ListContainsExpr::new(list, value).into_expr()
-}
-
-impl DisplayAs for ListContainsExpr {
-    fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
-        match df {
-            DisplayFormat::Compact => {
-                write!(f, "contains({}, {})", &self.list, &self.value)
-            }
-            DisplayFormat::Tree => {
-                write!(f, "ListContains")
-            }
+    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+        match child_idx {
+            0 => ChildName::from("list"),
+            1 => ChildName::from("needle"),
+            _ => unreachable!(
+                "Invalid child index {} for ListContains expression",
+                child_idx
+            ),
         }
     }
 
-    fn child_names(&self) -> Option<Vec<String>> {
-        Some(vec!["list".to_string(), "value".to_string()])
+    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "contains(")?;
+        expr.child(0).fmt_compact(f)?;
+        write!(f, ", ")?;
+        expr.child(1).fmt_compact(f)?;
+        write!(f, ")")
     }
-}
 
-impl AnalysisExpr for ListContainsExpr {
-    // falsification(contains([1,2,5], x)) =>
-    //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
+    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+        let list_dtype = expr.child(0).return_dtype(scope)?;
+        let value_dtype = expr.child(1).return_dtype(scope)?;
 
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        let min = self.list.min(catalog)?;
-        let max = self.list.max(catalog)?;
+        let nullability = match list_dtype {
+            DType::List(_, list_nullability) => list_nullability,
+            _ => {
+                vortex_bail!(
+                    "First argument to ListContains must be a List, got {:?}",
+                    list_dtype
+                );
+            }
+        } | value_dtype.nullability();
+
+        Ok(DType::Bool(nullability))
+    }
+
+    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        let list_array = expr.child(0).evaluate(scope)?;
+        let value_array = expr.child(1).evaluate(scope)?;
+        compute_list_contains(list_array.as_ref(), value_array.as_ref())
+    }
+
+    fn stat_falsification(
+        &self,
+        expr: &ExprInstance<Self>,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        // falsification(contains([1,2,5], x)) =>
+        //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
+        let min = expr.list().min(catalog)?;
+        let max = expr.list().max(catalog)?;
         // If the list is constant when we can compare each element to the value
         if min == max {
             let list_ = min
-                .as_opt::<LiteralVTable>()
-                .and_then(|l| l.value().as_list_opt())
+                .as_view_opt::<Literal>()
+                .and_then(|l| l.as_list_opt())
                 .and_then(|l| l.elements())?;
             if list_.is_empty() {
                 // contains([], x) is always false.
                 return Some(lit(true));
             }
-            let value_max = self.value.max(catalog)?;
-            let value_min = self.value.min(catalog)?;
+            let value_max = expr.needle().max(catalog)?;
+            let value_min = expr.needle().min(catalog)?;
 
             return list_
                 .iter()
@@ -167,6 +108,28 @@ impl AnalysisExpr for ListContainsExpr {
         }
 
         None
+    }
+}
+
+/// Creates an expression that checks if a value is contained in a list.
+///
+/// Returns a boolean array indicating whether the value appears in each list.
+///
+/// ```rust
+/// # use vortex_expr::{list_contains, lit, root};
+/// let expr = list_contains(root(), lit(42));
+/// ```
+pub fn list_contains(list: Expression, value: Expression) -> Expression {
+    ListContains.new((), [list, value])
+}
+
+impl ExprInstance<'_, ListContains> {
+    pub fn list(&self) -> &Expression {
+        &self.children()[0]
+    }
+
+    pub fn needle(&self) -> &Expression {
+        &self.children()[1]
     }
 }
 
