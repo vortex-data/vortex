@@ -147,6 +147,10 @@ impl VectorMutOps for StructVectorMut {
         self.len
     }
 
+    fn validity(&self) -> &MaskMut {
+        &self.validity
+    }
+
     fn capacity(&self) -> usize {
         self.minimum_capacity()
     }

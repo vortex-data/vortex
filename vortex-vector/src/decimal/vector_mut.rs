@@ -7,6 +7,7 @@ use vortex_dtype::{
     DecimalDType, DecimalType, DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType, i256,
 };
 use vortex_error::vortex_panic;
+use vortex_mask::MaskMut;
 
 use crate::decimal::{DVectorMut, DecimalVector};
 use crate::{VectorMutOps, match_each_dvector_mut};
@@ -61,6 +62,10 @@ impl VectorMutOps for DecimalVectorMut {
 
     fn len(&self) -> usize {
         match_each_dvector_mut!(self, |d| { d.len() })
+    }
+
+    fn validity(&self) -> &MaskMut {
+        match_each_dvector_mut!(self, |d| { d.validity() })
     }
 
     fn capacity(&self) -> usize {

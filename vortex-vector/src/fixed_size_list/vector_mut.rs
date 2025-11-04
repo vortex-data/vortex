@@ -172,6 +172,10 @@ impl VectorMutOps for FixedSizeListVectorMut {
         self.len
     }
 
+    fn validity(&self) -> &MaskMut {
+        &self.validity
+    }
+
     /// In the case that `list_size == 0`, the capacity of the vector is infinite because it will
     /// never take up any space.
     fn capacity(&self) -> usize {

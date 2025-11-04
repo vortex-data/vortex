@@ -6,6 +6,7 @@
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
+use vortex_mask::MaskMut;
 
 use crate::primitive::{PVectorMut, PrimitiveVector};
 use crate::{VectorMutOps, match_each_pvector_mut};
@@ -85,6 +86,10 @@ impl VectorMutOps for PrimitiveVectorMut {
 
     fn len(&self) -> usize {
         match_each_pvector_mut!(self, |v| { v.len() })
+    }
+
+    fn validity(&self) -> &MaskMut {
+        match_each_pvector_mut!(self, |v| { v.validity() })
     }
 
     fn capacity(&self) -> usize {

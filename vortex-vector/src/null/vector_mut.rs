@@ -3,6 +3,8 @@
 
 //! Definition and implementation of [`NullVectorMut`].
 
+use vortex_mask::MaskMut;
+
 use crate::VectorMutOps;
 use crate::null::NullVector;
 
@@ -12,16 +14,22 @@ use crate::null::NullVector;
 /// single `length` counter.
 ///
 /// The immutable equivalent of this type is [`NullVector`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct NullVectorMut {
     /// The total number of nulls.
     pub(super) len: usize,
+    /// The validity mask. We only store this in order to implement the
+    /// [`validity()`](Self::validity) method.
+    pub(super) validity: MaskMut,
 }
 
 impl NullVectorMut {
     /// Creates a new mutable vector of nulls with the given length.
     pub fn new(len: usize) -> Self {
-        Self { len }
+        Self {
+            len,
+            validity: MaskMut::new_false(len),
+        }
     }
 }
 
@@ -30,6 +38,10 @@ impl VectorMutOps for NullVectorMut {
 
     fn len(&self) -> usize {
         self.len
+    }
+
+    fn validity(&self) -> &MaskMut {
+        &self.validity
     }
 
     fn capacity(&self) -> usize {
@@ -62,7 +74,10 @@ impl VectorMutOps for NullVectorMut {
 
         let new_len = self.len.saturating_sub(at);
         self.len = std::cmp::min(self.len, at);
-        NullVectorMut { len: new_len }
+        NullVectorMut {
+            len: new_len,
+            validity: MaskMut::new_false(new_len),
+        }
     }
 
     fn unsplit(&mut self, other: Self) {
