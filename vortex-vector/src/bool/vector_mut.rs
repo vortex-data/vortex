@@ -11,57 +11,7 @@ use crate::{BoolVector, VectorMutOps, VectorOps};
 
 /// A mutable vector of boolean values.
 ///
-/// `BoolVectorMut` is the primary way to construct boolean vectors. It provides efficient methods
-/// for building vectors incrementally before converting them to an immutable [`BoolVector`] using
-/// the [`freeze`](crate::VectorMutOps::freeze) method.
-///
-/// # Examples
-///
-/// ## Extending and appending
-///
-/// ```
-/// use vortex_vector::{BoolVectorMut, VectorMutOps};
-///
-/// let mut vec1 = BoolVectorMut::from_iter([true, false].map(Some));
-/// let vec2 = BoolVectorMut::from_iter([true, true].map(Some)).freeze();
-///
-/// // Extend from another vector.
-/// vec1.extend_from_vector(&vec2);
-/// assert_eq!(vec1.len(), 4);
-///
-/// // Append null values.
-/// vec1.append_nulls(2);
-/// assert_eq!(vec1.len(), 6);
-/// ```
-///
-/// ## Splitting and unsplitting
-///
-/// ```
-/// use vortex_vector::{BoolVectorMut, VectorMutOps};
-///
-/// let mut vec = BoolVectorMut::from_iter([true, false, true, false, true].map(Some));
-///
-/// // Split the vector at index 3.
-/// let mut second_half = vec.split_off(3);
-/// assert_eq!(vec.len(), 3);
-/// assert_eq!(second_half.len(), 2);
-///
-/// // Rejoin the vectors.
-/// vec.unsplit(second_half);
-/// assert_eq!(vec.len(), 5);
-/// ```
-///
-/// ## Converting to immutable
-///
-/// ```
-/// use vortex_vector::{BoolVectorMut, VectorMutOps, VectorOps};
-///
-/// let mut vec = BoolVectorMut::from_iter([true, false, true].map(Some));
-///
-/// // Freeze into an immutable vector.
-/// let immutable = vec.freeze();
-/// assert_eq!(immutable.len(), 3);
-/// ```
+/// Internally, this `BoolVectorMut` is a wrapper around a [`BitBufferMut`] and a validity mask.
 #[derive(Debug, Clone)]
 pub struct BoolVectorMut {
     /// The mutable bits that we use to represent booleans.

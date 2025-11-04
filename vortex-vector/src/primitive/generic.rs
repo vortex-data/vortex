@@ -14,11 +14,6 @@ use crate::{PVectorMut, VectorOps};
 ///
 /// `T` is expected to be bound by [`NativePType`], which templates an internal [`Buffer<T>`] that
 /// stores the elements of the vector.
-///
-/// `PVector<T>` can be considered a borrowed / frozen  version of [`PVectorMut<T>`], which is
-/// created via the [`freeze`](crate::VectorMutOps::freeze) method.
-///
-/// See the documentation for [`PVectorMut<T>`] for more information.
 #[derive(Debug, Clone)]
 pub struct PVector<T> {
     /// The buffer representing the vector elements.

@@ -12,10 +12,11 @@ use crate::{DVectorMut, VectorOps};
 
 /// An immutable vector of generic decimal values.
 ///
-/// `DVector<D>` can be considered a borrowed / frozen  version of [`DVectorMut<D>`], which is
-/// created via the [`freeze`](crate::VectorMutOps::freeze) method.
+/// `D` is bound by [`NativeDecimalType`], which can be one of the native integer types (`i8`,
+/// `i16`, `i32`, `i64`, `i128`) or `i256`. `D` is used to store the decimal values.
 ///
-/// See the documentation for [`DVectorMut<D>`] for more information.
+/// The decimal vector maintains a [`PrecisionScale<D>`] that defines the precision (total number of
+/// digits) and scale (digits after the decimal point) for all values in the vector.
 #[derive(Debug, Clone)]
 pub struct DVector<D> {
     /// The precision and scale of each decimal in the decimal vector.

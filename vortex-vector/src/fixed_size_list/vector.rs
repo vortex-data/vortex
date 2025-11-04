@@ -12,11 +12,20 @@ use crate::{FixedSizeListVectorMut, Vector, VectorOps};
 
 /// An immutable vector of fixed-size lists.
 ///
-/// `FixedSizeListVector` can be considered a borrowed / frozen version of
-/// [`FixedSizeListVectorMut`], which is created via the [`freeze`](crate::VectorMutOps::freeze)
-/// method.
+/// `FixedSizeList` vectors can mostly be thought of as a wrapper around other vectors that "groups"
+/// a fixed number of elements together for each list scalar.
 ///
-/// See the documentation for [`FixedSizeListVectorMut`] for more information.
+/// More specifically, each list scalar in the vector has the same number of elements (fixed size),
+/// with all list elements stored contiguously in a child [`Vector`].
+///
+/// Note that the validity mask tracks which lists are null, not which individual elements are null.
+///
+/// # Structure
+///
+/// For a vector of `n` lists each with size `list_size`:
+/// - The `elements` vector has length `n * list_size`
+/// - The `validity` mask has length `n`
+/// - Each list `i` occupies `elements[i * list_size..(i+1) * list_size]
 #[derive(Debug, Clone)]
 pub struct FixedSizeListVector {
     /// The child vector of elements.
