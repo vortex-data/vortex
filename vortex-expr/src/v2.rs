@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{display, ExprInstance, ExprVTable, ScopeVar, VTable};
+use crate::{display, AnalysisExpr, ExprInstance, ExprVTable, ScopeVar, StatsCatalog, VTable};
 use std::any::Any;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use vortex_array::ArrayRef;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexExpect, VortexResult};
 
 /// A node in a Vortex expression tree.
@@ -127,9 +127,74 @@ impl Expression {
             .evaluate(self.instance.as_ref(), self.children.as_ref(), scope)
     }
 
+    /// An expression over zone-statistics which implies all records in the zone evaluate to false.
+    ///
+    /// Given an expression, `e`, if `e.stat_falsification(..)` evaluates to true, it is guaranteed
+    /// that `e` evaluates to false on all records in the zone. However, the inverse is not
+    /// necessarily true: even if the falsification evaluates to false, `e` need not evaluate to
+    /// true on all records.
+    ///
+    /// The [`StatsCatalog`] can be used to constrain or rename stats used in the final expr.
+    ///
+    /// # Examples
+    ///
+    /// - An expression over one variable: `x > 0` is false for all records in a zone if the maximum
+    ///   value of the column `x` in that zone is less than or equal to zero: `max(x) <= 0`.
+    /// - An expression over two variables: `x > y` becomes `max(x) <= min(y)`.
+    /// - A conjunctive expression: `x > y AND z < x` becomes `max(x) <= min(y) OR min(z) >= max(x).
+    ///
+    /// Some expressions, in theory, have falsifications but this function does not support them
+    /// such as `x < (y < z)` or `x LIKE "needle%"`.
+    pub fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        self.vtable.as_dyn().stat_falsification(
+            self.instance.as_ref(),
+            self.children().as_ref(),
+            catalog,
+        )
+    }
+
+    /// An expression for the upper non-null bound of this expression, if available.
+    ///
+    /// This function returns None if there is no upper bound or it is difficult to compute.
+    ///
+    /// The returned expression evaluates to null if the maximum value is unknown. In that case, you
+    /// _must not_ assume the array is empty _nor_ may you assume the array only contains non-null
+    /// values.
+    pub fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        self.vtable
+            .as_dyn()
+            .max(self.instance.as_ref(), self.children.as_ref(), catalog)
+    }
+
+    /// An expression for the lower non-null bound of this expression, if available.
+    ///
+    /// See [AnalysisExpr::max] for important details.
+    pub fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        self.vtable
+            .as_dyn()
+            .min(self.instance.as_ref(), self.children.as_ref(), catalog)
+    }
+
+    /// An expression for the NaN count for a column, if available.
+    ///
+    /// This method returns `None` if the NaNCount stat is unknown.
+    pub fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
+        self.vtable
+            .as_dyn()
+            .nan_count(self.instance.as_ref(), self.children.as_ref(), catalog)
+    }
+
+    pub fn field_path(&self) -> Option<FieldPath> {
+        self.vtable
+            .as_dyn()
+            .field_path(self.instance.as_ref(), self.children.as_ref())
+    }
+
     /// Format the expression as a compact string.
     pub fn fmt_compact(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.vtable.as_dyn().fmt_compact(self.as_view_dyn(), f)
+        self.vtable
+            .as_dyn()
+            .fmt_compact(self.instance.as_ref(), self.children.as_ref(), f)
     }
 
     /// Display the expression as a formatted tree structure.

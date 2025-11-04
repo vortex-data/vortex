@@ -9,11 +9,11 @@ use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 use vortex_array::ArrayRef;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::v2::Expression;
-use crate::{AnalysisVTable, ExprId};
+use crate::{AnalysisExpr, AnalysisVTable, ExprId, StatsCatalog};
 
 /// The vtable trait for a Vortex expression.
 ///
@@ -72,10 +72,86 @@ pub trait VTable: 'static + Sized + Send + Sync {
 
     /// Evaluate the expression in the given scope.
     fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+
+    /// An expression over zone-statistics which implies all records in the zone evaluate to false.
+    ///
+    /// Given an expression, `e`, if `e.stat_falsification(..)` evaluates to true, it is guaranteed
+    /// that `e` evaluates to false on all records in the zone. However, the inverse is not
+    /// necessarily true: even if the falsification evaluates to false, `e` need not evaluate to
+    /// true on all records.
+    ///
+    /// The [`StatsCatalog`] can be used to constrain or rename stats used in the final expr.
+    ///
+    /// # Examples
+    ///
+    /// - An expression over one variable: `x > 0` is false for all records in a zone if the maximum
+    ///   value of the column `x` in that zone is less than or equal to zero: `max(x) <= 0`.
+    /// - An expression over two variables: `x > y` becomes `max(x) <= min(y)`.
+    /// - A conjunctive expression: `x > y AND z < x` becomes `max(x) <= min(y) OR min(z) >= max(x).
+    ///
+    /// Some expressions, in theory, have falsifications but this function does not support them
+    /// such as `x < (y < z)` or `x LIKE "needle%"`.
+    fn stat_falsification(
+        &self,
+        expr: &ExprInstance<Self>,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        None
+    }
+
+    /// An expression for the upper non-null bound of this expression, if available.
+    ///
+    /// This function returns None if there is no upper bound or it is difficult to compute.
+    ///
+    /// The returned expression evaluates to null if the maximum value is unknown. In that case, you
+    /// _must not_ assume the array is empty _nor_ may you assume the array only contains non-null
+    /// values.
+    fn max(
+        &self,
+        expr: &ExprInstance<Self>,
+        _catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        None
+    }
+
+    /// An expression for the lower non-null bound of this expression, if available.
+    ///
+    /// See [AnalysisExpr::max] for important details.
+    fn min(
+        &self,
+        expr: &ExprInstance<Self>,
+        _catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        None
+    }
+
+    /// An expression for the NaN count for a column, if available.
+    ///
+    /// This method returns `None` if the NaNCount stat is unknown.
+    fn nan_count(
+        &self,
+        expr: &ExprInstance<Self>,
+        _catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        None
+    }
+
+    fn field_path(&self, expr: &ExprInstance<Self>) -> Option<FieldPath> {
+        None
+    }
 }
 
 /// Factory functions for static vtables.
 pub trait VTableExt: VTable {
+    fn new(
+        self: &'static Self,
+        instance: Self::Instance,
+        children: impl Into<Arc<[Expression]>>,
+    ) -> Expression {
+        Self::try_new(self, instance, children)
+            .vortex_expect("Failed to create expression instance")
+    }
+
     fn try_new(
         self: &'static Self,
         instance: Self::Instance,
@@ -92,7 +168,7 @@ pub type ChildName = ArcRef<str>;
 /// A placeholder vtable implementation for unsupported optional functionality of an expression.
 pub struct NotSupported;
 
-/// A typed view over an instance of a Vortex expression for a specific vtable.
+/// A typed expr over an instance of a Vortex expression for a specific vtable.
 pub struct ExprInstance<'a, V: VTable> {
     instance: &'a V::Instance,
     // FIXME(ngates): this is tough, because in theory we shouldn't known about ExprNode in general?
@@ -150,6 +226,32 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         children: &[Expression],
         scope: &ArrayRef,
     ) -> VortexResult<ArrayRef>;
+
+    fn stat_falsification(
+        &self,
+        instance: &dyn Any,
+        children: &[Expression],
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression>;
+    fn max(
+        &self,
+        instance: &dyn Any,
+        children: &[Expression],
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression>;
+    fn min(
+        &self,
+        instance: &dyn Any,
+        children: &[Expression],
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression>;
+    fn nan_count(
+        &self,
+        instance: &dyn Any,
+        children: &[Expression],
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression>;
+    fn field_path(&self, instance: &dyn Any, children: &[Expression]) -> Option<FieldPath>;
 }
 
 #[repr(transparent)]
@@ -161,8 +263,8 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     }
 
     fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()> {
-        let view = ExprInstance::from_dyn(instance, children);
-        V::validate(&self.0, &view)
+        let expr = ExprInstance::from_dyn(instance, children);
+        V::validate(&self.0, &expr)
     }
 
     fn fmt_compact(
@@ -171,8 +273,8 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         children: &[Expression],
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
-        let view = ExprInstance::from_dyn(instance, children);
-        V::fmt_compact(&self.0, &view, f)
+        let expr = ExprInstance::from_dyn(instance, children);
+        V::fmt_compact(&self.0, &expr, f)
     }
 
     fn return_dtype(
@@ -181,8 +283,8 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         children: &[Expression],
         scope: &DType,
     ) -> VortexResult<DType> {
-        let view = ExprInstance::from_dyn(instance, children);
-        V::return_dtype(&self.0, &view, scope)
+        let expr = ExprInstance::from_dyn(instance, children);
+        V::return_dtype(&self.0, &expr, scope)
     }
 
     fn evaluate(
@@ -191,8 +293,53 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         children: &[Expression],
         scope: &ArrayRef,
     ) -> VortexResult<ArrayRef> {
-        let view = ExprInstance::from_dyn(instance, children);
-        V::evaluate(&self.0, &view, scope)
+        let expr = ExprInstance::from_dyn(instance, children);
+        V::evaluate(&self.0, &expr, scope)
+    }
+
+    fn stat_falsification(
+        &self,
+        instance: &dyn Any,
+        children: &[Expression],
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        let expr = ExprInstance::from_dyn(instance, children);
+        V::stat_falsification(&self.0, &expr, catalog)
+    }
+
+    fn max(
+        &self,
+        instance: &dyn Any,
+        children: &[Expression],
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        let expr = ExprInstance::from_dyn(instance, children);
+        V::max(&self.0, &expr, catalog)
+    }
+
+    fn min(
+        &self,
+        instance: &dyn Any,
+        children: &[Expression],
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        let expr = ExprInstance::from_dyn(instance, children);
+        V::min(&self.0, &expr, catalog)
+    }
+
+    fn nan_count(
+        &self,
+        instance: &dyn Any,
+        children: &[Expression],
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        let expr = ExprInstance::from_dyn(instance, children);
+        V::nan_count(&self.0, &expr, catalog)
+    }
+
+    fn field_path(&self, instance: &dyn Any, children: &[Expression]) -> Option<FieldPath> {
+        let expr = ExprInstance::from_dyn(instance, children);
+        V::field_path(&self.0, &expr)
     }
 }
 
