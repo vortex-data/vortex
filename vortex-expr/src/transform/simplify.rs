@@ -25,7 +25,7 @@ fn simplify_transformer(node: Expression) -> VortexResult<Transformed<Expression
     if let Some(get_item) = node.as_opt::<GetItem>()
         && let Some(pack) = get_item.child(0).as_opt::<Pack>()
     {
-        let expr = pack.field(get_item.field())?;
+        let expr = pack.field(get_item.data())?;
         return Ok(Transformed::yes(expr));
     }
     Ok(Transformed::no(node))

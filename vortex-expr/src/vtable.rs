@@ -153,7 +153,11 @@ pub trait VTableExt: VTable {
         instance: Self::Instance,
         children: impl Into<Arc<[Expression]>>,
     ) -> VortexResult<Expression> {
-        Expression::try_new(ExprVTable::from_static(self), Arc::new(instance), children)
+        Expression::try_new(
+            ExprVTable::from_static(self),
+            Arc::new(instance),
+            children.into(),
+        )
     }
 }
 impl<V: VTable> VTableExt for V {}
@@ -231,7 +235,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     }
 
     fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()> {
-        let expr = ExprInstance::from_dyn(instance, children);
+        let expr = ExprInstance::try_new(instance, children);
         V::validate(&self.0, &expr)
     }
 

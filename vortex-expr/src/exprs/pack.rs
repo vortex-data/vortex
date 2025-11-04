@@ -10,7 +10,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 
 use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
@@ -153,6 +153,25 @@ impl VTable for Pack {
             StructArray::try_new(expr.data().names.clone(), value_arrays, len, validity)?
                 .into_array(),
         )
+    }
+}
+
+impl ExprInstance<'_, Pack> {
+    pub fn field(&self, field_name: &FieldName) -> VortexResult<Expression> {
+        let idx = self
+            .data()
+            .names
+            .iter()
+            .position(|name| name == field_name)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Cannot find field {} in pack fields {:?}",
+                    field_name,
+                    self.data().names
+                )
+            })?;
+
+        Ok(self.child(idx).clone())
     }
 }
 

@@ -26,7 +26,7 @@ fn merge_transform(node: Expression, ctx: &DType) -> VortexResult<Transformed<Ex
             let mut children = Vec::with_capacity(merge.children().len() * 2);
             let mut all_nullable = true;
             let mut duplicate_names = HashSet::<_>::new();
-            for child in merge.children() {
+            for child in merge.children().iter() {
                 let child_dtype = child.return_dtype(ctx)?;
                 if !child_dtype.is_struct() {
                     return Err(vortex_err!(
@@ -50,7 +50,7 @@ fn merge_transform(node: Expression, ctx: &DType) -> VortexResult<Transformed<Ex
                     }
                 }
 
-                if merge.data() == DuplicateHandling::Error && !duplicate_names.is_empty() {
+                if merge.data() == &DuplicateHandling::Error && !duplicate_names.is_empty() {
                     vortex_bail!(
                         "merge: duplicate fields in children: {}",
                         duplicate_names.into_iter().format(", ")
