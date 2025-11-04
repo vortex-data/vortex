@@ -12,7 +12,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_session::SessionVar;
 
 /// The vtable trait for a Vortex expression.
@@ -172,6 +172,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn id(&self) -> ExprId;
     fn validate(&self, instance: &dyn Any, children: &[Expression]) -> VortexResult<()>;
     fn serialize(&self, instance: &dyn Any) -> VortexResult<Option<Vec<u8>>>;
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any>>>;
     fn fmt_compact(
         &self,
         instance: &dyn Any,
@@ -240,6 +241,10 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
             .downcast_ref::<V::Instance>()
             .vortex_expect("Failed to downcast expression instance to expected type");
         V::serialize(&self.0, instance)
+    }
+
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Arc<dyn Any>>> {
+        Ok(V::deserialize(&self.0, metadata)?.map(|data| Arc::new(data)))
     }
 
     fn fmt_compact(
@@ -362,7 +367,29 @@ impl ExprVTable {
         let adapted = unsafe { &*(vtable as *const V as *const VTableAdapter<V>) };
         Self(ArcRef::from(adapted))
     }
+
+    /// Deserialize an instance of this expression vtable from metadata.
+    pub fn deserialize(
+        &self,
+        metadata: &[u8],
+        children: Arc<[Expression]>,
+    ) -> VortexResult<Expression> {
+        let instance = self.as_dyn().deserialize(metadata)?.ok_or_else(|| {
+            vortex_err!(
+                "Expression vtable {} is not deserializable",
+                self.as_dyn().id()
+            )
+        })?;
+        Expression::try_new(self.clone(), instance, children)
+    }
 }
+
+impl PartialEq for ExprVTable {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.id() == other.0.id()
+    }
+}
+impl Eq for ExprVTable {}
 
 impl Display for ExprVTable {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

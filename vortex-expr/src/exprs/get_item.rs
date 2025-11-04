@@ -80,11 +80,11 @@ impl VTable for GetItem {
     }
 
     fn max(&self, expr: &ExprInstance<Self>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(&*expr), Stat::Max)
+        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::Max)
     }
 
     fn min(&self, expr: &ExprInstance<Self>, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(expr.data()), Stat::Min)
+        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::Min)
     }
 
     fn nan_count(
@@ -92,13 +92,13 @@ impl VTable for GetItem {
         expr: &ExprInstance<Self>,
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::from_name(expr.data()), Stat::NaNCount)
+        catalog.stats_ref(&FieldPath::from_name(expr.data().clone()), Stat::NaNCount)
     }
 
     fn field_path(&self, expr: &ExprInstance<Self>) -> Option<FieldPath> {
         expr.children()[0]
             .field_path()
-            .map(|fp| fp.push(expr.data()))
+            .map(|fp| fp.push(expr.data().clone()))
     }
 }
 

@@ -64,13 +64,14 @@ impl VTable for Select {
     }
 
     fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
-        match expr {
+        match expr.data() {
             FieldSelection::Include(fields) | FieldSelection::Exclude(fields) => {
-                let unique_fields: FieldNames = fields
-                    .iter()
-                    .cloned()
-                    .collect::<std::collections::HashSet<_>>()
-                    .into();
+                let unique_fields = FieldNames::from_iter(
+                    fields
+                        .iter()
+                        .cloned()
+                        .collect::<std::collections::HashSet<_>>(),
+                );
                 if unique_fields.len() != fields.len() {
                     vortex_bail!("Field names in select must be unique, got: {:?}", fields);
                 }
@@ -103,7 +104,7 @@ impl VTable for Select {
             .as_struct_fields_opt()
             .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
 
-        let projected = match &*expr {
+        let projected = match expr.data() {
             FieldSelection::Include(fields) => child_struct_dtype.project(fields.as_ref())?,
             FieldSelection::Exclude(fields) => child_struct_dtype
                 .names()
@@ -118,8 +119,8 @@ impl VTable for Select {
     }
 
     fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        let batch = expr.child().unchecked_evaluate(scope)?.to_struct();
-        Ok(match &*expr {
+        let batch = expr.child().evaluate(scope)?.to_struct();
+        Ok(match expr.data() {
             FieldSelection::Include(f) => batch.project(f.as_ref()),
             FieldSelection::Exclude(names) => {
                 let included_names = batch
@@ -184,7 +185,7 @@ impl ExprInstance<'_, Select> {
     /// ```
     pub fn as_include(&self, field_names: &FieldNames) -> VortexResult<Expression> {
         Select.try_new(
-            FieldSelection::Include(self.as_include_names(field_names)?),
+            FieldSelection::Include(self.data().as_include_names(field_names)?),
             [self.child().clone()],
         )
     }

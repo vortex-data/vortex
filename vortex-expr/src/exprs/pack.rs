@@ -105,7 +105,13 @@ impl VTable for Pack {
 
     fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "pack(")?;
-        for (i, (name, child)) in expr.data().names.iter().zip(expr.children()).enumerate() {
+        for (i, (name, child)) in expr
+            .data()
+            .names
+            .iter()
+            .zip(expr.children().iter())
+            .enumerate()
+        {
             write!(f, "{}: ", name)?;
             child.fmt_compact(f)?;
             if i + 1 < expr.data().names.len() {
@@ -135,7 +141,7 @@ impl VTable for Pack {
             .zip_eq(expr.data().names.iter())
             .map(|(child_expr, name)| {
                 child_expr
-                    .unchecked_evaluate(scope)
+                    .evaluate(scope)
                     .map_err(|e| e.with_context(format!("Can't evaluate '{name}'")))
             })
             .process_results(|it| it.collect::<Vec<_>>())?;

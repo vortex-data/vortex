@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use std::sync::Arc;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_proto::expr as pb;
 
@@ -39,7 +40,7 @@ pub fn deserialize_expr_proto(
     registry: &ExprRegistry,
 ) -> VortexResult<Expression> {
     let expr_id = expr.id.as_str();
-    let encoding = registry
+    let vtable = registry
         .find(expr_id)
         .ok_or_else(|| vortex_err!("unknown expression id: {}", expr_id))?;
 
@@ -47,9 +48,9 @@ pub fn deserialize_expr_proto(
         .children
         .iter()
         .map(|e| deserialize_expr_proto(e, registry))
-        .collect::<VortexResult<Vec<_>>>()?;
+        .collect::<VortexResult<Arc<_>>>()?;
 
-    encoding.build(expr.metadata(), children)
+    vtable.deserialize(expr.metadata(), children)
 }
 
 #[cfg(test)]

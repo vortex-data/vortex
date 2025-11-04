@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{display, AnalysisExpr, ExprVTable, ScopeVar, StatsCatalog, VTable};
+use crate::{display, AnalysisExpr, ExprId, ExprVTable, ScopeVar, StatsCatalog, VTable};
 use std::any::{type_name, Any};
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -86,6 +86,11 @@ impl Expression {
     /// Returns a typed view of this expression for the given vtable, if the types match.
     pub fn as_opt<V: VTable>(&self) -> Option<ExprInstance<'_, V>> {
         ExprInstance::try_new(self).ok()
+    }
+
+    /// Returns the expression ID.
+    pub fn id(&self) -> ExprId {
+        self.vtable.as_dyn().id()
     }
 
     /// Returns the children of this expression.

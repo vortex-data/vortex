@@ -4,6 +4,7 @@
 use itertools::Itertools as _;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::sync::Arc;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray as _, ToCanonical};
@@ -33,7 +34,7 @@ impl VTable for Merge {
     }
 
     fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
-        ChildName::from(format!("{}", child_idx))
+        ChildName::from(Arc::from(format!("{}", child_idx)))
     }
 
     fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -53,7 +54,7 @@ impl VTable for Merge {
         let mut merge_nullability = Nullability::NonNullable;
         let mut duplicate_names = HashSet::<_>::new();
 
-        for child in expr.children() {
+        for child in expr.children().iter() {
             let dtype = child.return_dtype(scope)?;
             let Some(fields) = dtype.as_struct_fields_opt() else {
                 vortex_bail!("merge expects struct input");
@@ -75,7 +76,7 @@ impl VTable for Merge {
             }
         }
 
-        if **expr == DuplicateHandling::Error && !duplicate_names.is_empty() {
+        if expr.data() == &DuplicateHandling::Error && !duplicate_names.is_empty() {
             vortex_bail!(
                 "merge: duplicate fields in children: {}",
                 duplicate_names.into_iter().format(", ")
@@ -94,7 +95,7 @@ impl VTable for Merge {
         let mut arrays = Vec::new();
         let mut duplicate_names = HashSet::<_>::new();
 
-        for child in expr.children() {
+        for child in expr.children().iter() {
             // TODO(marko): When nullable, we need to merge struct validity into field validity.
             let array = child.evaluate(scope)?;
             if array.dtype().is_nullable() {
@@ -117,7 +118,7 @@ impl VTable for Merge {
             }
         }
 
-        if **expr == DuplicateHandling::Error && !duplicate_names.is_empty() {
+        if expr.data() == &DuplicateHandling::Error && !duplicate_names.is_empty() {
             vortex_bail!(
                 "merge: duplicate fields in children: {}",
                 duplicate_names.into_iter().format(", ")

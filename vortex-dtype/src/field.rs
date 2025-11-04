@@ -96,8 +96,8 @@ impl FieldPath {
     }
 
     /// Constructs a new `FieldPath` from a single field selector (i.e., a direct child field of the top-level struct)
-    pub fn from_name<F: Into<Field>>(name: F) -> Self {
-        Self(vec![name.into()])
+    pub fn from_name<F: Into<FieldName>>(name: F) -> Self {
+        Self(vec![Field::Name(name.into())])
     }
 
     /// Returns the sequence of field selectors that make up this path

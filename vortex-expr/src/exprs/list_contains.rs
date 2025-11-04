@@ -10,9 +10,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::exprs::binary::{and, gt, lt, or};
 use crate::exprs::literal::{lit, Literal};
-use crate::{
-    AnalysisExpr, ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt,
-};
+use crate::{ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt};
 
 pub struct ListContains;
 
@@ -88,7 +86,7 @@ impl VTable for ListContains {
         if min == max {
             let list_ = min
                 .as_opt::<Literal>()
-                .and_then(|l| l.as_list_opt())
+                .and_then(|l| l.data().as_list_opt())
                 .and_then(|l| l.elements())?;
             if list_.is_empty() {
                 // contains([], x) is always false.

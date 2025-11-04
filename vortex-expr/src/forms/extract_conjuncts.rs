@@ -18,7 +18,7 @@ pub fn conjuncts(expr: &Expression) -> Vec<Expression> {
 
 fn conjuncts_impl(expr: &Expression, conjuncts: &mut Vec<Expression>) {
     if let Some(expr) = expr.as_opt::<Binary>()
-        && expr.op() == crate::Operator::And
+        && expr.operator() == crate::Operator::And
     {
         conjuncts_impl(expr.lhs(), conjuncts);
         conjuncts_impl(expr.rhs(), conjuncts);

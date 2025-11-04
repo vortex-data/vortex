@@ -26,7 +26,7 @@ impl VTable for Literal {
     fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::LiteralOpts {
-                value: Some(instance.clone().into()),
+                value: Some(instance.as_ref().into()),
             }
             .encode_to_vec(),
         ))
@@ -34,9 +34,12 @@ impl VTable for Literal {
 
     fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
         let ops = pb::LiteralOpts::decode(metadata)?;
-        ops.value
-            .ok_or_else(|| vortex_err!("Literal metadata missing value"))?
-            .try_into()
+        Ok(Some(
+            ops.value
+                .as_ref()
+                .ok_or_else(|| vortex_err!("Literal metadata missing value"))?
+                .try_into()?,
+        ))
     }
 
     fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
@@ -49,7 +52,7 @@ impl VTable for Literal {
         Ok(())
     }
 
-    fn child_name(&self, _instance: &Self::Instance, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &Self::Instance, _child_idx: usize) -> ChildName {
         unreachable!()
     }
 
@@ -58,11 +61,11 @@ impl VTable for Literal {
     }
 
     fn return_dtype(&self, expr: &ExprInstance<Self>, _scope: &DType) -> VortexResult<DType> {
-        Ok(expr.deref().dtype().clone())
+        Ok(expr.data().dtype().clone())
     }
 
     fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(expr.deref().clone(), scope.len()).into_array())
+        Ok(ConstantArray::new(expr.data().clone(), scope.len()).into_array())
     }
 
     fn max(
@@ -70,7 +73,7 @@ impl VTable for Literal {
         expr: &ExprInstance<Self>,
         _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        Some(lit((*expr).clone()))
+        Some(lit(expr.data().clone()))
     }
 
     fn min(
@@ -78,7 +81,7 @@ impl VTable for Literal {
         expr: &ExprInstance<Self>,
         _catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
-        Some(lit((*expr).clone()))
+        Some(lit(expr.data().clone()))
     }
 
     fn nan_count(
@@ -88,7 +91,7 @@ impl VTable for Literal {
     ) -> Option<Expression> {
         // The NaNCount for a non-float literal is not defined.
         // For floating point types, the NaNCount is 1 for lit(NaN), and 0 otherwise.
-        let value = expr.as_primitive_opt()?;
+        let value = expr.data().as_primitive_opt()?;
         if !value.ptype().is_float() {
             return None;
         }
