@@ -135,16 +135,16 @@ impl LayoutStrategy for CompressingStrategy {
                 handle2.spawn_cpu(move || {
                     let (sequence_id, chunk) = chunk?;
                     // Compute the stats for the chunk prior to compression
-                    let start = std::time::Instant::now();
+                    // let start = std::time::Instant::now();
                     chunk
                         .statistics()
                         .compute_all(&Stat::all().collect::<Vec<_>>())?;
-                    let elapsed = start.elapsed();
-                    println!("COMPUTE_ALL: {elapsed:?}");
-                    let start = std::time::Instant::now();
+                    // let elapsed = start.elapsed();
+                    // println!("COMPUTE_ALL: {elapsed:?}");
+                    // let start = std::time::Instant::now();
                     let compress = compressor.compress_chunk(&chunk)?;
-                    let elapsed = start.elapsed();
-                    println!("COMPRESS_CHUNK: {elapsed:?}");
+                    // let elapsed = start.elapsed();
+                    // println!("COMPRESS_CHUNK: {elapsed:?}");
                     Ok((sequence_id, compress))
                 })
             })

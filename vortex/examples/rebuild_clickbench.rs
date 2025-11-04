@@ -18,21 +18,23 @@ use vortex_error::vortex_err;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_session::VortexSession;
 
-#[tokio::main]
+#[tokio::main(worker_threads = 8)]
 pub async fn main() -> anyhow::Result<()> {
     // console_subscriber::init();
-    // let store = LocalFileSystem::new();
-    let store = HttpBuilder::new()
-        .with_url("https://vortex-benchmark-results-database.s3.amazonaws.com")
-        .build()?;
+    let store = LocalFileSystem::new();
+    // let store = HttpBuilder::new()
+    //     .with_url("https://vortex-benchmark-results-database.s3.amazonaws.com")
+    //     .build()?;
     let store = Arc::new(store);
     let reader = parquet::arrow::async_reader::ParquetRecordBatchStreamBuilder::new(
-        ParquetObjectReader::new(store, Path::from("testing/hits.parquet")),
-        // ParquetObjectReader::new(store, Path::from("/Users/aduffy/Downloads/hits.parquet")),
+        // ParquetObjectReader::new(store, Path::from("testing/hits_83.parquet")),
+        ParquetObjectReader::new(store, Path::from("/Volumes/Code/vortex/bench-vortex/data/clickbench_partitioned/parquet/hits_83.parquet")),
     )
     .await?;
 
     let stream = reader.build()?;
+
+    // Start reading the next batch while we're recompressing the previous one.
 
     // Turn into a Vortex record batch stream
     let vx_stream = ArrayStreamAdapter::new(
