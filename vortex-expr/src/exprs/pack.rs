@@ -16,33 +16,6 @@ use vortex_proto::expr as pb;
 use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
 
 /// Pack zero or more expressions into a structure with named fields.
-///
-/// # Examples
-///
-/// ```rust
-/// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_buffer::buffer;
-/// use vortex_expr::{root, Pack, PackOptions, Scope, VortexExpr};
-/// use vortex_scalar::Scalar;
-/// use vortex_dtype::Nullability;
-///
-/// let example = Pack.new(
-///     PackOptions {
-///         names: ["x", "x copy", "second x copy"].into(),
-///         nullability: Nullability::NonNullable,
-///     }
-///     [root(), root(), root()],
-/// );
-/// let packed = example.evaluate(&Scope::new(buffer![100, 110, 200].into_array())).unwrap();
-/// let x_copy = packed
-///     .to_struct()
-///     .field_by_name("x copy")
-///     .unwrap()
-///     .clone();
-/// assert_eq!(x_copy.scalar_at(0), Scalar::from(100));
-/// assert_eq!(x_copy.scalar_at(1), Scalar::from(110));
-/// assert_eq!(x_copy.scalar_at(2), Scalar::from(200));
-/// ```
 pub struct Pack;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

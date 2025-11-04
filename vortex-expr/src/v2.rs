@@ -108,7 +108,7 @@ impl Expression {
 
     /// Returns the name of the n'th child of this expression.
     pub fn child_name(&self, n: usize) -> ChildName {
-        self.vtable.as_dyn().child_name(self, n)
+        self.vtable.as_dyn().child_name(self.data().as_ref(), n)
     }
 
     /// Replace the children of this expression with the provided new children.
