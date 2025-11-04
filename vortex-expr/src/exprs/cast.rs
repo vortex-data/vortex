@@ -3,12 +3,14 @@
 
 use vortex_array::compute::cast as compute_cast;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
+use crate::{
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
+};
 
 vtable!(Cast);
 
@@ -118,7 +120,23 @@ impl DisplayAs for CastExpr {
     }
 }
 
-impl AnalysisExpr for CastExpr {}
+impl AnalysisExpr for CastExpr {
+    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        self.child.max(catalog)
+    }
+
+    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        self.child.min(catalog)
+    }
+
+    fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        self.child.nan_count(catalog)
+    }
+
+    fn field_path(&self) -> Option<FieldPath> {
+        self.child.field_path()
+    }
+}
 
 /// Creates an expression that casts values to a target data type.
 ///

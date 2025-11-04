@@ -104,12 +104,14 @@ mod tests {
     use rstest::{fixture, rstest};
     use vortex_array::compute::{BetweenOptions, StrictComparison};
     use vortex_array::stats::Stat;
-    use vortex_dtype::{FieldName, FieldPath, FieldPathSet};
+    use vortex_dtype::{
+        DType, FieldName, FieldNames, FieldPath, FieldPathSet, Nullability, StructFields,
+    };
 
     use crate::pruning::pruning_expr::HashMap;
     use crate::pruning::{checked_pruning_expr, field_path_stat_field_name};
     use crate::{
-        HashSet, and, between, col, eq, get_item, gt, gt_eq, lit, lt, lt_eq, not_eq, or, root,
+        HashSet, and, between, cast, col, eq, get_item, gt, gt_eq, lit, lt, lt_eq, not_eq, or, root,
     };
 
     // Implement some checked pruning expressions.
@@ -489,6 +491,38 @@ mod tests {
         assert_eq!(
             &converted,
             &or(gt(lit(10), col("a_max")), gt(col("a_min"), lit(50)))
+        );
+    }
+
+    #[rstest]
+    fn pruning_cast_get_item_eq(available_stats: FieldPathSet) {
+        // This test verifies that cast properly forwards analysis methods to
+        // enable pruning.
+        let struct_dtype = DType::Struct(
+            StructFields::new(
+                FieldNames::from([FieldName::from("a"), FieldName::from("b")]),
+                vec![
+                    DType::Utf8(Nullability::Nullable),
+                    DType::Utf8(Nullability::Nullable),
+                ],
+            ),
+            Nullability::NonNullable,
+        );
+        let expr = eq(get_item("a", cast(root(), struct_dtype)), lit("value"));
+        let (converted, refs) = checked_pruning_expr(&expr, &available_stats).unwrap();
+        assert_eq!(
+            refs.map(),
+            &HashMap::from_iter([(
+                FieldPath::from_name("a"),
+                HashSet::from_iter([Stat::Min, Stat::Max])
+            )])
+        );
+        assert_eq!(
+            &converted,
+            &or(
+                gt(col("a_min"), lit("value")),
+                gt(lit("value"), col("a_max"))
+            )
         );
     }
 }
