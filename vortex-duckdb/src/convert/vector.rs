@@ -347,7 +347,6 @@ pub fn flat_vector_to_arrow_array(
             )?))
         }
         DUCKDB_TYPE::DUCKDB_TYPE_LIST => {
-            let arrow_child = flat_vector_to_arrow_array(&mut vector.list_vector_get_child(), len)?;
             let array_child_type = vector.logical_type().list_child_type();
 
             let mut offsets = BufferMut::with_capacity(len);
@@ -364,6 +363,13 @@ pub fn flat_vector_to_arrow_array(
                     );
                 }
             }
+            let offsets = offsets.freeze();
+            let lengths = lengths.freeze();
+            let arrow_child = flat_vector_to_arrow_array(
+                &mut vector.list_vector_get_child(),
+                usize::try_from(offsets[len - 1] + lengths[len - 1])
+                    .vortex_expect("last offset and length sum must fit in usize "),
+            )?;
 
             Ok(Arc::new(GenericListViewArray::try_new(
                 Arc::new(Field::new(
@@ -372,8 +378,8 @@ pub fn flat_vector_to_arrow_array(
                         .to_arrow_dtype()?,
                     true,
                 )),
-                offsets.freeze().into_arrow_scalar_buffer(),
-                lengths.freeze().into_arrow_scalar_buffer(),
+                offsets.into_arrow_scalar_buffer(),
+                lengths.into_arrow_scalar_buffer(),
                 arrow_child,
                 vector.validity_ref(len).to_null_buffer(),
             )?))
@@ -690,9 +696,42 @@ mod tests {
     }
 
     #[test]
+    fn test_list() {
+        let values = vec![1i32, 2, 3, 4];
+        let len = 1;
+
+        let logical_type =
+            LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
+                .vortex_unwrap();
+        let mut vector = Vector::with_capacity(logical_type, len);
+
+        // Populate with data
+        unsafe {
+            let entries = vector.as_slice_mut::<duckdb_list_entry>(len);
+            entries[0] = duckdb_list_entry {
+                offset: 0,
+                length: values.len() as u64,
+            };
+            let mut child = vector.list_vector_get_child();
+            let slice = child.as_slice_mut::<i32>(values.len());
+            slice.copy_from_slice(&values);
+        }
+
+        // Test conversion
+        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
+        let arrow_array = result.as_list_view::<i64>();
+
+        assert_eq!(arrow_array.len(), len);
+        assert_eq!(
+            arrow_array.value(0).as_primitive::<Int32Type>(),
+            &Int32Array::from_iter([1, 2, 3, 4])
+        );
+    }
+
+    #[test]
     fn test_fixed_sized_list() {
         let values = vec![1i32, 2, 3, 4];
-        let len = values.len();
+        let len = 1;
 
         let logical_type =
             LogicalType::array_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER), 4)
@@ -702,7 +741,7 @@ mod tests {
         // Populate with data
         unsafe {
             let mut child = vector.array_vector_get_child();
-            let slice = child.as_slice_mut::<i32>(len);
+            let slice = child.as_slice_mut::<i32>(values.len());
             slice.copy_from_slice(&values);
         }
 
