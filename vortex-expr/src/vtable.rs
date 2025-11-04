@@ -67,7 +67,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
 }
 
 /// Factory functions for static vtables.
-pub trait VTableFactory: VTable {
+pub trait VTableExt: VTable {
     fn try_new(
         self: &'static Self,
         instance: Self::Instance,
@@ -76,7 +76,7 @@ pub trait VTableFactory: VTable {
         Expression::try_new(ExprVTable::from_static(self), Arc::new(instance), children)
     }
 }
-impl<V: VTable> VTableFactory for V {}
+impl<V: VTable> VTableExt for V {}
 
 /// A reference to the name of a child expression.
 pub type ChildName = ArcRef<str>;

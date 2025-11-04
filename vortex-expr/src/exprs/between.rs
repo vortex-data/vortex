@@ -11,7 +11,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use crate::v2::Expression;
 use crate::{
     AnalysisExpr, Binary, ChildName, ExprId, ExprInstance, ExprRef, StatsCatalog, VTable,
-    VTableFactory,
+    VTableExt,
 };
 
 /// An optimized scalar expression to compute whether values fall between two bounds.

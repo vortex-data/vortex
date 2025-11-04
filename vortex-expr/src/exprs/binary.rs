@@ -12,7 +12,7 @@ use crate::display::DisplayAs;
 use crate::v2::Expression;
 use crate::{
     lit, AnalysisExpr, AnalysisVTable, ChildName, ExprId, ExprInstance, IntoExpr,
-    Operator, StatsCatalog, VTable, VTableFactory,
+    Operator, StatsCatalog, VTable, VTableExt,
 };
 
 pub struct Binary;

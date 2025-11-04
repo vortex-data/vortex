@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::v2::Expression;
-use crate::{ChildName, ExprId, ExprInstance, NotSupported, VTable, VTableFactory};
+use crate::{ChildName, ExprId, ExprInstance, NotSupported, VTable, VTableExt};
 
 /// A cast expression that converts values to a target data type.
 pub struct Cast;
