@@ -18,7 +18,6 @@ pub struct Cast;
 
 impl VTable for Cast {
     type Instance = DType;
-    type AnalysisVTable = NotSupported;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.cast")

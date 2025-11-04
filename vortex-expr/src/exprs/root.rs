@@ -9,7 +9,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::v2::Expression;
 use crate::{
-    AnalysisVTable, ChildName, ExprId, ExprInstance, NotSupported, StatsCatalog, VTable, VTableExt,
+     ChildName, ExprId, ExprInstance, NotSupported, StatsCatalog, VTable, VTableExt,
 };
 
 /// An expression that returns the full scope of the expression evaluation.
@@ -18,7 +18,6 @@ pub struct Root;
 
 impl VTable for Root {
     type Instance = ();
-    type AnalysisVTable = NotSupported;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.root")

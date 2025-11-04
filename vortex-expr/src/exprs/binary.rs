@@ -12,7 +12,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use crate::display::DisplayAs;
 use crate::v2::Expression;
 use crate::{
-    lit, AnalysisExpr, AnalysisVTable, ChildName, ExprId, ExprInstance, Operator, StatsCatalog,
+    lit, AnalysisExpr,  ChildName, ExprId, ExprInstance, Operator, StatsCatalog,
     VTable, VTableExt,
 };
 
@@ -20,7 +20,6 @@ pub struct Binary;
 
 impl VTable for Binary {
     type Instance = Operator;
-    type AnalysisVTable = Self;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.binary")

@@ -4,7 +4,7 @@
 use vortex_array::stats::Stat;
 use vortex_dtype::FieldPath;
 
-use crate::{Expression, NotSupported, VTable};
+use crate::{Expression, VTable};
 
 /// A catalog of available stats that are associated with field paths.
 pub trait StatsCatalog {
@@ -18,10 +18,6 @@ pub trait StatsCatalog {
         None
     }
 }
-
-pub trait AnalysisVTable<V: VTable> {}
-
-impl<V: VTable> AnalysisVTable<V> for NotSupported {}
 
 /// This can be used by expression to plug into vortex expression analysis, such as
 /// pruning or expression simplification

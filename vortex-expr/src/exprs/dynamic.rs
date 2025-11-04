@@ -24,7 +24,6 @@ pub struct DynamicComparison;
 
 impl VTable for DynamicComparison {
     type Instance = DynamicComparisonExpr;
-    type AnalysisVTable = ();
 
     fn id(&self) -> ExprId {
         ExprId::new_ref("vortex.dynamic")

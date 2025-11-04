@@ -13,7 +13,7 @@ use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 
 use crate::field::DisplayFieldNames;
 use crate::v2::Expression;
-use crate::{ChildName, ExprId, ExprInstance, NotSupported, Scope, VTable, VTableExt};
+use crate::{ChildName, ExprId, ExprInstance, Scope, VTable, VTableExt};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -25,7 +25,6 @@ pub struct Select;
 
 impl VTable for Select {
     type Instance = FieldSelection;
-    type AnalysisVTable = NotSupported;
 
     fn id(&self) -> ExprId {
         ExprId::new_ref("vortex.select")

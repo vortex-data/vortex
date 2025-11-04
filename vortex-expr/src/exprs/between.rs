@@ -29,7 +29,6 @@ pub struct Between;
 
 impl VTable for Between {
     type Instance = BetweenOptions;
-    type AnalysisVTable = Self;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.between")
