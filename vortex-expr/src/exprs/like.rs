@@ -179,9 +179,9 @@ mod tests {
     #[test]
     fn test_display() {
         let expr = like(get_item("name", root()), lit("%john%"));
-        assert_eq!(expr.to_string(), "$.name LIKE \"%john%\"");
+        assert_eq!(expr.to_string(), "$.name like \"%john%\"");
 
         let expr2 = not_ilike(root(), lit("test*"));
-        assert_eq!(expr2.to_string(), "$ LIKE \"test*\"");
+        assert_eq!(expr2.to_string(), "$ not ilike \"test*\"");
     }
 }

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use prost::Message;
 use std::fmt::{Formatter, Pointer};
-
 use vortex_array::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
 use vortex_array::{compute, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_proto::expr as pb;
 
 use crate::exprs::literal::lit;
 use crate::exprs::operators::Operator;
@@ -20,6 +21,20 @@ impl VTable for Binary {
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.binary")
+    }
+
+    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(
+            pb::BinaryOpts {
+                op: (*instance).into(),
+            }
+            .encode_to_vec(),
+        ))
+    }
+
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+        let opts = pb::BinaryOpts::decode(metadata)?;
+        Ok(Some(Operator::try_from(opts.op)?))
     }
 
     fn validate(&self, _expr: &ExprInstance<Self>) -> VortexResult<()> {

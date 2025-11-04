@@ -62,7 +62,7 @@ impl VTable for Cast {
     fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "cast(")?;
         expr.children()[0].fmt_compact(f)?;
-        write!(f, " as {:?}", expr.deref())?;
+        write!(f, " as {}", expr.data())?;
         write!(f, ")")
     }
 

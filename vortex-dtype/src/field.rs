@@ -338,10 +338,7 @@ mod tests {
         assert!(path.resolve(level1.clone()).is_none());
         assert!(!path.exists_in(level1.clone()));
 
-        let path = FieldPath::from_name(Field::ElementType)
-            .push("a")
-            .push("b")
-            .push("c");
+        let path = FieldPath::root().push("a").push("b").push("c");
         assert!(path.resolve(level1.clone()).is_none());
         assert!(!path.exists_in(level1));
     }

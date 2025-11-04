@@ -15,7 +15,7 @@ impl Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
         fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
-            let node_name = format!("{}({})", expr.id().to_string(), expr.fmt_metadata());
+            let node_name = format!("{}", ExpressionDebug(expr));
 
             // Get child names for display purposes
             let child_names = (0..expr.children().len()).map(|i| expr.child_name(i));
