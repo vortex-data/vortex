@@ -42,37 +42,31 @@ register_kernel!(SumKernelAdapter(ChunkedVTable).lift());
 fn sum_int<T: NativePType + PrimInt + FromPrimitiveOrF16>(
     chunks: &[ArrayRef],
 ) -> VortexResult<Option<T>> {
-    let mut result: Option<T> = None;
+    let mut result: T = T::zero();
     for chunk in chunks {
         let chunk_sum = sum(chunk)?;
-
-        let Some(chunk_sum) = chunk_sum.as_primitive().as_::<T>() else {
-            // Skip missing null chunk
-            continue;
+        let Some(chunk_sum) = chunk_sum
+            .as_primitive()
+            .as_::<T>()
+            .and_then(|chunk_sum| result.checked_add(&chunk_sum))
+        else {
+            // Bail out on null or overflow
+            return Ok(None);
         };
-
-        result = Some(match result {
-            None => chunk_sum,
-            Some(result) => {
-                let Some(chunk_result) = result.checked_add(&chunk_sum) else {
-                    // Bail out on overflow
-                    return Ok(None);
-                };
-                chunk_result
-            }
-        });
+        result = chunk_sum;
     }
-    Ok(result)
+    Ok(Some(result))
 }
 
-fn sum_float(chunks: &[ArrayRef]) -> VortexResult<f64> {
+fn sum_float(chunks: &[ArrayRef]) -> VortexResult<Option<f64>> {
     let mut result = 0f64;
     for chunk in chunks {
-        if let Some(chunk_sum) = sum(chunk)?.as_primitive().as_::<f64>() {
-            result += chunk_sum;
+        let Some(chunk_sum) = sum(chunk)?.as_primitive().as_::<f64>() else {
+            return Ok(None);
         };
+        result += chunk_sum;
     }
-    Ok(result)
+    Ok(Some(result))
 }
 
 fn sum_decimal(chunks: &[ArrayRef], result_decimal_type: DecimalDType) -> VortexResult<Scalar> {
@@ -84,21 +78,19 @@ fn sum_decimal(chunks: &[ArrayRef], result_decimal_type: DecimalDType) -> Vortex
         let chunk_sum = sum(chunk)?;
 
         let chunk_decimal = DecimalScalar::try_from(&chunk_sum)?;
-        let Some(chunk_value) = chunk_decimal.decimal_value() else {
-            // skips all null chunks
-            continue;
-        };
-
-        // Perform checked addition with current result
-        let Some(r) = result.checked_add(&chunk_value).filter(|sum_value| {
-            sum_value
-                .fits_in_precision(result_decimal_type)
-                .unwrap_or(false)
-        }) else {
-            // Overflow
+        let Some(r) = chunk_decimal
+            .decimal_value()
+            // TODO(joe): added a precision capped checked_add.
+            .and_then(|c_sum| result.checked_add(&c_sum))
+            .filter(|sum_value| {
+                sum_value
+                    .fits_in_precision(result_decimal_type)
+                    .unwrap_or(false)
+            })
+        else {
+            // null if any chunk is null or the sum overflows
             return Ok(null());
         };
-
         result = r;
     }
 
@@ -146,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sum_chunked_floats_all_nulls() {
+    fn test_sum_chunked_floats_all_nulls_is_zero() {
         // Create chunks with all nulls
         let chunk1 = PrimitiveArray::from_option_iter::<f32, _>(vec![None, None, None]);
         let chunk2 = PrimitiveArray::from_option_iter::<f32, _>(vec![None, None]);
@@ -154,10 +146,9 @@ mod tests {
         let dtype = chunk1.dtype().clone();
         let chunked =
             ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype).unwrap();
-
         // Compute sum - should return null for all nulls
         let result = sum(chunked.as_ref()).unwrap();
-        assert!(result.as_primitive().as_::<f64>().is_none());
+        assert_eq!(result, Scalar::primitive(0f64, Nullability::Nullable));
     }
 
     #[test]

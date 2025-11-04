@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use num_traits::{CheckedAdd, Float, ToPrimitive};
+use num_traits::{CheckedAdd, Float, ToPrimitive, Zero};
 use vortex_buffer::BitBuffer;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
@@ -28,11 +28,12 @@ impl SumKernel for PrimitiveVTable {
             }
             AllOr::None => {
                 // All-invalid
-                return Ok(Scalar::null(
-                    Stat::Sum
-                        .dtype(array.dtype())
-                        .vortex_expect("Sum dtype must be defined for primitive type"),
-                ));
+                let sum_dtype = Stat::Sum
+                    .dtype(array.dtype())
+                    .vortex_expect("Sum dtype must be defined for primitive type");
+                return Ok(match_each_native_ptype!(sum_dtype.as_ptype(), |P| {
+                    Scalar::primitive(P::zero(), sum_dtype.nullability())
+                }));
             }
             AllOr::Some(validity_mask) => {
                 // Some-valid
