@@ -8,7 +8,8 @@ use vortex_dtype::{NativeDecimalType, PrecisionScale};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::{DVectorMut, VectorOps};
+use crate::VectorOps;
+use crate::decimal::DVectorMut;
 
 /// An immutable vector of generic decimal values.
 ///

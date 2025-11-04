@@ -4,7 +4,8 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_vector::{StructVector, Vector};
+use vortex_vector::Vector;
+use vortex_vector::struct_::StructVector;
 
 use crate::ArrayRef;
 use crate::arrays::{StructArray, StructVTable};

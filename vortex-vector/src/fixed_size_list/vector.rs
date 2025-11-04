@@ -8,7 +8,8 @@ use std::sync::Arc;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
-use crate::{FixedSizeListVectorMut, Vector, VectorOps};
+use crate::fixed_size_list::FixedSizeListVectorMut;
+use crate::{Vector, VectorOps};
 
 /// An immutable vector of fixed-size lists.
 ///
@@ -196,7 +197,8 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::*;
-    use crate::{PVectorMut, Vector, VectorMutOps};
+    use crate::primitive::PVectorMut;
+    use crate::{Vector, VectorMutOps};
 
     #[test]
     fn test_constructor_and_validation() {

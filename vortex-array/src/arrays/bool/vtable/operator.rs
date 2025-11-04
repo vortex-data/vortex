@@ -3,7 +3,7 @@
 
 use vortex_compute::filter::Filter;
 use vortex_error::VortexResult;
-use vortex_vector::BoolVector;
+use vortex_vector::bool::BoolVector;
 
 use crate::arrays::{BoolArray, BoolVTable, MaskedVTable};
 use crate::execution::{BatchKernelRef, BindCtx, kernel};

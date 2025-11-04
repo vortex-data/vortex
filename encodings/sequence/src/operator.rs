@@ -10,7 +10,8 @@ use vortex_array::vtable::OperatorVTable;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::AllOr;
-use vortex_vector::{PVectorMut, Vector, VectorMutOps};
+use vortex_vector::primitive::PVectorMut;
+use vortex_vector::{Vector, VectorMutOps};
 
 use crate::{SequenceArray, SequenceVTable};
 

@@ -7,7 +7,8 @@ use vortex_buffer::BitBufferMut;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
-use crate::{BoolVector, VectorMutOps, VectorOps};
+use crate::bool::BoolVector;
+use crate::{VectorMutOps, VectorOps};
 
 /// A mutable vector of boolean values.
 ///

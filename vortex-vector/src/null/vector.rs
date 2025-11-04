@@ -5,7 +5,8 @@
 
 use vortex_mask::Mask;
 
-use crate::{NullVectorMut, VectorOps};
+use crate::VectorOps;
+use crate::null::NullVectorMut;
 
 /// An immutable vector of null values.
 ///

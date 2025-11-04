@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use arrow_array::{ArrayRef, NullArray};
 use vortex_error::VortexResult;
-use vortex_vector::{NullVector, VectorOps};
+use vortex_vector::VectorOps;
+use vortex_vector::null::NullVector;
 
 use crate::arrow::IntoArrow;
 

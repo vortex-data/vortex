@@ -3,7 +3,8 @@
 
 use std::ops::Not;
 
-use vortex_vector::{BoolVector, BoolVectorMut, VectorOps};
+use vortex_vector::VectorOps;
+use vortex_vector::bool::{BoolVector, BoolVectorMut};
 
 use crate::logical::LogicalNot;
 
@@ -43,7 +44,7 @@ impl LogicalNot for BoolVectorMut {
 mod tests {
     use vortex_buffer::bitbuffer;
     use vortex_mask::Mask;
-    use vortex_vector::BoolVector;
+    use vortex_vector::bool::BoolVector;
 
     use super::*;
 

@@ -4,7 +4,7 @@
 use vortex_compute::filter::Filter;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
-use vortex_vector::PVector;
+use vortex_vector::primitive::PVector;
 
 use crate::arrays::{MaskedVTable, PrimitiveArray, PrimitiveVTable};
 use crate::execution::{BatchKernelRef, BindCtx, kernel};

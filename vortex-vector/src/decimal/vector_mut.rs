@@ -8,8 +8,8 @@ use vortex_dtype::{
 };
 use vortex_error::vortex_panic;
 
-use crate::decimal::DVectorMut;
-use crate::{DecimalVector, VectorMutOps, match_each_dvector_mut};
+use crate::decimal::{DVectorMut, DecimalVector};
+use crate::{VectorMutOps, match_each_dvector_mut};
 
 /// An enum over all supported decimal mutable vector types.
 #[derive(Clone, Debug)]

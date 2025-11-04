@@ -6,7 +6,8 @@
 use vortex_buffer::BitBufferMut;
 use vortex_mask::MaskMut;
 
-use crate::{BoolVectorMut, VectorMutOps};
+use crate::VectorMutOps;
+use crate::bool::BoolVectorMut;
 
 impl FromIterator<Option<bool>> for BoolVectorMut {
     /// Creates a new [`BoolVectorMut`] from an iterator of `Option<bool>` values.

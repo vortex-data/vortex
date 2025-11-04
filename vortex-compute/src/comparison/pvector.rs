@@ -4,7 +4,9 @@
 use std::ops::BitAnd;
 
 use vortex_dtype::NativePType;
-use vortex_vector::{BoolVector, PVector, VectorOps};
+use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolVector;
+use vortex_vector::primitive::PVector;
 
 use crate::comparison::collection::ComparableCollectionAdapter;
 use crate::comparison::{Compare, ComparisonOperator};

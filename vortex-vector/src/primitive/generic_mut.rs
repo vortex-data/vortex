@@ -8,7 +8,8 @@ use vortex_dtype::NativePType;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
-use crate::{PVector, VectorMutOps, VectorOps};
+use crate::primitive::PVector;
+use crate::{VectorMutOps, VectorOps};
 
 /// A mutable vector of generic primitive values.
 ///

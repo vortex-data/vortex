@@ -7,7 +7,8 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_mask::MaskMut;
 
-use crate::{PVectorMut, VectorMutOps};
+use crate::VectorMutOps;
+use crate::primitive::PVectorMut;
 
 /// Point operations for [`PVectorMut`].
 impl<T: NativePType> PVectorMut<T> {
@@ -68,7 +69,7 @@ impl<T: NativePType> AsRef<[T]> for PVectorMut<T> {
     /// Returns an immutable slice over the internal mutable buffer with elements of type `T`.
     ///
     /// Note that this slice may contain garbage data where the [`validity()`] mask from the frozen
-    /// [`PVector`](crate::PVector) type states that an element is invalid.
+    /// [`PVector`](crate::primitive::PVector) type states that an element is invalid.
     ///
     /// The caller should check the frozen [`validity()`] before performing any operations.
     ///
@@ -83,7 +84,7 @@ impl<T: NativePType> AsMut<[T]> for PVectorMut<T> {
     /// Returns a mutable slice over the internal mutable buffer with elements of type `T`.
     ///
     /// Note that this slice may contain garbage data where the [`validity()`] mask from the frozen
-    /// [`PVector`](crate::PVector) type states that an element is invalid.
+    /// [`PVector`](crate::primitive::PVector) type states that an element is invalid.
     ///
     /// The caller should check the frozen [`validity()`] before performing any operations.
     ///

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use arrow_array::{ArrayRef, FixedSizeListArray};
 use arrow_schema::Field;
 use vortex_error::VortexResult;
-use vortex_vector::FixedSizeListVector;
+use vortex_vector::fixed_size_list::FixedSizeListVector;
 
 use crate::arrow::IntoArrow;
 

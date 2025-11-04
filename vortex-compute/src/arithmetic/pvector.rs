@@ -5,7 +5,8 @@ use std::ops::BitAnd;
 
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::NativePType;
-use vortex_vector::{PVector, PVectorMut, VectorMutOps, VectorOps};
+use vortex_vector::primitive::{PVector, PVectorMut};
+use vortex_vector::{VectorMutOps, VectorOps};
 
 use crate::arithmetic::{Arithmetic, Operator};
 
@@ -125,7 +126,8 @@ where
 mod tests {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
-    use vortex_vector::{PVector, VectorOps};
+    use vortex_vector::VectorOps;
+    use vortex_vector::primitive::PVector;
 
     use crate::arithmetic::{Arithmetic, WrappingAdd, WrappingMul, WrappingSub};
 

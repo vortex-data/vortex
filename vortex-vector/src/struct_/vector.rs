@@ -8,7 +8,8 @@ use std::sync::Arc;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
-use crate::{StructVectorMut, Vector, VectorMutOps, VectorOps};
+use crate::struct_::StructVectorMut;
+use crate::{Vector, VectorMutOps, VectorOps};
 
 /// An immutable vector of struct values.
 ///

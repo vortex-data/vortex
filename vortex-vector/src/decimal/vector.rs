@@ -7,8 +7,8 @@ use vortex_dtype::{DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType, i2
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::decimal::DVector;
-use crate::{DecimalVectorMut, VectorOps, match_each_dvector};
+use crate::decimal::{DVector, DecimalVectorMut};
+use crate::{VectorOps, match_each_dvector};
 
 /// An enum over all supported decimal mutable vector types.
 #[derive(Clone, Debug)]

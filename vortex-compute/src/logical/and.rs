@@ -3,7 +3,8 @@
 
 use std::ops::BitAnd;
 
-use vortex_vector::{BoolVector, VectorOps};
+use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolVector;
 
 use crate::logical::LogicalAnd;
 
@@ -31,7 +32,7 @@ impl LogicalAnd<&BoolVector> for BoolVector {
 mod tests {
     use vortex_buffer::bitbuffer;
     use vortex_mask::Mask;
-    use vortex_vector::BoolVector;
+    use vortex_vector::bool::BoolVector;
 
     use super::*;
 

@@ -6,7 +6,8 @@
 use vortex_buffer::{BitBufferMut, Buffer, BufferMut};
 use vortex_dtype::{NativePType, Nullability};
 use vortex_error::{VortexResult, vortex_ensure, vortex_panic};
-use vortex_vector::{PrimitiveVector, VectorOps, match_each_pvector};
+use vortex_vector::primitive::PrimitiveVector;
+use vortex_vector::{VectorOps, match_each_pvector};
 
 use crate::arrays::PrimitiveArray;
 use crate::validity::Validity;
@@ -142,7 +143,7 @@ mod tests {
     use vortex_buffer::BufferMut;
     use vortex_dtype::{Nullability, PType};
     use vortex_mask::MaskMut;
-    use vortex_vector::PVector;
+    use vortex_vector::primitive::PVector;
 
     use super::*;
 

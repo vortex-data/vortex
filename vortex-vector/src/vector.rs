@@ -8,11 +8,14 @@
 
 use vortex_error::vortex_panic;
 
+use crate::binaryview::{BinaryVector, StringVector};
+use crate::bool::BoolVector;
+use crate::decimal::DecimalVector;
 use crate::fixed_size_list::FixedSizeListVector;
-use crate::{
-    BinaryVector, BoolVector, DecimalVector, NullVector, PrimitiveVector, StringVector,
-    StructVector, VectorMut, VectorOps, match_each_vector,
-};
+use crate::null::NullVector;
+use crate::primitive::PrimitiveVector;
+use crate::struct_::StructVector;
+use crate::{VectorMut, VectorOps, match_each_vector};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.
@@ -29,12 +32,19 @@ pub enum Vector {
     Null(NullVector),
     /// Boolean vectors.
     Bool(BoolVector),
-    /// Decimal
+    /// Decimal vectors.
+    ///
+    /// Note that [`DecimalVector`] is an enum over the different possible (generic)
+    /// [`DVector<D>`](crate::decimal::DVector)s.
+    ///
+    /// See the [documentation](crate::decimal) for more information.
     Decimal(DecimalVector),
     /// Primitive vectors.
     ///
     /// Note that [`PrimitiveVector`] is an enum over the different possible (generic)
-    /// [`PVector<T>`](crate::PVector)s. See the documentation for more information.
+    /// [`PVector<T>`](crate::primitive::PVector)s.
+    ///
+    /// See the [documentation](crate::primitive) for more information.
     Primitive(PrimitiveVector),
     /// String vectors
     String(StringVector),

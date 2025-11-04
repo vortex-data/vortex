@@ -9,7 +9,8 @@ use vortex_dtype::StructFields;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::MaskMut;
 
-use crate::{StructVector, Vector, VectorMut, VectorMutOps, VectorOps, match_vector_pair};
+use crate::struct_::StructVector;
+use crate::{Vector, VectorMut, VectorMutOps, VectorOps, match_vector_pair};
 
 /// A mutable vector of struct values (values with named fields).
 ///
@@ -271,7 +272,10 @@ mod tests {
     use vortex_mask::{Mask, MaskMut};
 
     use super::*;
-    use crate::{BoolVectorMut, NullVector, NullVectorMut, PVectorMut, VectorMut};
+    use crate::VectorMut;
+    use crate::bool::BoolVectorMut;
+    use crate::null::{NullVector, NullVectorMut};
+    use crate::primitive::PVectorMut;
 
     #[test]
     fn test_empty_fields() {

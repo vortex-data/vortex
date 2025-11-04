@@ -10,21 +10,13 @@
 #![deny(clippy::missing_panics_doc)]
 #![deny(clippy::missing_safety_doc)]
 
-mod binaryview;
-mod bool;
-mod decimal;
-mod fixed_size_list;
-mod null;
-mod primitive;
-mod struct_;
-
-pub use binaryview::*;
-pub use bool::*;
-pub use decimal::*;
-pub use fixed_size_list::*;
-pub use null::*;
-pub use primitive::*;
-pub use struct_::*;
+pub mod binaryview;
+pub mod bool;
+pub mod decimal;
+pub mod fixed_size_list;
+pub mod null;
+pub mod primitive;
+pub mod struct_;
 
 mod ops;
 mod vector;

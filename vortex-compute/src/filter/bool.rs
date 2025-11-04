@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_mask::Mask;
-use vortex_vector::{BoolVector, VectorOps};
+use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolVector;
 
 use crate::filter::Filter;
 

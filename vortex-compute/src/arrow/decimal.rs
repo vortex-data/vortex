@@ -8,7 +8,7 @@ use arrow_array::{ArrayRef, PrimitiveArray};
 use vortex_buffer::Buffer;
 use vortex_dtype::i256;
 use vortex_error::VortexResult;
-use vortex_vector::{DVector, DecimalVector};
+use vortex_vector::decimal::{DVector, DecimalVector};
 
 use crate::arrow::IntoArrow;
 

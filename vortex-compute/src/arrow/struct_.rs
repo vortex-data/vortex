@@ -6,7 +6,8 @@ use std::sync::Arc;
 use arrow_array::{ArrayRef, StructArray};
 use arrow_schema::{Field, Fields};
 use vortex_error::VortexResult;
-use vortex_vector::{StructVector, VectorOps};
+use vortex_vector::VectorOps;
+use vortex_vector::struct_::StructVector;
 
 use crate::arrow::IntoArrow;
 

@@ -10,11 +10,13 @@ use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 
 use crate::binaryview::{BinaryVectorMut, StringVectorMut};
+use crate::bool::BoolVectorMut;
+use crate::decimal::DecimalVectorMut;
 use crate::fixed_size_list::FixedSizeListVectorMut;
-use crate::{
-    BoolVectorMut, DecimalVectorMut, NullVectorMut, PrimitiveVectorMut, StructVectorMut, Vector,
-    VectorMutOps, match_each_vector_mut, match_vector_pair,
-};
+use crate::null::NullVectorMut;
+use crate::primitive::PrimitiveVectorMut;
+use crate::struct_::StructVectorMut;
+use crate::{Vector, VectorMutOps, match_each_vector_mut, match_vector_pair};
 
 /// An enum over all kinds of mutable vectors, which represent fully decompressed (canonical) array
 /// data.
@@ -31,12 +33,19 @@ pub enum VectorMut {
     Null(NullVectorMut),
     /// Mutable Boolean vectors.
     Bool(BoolVectorMut),
-    /// Mutable Decimal vectors
+    /// Mutable Decimal vectors.
+    ///
+    /// Note that [`DecimalVectorMut`] is an enum over the different possible (generic)
+    /// [`DVectorMut<D>`](crate::decimal::DVectorMut)s.
+    ///
+    /// See the [documentation](crate::decimal) for more information.
     Decimal(DecimalVectorMut),
     /// Mutable Primitive vectors.
     ///
     /// Note that [`PrimitiveVectorMut`] is an enum over the different possible (generic)
-    /// [`PVectorMut<T>`](crate::PVectorMut)s. See the documentation for more information.
+    /// [`PVectorMut<T>`](crate::primitive::PVectorMut)s.
+    ///
+    /// See the documentation for more information.
     Primitive(PrimitiveVectorMut),
     /// Mutable String vectors.
     String(StringVectorMut),
@@ -234,8 +243,9 @@ mod tests {
     use vortex_dtype::{DecimalDType, Nullability, PType};
 
     use super::*;
+    use crate::VectorOps;
     use crate::decimal::DecimalVectorMut;
-    use crate::{PVectorMut, VectorOps};
+    use crate::primitive::PVectorMut;
 
     #[test]
     fn test_with_capacity() {

@@ -74,7 +74,7 @@ pub trait VectorMutOps: private::Sealed + Into<VectorMut> {
     /// # Panics
     ///
     /// Panics if the `other` vector has the wrong type (for example, a
-    /// [`StructVector`](crate::StructVector) might have incorrect fields).
+    /// [`StructVector`](crate::struct_::StructVector) might have incorrect fields).
     fn extend_from_vector(&mut self, other: &Self::Immutable);
 
     /// Appends `n` null elements to the vector.

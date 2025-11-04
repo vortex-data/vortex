@@ -6,7 +6,7 @@ use std::sync::Arc;
 use arrow_array::{ArrayRef, GenericByteViewArray};
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
-use vortex_vector::{BinaryType, BinaryViewVector, StringType};
+use vortex_vector::binaryview::{BinaryType, BinaryViewVector, StringType};
 
 use crate::arrow::IntoArrow;
 

@@ -12,7 +12,7 @@ use vortex_compute::arithmetic::{
 use vortex_dtype::{DType, NativePType, PTypeDowncastExt, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{PValue, Scalar};
-use vortex_vector::PVector;
+use vortex_vector::primitive::PVector;
 
 use crate::arrays::ConstantArray;
 use crate::execution::{BatchKernelRef, BindCtx, kernel};

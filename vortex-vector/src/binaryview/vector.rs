@@ -203,7 +203,8 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{StringVectorMut, VectorMutOps, VectorOps};
+    use crate::binaryview::StringVectorMut;
+    use crate::{VectorMutOps, VectorOps};
 
     #[test]
     fn test_try_into_mut() {

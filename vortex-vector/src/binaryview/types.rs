@@ -5,7 +5,8 @@
 
 use std::fmt::Debug;
 
-use crate::{BinaryViewVector, BinaryViewVectorMut, Vector, VectorMut};
+use crate::binaryview::{BinaryViewVector, BinaryViewVectorMut};
+use crate::{Vector, VectorMut};
 
 impl<T: BinaryViewType> From<BinaryViewVector<T>> for Vector {
     fn from(value: BinaryViewVector<T>) -> Self {

@@ -5,7 +5,8 @@
 
 use vortex_dtype::NativePType;
 
-use crate::{PVectorMut, VectorMutOps};
+use crate::VectorMutOps;
+use crate::primitive::PVectorMut;
 
 impl<T: NativePType> Extend<Option<T>> for PVectorMut<T> {
     /// Extends the vector from an iterator of optional values.

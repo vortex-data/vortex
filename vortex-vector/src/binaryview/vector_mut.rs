@@ -228,7 +228,8 @@ mod tests {
     use vortex_mask::{Mask, MaskMut};
 
     use crate::binaryview::view::BinaryView;
-    use crate::{StringVector, StringVectorMut, VectorMutOps, VectorOps};
+    use crate::binaryview::{StringVector, StringVectorMut};
+    use crate::{VectorMutOps, VectorOps};
 
     #[test]
     fn test_basic() {

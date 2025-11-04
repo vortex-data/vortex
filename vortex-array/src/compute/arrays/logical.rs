@@ -11,7 +11,7 @@ use vortex_compute::logical::{
 };
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_vector::BoolVector;
+use vortex_vector::bool::BoolVector;
 
 use crate::execution::{BatchKernelRef, BindCtx, kernel};
 use crate::serde::ArrayChildren;

@@ -4,7 +4,8 @@
 use std::ops::BitAnd;
 
 use vortex_buffer::{BitBuffer, BufferMut};
-use vortex_vector::{BoolVector, VectorOps};
+use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolVector;
 
 use crate::comparison::{
     Compare, Equal, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, NotEqual,

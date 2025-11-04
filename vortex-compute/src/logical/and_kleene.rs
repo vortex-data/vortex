@@ -5,7 +5,8 @@ use std::ops::{BitAnd, BitOr, Not};
 
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
-use vortex_vector::{BoolVector, VectorOps};
+use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolVector;
 
 use crate::logical::LogicalAndKleene;
 
@@ -106,7 +107,7 @@ impl LogicalAndKleene<&BoolVector> for BoolVector {
 mod tests {
     use vortex_buffer::bitbuffer;
     use vortex_mask::Mask;
-    use vortex_vector::BoolVector;
+    use vortex_vector::bool::BoolVector;
 
     use super::*;
 

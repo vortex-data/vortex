@@ -8,7 +8,8 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_vector::{BoolVector, VectorOps};
+use vortex_vector::VectorOps;
+use vortex_vector::bool::BoolVector;
 
 use crate::execution::{BatchKernelRef, BindCtx, kernel};
 use crate::stats::{ArrayStats, StatsSetRef};

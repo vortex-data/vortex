@@ -3,7 +3,8 @@
 
 //! Definition and implementation of [`NullVectorMut`].
 
-use crate::{NullVector, VectorMutOps};
+use crate::VectorMutOps;
+use crate::null::NullVector;
 
 /// A mutable vector of null values.
 ///
