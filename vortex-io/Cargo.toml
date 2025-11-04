@@ -21,6 +21,7 @@ async-compat = { workspace = true }
 async-fs = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
+blocking = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
 futures = { workspace = true, features = ["std", "executor"] }
@@ -50,6 +51,7 @@ wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+divan = { workspace = true }
 itertools = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
@@ -62,3 +64,7 @@ tokio = ["tokio/fs", "tokio/rt-multi-thread"]
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "spawn"
+harness = false
