@@ -1,75 +1,68 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Formatter;
 use std::ops::Not;
 
 use vortex_array::arrays::{BoolArray, ConstantArray};
 use vortex_array::stats::Stat;
-use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray};
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
-use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    eq, lit, vtable, AnalysisExpr, ExprEncodingRef, ExprId, Expression, IntoExpr, Scope,
-    StatsCatalog, VTable,
+    eq, lit, AnalysisExpr, ChildName, ExprId, ExprInstance, Expression, Scope,
+    StatsCatalog, VTable, VTableExt,
 };
 
-vtable!(IsNull);
+/// Expression that checks for null values.
+pub struct IsNull;
 
-#[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Clone, Debug, Hash, Eq)]
-pub struct IsNullExpr {
-    child: Expression,
-}
+impl VTable for IsNull {
+    type Instance = ();
 
-impl PartialEq for IsNullExpr {
-    fn eq(&self, other: &Self) -> bool {
-        self.child.eq(&other.child)
-    }
-}
-
-pub struct IsNullExprEncoding;
-
-impl VTable for IsNullVTable {
-    type Expr = IsNullExpr;
-    type Encoding = IsNullExprEncoding;
-    type Metadata = EmptyMetadata;
-
-    fn id(_encoding: &Self::Encoding) -> ExprId {
+    fn id(&self) -> ExprId {
         ExprId::new_ref("is_null")
     }
 
-    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(IsNullExprEncoding.as_ref())
+    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
     }
 
-    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+        Ok(Some(()))
     }
 
-    fn children(expr: &Self::Expr) -> Vec<&Expression> {
-        vec![&expr.child]
-    }
-
-    fn with_children(_expr: &Self::Expr, children: Vec<Expression>) -> VortexResult<Self::Expr> {
-        Ok(IsNullExpr::new(children[0].clone()))
-    }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: Vec<Expression>,
-    ) -> VortexResult<Self::Expr> {
-        if children.len() != 1 {
-            vortex_bail!("IsNull expects exactly one child, got {}", children.len());
+    fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
+        if expr.children().len() != 1 {
+            vortex_bail!(
+                "IsNull expression expects exactly one child, got {}",
+                expr.children().len()
+            );
         }
-        Ok(IsNullExpr::new(children[0].clone()))
+        Ok(())
     }
 
-    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        let array = expr.child.unchecked_evaluate(scope)?;
+    fn child_name(&self, child_idx: usize) -> ChildName {
+        match child_idx {
+            0 => ChildName::from("input"),
+            _ => unreachable!("Invalid child index {} for IsNull expression", child_idx),
+        }
+    }
+
+    fn fmt_compact(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "is_null(")?;
+        expr.child(0).fmt_compact(f)?;
+        write!(f, ")")
+    }
+
+    fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
+        Ok(DType::Bool(Nullability::NonNullable))
+    }
+
+    fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
+        let array = expr.child(0).unchecked_evaluate(scope)?;
         match array.validity_mask() {
             Mask::AllTrue(len) => Ok(ConstantArray::new(false, len).into_array()),
             Mask::AllFalse(len) => Ok(ConstantArray::new(true, len).into_array()),
@@ -77,37 +70,12 @@ impl VTable for IsNullVTable {
         }
     }
 
-    fn return_dtype(_expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
-        Ok(DType::Bool(Nullability::NonNullable))
-    }
-}
-
-impl IsNullExpr {
-    pub fn new(child: Expression) -> Self {
-        Self { child }
-    }
-
-    pub fn new_expr(child: Expression) -> Expression {
-        Self::new(child).into_expr()
-    }
-}
-
-impl DisplayAs for IsNullExpr {
-    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match df {
-            DisplayFormat::Compact => {
-                write!(f, "is_null({})", self.child)
-            }
-            DisplayFormat::Tree => {
-                write!(f, "IsNull")
-            }
-        }
-    }
-}
-
-impl AnalysisExpr for IsNullExpr {
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<Expression> {
-        let field_path = self.child.field_path()?;
+    fn stat_falsification(
+        &self,
+        expr: &ExprInstance<Self>,
+        catalog: &mut dyn StatsCatalog,
+    ) -> Option<Expression> {
+        let field_path = expr.children()[0].field_path()?;
         let null_count_expr = catalog.stats_ref(&field_path, Stat::NullCount)?;
         Some(eq(null_count_expr, lit(0u64)))
     }
@@ -122,7 +90,7 @@ impl AnalysisExpr for IsNullExpr {
 /// let expr = is_null(root());
 /// ```
 pub fn is_null(child: Expression) -> Expression {
-    IsNullExpr::new(child).into_expr()
+    IsNull.new((), vec![child])
 }
 
 #[cfg(test)]
@@ -151,7 +119,7 @@ mod tests {
     #[test]
     fn replace_children() {
         let expr = is_null(root());
-        let _ = expr.with_children(vec![root()]);
+        let _ = expr.with_children([root()].into());
     }
 
     #[test]
