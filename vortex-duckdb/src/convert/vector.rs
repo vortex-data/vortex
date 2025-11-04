@@ -390,13 +390,20 @@ pub fn flat_vector_to_arrow_array(
                     flat_vector_to_arrow_array(&mut vector.struct_vector_get_child(idx), len)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(Arc::new(arrow_array::StructArray::try_new(
-                DType::from_logical_type(vector.logical_type(), Nullability::NonNullable)?
-                    .to_arrow_schema()?
-                    .fields,
-                children,
-                vector.validity_ref(len).to_null_buffer(),
-            )?))
+            if children.is_empty() {
+                Ok(Arc::new(arrow_array::StructArray::new_empty_fields(
+                    len,
+                    vector.validity_ref(len).to_null_buffer(),
+                )))
+            } else {
+                Ok(Arc::new(arrow_array::StructArray::try_new(
+                    DType::from_logical_type(vector.logical_type(), Nullability::NonNullable)?
+                        .to_arrow_schema()?
+                        .fields,
+                    children,
+                    vector.validity_ref(len).to_null_buffer(),
+                )?))
+            }
         }
         _ => todo!("missing impl for {type_id:?}"),
     }
@@ -754,6 +761,20 @@ mod tests {
             arrow_array.value(0).as_primitive::<Int32Type>(),
             &Int32Array::from_iter([1, 2, 3, 4])
         );
+    }
+
+    #[test]
+    fn test_empty_struct() {
+        let len = 4;
+        let logical_type = LogicalType::struct_type([], []).vortex_unwrap();
+        let mut vector = Vector::with_capacity(logical_type, len);
+
+        // Test conversion
+        let result = flat_vector_to_arrow_array(&mut vector, len).unwrap();
+        let arrow_array = result.as_struct();
+
+        assert_eq!(arrow_array.len(), len);
+        assert_eq!(arrow_array.fields().len(), 0);
     }
 
     #[test]
