@@ -204,6 +204,19 @@ impl DecimalArray {
         self.decimal_dtype().scale()
     }
 
+    pub fn from_iter<T: NativeDecimalType, I: IntoIterator<Item = T>>(
+        iter: I,
+        decimal_dtype: DecimalDType,
+    ) -> Self {
+        let iter = iter.into_iter();
+
+        Self::new(
+            BufferMut::from_iter(iter).freeze(),
+            decimal_dtype,
+            Validity::NonNullable,
+        )
+    }
+
     pub fn from_option_iter<T: NativeDecimalType, I: IntoIterator<Item = Option<T>>>(
         iter: I,
         decimal_dtype: DecimalDType,

@@ -7,8 +7,8 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;

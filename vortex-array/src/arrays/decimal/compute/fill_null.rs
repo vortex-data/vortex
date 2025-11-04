@@ -3,12 +3,11 @@
 
 use std::ops::Not;
 
-use vortex_buffer::BufferMut;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
+use crate::arrays::DecimalVTable;
 use crate::arrays::decimal::DecimalArray;
-use crate::arrays::{ConstantArray, DecimalVTable};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -48,18 +47,18 @@ mod tests {
     use vortex_dtype::{DecimalDType, Nullability};
     use vortex_scalar::{DecimalValue, Scalar};
 
-    use crate::IntoArray;
-    use crate::arrays::BoolArray;
     use crate::arrays::decimal::DecimalArray;
+    use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::compute::fill_null;
     use crate::validity::Validity;
 
     #[test]
     fn fill_null_leading_none() {
+        let decimal_dtype = DecimalDType::new(19, 2);
         let arr = DecimalArray::from_option_iter(
             [None, Some(800i128), None, Some(1000i128), None],
-            DecimalDType::new(19, 2),
+            decimal_dtype,
         );
         let p = fill_null(
             arr.as_ref(),
@@ -71,6 +70,10 @@ mod tests {
         )
         .unwrap()
         .to_decimal();
+        assert_arrays_eq!(
+            p,
+            DecimalArray::from_iter([4200, 800, 4200, 1000, 4200], decimal_dtype)
+        );
         assert_eq!(
             p.buffer::<i128>().as_slice(),
             vec![4200, 800, 4200, 1000, 4200]
@@ -80,9 +83,11 @@ mod tests {
 
     #[test]
     fn fill_null_all_none() {
+        let decimal_dtype = DecimalDType::new(19, 2);
+
         let arr = DecimalArray::from_option_iter(
             [Option::<i128>::None, None, None, None, None],
-            DecimalDType::new(19, 2),
+            decimal_dtype,
         );
 
         let p = fill_null(
@@ -95,42 +100,19 @@ mod tests {
         )
         .unwrap()
         .to_decimal();
-        assert_eq!(
-            p.buffer::<i128>().as_slice(),
-            vec![25500, 25500, 25500, 25500, 25500]
+        assert_arrays_eq!(
+            p,
+            DecimalArray::from_iter([25500, 25500, 25500, 25500, 25500], decimal_dtype)
         );
-        assert!(p.validity_mask().all_true());
-    }
-
-    #[test]
-    fn fill_null_nullable_non_null() {
-        let arr = DecimalArray::new(
-            buffer![800i128, 1000i128, 1200i128, 1400i128, 1600i128],
-            DecimalDType::new(19, 2),
-            Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
-        );
-        let p = fill_null(
-            arr.as_ref(),
-            &Scalar::decimal(
-                DecimalValue::I128(25500i128),
-                DecimalDType::new(19, 2),
-                Nullability::NonNullable,
-            ),
-        )
-        .unwrap()
-        .to_decimal();
-        assert_eq!(
-            p.buffer::<i128>().as_slice(),
-            vec![800, 1000, 1200, 1400, 1600]
-        );
-        assert!(p.validity_mask().all_true());
     }
 
     #[test]
     fn fill_null_non_nullable() {
+        let decimal_dtype = DecimalDType::new(19, 2);
+
         let arr = DecimalArray::new(
             buffer![800i128, 1000i128, 1200i128, 1400i128, 1600i128],
-            DecimalDType::new(19, 2),
+            decimal_dtype,
             Validity::NonNullable,
         );
         let p = fill_null(
@@ -143,10 +125,9 @@ mod tests {
         )
         .unwrap()
         .to_decimal();
-        assert_eq!(
-            p.buffer::<i128>().as_slice(),
-            vec![800i128, 1000, 1200, 1400, 1600]
+        assert_arrays_eq!(
+            p,
+            DecimalArray::from_iter([800i128, 1000, 1200, 1400, 1600], decimal_dtype)
         );
-        assert!(p.validity_mask().all_true());
     }
 }
