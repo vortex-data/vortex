@@ -140,13 +140,14 @@ impl<T: NodeFolder> NodeFolderContext for NodeFolderContextWrapper<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_error::VortexExpect;
+    use crate::exprs::binary::Binary;
+    use crate::exprs::operators::Operator;
 
     use super::*;
+    use crate::exprs::binary::{checked_add, gt};
+    use crate::exprs::literal::lit;
     use crate::traversal::NodeExt;
-    use crate::{
-        checked_add, gt, lit, vortex_bail, BinaryVTable, Expression, LiteralVTable, Operator,
-    };
+    use crate::Expression;
 
     struct AddFold;
     impl NodeFolder for AddFold {
@@ -154,9 +155,9 @@ mod tests {
         type Result = i32;
 
         fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<FoldDown<Self::Result>> {
-            if let Some(lit) = node.as_opt::<LiteralVTable>() {
+            if let Some(lit) = node.as_opt::<Literal>() {
                 let v = lit
-                    .value()
+                    .data()
                     .as_primitive()
                     .typed_value::<i32>()
                     .vortex_expect("i32");
@@ -166,8 +167,8 @@ mod tests {
                 }
             }
 
-            if let Some(binary) = node.as_opt::<BinaryVTable>()
-                && binary.op() == Operator::Gt
+            if let Some(binary) = node.as_opt::<Binary>()
+                && binary.operator() == Operator::Gt
             {
                 return Ok(FoldDown::Skip(0));
             }
@@ -180,15 +181,15 @@ mod tests {
             node: Self::NodeTy,
             children: Vec<Self::Result>,
         ) -> VortexResult<FoldUp<Self::Result>> {
-            if let Some(lit) = node.as_opt::<LiteralVTable>() {
+            if let Some(lit) = node.as_opt::<Literal>() {
                 let v = lit
-                    .value()
+                    .data()
                     .as_primitive()
                     .typed_value::<i32>()
                     .vortex_expect("i32");
                 Ok(FoldUp::Continue(v))
-            } else if let Some(binary) = node.as_opt::<BinaryVTable>() {
-                if binary.op() == Operator::Add {
+            } else if let Some(binary) = node.as_opt::<Binary>() {
+                if binary.operator() == Operator::Add {
                     Ok(FoldUp::Continue(children[0] + children[1]))
                 } else {
                     vortex_bail!("not a valid operator")

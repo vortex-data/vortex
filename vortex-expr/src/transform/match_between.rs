@@ -7,8 +7,9 @@ use crate::exprs::between::Between;
 use crate::exprs::binary::{and, Binary};
 use crate::exprs::get_item::GetItem;
 use crate::exprs::literal::{lit, Literal};
+use crate::exprs::operators::Operator;
 use crate::forms::conjuncts;
-use crate::{Expression, Operator, VTableExt};
+use crate::{Expression, VTableExt};
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
@@ -119,8 +120,11 @@ fn is_strict_comparison(op: Operator) -> Option<StrictComparison> {
 mod tests {
     use vortex_array::compute::{BetweenOptions, StrictComparison};
 
-    use crate::transform::match_between::find_between;
-    use crate::{and, between, col, gt, gt_eq, lit, lt, lt_eq};
+    use super::find_between;
+    use crate::exprs::between::between;
+    use crate::exprs::binary::{and, gt, gt_eq, lt, lt_eq};
+    use crate::exprs::get_item::col;
+    use crate::exprs::literal::lit;
 
     #[test]
     fn test_bad_match() {

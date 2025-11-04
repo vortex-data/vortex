@@ -71,12 +71,16 @@ fn merge_transform(node: Expression, ctx: &DType) -> VortexResult<Transformed<Ex
 
 #[cfg(test)]
 mod tests {
+    use crate::exprs::pack::Pack;
+    use crate::transform::remove_merge::DuplicateHandling;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::{I32, I64, U32, U64};
 
-    use crate::transform::remove_merge::remove_merge;
-    use crate::{get_item, merge_opts, root, DuplicateHandling, PackVTable};
+    use super::remove_merge;
+    use crate::exprs::get_item::get_item;
+    use crate::exprs::merge::merge_opts;
+    use crate::exprs::root::root;
 
     #[test]
     fn test_remove_merge() {
@@ -94,7 +98,7 @@ mod tests {
         );
         let e = remove_merge(e, &dtype).unwrap();
 
-        assert!(e.is::<PackVTable>());
+        assert!(e.is::<Pack>());
         assert_eq!(
             e.return_dtype(&dtype).unwrap(),
             DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)

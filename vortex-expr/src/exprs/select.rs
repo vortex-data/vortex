@@ -250,12 +250,15 @@ impl Display for FieldSelection {
 
 #[cfg(test)]
 mod tests {
+    use crate::exprs::select::FieldSelection;
     use vortex_array::arrays::StructArray;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
-    use crate::{root, select, select_exclude, test_harness, FieldSelection, Scope, SelectExpr};
+    use super::{select, select_exclude};
+    use crate::exprs::root::root;
+    use crate::{test_harness, Scope};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -338,8 +341,8 @@ mod tests {
     #[test]
     fn test_as_include_names() {
         let field_names = FieldNames::from(["a", "b", "c"]);
-        let include = SelectExpr::new(FieldSelection::Include(["a"].into()), root());
-        let exclude = SelectExpr::new(FieldSelection::Exclude(["b", "c"].into()), root());
+        let include = select(FieldSelection::Include(["a"].into()), root());
+        let exclude = select(FieldSelection::Exclude(["b", "c"].into()), root());
         assert_eq!(
             &include.as_include(&field_names).unwrap(),
             &exclude.as_include(&field_names).unwrap()

@@ -144,9 +144,13 @@ mod tests {
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
 
-    use crate::list_contains::list_contains;
+    use super::list_contains;
+    use crate::exprs::binary::{and, gt, lt, or};
+    use crate::exprs::get_item::{col, get_item};
+    use crate::exprs::literal::lit;
+    use crate::exprs::root::root;
     use crate::pruning::checked_pruning_expr;
-    use crate::{and, col, get_item, gt, lit, lt, or, root, Arc, HashSet, Scope};
+    use crate::{Arc, HashSet, Scope};
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(

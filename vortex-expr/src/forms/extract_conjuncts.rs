@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{Binary, Expression};
+use crate::exprs::binary::Binary;
+use crate::exprs::operators::Operator;
+use crate::Expression;
 
 /// Converting an expression to a conjunctive normal form can lead to a large number of expression
 /// nodes.
@@ -18,7 +20,7 @@ pub fn conjuncts(expr: &Expression) -> Vec<Expression> {
 
 fn conjuncts_impl(expr: &Expression, conjuncts: &mut Vec<Expression>) {
     if let Some(expr) = expr.as_opt::<Binary>()
-        && expr.operator() == crate::Operator::And
+        && expr.operator() == Operator::And
     {
         conjuncts_impl(expr.lhs(), conjuncts);
         conjuncts_impl(expr.rhs(), conjuncts);

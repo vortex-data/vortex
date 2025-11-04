@@ -17,7 +17,7 @@ pub mod aliases;
 mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
-mod exprs;
+pub mod exprs;
 mod field;
 pub mod forms;
 pub mod proto;
@@ -29,8 +29,6 @@ pub mod transform;
 pub mod traversal;
 mod vtable;
 
-use crate::exprs::binary::Binary;
-use crate::exprs::operators::Operator;
 pub use analysis::*;
 pub use scope::*;
 pub use scope_vars::*;
@@ -69,8 +67,8 @@ pub fn split_conjunction(expr: &Expression) -> Vec<Expression> {
 }
 
 fn split_inner(expr: &Expression, exprs: &mut Vec<Expression>) {
-    match expr.as_opt::<Binary>() {
-        Some(bexp) if bexp.operator() == Operator::And => {
+    match expr.as_opt::<exprs::binary::Binary>() {
+        Some(bexp) if bexp.operator() == exprs::operators::Operator::And => {
             split_inner(bexp.lhs(), exprs);
             split_inner(bexp.rhs(), exprs);
         }
@@ -124,6 +122,12 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
+    use crate::exprs::binary::{and, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
+    use crate::exprs::get_item::{col, get_item};
+    use crate::exprs::literal::lit;
+    use crate::exprs::not::not;
+    use crate::exprs::root::root;
+    use crate::exprs::select::{select, select_exclude};
 
     #[test]
     fn basic_expr_split_test() {

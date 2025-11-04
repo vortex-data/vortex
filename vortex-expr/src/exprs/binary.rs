@@ -9,8 +9,9 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::exprs::literal::lit;
+use crate::exprs::operators::Operator;
 use crate::v2::Expression;
-use crate::{ChildName, ExprId, ExprInstance, Operator, StatsCatalog, VTable, VTableExt};
+use crate::{ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt};
 
 pub struct Binary;
 
@@ -480,12 +481,13 @@ pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
+    use crate::Expression;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{
-        and, and_collect, and_collect_right, col, eq, gt, gt_eq, lit, lt, lt_eq, not_eq,
-        or, test_harness, VortexExpr,
-    };
+    use super::{and, and_collect, and_collect_right, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
+    use crate::exprs::get_item::col;
+    use crate::exprs::literal::lit;
+    use crate::test_harness;
 
     #[test]
     fn and_collect_left_assoc() {

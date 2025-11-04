@@ -3,13 +3,13 @@
 
 use prost::Message;
 use std::fmt::Formatter;
-use vortex_array::compute::{like, LikeOptions};
+use vortex_array::compute::{like as like_compute, LikeOptions};
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_proto::expr as pb;
 
-use crate::{ChildName, ExprId, ExprInstance, VTable};
+use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
 
 /// Expression that performs SQL LIKE pattern matching.
 pub struct Like;
@@ -92,8 +92,48 @@ impl VTable for Like {
     fn evaluate(&self, expr: &ExprInstance<Self>, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         let child = expr.child(0).evaluate(scope)?;
         let pattern = expr.child(1).evaluate(scope)?;
-        like(&child, &pattern, *expr.data())
+        like_compute(&child, &pattern, *expr.data())
     }
+}
+
+pub fn like(child: Expression, pattern: Expression) -> Expression {
+    Like.new(
+        LikeOptions {
+            negated: false,
+            case_insensitive: false,
+        },
+        [child, pattern],
+    )
+}
+
+pub fn ilike(child: Expression, pattern: Expression) -> Expression {
+    Like.new(
+        LikeOptions {
+            negated: false,
+            case_insensitive: true,
+        },
+        [child, pattern],
+    )
+}
+
+pub fn not_like(child: Expression, pattern: Expression) -> Expression {
+    Like.new(
+        LikeOptions {
+            negated: true,
+            case_insensitive: false,
+        },
+        [child, pattern],
+    )
+}
+
+pub fn not_ilike(child: Expression, pattern: Expression) -> Expression {
+    Like.new(
+        LikeOptions {
+            negated: true,
+            case_insensitive: true,
+        },
+        [child, pattern],
+    )
 }
 
 #[cfg(test)]
@@ -102,7 +142,11 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{get_item, lit, not, root, LikeExpr, Scope};
+    use crate::exprs::get_item::get_item;
+    use crate::exprs::literal::lit;
+    use crate::exprs::not::not;
+    use crate::exprs::root::root;
+    use crate::Scope;
 
     #[test]
     fn invert_booleans() {
@@ -123,7 +167,7 @@ mod tests {
     #[test]
     fn dtype() {
         let dtype = DType::Utf8(Nullability::NonNullable);
-        let like_expr = LikeExpr::new(root(), lit("%test%"), false, false);
+        let like_expr = like(root(), lit("%test%"));
         assert_eq!(
             like_expr.return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
@@ -132,10 +176,10 @@ mod tests {
 
     #[test]
     fn test_display() {
-        let expr = LikeExpr::new(get_item("name", root()), lit("%john%"), false, false);
+        let expr = like(get_item("name", root()), lit("%john%"));
         assert_eq!(expr.to_string(), "$.name LIKE \"%john%\"");
 
-        let expr2 = LikeExpr::new(root(), lit("test*"), true, true);
+        let expr2 = not_ilike(root(), lit("test*"));
         assert_eq!(expr2.to_string(), "$ LIKE \"test*\"");
     }
 }

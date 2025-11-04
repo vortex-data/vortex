@@ -56,12 +56,14 @@ fn remove_select_transformer(
 
 #[cfg(test)]
 mod tests {
+    use crate::exprs::pack::Pack;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
 
-    use crate::transform::remove_select::remove_select;
-    use crate::{root, select, PackVTable};
+    use super::remove_select;
+    use crate::exprs::root::root;
+    use crate::exprs::select::select;
 
     #[test]
     fn test_remove_select() {
@@ -72,7 +74,7 @@ mod tests {
         let e = select(["a", "b"], root());
         let e = remove_select(e, &dtype).unwrap();
 
-        assert!(e.is::<PackVTable>());
+        assert!(e.is::<Pack>());
         assert!(e.return_dtype(&dtype).unwrap().is_nullable());
     }
 }

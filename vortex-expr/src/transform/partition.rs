@@ -204,7 +204,13 @@ mod tests {
     use crate::transform::replace::replace_root_fields;
     use crate::transform::simplify::simplify;
     use crate::transform::simplify_typed::simplify_typed;
-    use crate::{and, col, get_item, lit, merge, pack, root, select};
+    use crate::exprs::binary::and;
+    use crate::exprs::get_item::{col, get_item};
+    use crate::exprs::literal::lit;
+    use crate::exprs::merge::merge;
+    use crate::exprs::pack::pack;
+    use crate::exprs::root::root;
+    use crate::exprs::select::select;
 
     #[fixture]
     fn dtype() -> DType {

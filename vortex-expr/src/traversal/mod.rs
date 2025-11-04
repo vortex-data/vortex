@@ -495,7 +495,7 @@ impl Node for Expression {
 
         if transformed.changed {
             Ok(Transformed {
-                value: self.with_children(transformed.value.into())?,
+                value: self.with_children(transformed.value)?,
                 order: transformed.order,
                 changed: true,
             })
@@ -515,15 +515,18 @@ impl Node for Expression {
 
 #[cfg(test)]
 mod tests {
+    use crate::exprs::binary::and;
+    use crate::exprs::binary::Binary;
+    use crate::exprs::get_item::GetItem;
     use vortex_error::VortexResult;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use crate::traversal::visitor::pre_order_visit_down;
-    use crate::traversal::{NodeExt, NodeRewriter, NodeVisitor, Transformed, TraversalOrder};
-    use crate::{
-        col, is_root, root, BinaryExpr, BinaryVTable, Expression, GetItemVTable,
-        IntoExpr, LiteralExpr, LiteralVTable, Operator, VortexExpr,
-    };
+    use super::visitor::pre_order_visit_down;
+    use super::{NodeExt, NodeRewriter, NodeVisitor, Transformed, TraversalOrder};
+    use crate::exprs::get_item::col;
+    use crate::exprs::literal::lit;
+    use crate::exprs::root::{is_root, root};
+    use crate::Expression;
 
     #[derive(Default)]
     pub struct ExprLitCollector<'a>(pub Vec<&'a Expression>);
@@ -532,7 +535,7 @@ mod tests {
         type NodeTy = Expression;
 
         fn visit_down(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
-            if node.is::<LiteralVTable>() {
+            if node.is::<Literal>() {
                 self.0.push(node)
             }
             Ok(TraversalOrder::Continue)
@@ -547,10 +550,10 @@ mod tests {
         node: Expression,
         idx: &mut i32,
     ) -> VortexResult<Transformed<Expression>> {
-        if node.is::<GetItemVTable>() {
+        if node.is::<GetItem>() {
             let lit_id = *idx;
             *idx += 1;
-            Ok(Transformed::yes(LiteralExpr::new_expr(lit_id)))
+            Ok(Transformed::yes(lit(lit_id)))
         } else {
             Ok(Transformed::no(node))
         }
@@ -578,10 +581,10 @@ mod tests {
     #[test]
     fn expr_deep_visitor_test() {
         let col1: Expression = col("col1");
-        let lit1 = LiteralExpr::new(1).into_expr();
-        let expr = BinaryExpr::new(col1.clone(), Operator::Eq, lit1.clone()).into_expr();
-        let lit2 = LiteralExpr::new(2).into_expr();
-        let expr = BinaryExpr::new(expr, Operator::And, lit2).into_expr();
+        let lit1 = lit(1);
+        let expr = eq(col1.clone(), lit1.clone());
+        let lit2 = lit(2);
+        let expr = and(expr, lit2);
         let mut printer = ExprLitCollector::default();
         expr.accept(&mut printer).unwrap();
         assert_eq!(printer.0.len(), 2);
@@ -591,9 +594,9 @@ mod tests {
     fn expr_deep_mut_visitor_test() {
         let col1: Expression = col("col1");
         let col2: Expression = col("col2");
-        let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
-        let lit2 = LiteralExpr::new_expr(2);
-        let expr = BinaryExpr::new_expr(expr, Operator::And, lit2);
+        let expr = eq(col1.clone(), col2.clone());
+        let lit2 = lit(2);
+        let expr = and(expr, lit2);
 
         let mut idx = 0_i32;
         let new = expr
@@ -620,11 +623,11 @@ mod tests {
 
         let mut nodes = Vec::new();
         pre_order_visit_down(&expr, |node: &Expression| {
-            if node.is::<GetItemVTable>() {
+            if node.is::<GetItem>() {
                 nodes.push(node)
             }
-            if let Some(bin) = node.as_opt::<BinaryVTable>()
-                && bin.op() == Operator::Eq
+            if let Some(bin) = node.as_opt::<Binary>()
+                && bin.operator() == Operator::Eq
             {
                 return Ok(TraversalOrder::Skip);
             }
@@ -648,11 +651,11 @@ mod tests {
 
         let mut nodes = Vec::new();
         pre_order_visit_down(&expr, |node: &Expression| {
-            if node.is::<GetItemVTable>() {
+            if node.is::<GetItem>() {
                 nodes.push(node)
             }
-            if let Some(bin) = node.as_opt::<BinaryVTable>()
-                && bin.op() == Operator::Eq
+            if let Some(bin) = node.as_opt::<Binary>()
+                && bin.operator() == Operator::Eq
             {
                 return Ok(TraversalOrder::Stop);
             }

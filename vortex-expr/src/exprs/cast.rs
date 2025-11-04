@@ -123,7 +123,10 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::{cast, get_item, root, test_harness, Expression, Scope};
+    use super::cast;
+    use crate::exprs::get_item::get_item;
+    use crate::exprs::root::root;
+    use crate::{test_harness, Expression, Scope};
 
     #[test]
     fn dtype() {
@@ -139,7 +142,7 @@ mod tests {
     #[test]
     fn replace_children() {
         let expr = cast(root(), DType::Bool(Nullability::Nullable));
-        let _ = expr.with_children(vec![root()]);
+        let _ = expr.with_children([root()]);
     }
 
     #[test]

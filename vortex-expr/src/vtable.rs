@@ -384,7 +384,18 @@ mod tests {
     use rstest::{fixture, rstest};
 
     use super::*;
+    use crate::exprs::between::between;
+    use crate::exprs::binary::{and, checked_add, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
+    use crate::exprs::cast::cast;
+    use crate::exprs::get_item::{col, get_item};
+    use crate::exprs::is_null::is_null;
+    use crate::exprs::list_contains::list_contains;
+    use crate::exprs::literal::lit;
+    use crate::exprs::merge::merge;
+    use crate::exprs::not::not;
+    use crate::exprs::pack::pack;
     use crate::exprs::root::root;
+    use crate::exprs::select::{select, select_exclude};
     use crate::proto::{deserialize_expr_proto, ExprSerializeProtoExt};
     use crate::session::{ExprRegistry, ExprSession};
 
@@ -443,7 +454,7 @@ mod tests {
         registry: &ExprRegistry,
         #[case] expr: Expression,
     ) -> anyhow::Result<()> {
-        let serialized_pb = expr.serialize_proto()?;
+        let serialized_pb = expr.as_ref().serialize_proto()?;
         let deserialized_expr = deserialize_expr_proto(&serialized_pb, registry)?;
 
         assert_eq!(&expr, &deserialized_expr);

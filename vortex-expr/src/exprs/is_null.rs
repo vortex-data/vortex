@@ -102,9 +102,13 @@ mod tests {
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
 
-    use crate::is_null::is_null;
+    use super::is_null;
+    use crate::exprs::binary::eq;
+    use crate::exprs::get_item::{col, get_item};
+    use crate::exprs::literal::lit;
+    use crate::exprs::root::root;
     use crate::pruning::checked_pruning_expr;
-    use crate::{col, eq, get_item, lit, root, test_harness, HashSet, Scope};
+    use crate::{test_harness, HashSet, Scope};
 
     #[test]
     fn dtype() {
@@ -118,7 +122,7 @@ mod tests {
     #[test]
     fn replace_children() {
         let expr = is_null(root());
-        let _ = expr.with_children([root()].into());
+        let _ = expr.with_children([root()]);
     }
 
     #[test]

@@ -48,10 +48,18 @@ impl std::fmt::Display for DisplayTreeExpr<'_> {
 
 #[cfg(test)]
 mod tests {
+    use crate::exprs::select::select_exclude;
     use vortex_array::compute::{BetweenOptions, StrictComparison};
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::{and, between, cast, eq, get_item, gt, lit, not, root, select};
+    use crate::exprs::between::between;
+    use crate::exprs::binary::{and, eq, gt};
+    use crate::exprs::cast::cast;
+    use crate::exprs::get_item::get_item;
+    use crate::exprs::literal::lit;
+    use crate::exprs::not::not;
+    use crate::exprs::root::root;
+    use crate::exprs::select::select;
 
     #[test]
     fn tree_display_getitem() {
@@ -87,7 +95,6 @@ mod tests {
     fn test_display_tree() {
         use insta::assert_snapshot;
 
-        use crate::{pack, select_exclude};
         let root_expr = root();
         assert_snapshot!(root_expr.display_tree().to_string(), @"Root");
 

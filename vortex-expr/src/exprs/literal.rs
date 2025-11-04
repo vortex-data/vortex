@@ -131,7 +131,8 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType, StructFields};
     use vortex_scalar::Scalar;
 
-    use crate::{lit, test_harness};
+    use super::lit;
+    use crate::test_harness;
 
     #[test]
     fn dtype() {

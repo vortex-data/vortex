@@ -112,8 +112,8 @@ impl Expression {
     }
 
     /// Replace the children of this expression with the provided new children.
-    pub fn with_children(mut self, children: Arc<[Expression]>) -> VortexResult<Self> {
-        self.children = children;
+    pub fn with_children(mut self, children: impl Into<Arc<[Expression]>>) -> VortexResult<Self> {
+        self.children = children.into();
         self.vtable.as_dyn().validate(&self)?;
         Ok(self)
     }

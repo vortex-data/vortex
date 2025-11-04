@@ -87,7 +87,10 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{col, get_item, not, root, test_harness, Scope};
+    use super::not;
+    use crate::exprs::get_item::{col, get_item};
+    use crate::exprs::root::root;
+    use crate::{test_harness, Scope};
 
     #[test]
     fn invert_booleans() {

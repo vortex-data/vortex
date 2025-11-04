@@ -136,8 +136,9 @@ mod tests {
     use vortex_dtype::{DType, FieldNames, Nullability};
     use vortex_scalar::Scalar;
 
-    use crate::get_item::get_item;
-    use crate::{root, Scope};
+    use super::get_item;
+    use crate::exprs::root::root;
+    use crate::Scope;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

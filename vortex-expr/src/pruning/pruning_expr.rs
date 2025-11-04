@@ -103,6 +103,7 @@ pub fn checked_pruning_expr(
 
 #[cfg(test)]
 mod tests {
+    use crate::exprs::cast::cast;
     use rstest::{fixture, rstest};
     use vortex_array::compute::{BetweenOptions, StrictComparison};
     use vortex_array::stats::Stat;
@@ -110,11 +111,14 @@ mod tests {
         DType, FieldName, FieldNames, FieldPath, FieldPathSet, Nullability, StructFields,
     };
 
-    use crate::pruning::pruning_expr::HashMap;
+    use super::HashMap;
+    use crate::exprs::between::between;
+    use crate::exprs::binary::{and, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
+    use crate::exprs::get_item::{col, get_item};
+    use crate::exprs::literal::lit;
+    use crate::exprs::root::root;
     use crate::pruning::{checked_pruning_expr, field_path_stat_field_name};
-    use crate::{
-        and, between, col, eq, get_item, gt, gt_eq, lit, lt, lt_eq, not_eq, or, root, HashSet,
-    };
+    use crate::HashSet;
 
     // Implement some checked pruning expressions.
     #[fixture]

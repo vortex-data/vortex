@@ -35,8 +35,10 @@ fn simplify_transformer(node: Expression) -> VortexResult<Transformed<Expression
 mod tests {
     use vortex_dtype::Nullability::NonNullable;
 
-    use crate::transform::simplify::simplify;
-    use crate::{get_item, lit, pack};
+    use super::simplify;
+    use crate::exprs::get_item::get_item;
+    use crate::exprs::literal::lit;
+    use crate::exprs::pack::pack;
 
     #[test]
     fn test_simplify() {

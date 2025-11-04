@@ -49,7 +49,9 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
 
     use super::replace;
-    use crate::{get_item, lit, pack};
+    use crate::exprs::get_item::get_item;
+    use crate::exprs::literal::lit;
+    use crate::exprs::pack::pack;
 
     #[test]
     fn test_replace_full_tree() {

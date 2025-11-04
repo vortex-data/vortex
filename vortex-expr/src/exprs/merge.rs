@@ -170,12 +170,17 @@ pub fn merge_opts(
 
 #[cfg(test)]
 mod tests {
+    use crate::exprs::merge::merge_opts;
+    use crate::exprs::merge::DuplicateHandling;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_error::{vortex_bail, VortexResult};
 
-    use crate::{get_item, merge, root, DuplicateHandling, MergeExpr, Scope};
+    use super::merge;
+    use crate::exprs::get_item::get_item;
+    use crate::exprs::root::root;
+    use crate::Scope;
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
@@ -193,7 +198,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_right_most() {
-        let expr = MergeExpr::new_opts(
+        let expr = merge_opts(
             vec![
                 get_item("0", root()),
                 get_item("1", root()),
@@ -275,7 +280,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "merge: duplicate fields in children")]
     pub fn test_merge_error_on_dupe_return_dtype() {
-        let expr = MergeExpr::new_opts(
+        let expr = merge_opts(
             vec![get_item("0", root()), get_item("1", root())],
             DuplicateHandling::Error,
         );
@@ -298,7 +303,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "merge: duplicate fields in children")]
     pub fn test_merge_error_on_dupe_evaluate() {
-        let expr = MergeExpr::new_opts(
+        let expr = merge_opts(
             vec![get_item("0", root()), get_item("1", root())],
             DuplicateHandling::Error,
         );
@@ -334,7 +339,7 @@ mod tests {
     pub fn test_nested_merge() {
         // Nested structs are not merged!
 
-        let expr = MergeExpr::new_opts(
+        let expr = merge_opts(
             vec![get_item("0", root()), get_item("1", root())],
             DuplicateHandling::RightMost,
         );

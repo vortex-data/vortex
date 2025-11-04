@@ -209,7 +209,9 @@ mod tests {
     use vortex_dtype::{FieldNames, Nullability};
     use vortex_error::{vortex_bail, VortexResult};
 
-    use crate::{col, pack, IntoExpr, PackExpr, Scope};
+    use super::pack;
+    use crate::exprs::get_item::col;
+    use crate::Scope;
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
