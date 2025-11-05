@@ -59,6 +59,10 @@ impl VTable for Literal {
         write!(f, "{}", expr.data())
     }
 
+    fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", instance)
+    }
+
     fn return_dtype(&self, expr: &ExprInstance<Self>, _scope: &DType) -> VortexResult<DType> {
         Ok(expr.data().dtype().clone())
     }

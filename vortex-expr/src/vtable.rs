@@ -251,7 +251,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         let instance = instance
             .downcast_ref::<V::Instance>()
             .vortex_expect("Failed to downcast expression instance to expected type");
-        write!(f, "{:?}", instance)
+        V::fmt_data(&self.0, instance, f)
     }
 
     fn return_dtype(&self, expression: &Expression, scope: &DType) -> VortexResult<DType> {

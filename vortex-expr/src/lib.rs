@@ -217,7 +217,7 @@ mod tests {
                 root()
             )
             .to_string(),
-            "$~{col1, col2}"
+            "${~ col1, col2}"
         );
 
         assert_eq!(lit(Scalar::from(0u8)).to_string(), "0u8");

@@ -378,10 +378,10 @@ mod tests {
         let col_expr = df_expr::Column::new("test_column", 0);
         let result = Expression::try_from_df(&col_expr).unwrap();
 
-        assert_snapshot!(result.display_tree().to_string(), @r"
-        GetItem(test_column)
-        └── Root
-        ");
+        assert_snapshot!(result.display_tree().to_string(), @r#"
+        vortex.get_item "test_column"
+        └── input: vortex.root
+        "#);
     }
 
     #[test]
@@ -389,7 +389,7 @@ mod tests {
         let literal_expr = df_expr::Literal::new(ScalarValue::Int32(Some(42)));
         let result = Expression::try_from_df(&literal_expr).unwrap();
 
-        assert_snapshot!(result.display_tree().to_string(), @"Literal(value: 42i32, dtype: i32)");
+        assert_snapshot!(result.display_tree().to_string(), @"vortex.literal 42i32");
     }
 
     #[test]
@@ -401,12 +401,12 @@ mod tests {
 
         let result = Expression::try_from_df(&binary_expr).unwrap();
 
-        assert_snapshot!(result.display_tree().to_string(), @r"
-        Binary(=)
-        ├── lhs: GetItem(left)
-        │   └── Root
-        └── rhs: Literal(value: 42i32, dtype: i32)
-        ");
+        assert_snapshot!(result.display_tree().to_string(), @r#"
+        vortex.binary =
+        ├── lhs: vortex.get_item "left"
+        │   └── input: vortex.root 
+        └── rhs: vortex.literal 42i32
+        "#);
     }
 
     #[rstest]
@@ -425,10 +425,10 @@ mod tests {
 
         insta::allow_duplicates! {
             assert_snapshot!(result.display_tree().to_string(), @r#"
-            Like
-            ├── child: GetItem(text_col)
-            │   └── Root
-            └── pattern: Literal(value: "test%", dtype: utf8)
+            vortex.like LikeOptions { negated: false, case_insensitive: false }
+            ├── child: vortex.get_item "text_col"
+            │   └── input: vortex.root 
+            └── pattern: vortex.literal "test%"
             "#);
         }
     }
@@ -600,11 +600,11 @@ mod tests {
             Arc::new(ConfigOptions::new()),
         );
         let result = Expression::try_from_df(&get_field_expr).unwrap();
-        assert_snapshot!(result.display_tree().to_string(), @r"
-        GetItem(field1)
-        └── GetItem(my_struct)
-            └── Root
-        ");
+        assert_snapshot!(result.display_tree().to_string(), @r#"
+        vortex.get_item "field1"
+        └── input: vortex.get_item "my_struct"
+            └── input: vortex.root
+        "#);
     }
 
     #[test]

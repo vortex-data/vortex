@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use prost::Message;
-use std::fmt::{Formatter, Pointer};
+use std::fmt::Formatter;
 use vortex_array::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
 use vortex_array::{compute, ArrayRef};
 use vortex_dtype::DType;
@@ -59,7 +59,7 @@ impl VTable for Binary {
     }
 
     fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", instance)
+        write!(f, "{}", *instance)
     }
 
     fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {

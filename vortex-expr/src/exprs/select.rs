@@ -81,12 +81,13 @@ impl VTable for Select {
     }
 
     fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        expr.child().fmt_sql(f)?;
         match expr.data() {
             FieldSelection::Include(fields) => {
-                write!(f, "select({{{}}})", DisplayFieldNames(fields))
+                write!(f, "{{{}}}", DisplayFieldNames(fields))
             }
             FieldSelection::Exclude(fields) => {
-                write!(f, "select(~ {{{}}})", DisplayFieldNames(fields))
+                write!(f, "{{~ {}}}", DisplayFieldNames(fields))
             }
         }
     }

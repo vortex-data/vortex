@@ -97,7 +97,7 @@ mod tests {
         use insta::assert_snapshot;
 
         let root_expr = root();
-        assert_snapshot!(root_expr.display_tree().to_string(), @"Root");
+        assert_snapshot!(root_expr.display_tree().to_string(), @"vortex.root");
 
         let lit_expr = lit(42);
         assert_snapshot!(lit_expr.display_tree().to_string(), @"Literal(value: 42i32, dtype: i32)");
