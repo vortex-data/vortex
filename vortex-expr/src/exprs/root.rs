@@ -50,6 +50,10 @@ impl VTable for Root {
         write!(f, "$")
     }
 
+    fn fmt_data(&self, _instance: &Self::Instance, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(()) // No data
+    }
+
     fn return_dtype(&self, _expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
         Ok(scope.clone())
     }

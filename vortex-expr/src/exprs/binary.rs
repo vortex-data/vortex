@@ -52,9 +52,9 @@ impl VTable for Binary {
 
     fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "(")?;
-        expr.lhs().fmt(f)?;
+        expr.lhs().fmt_sql(f)?;
         write!(f, " {} ", expr.operator())?;
-        expr.rhs().fmt(f)?;
+        expr.rhs().fmt_sql(f)?;
         write!(f, ")")
     }
 

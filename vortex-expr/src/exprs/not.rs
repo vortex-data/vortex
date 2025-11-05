@@ -47,7 +47,7 @@ impl VTable for Not {
     }
 
     fn fmt_sql(&self, expr: &ExprInstance<Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "~(")?;
+        write!(f, "not(")?;
         expr.child(0).fmt_sql(f)?;
         write!(f, ")")
     }
@@ -113,8 +113,8 @@ mod tests {
         let a = not(get_item("a", root()));
         let b = get_item("a", not(root()));
         assert_ne!(a.to_string(), b.to_string());
-        assert_eq!(a.to_string(), "(!$.a)");
-        assert_eq!(b.to_string(), "(!$).a");
+        assert_eq!(a.to_string(), "not($.a)");
+        assert_eq!(b.to_string(), "not($).a");
     }
 
     #[test]

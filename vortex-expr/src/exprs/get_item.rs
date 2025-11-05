@@ -58,6 +58,11 @@ impl VTable for GetItem {
         write!(f, ".{}", expr.data())
     }
 
+    fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // We use debug format to include the quotes around the field name.
+        write!(f, "{:?}", instance.inner().as_ref())
+    }
+
     fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
         let input = expr.children()[0].return_dtype(scope)?;
         input

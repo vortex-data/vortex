@@ -29,6 +29,24 @@ impl VTable for Merge {
         ExprId::new_ref("vortex.merge")
     }
 
+    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(match instance {
+            DuplicateHandling::RightMost => vec![0x00],
+            DuplicateHandling::Error => vec![0x01],
+        }))
+    }
+
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+        let instance = match metadata {
+            [0x00] => DuplicateHandling::RightMost,
+            [0x01] => DuplicateHandling::Error,
+            _ => {
+                vortex_bail!("invalid metadata for Merge expression");
+            }
+        };
+        Ok(Some(instance))
+    }
+
     fn validate(&self, _expr: &ExprInstance<Self>) -> VortexResult<()> {
         Ok(())
     }
@@ -428,9 +446,9 @@ mod tests {
     #[test]
     pub fn test_display() {
         let expr = merge([get_item("struct1", root()), get_item("struct2", root())]);
-        assert_eq!(expr.to_string(), "merge[error]($.struct1, $.struct2)");
+        assert_eq!(expr.to_string(), "merge($.struct1, $.struct2)");
 
         let expr2 = merge(vec![get_item("a", root())]);
-        assert_eq!(expr2.to_string(), "merge[error]($.a)");
+        assert_eq!(expr2.to_string(), "merge($.a)");
     }
 }

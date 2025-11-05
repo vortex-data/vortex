@@ -172,7 +172,7 @@ mod tests {
             get_item("value", root()),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
-        assert_eq!(expr.to_string(), "cast($.value, i64)");
+        assert_eq!(expr.to_string(), "cast($.value as i64)");
 
         let expr2 = cast(root(), DType::Bool(Nullability::Nullable));
         assert_eq!(expr2.to_string(), "cast($, bool?)");

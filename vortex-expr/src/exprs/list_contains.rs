@@ -21,6 +21,14 @@ impl VTable for ListContains {
         ExprId::from("vortex.list.contains")
     }
 
+    fn serialize(&self, _instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+        Ok(Some(()))
+    }
+
     fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
         if expr.children().len() != 2 {
             vortex_bail!(

@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use prost::Message;
 use std::fmt::Formatter;
 use vortex_array::compute::{between as between_compute, BetweenOptions};
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_proto::expr as pb;
 
 use crate::exprs::binary::Binary;
 use crate::exprs::operators::Operator;
@@ -31,6 +33,32 @@ impl VTable for Between {
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.between")
+    }
+
+    fn serialize(&self, instance: &Self::Instance) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(
+            pb::BetweenOpts {
+                lower_strict: instance.lower_strict.is_strict(),
+                upper_strict: instance.upper_strict.is_strict(),
+            }
+            .encode_to_vec(),
+        ))
+    }
+
+    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Option<Self::Instance>> {
+        let opts = pb::BetweenOpts::decode(metadata)?;
+        Ok(Some(BetweenOptions {
+            lower_strict: if opts.lower_strict {
+                vortex_array::compute::StrictComparison::Strict
+            } else {
+                vortex_array::compute::StrictComparison::NonStrict
+            },
+            upper_strict: if opts.upper_strict {
+                vortex_array::compute::StrictComparison::Strict
+            } else {
+                vortex_array::compute::StrictComparison::NonStrict
+            },
+        }))
     }
 
     fn validate(&self, expr: &ExprInstance<Self>) -> VortexResult<()> {
