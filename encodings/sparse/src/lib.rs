@@ -399,7 +399,7 @@ mod test {
     #[should_panic(expected = "out of bounds")]
     fn test_scalar_at_oob() {
         let array = sparse_array(nullable_fill());
-        let _ = array.scalar_at(10);
+        array.scalar_at(10);
     }
 
     #[test]

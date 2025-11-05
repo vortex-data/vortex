@@ -446,14 +446,14 @@ mod tests {
     fn test_owned_slice_invalid_range() {
         let data = vec![1, 2, 3];
         #[allow(clippy::reversed_empty_ranges)]
-        let _ = data.slice_owned(5..3); // start > end
+        data.slice_owned(5..3); // start > end
     }
 
     #[test]
     #[should_panic(expected = "exceeds buffer length")]
     fn test_owned_slice_out_of_bounds() {
         let data = vec![1, 2, 3];
-        let _ = data.slice_owned(1..10); // end > len
+        data.slice_owned(1..10); // end > len
     }
 
     #[test]
@@ -467,7 +467,7 @@ mod tests {
     #[should_panic(expected = "exceeds buffer length")]
     fn test_owned_slice_start_out_of_bounds() {
         let data = vec![1, 2, 3];
-        let _ = data.slice_owned(10..11); // start > len
+        data.slice_owned(10..11); // start > len
     }
 
     // Buffer overflow protection tests

@@ -273,6 +273,7 @@ package = "getrandom"
 version = "0.3.1"
 
 [workspace.lints.rust]
+let_underscore_drop = "deny"
 macro_use_extern_crate = "deny"
 redundant_lifetimes = "deny"
 unsafe_op_in_unsafe_fn = "deny"

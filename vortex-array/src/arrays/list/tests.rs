@@ -776,7 +776,7 @@ fn test_negative_offset_values() {
     let offsets = buffer![-1i32, 2, 4, 5].into_array();
     let validity = Validity::AllValid;
 
-    let _ = ListArray::try_new(elements, offsets, validity).unwrap();
+    ListArray::try_new(elements, offsets, validity).unwrap();
 }
 
 #[test]
@@ -786,7 +786,7 @@ fn test_unsorted_offsets() {
     let offsets = buffer![0u32, 3, 2, 5].into_array();
     let validity = Validity::AllValid;
 
-    let _ = ListArray::try_new(elements, offsets, validity).unwrap();
+    ListArray::try_new(elements, offsets, validity).unwrap();
 }
 
 #[test]
@@ -796,7 +796,7 @@ fn test_offset_exceeding_elements_length() {
     let offsets = buffer![0u32, 2, 4, 7].into_array();
     let validity = Validity::AllValid;
 
-    let _ = ListArray::try_new(elements, offsets, validity).unwrap();
+    ListArray::try_new(elements, offsets, validity).unwrap();
 }
 
 #[test]
@@ -809,7 +809,7 @@ fn test_validity_length_mismatch() {
         Nullability::Nullable,
     );
 
-    let _ = ListArray::try_new(elements, offsets, validity).unwrap();
+    ListArray::try_new(elements, offsets, validity).unwrap();
 }
 
 #[test]
@@ -819,7 +819,7 @@ fn test_nullable_offsets() {
     let offsets = PrimitiveArray::from_option_iter([Some(0u32), Some(2), None, Some(5)]);
     let validity = Validity::AllValid;
 
-    let _ = ListArray::try_new(elements, offsets.into_array(), validity).unwrap();
+    ListArray::try_new(elements, offsets.into_array(), validity).unwrap();
 }
 
 #[test]
@@ -829,7 +829,7 @@ fn test_empty_offsets_array() {
     let offsets = PrimitiveArray::empty::<u32>(Nullability::NonNullable);
     let validity = Validity::AllValid;
 
-    let _ = ListArray::try_new(elements, offsets.into_array(), validity).unwrap();
+    ListArray::try_new(elements, offsets.into_array(), validity).unwrap();
 }
 
 #[test]
@@ -839,7 +839,7 @@ fn test_non_integer_offsets() {
     let offsets = buffer![0.0f32, 2.0, 4.0, 5.0].into_array();
     let validity = Validity::AllValid;
 
-    let _ = ListArray::try_new(elements, offsets, validity).unwrap();
+    ListArray::try_new(elements, offsets, validity).unwrap();
 }
 
 #[test]

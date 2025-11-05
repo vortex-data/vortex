@@ -290,9 +290,9 @@ async fn test_custom_io_source() {
     let file_read = handle.open_read(source, Default::default()).unwrap();
 
     // Perform several reads
-    let _ = file_read.read_at(0, 5, Alignment::new(1)).await.unwrap();
-    let _ = file_read.read_at(5, 5, Alignment::new(1)).await.unwrap();
-    let _ = file_read.read_at(10, 5, Alignment::new(1)).await.unwrap();
+    file_read.read_at(0, 5, Alignment::new(1)).await.unwrap();
+    file_read.read_at(5, 5, Alignment::new(1)).await.unwrap();
+    file_read.read_at(10, 5, Alignment::new(1)).await.unwrap();
 
     // Check that our custom IoSource was called 3 times
     assert_eq!(read_count.load(Ordering::SeqCst), 3);

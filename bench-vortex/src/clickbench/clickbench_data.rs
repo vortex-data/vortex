@@ -399,7 +399,7 @@ impl Flavor {
                 let pool = rayon::ThreadPoolBuilder::new()
                     .thread_name(|i| format!("clickbench download {i}"))
                     .build()?;
-                let _ = pool.install(|| (0_u32..100).into_par_iter().map(|idx| {
+                let _unused = pool.install(|| (0_u32..100).into_par_iter().map(|idx| {
                     let output_path = basepath.join(Format::Parquet.name()).join(format!("hits_{idx}.parquet"));
                     idempotent(&output_path, |output_path| {
                         info!("Downloading file {idx}");

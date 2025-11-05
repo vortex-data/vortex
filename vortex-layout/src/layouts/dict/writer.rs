@@ -370,7 +370,7 @@ impl Stream for DictionaryTransformer {
                         // Receiver dropped, close this group
                         self.active_codes_tx = None;
                         if let Some(values_tx) = self.active_values_tx.take() {
-                            let _ = values_tx.send(Err(vortex_err!("values receiver dropped")));
+                            drop(values_tx.send(Err(vortex_err!("values receiver dropped"))));
                         }
                     }
                     Poll::Pending => {
@@ -423,14 +423,14 @@ impl Stream for DictionaryTransformer {
                 Poll::Ready(Some(Ok(DictionaryChunk::Values(values)))) => {
                     // Complete the current group
                     if let Some(values_tx) = self.active_values_tx.take() {
-                        let _ = values_tx.send(Ok(values));
+                        drop(values_tx.send(Ok(values)));
                     }
                     self.active_codes_tx = None; // Close codes stream
                 }
                 Poll::Ready(Some(Err(e))) => {
                     // Send error to active channels if any
                     if let Some(values_tx) = self.active_values_tx.take() {
-                        let _ = values_tx.send(Err(e));
+                        drop(values_tx.send(Err(e)));
                     }
                     self.active_codes_tx = None;
                     // And terminate the stream
@@ -439,7 +439,7 @@ impl Stream for DictionaryTransformer {
                 Poll::Ready(None) => {
                     // Handle any incomplete group
                     if let Some(values_tx) = self.active_values_tx.take() {
-                        let _ = values_tx.send(Err(vortex_err!("Incomplete dictionary group")));
+                        drop(values_tx.send(Err(vortex_err!("Incomplete dictionary group"))));
                     }
                     self.active_codes_tx = None;
                     return Poll::Ready(None);

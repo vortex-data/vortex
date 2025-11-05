@@ -555,7 +555,7 @@ mod tests {
     #[should_panic(expected = "split_off index out of bounds")]
     fn test_split_off_out_of_bounds() {
         let mut mask = MaskMut::new_true(10);
-        let _ = mask.split_off(11);
+        mask.split_off(11);
     }
 
     #[test]

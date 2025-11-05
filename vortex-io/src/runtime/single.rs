@@ -56,9 +56,11 @@ impl Sender {
                 while let Ok(spawn) = scheduling_recv.as_async().recv().await {
                     if let Some(local) = weak_local2.upgrade() {
                         // Ignore send errors since it means the caller immediately detached.
-                        let _ = spawn
-                            .task_callback
-                            .send(SmolAbortHandle::new_handle(local.spawn(spawn.future)));
+                        drop(
+                            spawn
+                                .task_callback
+                                .send(SmolAbortHandle::new_handle(local.spawn(spawn.future))),
+                        );
                     }
                 }
             })
@@ -72,9 +74,9 @@ impl Sender {
                     if let Some(local) = weak_local2.upgrade() {
                         let work = spawn.sync;
                         // Ignore send errors since it means the caller immediately detached.
-                        let _ = spawn.task_callback.send(SmolAbortHandle::new_handle(
+                        drop(spawn.task_callback.send(SmolAbortHandle::new_handle(
                             local.spawn(async move { work() }),
-                        ));
+                        )));
                     }
                 }
             })
@@ -88,9 +90,9 @@ impl Sender {
                     if let Some(local) = weak_local2.upgrade() {
                         let work = spawn.sync;
                         // Ignore send errors since it means the caller immediately detached.
-                        let _ = spawn.task_callback.send(SmolAbortHandle::new_handle(
+                        drop(spawn.task_callback.send(SmolAbortHandle::new_handle(
                             local.spawn(async move { work() }),
-                        ));
+                        )));
                     }
                 }
             })

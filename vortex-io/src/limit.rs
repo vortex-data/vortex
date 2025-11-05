@@ -259,7 +259,10 @@ mod tests {
         assert!(result.is_err());
 
         // After consuming, should be able to push again
-        let _ = stream.next().await;
+        stream
+            .next()
+            .await
+            .expect("The 10 byte vector ought to be in there!");
         assert_eq!(stream.bytes_available(), 10);
 
         let result = stream.try_push(Box::pin(async { vec![1u8; 5] }), 5);

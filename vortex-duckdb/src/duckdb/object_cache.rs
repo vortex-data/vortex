@@ -12,7 +12,7 @@ use crate::{cpp, lifetime_wrapper};
 unsafe extern "C-unwind" fn rust_box_deleter<T>(ptr: *mut c_void) {
     if !ptr.is_null() {
         unsafe {
-            let _ = Box::from_raw(ptr as *mut T);
+            drop(Box::from_raw(ptr as *mut T));
         }
     }
 }

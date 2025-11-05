@@ -196,5 +196,5 @@ fn test_sliced_array_children() {
     let compressed =
         ZstdArray::from_primitive(&PrimitiveArray::from_option_iter(data), 0, 100).unwrap();
     let sliced = compressed.slice(0..4);
-    let _ = sliced.children();
+    sliced.children();
 }

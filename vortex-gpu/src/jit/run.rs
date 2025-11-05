@@ -69,11 +69,12 @@ pub fn create_run_jit_kernel(
             .record_event(Some(CU_EVENT_DEFAULT))
             .ok()
             .vortex_expect("Failed to record event");
-        let _ = unsafe {
+        let launched = unsafe {
             launch_builder
                 .launch(launch_config)
                 .map_err(|e| vortex_err!("failed to launch kernel {e}"))?
         };
+        drop(launched);
         let end = stream
             .record_event(Some(CU_EVENT_DEFAULT))
             .ok()

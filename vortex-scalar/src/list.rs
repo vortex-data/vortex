@@ -549,7 +549,7 @@ mod tests {
         let children = vec![
             Scalar::primitive(1i64, Nullability::NonNullable), // Wrong type!
         ];
-        let _ = Scalar::list(element_dtype, children, Nullability::NonNullable);
+        Scalar::list(element_dtype, children, Nullability::NonNullable);
     }
 
     #[test]

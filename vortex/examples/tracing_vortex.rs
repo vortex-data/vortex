@@ -169,7 +169,7 @@ struct ShutdownSignal {
 impl ShutdownSignal {
     fn signal(self) {
         // Drop the sender, signaling to any receiver that it is finished writing.
-        let _ = self.inner.lock().unwrap().take();
+        drop(self.inner.lock().unwrap().take());
     }
 }
 
@@ -221,7 +221,7 @@ where
         };
 
         // Send to async writer (non-blocking)
-        let _ = sender.send(trace_event);
+        let _unused = sender.send(trace_event);
     }
 }
 

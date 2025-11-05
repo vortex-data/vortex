@@ -181,7 +181,7 @@ mod tests {
     fn test_bitand_different_lengths() {
         let mask1 = Mask::new_true(5);
         let mask2 = Mask::new_true(3);
-        let _ = &mask1 & &mask2;
+        let _unused = &mask1 & &mask2;
     }
 
     #[test]

@@ -159,7 +159,7 @@ fn test_timestamp_fails_i32() {
     let ts = buffer![100i32].into_array();
     let ts_array = ts.into_array();
 
-    let _ = TemporalArray::new_timestamp(ts_array, TimeUnit::Seconds, None);
+    TemporalArray::new_timestamp(ts_array, TimeUnit::Seconds, None);
 }
 
 #[rstest]
