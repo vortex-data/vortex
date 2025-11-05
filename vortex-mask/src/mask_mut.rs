@@ -279,6 +279,24 @@ impl MaskMut {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns true if all values in the mask are true.
+    pub fn all_true(&self) -> bool {
+        match &self.0 {
+            Inner::Empty { .. } => true,
+            Inner::Constant { value, .. } => *value,
+            Inner::Builder(bits) => bits.true_count() == bits.len(),
+        }
+    }
+
+    /// Returns true if all values in the mask are false.
+    pub fn all_false(&self) -> bool {
+        match &self.0 {
+            Inner::Empty { .. } => true,
+            Inner::Constant { value, .. } => !*value,
+            Inner::Builder(bits) => !bits.is_empty() && bits.true_count() == 0,
+        }
+    }
 }
 
 impl Mask {

@@ -60,6 +60,43 @@ macro_rules! match_each_pvector {
     }};
 }
 
+/// Matches on all integer type variants of [`PrimitiveVector`] and executes the same code for each
+/// of the integer variant branches.
+///
+/// This macro eliminates repetitive match statements when implementing operations that need to work
+/// uniformly across all integer type variants (`U8`, `U16`, `U32`, `U64`, `I8`, `I16`, `I32`,
+/// `I64`).
+///
+/// See [`match_each_pvector`] for similar usage.
+///
+/// [`PrimitiveVector`]: crate::primitive::PrimitiveVector
+///
+/// # Panics
+///
+/// Panics if the vector passed in to the macro is a float vector variant.
+#[macro_export]
+macro_rules! match_each_integer_pvector {
+    ($self:expr, | $vec:ident | $body:block) => {{
+        match $self {
+            $crate::primitive::PrimitiveVector::U8($vec) => $body,
+            $crate::primitive::PrimitiveVector::U16($vec) => $body,
+            $crate::primitive::PrimitiveVector::U32($vec) => $body,
+            $crate::primitive::PrimitiveVector::U64($vec) => $body,
+            $crate::primitive::PrimitiveVector::I8($vec) => $body,
+            $crate::primitive::PrimitiveVector::I16($vec) => $body,
+            $crate::primitive::PrimitiveVector::I32($vec) => $body,
+            $crate::primitive::PrimitiveVector::I64($vec) => $body,
+            $crate::primitive::PrimitiveVector::F16(_)
+            | $crate::primitive::PrimitiveVector::F32(_)
+            | $crate::primitive::PrimitiveVector::F64(_) => {
+                ::vortex_error::vortex_panic!(
+                    "Tried to match a float vector in an integer match statement"
+                )
+            }
+        }
+    }};
+}
+
 /// Matches on all primitive type variants of [`PrimitiveVectorMut`] and executes the same code
 /// for each variant branch.
 ///
@@ -107,6 +144,43 @@ macro_rules! match_each_pvector_mut {
             $crate::primitive::PrimitiveVectorMut::F16($vec) => $body,
             $crate::primitive::PrimitiveVectorMut::F32($vec) => $body,
             $crate::primitive::PrimitiveVectorMut::F64($vec) => $body,
+        }
+    }};
+}
+
+/// Matches on all integer type variants of [`PrimitiveVectorMut`] and executes the same code for
+/// each of the integer variant branches.
+///
+/// This macro eliminates repetitive match statements when implementing operations that need to work
+/// uniformly across all integer type variants (`U8`, `U16`, `U32`, `U64`, `I8`, `I16`, `I32`,
+/// `I64`).
+///
+/// See [`match_each_pvector_mut`] for similar usage.
+///
+/// [`PrimitiveVectorMut`]: crate::primitive::PrimitiveVectorMut
+///
+/// # Panics
+///
+/// Panics if the vector passed in to the macro is a float vector variant.
+#[macro_export]
+macro_rules! match_each_integer_pvector_mut {
+    ($self:expr, | $vec:ident | $body:block) => {{
+        match $self {
+            $crate::primitive::PrimitiveVectorMut::U8($vec) => $body,
+            $crate::primitive::PrimitiveVectorMut::U16($vec) => $body,
+            $crate::primitive::PrimitiveVectorMut::U32($vec) => $body,
+            $crate::primitive::PrimitiveVectorMut::U64($vec) => $body,
+            $crate::primitive::PrimitiveVectorMut::I8($vec) => $body,
+            $crate::primitive::PrimitiveVectorMut::I16($vec) => $body,
+            $crate::primitive::PrimitiveVectorMut::I32($vec) => $body,
+            $crate::primitive::PrimitiveVectorMut::I64($vec) => $body,
+            $crate::primitive::PrimitiveVectorMut::F16(_)
+            | $crate::primitive::PrimitiveVectorMut::F32(_)
+            | $crate::primitive::PrimitiveVectorMut::F64(_) => {
+                ::vortex_error::vortex_panic!(
+                    "Tried to match a mutable float vector in an integer match statement"
+                )
+            }
         }
     }};
 }

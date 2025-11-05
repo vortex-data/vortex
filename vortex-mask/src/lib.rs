@@ -123,93 +123,6 @@ pub struct MaskValues {
     density: f64,
 }
 
-impl MaskValues {
-    /// Returns the length of the mask.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    /// Returns true if the mask is empty i.e., it's length is 0.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
-    }
-
-    /// Returns the true count of the mask.
-    #[inline]
-    pub fn true_count(&self) -> usize {
-        self.true_count
-    }
-
-    /// Returns the boolean buffer representation of the mask.
-    #[inline]
-    pub fn bit_buffer(&self) -> &BitBuffer {
-        &self.buffer
-    }
-
-    /// Returns the boolean value at a given index.
-    #[inline]
-    pub fn value(&self, index: usize) -> bool {
-        self.buffer.value(index)
-    }
-
-    /// Constructs an indices vector from one of the other representations.
-    pub fn indices(&self) -> &[usize] {
-        self.indices.get_or_init(|| {
-            if self.true_count == 0 {
-                return vec![];
-            }
-
-            if self.true_count == self.len() {
-                return (0..self.len()).collect();
-            }
-
-            if let Some(slices) = self.slices.get() {
-                let mut indices = Vec::with_capacity(self.true_count);
-                indices.extend(slices.iter().flat_map(|(start, end)| *start..*end));
-                debug_assert!(indices.is_sorted());
-                assert_eq!(indices.len(), self.true_count);
-                return indices;
-            }
-
-            let mut indices = Vec::with_capacity(self.true_count);
-            indices.extend(self.buffer.set_indices());
-            debug_assert!(indices.is_sorted());
-            assert_eq!(indices.len(), self.true_count);
-            indices
-        })
-    }
-
-    /// Constructs a slices vector from one of the other representations.
-    #[allow(clippy::cast_possible_truncation)]
-    #[inline]
-    pub fn slices(&self) -> &[(usize, usize)] {
-        self.slices.get_or_init(|| {
-            if self.true_count == self.len() {
-                return vec![(0, self.len())];
-            }
-
-            self.buffer.set_slices().collect()
-        })
-    }
-
-    /// Return an iterator over either indices or slices of the mask based on a density threshold.
-    #[inline]
-    pub fn threshold_iter(&self, threshold: f64) -> MaskIter<'_> {
-        if self.density >= threshold {
-            MaskIter::Slices(self.slices())
-        } else {
-            MaskIter::Indices(self.indices())
-        }
-    }
-
-    /// Extracts the internal [`BitBuffer`].
-    pub(crate) fn into_buffer(self) -> BitBuffer {
-        self.buffer
-    }
-}
-
 impl Mask {
     /// Create a new Mask where all values are set.
     #[inline]
@@ -639,6 +552,93 @@ impl Mask {
         }
 
         Ok(Mask::from_buffer(builder.freeze()))
+    }
+}
+
+impl MaskValues {
+    /// Returns the length of the mask.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.buffer.len()
+    }
+
+    /// Returns true if the mask is empty i.e., it's length is 0.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.buffer.is_empty()
+    }
+
+    /// Returns the true count of the mask.
+    #[inline]
+    pub fn true_count(&self) -> usize {
+        self.true_count
+    }
+
+    /// Returns the boolean buffer representation of the mask.
+    #[inline]
+    pub fn bit_buffer(&self) -> &BitBuffer {
+        &self.buffer
+    }
+
+    /// Returns the boolean value at a given index.
+    #[inline]
+    pub fn value(&self, index: usize) -> bool {
+        self.buffer.value(index)
+    }
+
+    /// Constructs an indices vector from one of the other representations.
+    pub fn indices(&self) -> &[usize] {
+        self.indices.get_or_init(|| {
+            if self.true_count == 0 {
+                return vec![];
+            }
+
+            if self.true_count == self.len() {
+                return (0..self.len()).collect();
+            }
+
+            if let Some(slices) = self.slices.get() {
+                let mut indices = Vec::with_capacity(self.true_count);
+                indices.extend(slices.iter().flat_map(|(start, end)| *start..*end));
+                debug_assert!(indices.is_sorted());
+                assert_eq!(indices.len(), self.true_count);
+                return indices;
+            }
+
+            let mut indices = Vec::with_capacity(self.true_count);
+            indices.extend(self.buffer.set_indices());
+            debug_assert!(indices.is_sorted());
+            assert_eq!(indices.len(), self.true_count);
+            indices
+        })
+    }
+
+    /// Constructs a slices vector from one of the other representations.
+    #[allow(clippy::cast_possible_truncation)]
+    #[inline]
+    pub fn slices(&self) -> &[(usize, usize)] {
+        self.slices.get_or_init(|| {
+            if self.true_count == self.len() {
+                return vec![(0, self.len())];
+            }
+
+            self.buffer.set_slices().collect()
+        })
+    }
+
+    /// Return an iterator over either indices or slices of the mask based on a density threshold.
+    #[inline]
+    pub fn threshold_iter(&self, threshold: f64) -> MaskIter<'_> {
+        if self.density >= threshold {
+            MaskIter::Slices(self.slices())
+        } else {
+            MaskIter::Indices(self.indices())
+        }
+    }
+
+    /// Extracts the internal [`BitBuffer`].
+    pub(crate) fn into_buffer(self) -> BitBuffer {
+        self.buffer
     }
 }
 

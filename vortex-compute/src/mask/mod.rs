@@ -11,6 +11,7 @@ use vortex_vector::binaryview::{BinaryViewType, BinaryViewVector};
 use vortex_vector::bool::BoolVector;
 use vortex_vector::decimal::{DVector, DecimalVector};
 use vortex_vector::fixed_size_list::FixedSizeListVector;
+use vortex_vector::listview::ListViewVector;
 use vortex_vector::null::NullVector;
 use vortex_vector::primitive::{PVector, PrimitiveVector};
 use vortex_vector::struct_::StructVector;
@@ -46,20 +47,6 @@ impl MaskValidity for BoolVector {
     }
 }
 
-impl MaskValidity for DecimalVector {
-    fn mask_validity(self, mask: &Mask) -> Self {
-        match_each_dvector!(self, |v| { MaskValidity::mask_validity(v, mask).into() })
-    }
-}
-
-impl<D: NativeDecimalType> MaskValidity for DVector<D> {
-    fn mask_validity(self, mask: &Mask) -> Self {
-        let (ps, elements, validity) = self.into_parts();
-        // SAFETY: we are preserving the original elements buffer and only modifying the validity.
-        unsafe { Self::new_unchecked(ps, elements, validity.bitand(mask)) }
-    }
-}
-
 impl MaskValidity for PrimitiveVector {
     fn mask_validity(self, mask: &Mask) -> Self {
         match_each_pvector!(self, |v| { MaskValidity::mask_validity(v, mask).into() })
@@ -74,11 +61,34 @@ impl<T: NativePType> MaskValidity for PVector<T> {
     }
 }
 
+impl MaskValidity for DecimalVector {
+    fn mask_validity(self, mask: &Mask) -> Self {
+        match_each_dvector!(self, |v| { MaskValidity::mask_validity(v, mask).into() })
+    }
+}
+
+impl<D: NativeDecimalType> MaskValidity for DVector<D> {
+    fn mask_validity(self, mask: &Mask) -> Self {
+        let (ps, elements, validity) = self.into_parts();
+        // SAFETY: we are preserving the original elements buffer and only modifying the validity.
+        unsafe { Self::new_unchecked(ps, elements, validity.bitand(mask)) }
+    }
+}
+
 impl<T: BinaryViewType> MaskValidity for BinaryViewVector<T> {
     fn mask_validity(self, mask: &Mask) -> Self {
         let (views, buffers, validity) = self.into_parts();
         // SAFETY: we are preserving the original views and buffers, only modifying the validity.
         unsafe { Self::new_unchecked(views, buffers, validity.bitand(mask)) }
+    }
+}
+
+impl MaskValidity for ListViewVector {
+    fn mask_validity(self, mask: &Mask) -> Self {
+        let (elements, offsets, sizes, validity) = self.into_parts();
+        // SAFETY: we are preserving the original elements and `list_size`, only modifying the
+        // validity.
+        unsafe { Self::new_unchecked(elements, offsets, sizes, validity.bitand(mask)) }
     }
 }
 

@@ -6,6 +6,7 @@
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, PTypeDowncast, PTypeUpcast};
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 
 use crate::primitive::{PVector, PrimitiveVectorMut};
 use crate::{VectorOps, match_each_pvector};
@@ -70,7 +71,7 @@ impl VectorOps for PrimitiveVector {
         match_each_pvector!(self, |v| { v.len() })
     }
 
-    fn validity(&self) -> &vortex_mask::Mask {
+    fn validity(&self) -> &Mask {
         match_each_pvector!(self, |v| { v.validity() })
     }
 

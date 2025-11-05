@@ -3,7 +3,7 @@
 
 use std::ops::Not;
 
-use arrow_buffer::bit_chunk_iterator::BitChunks;
+use arrow_buffer::bit_chunk_iterator::{BitChunks, UnalignedBitChunk};
 use bitvec::view::BitView;
 
 use crate::bit::{get_bit_unchecked, ops, set_bit_unchecked, unset_bit_unchecked};
@@ -494,6 +494,21 @@ impl BitBufferMut {
     /// Returns a raw mutable pointer to the internal buffer.
     pub fn as_mut_ptr(&mut self) -> *mut u8 {
         self.buffer.as_mut_ptr()
+    }
+
+    /// Access chunks of the buffer aligned to 8 byte boundary as [prefix, \<full chunks\>, suffix]
+    pub fn unaligned_chunks(&self) -> UnalignedBitChunk<'_> {
+        UnalignedBitChunk::new(self.buffer.as_slice(), self.offset, self.len)
+    }
+
+    /// Get the number of set bits in the buffer.
+    pub fn true_count(&self) -> usize {
+        self.unaligned_chunks().count_ones()
+    }
+
+    /// Get the number of unset bits in the buffer.
+    pub fn false_count(&self) -> usize {
+        self.len - self.true_count()
     }
 }
 
