@@ -513,14 +513,12 @@ impl CoercePValue for f64 {
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_types)]
 mod test {
     use std::cmp::Ordering;
-    use std::collections::HashSet;
 
-    use num_traits::FromPrimitive;
     use vortex_dtype::half::f16;
     use vortex_dtype::{FromPrimitiveOrF16, PType, ToBytes};
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::PValue;
     use crate::pvalue::CoercePValue;
