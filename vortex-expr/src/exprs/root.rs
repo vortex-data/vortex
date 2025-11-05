@@ -8,7 +8,7 @@ use vortex_array::stats::Stat;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::v2::Expression;
+use crate::expression::Expression;
 use crate::{ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt};
 
 /// An expression that returns the full scope of the expression evaluation.

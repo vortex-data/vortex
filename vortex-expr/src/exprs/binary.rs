@@ -10,9 +10,9 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
+use crate::expression::Expression;
 use crate::exprs::literal::lit;
 use crate::exprs::operators::Operator;
-use crate::v2::Expression;
 use crate::{ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt};
 
 pub struct Binary;

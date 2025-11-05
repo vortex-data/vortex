@@ -22,6 +22,7 @@ mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 pub mod display;
+mod expression;
 mod exprs;
 mod field;
 pub mod forms;
@@ -32,14 +33,13 @@ mod scope_vars;
 pub mod session;
 pub mod transform;
 pub mod traversal;
-mod v2;
 mod vtable;
 
 pub use analysis::*;
+pub use expression::*;
 pub use exprs::*;
 pub use scope::*;
 pub use scope_vars::*;
-pub use v2::*;
 use vortex_dtype::{DType, FieldName};
 use vortex_error::VortexUnwrap;
 use vortex_utils::aliases::hash_set::HashSet;

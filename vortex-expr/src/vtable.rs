@@ -12,7 +12,7 @@ use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
-use crate::v2::{ExprInstance, Expression};
+use crate::expression::{ExprInstance, Expression};
 use crate::{ExprId, StatsCatalog};
 
 /// The vtable trait for a Vortex expression.

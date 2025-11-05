@@ -11,8 +11,8 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 
+use crate::expression::Expression;
 use crate::field::DisplayFieldNames;
-use crate::v2::Expression;
 use crate::{ChildName, ExprId, ExprInstance, VTable, VTableExt};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

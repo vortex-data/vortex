@@ -11,7 +11,7 @@ use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
-use crate::v2::Expression;
+use crate::expression::Expression;
 use crate::{ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt};
 
 /// A cast expression that converts values to a target data type.
