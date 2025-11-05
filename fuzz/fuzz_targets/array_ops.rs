@@ -8,7 +8,7 @@ use std::backtrace::Backtrace;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{cast, compare, fill_null, filter, min_max, sum, take};
+use vortex_array::compute::{cast, compare, fill_null, filter, mask, min_max, sum, take};
 use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -99,7 +99,6 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }
             Action::Mask(mask_val) => {
-                use vortex_array::compute::mask;
                 current_array = mask(&current_array, &mask_val).vortex_unwrap();
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }

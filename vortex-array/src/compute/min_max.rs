@@ -133,13 +133,8 @@ fn min_max_impl(
         return Ok(None);
     }
 
-    if let Some(array) = array.as_opt::<ConstantVTable>()
-        && !array.scalar().is_null()
-    {
-        return Ok(Some(MinMaxResult {
-            min: array.scalar().clone(),
-            max: array.scalar().clone(),
-        }));
+    if let Some(array) = array.as_opt::<ConstantVTable>() {
+        return ConstantVTable.min_max(array);
     }
 
     let min = array
@@ -176,7 +171,8 @@ fn min_max_impl(
     vortex_bail!(NotImplemented: "min_max", array.encoding_id());
 }
 
-/// The minimum and maximum non-null values of an array, or None if there are no non-null values.
+/// The minimum and maximum non-null values of an array, or None if there are no non-null/or non-nan
+/// values.
 pub trait MinMaxKernel: VTable {
     fn min_max(&self, array: &Self::Array) -> VortexResult<Option<MinMaxResult>>;
 }
