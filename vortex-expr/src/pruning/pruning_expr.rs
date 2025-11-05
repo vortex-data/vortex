@@ -103,7 +103,6 @@ pub fn checked_pruning_expr(
 
 #[cfg(test)]
 mod tests {
-    use crate::exprs::cast::cast;
     use rstest::{fixture, rstest};
     use vortex_array::compute::{BetweenOptions, StrictComparison};
     use vortex_array::stats::Stat;
@@ -112,13 +111,14 @@ mod tests {
     };
 
     use super::HashMap;
+    use crate::HashSet;
     use crate::exprs::between::between;
     use crate::exprs::binary::{and, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
+    use crate::exprs::cast::cast;
     use crate::exprs::get_item::{col, get_item};
     use crate::exprs::literal::lit;
     use crate::exprs::root::root;
     use crate::pruning::{checked_pruning_expr, field_path_stat_field_name};
-    use crate::HashSet;
 
     // Implement some checked pruning expressions.
     #[fixture]
@@ -255,7 +255,7 @@ mod tests {
         let column = FieldName::from("a");
         let other_col = FieldName::from("b");
         let other_expr = col(other_col.clone());
-        let not_eq_expr = gt(col(column.clone()), other_expr.clone());
+        let not_eq_expr = gt(col(column.clone()), other_expr);
 
         let (converted, refs) = checked_pruning_expr(&not_eq_expr, &available_stats).unwrap();
         assert_eq!(
@@ -303,7 +303,7 @@ mod tests {
                 &FieldPath::from_name(column),
                 Stat::Max,
             )),
-            other_col.clone(),
+            other_col,
         );
         assert_eq!(&converted, &(expected_expr));
     }
@@ -313,7 +313,7 @@ mod tests {
         let column = FieldName::from("a");
         let other_col = FieldName::from("b");
         let other_expr = col(other_col.clone());
-        let not_eq_expr = lt(col(column.clone()), other_expr.clone());
+        let not_eq_expr = lt(col(column.clone()), other_expr);
 
         let (converted, refs) = checked_pruning_expr(&not_eq_expr, &available_stats).unwrap();
         assert_eq!(
@@ -358,7 +358,7 @@ mod tests {
 
     #[rstest]
     fn pruning_identity(available_stats: FieldPathSet) {
-        let expr = or(lt(col("a").clone(), lit(10)), gt(col("a").clone(), lit(50)));
+        let expr = or(lt(col("a"), lit(10)), gt(col("a"), lit(50)));
 
         let (predicate, _) = checked_pruning_expr(&expr, &available_stats).unwrap();
 

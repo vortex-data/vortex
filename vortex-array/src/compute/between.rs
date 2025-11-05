@@ -6,13 +6,13 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::compute::{
-    boolean, compare, BooleanOperator, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator,
-    Options, Output,
+    BooleanOperator, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Options, Output,
+    boolean, compare,
 };
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
@@ -274,9 +274,9 @@ mod tests {
     use vortex_dtype::{Nullability, PType};
 
     use super::*;
+    use crate::ToCanonical;
     use crate::compute::conformance::search_sorted::rstest;
     use crate::test_harness::to_int_indices;
-    use crate::ToCanonical;
 
     #[rstest]
     #[case(StrictComparison::NonStrict, StrictComparison::NonStrict, vec![0, 1, 2, 3])]

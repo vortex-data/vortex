@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
-use vortex_array::stats::Stat;
+
 use vortex_array::ArrayRef;
+use vortex_array::stats::Stat;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::v2::Expression;
 use crate::{ChildName, ExprId, ExprInstance, StatsCatalog, VTable, VTableExt};
@@ -88,7 +89,7 @@ impl VTable for Root {
 /// Returns the entire input array as passed to the expression evaluator.
 /// This is commonly used as the starting point for field access and other operations.
 pub fn root() -> Expression {
-    Root.try_new((), vec![])
+    Root.try_new_expr((), vec![])
         .vortex_expect("Failed to create Root expression")
 }
 

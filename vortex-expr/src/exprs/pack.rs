@@ -10,7 +10,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
 use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
@@ -164,7 +164,7 @@ pub fn pack(
         .into_iter()
         .map(|(name, value)| (name.into(), value))
         .unzip();
-    Pack.new(
+    Pack.new_expr(
         PackOptions {
             names: names.into(),
             nullability,
@@ -181,9 +181,9 @@ mod tests {
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_error::{vortex_bail, VortexResult};
+    use vortex_error::{VortexResult, vortex_bail};
 
-    use super::{pack, Pack, PackOptions};
+    use super::{Pack, PackOptions, pack};
     use crate::exprs::get_item::col;
     use crate::{Scope, VTableExt};
 
@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     pub fn test_empty_pack() {
-        let expr = Pack.new(
+        let expr = Pack.new_expr(
             PackOptions {
                 names: Default::default(),
                 nullability: Default::default(),
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     pub fn test_simple_pack() {
-        let expr = Pack.new(
+        let expr = Pack.new_expr(
             PackOptions {
                 names: ["one", "two", "three"].into(),
                 nullability: Nullability::NonNullable,
@@ -266,14 +266,14 @@ mod tests {
 
     #[test]
     pub fn test_nested_pack() {
-        let expr = Pack.new(
+        let expr = Pack.new_expr(
             PackOptions {
                 names: ["one", "two", "three"].into(),
                 nullability: Nullability::NonNullable,
             },
             [
                 col("a"),
-                Pack.new(
+                Pack.new_expr(
                     PackOptions {
                         names: ["two_one", "two_two"].into(),
                         nullability: Nullability::NonNullable,
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     pub fn test_pack_nullable() {
-        let expr = Pack.new(
+        let expr = Pack.new_expr(
             PackOptions {
                 names: ["one", "two", "three"].into(),
                 nullability: Nullability::Nullable,
@@ -344,7 +344,7 @@ mod tests {
         );
         assert_eq!(expr.to_string(), "pack(id: $.user_id, name: $.username)");
 
-        let expr2 = Pack.new(
+        let expr2 = Pack.new_expr(
             PackOptions {
                 names: ["x", "y"].into(),
                 nullability: Nullability::Nullable,

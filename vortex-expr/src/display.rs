@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::Expression;
 use std::fmt::{Display, Formatter};
+
+use crate::Expression;
 
 pub enum DisplayFormat {
     Compact,
@@ -48,8 +49,6 @@ impl Display for ExpressionDebug<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::exprs::pack::pack;
-    use crate::exprs::select::select_exclude;
     use vortex_array::compute::{BetweenOptions, StrictComparison};
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -59,8 +58,9 @@ mod tests {
     use crate::exprs::get_item::get_item;
     use crate::exprs::literal::lit;
     use crate::exprs::not::not;
+    use crate::exprs::pack::pack;
     use crate::exprs::root::root;
-    use crate::exprs::select::select;
+    use crate::exprs::select::{select, select_exclude};
 
     #[test]
     fn tree_display_getitem() {

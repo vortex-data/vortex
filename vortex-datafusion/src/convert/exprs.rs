@@ -7,16 +7,16 @@ use arrow_schema::{DataType, Schema};
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_physical_expr::{PhysicalExpr, ScalarFunctionExpr};
-use datafusion_physical_expr_common::physical_expr::{is_dynamic_physical_expr, PhysicalExprRef};
+use datafusion_physical_expr_common::physical_expr::{PhysicalExprRef, is_dynamic_physical_expr};
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::compute::LikeOptions;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::{DType, Nullability};
-use vortex::error::{vortex_bail, vortex_err, VortexResult};
+use vortex::error::{VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    and, cast, get_item, is_null, list_contains, lit, not, root, Binary, Expression,
-    Like, Operator, VTableExt,
+    Binary, Expression, Like, Operator, VTableExt, and, cast, get_item, is_null, list_contains,
+    lit, not, root,
 };
 use vortex::scalar::Scalar;
 
@@ -43,7 +43,7 @@ impl TryFromDataFusion<dyn PhysicalExpr> for Expression {
             let right = Expression::try_from_df(binary_expr.right().as_ref())?;
             let operator = Operator::try_from_df(binary_expr.op())?;
 
-            return Ok(Binary.new(operator, [left, right]));
+            return Ok(Binary.new_expr(operator, [left, right]));
         }
 
         if let Some(col_expr) = df.as_any().downcast_ref::<df_expr::Column>() {
@@ -53,7 +53,7 @@ impl TryFromDataFusion<dyn PhysicalExpr> for Expression {
         if let Some(like) = df.as_any().downcast_ref::<df_expr::LikeExpr>() {
             let child = Expression::try_from_df(like.expr().as_ref())?;
             let pattern = Expression::try_from_df(like.pattern().as_ref())?;
-            return Ok(Like.new(
+            return Ok(Like.new_expr(
                 LikeOptions {
                     negated: like.negated(),
                     case_insensitive: like.case_insensitive(),
@@ -283,8 +283,8 @@ mod tests {
 
     use arrow_schema::{DataType, Field, Fields, Schema, TimeUnit as ArrowTimeUnit};
     use datafusion::functions::core::getfield::GetFieldFunc;
-    use datafusion_common::config::ConfigOptions;
     use datafusion_common::ScalarValue;
+    use datafusion_common::config::ConfigOptions;
     use datafusion_expr::{Operator as DFOperator, ScalarUDF};
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_plan::expressions as df_expr;
@@ -404,7 +404,7 @@ mod tests {
         assert_snapshot!(result.display_tree().to_string(), @r#"
         vortex.binary =
         ├── lhs: vortex.get_item "left"
-        │   └── input: vortex.root 
+        │   └── input: vortex.root
         └── rhs: vortex.literal 42i32
         "#);
     }
@@ -427,7 +427,7 @@ mod tests {
             assert_snapshot!(result.display_tree().to_string(), @r#"
             vortex.like LikeOptions { negated: false, case_insensitive: false }
             ├── child: vortex.get_item "text_col"
-            │   └── input: vortex.root 
+            │   └── input: vortex.root
             └── pattern: vortex.literal "test%"
             "#);
         }

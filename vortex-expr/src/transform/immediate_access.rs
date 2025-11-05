@@ -5,11 +5,11 @@ use vortex_dtype::{FieldName, StructFields};
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::Expression;
 use crate::exprs::get_item::GetItem;
 use crate::exprs::root::Root;
 use crate::exprs::select::Select;
-use crate::transform::annotations::{descendent_annotations, AnnotationFn, Annotations};
-use crate::Expression;
+use crate::transform::annotations::{AnnotationFn, Annotations, descendent_annotations};
 
 pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
 

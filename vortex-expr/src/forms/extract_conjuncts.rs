@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::Expression;
 use crate::exprs::binary::Binary;
 use crate::exprs::operators::Operator;
-use crate::Expression;
 
 /// Converting an expression to a conjunctive normal form can lead to a large number of expression
 /// nodes.

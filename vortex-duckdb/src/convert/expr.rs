@@ -6,10 +6,10 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex::compute::{BetweenOptions, LikeOptions, StrictComparison};
 use vortex::dtype::Nullability;
-use vortex::error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    and_collect, col, is_null, list_contains, lit, not, or_collect, Between, Binary, Expression,
-    Like, Literal, Operator, VTableExt,
+    Between, Binary, Expression, Like, Literal, Operator, VTableExt, and_collect, col, is_null,
+    list_contains, lit, not, or_collect,
 };
 use vortex::scalar::Scalar;
 
@@ -49,7 +49,7 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
                 return Ok(None);
             };
 
-            Binary.new(operator, [left, right])
+            Binary.new_expr(operator, [left, right])
         }
         duckdb::ExpressionClass::BoundBetween(between) => {
             let Some(array) = try_from_bound_expression(&between.input)? else {
@@ -61,7 +61,7 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
             let Some(upper) = try_from_bound_expression(&between.upper)? else {
                 return Ok(None);
             };
-            Between.new(
+            Between.new_expr(
                 BetweenOptions {
                     lower_strict: if between.lower_inclusive {
                         StrictComparison::NonStrict
@@ -144,7 +144,7 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
                     vortex_bail!("expected pattern to be bound string")
                 };
                 let pattern = lit(pattern_lit);
-                Like.new(LikeOptions::default(), [value, pattern])
+                Like.new_expr(LikeOptions::default(), [value, pattern])
             }
             _ => {
                 log::debug!("bound function {}", func.scalar_function.name());

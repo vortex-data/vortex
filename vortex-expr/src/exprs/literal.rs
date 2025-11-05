@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use prost::Message;
 use std::fmt::Formatter;
+
+use prost::Message;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_dtype::{match_each_float_ptype, DType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_dtype::{DType, match_each_float_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
@@ -126,7 +127,7 @@ impl VTable for Literal {
 /// assert_eq!(literal.data(), &Scalar::primitive(34i32, Nullability::NonNullable));
 /// ```
 pub fn lit(value: impl Into<Scalar>) -> Expression {
-    Literal.new(value.into(), [])
+    Literal.new_expr(value.into(), [])
 }
 
 #[cfg(test)]

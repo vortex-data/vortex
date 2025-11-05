@@ -4,9 +4,9 @@
 use vortex_array::compute::{BetweenOptions, StrictComparison};
 
 use crate::exprs::between::Between;
-use crate::exprs::binary::{and, Binary};
+use crate::exprs::binary::{Binary, and};
 use crate::exprs::get_item::GetItem;
-use crate::exprs::literal::{lit, Literal};
+use crate::exprs::literal::{Literal, lit};
 use crate::exprs::operators::Operator;
 use crate::forms::conjuncts;
 use crate::{Expression, VTableExt};
@@ -58,7 +58,7 @@ fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
     // First, get both halves to have GetItem on the left
     let lhs = match (lhs_e.lhs().is::<GetItem>(), lhs_e.rhs().is::<GetItem>()) {
         (true, false) => lhs.clone(),
-        (false, true) => Binary.new(
+        (false, true) => Binary.new_expr(
             lhs_e.operator().swap()?,
             [lhs_e.rhs().clone(), lhs_e.lhs().clone()],
         ),
@@ -68,7 +68,7 @@ fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
 
     let rhs = match (rhs_e.lhs().is::<GetItem>(), rhs_e.rhs().is::<GetItem>()) {
         (true, false) => rhs.clone(),
-        (false, true) => Binary.new(
+        (false, true) => Binary.new_expr(
             rhs_e.operator().swap()?,
             [rhs_e.rhs().clone(), rhs_e.lhs().clone()],
         ),
@@ -99,12 +99,12 @@ fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
     let lower_strict = is_strict_comparison(lower_e.operator())?;
     let upper_strict = is_strict_comparison(upper_e.operator())?;
 
-    Some(Between.new(
+    Some(Between.new_expr(
         BetweenOptions {
             lower_strict,
             upper_strict,
         },
-        [target.clone(), lower_e.rhs().clone(), upper_e.rhs().clone()],
+        [target, lower_e.rhs().clone(), upper_e.rhs().clone()],
     ))
 }
 

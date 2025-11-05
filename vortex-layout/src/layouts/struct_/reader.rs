@@ -11,12 +11,12 @@ use vortex_array::arrays::StructArray;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, MaskFuture, ToCanonical};
 use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
-    partition, replace, replace_root_fields, simplify_typed, PartitionedExpr,
+    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
 };
-use vortex_expr::{col, root, ExactExpr, Expression, Merge, Pack};
+use vortex_expr::{ExactExpr, Expression, Merge, Pack, col, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;

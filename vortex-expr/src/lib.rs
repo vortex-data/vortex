@@ -10,10 +10,12 @@
 //! [Postgres]: https://www.postgresql.org/docs/current/sql-expressions.html
 //! [Apache Datafusion]: https://github.com/apache/datafusion/tree/5fac581efbaffd0e6a9edf931182517524526afd/datafusion/expr
 
-use crate::traversal::{NodeExt, ReferenceCollector};
-use arcref::ArcRef;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+
+use arcref::ArcRef;
+
+use crate::traversal::{NodeExt, ReferenceCollector};
 
 pub mod aliases;
 mod analysis;
@@ -38,11 +40,10 @@ pub use exprs::*;
 pub use scope::*;
 pub use scope_vars::*;
 pub use v2::*;
-pub use vtable::*;
-
 use vortex_dtype::{DType, FieldName};
 use vortex_error::VortexUnwrap;
 use vortex_utils::aliases::hash_set::HashSet;
+pub use vtable::*;
 
 pub type ExprId = ArcRef<str>;
 
@@ -189,15 +190,11 @@ mod tests {
         );
 
         assert_eq!(
-            or(
-                lt(col1.clone(), col2.clone()),
-                not_eq(col1.clone(), col2.clone()),
-            )
-            .to_string(),
+            or(lt(col1.clone(), col2.clone()), not_eq(col1.clone(), col2),).to_string(),
             "(($.col1 < $.col2) or ($.col1 != $.col2))"
         );
 
-        assert_eq!(not(col1.clone()).to_string(), "not($.col1)");
+        assert_eq!(not(col1).to_string(), "not($.col1)");
 
         assert_eq!(
             select(vec![FieldName::from("col1")], root()).to_string(),

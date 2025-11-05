@@ -6,10 +6,10 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex::compute::Operator;
 use vortex::dtype::{DType, Nullability};
-use vortex::error::{vortex_bail, VortexExpect, VortexResult};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 use vortex::expr::{
-    and_collect, get_item, is_null, list_contains, lit, not, or_collect, Binary, Expression,
-    VTableExt,
+    Binary, Expression, VTableExt, and_collect, get_item, is_null, list_contains, lit, not,
+    or_collect,
 };
 use vortex::scalar::Scalar;
 
@@ -25,7 +25,7 @@ pub fn try_from_table_filter(
         TableFilterClass::ConstantComparison(const_) => {
             let scalar: Scalar = const_.value.try_into()?;
 
-            Binary.new(const_.operator.try_into()?, [col.clone(), lit(scalar)])
+            Binary.new_expr(const_.operator.try_into()?, [col.clone(), lit(scalar)])
         }
         TableFilterClass::ConjunctionAnd(conj_and) => {
             let Some(children) = conj_and

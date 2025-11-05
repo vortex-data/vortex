@@ -5,7 +5,7 @@ use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
 
 pub struct RowIdx;
@@ -47,5 +47,5 @@ impl VTable for RowIdx {
 }
 
 pub fn row_idx() -> Expression {
-    RowIdx.new((), [])
+    RowIdx.new_expr((), [])
 }

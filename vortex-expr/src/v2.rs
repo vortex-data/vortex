@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{display, ChildName, ExprId, ExprVTable, StatsCatalog, VTable};
-use std::any::{type_name, Any};
+use std::any::{Any, type_name};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
+
+use crate::{ChildName, ExprId, ExprVTable, StatsCatalog, VTable, display};
 
 /// A node in a Vortex expression tree.
 ///
@@ -221,7 +223,7 @@ impl Expression {
     ///     and(
     ///         not(eq(get_item("status", root()), lit("inactive"))),
     ///         and(
-    ///             Like.new(LikeOptions::default(), [get_item("name", root()), lit("%admin%")]),
+    ///             Like.new_expr(LikeOptions::default(), [get_item("name", root()), lit("%admin%")]),
     ///             gt(
     ///                 cast(get_item("score", root()), DType::Primitive(PType::F64, Nullability::NonNullable)),
     ///                 lit(75.0)

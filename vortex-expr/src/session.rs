@@ -4,6 +4,7 @@
 use vortex_session::registry::Registry;
 use vortex_session::{Ref, SessionExt};
 
+use crate::ExprVTable;
 use crate::exprs::between::Between;
 use crate::exprs::binary::Binary;
 use crate::exprs::cast::Cast;
@@ -17,7 +18,6 @@ use crate::exprs::not::Not;
 use crate::exprs::pack::Pack;
 use crate::exprs::root::Root;
 use crate::exprs::select::Select;
-use crate::ExprVTable;
 
 /// Registry of expression vtables.
 pub type ExprRegistry = Registry<ExprVTable>;

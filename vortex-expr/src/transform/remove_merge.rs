@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::exprs::get_item::get_item;
@@ -71,8 +71,6 @@ fn merge_transform(node: Expression, ctx: &DType) -> VortexResult<Transformed<Ex
 
 #[cfg(test)]
 mod tests {
-    use crate::exprs::pack::Pack;
-    use crate::transform::remove_merge::DuplicateHandling;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::{I32, I64, U32, U64};
@@ -80,7 +78,9 @@ mod tests {
     use super::remove_merge;
     use crate::exprs::get_item::get_item;
     use crate::exprs::merge::merge_opts;
+    use crate::exprs::pack::Pack;
     use crate::exprs::root::root;
+    use crate::transform::remove_merge::DuplicateHandling;
 
     #[test]
     fn test_remove_merge() {

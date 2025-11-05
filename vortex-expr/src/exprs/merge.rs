@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools as _;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::sync::Arc;
+
+use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray as _, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
@@ -175,7 +176,7 @@ pub enum DuplicateHandling {
 /// ```
 pub fn merge(elements: impl IntoIterator<Item = impl Into<Expression>>) -> Expression {
     let values = elements.into_iter().map(|value| value.into()).collect_vec();
-    Merge.new(DuplicateHandling::default(), values)
+    Merge.new_expr(DuplicateHandling::default(), values)
 }
 
 pub fn merge_opts(
@@ -183,20 +184,19 @@ pub fn merge_opts(
     duplicate_handling: DuplicateHandling,
 ) -> Expression {
     let values = elements.into_iter().map(|value| value.into()).collect_vec();
-    Merge.new(duplicate_handling, values)
+    Merge.new_expr(duplicate_handling, values)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::exprs::merge::merge_opts;
-    use crate::exprs::merge::DuplicateHandling;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_error::{vortex_bail, VortexResult};
+    use vortex_error::{VortexResult, vortex_bail};
 
     use super::merge;
     use crate::exprs::get_item::get_item;
+    use crate::exprs::merge::{DuplicateHandling, merge_opts};
     use crate::exprs::root::root;
     use crate::{Expression, Scope};
 

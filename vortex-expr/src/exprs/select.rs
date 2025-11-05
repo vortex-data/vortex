@@ -7,7 +7,7 @@ use itertools::Itertools;
 use prost::Message;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 
@@ -139,7 +139,7 @@ impl VTable for Select {
 /// ```
 pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expression {
     Select
-        .try_new(FieldSelection::Include(field_names.into()), [child])
+        .try_new_expr(FieldSelection::Include(field_names.into()), [child])
         .vortex_expect("Failed to create Select expression")
 }
 
@@ -153,7 +153,7 @@ pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expressi
 /// ```
 pub fn select_exclude(fields: impl Into<FieldNames>, child: Expression) -> Expression {
     Select
-        .try_new(FieldSelection::Exclude(fields.into()), [child])
+        .try_new_expr(FieldSelection::Exclude(fields.into()), [child])
         .vortex_expect("Failed to create Select expression")
 }
 
@@ -178,7 +178,7 @@ impl ExprInstance<'_, Select> {
     /// );
     /// ```
     pub fn as_include(&self, field_names: &FieldNames) -> VortexResult<Expression> {
-        Select.try_new(
+        Select.try_new_expr(
             FieldSelection::Include(self.data().as_include_names(field_names)?),
             [self.child().clone()],
         )
@@ -244,7 +244,6 @@ impl Display for FieldSelection {
 
 #[cfg(test)]
 mod tests {
-    use crate::exprs::select::Select;
     use vortex_array::arrays::StructArray;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
@@ -252,7 +251,8 @@ mod tests {
 
     use super::{select, select_exclude};
     use crate::exprs::root::root;
-    use crate::{test_harness, Scope};
+    use crate::exprs::select::Select;
+    use crate::{Scope, test_harness};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

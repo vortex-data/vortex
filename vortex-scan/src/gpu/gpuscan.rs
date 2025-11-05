@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use futures::{Stream, TryStreamExt};
 use itertools::Itertools;
+use vortex_array::ArrayRef;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::Expression;
@@ -16,7 +16,7 @@ use vortex_gpu::GpuVector;
 use vortex_io::runtime::{BlockingRuntime, Handle};
 use vortex_layout::GpuLayoutReaderRef;
 
-use crate::gpu::gputask::{gpu_split_exec, GpuTaskContext, TaskFuture};
+use crate::gpu::gputask::{GpuTaskContext, TaskFuture, gpu_split_exec};
 
 pub struct GpuScan<A: 'static + Send> {
     handle: Handle,

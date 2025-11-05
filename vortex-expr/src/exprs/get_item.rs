@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::exprs::root::root;
-use crate::{ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt};
-use prost::Message;
 use std::fmt::Formatter;
 use std::ops::Not;
+
+use prost::Message;
 use vortex_array::compute::mask;
 use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
+
+use crate::exprs::root::root;
+use crate::{ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt};
 
 pub struct GetItem;
 
@@ -59,8 +61,7 @@ impl VTable for GetItem {
     }
 
     fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // We use debug format to include the quotes around the field name.
-        write!(f, "{:?}", instance.inner().as_ref())
+        write!(f, "\"{}\"", instance.inner().as_ref())
     }
 
     fn return_dtype(&self, expr: &ExprInstance<Self>, scope: &DType) -> VortexResult<DType> {
@@ -116,7 +117,7 @@ impl VTable for GetItem {
 /// let expr = col("name");
 /// ```
 pub fn col(field: impl Into<FieldName>) -> Expression {
-    GetItem.new(field.into(), vec![root()])
+    GetItem.new_expr(field.into(), vec![root()])
 }
 
 /// Creates an expression that extracts a named field from a struct expression.
@@ -128,7 +129,7 @@ pub fn col(field: impl Into<FieldName>) -> Expression {
 /// let expr = get_item("user_id", root());
 /// ```
 pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
-    GetItem.new(field.into(), vec![child])
+    GetItem.new_expr(field.into(), vec![child])
 }
 
 #[cfg(test)]
@@ -142,8 +143,8 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::get_item;
-    use crate::exprs::root::root;
     use crate::Scope;
+    use crate::exprs::root::root;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

@@ -7,8 +7,8 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::traversal::{NodeExt, NodeVisitor, TraversalOrder};
 use crate::Expression;
+use crate::traversal::{NodeExt, NodeVisitor, TraversalOrder};
 
 pub trait Annotation: Clone + Hash + Eq {}
 

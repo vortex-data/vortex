@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use prost::Message;
 use std::fmt::Formatter;
-use vortex_array::compute::{like as like_compute, LikeOptions};
+
+use prost::Message;
 use vortex_array::ArrayRef;
+use vortex_array::compute::{LikeOptions, like as like_compute};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::{ChildName, ExprId, ExprInstance, Expression, VTable, VTableExt};
@@ -97,7 +98,7 @@ impl VTable for Like {
 }
 
 pub fn like(child: Expression, pattern: Expression) -> Expression {
-    Like.new(
+    Like.new_expr(
         LikeOptions {
             negated: false,
             case_insensitive: false,
@@ -107,7 +108,7 @@ pub fn like(child: Expression, pattern: Expression) -> Expression {
 }
 
 pub fn ilike(child: Expression, pattern: Expression) -> Expression {
-    Like.new(
+    Like.new_expr(
         LikeOptions {
             negated: false,
             case_insensitive: true,
@@ -117,7 +118,7 @@ pub fn ilike(child: Expression, pattern: Expression) -> Expression {
 }
 
 pub fn not_like(child: Expression, pattern: Expression) -> Expression {
-    Like.new(
+    Like.new_expr(
         LikeOptions {
             negated: true,
             case_insensitive: false,
@@ -127,7 +128,7 @@ pub fn not_like(child: Expression, pattern: Expression) -> Expression {
 }
 
 pub fn not_ilike(child: Expression, pattern: Expression) -> Expression {
-    Like.new(
+    Like.new_expr(
         LikeOptions {
             negated: true,
             case_insensitive: true,
@@ -138,17 +139,16 @@ pub fn not_ilike(child: Expression, pattern: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use crate::exprs::like::like;
-    use crate::exprs::like::not_ilike;
-    use vortex_array::arrays::BoolArray;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
+    use crate::Scope;
     use crate::exprs::get_item::get_item;
+    use crate::exprs::like::{like, not_ilike};
     use crate::exprs::literal::lit;
     use crate::exprs::not::not;
     use crate::exprs::root::root;
-    use crate::Scope;
 
     #[test]
     fn invert_booleans() {

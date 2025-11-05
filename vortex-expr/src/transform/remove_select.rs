@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::exprs::get_item::get_item;
 use crate::exprs::pack::pack;
@@ -56,12 +56,12 @@ fn remove_select_transformer(
 
 #[cfg(test)]
 mod tests {
-    use crate::exprs::pack::Pack;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
 
     use super::remove_select;
+    use crate::exprs::pack::Pack;
     use crate::exprs::root::root;
     use crate::exprs::select::select;
 

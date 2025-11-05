@@ -7,7 +7,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::{DType, Nullability, PType};
-use vortex::expr::{and, lit, not, Binary, Expression, GetItem, Operator, VTableExt};
+use vortex::expr::{Binary, Expression, GetItem, Operator, VTableExt, and, lit, not};
 
 use crate::dtype::PyDType;
 use crate::install_module;
@@ -71,7 +71,7 @@ fn py_binary_operator<'py>(
     Bound::new(
         left.py(),
         PyExpr {
-            inner: Binary.new(operator, [left.inner.clone(), right.borrow().inner.clone()]),
+            inner: Binary.new_expr(operator, [left.inner.clone(), right.borrow().inner.clone()]),
         },
     )
 }
@@ -260,7 +260,7 @@ pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'p
 
 pub fn get_item(field: String, child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: GetItem.new(field.into(), [child.inner]),
+        inner: GetItem.new_expr(field.into(), [child.inner]),
     })
 }
 

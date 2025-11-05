@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use prost::Message;
 use std::fmt::Formatter;
-use vortex_array::compute::{between as between_compute, BetweenOptions};
+
+use prost::Message;
 use vortex_array::ArrayRef;
+use vortex_array::compute::{BetweenOptions, between as between_compute};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::exprs::binary::Binary;
@@ -163,12 +164,12 @@ impl ExprInstance<'_, Between> {
         let lower = self.children()[1].clone();
         let upper = self.children()[2].clone();
 
-        let lhs = Binary.new(
+        let lhs = Binary.new_expr(
             options.lower_strict.to_operator().into(),
             [lower, arr.clone()],
         );
-        let rhs = Binary.new(options.upper_strict.to_operator().into(), [arr, upper]);
-        Binary.new(Operator::And, [lhs, rhs])
+        let rhs = Binary.new_expr(options.upper_strict.to_operator().into(), [arr, upper]);
+        Binary.new_expr(Operator::And, [lhs, rhs])
     }
 }
 
@@ -194,7 +195,7 @@ pub fn between(
     options: BetweenOptions,
 ) -> Expression {
     Between
-        .try_new(options, [arr.clone(), lower.clone(), upper.clone()])
+        .try_new_expr(options, [arr, lower, upper])
         .vortex_expect("Failed to create Between expression")
 }
 

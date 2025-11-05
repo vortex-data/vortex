@@ -18,8 +18,8 @@ pub use references::ReferenceCollector;
 pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
 
-use crate::traversal::fold::NodeFolderContextWrapper;
 use crate::Expression;
+use crate::traversal::fold::NodeFolderContextWrapper;
 
 /// Signal to control a traversal's flow
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -488,7 +488,7 @@ impl Node for Expression {
     ) -> VortexResult<Transformed<Self>> {
         let transformed = self
             .children()
-            .into_iter()
+            .iter()
             .cloned()
             .collect_vec()
             .map_elements(f)?;
@@ -505,7 +505,7 @@ impl Node for Expression {
     }
 
     fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T {
-        f(&mut self.children().into_iter())
+        f(&mut self.children().iter())
     }
 
     fn children_count(&self) -> usize {
@@ -515,21 +515,17 @@ impl Node for Expression {
 
 #[cfg(test)]
 mod tests {
-    use crate::exprs::binary::and;
-    use crate::exprs::binary::Binary;
-    use crate::exprs::binary::{eq, not_eq};
-    use crate::exprs::get_item::GetItem;
-    use crate::exprs::literal::Literal;
-    use crate::exprs::operators::Operator;
     use vortex_error::VortexResult;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::visitor::pre_order_visit_down;
     use super::{NodeExt, NodeRewriter, NodeVisitor, Transformed, TraversalOrder};
-    use crate::exprs::get_item::col;
-    use crate::exprs::literal::lit;
-    use crate::exprs::root::{is_root, root};
     use crate::Expression;
+    use crate::exprs::binary::{Binary, and, eq, not_eq};
+    use crate::exprs::get_item::{GetItem, col};
+    use crate::exprs::literal::{Literal, lit};
+    use crate::exprs::operators::Operator;
+    use crate::exprs::root::{is_root, root};
 
     #[derive(Default)]
     pub struct ExprLitCollector<'a>(pub Vec<&'a Expression>);
@@ -585,7 +581,7 @@ mod tests {
     fn expr_deep_visitor_test() {
         let col1: Expression = col("col1");
         let lit1 = lit(1);
-        let expr = eq(col1.clone(), lit1.clone());
+        let expr = eq(col1, lit1);
         let lit2 = lit(2);
         let expr = and(expr, lit2);
         let mut printer = ExprLitCollector::default();
@@ -597,7 +593,7 @@ mod tests {
     fn expr_deep_mut_visitor_test() {
         let col1: Expression = col("col1");
         let col2: Expression = col("col2");
-        let expr = eq(col1.clone(), col2.clone());
+        let expr = eq(col1, col2);
         let lit2 = lit(2);
         let expr = and(expr, lit2);
 
@@ -618,10 +614,10 @@ mod tests {
     fn expr_skip_test() {
         let col1: Expression = col("col1");
         let col2: Expression = col("col2");
-        let expr1 = eq(col1.clone(), col2.clone());
+        let expr1 = eq(col1, col2);
         let col3: Expression = col("col3");
         let col4: Expression = col("col4");
-        let expr2 = not_eq(col3.clone(), col4.clone());
+        let expr2 = not_eq(col3, col4);
         let expr = and(expr1, expr2);
 
         let mut nodes = Vec::new();
@@ -646,10 +642,10 @@ mod tests {
     fn expr_stop_test() {
         let col1: Expression = col("col1");
         let col2: Expression = col("col2");
-        let expr1 = eq(col1.clone(), col2.clone());
+        let expr1 = eq(col1, col2);
         let col3: Expression = col("col3");
         let col4: Expression = col("col4");
-        let expr2 = not_eq(col3.clone(), col4.clone());
+        let expr2 = not_eq(col3, col4);
         let expr = and(expr1, expr2);
 
         let mut nodes = Vec::new();

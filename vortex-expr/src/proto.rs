@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use std::sync::Arc;
-use vortex_error::{vortex_err, VortexResult};
+
+use itertools::Itertools;
+use vortex_error::{VortexResult, vortex_err};
 use vortex_proto::expr as pb;
 
-use crate::session::ExprRegistry;
 use crate::Expression;
+use crate::session::ExprRegistry;
 
 pub trait ExprSerializeProtoExt {
     /// Serialize the expression to its protobuf representation.
@@ -18,7 +19,7 @@ impl ExprSerializeProtoExt for &Expression {
     fn serialize_proto(&self) -> VortexResult<pb::Expr> {
         let children = self
             .children()
-            .into_iter()
+            .iter()
             .map(|child| child.serialize_proto())
             .try_collect()?;
 
@@ -59,14 +60,14 @@ mod tests {
     use vortex_array::compute::{BetweenOptions, StrictComparison};
     use vortex_proto::expr as pb;
 
-    use super::{deserialize_expr_proto, ExprSerializeProtoExt};
+    use super::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::Expression;
     use crate::exprs::between::between;
     use crate::exprs::binary::{and, eq, or};
     use crate::exprs::get_item::get_item;
     use crate::exprs::literal::lit;
     use crate::exprs::root::root;
     use crate::session::ExprSession;
-    use crate::Expression;
 
     #[test]
     fn expression_serde() {

@@ -7,10 +7,10 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{compare, Operator};
+use vortex_array::compute::{Operator, compare};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::traversal::{NodeExt, NodeVisitor, TraversalOrder};
@@ -94,7 +94,7 @@ impl VTable for DynamicComparison {
         catalog: &mut dyn StatsCatalog,
     ) -> Option<Expression> {
         match expr.data().operator {
-            Operator::Gt => Some(DynamicComparison.new(
+            Operator::Gt => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
                     operator: Operator::Lte,
                     rhs: expr.data().rhs.clone(),
@@ -102,7 +102,7 @@ impl VTable for DynamicComparison {
                 },
                 vec![expr.lhs().max(catalog)?],
             )),
-            Operator::Gte => Some(DynamicComparison.new(
+            Operator::Gte => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
                     operator: Operator::Lt,
                     rhs: expr.data().rhs.clone(),
@@ -110,7 +110,7 @@ impl VTable for DynamicComparison {
                 },
                 vec![expr.lhs().max(catalog)?],
             )),
-            Operator::Lt => Some(DynamicComparison.new(
+            Operator::Lt => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
                     operator: Operator::Gte,
                     rhs: expr.data().rhs.clone(),
@@ -118,7 +118,7 @@ impl VTable for DynamicComparison {
                 },
                 vec![expr.lhs().min(catalog)?],
             )),
-            Operator::Lte => Some(DynamicComparison.new(
+            Operator::Lte => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
                     operator: Operator::Gt,
                     rhs: expr.data().rhs.clone(),
@@ -138,7 +138,7 @@ pub fn dynamic(
     default: bool,
     lhs: Expression,
 ) -> Expression {
-    DynamicComparison.new(
+    DynamicComparison.new_expr(
         DynamicComparisonExpr {
             operator,
             rhs: Arc::new(Rhs {

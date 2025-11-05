@@ -4,11 +4,11 @@
 use vortex_dtype::{Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::Expression;
 use crate::exprs::get_item::col;
 use crate::exprs::pack::pack;
 use crate::exprs::root::root;
 use crate::traversal::{NodeExt, Transformed};
-use crate::Expression;
 
 /// Replaces all occurrences of `needle` in the expression `expr` with `replacement`.
 pub fn replace(expr: Expression, needle: &Expression, replacement: Expression) -> Expression {
@@ -67,7 +67,7 @@ mod test {
         let e = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
         let needle = lit(2);
         let replacement = lit(42);
-        let replaced_expr = replace(e, &needle, replacement.clone());
+        let replaced_expr = replace(e, &needle, replacement);
         assert_eq!(replaced_expr.to_string(), "pack(a: 1i32, b: 42i32)");
     }
 }

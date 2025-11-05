@@ -8,7 +8,7 @@ use vortex_array::arrays::{BoolArray, ConstantArray};
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::exprs::binary::eq;
@@ -89,14 +89,14 @@ impl VTable for IsNull {
 /// let expr = is_null(root());
 /// ```
 pub fn is_null(child: Expression) -> Expression {
-    IsNull.new((), vec![child])
+    IsNull.new_expr((), vec![child])
 }
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::stats::Stat;
-    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability};
     use vortex_scalar::Scalar;
@@ -108,7 +108,7 @@ mod tests {
     use crate::exprs::literal::lit;
     use crate::exprs::root::root;
     use crate::pruning::checked_pruning_expr;
-    use crate::{test_harness, HashSet, Scope};
+    use crate::{HashSet, Scope, test_harness};
 
     #[test]
     fn dtype() {

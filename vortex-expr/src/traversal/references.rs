@@ -5,10 +5,10 @@ use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::Expression;
 use crate::exprs::get_item::GetItem;
 use crate::exprs::select::Select;
 use crate::traversal::{NodeVisitor, TraversalOrder};
-use crate::Expression;
 
 #[derive(Default)]
 pub struct ReferenceCollector {

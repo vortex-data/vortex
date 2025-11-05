@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use prost::Message;
 use std::fmt::Formatter;
 use std::ops::Deref;
-use vortex_array::compute::cast as compute_cast;
+
+use prost::Message;
 use vortex_array::ArrayRef;
+use vortex_array::compute::cast as compute_cast;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
 use crate::v2::Expression;
@@ -112,21 +113,21 @@ impl VTable for Cast {
 /// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
 /// ```
 pub fn cast(child: Expression, target: DType) -> Expression {
-    Cast.try_new(target, [child])
+    Cast.try_new_expr(target, [child])
         .vortex_expect("Failed to create Cast expression")
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::StructArray;
     use vortex_array::IntoArray;
+    use vortex_array::arrays::StructArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use super::cast;
     use crate::exprs::get_item::get_item;
     use crate::exprs::root::root;
-    use crate::{test_harness, Expression, Scope};
+    use crate::{Expression, Scope, test_harness};
 
     #[test]
     fn dtype() {

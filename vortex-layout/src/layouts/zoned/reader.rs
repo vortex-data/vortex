@@ -14,13 +14,12 @@ use vortex_buffer::BitBufferMut;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::DynamicExprUpdates;
-use vortex_expr::{root, Expression};
+use vortex_expr::{DynamicExprUpdates, Expression, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::SegmentSource;
 use crate::{LayoutReader, LayoutReaderRef, LazyReaderChildren};
 
@@ -353,7 +352,7 @@ mod test {
 
     use rstest::{fixture, rstest};
     use vortex_array::arrays::ChunkedArray;
-    use vortex_array::{assert_arrays_eq, ArrayContext, IntoArray, MaskFuture};
+    use vortex_array::{ArrayContext, IntoArray, MaskFuture, assert_arrays_eq};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
     use vortex_io::runtime::single::block_on;

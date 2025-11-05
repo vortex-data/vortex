@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::traversal::Node;
 use vortex_error::VortexResult;
+
+use crate::traversal::Node;
 
 /// Use to indicate the control flow of the fold on the downwards pass.
 /// `Stop` indicates that the fold should stop.
@@ -139,17 +140,14 @@ impl<T: NodeFolder> NodeFolderContext for NodeFolderContextWrapper<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::exprs::binary::Binary;
-    use crate::exprs::literal::Literal;
-    use crate::exprs::operators::Operator;
-    use vortex_error::vortex_bail;
-    use vortex_error::VortexExpect;
+    use vortex_error::{VortexExpect, vortex_bail};
 
     use super::*;
-    use crate::exprs::binary::{checked_add, gt};
-    use crate::exprs::literal::lit;
-    use crate::traversal::NodeExt;
     use crate::Expression;
+    use crate::exprs::binary::{Binary, checked_add, gt};
+    use crate::exprs::literal::{Literal, lit};
+    use crate::exprs::operators::Operator;
+    use crate::traversal::NodeExt;
 
     struct AddFold;
     impl NodeFolder for AddFold {

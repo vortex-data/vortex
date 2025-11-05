@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use prost::Message;
 use std::fmt::Formatter;
+
+use prost::Message;
 use vortex_array::compute::{add, and_kleene, compare, div, mul, or_kleene, sub};
-use vortex_array::{compute, ArrayRef};
+use vortex_array::{ArrayRef, compute};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::exprs::literal::lit;
@@ -268,7 +269,7 @@ impl ExprInstance<'_, Binary> {
 /// ```
 pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new(Operator::Eq, [lhs.clone(), rhs.clone()])
+        .try_new_expr(Operator::Eq, [lhs, rhs])
         .vortex_expect("Failed to create Eq binary expression")
 }
 
@@ -292,7 +293,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 /// ```
 pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new(Operator::NotEq, [lhs, rhs])
+        .try_new_expr(Operator::NotEq, [lhs, rhs])
         .vortex_expect("Failed to create NotEq binary expression")
 }
 
@@ -316,7 +317,7 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// ```
 pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new(Operator::Gte, [lhs, rhs])
+        .try_new_expr(Operator::Gte, [lhs, rhs])
         .vortex_expect("Failed to create Gte binary expression")
 }
 
@@ -340,7 +341,7 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// ```
 pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new(Operator::Gt, [lhs, rhs])
+        .try_new_expr(Operator::Gt, [lhs, rhs])
         .vortex_expect("Failed to create Gt binary expression")
 }
 
@@ -364,7 +365,7 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
 /// ```
 pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new(Operator::Lte, [lhs, rhs])
+        .try_new_expr(Operator::Lte, [lhs, rhs])
         .vortex_expect("Failed to create Lte binary expression")
 }
 
@@ -388,7 +389,7 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// ```
 pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new(Operator::Lt, [lhs, rhs])
+        .try_new_expr(Operator::Lt, [lhs, rhs])
         .vortex_expect("Failed to create Lt binary expression")
 }
 
@@ -410,7 +411,7 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
 /// ```
 pub fn or(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new(Operator::Or, [lhs, rhs])
+        .try_new_expr(Operator::Or, [lhs, rhs])
         .vortex_expect("Failed to create Or binary expression")
 }
 
@@ -444,7 +445,7 @@ where
 /// ```
 pub fn and(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new(Operator::And, [lhs, rhs])
+        .try_new_expr(Operator::And, [lhs, rhs])
         .vortex_expect("Failed to create And binary expression")
 }
 
@@ -494,19 +495,18 @@ where
 /// ```
 pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new(Operator::Add, [lhs, rhs])
+        .try_new_expr(Operator::Add, [lhs, rhs])
         .vortex_expect("Failed to create Add binary expression")
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::Expression;
     use vortex_dtype::{DType, Nullability};
 
     use super::{and, and_collect, and_collect_right, eq, gt, gt_eq, lt, lt_eq, not_eq, or};
     use crate::exprs::get_item::col;
     use crate::exprs::literal::lit;
-    use crate::test_harness;
+    use crate::{Expression, test_harness};
 
     #[test]
     fn and_collect_left_assoc() {
@@ -538,9 +538,7 @@ mod tests {
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
-            or(bool1.clone(), bool2.clone())
-                .return_dtype(&dtype)
-                .unwrap(),
+            or(bool1, bool2).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
 
@@ -579,12 +577,9 @@ mod tests {
         );
 
         assert_eq!(
-            or(
-                lt(col1.clone(), col2.clone()),
-                not_eq(col1.clone(), col2.clone())
-            )
-            .return_dtype(&dtype)
-            .unwrap(),
+            or(lt(col1.clone(), col2.clone()), not_eq(col1, col2))
+                .return_dtype(&dtype)
+                .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
     }

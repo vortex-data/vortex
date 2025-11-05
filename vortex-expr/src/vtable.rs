@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::v2::{ExprInstance, Expression};
-use crate::{ExprId, StatsCatalog};
-use arcref::ArcRef;
 use std::any::Any;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+
+use arcref::ArcRef;
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
+
+use crate::v2::{ExprInstance, Expression};
+use crate::{ExprId, StatsCatalog};
 
 /// The vtable trait for a Vortex expression.
 ///
@@ -63,6 +65,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Format only the instance data for this expression.
     ///
     /// Defaults to a debug representation of the instance data.
+    #[allow(clippy::use_debug)]
     fn fmt_data(&self, instance: &Self::Instance, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", instance)
     }
@@ -143,17 +146,17 @@ pub trait VTable: 'static + Sized + Send + Sync {
 
 /// Factory functions for static vtables.
 pub trait VTableExt: VTable {
-    fn new(
-        self: &'static Self,
+    fn new_expr(
+        &'static self,
         instance: Self::Instance,
         children: impl Into<Arc<[Expression]>>,
     ) -> Expression {
-        Self::try_new(self, instance, children)
+        Self::try_new_expr(self, instance, children)
             .vortex_expect("Failed to create expression instance")
     }
 
-    fn try_new(
-        self: &'static Self,
+    fn try_new_expr(
+        &'static self,
         instance: Self::Instance,
         children: impl Into<Arc<[Expression]>>,
     ) -> VortexResult<Expression> {
@@ -411,7 +414,7 @@ mod tests {
     use crate::exprs::pack::pack;
     use crate::exprs::root::root;
     use crate::exprs::select::{select, select_exclude};
-    use crate::proto::{deserialize_expr_proto, ExprSerializeProtoExt};
+    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
     use crate::session::{ExprRegistry, ExprSession};
 
     #[fixture]

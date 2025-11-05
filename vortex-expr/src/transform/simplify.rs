@@ -3,12 +3,12 @@
 
 use vortex_error::VortexResult;
 
+// use crate::transform::match_between::find_between;
+use crate::Expression;
 use crate::exprs::get_item::GetItem;
 use crate::exprs::pack::Pack;
 use crate::transform::match_between::find_between;
 use crate::traversal::{NodeExt, Transformed};
-// use crate::transform::match_between::find_between;
-use crate::Expression;
 
 /// Simplifies an expression into an equivalent expression which is faster and easier to analyze.
 ///
@@ -17,7 +17,7 @@ pub fn simplify(e: Expression) -> VortexResult<Expression> {
     let e = e
         .transform_up(simplify_transformer)
         .map(|e| e.into_inner())?;
-    Ok(find_between(e.clone()))
+    Ok(find_between(e))
 }
 
 fn simplify_transformer(node: Expression) -> VortexResult<Transformed<Expression>> {

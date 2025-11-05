@@ -7,7 +7,7 @@ use arbitrary::{Result as AResult, Unstructured};
 use vortex_dtype::{DType, FieldName};
 use vortex_scalar::arbitrary::random_scalar;
 
-use crate::{and_collect, col, lit, pack, Binary, Expression, Operator, VTableExt};
+use crate::{Binary, Expression, Operator, VTableExt, and_collect, col, lit, pack};
 
 pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Expression>> {
     let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
@@ -50,7 +50,7 @@ fn random_comparison(
     dtype: &DType,
 ) -> AResult<Expression> {
     let scalar = random_scalar(u, dtype)?;
-    Ok(Binary.new(
+    Ok(Binary.new_expr(
         arbitrary_comparison_operator(u)?,
         [col(name.clone()), lit(scalar)],
     ))

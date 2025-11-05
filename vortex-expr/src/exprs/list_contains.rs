@@ -3,13 +3,13 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::compute::list_contains as compute_list_contains;
 use vortex_array::ArrayRef;
+use vortex_array::compute::list_contains as compute_list_contains;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::exprs::binary::{and, gt, lt, or};
-use crate::exprs::literal::{lit, Literal};
+use crate::exprs::literal::{Literal, lit};
 use crate::{ChildName, ExprId, ExprInstance, Expression, StatsCatalog, VTable, VTableExt};
 
 pub struct ListContains;
@@ -127,7 +127,7 @@ impl VTable for ListContains {
 /// let expr = list_contains(root(), lit(42));
 /// ```
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
-    ListContains.new((), [list, value])
+    ListContains.new_expr((), [list, value])
 }
 
 impl ExprInstance<'_, ListContains> {
