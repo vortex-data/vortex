@@ -35,23 +35,21 @@ impl DecimalVectorMut {
         let decimal_kind = DecimalType::smallest_decimal_value_type(decimal_dtype);
 
         match decimal_kind {
-            DecimalType::I8 => {
-                DecimalVectorMut::D8(DVectorMut::<i8>::with_capacity(decimal_dtype, capacity))
-            }
+            DecimalType::I8 => Self::D8(DVectorMut::<i8>::with_capacity(decimal_dtype, capacity)),
             DecimalType::I16 => {
-                DecimalVectorMut::D16(DVectorMut::<i16>::with_capacity(decimal_dtype, capacity))
+                Self::D16(DVectorMut::<i16>::with_capacity(decimal_dtype, capacity))
             }
             DecimalType::I32 => {
-                DecimalVectorMut::D32(DVectorMut::<i32>::with_capacity(decimal_dtype, capacity))
+                Self::D32(DVectorMut::<i32>::with_capacity(decimal_dtype, capacity))
             }
             DecimalType::I64 => {
-                DecimalVectorMut::D64(DVectorMut::<i64>::with_capacity(decimal_dtype, capacity))
+                Self::D64(DVectorMut::<i64>::with_capacity(decimal_dtype, capacity))
             }
             DecimalType::I128 => {
-                DecimalVectorMut::D128(DVectorMut::<i128>::with_capacity(decimal_dtype, capacity))
+                Self::D128(DVectorMut::<i128>::with_capacity(decimal_dtype, capacity))
             }
             DecimalType::I256 => {
-                DecimalVectorMut::D256(DVectorMut::<i256>::with_capacity(decimal_dtype, capacity))
+                Self::D256(DVectorMut::<i256>::with_capacity(decimal_dtype, capacity))
             }
         }
     }
@@ -78,12 +76,12 @@ impl VectorMutOps for DecimalVectorMut {
 
     fn extend_from_vector(&mut self, other: &DecimalVector) {
         match (self, other) {
-            (DecimalVectorMut::D8(s), DecimalVector::D8(o)) => s.extend_from_vector(o),
-            (DecimalVectorMut::D16(s), DecimalVector::D16(o)) => s.extend_from_vector(o),
-            (DecimalVectorMut::D32(s), DecimalVector::D32(o)) => s.extend_from_vector(o),
-            (DecimalVectorMut::D64(s), DecimalVector::D64(o)) => s.extend_from_vector(o),
-            (DecimalVectorMut::D128(s), DecimalVector::D128(o)) => s.extend_from_vector(o),
-            (DecimalVectorMut::D256(s), DecimalVector::D256(o)) => s.extend_from_vector(o),
+            (Self::D8(s), DecimalVector::D8(o)) => s.extend_from_vector(o),
+            (Self::D16(s), DecimalVector::D16(o)) => s.extend_from_vector(o),
+            (Self::D32(s), DecimalVector::D32(o)) => s.extend_from_vector(o),
+            (Self::D64(s), DecimalVector::D64(o)) => s.extend_from_vector(o),
+            (Self::D128(s), DecimalVector::D128(o)) => s.extend_from_vector(o),
+            (Self::D256(s), DecimalVector::D256(o)) => s.extend_from_vector(o),
             _ => vortex_panic!("Mismatched decimal vector types in extend_from_vector"),
         }
     }
@@ -102,12 +100,12 @@ impl VectorMutOps for DecimalVectorMut {
 
     fn unsplit(&mut self, other: Self) {
         match (self, other) {
-            (DecimalVectorMut::D8(s), DecimalVectorMut::D8(o)) => s.unsplit(o),
-            (DecimalVectorMut::D16(s), DecimalVectorMut::D16(o)) => s.unsplit(o),
-            (DecimalVectorMut::D32(s), DecimalVectorMut::D32(o)) => s.unsplit(o),
-            (DecimalVectorMut::D64(s), DecimalVectorMut::D64(o)) => s.unsplit(o),
-            (DecimalVectorMut::D128(s), DecimalVectorMut::D128(o)) => s.unsplit(o),
-            (DecimalVectorMut::D256(s), DecimalVectorMut::D256(o)) => s.unsplit(o),
+            (Self::D8(s), Self::D8(o)) => s.unsplit(o),
+            (Self::D16(s), Self::D16(o)) => s.unsplit(o),
+            (Self::D32(s), Self::D32(o)) => s.unsplit(o),
+            (Self::D64(s), Self::D64(o)) => s.unsplit(o),
+            (Self::D128(s), Self::D128(o)) => s.unsplit(o),
+            (Self::D256(s), Self::D256(o)) => s.unsplit(o),
             _ => vortex_panic!("Mismatched decimal vector types in unsplit"),
         }
     }
@@ -117,42 +115,42 @@ impl DecimalTypeDowncast for DecimalVectorMut {
     type Output<T: NativeDecimalType> = DVectorMut<T>;
 
     fn into_i8(self) -> Self::Output<i8> {
-        if let DecimalVectorMut::D8(vec) = self {
+        if let Self::D8(vec) = self {
             return vec;
         }
         vortex_panic!("DecimalVectorMut is not of type D8");
     }
 
     fn into_i16(self) -> Self::Output<i16> {
-        if let DecimalVectorMut::D16(vec) = self {
+        if let Self::D16(vec) = self {
             return vec;
         }
         vortex_panic!("DecimalVectorMut is not of type D16");
     }
 
     fn into_i32(self) -> Self::Output<i32> {
-        if let DecimalVectorMut::D32(vec) = self {
+        if let Self::D32(vec) = self {
             return vec;
         }
         vortex_panic!("DecimalVectorMut is not of type D32");
     }
 
     fn into_i64(self) -> Self::Output<i64> {
-        if let DecimalVectorMut::D64(vec) = self {
+        if let Self::D64(vec) = self {
             return vec;
         }
         vortex_panic!("DecimalVectorMut is not of type D64");
     }
 
     fn into_i128(self) -> Self::Output<i128> {
-        if let DecimalVectorMut::D128(vec) = self {
+        if let Self::D128(vec) = self {
             return vec;
         }
         vortex_panic!("DecimalVectorMut is not of type D128");
     }
 
     fn into_i256(self) -> Self::Output<i256> {
-        if let DecimalVectorMut::D256(vec) = self {
+        if let Self::D256(vec) = self {
             return vec;
         }
         vortex_panic!("DecimalVectorMut is not of type D256");
@@ -163,26 +161,26 @@ impl DecimalTypeUpcast for DecimalVectorMut {
     type Input<T: NativeDecimalType> = DVectorMut<T>;
 
     fn from_i8(input: Self::Input<i8>) -> Self {
-        DecimalVectorMut::D8(input)
+        Self::D8(input)
     }
 
     fn from_i16(input: Self::Input<i16>) -> Self {
-        DecimalVectorMut::D16(input)
+        Self::D16(input)
     }
 
     fn from_i32(input: Self::Input<i32>) -> Self {
-        DecimalVectorMut::D32(input)
+        Self::D32(input)
     }
 
     fn from_i64(input: Self::Input<i64>) -> Self {
-        DecimalVectorMut::D64(input)
+        Self::D64(input)
     }
 
     fn from_i128(input: Self::Input<i128>) -> Self {
-        DecimalVectorMut::D128(input)
+        Self::D128(input)
     }
 
     fn from_i256(input: Self::Input<i256>) -> Self {
-        DecimalVectorMut::D256(input)
+        Self::D256(input)
     }
 }

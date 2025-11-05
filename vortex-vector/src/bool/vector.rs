@@ -85,7 +85,7 @@ impl VectorOps for BoolVector {
         let bits = match self.bits.try_into_mut() {
             Ok(bits) => bits,
             Err(bits) => {
-                return Err(BoolVector {
+                return Err(Self {
                     bits,
                     validity: self.validity,
                 });
@@ -97,7 +97,7 @@ impl VectorOps for BoolVector {
                 bits,
                 validity: validity_mut,
             }),
-            Err(validity) => Err(BoolVector {
+            Err(validity) => Err(Self {
                 bits: bits.freeze(),
                 validity,
             }),

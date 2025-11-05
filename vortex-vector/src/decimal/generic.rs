@@ -159,7 +159,7 @@ impl<D: NativeDecimalType> VectorOps for DVector<D> {
         let elements = match self.elements.try_into_mut() {
             Ok(elements) => elements,
             Err(elements) => {
-                return Err(DVector {
+                return Err(Self {
                     ps: self.ps,
                     elements,
                     validity: self.validity,
@@ -173,7 +173,7 @@ impl<D: NativeDecimalType> VectorOps for DVector<D> {
                 elements,
                 validity: validity_mut,
             }),
-            Err(validity) => Err(DVector {
+            Err(validity) => Err(Self {
                 ps: self.ps,
                 elements: elements.freeze(),
                 validity,
