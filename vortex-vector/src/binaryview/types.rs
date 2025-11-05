@@ -21,7 +21,7 @@ impl<T: BinaryViewType> From<BinaryViewVectorMut<T>> for VectorMut {
 }
 
 /// Trait to mark supported binary view types.
-pub trait BinaryViewType: Debug + Sized + private::Sealed {
+pub trait BinaryViewType: Debug + Sized + Send + Sync + 'static + private::Sealed {
     /// The slice type for this variable binary type.
     type Slice: ?Sized + AsRef<[u8]>;
 

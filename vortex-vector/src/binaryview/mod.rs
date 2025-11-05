@@ -11,6 +11,7 @@
 pub use types::*;
 pub use vector::*;
 pub use vector_mut::*;
+pub use view::*;
 use vortex_error::vortex_panic;
 
 use crate::{Vector, VectorMut};

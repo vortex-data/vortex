@@ -209,7 +209,7 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
         unsafe {
             BinaryViewVector::new_unchecked(
                 self.views.freeze(),
-                Arc::new(self.buffers.into()),
+                Arc::from(self.buffers),
                 self.validity.freeze(),
             )
         }
@@ -226,7 +226,6 @@ impl<T: BinaryViewType> VectorMutOps for BinaryViewVectorMut<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
     use std::sync::Arc;
 
     use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
@@ -291,7 +290,7 @@ mod tests {
                 0,
                 33
             )],
-            Arc::new(Box::new([buf1.clone()])),
+            Arc::new([buf1.clone()]),
             Mask::new_true(1),
         );
 
@@ -324,7 +323,7 @@ mod tests {
         );
 
         assert_eq!(
-            strings_finished.buffers().deref().as_ref(),
+            strings_finished.buffers().as_ref(),
             &[buf0, buf1.clone(), buf1]
         );
     }
@@ -353,7 +352,7 @@ mod tests {
                 BinaryView::empty_view(),
                 BinaryView::new_inlined(b"extend2"),
             ],
-            Arc::new(Box::new([ByteBuffer::empty()])),
+            Arc::new([ByteBuffer::empty()]),
             Mask::from_iter([true, false, true]),
         );
 

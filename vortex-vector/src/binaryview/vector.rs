@@ -22,7 +22,7 @@ pub struct BinaryViewVector<T: BinaryViewType> {
     /// Views into the binary data.
     views: Buffer<BinaryView>,
     /// Buffers holding the referenced binary data.
-    buffers: Arc<Box<[ByteBuffer]>>,
+    buffers: Arc<[ByteBuffer]>,
     /// Validity mask for the vector.
     validity: Mask,
     /// Marker trait for the [`BinaryViewType`].
@@ -41,7 +41,7 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
     /// the [safe constructor](Self::try_new).
     pub unsafe fn new_unchecked(
         views: Buffer<BinaryView>,
-        buffers: Arc<Box<[ByteBuffer]>>,
+        buffers: Arc<[ByteBuffer]>,
         validity: Mask,
     ) -> Self {
         if cfg!(debug_assertions) {
@@ -62,7 +62,7 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
     ///
     /// This function will panic if any of the validation checks performed by
     /// [`try_new`](Self::try_new) fails.
-    pub fn new(views: Buffer<BinaryView>, buffers: Arc<Box<[ByteBuffer]>>, validity: Mask) -> Self {
+    pub fn new(views: Buffer<BinaryView>, buffers: Arc<[ByteBuffer]>, validity: Mask) -> Self {
         Self::try_new(views, buffers, validity).vortex_expect("Failed to create `BinaryViewVector`")
     }
 
@@ -78,7 +78,7 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
     ///    conform to the [validation constraints][BinaryViewType::validate] of this view type.
     pub fn try_new(
         views: Buffer<BinaryView>,
-        buffers: Arc<Box<[ByteBuffer]>>,
+        buffers: Arc<[ByteBuffer]>,
         validity: Mask,
     ) -> VortexResult<Self> {
         vortex_ensure!(
@@ -104,7 +104,7 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
     }
 
     /// Decomposes the vector into its constituent parts.
-    pub fn into_parts(self) -> (Buffer<BinaryView>, Arc<Box<[ByteBuffer]>>, Mask) {
+    pub fn into_parts(self) -> (Buffer<BinaryView>, Arc<[ByteBuffer]>, Mask) {
         (self.views, self.buffers, self.validity)
     }
 
@@ -139,7 +139,7 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
     }
 
     /// Buffers
-    pub fn buffers(&self) -> &Arc<Box<[ByteBuffer]>> {
+    pub fn buffers(&self) -> &Arc<[ByteBuffer]> {
         &self.buffers
     }
 
@@ -185,13 +185,7 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
             }
         };
 
-        let buffers_mut = match Arc::try_unwrap(self.buffers) {
-            Ok(buffers) => buffers.into_vec(),
-            Err(buffers) => {
-                // Backup: collect a new Vec with clones of each buffer
-                buffers.iter().cloned().collect()
-            }
-        };
+        let buffers_mut = self.buffers.to_vec();
 
         // SAFETY: the BinaryViewVector maintains the same invariants that are
         //  otherwise checked in the safe BinaryViewVectorMut constructor.
@@ -221,7 +215,7 @@ mod tests {
     fn test_try_new_mismatch_validity_len() {
         StringVector::try_new(
             buffer![BinaryView::new_inlined(b"inlined")],
-            Arc::new(Box::new([])),
+            Arc::new([]),
             Mask::new_true(100),
         )
         .unwrap();
@@ -234,7 +228,7 @@ mod tests {
     fn test_try_new_invalid_buffer_offset() {
         StringVector::try_new(
             buffer![BinaryView::make_view(b"bad buffer ptr", 100, 0)],
-            Arc::new(Box::new([])),
+            Arc::new([]),
             Mask::new_true(1),
         )
         .unwrap();
@@ -245,7 +239,7 @@ mod tests {
     fn test_try_new_invalid_length() {
         StringVector::try_new(
             buffer![BinaryView::make_view(b"bad buffer ptr", 0, u32::MAX)],
-            Arc::new(Box::new([ByteBuffer::copy_from(b"a very short buffer")])),
+            Arc::new([ByteBuffer::copy_from(b"a very short buffer")]),
             Mask::new_true(1),
         )
         .unwrap();
@@ -256,7 +250,7 @@ mod tests {
     fn test_try_new_invalid_utf8_inlined() {
         StringVector::try_new(
             buffer![BinaryView::new_inlined(b"\x80")],
-            Arc::new(Box::new([])),
+            Arc::new([]),
             Mask::new_true(1),
         )
         .unwrap();
@@ -269,7 +263,7 @@ mod tests {
         let sequence = b"\xff".repeat(13);
         StringVector::try_new(
             buffer![BinaryView::make_view(&sequence, 0, 0)],
-            Arc::new(Box::new([ByteBuffer::copy_from(sequence)])),
+            Arc::new([ByteBuffer::copy_from(sequence)]),
             Mask::new_true(1),
         )
         .unwrap();
