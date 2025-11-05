@@ -24,7 +24,6 @@ impl CastKernel for PcoVTable {
                 // array.
                 array
                     .sliced_validity()
-                    
                     .cast_nullability(dtype.nullability(), array.len())?
             } else {
                 array
