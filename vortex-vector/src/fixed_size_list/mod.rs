@@ -88,6 +88,9 @@
 mod vector;
 pub use vector::FixedSizeListVector;
 
+mod scalar;
+pub use scalar::FixedSizeListScalar;
+
 mod vector_mut;
 pub use vector_mut::FixedSizeListVectorMut;
 

@@ -3,13 +3,16 @@
 
 //! Definition and implementation of [`DVector<D>`].
 
+use std::fmt::Debug;
+use std::ops::RangeBounds;
+
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativeDecimalType, PrecisionScale};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::VectorOps;
-use crate::decimal::DVectorMut;
+use crate::decimal::{DScalar, DVectorMut};
+use crate::{Scalar, VectorOps};
 
 /// An immutable vector of generic decimal values.
 ///
@@ -153,6 +156,30 @@ impl<D: NativeDecimalType> VectorOps for DVector<D> {
 
     fn validity(&self) -> &Mask {
         &self.validity
+    }
+
+    fn scalar_at(&self, index: usize) -> Scalar {
+        debug_assert!(index < self.len());
+
+        let is_valid = self.validity.value(index);
+        let value = if is_valid {
+            Some(self.elements[index])
+        } else {
+            None
+        };
+
+        // SAFETY: We have already checked the validity on construction of the vector
+        Scalar::Decimal(unsafe { DScalar::<D>::new_unchecked(self.ps, value) }.into())
+    }
+
+    fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        let elements = self.elements.slice(range.clone());
+        let validity = self.validity.slice(range);
+        Self {
+            ps: self.ps,
+            elements,
+            validity,
+        }
     }
 
     fn try_into_mut(self) -> Result<DVectorMut<D>, Self> {

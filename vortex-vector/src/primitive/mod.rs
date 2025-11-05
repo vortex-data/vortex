@@ -114,7 +114,7 @@ mod vector_mut;
 pub use vector_mut::PrimitiveVectorMut;
 
 mod scalar;
-pub use scalar::PScalar;
+pub use scalar::PrimitiveScalar;
 
 mod macros;
 

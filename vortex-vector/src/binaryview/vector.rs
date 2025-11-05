@@ -3,16 +3,18 @@
 
 //! Variable-length binary vector implementation.
 
+use std::fmt::Debug;
+use std::ops::RangeBounds;
 use std::sync::Arc;
 
-use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
-use crate::VectorOps;
-use crate::binaryview::BinaryViewType;
 use crate::binaryview::vector_mut::BinaryViewVectorMut;
 use crate::binaryview::view::{BinaryView, validate_views};
+use crate::binaryview::{BinaryViewScalar, BinaryViewType};
+use crate::{Scalar, VectorOps};
 
 /// A variable-length binary vector.
 ///
@@ -108,10 +110,50 @@ impl<T: BinaryViewType> BinaryViewVector<T> {
         (self.views, self.buffers, self.validity)
     }
 
+    /// Get the `index` item from the vector as an owned `Scalar` type with zero-copy.
+    ///
+    /// This function will panic is `index` is out of range for the vector's length.
+    pub fn get(&self, index: usize) -> Option<T::Scalar> {
+        if !self.validity.value(index) {
+            return None;
+        }
+
+        let view = &self.views[index];
+        if view.is_inlined() {
+            let view = view.as_inlined();
+
+            // We find the occurrence of the inlined data in the views buffer.
+            let buffer = self
+                .views
+                .clone()
+                .into_byte_buffer()
+                .aligned(Alignment::none())
+                .slice_ref(&view.data[..view.size as usize]);
+
+            // SAFETY: validation that the string data contained in this vector is performed
+            //  at construction time, either in the constructor for safe construction, or by
+            //  the caller (when using the unchecked constructor).
+            Some(unsafe { T::scalar_from_buffer_unchecked(buffer) })
+        } else {
+            // Get a pointer into the buffer range
+            let view_ref = view.as_view();
+            let buffer = &self.buffers[view_ref.buffer_index as usize];
+
+            let start = view_ref.offset as usize;
+            let length = view_ref.size as usize;
+            let buffer_slice = buffer.slice(start..start + length);
+
+            // SAFETY: validation that the string data contained in this vector is performed
+            //  at construction time, either in the constructor for safe construction, or by
+            //  the caller (when using the unchecked constructor).
+            Some(unsafe { T::scalar_from_buffer_unchecked(buffer_slice) })
+        }
+    }
+
     /// Get the `index` item from the vector as a native `Slice` type.
     ///
     /// This function will panic is `index` is out of range for the vector's length.
-    pub fn get(&self, index: usize) -> Option<&T::Slice> {
+    pub fn get_ref(&self, index: usize) -> Option<&T::Slice> {
         if !self.validity.value(index) {
             return None;
         }
@@ -158,6 +200,15 @@ impl<T: BinaryViewType> VectorOps for BinaryViewVector<T> {
 
     fn validity(&self) -> &Mask {
         &self.validity
+    }
+
+    fn scalar_at(&self, index: usize) -> Scalar {
+        assert!(index < self.len());
+        BinaryViewScalar::<T>::from(self.get(index)).into()
+    }
+
+    fn slice(&self, _range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        todo!()
     }
 
     fn try_into_mut(self) -> Result<BinaryViewVectorMut<T>, Self> {

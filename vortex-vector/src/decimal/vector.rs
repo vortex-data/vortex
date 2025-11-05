@@ -3,12 +3,15 @@
 
 //! Definition and implementation of [`DecimalVector`].
 
+use std::fmt::Debug;
+use std::ops::RangeBounds;
+
 use vortex_dtype::{DecimalTypeDowncast, DecimalTypeUpcast, NativeDecimalType, i256};
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::decimal::{DVector, DecimalVectorMut};
-use crate::{VectorOps, match_each_dvector};
+use crate::{Scalar, VectorOps, match_each_dvector};
 
 /// An enum over all supported decimal mutable vector types.
 #[derive(Clone, Debug)]
@@ -36,6 +39,14 @@ impl VectorOps for DecimalVector {
 
     fn validity(&self) -> &Mask {
         match_each_dvector!(self, |v| { v.validity() })
+    }
+
+    fn scalar_at(&self, index: usize) -> Scalar {
+        match_each_dvector!(self, |v| { v.scalar_at(index).into() })
+    }
+
+    fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        match_each_dvector!(self, |v| { DecimalVector::from(v.slice(range)) })
     }
 
     fn try_into_mut(self) -> Result<DecimalVectorMut, Self> {

@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use crate::binaryview::{
+    BinaryType, BinaryViewType, BinaryViewTypeUpcast, BinaryViewVectorMut, StringType,
+};
+use crate::{Scalar, ScalarOps, VectorMutOps};
+
+/// A scalar value for types that implement [`BinaryViewType`].
+pub struct BinaryViewScalar<T: BinaryViewType>(Option<T::Scalar>);
+
+impl<T: BinaryViewType> From<Option<T::Scalar>> for BinaryViewScalar<T> {
+    fn from(value: Option<T::Scalar>) -> Self {
+        Self(value)
+    }
+}
+
+impl<T: BinaryViewType> BinaryViewScalar<T> {
+    /// Returns the scalar value as [`T::Scalar`], or `None` if the scalar is null.
+    pub fn value(&self) -> Option<&T::Scalar> {
+        self.0.as_ref()
+    }
+}
+
+impl<T: BinaryViewType> ScalarOps for BinaryViewScalar<T> {
+    fn is_valid(&self) -> bool {
+        self.0.is_some()
+    }
+
+    fn repeat(&self, n: usize) -> crate::VectorMut {
+        let mut vec = BinaryViewVectorMut::<T>::with_capacity(n);
+        match self.value() {
+            None => vec.append_nulls(n),
+            Some(buf) => vec.append_owned_values(buf.clone(), n),
+        }
+        vec.into()
+    }
+}
+
+impl BinaryViewTypeUpcast for Scalar {
+    type Input<T: BinaryViewType> = BinaryViewScalar<T>;
+
+    fn from_binary(input: Self::Input<BinaryType>) -> Self {
+        Scalar::Binary(input)
+    }
+
+    fn from_string(input: Self::Input<StringType>) -> Self {
+        Scalar::String(input)
+    }
+}
+
+impl<T: BinaryViewType> Into<Scalar> for BinaryViewScalar<T> {
+    fn into(self) -> Scalar {
+        T::upcast(self)
+    }
+}

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{private, VectorMut};
+use crate::{Scalar, VectorMut, private};
 
-pub trait ScalarOps: private::Sealed + Sized {
+/// Trait for scalar operations.
+pub trait ScalarOps: private::Sealed + Sized + Into<Scalar> {
     /// Returns true if the scalar is valid (not null).
     fn is_valid(&self) -> bool;
 

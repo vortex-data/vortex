@@ -3,12 +3,15 @@
 
 //! Definition and implementation of [`BoolVector`].
 
+use std::fmt::Debug;
+use std::ops::RangeBounds;
+
 use vortex_buffer::BitBuffer;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 use vortex_mask::Mask;
 
-use crate::VectorOps;
 use crate::bool::BoolVectorMut;
+use crate::{Scalar, VectorOps};
 
 /// An immutable vector of boolean values.
 ///
@@ -79,6 +82,25 @@ impl VectorOps for BoolVector {
 
     fn validity(&self) -> &Mask {
         &self.validity
+    }
+
+    fn scalar_at(&self, index: usize) -> Scalar {
+        debug_assert!(index < self.len());
+
+        let is_valid = self.validity.value(index);
+        let value = if is_valid {
+            Some(self.bits.value(index))
+        } else {
+            None
+        };
+
+        Scalar::Bool(value.into())
+    }
+
+    fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        let bits = self.bits.slice(range.clone());
+        let validity = self.validity.slice(range);
+        Self { bits, validity }
     }
 
     fn try_into_mut(self) -> Result<BoolVectorMut, Self> {

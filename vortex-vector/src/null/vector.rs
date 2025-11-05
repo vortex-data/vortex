@@ -3,10 +3,13 @@
 
 //! Definition and implementation of [`NullVector`].
 
+use std::fmt::Debug;
+use std::ops::RangeBounds;
+
 use vortex_mask::Mask;
 
-use crate::VectorOps;
-use crate::null::NullVectorMut;
+use crate::null::{NullScalar, NullVectorMut};
+use crate::{Scalar, VectorOps};
 
 /// An immutable vector of null values.
 ///
@@ -42,6 +45,16 @@ impl VectorOps for NullVector {
 
     fn validity(&self) -> &Mask {
         &self.validity
+    }
+
+    fn scalar_at(&self, index: usize) -> Scalar {
+        assert!(index < self.len, "Index out of bounds in `NullVector`");
+        NullScalar.into()
+    }
+
+    fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        let len = crate::ops::range_bounds_to_len(range, self.len());
+        Self::new(len)
     }
 
     fn try_into_mut(self) -> Result<NullVectorMut, Self> {

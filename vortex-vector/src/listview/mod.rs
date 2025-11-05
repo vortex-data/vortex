@@ -18,6 +18,9 @@ pub use vector::ListViewVector;
 mod vector_mut;
 pub use vector_mut::ListViewVectorMut;
 
+mod scalar;
+pub use scalar::ListViewScalar;
+
 use crate::{Vector, VectorMut};
 
 impl From<ListViewVector> for Vector {

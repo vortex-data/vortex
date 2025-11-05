@@ -33,3 +33,4 @@ pub use vector_mut::VectorMut;
 
 mod macros;
 mod private;
+mod scalar_macros;

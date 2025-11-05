@@ -6,6 +6,9 @@
 mod vector;
 pub use vector::NullVector;
 
+mod scalar;
+pub use scalar::NullScalar;
+
 mod vector_mut;
 pub use vector_mut::NullVectorMut;
 

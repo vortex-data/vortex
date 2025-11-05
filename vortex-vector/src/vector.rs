@@ -6,6 +6,9 @@
 //!
 //! [`Vector`] can be transformed into the [`VectorMut`] type if it is owned.
 
+use std::fmt::Debug;
+use std::ops::RangeBounds;
+
 use vortex_error::vortex_panic;
 
 use crate::binaryview::{BinaryVector, StringVector};
@@ -16,7 +19,7 @@ use crate::listview::ListViewVector;
 use crate::null::NullVector;
 use crate::primitive::PrimitiveVector;
 use crate::struct_::StructVector;
-use crate::{VectorMut, VectorOps, match_each_vector};
+use crate::{Scalar, VectorMut, VectorOps, match_each_vector};
 
 /// An enum over all kinds of immutable vectors, which represent fully decompressed (canonical)
 /// array data.
@@ -68,6 +71,14 @@ impl VectorOps for Vector {
 
     fn validity(&self) -> &vortex_mask::Mask {
         match_each_vector!(self, |v| { v.validity() })
+    }
+
+    fn scalar_at(&self, index: usize) -> Scalar {
+        match_each_vector!(self, |v| { v.scalar_at(index) })
+    }
+
+    fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+        match_each_vector!(self, |v| { Vector::from(v.slice(range.clone())) })
     }
 
     fn try_into_mut(self) -> Result<VectorMut, Self> {

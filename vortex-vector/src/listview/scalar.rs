@@ -1,27 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::struct_::StructVector;
+use crate::listview::ListViewVector;
 use crate::{Scalar, ScalarOps, VectorMut, VectorOps};
 
-/// Represents a struct scalar value.
+/// A scalar value for list view types.
 ///
-/// The inner value is a StructVector with length 1.
-pub struct StructScalar(StructVector);
+/// The inner value is a ListViewVector with length 1.
+pub struct ListViewScalar(ListViewVector);
 
-impl StructScalar {
-    /// Creates a new StructScalar from a length-1 StructVector.
+impl ListViewScalar {
+    /// Create a new ListViewScalar from a length-1 ListViewVector.
     ///
     /// # Panics
     ///
     /// Panics if the input vector does not have length 1.
-    pub fn new(vector: StructVector) -> Self {
+    pub fn new(vector: ListViewVector) -> Self {
         assert_eq!(vector.len(), 1);
         Self(vector)
     }
 }
 
-impl ScalarOps for StructScalar {
+impl ScalarOps for ListViewScalar {
     fn is_valid(&self) -> bool {
         self.0.validity().value(0)
     }
@@ -31,8 +31,8 @@ impl ScalarOps for StructScalar {
     }
 }
 
-impl Into<Scalar> for StructScalar {
+impl Into<Scalar> for ListViewScalar {
     fn into(self) -> Scalar {
-        Scalar::Struct(self)
+        Scalar::List(self)
     }
 }
