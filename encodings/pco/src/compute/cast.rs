@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{CastKernel, CastKernelAdapter};
-use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -11,26 +10,22 @@ use crate::{PcoArray, PcoVTable};
 
 impl CastKernel for PcoVTable {
     fn cast(&self, array: &PcoArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        if !dtype.is_nullable() && !array.all_valid() {
+            // TODO(joe): fixme
+            // We cannot cast to non-nullable since the validity containing nulls is used to decode
+            // the PCO array, this would require rewriting tables.
+            return Ok(None);
+        }
         // PCO (Pcodec) is a compression encoding that stores data in a compressed format.
         // It can efficiently handle nullability changes without decompression, but type changes
         // require decompression since the compression algorithm is type-specific.
         // PCO supports: F16, F32, F64, I16, I32, I64, U16, U32, U64
         if array.dtype().eq_ignore_nullability(dtype) {
             // Create a new validity with the target nullability
-            let new_validity = if !dtype.is_nullable() {
-                // If we are casting to non-nullable we only need to check the sliced validity
-                // for validity, since the unsliced validity might contain unused nulls.
-                // We don't do this if the target is nullable since it requires expand the validity
-                // array.
-                array
-                    .sliced_validity()
-                    .cast_nullability(dtype.nullability(), array.len())?
-            } else {
-                array
-                    .unsliced_validity
-                    .clone()
-                    .cast_nullability(dtype.nullability(), array.len())?
-            };
+            let new_validity = array
+                .unsliced_validity
+                .clone()
+                .cast_nullability(dtype.nullability(), array.len())?;
 
             return Ok(Some(
                 PcoArray::new(
@@ -60,6 +55,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -69,7 +65,7 @@ mod tests {
     fn test_cast_pco_f32_to_f64() {
         let values = PrimitiveArray::new(
             Buffer::copy_from(vec![1.0f32, 2.0, 3.0, 4.0, 5.0]),
-            vortex_array::validity::Validity::NonNullable,
+            Validity::NonNullable,
         );
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
 
@@ -94,7 +90,7 @@ mod tests {
         // Test casting from NonNullable to Nullable
         let values = PrimitiveArray::new(
             Buffer::copy_from(vec![10u32, 20, 30, 40]),
-            vortex_array::validity::Validity::NonNullable,
+            Validity::NonNullable,
         );
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
 
@@ -109,26 +105,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_cast_sliced_pco_nullable_to_nonnullable() {
+        let values = PrimitiveArray::new(
+            Buffer::copy_from(vec![10u32, 20, 30, 40, 50, 60]),
+            Validity::from_iter([true, true, true, true, true, true]),
+        );
+        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let sliced = pco.slice(1..5);
+        let casted = cast(
+            sliced.as_ref(),
+            &DType::Primitive(PType::U32, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::U32, Nullability::NonNullable)
+        );
+        // Verify the values are correct
+        let decoded = casted.to_primitive();
+        let u32_values = decoded.as_slice::<u32>();
+        assert_eq!(u32_values, &[20, 30, 40, 50]);
+    }
+
     #[rstest]
     #[case::f32(PrimitiveArray::new(
         Buffer::copy_from(vec![1.23f32, 4.56, 7.89, 10.11, 12.13]),
-        vortex_array::validity::Validity::NonNullable,
+        Validity::NonNullable,
     ))]
     #[case::f64(PrimitiveArray::new(
         Buffer::copy_from(vec![100.1f64, 200.2, 300.3, 400.4, 500.5]),
-        vortex_array::validity::Validity::NonNullable,
+        Validity::NonNullable,
     ))]
     #[case::i32(PrimitiveArray::new(
         Buffer::copy_from(vec![100i32, 200, 300, 400, 500]),
-        vortex_array::validity::Validity::NonNullable,
+        Validity::NonNullable,
     ))]
     #[case::u64(PrimitiveArray::new(
         Buffer::copy_from(vec![1000u64, 2000, 3000, 4000]),
-        vortex_array::validity::Validity::NonNullable,
+        Validity::NonNullable,
     ))]
     #[case::single(PrimitiveArray::new(
         Buffer::copy_from(vec![42.42f64]),
-        vortex_array::validity::Validity::NonNullable,
+        Validity::NonNullable,
     ))]
     fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
