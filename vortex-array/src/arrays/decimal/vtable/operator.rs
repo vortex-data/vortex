@@ -2,9 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_compute::filter::Filter;
-use vortex_dtype::PrecisionScale;
+use vortex_dtype::{PrecisionScale, match_each_decimal_value_type};
 use vortex_error::VortexResult;
-use vortex_scalar::match_each_decimal_value_type;
 use vortex_vector::decimal::DVector;
 
 use crate::arrays::{DecimalArray, DecimalVTable, MaskedVTable};
