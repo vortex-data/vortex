@@ -10,7 +10,6 @@ use crate::ByteBuffer;
 
 /// A wrapper around a [`ByteBuffer`] that guarantees that the buffer contains valid UTF-8.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
 pub struct BufferString(ByteBuffer);
 
 impl BufferString {

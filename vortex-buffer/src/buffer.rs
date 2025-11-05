@@ -246,7 +246,7 @@ impl<T> Buffer<T> {
     /// Requires that `begin <= end` and `end <= self.len()`.
     /// Also requires that both `begin` and `end` are aligned to the buffer's required alignment.
     #[inline(always)]
-    pub fn slice(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+    pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
         self.slice_with_alignment(range, self.alignment)
     }
 
@@ -257,7 +257,7 @@ impl<T> Buffer<T> {
     ///
     /// Requires that `begin <= end` and `end <= self.len()`.
     #[inline(always)]
-    pub fn slice_unaligned(&self, range: impl RangeBounds<usize> + Clone + Debug) -> Self {
+    pub fn slice_unaligned(&self, range: impl RangeBounds<usize>) -> Self {
         self.slice_with_alignment(range, Alignment::of::<u8>())
     }
 
@@ -270,7 +270,7 @@ impl<T> Buffer<T> {
     /// Also requires that both `begin` and `end` are aligned to the given alignment.
     pub fn slice_with_alignment(
         &self,
-        range: impl RangeBounds<usize> + Clone,
+        range: impl RangeBounds<usize>,
         alignment: Alignment,
     ) -> Self {
         let len = self.len();

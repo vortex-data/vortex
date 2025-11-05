@@ -392,7 +392,6 @@ impl Mask {
     }
 
     /// Slice the mask.
-    #[inline]
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
         let start = match range.start_bound() {
             std::ops::Bound::Included(&s) => s,
