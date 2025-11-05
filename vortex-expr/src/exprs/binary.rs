@@ -47,7 +47,7 @@ impl VTable for Binary {
         match child_idx {
             0 => ChildName::from("lhs"),
             1 => ChildName::from("rhs"),
-            _ => unreachable!("BinaryExpr has only two children"),
+            _ => unreachable!("Binary has only two children"),
         }
     }
 
@@ -249,7 +249,7 @@ impl ExprInstance<'_, Binary> {
     }
 }
 
-/// Create a new [`BinaryExpr`] using the [`Eq`](crate::Operator::Eq) operator.
+/// Create a new [`Binary`] using the [`Eq`](crate::Operator::Eq) operator.
 ///
 /// ## Example usage
 ///
@@ -273,7 +273,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Eq binary expression")
 }
 
-/// Create a new [`BinaryExpr`] using the [`NotEq`](crate::Operator::NotEq) operator.
+/// Create a new [`Binary`] using the [`NotEq`](crate::Operator::NotEq) operator.
 ///
 /// ## Example usage
 ///
@@ -297,7 +297,7 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create NotEq binary expression")
 }
 
-/// Create a new [`BinaryExpr`] using the [`Gte`](crate::Operator::Gte) operator.
+/// Create a new [`Binary`] using the [`Gte`](crate::Operator::Gte) operator.
 ///
 /// ## Example usage
 ///
@@ -321,7 +321,7 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Gte binary expression")
 }
 
-/// Create a new [`BinaryExpr`] using the [`Gt`](crate::Operator::Gt) operator.
+/// Create a new [`Binary`] using the [`Gt`](crate::Operator::Gt) operator.
 ///
 /// ## Example usage
 ///
@@ -345,7 +345,7 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Gt binary expression")
 }
 
-/// Create a new [`BinaryExpr`] using the [`Lte`](crate::Operator::Lte) operator.
+/// Create a new [`Binary`] using the [`Lte`](crate::Operator::Lte) operator.
 ///
 /// ## Example usage
 ///
@@ -369,7 +369,7 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Lte binary expression")
 }
 
-/// Create a new [`BinaryExpr`] using the [`Lt`](crate::Operator::Lt) operator.
+/// Create a new [`Binary`] using the [`Lt`](crate::Operator::Lt) operator.
 ///
 /// ## Example usage
 ///
@@ -393,7 +393,7 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Lt binary expression")
 }
 
-/// Create a new [`BinaryExpr`] using the [`Or`](crate::Operator::Or) operator.
+/// Create a new [`Binary`] using the [`Or`](crate::Operator::Or) operator.
 ///
 /// ## Example usage
 ///
@@ -427,7 +427,7 @@ where
     Some(iter.rfold(first, |acc, elem| or(elem, acc)))
 }
 
-/// Create a new [`BinaryExpr`] using the [`And`](crate::Operator::And) operator.
+/// Create a new [`Binary`] using the [`And`](crate::Operator::And) operator.
 ///
 /// ## Example usage
 ///
@@ -471,7 +471,7 @@ where
     iter.reduce(and)
 }
 
-/// Create a new [`BinaryExpr`] using the [`Add`](crate::Operator::Add) operator.
+/// Create a new [`Binary`] using the [`Add`](crate::Operator::Add) operator.
 ///
 /// ## Example usage
 ///
